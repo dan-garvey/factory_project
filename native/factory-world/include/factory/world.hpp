@@ -103,6 +103,14 @@ struct PlacedComponent {
     bool operator==(const PlacedComponent&) const = default;
 };
 
+struct PressProgressWitness {
+    // Whole remaining-tick reductions observed in actual automatic material
+    // steps. This is checkpoint evidence, not a second owner of WorkLot state.
+    authority::Integer automatic_remaining_ticks{};
+    bool manual_seen{};
+    bool operator==(const PressProgressWitness&) const = default;
+};
+
 [[nodiscard]] mechanics::Point landing_hub_center(const mechanics::Point& pod_center);
 [[nodiscard]] mechanics::Point landing_freight_center(const mechanics::Point& pod_center);
 
@@ -126,6 +134,7 @@ struct State {
     // checkpoint witness; material quantities still belong only to Cargo.
     std::map<mechanics::Point, materials::WorkId> press_output_at_exit;
     std::map<mechanics::Point, std::set<materials::WorkId>> press_output_exported;
+    std::map<materials::WorkId, PressProgressWitness> press_progress;
     // Belt-fed work remains in the same material State. These identity claims
     // distinguish its eventual product from actor-fed press history on restore.
     // Zero denotes a raw blank that has not yet received a WorkId.

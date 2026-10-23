@@ -163,6 +163,11 @@ generation, retry history and the ordered shaft centers used by its reach receip
 For a modular press, the checkpoint also retains the work identities waiting at
 its exit or already exported to a belt. Those witnesses do not own material;
 the single material ledger continues to hold every plate and belt slot.
+Manual press receipts also retain the work item immediately before each turn,
+while per-work automatic progress witnesses come only from productive material
+ticks. Restore checks each one-turn transition against that work identity;
+unrelated World revisions do not count as press progress. The witnesses do not
+own cargo or create products.
 An inward powered belt may feed one raw blank or matching WorkLot through a
 clear quarter-grid press face from its adjacent full-tile endpoint. A full
 work point, obstructed chute or ambiguous assembly retains the item on the

@@ -605,6 +605,9 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* raw = field<Integer>(result, "work_raw");
         const auto* lots = field<Value::Array>(result, "work_lots");
         const auto* products = field<Integer>(result, "formed_products");
+        const auto* prior_raw = field<Integer>(result, "prior_work_raw");
+        const auto* prior_lots = field<Value::Array>(result, "prior_work_lots");
+        const auto* prior_auto = field<Integer>(result, "prior_auto_remaining_ticks");
         const auto* formed_id = field<Integer>(result, "formed_work_id");
         const auto shaft_point = shaft ? grid_point(Object{{"center", Value(*shaft)}}) : std::nullopt;
         const auto work_point = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
@@ -615,9 +618,12 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             requested_generation && generation && *requested_generation == *generation &&
             *generation > 0 && shaft_point && work_point && exit_point &&
             requested_point == exit_point && raw && *raw == 0 && lots && lots->size() <= 1 &&
-            products && (*products == 0 || *products == 1) && formed_id &&
-            (*products == 0 ? *formed_id == 0 : *formed_id > 0) &&
-            targets.front() == anchor(profile, *shaft_point) && result.size() == 23;
+            products && (*products == 0 || *products == 1) && prior_raw &&
+            (*prior_raw == 0 || *prior_raw == 1) && prior_lots && prior_lots->size() <= 1 &&
+            *prior_raw + static_cast<Integer>(prior_lots->size()) == 1 &&
+            prior_auto && *prior_auto >= 0 && *prior_auto <= profile.material.cycle_ticks &&
+            formed_id && (*products == 0 ? *formed_id == 0 : *formed_id > 0) &&
+            targets.front() == anchor(profile, *shaft_point) && result.size() == 26;
     }
     if (action == "place_component" || action == "reclaim_component") {
         const auto* name = field<std::string>(result, "component");
@@ -779,11 +785,22 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         Integer remaining{};
         std::optional<mechanics::Point> automatic_exit;
         Integer last_tick_seen{};
+        Integer automatic_remaining_ticks_seen{};
     };
     std::map<mechanics::Point, PressWorkRecord> press_work;
     std::map<mechanics::Point, Integer> press_products;
     std::set<mechanics::Point> historical_press_exits;
     std::set<materials::WorkId> press_work_ids;
+    std::set<materials::WorkId> manually_advanced_ids;
+    std::map<materials::WorkId, Integer> manual_reductions;
+    const auto automatic_finish_witnessed = [&](const PressWorkRecord& work) {
+        if (work.id == 0) return true;
+        const auto found = snapshot.state.press_progress.find(work.id);
+        return found != snapshot.state.press_progress.end() &&
+            found->second.automatic_remaining_ticks >= work.automatic_remaining_ticks_seen &&
+            found->second.automatic_remaining_ticks - work.automatic_remaining_ticks_seen ==
+                work.remaining;
+    };
     std::set<materials::WorkId> picked_press_products;
     std::map<mechanics::Point, std::pair<materials::WorkId, Integer>> belt_press_turns;
     Integer history_revision = 0;
@@ -960,6 +977,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             historical_press_exits.insert(automatic_exit);
             if (const auto previous = press_work.find(*selected_work); previous != press_work.end()) {
                 if (!previous->second.automatic_exit || previous->second.last_tick_seen == ticks_seen ||
+                    !automatic_finish_witnessed(previous->second) ||
                     !add(press_products[*previous->second.automatic_exit], 1)) return false;
                 press_work.erase(previous);
             }
@@ -972,13 +990,17 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto* shaft = field<Value::Array>(record.result, "shaft_center");
             const auto* lots = field<Value::Array>(record.result, "work_lots");
             const auto* products = field<Integer>(record.result, "formed_products");
+            const auto* prior_raw = field<Integer>(record.result, "prior_work_raw");
+            const auto* prior_lots = field<Value::Array>(record.result, "prior_work_lots");
+            const auto* prior_auto = field<Integer>(record.result, "prior_auto_remaining_ticks");
             const auto* formed_id = field<Integer>(record.result, "formed_work_id");
             const auto selected_exit = exit ? grid_point(Object{{"center", Value(*exit)}}) : std::nullopt;
             const auto selected_work = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
             const auto selected_shaft = shaft ? grid_point(Object{{"center", Value(*shaft)}}) : std::nullopt;
             const auto frame = placed_components.find(*entity);
             if (crank_holder != *actor || !drive || !selected_exit || !selected_work ||
-                !selected_shaft || !lots || !products || !formed_id || frame == placed_components.end() ||
+                !selected_shaft || !lots || !products || !prior_raw || !prior_lots || !prior_auto ||
+                !formed_id || frame == placed_components.end() ||
                 frame->second.first != materials::Component::wooden_frame) return false;
             std::vector<assembly::Part> parts;
             parts.reserve(placed_components.size());
@@ -997,25 +1019,140 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             historical_press_exits.insert(*selected_exit);
             const auto active = press_work.find(*selected_work);
             if (active == press_work.end()) {
-                if (lots->size() == 1 && *products == 0 && *formed_id == 0) {
-                    const auto* lot = std::get_if<Object>(&lots->front().storage());
-                    const auto* id = lot ? field<Integer>(*lot, "id") : nullptr;
-                    const auto* remaining = lot ? field<Integer>(*lot, "remaining_ticks") : nullptr;
-                    if (!id || !remaining || !snapshot.state.belt_press_work_ids.contains(*id)) return false;
+                if (*prior_raw == 1) {
+                    if (!prior_lots->empty() || lots->size() != 1 || *products != 0 ||
+                        *formed_id != 0 || *prior_auto != 0 ||
+                        belt_press_turns.contains(*selected_work)) return false;
+                    const auto* produced = std::get_if<Object>(&lots->front().storage());
+                    const auto* id = produced ? field<Integer>(*produced, "id") : nullptr;
+                    if (!id || produced->size() != 7 || *id <= 0 ||
+                        *id >= snapshot.state.material.next_work_id ||
+                        !snapshot.state.belt_press_work_ids.contains(*id) ||
+                        values::typed_difference(lots->front(), Value(Object{
+                            {"id", Value(*id)},
+                            {"input_units_per_product", Value(profile.material.input_units_per_product)},
+                            {"cycle_ticks", Value(profile.material.cycle_ticks)},
+                            {"remaining_ticks", Value(profile.material.cycle_ticks)},
+                            {"completed_subticks", Value(Integer{0})},
+                            {"work_remainder", Value(Integer{0})},
+                            {"work_remainder_denominator", Value(Integer{1})}}))) return false;
+                    manually_advanced_ids.insert(*id);
+                    belt_press_turns[*selected_work] = {*id, profile.material.cycle_ticks};
+                } else if (*prior_raw == 0 && prior_lots->size() == 1) {
+                    const auto* prior = std::get_if<Object>(&prior_lots->front().storage());
+                    const auto* id = prior ? field<Integer>(*prior, "id") : nullptr;
+                    const auto* weight = prior ? field<Integer>(*prior, "input_units_per_product") : nullptr;
+                    const auto* cycle = prior ? field<Integer>(*prior, "cycle_ticks") : nullptr;
+                    const auto* remaining = prior ? field<Integer>(*prior, "remaining_ticks") : nullptr;
+                    const auto* completed = prior ? field<Integer>(*prior, "completed_subticks") : nullptr;
+                    const auto* remainder = prior ? field<Integer>(*prior, "work_remainder") : nullptr;
+                    const auto* denominator = prior ? field<Integer>(*prior, "work_remainder_denominator") : nullptr;
+                    const auto* witness = id && snapshot.state.press_progress.contains(*id) ?
+                        &snapshot.state.press_progress.at(*id) : nullptr;
+                    if (!prior || prior->size() != 7 || !id || *id <= 0 ||
+                        *id >= snapshot.state.material.next_work_id ||
+                        !snapshot.state.belt_press_work_ids.contains(*id) ||
+                        !weight || *weight != profile.material.input_units_per_product ||
+                        !cycle || *cycle != profile.material.cycle_ticks ||
+                        !remaining || *remaining < 0 || *remaining > *cycle ||
+                        !completed || *completed < 0 ||
+                        *completed >= materials::work_subticks_per_tick ||
+                        !remainder || !denominator || *denominator <= 0 ||
+                        *remainder < 0 || *remainder >= *denominator ||
+                        (*remaining == 0 && (*completed != 0 || *remainder != 0)) ||
+                        !witness || !witness->manual_seen ||
+                        *prior_auto > witness->automatic_remaining_ticks ||
+                        *prior_auto + manual_reductions[*id] + *remaining !=
+                            profile.material.cycle_ticks) return false;
                     const auto previous = belt_press_turns.find(*selected_work);
                     if (previous != belt_press_turns.end() &&
-                        (previous->second.first != *id || previous->second.second <= *remaining)) return false;
-                    belt_press_turns[*selected_work] = {*id, *remaining};
-                } else if (lots->empty() && *products == 1 && *formed_id > 0 &&
-                           snapshot.state.belt_press_work_ids.contains(*formed_id)) {
-                    const auto previous = belt_press_turns.find(*selected_work);
-                    if (previous != belt_press_turns.end() && previous->second.first != *formed_id) return false;
-                    belt_press_turns.erase(*selected_work);
+                        (previous->second.first != *id || previous->second.second < *remaining))
+                        return false;
+                    const auto next_remaining = *remaining > 0 ? *remaining - 1 : Integer{0};
+                    if (*products == 1 ?
+                        (next_remaining != 0 || !lots->empty() || *formed_id != *id) :
+                        (lots->size() != 1 || *formed_id != 0)) return false;
+                    if (*products == 0) {
+                        Object expected = *prior;
+                        expected.at("remaining_ticks") = Value(next_remaining);
+                        if (next_remaining == 0) {
+                            expected.at("completed_subticks") = Value(Integer{0});
+                            expected.at("work_remainder") = Value(Integer{0});
+                            expected.at("work_remainder_denominator") = Value(Integer{1});
+                        }
+                        if (values::typed_difference(lots->front(), Value(expected))) return false;
+                        belt_press_turns[*selected_work] = {*id, next_remaining};
+                    } else belt_press_turns.erase(*selected_work);
+                    if (*remaining > 0) ++manual_reductions[*id];
+                    manually_advanced_ids.insert(*id);
                 } else return false;
                 continue;
             }
             if ((*products == 0 && *formed_id != 0) || (*products == 1 && *formed_id <= 0)) return false;
             auto& entry = active->second;
+            // Other belts and presses also advance World revisions. Only this
+            // WorkId's automatic material reductions bridge manual receipts.
+            if (*prior_raw == 1) {
+                if (!prior_lots->empty() || lots->size() != 1 || *products != 0 ||
+                    entry.id != 0 || *prior_auto != 0)
+                    return false;
+                const auto* produced = std::get_if<Object>(&lots->front().storage());
+                const auto* id = produced ? field<Integer>(*produced, "id") : nullptr;
+                if (!id || produced->size() != 7 || *id <= 0 ||
+                    *id >= snapshot.state.material.next_work_id ||
+                    values::typed_difference(lots->front(), Value(Object{
+                        {"id", Value(*id)},
+                        {"input_units_per_product", Value(profile.material.input_units_per_product)},
+                        {"cycle_ticks", Value(profile.material.cycle_ticks)},
+                        {"remaining_ticks", Value(profile.material.cycle_ticks)},
+                        {"completed_subticks", Value(Integer{0})},
+                        {"work_remainder", Value(Integer{0})},
+                        {"work_remainder_denominator", Value(Integer{1})}}))) return false;
+            } else if (*prior_raw == 0 && prior_lots->size() == 1) {
+                const auto* prior = std::get_if<Object>(&prior_lots->front().storage());
+                const auto* id = prior ? field<Integer>(*prior, "id") : nullptr;
+                const auto* weight = prior ? field<Integer>(*prior, "input_units_per_product") : nullptr;
+                const auto* cycle = prior ? field<Integer>(*prior, "cycle_ticks") : nullptr;
+                const auto* remaining = prior ? field<Integer>(*prior, "remaining_ticks") : nullptr;
+                const auto* completed = prior ? field<Integer>(*prior, "completed_subticks") : nullptr;
+                const auto* remainder = prior ? field<Integer>(*prior, "work_remainder") : nullptr;
+                const auto* denominator = prior ? field<Integer>(*prior, "work_remainder_denominator") : nullptr;
+                const auto witness = id ? snapshot.state.press_progress.find(*id) :
+                    snapshot.state.press_progress.end();
+                if (!prior || prior->size() != 7 || !id || *id <= 0 ||
+                    *id >= snapshot.state.material.next_work_id || !weight ||
+                    *weight != profile.material.input_units_per_product || !cycle ||
+                    *cycle != profile.material.cycle_ticks || !remaining || *remaining < 0 ||
+                    *remaining > *cycle || !completed || *completed < 0 ||
+                    *completed >= materials::work_subticks_per_tick || !remainder ||
+                    !denominator || *denominator <= 0 || *remainder < 0 ||
+                    *remainder >= *denominator ||
+                    (*remaining == 0 && (*completed != 0 || *remainder != 0)) ||
+                    (*remaining == 0 && *products != 1) ||
+                    witness == snapshot.state.press_progress.end() ||
+                    !witness->second.manual_seen ||
+                    witness->second.automatic_remaining_ticks < *prior_auto ||
+                    (entry.id == 0 ? entry.last_tick_seen == ticks_seen :
+                        (*id != entry.id || *remaining > entry.remaining ||
+                         *prior_auto < entry.automatic_remaining_ticks_seen ||
+                         entry.remaining - *remaining !=
+                             *prior_auto - entry.automatic_remaining_ticks_seen)))
+                    return false;
+                manually_advanced_ids.insert(*id);
+                Object expected = *prior;
+                const Integer next_remaining = *remaining > 0 ? *remaining - 1 : 0;
+                expected.at("remaining_ticks") = Value(next_remaining);
+                if (next_remaining == 0) {
+                    expected.at("completed_subticks") = Value(Integer{0});
+                    expected.at("work_remainder") = Value(Integer{0});
+                    expected.at("work_remainder_denominator") = Value(Integer{1});
+                }
+                if (*products == 1 ? (next_remaining != 0 || !lots->empty()) :
+                    (lots->size() != 1 ||
+                     values::typed_difference(lots->front(), Value(expected)))) return false;
+                if (*products == 1 && *formed_id != *id) return false;
+                if (*remaining > 0) ++manual_reductions[*id];
+            } else return false;
             if (lots->size() == 1) {
                 const auto* lot = std::get_if<Object>(&lots->front().storage());
                 const auto* id = lot ? field<Integer>(*lot, "id") : nullptr;
@@ -1027,6 +1164,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     !cycle || *cycle != profile.material.cycle_ticks ||
                     !remaining || *remaining < 0 || *remaining > profile.material.cycle_ticks ||
                     *products != 0) return false;
+                manually_advanced_ids.insert(*id);
                 if (entry.id == 0) {
                     if (!press_work_ids.insert(*id).second) return false;
                     entry.id = *id;
@@ -1034,10 +1172,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                            *remaining >= entry.remaining) return false;
                 entry.remaining = *remaining;
                 entry.last_tick_seen = ticks_seen;
+                entry.automatic_remaining_ticks_seen = *prior_auto;
             } else {
                 // An automatic tick can complete a lot between manual turns.
                 if (!lots->empty() || *products != 1 ||
                     !add(press_products[*selected_exit], 1)) return false;
+                entry.automatic_remaining_ticks_seen = *prior_auto;
                 press_work.erase(active);
             }
         }
@@ -1067,7 +1207,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (!claimed_product && !snapshot.state.belt_press_work_ids.contains(*picked_id)) {
                 for (auto active = press_work.begin(); active != press_work.end(); ++active) {
                     if (active->second.automatic_exit != *point ||
-                        active->second.last_tick_seen == ticks_seen) continue;
+                        active->second.last_tick_seen == ticks_seen ||
+                        !automatic_finish_witnessed(active->second)) continue;
                     press_work.erase(active);
                     claimed_product = true;
                     break;
@@ -1253,8 +1394,21 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (remaining == snapshot.state.material.timber_remaining.end() ||
             harvested_timber[id] != site.initial - remaining->second) return false;
     }
+    for (const auto& [id, witness] : snapshot.state.press_progress)
+        if (id <= 0 || id >= snapshot.state.material.next_work_id ||
+            witness.automatic_remaining_ticks < 0 ||
+            witness.automatic_remaining_ticks > profile.material.cycle_ticks ||
+            witness.manual_seen != manually_advanced_ids.contains(id)) return false;
+    for (const auto id : manually_advanced_ids)
+        if (!snapshot.state.press_progress.contains(id)) return false;
     for (const auto& [point, work] : press_work) {
         const auto item = snapshot.state.material.dropped_material.find(point);
+        const auto witness = work.id > 0 ? snapshot.state.press_progress.find(work.id) :
+            snapshot.state.press_progress.end();
+        if (work.id > 0 && (witness == snapshot.state.press_progress.end() ||
+            witness->second.automatic_remaining_ticks < work.automatic_remaining_ticks_seen ||
+            witness->second.automatic_remaining_ticks - work.automatic_remaining_ticks_seen > work.remaining))
+            return false;
         if (work.id == 0) {
             if (item == snapshot.state.material.dropped_material.end()) {
                 if (!work.automatic_exit || work.last_tick_seen == ticks_seen ||
@@ -1272,6 +1426,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         } else {
             if (item == snapshot.state.material.dropped_material.end()) {
                 if (!work.automatic_exit || work.last_tick_seen == ticks_seen ||
+                    !automatic_finish_witnessed(work) ||
                     !add(press_products[*work.automatic_exit], 1)) return false;
             } else if (item->second.raw_units != 0 || item->second.products != 0 ||
                        item->second.timber != 0 || !item->second.components.empty() ||
@@ -1279,7 +1434,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                        item->second.work_lots.front().id != work.id ||
                        item->second.work_lots.front().recipe != materials::RecipeSignature{
                            profile.material.input_units_per_product, profile.material.cycle_ticks} ||
-                       item->second.work_lots.front().remaining_ticks > work.remaining) return false;
+                       work.remaining - item->second.work_lots.front().remaining_ticks !=
+                           witness->second.automatic_remaining_ticks -
+                               work.automatic_remaining_ticks_seen) return false;
         }
     }
     for (const auto& [point, id] : snapshot.state.belt_press_work) {
@@ -1293,7 +1450,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                    item->second.timber != 0 || !item->second.components.empty() ||
                    item->second.work_lots.size() != 1 || item->second.work_lots.front().id != id ||
                    item->second.work_lots.front().recipe != materials::RecipeSignature{
-                       profile.material.input_units_per_product, profile.material.cycle_ticks}) return false;
+                       profile.material.input_units_per_product, profile.material.cycle_ticks} ||
+                   !snapshot.state.press_progress.contains(id) ||
+                   item->second.work_lots.front().remaining_ticks +
+                       snapshot.state.press_progress.at(id).automatic_remaining_ticks +
+                       manual_reductions[id] != profile.material.cycle_ticks) return false;
     }
     std::set<materials::WorkId> witnessed_products;
     Integer witness_count = 0;
@@ -1775,7 +1936,8 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             part(state.topology, crank.id) || state.foundations.contains(crank.id) ||
             state.placed_components.contains(crank.id)) return false;
     }
-    if (!profile.landing_pod_center && !state.placed_components.empty()) return false;
+    if (!profile.landing_pod_center &&
+        (!state.placed_components.empty() || !state.press_progress.empty())) return false;
     if (state.placed_components.size() > maximum_issued_entities) return false;
     std::map<materials::Component, Integer> component_totals;
     std::set<mechanics::Point> component_centers;
@@ -2399,6 +2561,17 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             return refused(authority::error_name(checked.error), *id, std::move(facts));
         auto candidate = state;
         const auto previous_work = state.material.dropped_material.find(inspected.press->work_center);
+        Integer prior_auto_remaining_ticks = 0;
+        if (previous_work != state.material.dropped_material.end()) {
+            facts.emplace("prior_work_raw", Value(previous_work->second.raw_units));
+            facts.emplace("prior_work_lots", lots_value(previous_work->second.work_lots));
+            if (previous_work->second.work_lots.size() == 1) {
+                const auto witness = state.press_progress.find(previous_work->second.work_lots.front().id);
+                if (witness != state.press_progress.end())
+                    prior_auto_remaining_ticks = witness->second.automatic_remaining_ticks;
+            }
+        }
+        facts.emplace("prior_auto_remaining_ticks", Value(prior_auto_remaining_ticks));
         const auto completed_id = previous_work != state.material.dropped_material.end() &&
             previous_work->second.work_lots.size() == 1 ?
             previous_work->second.work_lots.front().id : materials::WorkId{0};
@@ -2407,6 +2580,12 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (error != materials::Error::none)
             return refused(materials::error_name(error), *id, std::move(facts));
         const auto work_item = candidate.material.dropped_material.find(inspected.press->work_center);
+        if (completed_id > 0) {
+            candidate.press_progress[completed_id].manual_seen = true;
+        } else if (work_item != candidate.material.dropped_material.end() &&
+                   work_item->second.work_lots.size() == 1) {
+            candidate.press_progress[work_item->second.work_lots.front().id].manual_seen = true;
+        }
         const auto belt_work = candidate.belt_press_work.find(inspected.press->work_center);
         if (belt_work != candidate.belt_press_work.end()) {
             if (work_item == candidate.material.dropped_material.end()) {
@@ -2978,9 +3157,26 @@ Advance World::tick() noexcept {
         const auto drive = placed.empty() ? drive_power(candidate.topology) :
             drive_power_with_layout(profile_, candidate, placed, layout);
         const auto power = machine_power_from(candidate.topology, drive);
+        const auto prior_processing = candidate.material.processing;
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
         if (error != materials::Error::none) throw error;
+        if (prior_processing) {
+            const auto witness = candidate.press_progress.find(prior_processing->id);
+            if (witness != candidate.press_progress.end()) {
+                const auto remaining = candidate.material.processing &&
+                    candidate.material.processing->id == prior_processing->id ?
+                    candidate.material.processing->remaining_ticks : Integer{0};
+                if (remaining > prior_processing->remaining_ticks ||
+                    !add(witness->second.automatic_remaining_ticks,
+                         prior_processing->remaining_ticks - remaining))
+                    throw materials::Error::invalid_state;
+                if ((!candidate.material.processing ||
+                     candidate.material.processing->id != prior_processing->id) &&
+                    !witness->second.manual_seen)
+                    candidate.press_progress.erase(witness);
+            }
+        }
         const auto& motion = drive.mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
         // Ready modular collectors draw from the same finite ore source as the
@@ -3048,30 +3244,47 @@ Advance World::tick() noexcept {
                 press_steps.push_back(*step);
         }
         if (!press_steps.empty()) {
-            std::map<mechanics::Point, materials::WorkId> completing;
+            std::map<mechanics::Point, std::pair<materials::WorkId, Integer>> prior_lots;
             for (const auto& step : press_steps) {
                 const auto work = candidate.material.dropped_material.find(step.work);
                 if (work != candidate.material.dropped_material.end() && work->second.work_lots.size() == 1)
-                    completing.emplace(step.work, work->second.work_lots.front().id);
+                    prior_lots.emplace(step.work, std::make_pair(work->second.work_lots.front().id,
+                        work->second.work_lots.front().remaining_ticks));
             }
             const auto press_error = materials::step_presses(candidate.material, profile_.material,
                 material_path(candidate.topology), press_steps);
             if (press_error != materials::Error::none) throw press_error;
             for (const auto& step : press_steps) {
-                const auto prior = completing.find(step.work);
-                if (prior != completing.end() && !candidate.material.dropped_material.contains(step.work) &&
+                const auto prior = prior_lots.find(step.work);
+                const auto current = candidate.material.dropped_material.find(step.work);
+                if (prior != prior_lots.end()) {
+                    const auto remaining = current != candidate.material.dropped_material.end() &&
+                        current->second.work_lots.size() == 1 &&
+                        current->second.work_lots.front().id == prior->second.first ?
+                        current->second.work_lots.front().remaining_ticks : Integer{0};
+                    if (remaining > prior->second.second ||
+                        !add(candidate.press_progress[prior->second.first].automatic_remaining_ticks,
+                             prior->second.second - remaining))
+                        throw materials::Error::invalid_state;
+                    if (current == candidate.material.dropped_material.end() &&
+                        !candidate.press_progress.at(prior->second.first).manual_seen)
+                        candidate.press_progress.erase(prior->second.first);
+                } else if (current != candidate.material.dropped_material.end() &&
+                           current->second.work_lots.size() == 1) {
+                    candidate.press_progress.try_emplace(current->second.work_lots.front().id);
+                }
+                if (prior != prior_lots.end() && current == candidate.material.dropped_material.end() &&
                     candidate.material.dropped_material.contains(step.exit) &&
-                    !candidate.press_output_at_exit.emplace(step.exit, prior->second).second)
+                    !candidate.press_output_at_exit.emplace(step.exit, prior->second.first).second)
                     throw materials::Error::invalid_state;
                 const auto belt_work = candidate.belt_press_work.find(step.work);
                 if (belt_work == candidate.belt_press_work.end()) continue;
-                const auto current = candidate.material.dropped_material.find(step.work);
                 if (current != candidate.material.dropped_material.end() &&
                     current->second.work_lots.size() == 1) {
                     belt_work->second = current->second.work_lots.front().id;
                     candidate.belt_press_work_ids.insert(belt_work->second);
-                } else if (prior != completing.end() && current == candidate.material.dropped_material.end()) {
-                    if (!candidate.belt_press_products[step.exit].insert(prior->second).second)
+                } else if (prior != prior_lots.end() && current == candidate.material.dropped_material.end()) {
+                    if (!candidate.belt_press_products[step.exit].insert(prior->second.first).second)
                         throw materials::Error::invalid_state;
                     candidate.belt_press_work.erase(belt_work);
                 }

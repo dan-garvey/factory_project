@@ -368,6 +368,12 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
             }
             state.emplace("press_output_at_exit", Value(std::move(waiting)));
             state.emplace("press_output_exported", Value(std::move(exported)));
+            Array progress;
+            for (const auto& [id, witness] : snapshot.state.press_progress)
+                progress.emplace_back(Object{{"work_id", Value(id)},
+                    {"automatic_remaining_ticks", Value(witness.automatic_remaining_ticks)},
+                    {"manual_seen", Value(witness.manual_seen)}});
+            state.emplace("press_progress", Value(std::move(progress)));
             state.emplace("belt_press_work", Value(std::move(belt_work)));
             state.emplace("belt_press_products", Value(std::move(belt_products)));
             Array belt_work_ids;
@@ -396,7 +402,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported", "press_progress", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -476,6 +482,15 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                 for (const auto& id : work_ids)
                     if (!ids.insert(scalar<Integer>(id, "$.state.press_output_exported.work_ids")).second)
                         refuse(CheckpointReason::invalid_world, "$.state.press_output_exported.work_ids");
+            }
+            for (const auto& value : array(state.at("press_progress"), "$.state.press_progress", 8192)) {
+                const auto& entry = fields(value, "$.state.press_progress",
+                    {"work_id", "automatic_remaining_ticks", "manual_seen"});
+                const auto id = integer(entry, "work_id", "$.state.press_progress");
+                if (!candidate.state.press_progress.emplace(id, PressProgressWitness{
+                        integer(entry, "automatic_remaining_ticks", "$.state.press_progress"),
+                        scalar<bool>(entry.at("manual_seen"), "$.state.press_progress.manual_seen")}).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.press_progress");
             }
             for (const auto& value : array(state.at("belt_press_work"), "$.state.belt_press_work", 4096)) {
                 const auto& entry = fields(value, "$.state.belt_press_work", {"center", "work_id"});

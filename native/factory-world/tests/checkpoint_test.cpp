@@ -423,6 +423,7 @@ void belt_span_checkpoint() {
     refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{3})), w::CheckpointReason::unsupported_schema);
     refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{4})), w::CheckpointReason::unsupported_schema);
     refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{5})), w::CheckpointReason::unsupported_schema);
+    refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{10})), w::CheckpointReason::unsupported_schema);
     auto malformed = state; malformed.topology.belt_spans[0].geometry.last_shaft = "missing";
     check(!w::World::create("saved-world", profile, malformed), "A dangling saved belt endpoint is refused.");
     malformed = state; malformed.kits.at("P")[{s::Role::belt, 0, 0}] = 1;
