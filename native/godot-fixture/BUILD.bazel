@@ -1,0 +1,23 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "fixture",
+    srcs = ["fixture.cpp"],
+    hdrs = ["fixture.hpp"],
+)
+
+cc_binary(
+    name = "factory-godot-fixture",
+    srcs = ["main.cpp"],
+    deps = [":fixture", "//native/build-support:runner"],
+    linkopts = ["-lcrypto"],
+)
+
+cc_test(
+    name = "fixture_test",
+    srcs = ["tests.cpp"],
+    deps = [":fixture"],
+    size = "small",
+)

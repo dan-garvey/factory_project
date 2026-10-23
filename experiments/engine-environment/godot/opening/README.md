@@ -477,6 +477,12 @@ held work, retrieves four plates, confirms without consumption and rebuilds a
 refunded wheel. A screenshot is visual evidence; the headless assertions establish
 only the listed supported behavior. Both are separate from actual user play.
 
+For direct headless correctness fixtures, use the [native fixture runner](../../../../native/godot-fixture/README.md)
+with that script's exact full PASS line. Godot can exit zero after a script-load
+error and a partial PASS count; the retained log must also be free of script
+diagnostics. Import resources before the intended fixture run and keep a failed
+pre-import log classified as setup evidence.
+
 The scoped Python runner copies the shared model/project and opening sources,
 records their hashes, and retains logs/results outside Git. Example from the
 repository root, substituting the existing verified runtime and owned paths:
