@@ -161,13 +161,42 @@ Bounds foundation_bounds(const world::Foundation& foundation) {
              foundation.center[2] * height_step}, {pitch / 2, foundation_depth / 2, pitch / 2}};
 }
 
-Bounds component_bounds(std::optional<materials::Component> kind, const mechanics::Point& center) {
+Bounds component_bounds(const world::Profile& profile,
+        std::optional<materials::Component> kind, const mechanics::Point& center) {
     const authority::Point at{center[0] * height_step,
         center[1] * height_step + anchor_height, center[2] * height_step};
     const auto vertical = [&](double low, double high) -> Bounds {
         return {{at[0], (low + high) / 2, at[2]}, {0.14, (high - low) / 2, 0.14}};
     };
     if (!kind) return {at, {0.14, 0.14, 0.14}};
+    if (*kind == materials::Component::tool_mount ||
+        *kind == materials::Component::cutting_edge) {
+        const auto step = *kind == materials::Component::tool_mount ? 1 : 2;
+        for (const auto& face : profile.collector_faces)
+            for (Integer elevation : {Integer{0}, Integer{1}}) {
+                const mechanics::Point tool_cell{
+                    face.machine_center[0] + step * face.toward_ore[0],
+                    face.machine_center[1] + elevation,
+                    face.machine_center[2] + step * face.toward_ore[2]};
+                if (center != tool_cell) continue;
+                // These independently placed parts own their supports down to
+                // the frame's floor. A press mount or part away from a trusted
+                // ore face retains its shorter original box.
+                const double floor = face.machine_center[1] * height_step;
+                const double top = at[1] + (*kind == materials::Component::tool_mount ?
+                    0.28 : 0.105);
+                const bool along_x = face.toward_ore[0] != 0;
+                const double face_half = *kind == materials::Component::tool_mount ?
+                    0.21 : 0.2025;
+                const double cross_x = *kind == materials::Component::tool_mount ?
+                    0.20 : 0.21;
+                const double cross_z = *kind == materials::Component::tool_mount ?
+                    0.19 : 0.18;
+                return {{at[0], (floor + top) / 2, at[2]},
+                    {along_x ? face_half : cross_x, (top - floor) / 2,
+                     along_x ? cross_z : face_half}};
+            }
+    }
     switch (*kind) {
         case materials::Component::wooden_frame:
             // The frame's four load-bearing feet meet the level's floor.
@@ -1106,7 +1135,7 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
                 }
                 for (const auto& [id, component] : state.placed_components) {
                     (void)id;
-                    if (overlap(box, component_bounds(component.kind, component.center))) clear = false;
+                    if (overlap(box, component_bounds(profile_, component.kind, component.center))) clear = false;
                 }
                 for (const auto* other : parts) {
                     if (other == part) continue;
@@ -1189,7 +1218,7 @@ const char* Host::collector_site_refusal(const mechanics::Point& center) const {
 
 const char* Host::component_site_refusal(std::optional<materials::Component> kind,
         const mechanics::Point& center) const {
-    const auto volume = component_bounds(kind, center);
+    const auto volume = component_bounds(profile_, kind, center);
     const auto& at = volume.center;
     const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
     if (!ground) return "terrain_unavailable";
@@ -1215,14 +1244,14 @@ const char* Host::component_site_refusal(std::optional<materials::Component> kin
 const char* Host::component_space_refusal(const world::State& state,
         std::optional<materials::Component> kind, const mechanics::Point& center,
         const std::string* current_id) const {
-    const auto volume = component_bounds(kind, center);
+    const auto volume = component_bounds(profile_, kind, center);
     for (const auto& [id, foundation] : state.foundations) {
         (void)id;
         if (overlap(volume, foundation_bounds(foundation))) return "occupied";
     }
     for (const auto& [id, other] : state.placed_components)
         if ((!current_id || id != *current_id) &&
-            overlap(volume, component_bounds(other.kind, other.center))) return "occupied";
+            overlap(volume, component_bounds(profile_, other.kind, other.center))) return "occupied";
     if (intersects_belt(state, volume)) return "occupied";
     for (const auto& part : state.topology.parts) {
         if (part.role == Role::gear || part.role == Role::shaft) {
@@ -1307,7 +1336,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto occupied_by_component = [&](const Bounds& volume) {
         return std::any_of(snapshot.state.placed_components.begin(), snapshot.state.placed_components.end(),
             [&](const auto& entry) {
-                return overlap(volume, component_bounds(entry.second.kind, entry.second.center));
+                return overlap(volume, component_bounds(profile_, entry.second.kind, entry.second.center));
             });
     };
     if (*action == "harvest_source") {
@@ -1424,7 +1453,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         // The confirmed component shape, rather than only its grid anchor,
         // reserves actor, terrain and neighboring construction clearance.
         const auto kind = materials::component_from_name(*field<std::string>(wire, "component"));
-        const auto volume = component_bounds(kind, center);
+        const auto volume = component_bounds(profile_, kind, center);
         if (const auto* refusal = component_site_refusal(kind, center)) return refuse(refusal);
         if (placement_blocked(volume.center, volume.half)) return refuse("actor_occupied");
         if (const auto* refusal = component_space_refusal(snapshot.state, kind, center)) return refuse(refusal);
@@ -1522,7 +1551,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
-            const auto occupied = component_bounds(component.kind, component.center);
+            const auto occupied = component_bounds(profile_, component.kind, component.center);
             for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
                 for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
                     if (overlap(occupied, foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
@@ -1685,7 +1714,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         half[static_cast<std::size_t>(verified_axis)] = *span * pitch / 4;
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
-            if (transmission_intersects(component_bounds(component.kind, component.center),
+            if (transmission_intersects(component_bounds(profile_, component.kind, component.center),
                     *center, verified_axis, false)) return refuse("occupied");
         }
         if (placement_blocked(at, half)) return refuse("actor_occupied");
@@ -1718,7 +1747,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto half = gear_half_extents(verified_axis, *teeth);
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
-            if (transmission_intersects(component_bounds(component.kind, component.center),
+            if (transmission_intersects(component_bounds(profile_, component.kind, component.center),
                     *center, verified_axis, true)) return refuse("occupied");
         }
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
@@ -2223,7 +2252,7 @@ Value Host::projection() const {
                 Value(pod.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
         Object placed;
         for (const auto& [id, component] : state.placed_components) {
-            const auto occupied = component_bounds(component.kind, component.center);
+            const auto occupied = component_bounds(profile_, component.kind, component.center);
             placed.emplace(id, Value(Object{{"component", Value(materials::component_name(component.kind))},
                 {"generation", Value(component.generation)},
                 {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
