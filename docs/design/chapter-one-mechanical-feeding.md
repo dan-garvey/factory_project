@@ -2,7 +2,8 @@
 
 This note records small, reversible geometry and forming rules for
 `factory-yau.1.10.17.1`, `factory-yau.1.10.17.2`,
-`factory-yau.1.10.17.3` and `factory-yau.1.10.17.4`.
+`factory-yau.1.10.17.3`, `factory-yau.1.10.17.4` and
+`factory-yau.1.10.17.5`.
 They are design choices for future native and ordinary-scene work, not claims
 about the current runtime or requirements for the first plate. The first plate
 remains hand-fed. `factory-yau.1.10.16.4` owns broad-item carrier behavior and
@@ -193,3 +194,53 @@ change can drive a fixed diverter and its custody can be tested. Heating is a
 separate later candidate under `factory-yau.1.10.17.5`, not an implicit force
 discount here. This comparison belongs after the first hand-fed product as an
 optional later Chapter 1 forming and throughput challenge.
+
+## Heated forming as a later companion
+
+`factory-yau.1.10.17.5` adds one *candidate* route to the same finished 2 × 2,
+twelve-mass sheet. This is a game balance sketch, not a statement about real
+copper metallurgy. The cold force and work numbers above are unchanged. A
+heater supplied by finite fuel or a later renewable heat source can make one
+workpiece hot. A hot sheet can take one full guided stroke at peak mechanical
+force 5 instead of 8, still requiring 12 work units. Heat lowers the peak
+force in this example; it does not create forming work or material. The fuel
+charge and heat delivery need their own conserved resource rule before native
+adoption.
+
+| Route to depth 2 | Useful case | Price paid |
+| --- | --- | --- |
+| Heavy cold, one full stroke | Limited floor area and plentiful strong drive. | Peak force 8, work 12, one forming cycle and one work area. |
+| Repeated cold, two shallow strokes | Weak drive with room for two stations or a return. | Peak force 5, work 6 twice, two forming cycles and extra stations or handling. |
+| Heated, one full stroke | Weak drive and scarce floor area when a nearby heat supply already serves other processes. | Peak force 5, work 12, one heat admission plus one forming cycle, a short insulated route and cooling capacity. |
+
+Use only three readable thermal states on the same workpiece: **cold**, **hot**
+and **cooling**. The heater changes cold to hot after one admitted heat cycle
+and one accounted fuel charge. A hot workpiece has two fixed machine-cycle
+intervals to reach and finish the press; travel, waiting at a blocked inlet
+and forming consume those intervals. When they expire before pressing, the
+workpiece becomes cold and may be reheated without losing its depth or mass.
+Accepted hot forming moves it to cooling at the press output. A supported
+cooling rack holds it for one cycle before ordinary hand or carrier transfer;
+an occupied rack blocks the press discharge and leaves the original item and
+its forming progress at the press. No new item is minted for a temperature or
+an intermediate pass.
+
+Power loss freezes mechanical position and custody; heat may still expire at
+the next bounded cycle boundary. A partly formed depth-1 item can cool and be
+reheated, or finish through a valid cold stroke. A failed hot stroke below its
+force or work threshold grants no progress and does not refund the heat charge.
+Reheating affects only thermal readiness, not copper mass or prior accepted
+forming depth. Save and rejoin retain the owner, depth, thermal state and
+remaining hot interval; a restored blocked line resumes or cools under the
+same fixed rule. These are proposed behavior contracts, not measured runtime.
+
+A solved unattended layout stocks fuel, feeds the heater, uses a short fitting
+guide to the press, and clears the cooling rack into later handling. Starved
+fuel, a blocked press or a full rack stops safely with every item accessible;
+restoring supply resumes without repeated manual button presses. This route
+adds a fuel source, heater, cooling surface, thermal indicators and a lesson
+about heat travel and recovery. That learning cost is too large for the first
+hand-fed plate. Keep it for later progression, with at most an optional late
+Chapter 1 preview after cold forming and ordinary item routing are playable.
+No furnace implementation or new first-product prerequisite follows from this
+paper candidate.
