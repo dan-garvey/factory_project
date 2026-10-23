@@ -3,7 +3,6 @@ extends PanelContainer
 const TOOLS := {"collector": "Collector", "foundation": "Foundation", "belt": "Belt",
 	"processor": "Press", "wheel": "Waterwheel", "gear": "Cogwheel", "drive": "Shaft",
 	"gearbox": "Horizontal gearbox", "vertical_gearbox": "Vertical gearbox", "chain_drive": "Chain drive"}
-const SHORT_NAMES := {"wheel": "Wheel", "gear": "Cog"}
 const CATALOG_KEYS := {KEY_C: "collector", KEY_F: "foundation", KEY_B: "belt",
 	KEY_P: "processor", KEY_W: "wheel", KEY_G: "gear", KEY_S: "drive",
 	KEY_H: "gearbox", KEY_V: "vertical_gearbox", KEY_N: "chain_drive"}
@@ -12,6 +11,8 @@ const TOOL_KEYS := {"collector": "C", "foundation": "F", "belt": "B",
 	"gearbox": "H", "vertical_gearbox": "V", "chain_drive": "N"}
 var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
 var buttons: Array[Button] = []
+var slot_icons: Array[TextureRect] = []
+var slot_counts: Array[Label] = []
 var catalog_buttons: Dictionary = {}
 var catalog_button: Button
 var catalog: PopupPanel
@@ -25,31 +26,56 @@ func configure(host, ui: Control) -> void:
 	name = "BuildingHotbar"
 	ui.get_viewport().gui_embed_subwindows = true
 	var surface := StyleBoxFlat.new()
-	surface.bg_color = Color(0.078, 0.129, 0.157, 0.96)
-	surface.border_color = Color("41565e")
-	surface.set_border_width_all(1)
-	surface.set_corner_radius_all(5)
+	surface.bg_color = Color.TRANSPARENT
 	for side in range(4):
-		surface.set_content_margin(side, 8.0)
+		surface.set_content_margin(side, 0.0)
 	add_theme_stylebox_override("panel", surface)
 	ui.add_child(self)
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 5)
 	add_child(row)
-	catalog_button = host._button(row, "Build [B]", open_catalog)
+	catalog_button = host._button(row, "Build  B", open_catalog)
+	catalog_button.custom_minimum_size = Vector2(72, 54)
+	catalog_button.add_theme_font_size_override("font_size", 13)
+	_style_slot(catalog_button)
 	for index in range(slots.size()):
 		var button: Button = host._button(row, "", select_slot.bind(index))
 		button.toggle_mode = true
-		button.custom_minimum_size = Vector2(86, 64)
-		button.add_theme_font_size_override("font_size", 13)
-		button.expand_icon = true
-		button.add_theme_constant_override("icon_max_width", 24)
+		button.custom_minimum_size = Vector2(54, 54)
+		_style_slot(button)
+		var icon := TextureRect.new()
+		icon.position = Vector2(11, 9)
+		icon.custom_minimum_size = Vector2(32, 32)
+		icon.size = Vector2(32, 32)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(icon)
+		slot_icons.append(icon)
+		var key := Label.new()
+		key.text = str(index + 1)
+		key.position = Vector2(5, 2)
+		key.add_theme_font_size_override("font_size", 10)
+		key.add_theme_color_override("font_color", Color("dce9e5"))
+		key.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(key)
+		var count := Label.new()
+		count.position = Vector2(30, 36)
+		count.size = Vector2(20, 14)
+		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		count.add_theme_font_size_override("font_size", 11)
+		count.add_theme_color_override("font_color", Color("f6e5c5"))
+		count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(count)
+		slot_counts.append(count)
 		button.gui_input.connect(_slot_input.bind(index))
 		buttons.append(button)
 	catalog = PopupPanel.new()
 	catalog.name = "BuildingCatalog"
 	catalog.theme = ui.theme.duplicate()
-	var menu_surface := surface.duplicate() as StyleBoxFlat
-	menu_surface.bg_color = Color("142129")
+	var menu_surface := StyleBoxFlat.new()
+	menu_surface.bg_color = Color(0.055, 0.09, 0.11, 0.91)
+	menu_surface.set_corner_radius_all(7)
 	catalog.theme.set_stylebox("panel", "PopupPanel", menu_surface)
 	add_child(catalog)
 	var margin := MarginContainer.new()
@@ -84,6 +110,20 @@ func configure(host, ui: Control) -> void:
 	resized.connect(host._queue_footer_fit)
 	refresh(false)
 	_fit.call_deferred()
+
+func _style_slot(button: Button) -> void:
+	for state_name in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.045, 0.075, 0.09, 0.34 if state_name == "normal" else 0.52)
+		if state_name in ["pressed", "hover_pressed"]:
+			style.bg_color = Color(0.12, 0.18, 0.19, 0.68)
+			style.border_color = Color("e7b875")
+			style.border_width_bottom = 2
+		elif state_name == "disabled":
+			style.bg_color.a = 0.22
+		style.set_corner_radius_all(5)
+		button.add_theme_stylebox_override(state_name, style)
+	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 func _input(event: InputEvent) -> void:
 	if not catalog.visible or not event is InputEventKey or not event.pressed or event.echo:
@@ -147,12 +187,11 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var amount := _count(tool, parts)
 		var offered: bool = not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
 			and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
-		buttons[index].visible = not tool.is_empty() and offered and amount > 0
-		buttons[index].text = "%d %s\n×%d" % [index + 1, SHORT_NAMES.get(tool, label), amount] if not tool.is_empty() else "%d\nAssign" % (index + 1)
-		buttons[index].icon = catalog_buttons[tool].icon if not tool.is_empty() else null
-		# Expanded icons do not contribute width to Button's minimum size.
-		# Reserve their actual space even when the assigned name is long.
-		buttons[index].custom_minimum_size.x = maxf(86.0, buttons[index].get_minimum_size().x + 28.0)
+		buttons[index].visible = true
+		slot_icons[index].texture = catalog_buttons[tool].icon if not tool.is_empty() else null
+		slot_icons[index].visible = not tool.is_empty()
+		slot_counts[index].text = str(amount) if not tool.is_empty() else "+"
+		buttons[index].tooltip_text = "%s · %d %s · slot %d" % [label, amount, scope, index + 1] if not tool.is_empty() else "Assign slot %d · B opens catalog" % (index + 1)
 		buttons[index].disabled = host.explanation_open or (not tool.is_empty() and (not usable or amount < 1 or not offered))
 		buttons[index].button_pressed = selected_slot == index and active == tool
 		destination.set_item_text(index, "%d · %s" % [index + 1, label])

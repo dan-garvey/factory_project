@@ -881,6 +881,13 @@ func _hotbar() -> void:
 			"The live frame-rate readout updates without intercepting construction input.")
 		verify(bar.buttons.size() == 8 and not bar.catalog.visible and not view.tool_buttons.collector.is_visible_in_tree(),
 			"Eight quick slots replace the visible construction text list.")
+		verify(bar.buttons.all(func(button: Button): return button.size == Vector2(54, 54) and button.text.is_empty())
+			and bar.slot_icons.all(func(icon: TextureRect): return icon.size == Vector2(32, 32)),
+			"The hotbar gives every part the same icon area and fixed slot size without face labels.")
+		var bar_surface := bar.get_theme_stylebox("panel") as StyleBoxFlat
+		verify(bar_surface.bg_color.a == 0.0 and bar_surface.border_width_left == 0
+			and (bar.buttons[0].get_theme_stylebox("normal") as StyleBoxFlat).bg_color.a < 0.5,
+			"The hotbar has no framing border and its idle cells leave the worksite visible.")
 		verify(bar.selected_slot == -1 and not view.inspector.visible
 			and not bar.buttons.any(func(button: Button): return button.button_pressed)
 			and view.issued.is_empty() and view.request_sequence == 17 and view.state == before,
@@ -939,17 +946,17 @@ func _hotbar() -> void:
 		view.state.part_kits.P.collector = 0
 		view._refresh_ui()
 		bar.select_slot(0)
-		verify(bar.buttons[0].disabled and "×0" in bar.buttons[0].text and view.mode == "inspect",
+		verify(bar.buttons[0].disabled and bar.slot_counts[0].text == "0" and view.mode == "inspect",
 			"An exhausted kit disables the slot without borrowing the compatibility stock alias.")
 		bar.destination.select(7)
 		bar.catalog_buttons.collector.pressed.emit()
 		verify(bar.slots[7].is_empty() and view.mode == "inspect", "An unavailable catalog item cannot activate or fill a slot.")
 		view.client = "Q"
 		view._refresh_ui()
-		verify("×2" in bar.buttons[1].text and bar.buttons[0].disabled, "Every slot follows the active actor's own kit.")
+		verify(bar.slot_counts[1].text == "2" and bar.buttons[0].disabled, "Every slot follows the active actor's own kit.")
 		view.state.part_kits.erase("Q")
 		view._refresh_ui()
-		verify(bar.buttons[1].disabled and "×0" in bar.buttons[1].text, "Missing actor kits have no fallback owner.")
+		verify(bar.buttons[1].disabled and bar.slot_counts[1].text == "0", "Missing actor kits have no fallback owner.")
 		view.client = "P"
 		view.state = hotbar_observation()
 		if shared:
@@ -1043,6 +1050,14 @@ func _render_hotbar() -> void:
 		"Opening the fresh catalog does not expose an unused machine inspector.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK, "Retain the isolated assignment catalog.")
+	bar.catalog.hide()
+	view.state.entities = {"press": {"kind": "processor", "cell": [2, 1]}}
+	view.selected = "press"
+	view._refresh_ui()
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-inspection.png") == OK,
+		"Retain the compact selected-machine inspector in the same isolated view.")
 	var record := FileAccess.open(prefix + "-layout.json", FileAccess.WRITE)
 	verify(record != null, "Retain actual widget bounds beside the isolated images.")
 	if record != null:
