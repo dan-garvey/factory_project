@@ -1,7 +1,7 @@
 # Adult worker asset
 
-The complete opening uses **Female_Adult_01** from the
-[Microsoft Rocketbox library](https://github.com/microsoft/Microsoft-Rocketbox/tree/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Avatars/Adults/Female_Adult_01).
+The complete opening uses **Female_Adult_04** from the
+[Microsoft Rocketbox library](https://github.com/microsoft/Microsoft-Rocketbox/tree/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Avatars/Adults/Female_Adult_04).
 The original publisher releases the model and textures under the included
 [MIT license](LICENSE.md); keep that notice with redistributed or modified copies.
 The pinned source contains the editable FBX and original textures.
@@ -9,21 +9,22 @@ The pinned source contains the editable FBX and original textures.
 Human feedback still determines whether this revisable character meets the
 requested appearance and motion quality.
 
-The opening samples `body_field_suit_color.png` for a petrol field jacket and
-graphite work trousers. It is an image-generated edit of the included body
-atlas. `field_suit.gdshader` uses the original atlas to limit the alternate to
-cloth; the original skin, footwear, empty UV margins, head, hair, body normal,
-rig and animations remain. The edited atlas is 1,254 pixels square and its UV
-islands are not pixel-identical to the original. This material boundary avoids
-spilling the generated colors onto skin, while garment detail and fit remain
-provisional until a human checks the actual character at ordinary and eye-level
-camera distances. The field suit is presentation only.
+The selected source has a modeled jacket with a hood, cargo trousers and tall
+boots. Its captured atlases supply the garment, skin, head and hair directly;
+there is no overlay on unrelated UV islands. This gives the worker a stronger
+field-work silhouette than the former casual blouse and jeans. The licensed
+source palette is provisional until a human checks the actual character at
+ordinary and eye-level camera distances. Wardrobe is presentation only.
 
-The converted mesh has 5,438 vertices, 8,732 triangles, three material surfaces
+The converted mesh has 6,029 vertices, 9,284 triangles, three material surfaces
 and 80 skin bindings. Color maps are 1,024 pixels square; normal and alpha maps
 are 512 pixels square. Conversion preserves the skin and mesh level, removes
-unused animation and marker nodes, and assigns materials explicitly. Roughness
-and alpha cutout are presentation defaults, not measured properties.
+unused animation and marker nodes, and assigns materials explicitly. The FBX
+import produced an ImporterMesh, which was converted to a runtime Mesh while
+preserving its skin and transforms. After Lanczos resizing, each normal vector
+was normalized and its channels rounded to the nearest RGB8 byte; both lossless
+maps passed the existing 0.01 unit-length error bound. Roughness and alpha
+cutout are presentation defaults, not measured properties.
 
 `character_presenter.gd` loads the GLB and mipmapped textures directly without
 an editor import cache. Each player has a separate skeleton and shares immutable
@@ -32,7 +33,7 @@ geometry and materials. The rig keeps its rotated source parent, fits the
 The visual root follows the confirmed actor exactly; limbs do not replace its
 capsule or grant construction reach.
 
-The matching Rocketbox [walk](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_walk_neutral.max.fbx)
+The collection's female [walk](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_walk_neutral.max.fbx)
 and [run](https://github.com/microsoft/Microsoft-Rocketbox/blob/0943055db6ec570bcef9f2c8b41c9e5467c808f9/Assets/Animations/all_animations_max_motextr_xy/f_run_neutral.max.fbx)
 takes contribute 56 and 34 named-skeleton tracks respectively. Confirmed
 horizontal travel advances one walk cycle per 1.30 metres and one run cycle per
@@ -83,6 +84,6 @@ revision, view and cadence. Neither those images nor this rig check establishes
 human play experience or the quality of every playable view.
 
 The asset has no collision or interaction shape, autonomous animation player,
-command producer, material inventory or saved state. Facial animation,
-customization, visible carried equipment and full-scene performance remain
-separate work.
+command producer, material inventory or saved state. The presenter attaches
+the existing multitool to the right hand. Facial animation, customization
+and full-scene performance remain separate work.
