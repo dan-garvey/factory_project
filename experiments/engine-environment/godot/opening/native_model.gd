@@ -110,11 +110,17 @@ func publish_actor(actor: String, position: Array, native_epoch: int) -> Diction
 		if not _view_cache.actors.has(actor):
 			_view_cache = {}
 		else:
-			var current: Dictionary = _view_cache.actors[actor]
+			# Scene readers may still hold the previous snapshot. Replace only the
+			# actor path so their first-ready decision observes its original state.
+			var updated: Dictionary = _view_cache.duplicate()
+			var actors: Dictionary = _view_cache.actors.duplicate()
+			var current: Dictionary = actors[actor].duplicate()
 			current.position = [float(position[0]), float(position[1]), float(position[2])]
 			current.ready = true
 			current.native_epoch = native_epoch
-			_view_cache.actors[actor] = current
+			actors[actor] = current
+			updated.actors = actors
+			_view_cache = updated
 	return result
 
 func actor_projection(actor: String) -> Dictionary:

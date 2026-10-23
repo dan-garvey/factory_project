@@ -2186,6 +2186,7 @@ func _native_view_cache_regression() -> void:
 	var isolated: Dictionary = model.view_projection()
 	verify(model.full_projection_calls == 1 and not isolated.entities.has("invented-machine")
 		and not isolated.actors.P.ready, "A view caller cannot mutate the cached native facts.")
+	var previous_scene_view: Dictionary = model._view_projection_borrowed()
 	verify(model.publish_actor("P", [0.0, 1.0, 0.0], 1).get("accepted", false),
 		"The real Host accepts a trusted physical pose for the cache check.")
 	var moved: Dictionary = model.view_projection()
@@ -2193,6 +2194,8 @@ func _native_view_cache_regression() -> void:
 		and moved.actors.P.position == [0.0, 1.0, 0.0]
 		and moved.actors.P == model.projection().actors.P,
 		"Accepted pose publication patches only the view actor to exact Host facts.")
+	verify(not previous_scene_view.actors.P.ready and moved.actors.P.ready,
+		"Actor publication preserves an in-progress opening snapshot until its first-ready refresh.")
 	model.full_projection_calls = 0
 	var tick: Dictionary = model.advance()
 	verify(tick.has("entities") and model.view_projection() == tick and model.full_projection_calls == 0,
