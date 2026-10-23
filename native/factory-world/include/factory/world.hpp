@@ -178,6 +178,7 @@ struct DrivePower {
 [[nodiscard]] DrivePower drive_power(const Profile&, const State&);
 [[nodiscard]] materials::Path material_path(const stationary::Topology&);
 [[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&);
+[[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&, const DrivePower&);
 [[nodiscard]] materials::MachinePower machine_power(const Profile&, const State&);
 [[nodiscard]] bool validate(const Profile&, const Snapshot&);
 
