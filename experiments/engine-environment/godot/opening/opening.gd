@@ -4602,6 +4602,7 @@ var packed_preview_nodes: Dictionary = {}
 var machine_dynamic_batches: Array[Dictionary] = []
 var machine_conveyor_batches: Array[Dictionary] = []
 var machine_rotors: Array[Dictionary] = []
+var machine_rotor_cells: Array[Dictionary] = []
 var machine_batched_rotors: Dictionary = {}
 var machine_batched_rotor_slots: Dictionary = {}
 var wheel_batch_poses: Dictionary = {}
@@ -5244,6 +5245,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"input_full": "Recover or process the existing blank first.",
 			"unavailable_input": "Carry an ore blank or feed the selected press first.",
 			"site_occupied": "Rock or scenery blocks that placement or press route.",
+			"unsupported_bench": "Set the workbench on clear ground or a foundation top.",
 			"actor_unready": "Your character is not ready yet. Wait a moment.",
 			"actor_occupied": "A character is in that square. Move clear before placing the machine.",
 			"powered": "Stop the drive before changing the machinery.",
@@ -5256,14 +5258,14 @@ func issue(action: Dictionary) -> Dictionary:
 		if action.action == "craft_component":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
-				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+				"out_of_reach": "Move beside the selected workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "field_craft":
 			refusal = {"unavailable_input": "Gather the timber shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
-				"unavailable_recipe": "Metal components need the pod bench."}.get(outcome.get("reason", ""), refusal)
+				"unavailable_recipe": "Metal components need a workshop."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "craft_part":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
-				"out_of_reach": "Move beside the pod workshop to make a transmission kit.",
+				"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
 			refusal = "Your component bag is full. Place another carried part before reclaiming."
@@ -5376,27 +5378,43 @@ func _animate_wheel(delta: float) -> void:
 		var cull_far_joinery := camera != null and camera.is_inside_tree() and not machine_batched_rotors.is_empty()
 		var listener_position := camera.global_position if cull_far_joinery else Vector3.ZERO
 		var frustum: Array = camera.get_frustum() if camera != null and camera.is_inside_tree() else []
-		for wheel in machine_rotors:
-			# Keep nearby offscreen wheels live for their shadows. The confirmed
-			# cosmetic phase still advances when its hidden pose is held.
-			var outside_view := false
+		for cell in machine_rotor_cells:
+			var bounds: AABB = cell.bounds
+			var minimum := bounds.position
+			var maximum := bounds.end
+			var cell_outside := false
 			for plane: Plane in frustum:
-				if plane.distance_to(wheel.center) > WHEEL_MOTION_VISIBILITY_MARGIN:
-					outside_view = true
+				# The nearest corner has the minimum plane distance. Culling it
+				# excludes only cells whose every wheel is beyond the old margin.
+				var nearest := Vector3(minimum.x if plane.normal.x >= 0.0 else maximum.x,
+					minimum.y if plane.normal.y >= 0.0 else maximum.y,
+					minimum.z if plane.normal.z >= 0.0 else maximum.z)
+				if plane.distance_to(nearest) > WHEEL_MOTION_VISIBILITY_MARGIN:
+					cell_outside = true
 					break
-			if outside_view:
+			if cell_outside:
 				continue
-			var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
-			var rotor_id: int = wheel.rotor.get_instance_id()
-			wheel_updated_rotors[rotor_id] = true
-			# The full core is already in a MultiMesh. Beyond the last paddle
-			# detail range, advance that instance without dirtying the many
-			# hidden and distance-culled source nodes under its rotor.
-			if cull_far_joinery and machine_batched_rotors.has(rotor_id) \
-					and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS:
-				wheel_batch_poses[rotor_id] = Transform3D(basis, wheel.rotor.position)
-			else:
-				wheel.rotor.basis = basis
+			for wheel in cell.wheels:
+				# Keep nearby offscreen wheels live for their shadows. The confirmed
+				# cosmetic phase still advances when its hidden pose is held.
+				var outside_view := false
+				for plane: Plane in frustum:
+					if plane.distance_to(wheel.center) > WHEEL_MOTION_VISIBILITY_MARGIN:
+						outside_view = true
+						break
+				if outside_view:
+					continue
+				var basis: Basis = wheel.base * Basis(Vector3.BACK, transmission_presenter.visual_angle(wheel.id))
+				var rotor_id: int = wheel.rotor.get_instance_id()
+				wheel_updated_rotors[rotor_id] = true
+				# The full core is already in a MultiMesh. Beyond the last paddle
+				# detail range, advance that instance without dirtying the many
+				# hidden and distance-culled source nodes under its rotor.
+				if cull_far_joinery and machine_batched_rotors.has(rotor_id) \
+						and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS:
+					wheel_batch_poses[rotor_id] = Transform3D(basis, wheel.rotor.position)
+				else:
+					wheel.rotor.basis = basis
 		_animate_machine_bodies(delta)
 		_update_machine_dynamic_batches(true)
 		return
@@ -6199,6 +6217,9 @@ func _screen_entity(screen: Vector2) -> String:
 func _component_place_center(cell: Vector2i, pointed: String) -> Array:
 	# One quarter-grid step off a confirmed component face builds a stack or
 	# lateral drive. Host still decides support, occupancy, custody and reach.
+	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "wooden_workbench":
+		return [cell.x * Geometry.HEIGHT_DENOMINATOR, _construction_level(cell),
+			cell.y * Geometry.HEIGHT_DENOMINATOR]
 	var placed: Dictionary = state.get("placed_components", {})
 	if placed.has(pointed):
 		var hit := _screen_pick(_pointed_screen_position())
@@ -7723,6 +7744,21 @@ func _batch_machine_visuals() -> void:
 	_emit_machine_mesh_batches(dynamic_groups, batches, true)
 	_batch_conveyor_loops(batches)
 
+func _index_machine_rotors() -> void:
+	machine_rotor_cells.clear()
+	var cell_indices := {}
+	for wheel in machine_rotors:
+		var center: Vector3 = wheel.center
+		var key := Vector3i(floori(center.x / WHEEL_ROTOR_BATCH_CELL),
+			floori(center.y / WHEEL_ROTOR_BATCH_CELL), floori(center.z / WHEEL_ROTOR_BATCH_CELL))
+		if not cell_indices.has(key):
+			cell_indices[key] = machine_rotor_cells.size()
+			machine_rotor_cells.append({"bounds": AABB(center, Vector3.ZERO), "wheels": [wheel]})
+		else:
+			var cell: Dictionary = machine_rotor_cells[cell_indices[key]]
+			cell.bounds = (cell.bounds as AABB).expand(center)
+			cell.wheels.append(wheel)
+
 func _rebuild_machines() -> void:
 	_sync_machine_body_context()
 	machine_rotors.clear()
@@ -7831,6 +7867,7 @@ func _rebuild_machines() -> void:
 		if not _native_transmission() and state.entities.has(pair[0]) and state.entities.has(pair[1]):
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
+	_index_machine_rotors()
 	_batch_machine_visuals()
 
 func _redraw_items() -> void:
@@ -7993,9 +8030,12 @@ func _refresh_ui() -> void:
 		inspector.text = _belt_inspection(state.belt_spans[selected], state.get("motion", {}))
 	elif _native_transmission() and state.get("placed_components", {}).has(selected):
 		var component: Dictionary = state.placed_components[selected]
-		inspector.text = "%s\nGrid center %s\nReclaim with Delete or choose a press route below." % [
+		var detail := "Choose this workshop under Craft parts, then stand nearby to use it."
+		if component.get("component", "") != "wooden_workbench":
+			detail = "Reclaim with Delete or choose a press route below."
+		inspector.text = "%s\nGrid center %s\n%s" % [
 			str(component.get("component", "part")).replace("_", " ").capitalize(),
-			str(component.get("center", []))]
+			str(component.get("center", [])), detail]
 	else:
 		inspector.text = "Point at a machine and press E to open it."
 	inspector.tooltip_text = inspector.text
@@ -8059,7 +8099,10 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		(wheel_size_controls.get_child(0) as Button).text = "−  [Shift+PgDn]"
 		(wheel_size_controls.get_child(2) as Button).text = "+  [Shift+PgUp]"
 	if component_height_controls != null:
-		component_height_controls.visible = _native_transmission() and mode == "component" and not explanation_open
+		var whole_tile_component: bool = arrival_assembly_controls != null \
+			and arrival_assembly_controls.selected_name() == "wooden_workbench"
+		component_height_controls.visible = _native_transmission() and mode == "component" \
+			and not explanation_open and not whole_tile_component
 		component_height_label.text = "Height: %+d steps" % component_level
 		component_offset_controls.visible = component_height_controls.visible
 		component_offset_label.text = "X %+d · Z %+d" % [component_offset.x, component_offset.y]
@@ -8636,7 +8679,8 @@ func _update_cursor() -> void:
 		if hover.visible:
 			hover.position = Vector3(center[0] * Geometry.HEIGHT_STEP,
 				center[1] * Geometry.HEIGHT_STEP + 0.03, center[2] * Geometry.HEIGHT_STEP)
-			hover.scale = Vector3(0.25, 1.0, 0.25)
+			hover.scale = Vector3.ONE if arrival_assembly_controls != null \
+				and arrival_assembly_controls.selected_name() == "wooden_workbench" else Vector3(0.25, 1.0, 0.25)
 		_refresh_placement_options()
 		return
 	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \

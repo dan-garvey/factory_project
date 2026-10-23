@@ -310,7 +310,7 @@ class ArrivalAssemblyControls:
 		["tool_mount", "Tool mount"], ["sliding_guide", "Sliding guide"],
 		["cutting_edge", "Cutting edge"], ["anvil", "Anvil"],
 		["ram_face", "Ram face"], ["softmetal_shaft", "Softmetal shaft"],
-		["softmetal_cog", "Softmetal cog"],
+		["softmetal_cog", "Softmetal cog"], ["wooden_workbench", "Wooden workbench"],
 	]
 	const PRESS_NEXT := {
 		"missing_anvil": "Fit an anvil one height step above the frame.",
@@ -322,6 +322,9 @@ class ArrivalAssemblyControls:
 	}
 
 	var selected_component := "wooden_frame"
+	var selected_bench := ""
+	var _focused_bench := ""
+	var _bench_ids: Array[String] = []
 	var selected_part := 0
 	var _host: WeakRef
 	var _snapshot := {}
@@ -333,6 +336,7 @@ class ArrivalAssemblyControls:
 	var _last_frame := ""
 	var _press_page := false
 	var component_choice: OptionButton
+	var bench_choice: OptionButton
 	var craft_button: Button
 	var field_craft_button: Button
 	var part_choice: OptionButton
@@ -377,6 +381,10 @@ class ArrivalAssemblyControls:
 		component_choice.select(0)
 		component_choice.item_selected.connect(_component_selected)
 		craft_section.add_child(component_choice)
+		bench_choice = OptionButton.new()
+		bench_choice.name = "FabricationBenchChoice"
+		bench_choice.item_selected.connect(_bench_selected)
+		craft_section.add_child(bench_choice)
 		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		var component_actions := VBoxContainer.new()
 		craft_section.add_child(component_actions)
@@ -455,10 +463,33 @@ class ArrivalAssemblyControls:
 		var components: Dictionary = cargo.get("components", {})
 		var recipes: Dictionary = snapshot.get("component_recipes", {})
 		var cost: Dictionary = recipes.get(selected_component, {})
+		var benches: Array[Dictionary] = []
+		var pod: Dictionary = snapshot.get("fabrication_hub", {})
+		if pod.get("installed", true) and not pod.is_empty():
+			benches.append({"id": str(pod.id), "label": "Pod workshop"})
+		for bench: Dictionary in snapshot.get("fabrication_benches", []):
+			if bench.has("id") and bench.get("center") is Array:
+				var center: Array = bench.center
+				if center.size() == 3:
+					benches.append({"id": str(bench.id), "label": "Wooden workbench  (%d, %d)" % [center[0], center[2]]})
+		if selected_bench.is_empty() or not benches.any(func(bench: Dictionary) -> bool: return bench.id == selected_bench):
+			selected_bench = str(benches[0].id) if not benches.is_empty() else ""
+		if selected != _focused_bench:
+			_focused_bench = selected
+			if benches.any(func(bench: Dictionary) -> bool: return bench.id == selected):
+				selected_bench = selected
+		bench_choice.clear()
+		_bench_ids.clear()
+		for bench: Dictionary in benches:
+			bench_choice.add_item(bench.label)
+			_bench_ids.append(bench.id)
+			if bench.id == selected_bench:
+				bench_choice.select(bench_choice.item_count - 1)
+		bench_choice.disabled = not ready or benches.is_empty()
 		var total_parts := 0
 		for amount in components.values():
 			total_parts += int(amount)
-		recipe_label.text = "Needs %d timber + %d softmetal\nCarry %d timber + %d softmetal\nParts %d / %d · metal needs the pod bench" % [
+		recipe_label.text = "Needs %d timber + %d softmetal\nCarry %d timber + %d softmetal\nParts %d / %d · metal needs a workshop" % [
 			cost.get("timber", 0), cost.get("softmetal", 0), cargo.get("timber", 0),
 			cargo.get("raw", 0), total_parts, snapshot.get("component_capacity", 0)]
 		for index in COMPONENTS.size():
@@ -466,7 +497,7 @@ class ArrivalAssemblyControls:
 			component_choice.set_item_text(index, "%s  ×%d" % [item[1], components.get(item[0], 0)])
 		# Let the hub report missing input, full output and distance using its
 		# confirmed result. The bill above stays visible before the attempt.
-		craft_button.disabled = not ready or snapshot.get("fabrication_hub", {}).is_empty() or cost.is_empty()
+		craft_button.disabled = not ready or selected_bench.is_empty() or cost.is_empty()
 		field_craft_button.visible = not cost.is_empty() and int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
 		field_craft_button.disabled = not ready or not field_craft_button.visible
 		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
@@ -495,8 +526,8 @@ class ArrivalAssemblyControls:
 		else:
 			part_choice.select(selected_part)
 			var recipe: Dictionary = part_recipes[selected_part]
-			part_cost_label.text = "Needs %d timber + %d softmetal\nMake beside the pod" % [recipe.get("timber", 0), recipe.get("softmetal", 0)]
-			part_craft_button.disabled = not ready or snapshot.get("fabrication_hub", {}).is_empty()
+			part_cost_label.text = "Needs %d timber + %d softmetal\nMake beside the selected workshop" % [recipe.get("timber", 0), recipe.get("softmetal", 0)]
+			part_craft_button.disabled = not ready or selected_bench.is_empty()
 			part_place_button.disabled = not ready or selected_count < 1
 			part_place_button.text = "Connect shafts" if recipe.get("kind") == "belt" else "Place kit"
 		route_status_label.text = _receiver_route_status(snapshot)
@@ -635,14 +666,18 @@ class ArrivalAssemblyControls:
 		var host = _host_view()
 		if host != null:
 			refresh(host.state, host.client, host.selected, host._can_control_character())
+			host._update_cursor()
+
+	func _bench_selected(index: int) -> void:
+		if index >= 0 and index < _bench_ids.size():
+			selected_bench = _bench_ids[index]
 
 	func _craft() -> void:
 		var host = _host_view()
 		if host == null:
 			return
-		var hub: Dictionary = _snapshot.get("fabrication_hub", {})
-		if not hub.is_empty():
-			host.issue({"action": "craft_component", "entity": hub.id, "component": selected_component})
+		if not selected_bench.is_empty():
+			host.issue({"action": "craft_component", "entity": selected_bench, "component": selected_component})
 
 	func _field_craft() -> void:
 		var host = _host_view()
@@ -654,11 +689,10 @@ class ArrivalAssemblyControls:
 		var recipes: Array = _snapshot.get("part_recipes", [])
 		if host == null or selected_part < 0 or selected_part >= recipes.size():
 			return
-		var hub: Dictionary = _snapshot.get("fabrication_hub", {})
-		if hub.is_empty():
+		if selected_bench.is_empty():
 			return
 		var recipe: Dictionary = recipes[selected_part]
-		host.issue({"action": "craft_part", "entity": hub.id,
+		host.issue({"action": "craft_part", "entity": selected_bench,
 			"role": "waterwheel" if recipe.get("kind") == "wheel" else recipe.get("kind"),
 			"half_span": recipe.get("half_span", 0)})
 

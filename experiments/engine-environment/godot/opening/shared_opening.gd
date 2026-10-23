@@ -289,14 +289,14 @@ func _settle_pending() -> void:
 			if item.action.action == "craft_component":
 				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 					"inventory_full": "Your component bag is full. Place a carried part to make room.",
-					"out_of_reach": "Move beside the pod workshop to craft this component."}.get(result.get("reason", ""), refusal)
+					"out_of_reach": "Move beside the selected workshop to craft this component."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "field_craft":
 				refusal = {"unavailable_input": "Gather the timber shown for this component.",
 					"inventory_full": "Your component bag is full. Place a carried part to make room.",
-					"unavailable_recipe": "Metal components need the pod bench."}.get(result.get("reason", ""), refusal)
+					"unavailable_recipe": "Metal components need a workshop."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "craft_part":
 				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
-					"out_of_reach": "Move beside the pod workshop to make a transmission kit.",
+					"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 					"quantity_overflow": "Too many of this kit are already carried."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "reclaim_component" and result.get("reason", "") == "inventory_full":
 				refusal = "Your component bag is full. Place another carried part before reclaiming."
