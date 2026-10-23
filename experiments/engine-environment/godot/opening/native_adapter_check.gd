@@ -116,7 +116,7 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
-	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -448,6 +448,74 @@ func _arrival_capacity_run(panel) -> void:
 		return
 	_record("pass")
 
+func _arrival_reveal_run(capture_prefix: String) -> void:
+	while not opening.arrival_reveal_active and Time.get_ticks_msec() < deadline:
+		await process_frame
+	var before: Dictionary = opening.model.projection()
+	if not _expect(opening.arrival_reveal_active
+			and opening.landing_pod_visual.position.y > 6.0
+			and not opening.landing_hub_visual.visible
+			and not opening.character_presenter.visible
+			and not opening.arrival_gameplay_canvas.visible and opening.arrival_reveal_canvas.visible
+			and root.get_camera_3d() == opening.camera
+			and opening.camera.position.distance_to(opening.arrival_reveal_pod_anchor + Vector3(7.0, 17.0, 17.0)) < 2.0
+			and not opening._can_control_character(),
+			"A fresh arrival begins above the native deck with the actor held during the brief reveal: %s" %
+			str([opening.arrival_reveal_active, opening.arrival_reveal_elapsed,
+				opening.landing_pod_visual.position.y, opening.landing_hub_visual.visible,
+				opening.character_presenter.visible, opening.camera.position,
+				root.get_camera_3d() == opening.camera,
+				opening._can_control_character(), opening.arrival_reveal_probe])):
+		return
+	if mode == "arrival-reveal-skip":
+		opening._finish_arrival_reveal()
+	else:
+		if not capture_prefix.is_empty():
+			await RenderingServer.frame_post_draw
+			var approach: Image = root.get_texture().get_image()
+			if not _expect(approach != null and approach.save_png(capture_prefix + "-approach.png") == OK,
+					"The passive approach viewport is retained"):
+				return
+		while opening.arrival_reveal_elapsed < 1.7 and Time.get_ticks_msec() < deadline:
+			await process_frame
+		if not _expect(opening.arrival_reveal_active
+				and opening.landing_pod_visual.position.distance_to(opening.arrival_reveal_pod_anchor) < 0.01
+				and opening.landing_hub_visual.visible,
+				"The native pod touches down before the bench and deck finish unfolding"):
+			return
+		if not capture_prefix.is_empty():
+			await RenderingServer.frame_post_draw
+			var touchdown: Image = root.get_texture().get_image()
+			if not _expect(touchdown != null and touchdown.save_png(capture_prefix + "-touchdown.png") == OK,
+					"The passive touchdown viewport is retained"):
+				return
+		while opening.arrival_reveal_active and Time.get_ticks_msec() < deadline:
+			await process_frame
+	var after: Dictionary = opening.model.projection()
+	var deck_settled := true
+	for panel in opening.machine_root.get_children():
+		if panel.get_meta("arrival_deck_panel", false):
+			var deck_panel := panel as Node3D
+			deck_settled = deck_settled and deck_panel.position.distance_to(deck_panel.get_meta("arrival_deck_anchor")) < 0.001 \
+				and deck_panel.scale == Vector3.ONE and deck_panel.visible
+	if not _expect(not opening.arrival_reveal_active and opening._can_control_character()
+			and opening.landing_pod_visual.position.distance_to(opening.arrival_reveal_pod_anchor) < 0.001
+			and opening.landing_hub_visual.visible and opening.landing_hub_visual.scale == Vector3.ONE
+			and opening.character_presenter.visible and opening.arrival_gameplay_canvas.visible
+			and not opening.arrival_reveal_canvas.visible and deck_settled
+			and after.landing_pod == before.landing_pod and after.fabrication_hub == before.fabrication_hub
+			and after.foundations == before.foundations and after.cargo == before.cargo
+			and after.hand_sources == before.hand_sources and after.hand_crank == before.hand_crank,
+			"Finishing or skipping restores the ordinary camera, controls and settled native pod visual"):
+		return
+	if not capture_prefix.is_empty():
+		await RenderingServer.frame_post_draw
+		var settled: Image = root.get_texture().get_image()
+		if not _expect(settled != null and settled.save_png(capture_prefix + "-settled.png") == OK,
+				"The passive settled viewport is retained"):
+			return
+	_record("pass")
+
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
@@ -455,12 +523,14 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	opening.auto_advance = false
+	opening.auto_advance = mode == "arrival-reveal"
+	opening.arrival_reveal_probe = mode == "arrival-reveal-skip" \
+		or (mode == "arrival-resume" and "--arrival-reveal-probe" in OS.get_cmdline_user_args())
 	root.add_child(opening)
 	if not _expect(opening.model is NativeModel and opening.model.projection().has("fabrication_hub"),
 			"The ordinary arrival scene exposes its native pod hub"):
@@ -473,6 +543,9 @@ func _arrival_run() -> void:
 			break
 	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor(),
 			"The physical actor reaches the scene floor"):
+		return
+	if mode in ["arrival-reveal", "arrival-reveal-skip"]:
+		await _arrival_reveal_run(capture_prefix)
 		return
 	var pod_state: Dictionary = opening.model.projection()
 	if not _expect(opening.landing_pod_visual != null and opening.landing_hub_visual != null
@@ -520,7 +593,8 @@ func _arrival_run() -> void:
 				and restored.cargo.P.components.get("wooden_shaft", 0) == 1
 				and restored.press_assemblies.size() == 1 and restored.press_assemblies[0].status == "ready"
 				and restored.hand_crank.holder == "P" and panel.visible
-				and opening.landing_pod_visual != null and not opening.landing_crank_visual.visible,
+				and opening.landing_pod_visual != null and not opening.landing_crank_visual.visible
+				and not opening.arrival_reveal_active,
 				"A fresh process reopens the press, unplaced collector bill and one held crank"):
 			return
 		panel.crank_button.pressed.emit()
