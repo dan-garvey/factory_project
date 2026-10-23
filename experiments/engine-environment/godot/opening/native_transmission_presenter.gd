@@ -1070,6 +1070,24 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 	var worked := Finish.material("worked", Color("9aaba5"), 0.78, 0.36)
 	var dark := Finish.material("cast", Color("354442"), 0.72, 0.52)
 	match kind:
+		"wooden_workbench":
+			# The issued component box seats this whole work surface on the floor.
+			# Its separate visible joinery makes a player-built station legible
+			# beside the more elaborate pod workshop.
+			for x in [-0.245, 0.245]:
+				for z in [-0.205, 0.205]:
+					_support_box(anchor, "WorkbenchLeg%d" % anchor.get_child_count(),
+						Vector3(x, -0.385, z), Vector3(0.065, 0.79, 0.065), timber, true)
+			for z in [-0.205, 0.205]:
+				_support_box(anchor, "WorkbenchStretcher%d" % anchor.get_child_count(),
+						Vector3(0, -0.48, z), Vector3(0.55, 0.055, 0.045), timber, true)
+			_support_box(anchor, "WorkbenchTop", Vector3(0, 0.035, 0),
+				Vector3(0.64, 0.07, 0.55), timber, true)
+			for x in [-0.19, 0.0, 0.19]:
+				_support_box(anchor, "WorkbenchPlankSeam%d" % anchor.get_child_count(),
+					Vector3(x, 0.071, 0), Vector3(0.012, 0.003, 0.51), dark)
+			_support_box(anchor, "WorkbenchEdgeBand", Vector3(0, 0.035, -0.275),
+				Vector3(0.62, 0.045, 0.025), worked)
 		"wooden_frame":
 			for x in [-0.155, 0.155]:
 				for z in [-0.155, 0.155]:

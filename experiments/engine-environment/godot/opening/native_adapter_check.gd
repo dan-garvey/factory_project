@@ -103,7 +103,7 @@ func _arrival_field_craft_run(panel) -> void:
 	panel.craft_button.pressed.emit()
 	if not _expect(opening.model.projection().order == distant.order + 1
 			and opening.model.projection().cargo == distant.cargo
-			and "Move beside the pod workshop" in opening.status_label.text,
+			and "Move beside the selected workshop" in opening.status_label.text,
 			"The physical field position is beyond bench crafting reach"):
 		return
 	for index in range(3):
@@ -124,7 +124,7 @@ func _arrival_field_craft_run(panel) -> void:
 	var rejected: Dictionary = _issue({"action": "field_craft", "component": "cutting_edge"})
 	if not _expect(not rejected.accepted and rejected.reason == "unavailable_recipe"
 			and opening.model.projection().cargo == shaped.cargo
-			and "pod bench" in opening.status_label.text,
+			and "a workshop" in opening.status_label.text,
 			"The field tool refuses metal while preserving the shaped frame"):
 		return
 	var saved: Dictionary = opening._save_worksite()
@@ -133,6 +133,93 @@ func _arrival_field_craft_run(panel) -> void:
 	if not _expect(saved.accepted and saved.native_preflight.accepted
 			and FileAccess.file_exists(opening.save_slot),
 			"Store saves the field-shaped component and source depletion from the real actor"):
+		return
+	_record("pass")
+
+func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
+	var bench_choice: int = panel.COMPONENTS.size() - 1
+	if not _expect(panel.COMPONENTS[bench_choice][0] == "wooden_workbench"
+			and panel.bench_choice.item_count == 1,
+			"The ordinary menu lists the finite workbench recipe and original pod workshop"):
+		return
+	panel.component_choice.select(bench_choice)
+	panel._component_selected(bench_choice)
+	if not await _approach(Vector2(6.0, 3.45)):
+		return
+	for index in range(4):
+		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+			return
+	var cut: Dictionary = opening.model.projection()
+	panel.field_craft_button.pressed.emit()
+	var shaped: Dictionary = opening.model.projection()
+	if not _expect(shaped.order == cut.order + 1 and shaped.cargo.P.timber == 0
+			and shaped.cargo.P.components.get("wooden_workbench", 0) == 1
+			and shaped.hand_sources["tree-east-south"].remaining == 4,
+			"Four real timber cuts become one carried workbench through the field tool"):
+		return
+	opening._select_tool("component")
+	var tile := Vector2i(4, 3)
+	if not _expect(opening._component_place_center(tile, "") == [16, 0, 12],
+			"The workbench uses a whole tile on the common construction grid"):
+		return
+	opening._world_click(tile)
+	var installed: Dictionary = opening.model.projection()
+	if not _expect(installed.placed_components.size() == 1 and installed.fabrication_benches.size() == 1
+			and installed.cargo.P.components.get("wooden_workbench", 0) == 0,
+			"Ordinary placement moves the one crafted bench into confirmed world custody"):
+		return
+	var id: String = installed.fabrication_benches[0].id
+	var visible_bench := false
+	for node in opening.transmission_presenter.get_children():
+		if node.get_meta("component_entity", "") == id:
+			visible_bench = node.get_node_or_null("WorkbenchTop") != null
+	if not _expect(opening.actor_world.component_bodies.has(id) and visible_bench,
+			"The placed identity has a physical pick body and a distinct rendered work surface"):
+		return
+	if not await _approach(Vector2(0.0, 1.65)):
+		return
+	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		return
+	panel.bench_choice.select(1)
+	panel._bench_selected(1)
+	var edge_index := 6
+	panel.component_choice.select(edge_index)
+	panel._component_selected(edge_index)
+	var remote: Dictionary = opening.model.projection()
+	panel.craft_button.pressed.emit()
+	var refused: Dictionary = opening.model.projection()
+	if not _expect(refused.order == remote.order + 1 and refused.cargo == remote.cargo
+			and panel.selected_bench == id and "selected workshop" in opening.status_label.text,
+			"Selecting the placed bench does not spend distant ore or craft remotely"):
+		return
+	if not await _approach(Vector2(6.0, 4.95)):
+		return
+	panel.craft_button.pressed.emit()
+	var crafted: Dictionary = opening.model.projection()
+	if not _expect(crafted.order == refused.order + 1 and crafted.cargo.P.raw == 0
+			and crafted.cargo.P.components.get("cutting_edge", 0) == 1
+			and crafted.fabrication_benches[0].id == id,
+			"The ordinary crafting menu spends one carried ore at the selected built bench"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		# An isolated presentation view inspects the confirmed body. It changes
+		# only the camera and never the physical actor or material transaction.
+		opening._select_tool("inspect")
+		opening.camera.global_position = Vector3(8.8, 2.3, 7.8)
+		opening.camera.look_at(Vector3(6.6, 0.85, 4.95))
+		await RenderingServer.frame_post_draw
+		var image: Image = root.get_texture().get_image()
+		if not _expect(image != null and image.save_png(capture_prefix + "-workbench.png") == OK,
+				"The confirmed workbench presentation frame is retained"):
+			return
+	opening.selected = id
+	opening._refresh_ui()
+	panel.reclaim_button.pressed.emit()
+	var reclaimed: Dictionary = opening.model.projection()
+	if not _expect(reclaimed.fabrication_benches.is_empty()
+			and reclaimed.cargo.P.components.get("wooden_workbench", 0) == 1
+			and reclaimed.cargo.P.components.get("cutting_edge", 0) == 1,
+			"Reclaiming the exact selected bench returns its component without refunding the ore"):
 		return
 	_record("pass")
 
@@ -159,7 +246,7 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
-	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -954,7 +1041,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -1007,6 +1094,9 @@ func _arrival_run() -> void:
 	var panel = opening.arrival_assembly_controls
 	if mode == "arrival-field-craft":
 		await _arrival_field_craft_run(panel)
+		return
+	if mode == "arrival-portable-workbench":
+		await _arrival_portable_workbench_run(panel, capture_prefix)
 		return
 	if mode in ["arrival-belt", "arrival-belt-controls"]:
 		await _arrival_belt_run(panel, capture_prefix)
@@ -1108,14 +1198,14 @@ func _arrival_run() -> void:
 	if not _expect(distant_after.order == distant_before.order + 1
 			and distant_after.cargo == distant_before.cargo
 			and distant_after.hand_sources == distant_before.hand_sources
-			and "Move beside the pod workshop" in opening.status_label.text,
+			and "Move beside the selected workshop" in opening.status_label.text,
 			"A remote hub attempt records a refusal and preserves the complete carried bill"):
 		return
 	if not await _approach(Vector2(1.65, 6.6)):
 		return
 	var initial: Dictionary = opening.model.projection()
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
-			and initial.placed_components.is_empty() and initial.component_recipes.size() == 11,
+			and initial.placed_components.is_empty() and initial.component_recipes.size() == 12,
 			"Two finite trees and the ore deposit supply both chapter bills without gifted machines"):
 		return
 	var part_list := ["wooden_frame", "anvil", "ram_face", "sliding_guide",

@@ -5243,6 +5243,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"input_full": "Recover or process the existing blank first.",
 			"unavailable_input": "Carry an ore blank or feed the selected press first.",
 			"site_occupied": "Rock or scenery blocks that placement or press route.",
+			"unsupported_bench": "Set the workbench on clear ground or a foundation top.",
 			"actor_unready": "Your character is not ready yet. Wait a moment.",
 			"actor_occupied": "A character is in that square. Move clear before placing the machine.",
 			"powered": "Stop the drive before changing the machinery.",
@@ -5255,14 +5256,14 @@ func issue(action: Dictionary) -> Dictionary:
 		if action.action == "craft_component":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
-				"out_of_reach": "Move beside the pod workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
+				"out_of_reach": "Move beside the selected workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "field_craft":
 			refusal = {"unavailable_input": "Gather the timber shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
-				"unavailable_recipe": "Metal components need the pod bench."}.get(outcome.get("reason", ""), refusal)
+				"unavailable_recipe": "Metal components need a workshop."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "craft_part":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
-				"out_of_reach": "Move beside the pod workshop to make a transmission kit.",
+				"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
 			refusal = "Your component bag is full. Place another carried part before reclaiming."
@@ -6198,6 +6199,9 @@ func _screen_entity(screen: Vector2) -> String:
 func _component_place_center(cell: Vector2i, pointed: String) -> Array:
 	# One quarter-grid step off a confirmed component face builds a stack or
 	# lateral drive. Host still decides support, occupancy, custody and reach.
+	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "wooden_workbench":
+		return [cell.x * Geometry.HEIGHT_DENOMINATOR, _construction_level(cell),
+			cell.y * Geometry.HEIGHT_DENOMINATOR]
 	var placed: Dictionary = state.get("placed_components", {})
 	if placed.has(pointed):
 		var hit := _screen_pick(_pointed_screen_position())
@@ -7972,9 +7976,12 @@ func _refresh_ui() -> void:
 		inspector.text = _belt_inspection(state.belt_spans[selected], state.get("motion", {}))
 	elif _native_transmission() and state.get("placed_components", {}).has(selected):
 		var component: Dictionary = state.placed_components[selected]
-		inspector.text = "%s\nGrid center %s\nReclaim with Delete or choose a press route below." % [
+		var detail := "Choose this workshop under Craft parts, then stand nearby to use it."
+		if component.get("component", "") != "wooden_workbench":
+			detail = "Reclaim with Delete or choose a press route below."
+		inspector.text = "%s\nGrid center %s\n%s" % [
 			str(component.get("component", "part")).replace("_", " ").capitalize(),
-			str(component.get("center", []))]
+			str(component.get("center", [])), detail]
 	else:
 		inspector.text = "Point at a machine and press E to open it."
 	inspector.tooltip_text = inspector.text
@@ -8038,7 +8045,10 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		(wheel_size_controls.get_child(0) as Button).text = "−  [Shift+PgDn]"
 		(wheel_size_controls.get_child(2) as Button).text = "+  [Shift+PgUp]"
 	if component_height_controls != null:
-		component_height_controls.visible = _native_transmission() and mode == "component" and not explanation_open
+		var whole_tile_component: bool = arrival_assembly_controls != null \
+			and arrival_assembly_controls.selected_name() == "wooden_workbench"
+		component_height_controls.visible = _native_transmission() and mode == "component" \
+			and not explanation_open and not whole_tile_component
 		component_height_label.text = "Height: %+d steps" % component_level
 		component_offset_controls.visible = component_height_controls.visible
 		component_offset_label.text = "X %+d · Z %+d" % [component_offset.x, component_offset.y]
@@ -8615,7 +8625,8 @@ func _update_cursor() -> void:
 		if hover.visible:
 			hover.position = Vector3(center[0] * Geometry.HEIGHT_STEP,
 				center[1] * Geometry.HEIGHT_STEP + 0.03, center[2] * Geometry.HEIGHT_STEP)
-			hover.scale = Vector3(0.25, 1.0, 0.25)
+			hover.scale = Vector3.ONE if arrival_assembly_controls != null \
+				and arrival_assembly_controls.selected_name() == "wooden_workbench" else Vector3(0.25, 1.0, 0.25)
 		_refresh_placement_options()
 		return
 	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \
