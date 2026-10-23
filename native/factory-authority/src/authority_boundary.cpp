@@ -33,7 +33,10 @@ struct Budget {
     std::size_t nodes{};
     std::size_t bytes{};
     bool node(std::size_t depth) {
-        return depth <= 32 && ++nodes <= 100000;
+        // A full command-built worksite can reach the 4,096-record envelope
+        // before its shallow placement receipts exhaust the node allowance.
+        // Keep the value graph bounded independently of the byte/depth limits.
+        return depth <= 32 && ++nodes <= maximum_records * 64;
     }
     bool text(const std::string& value) {
         constexpr std::size_t total = 4 * 1024 * 1024;
