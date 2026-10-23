@@ -3394,17 +3394,20 @@ class ProductionEnvironment:
 		var solids: Array = Surface.support_boxes()
 		var random := RandomNumberGenerator.new()
 		random.seed = 718093
-		for patch_index in range(24):
+		# Overlapping, compact patches avoid the isolated tufts left by the
+		# previous wide spiral while retaining cullable local groups.
+		const patch_count := 40
+		for patch_index in range(patch_count):
 			var heading := float(patch_index) * 2.399963 + random.randf_range(-0.7, 0.7)
-			var radius := sqrt(float(patch_index) / 24.0) * 27.0
+			var radius := sqrt(float(patch_index) / float(patch_count)) * 27.0
 			var center := Vector3(1.65 + cos(heading) * radius, 0.0, 1.65 + sin(heading) * radius)
 			center.y = Surface.height_at(center.x, center.z)
 			var buffer := PackedFloat32Array()
 			var bounds := AABB()
 			var count := 0
-			for candidate in range(32):
+			for candidate in range(48):
 				var angle := random.randf_range(0.0, TAU)
-				var spread := sqrt(random.randf()) * 2.2
+				var spread := sqrt(random.randf()) * 3.0
 				var root_position := center + Vector3(cos(angle) * spread, 0.0, sin(angle) * spread)
 				root_position.y = Surface.height_at(root_position.x, root_position.z)
 				var up := _terrain_facet_normal(root_position.x, root_position.z)
