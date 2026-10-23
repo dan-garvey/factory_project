@@ -2327,11 +2327,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 Advance World::tick() noexcept {
     return owner_->advance([&](const Snapshot& snapshot) -> std::optional<State> {
         auto candidate = snapshot.state;
-        const auto power = machine_power(profile_, candidate);
+        // Material stepping changes custody, not the placed power graph. Reuse
+        // one graph evaluation for machine work and signed belt movement.
+        const auto drive = drive_power(profile_, candidate);
+        const auto power = machine_power_from(candidate.topology, drive);
         const auto error = materials::step(candidate.material, profile_.material,
             material_path(candidate.topology), power);
         if (error != materials::Error::none) throw error;
-        const auto motion = drive_power(profile_, candidate).mechanical;
+        const auto& motion = drive.mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
         // Only an assembled tray may feed the adjacent belt mouth. A tray is
         // one quarter-grid step from its frame; the belt endpoint is the next
