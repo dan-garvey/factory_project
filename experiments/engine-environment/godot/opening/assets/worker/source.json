@@ -91,6 +91,11 @@
       "sha256": "21065db6c481b81253e01e845758acfa82c14d1952155a6edc146e46547d8d84"
     },
     {
+      "path": "body_field_suit_color.png",
+      "bytes": 1919475,
+      "sha256": "a7f9a859152bc08d5190ece999dde533511111ee9ca0a3e5795e962e81d0d810"
+    },
+    {
       "path": "body_normal.webp",
       "bytes": 247050,
       "sha256": "42faaadfaa14229a8a0c9f6e030da84fcc7c76c090ba33179e3b559489e41776"
@@ -111,6 +116,13 @@
       "sha256": "ac79fee0043818d9de908871d86be65176b278f0950239e6f5c552da1e6831fc"
     }
   ],
+  "wardrobe_variant": {
+    "path": "body_field_suit_color.png",
+    "method": "Image-generated edit of the included MIT-licensed body_color.webp atlas",
+    "extent": [1254, 1254],
+    "scope": "The field_suit.gdshader samples the original atlas for its garment mask, skin and empty margins, and samples this variant only on classified jacket and trouser pixels; original adult rig, head maps, body normal and physical actor stay unchanged",
+    "limit": "The generated image does not have pixel-identical UV islands. The original atlas mask bounds its use, but UV fit and attractiveness still require human inspection of the actual rendered character"
+  },
   "geometry": {
     "surfaces": 3,
     "render_vertices": 5438,

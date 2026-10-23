@@ -275,7 +275,7 @@ func _adult_image(path: String) -> Image:
 		return null
 	return image
 
-func _adult_material(material_name: String) -> StandardMaterial3D:
+func _adult_material(material_name: String) -> Material:
 	var stem: String = {"f001_body": "body", "f001_head": "head", "f001_opacity": "opacity"}.get(material_name, "")
 	if stem.is_empty():
 		return null
@@ -283,6 +283,21 @@ func _adult_material(material_name: String) -> StandardMaterial3D:
 	if color == null or color.is_empty():
 		return null
 	color.generate_mipmaps()
+	if stem == "body":
+		var suit := _adult_image(ADULT_ASSETS + "body_field_suit_color.png")
+		var normal := _adult_image(ADULT_ASSETS + "body_normal.webp")
+		var shader := load(ADULT_ASSETS + "field_suit.gdshader") as Shader
+		if suit == null or suit.is_empty() or normal == null or normal.is_empty() or shader == null:
+			return null
+		suit.generate_mipmaps()
+		normal.generate_mipmaps(true)
+		var field_suit := ShaderMaterial.new()
+		field_suit.resource_name = material_name
+		field_suit.shader = shader
+		field_suit.set_shader_parameter("base_albedo", ImageTexture.create_from_image(color))
+		field_suit.set_shader_parameter("suit_albedo", ImageTexture.create_from_image(suit))
+		field_suit.set_shader_parameter("body_normal_map", ImageTexture.create_from_image(normal))
+		return field_suit
 	var material := StandardMaterial3D.new()
 	material.resource_name = material_name
 	material.albedo_texture = ImageTexture.create_from_image(color)
@@ -830,7 +845,7 @@ func _prepare_adult_template() -> bool:
 		return false
 	for surface in range(mesh.mesh.get_surface_count()):
 		var source: Material = mesh.mesh.surface_get_material(surface)
-		var material: StandardMaterial3D = _adult_material(source.resource_name if source != null else "")
+		var material: Material = _adult_material(source.resource_name if source != null else "")
 		if material == null:
 			appearance.free()
 			return false
