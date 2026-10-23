@@ -159,6 +159,14 @@ each stage, and invokes only these two commands:
    private save-slot path. No custom script, observer, state fixture or legacy
    profile is injected.
 
+The human Windows shortcut enters this tool through
+`scripts/run-human-startup.sh`. That tracked wrapper passes `--inherit-permits`
+to `factory-local heavy`: the startup process must retain the admitted heavy and
+activity descriptors for its own bounded engine-child runner. Omitting them
+fails before import with an `options` error; it does not indicate a broken game
+build. The final interactive Godot process is a separate admitted command and
+does not inherit these runner descriptors.
+
 For an existing worksite, add `--resume /absolute/previous.factory`. The launcher
 copies that opaque Store binary to a separate read-only `incoming.factory` and
 passes the existing `--resume-input` argument to the same ordinary scene. Only
