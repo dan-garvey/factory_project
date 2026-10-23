@@ -104,9 +104,7 @@ func set_lesson(index: int) -> void:
 	model = Model.new("opening-example-1", ["P"])
 	world.model = model
 	if not model.boot_result.get("accepted", false):
-		readout.text = "The native teaching example is unavailable."
-		step_button.disabled = true
-		recover_button.disabled = true
+		_refresh()
 		return
 	# The isolated Host uses the same finite kit, site, rules and placement
 	# commands as a worksite. Observations only supply this example's reach.
@@ -170,6 +168,12 @@ func _recover() -> void:
 	_refresh()
 
 func _refresh() -> void:
+	if model == null or not model.boot_result.get("accepted", false):
+		readout.text = "The native teaching example is unavailable."
+		inspect_label.text = "The example cannot inspect parts until its native rules are available."
+		step_button.disabled = true
+		recover_button.visible = false
+		return
 	world._refresh()
 	var state: Dictionary = model.projection()
 	var stock: Dictionary = state.stock
