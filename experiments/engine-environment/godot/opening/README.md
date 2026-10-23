@@ -23,6 +23,9 @@ receiver and point at it with **E**. The native receipt removes exactly one
 plate from actor cargo, persists through save/rejoin and leaves the workshop
 open for more construction. The four-plate confirmation above describes the
 older complete-machine fixture, not an arrival objective.
+The workshop starts as two compact tabs. Choose **Craft parts** or **Press work**
+to open its controls; choose the same tab again to close them. Point at a
+workshop, collector or press and use **E** to open its relevant controls directly.
 The detached `--script res://opening/guidance_cue_check.gd -- --camera-zoom-only`
 verifies offline and shared camera transitions without launching a controlled
 game session.

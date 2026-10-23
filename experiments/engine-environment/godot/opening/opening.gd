@@ -6197,6 +6197,8 @@ func _open_pointed_machine() -> void:
 	_select_tool("inspect")
 	selected = target
 	_refresh_ui()
+	if arrival_assembly_controls != null:
+		arrival_assembly_controls.open_context()
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
