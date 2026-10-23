@@ -303,6 +303,34 @@ func _component_view() -> void:
 		outward_faces = outward_faces and cross.dot(fold_normals[index]) < -0.000001
 	verify(open_cavity and outward_faces and pan.mesh.get_aabb().size.y > 0.12,
 		"Both raised sheet folds face outward while leaving the receiver cavity open.")
+	var receiver_detail := {"ReceiverHook": 0, "ReceiverUnderRail": 0,
+		"ReceiverRolledSide": 0, "ReceiverRolledEnd": 0, "ReceiverRivet": 0}
+	var hooks_reach_near_edge := true
+	for child in anchors.tray.get_children():
+		for role: String in receiver_detail:
+			if not str(child.name).begins_with(role):
+				continue
+			receiver_detail[role] += 1
+			if role == "ReceiverHook":
+				hooks_reach_near_edge = hooks_reach_near_edge and child.position.z < -0.18
+	verify(receiver_detail == {"ReceiverHook": 2, "ReceiverUnderRail": 2,
+		"ReceiverRolledSide": 2, "ReceiverRolledEnd": 2, "ReceiverRivet": 4}
+		and hooks_reach_near_edge,
+		"The open receiver has two frame-facing hooks, underside rails and restrained rolled-rim fasteners: %s, near=%s." %
+		[str(receiver_detail), str(hooks_reach_near_edge)])
+	var bed: MeshInstance3D = anchors.frame.get_node("OpenWorkBed")
+	var near_hook: MeshInstance3D = anchors.tray.get_node("ReceiverHookLeft")
+	var bed_box: AABB = bed.mesh.get_aabb()
+	var hook_box: AABB = near_hook.mesh.get_aabb()
+	var bed_far_z: float = anchors.frame.position.z + bed.position.z + bed_box.end.z
+	var hook_near_z: float = anchors.tray.position.z + near_hook.position.z + hook_box.position.z
+	var bed_low_y: float = anchors.frame.position.y + bed.position.y + bed_box.position.y
+	var bed_high_y: float = anchors.frame.position.y + bed.position.y + bed_box.end.y
+	var hook_low_y: float = anchors.tray.position.y + near_hook.position.y + hook_box.position.y
+	var hook_high_y: float = anchors.tray.position.y + near_hook.position.y + hook_box.end.y
+	verify(hook_near_z > bed_far_z and hook_near_z - bed_far_z <= 0.01
+		and hook_low_y < bed_high_y and hook_high_y > bed_low_y,
+		"The frame bed and receiver hooks mate across only the native occupied-box clearance.")
 	for id in parsed.boxes:
 		var spec: Dictionary = parsed.boxes[id]
 		var body: StaticBody3D = physical.component_bodies[id]

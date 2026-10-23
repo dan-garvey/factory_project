@@ -123,6 +123,12 @@ Value profile_value(const Profile& profile) {
     if (profile.landing_pod_center) {
         const auto& center = *profile.landing_pod_center;
         output.emplace("landing_pod_center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])}));
+        Array recipes;
+        for (const auto& [spec, cost] : profile.fabrication_parts)
+            recipes.emplace_back(Object{{"role", Value(static_cast<Integer>(spec.role))},
+                {"teeth", Value(spec.teeth)}, {"half_span", Value(spec.half_span)},
+                {"timber", Value(cost.timber)}, {"raw", Value(cost.ore)}});
+        output.emplace("fabrication_parts", Value(std::move(recipes)));
     }
     if (!profile.collector_faces.empty()) {
         Array faces;

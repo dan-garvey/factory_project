@@ -96,6 +96,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--multitool-view-only" in OS.get_cmdline_user_args():
+		call_deferred("_multitool_presentation")
+		return
 	if "--hand-trees-only" in OS.get_cmdline_user_args():
 		call_deferred("_hand_tree_views")
 		return
@@ -187,6 +190,71 @@ func hotbar_observation() -> Dictionary:
 		"links": [], "drive_links": [], "inventories": {"P": 0, "Q": 0},
 		"stock": {"source": 4096, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
 		"remaining": 0, "powered": false, "power_enabled": false}
+
+func _multitool_presentation() -> void:
+	for shared in [false, true]:
+		var view = SharedWidgets.new() if shared else OfflineWidgets.new()
+		view.client = "P"
+		view.state = hotbar_observation()
+		view.state.hand_sources = {"tree": {"kind": "tree", "position": [2.0, 0.8, 0.0], "remaining": 8}}
+		var original: Dictionary = view.state.duplicate(true)
+		view.camera = Camera3D.new()
+		view.add_child(view.camera)
+		root.add_child(view)
+		view._start_character_presenter()
+		var presenter = view.character_presenter
+		presenter.set_process(false)
+		presenter.set_physics_process(false)
+		var body: Node3D = presenter.views.P.get_node("BodyView")
+		verify(body.has_meta("multitool_attachment"), "The ordinary arriving worker has a visible reusable multitool.")
+		if not body.has_meta("multitool_attachment"):
+			view.free()
+			break
+		var attachment: BoneAttachment3D = body.get_node(body.get_meta("multitool_attachment"))
+		verify(attachment.bone_name == "Bip01 R Hand" and attachment.get_parent() is Skeleton3D,
+			"The tool is attached to the qualified hand rather than the world or native actor body.")
+		var blade: MeshInstance3D = attachment.get_child(0).get_node("CuttingBlade")
+		verify(blade.mesh.get_surface_count() > 0 and blade.mesh.get_aabb().size.z > 0.15,
+			"The cutter has actual blade geometry with a readable authored silhouette.")
+		var q_body: Node3D = presenter.views.Q.get_node("BodyView")
+		var q_attachment: BoneAttachment3D = q_body.get_node(q_body.get_meta("multitool_attachment"))
+		verify(q_attachment.get_child(0).get_node("CuttingBlade").mesh == blade.mesh,
+			"Both shared actors reuse the same tool mesh resources.")
+		verify(presenter.eye_multitool == null, "The third-person view does not allocate a hidden first-person hand.")
+		var identity := attachment.get_instance_id()
+		for frame in range(10):
+			presenter.refresh()
+		verify(body.get_node(body.get_meta("multitool_attachment")).get_instance_id() == identity,
+			"Unchanged presentation reuses the hand attachment.")
+		view.distance = 0.0
+		presenter.refresh()
+		verify(presenter.eye_multitool != null and presenter.eye_multitool.visible and not presenter.views.P.visible and presenter.views.Q.visible,
+			"Eye-level presentation shows one local tool while retaining the other actor's normal body.")
+		var hand: MeshInstance3D = presenter.eye_multitool.get_node("QualifiedRightHand")
+		verify(hand.mesh.get_surface_count() > 0 and hand.mesh.get_aabb().size.length() < 0.35,
+			"The close view uses a bounded hand extracted from the qualified actor, without the hidden torso.")
+		verify(presenter.eye_multitool.get_node("CuttingBlade").mesh == blade.mesh,
+			"First- and third-person presentations use the exact same authored cutter.")
+		var hand_id := hand.mesh.get_instance_id()
+		var tool_id: int = presenter.eye_multitool.get_instance_id()
+		for frame in range(10):
+			presenter.refresh()
+		verify(presenter.eye_multitool.get_instance_id() == tool_id and hand.mesh.get_instance_id() == hand_id,
+			"The close view does not reconstruct its tool or skinned hand every frame.")
+		view.state.actors.P.ready = false
+		presenter.refresh()
+		verify(not presenter.eye_multitool.visible, "An unready actor cannot present an active first-person tool.")
+		view.state.actors.P.ready = true
+		view.distance = 14.0
+		presenter.refresh()
+		verify(not presenter.eye_multitool.visible and presenter.views.P.visible,
+			"Returning to the ordinary camera hides the close view and restores the actual actor.")
+		verify(view.state == original and view.issued.is_empty() and presenter.find_children("*", "CollisionObject3D", true, false).is_empty(),
+			"Tool presentation changes no source stock, actor authority, request or collision body.")
+		view.free()
+		await process_frame
+	print("MULTITOOL_PRESENTATION_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
+	quit(0 if failures == 0 else 1)
 
 func settle_widgets() -> void:
 	for _frame in range(4):

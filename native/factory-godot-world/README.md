@@ -52,10 +52,18 @@ checkpoint fingerprint. A nearby actor holding the unique pod crank can send
 moves one finite ore blank into canonical loose-item custody at its receiver
 center. Native World ticks can move that item onto a correctly positioned,
 outward-running belt endpoint, while stopped, reversed and full inlets retain
-it. The arrival profile does not yet let players fabricate belt spans, so
-this route has native World coverage but no ordinary scene consumer. Full output and missing
-parts, wrong holder and remote poses refuse without a debit. No autonomous
-drive or scene crank input exists yet.
+it. The arrival workshop now offers provisional finite recipes for a waterwheel
+(two timber and one softmetal), a full-tile shaft (one timber), and a belt span
+(two timber and one softmetal). A route with three shafts, one span and one wheel
+embodies seven timber and two ore. These kits stay in the single World inventory,
+with their spent material and installation custody checked against accepted
+history on restore. The ordinary workshop offers the recipes and points out the
+receiver mouth, rotation direction and occupied inlet; a short passive chute
+appears only where a ready receiver meets a placed belt endpoint. The scene
+consumer builds the route from harvested stock through a physical actor and
+checks a transferred blank and a fresh-process Store continuation. Full output
+and missing parts, wrong holder and remote poses refuse without a debit. The
+hand crank cuts a blank at its fitted shaft; the waterwheel powers the belt.
 The read-only `press_assemblies` projection inspects each placed wooden frame
 against the same canonical component records. A ready entry names the separate
 anvil, ram face, guide, mount, shaft and cog, the work and drive centers,
@@ -188,11 +196,12 @@ Vertical and sideways spans transmit rotation without carrying cargo or actors.
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
 logical World checkpoint has schema 8, including the first freight beacon,
 building facings, the trusted interaction offset and identified belt spans.
-The arrival material ledger inside it has schema 10 and retains shipped plate
-custody. Earlier logical formats are
-refused without migration. The physical envelope remains schema 3.
-Its material payload has schema 5, including typed loose material; older material
-payloads are refused rather than migrated.
+The arrival material ledger inside it has schema 11 and retains shipped plate
+custody. Earlier logical formats are refused without migration. The physical
+envelope remains schema 3. Its arrival material payload has schema 11, including
+typed loose material and timber/ore embodied in fabricated stationary kits. The
+nonresource material payload remains schema 6. Earlier payloads are refused
+rather than migrated.
 It retains typed material, kits, topology, issued identities, original history and
 actor seed positions. Native readiness, epochs, object identifiers and velocity
 are process-local and are not saved. Restore requires a fresh unobserved Host;

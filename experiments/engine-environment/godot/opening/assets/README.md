@@ -802,3 +802,9 @@ water, mature firs, rocks and confirmed construction volumes. Confirmed removal 
 plants. These small stems add no collision or saved vegetation state. Historical
 captures without the resource omit them; native resource and presentation checks
 do not establish rendered quality, GPU cost or a general tree interaction policy.
+
+The [original carried multitool](multitool/CREDITS.md) supplies a compact cutter,
+dark grip and reclaim heel as an editable scene. Its materials and bevelled
+geometry are shared by actor hand attachments and the local close view. The
+qualified worker supplies the close-view hand; the tool adds no collision,
+inventory, material transfer or physical movement authority.

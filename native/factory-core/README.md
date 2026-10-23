@@ -25,7 +25,7 @@ fractional shaft rate accumulates without a minimum-speed floor and the exact
 progress follows recovery, carried cargo and checkpoints. Rate changes retain
 exact fractions when their common denominator fits; larger combinations use
 bounded integer rounding. The earlier machine fixture uses material checkpoint
-schema 6. The experimental arrival profile uses schema 10: named finite timber
+schema 6. The experimental arrival profile uses schema 11: named finite timber
 balances and carried timber live beside the existing ore source and raw cargo
 in this same material State. Hand mining ore and the collector debit that same
 source. Strict conservation rejects missing, duplicated or refilled tree stock
@@ -106,8 +106,10 @@ The modular arrival press uses the same WorkLot advance arithmetic. Its manual
 crank starts work on the first turn, advances one baseline work tick on each
 later turn and retains a ready lot at the physical work point when the selected
 exit is full. Multiple work points remain independent inside one material State.
-The material checkpoint schema is 6 and includes belt-lane and typed loose-material custody; earlier
-schemas are refused rather than inventing a compatibility migration.
+The nonresource material checkpoint schema is 6. The arrival resource payload
+uses schema 11 and includes belt-lane and typed loose-material custody plus
+timber and ore embodied in fabricated stationary kits. Earlier schemas are
+refused rather than inventing a compatibility migration.
 
 Product retrieval credits only an already admitted actor's Cargo.products.
 It cannot create a new actor, collect raw material as a plate or consume a work

@@ -1027,7 +1027,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			for z in [-0.155, 0.155]:
 				_support_beam(anchor, "SideBrace", Vector3(-0.14, -0.29, z),
 					Vector3(0.14, 0.22, z), 0.035, timber, true)
-			_support_box(anchor, "OpenWorkBed", Vector3(0, 0.35, 0), Vector3(0.37, 0.06, 0.37), timber, true)
+			_support_box(anchor, "OpenWorkBed", Vector3(0, 0.35, 0), Vector3(0.405, 0.06, 0.405), timber, true)
 			for z in [-0.155, 0.155]:
 				_support_box(anchor, "BedIron", Vector3(0, 0.385, z), Vector3(0.35, 0.012, 0.025), worked, true)
 			for x in [-0.155, 0.155]:
@@ -1117,6 +1117,29 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			pan.name = "OpenPan"
 			pan.mesh = _formed_receiver_pan()
 			anchor.add_child(pan)
+			# The near-side hooks and underside rails give this independently placed
+			# receiver a visible mounting direction without bridging the native
+			# occupied gap or inventing a second material path.
+			for x in [-0.125, 0.125]:
+				var side := "Left" if x < 0.0 else "Right"
+				_support_box(anchor, "ReceiverHook" + side, Vector3(x, 0.005, -0.1925),
+					Vector3(0.045, 0.17, 0.025), dark, true)
+				_support_beam(anchor, "ReceiverUnderRail" + side, Vector3(x, -0.08, -0.185),
+					Vector3(x, 0.005, 0.105), 0.025, dark, true)
+			for x in [-0.161, 0.161]:
+				_support_box(anchor, "ReceiverRolledSide%s" % ("Left" if x < 0.0 else "Right"),
+					Vector3(x, 0.133, 0),
+					Vector3(0.018, 0.014, 0.37), dark, true)
+			for z in [-0.18, 0.18]:
+				_support_box(anchor, "ReceiverRolledEnd%s" % ("Near" if z < 0.0 else "Far"),
+					Vector3(0, 0.133, z),
+					Vector3(0.34, 0.014, 0.018), dark, true)
+			for x in [-0.13, 0.13]:
+				for z in [-0.17, 0.17]:
+					var name_value := "ReceiverRivet%s%s" % ["Left" if x < 0.0 else "Right",
+						"Near" if z < 0.0 else "Far"]
+					var rivet := _support_cylinder(anchor, name_value, 0.009, 0.007, worked)
+					rivet.position = Vector3(x, 0.141, z)
 		"wooden_shaft", "softmetal_shaft":
 			_support_box(anchor, "BearingFoot", Vector3(0, -0.07, 0), Vector3(0.35, 0.07, 0.35), dark)
 			var fitted := drive_direction.length_squared() > 0.5
@@ -1220,6 +1243,66 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
 			spec.size, press_roles.get(id, ""))
 
+func _render_receiver_chutes(snapshot: Dictionary) -> void:
+	# A chute joins only a native ready receiver to a native belt endpoint at
+	# the next full tile. It never creates a material link or a cargo image.
+	var placed: Variant = snapshot.get("placed_components", {})
+	var collectors: Variant = snapshot.get("collector_assemblies", [])
+	var spans: Variant = snapshot.get("belt_spans", {})
+	var parts: Variant = snapshot.get("transmission_parts", {})
+	if not placed is Dictionary or not collectors is Array or not spans is Dictionary or not parts is Dictionary:
+		return
+	for collector: Variant in collectors:
+		if not collector is Dictionary or collector.get("status") != "ready" or not collector.get("parts") is Dictionary:
+			continue
+		var frame: Variant = placed.get(collector.parts.get("frame"))
+		var receiver: Variant = placed.get(collector.parts.get("receiver"))
+		if not frame is Dictionary or not receiver is Dictionary or not frame.get("center") is Array or not receiver.get("center") is Array:
+			continue
+		var frame_grid: Array = frame.center
+		var receiver_grid: Array = receiver.center
+		if frame_grid.size() != 3 or receiver_grid.size() != 3:
+			continue
+		var mouth: Array = []
+		for axis in 3:
+			mouth.append(int(frame_grid[axis]) + 4 * (int(receiver_grid[axis]) - int(frame_grid[axis])))
+		for span_id: Variant in spans:
+			var span: Variant = spans[span_id]
+			if not span is Dictionary:
+				continue
+			var first: Variant = parts.get(span.get("from"))
+			var last: Variant = parts.get(span.get("to"))
+			if not first is Dictionary or not last is Dictionary or not first.get("center") is Array or not last.get("center") is Array:
+				continue
+			var endpoint: Array = first.center if first.center == mouth else last.center if last.center == mouth else []
+			if endpoint.is_empty():
+				continue
+			var tray_at := world_center(receiver_grid)
+			var belt_at := world_center(endpoint)
+			var direction := belt_at - tray_at
+			direction.y = 0.0
+			if direction.length() < 0.5:
+				continue
+			direction = direction.normalized()
+			var start := tray_at + direction * 0.17
+			var finish := belt_at - direction * 0.27
+			var length := start.distance_to(finish)
+			if length < 0.15:
+				continue
+			var chute := Node3D.new()
+			chute.name = "CollectorReceiverChute"
+			chute.set_meta("receiver_entity", collector.parts.receiver)
+			chute.set_meta("belt_span", span_id)
+			chute.position = (start + finish) * 0.5
+			chute.rotation.y = atan2(direction.x, direction.z)
+			add_child(chute)
+			var pan_finish: Material = Finish.material("cast", Color("354442"), 0.72, 0.52)
+			var edge_finish: Material = Finish.material("worked", Color("9aaba5"), 0.78, 0.36)
+			_support_box(chute, "ReceiverChuteBed", Vector3(0, 0.025, 0), Vector3(0.31, 0.035, length), pan_finish, true)
+			for side in [-1.0, 1.0]:
+				_support_box(chute, "ReceiverChuteLip", Vector3(side * 0.165, 0.075, 0),
+					Vector3(0.025, 0.13, length), edge_finish, true)
+
 func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		_clear()
@@ -1274,6 +1357,7 @@ func refresh() -> void:
 	_native_view_context = native_context if native_model else ""
 	_native_view_revision = native_revision if native_model else null
 	_render_placed_components(snapshot, component_result.boxes)
+	_render_receiver_chutes(snapshot)
 	var drops: Variant = snapshot.get("dropped_material", [])
 	if drops is Array:
 		for drop: Variant in drops:
