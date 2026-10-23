@@ -266,6 +266,20 @@ custody to the shipment result. For a passive rendered P run, optional
 they do not establish human understanding, full repeat-order automation or
 usable visual quality by themselves.
 
+`--cog-phase=mirrored-press` continues from that exact first-shipment Store
+and `P-result.bin`. P walks back to the press, reclaims its original wooden
+shaft and cog, and fits those same two parts on the south face of the same
+frame. The native recognizer reports a distinct ready drive. P walks to the
+original collector, cuts and carries another finite ore blank, then uses the
+normal press panel to feed, turn and pick up a second plate. Q independently
+observes the new drive identities and centers, the source debit, the retained
+feed and the product before pickup. `--cog-phase=mirrored-press-resume` checks
+that a fresh host restores the exact second plate, stock and mirrored parts.
+Placement and reclaim use ordinary scene Session commands; walking and panel
+buttons are automated scene callbacks, not human play or pointer-placement
+coverage. This route tests two valid press layouts through the shared scene;
+it does not establish a usable building experience for all orientations.
+
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These
 are host process options, never RPCs. Input is decoded into the one actual
