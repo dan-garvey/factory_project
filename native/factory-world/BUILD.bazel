@@ -48,7 +48,7 @@ cc_test(
 cc_test(
     name = "world_modular_scale_test",
     srcs = ["tests/world_modular_scale_test.cpp"],
-    deps = [":world"],
+    deps = [":checkpoint"],
     size = "medium",
 )
 
