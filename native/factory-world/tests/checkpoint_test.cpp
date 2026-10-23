@@ -999,7 +999,8 @@ void belt_span_material_route() {
                           world->snapshot().state == restored->snapshot().state,
                           "Original and restored lanes continue with identical material custody.");
                 }
-                const auto& material = restored->snapshot().state.material;
+                const auto resumed_snapshot = restored->snapshot();
+                const auto& material = resumed_snapshot.state.material;
                 check(material.stock.input == (reverse || gap ? 0 : 1),
                       "Only an adjacent processor in the direction of travel accepts raw material.");
                 if (reverse) {

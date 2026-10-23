@@ -419,6 +419,17 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
     for (const auto& belt : belts) ordered_belts.push_back(&belt);
     std::sort(ordered_belts.begin(), ordered_belts.end(),
               [](const BeltSpan* a, const BeltSpan* b) { return a->id < b->id; });
+    // A belt may cross many empty tiles. Sort centers once instead of scanning
+    // every placed part at every tile, retaining input-ID order for ties.
+    std::vector<std::size_t> by_center;
+    if (!belts.empty()) {
+        by_center.resize(parts.size());
+        std::iota(by_center.begin(), by_center.end(), 0);
+        std::sort(by_center.begin(), by_center.end(), [&](std::size_t a, std::size_t b) {
+            if (parts[a]->center != parts[b]->center) return parts[a]->center < parts[b]->center;
+            return a < b;
+        });
+    }
     std::set<std::string> belt_ids;
     std::set<Point> belt_tiles;
     for (const auto* belt : ordered_belts) {
@@ -435,8 +446,10 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
         for (const auto& point : path->tiles) {
             if (!belt_tiles.insert(point).second) return failure(Error::invalid_belt, belt->id);
             std::optional<std::size_t> pulley;
-            for (std::size_t i = 0; i < parts.size(); ++i) {
-                if (parts[i]->center != point) continue;
+            auto at = std::lower_bound(by_center.begin(), by_center.end(), point,
+                [&](std::size_t index, const Point& center) { return parts[index]->center < center; });
+            for (; at != by_center.end() && parts[*at]->center == point; ++at) {
+                const auto i = *at;
                 if (pulley || parts[i]->kind != Kind::shaft || parts[i]->axis != first->axis || parts[i]->half_span != 2)
                     return failure(Error::invalid_belt, belt->id);
                 pulley = i;

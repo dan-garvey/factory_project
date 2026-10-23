@@ -152,7 +152,8 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 7 and retains collector/press quarter-turn
+The logical checkpoint uses schema 8 and retains the single identified freight
+beacon, its conserved first shipment and collector/press quarter-turn
 facings as well as identified horizontal, inclined,
 vertical and sideways belt spans and their shaft endpoints. A span counts against the same finite belt
 part inventory as a conveyor. `place_belt_span` consumes a belt and checks

@@ -25,13 +25,15 @@ fractional shaft rate accumulates without a minimum-speed floor and the exact
 progress follows recovery, carried cargo and checkpoints. Rate changes retain
 exact fractions when their common denominator fits; larger combinations use
 bounded integer rounding. The earlier machine fixture uses material checkpoint
-schema 6. The experimental arrival profile uses schema 9: named finite timber
+schema 6. The experimental arrival profile uses schema 11: named finite timber
 balances and carried timber live beside the existing ore source and raw cargo
 in this same material State. Hand mining ore and the collector debit that same
 source. Strict conservation rejects missing, duplicated or refilled tree stock
 on decode. Eleven provisional component recipes each consume only carried
 timber or ore and retain those ingredient weights in actor cargo or installed
 component custody and checkpoints.
+The arrival material ledger also retains one shipped plate as a conserved
+off-site sink; delivery removes the actual formed product from actor cargo.
 The experimental World/Host now admits crafting at one physically reached pod
 bench. The World can place and reclaim typed parts on the shared quarter-grid;
 machine assembly and timber/component belt transport remain separate slices.
@@ -105,7 +107,7 @@ crank starts work on the first turn, advances one baseline work tick on each
 later turn and retains a ready lot at the physical work point when the selected
 exit is full. Multiple work points remain independent inside one material State.
 The nonresource material checkpoint schema is 6. The arrival resource payload
-uses schema 10 and includes belt-lane and typed loose-material custody plus
+uses schema 11 and includes belt-lane and typed loose-material custody plus
 timber and ore embodied in fabricated stationary kits. Earlier schemas are
 refused rather than inventing a compatibility migration.
 

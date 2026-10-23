@@ -301,7 +301,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{7})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{8})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -332,6 +332,10 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
             state.emplace("fabrication_hub", Value(Object{{"id", Value(hub.id)},
                 {"center", Value(Array{Value(hub.center[0]), Value(hub.center[1]), Value(hub.center[2])})},
                 {"generation", Value(hub.generation)}}));
+            const auto& beacon = *snapshot.state.freight_beacon;
+            state.emplace("freight_beacon", Value(Object{{"id", Value(beacon.id)},
+                {"center", Value(Array{Value(beacon.center[0]), Value(beacon.center[1]), Value(beacon.center[2])})},
+                {"generation", Value(beacon.generation)}}));
             const auto& crank = *snapshot.state.hand_crank;
             state.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
                 {"generation", Value(crank.generation)},
@@ -355,7 +359,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 7) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 8) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -365,7 +369,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "hand_crank", "placed_components"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -386,6 +390,14 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                  scalar<Integer>(hub_center[1], "$.state.fabrication_hub.center"),
                  scalar<Integer>(hub_center[2], "$.state.fabrication_hub.center")},
                 integer(hub, "generation", "$.state.fabrication_hub")};
+            const auto& beacon = fields(state.at("freight_beacon"), "$.state.freight_beacon", {"id", "center", "generation"});
+            const auto& beacon_center = array(beacon.at("center"), "$.state.freight_beacon.center", 3);
+            if (beacon_center.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.freight_beacon.center");
+            candidate.state.freight_beacon = FreightBeacon{scalar<std::string>(beacon.at("id"), "$.state.freight_beacon.id"),
+                {scalar<Integer>(beacon_center[0], "$.state.freight_beacon.center"),
+                 scalar<Integer>(beacon_center[1], "$.state.freight_beacon.center"),
+                 scalar<Integer>(beacon_center[2], "$.state.freight_beacon.center")},
+                integer(beacon, "generation", "$.state.freight_beacon")};
             const auto& crank = fields(state.at("hand_crank"), "$.state.hand_crank",
                 {"id", "generation", "holder"});
             std::optional<std::string> holder;
