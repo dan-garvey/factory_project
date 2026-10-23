@@ -74,6 +74,13 @@ func run() -> void:
 		push_error("The passive view did not load the sourced worker without input.")
 		quit(1)
 		return
+	var body: Node3D = worker.get_node("BodyView")
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	var mark := skeleton.get_node_or_null("FieldSuitMark") as BoneAttachment3D
+	if mark == null or mark.bone_name != "Bip01 Spine2" or not mark.get_meta("presentation_only", false):
+		push_error("The field mark must follow the sourced torso without becoming actor authority.")
+		quit(1)
+		return
 	var camera := Camera3D.new()
 	stage.add_child(camera)
 	camera.fov = 38.0
@@ -95,6 +102,7 @@ func run() -> void:
 		quit(1)
 		return
 	print(JSON.stringify({"status": "pass", "source": "Microsoft Rocketbox Female_Adult_04",
+		"field_mark": "torso-bound",
 		"captures": [prefix + "-front.png", prefix + "-quarter.png", prefix + "-distant.png"],
 		"input_calls": host.control_calls, "native_actor": "not_started", "human_view": "unassessed"}))
 	quit(0)

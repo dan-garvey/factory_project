@@ -4618,7 +4618,10 @@ var machine_motion_anchors: Array[Node3D] = []
 var machine_batch_finished_meshes: Dictionary = {}
 var machine_batch_rotor_meshes: Dictionary = {}
 var machine_batch_composite_meshes: Dictionary = {}
-var machine_static_spatial_tiles := 4
+# Spatial draws help the measured native Windows renderer at large scale,
+# but overwhelm the WSL Compatibility path even when they cull triangles.
+var machine_static_spatial_tiles: int = 4 if OS.has_feature("windows") else 0
+var machine_batch_static_machine_count := 0
 var transmission_preview_point: Array = []
 var wheel_rotor: Node3D
 var machine_body_context := ""
@@ -7480,6 +7483,7 @@ func _choose_machine_preview(pooled: Node3D = null) -> void:
 
 const MACHINE_BATCH_THRESHOLD := 12
 const MACHINE_STATIC_SPATIAL_THRESHOLD := 256
+const MACHINE_STATIC_SPATIAL_FIELD_THRESHOLD := 800
 # Paddle joinery ends by 32 m with a 2 m fade margin; the extra room
 # covers the largest authored rim and a camera move between render cuts.
 const WHEEL_DETAIL_UPDATE_RADIUS := 48.0
@@ -7904,10 +7908,11 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 		if group.parts.size() < 2:
 			continue
 		var partitions: Array = [group.parts]
-		# Small mixed fields submit more cell batches than culling saves. Keep
-		# their composites whole; split the larger fields that benefit from it.
+		# Smaller fields submit more cell batches than culling saves. Count only
+		# eligible static machines so wheels and foundations cannot trigger it.
 		if not dynamic and group.get("spatial_composite", false) \
 				and machine_static_spatial_tiles > 0 \
+				and machine_batch_static_machine_count >= MACHINE_STATIC_SPATIAL_FIELD_THRESHOLD \
 				and group.parts.size() >= MACHINE_STATIC_SPATIAL_THRESHOLD:
 			var cells := {}
 			var cell_size := PITCH * float(machine_static_spatial_tiles)
@@ -8042,6 +8047,7 @@ func _batch_conveyor_loops(batches: Node3D) -> void:
 func _batch_machine_visuals() -> void:
 	machine_dynamic_batches.clear()
 	machine_conveyor_batches.clear()
+	machine_batch_static_machine_count = 0
 	machine_batched_rotors.clear()
 	machine_batched_rotor_slots.clear()
 	machine_cutter_batch_slots.clear()
@@ -8051,6 +8057,8 @@ func _batch_machine_visuals() -> void:
 		return
 	var moving := {}
 	for anchor in machine_root.get_children():
+		if anchor.get_meta("machine_kind", "") in ["collector", "belt", "processor"]:
+			machine_batch_static_machine_count += 1
 		for row in anchor.get_meta("motion_meshes", []):
 			moving[row.node.get_instance_id()] = true
 	var static_groups := {}
