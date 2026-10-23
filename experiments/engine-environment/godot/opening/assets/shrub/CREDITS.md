@@ -1,0 +1,7 @@
+# Green bank bushes
+
+The bushes derive from Poly Haven's [Shrub 03](https://polyhaven.com/a/shrub_03), by Rico Cilliers, under [CC0](https://polyhaven.com/license). The original one-kilopixel glTF, binary geometry, color, normal, packed material and separate opacity maps were downloaded on 2026-10-22. The pinned source hashes are in [prepare_maps.gd](../foliage/prepare_maps.gd) and [source.json](source.json); retained preparation reports live outside the repository.
+
+Each source mesh is a small upright broad-leaf plant. Seven complete source plants are grouped around one root for a roughly 1.1-metre-high bush; five stems from a second source variant make a roughly 0.78-metre-high form. This authored grouping produces bush silhouettes without inventing leaf geometry. Both use source cutout silhouettes, 128-pixel color and 64-pixel data mipmaps, and a cooler green tint to suit the opening sunlight. The two self-contained resources contain 16,695 and 10,670 triangles; exact resource hashes are pinned in `opening.gd`.
+
+Each form is batched in one `MultiMesh` on terrain roots along the banks. Complete bounds clear the river, rocks, trees and work area. Confirmed construction suppresses overlapping bushes and removal restores them. They have no collision, harvest, save or production authority. Focused scene and clearance checks passed; passive rendered views support the visual placement, while frame cost and human preference remain unmeasured.

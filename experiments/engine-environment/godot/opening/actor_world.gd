@@ -82,6 +82,7 @@ func _create_floor() -> bool:
 		# The same prepared woody triangles are visible in the ordinary scene.
 		# Retain the existing sole floor body and its strict native-data guard.
 		terrain_faces.append_array(site_surface.fir_collision_faces())
+		terrain_faces.append_array(site_surface.broadleaf_collision_faces())
 	floor_body = StaticBody3D.new()
 	floor_body.name = "PhysicalGround"
 	floor_body.collision_layer = Geometry.GROUND_LAYER

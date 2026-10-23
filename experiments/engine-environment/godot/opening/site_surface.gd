@@ -25,6 +25,14 @@ static var _fir_faces := PackedVector3Array()
 static var _fir_contact_rows: Array[Dictionary] = []
 static var _fir_layout_counts := {"candidates": 0, "slope_rejections": 0, "envelope_rejections": 0, "accepted": 0}
 
+const BROADLEAF_FILE := "res://opening/assets/broadleaf/broadleaf_tree.res"
+const BROADLEAF_SHA256 := "71b06d2f9252ca64f9d4bcfda6bcaf0db1fd2c67fdbd7d4c77bce810f913113f"
+static var _broadleaf_initialized := false
+static var _broadleaf_mesh: ArrayMesh
+static var _broadleaf_descriptors: Array[Dictionary] = []
+static var _broadleaf_faces := PackedVector3Array()
+static var _broadleaf_contact_rows: Array[Dictionary] = []
+
 static func read_fir(path: String = FIR_FILE) -> Dictionary:
 	# Optional prepared art, not a tree population or a physical fixture.
 	# Keep one resource interface for a later matched visual/collision join.
@@ -122,19 +130,136 @@ static func fir_mesh() -> ArrayMesh:
 	_prepare_firs()
 	return _fir_mesh
 
+static func read_broadleaf(path: String = BROADLEAF_FILE) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {"status": "missing"}
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null or file.get_length() > 16777216:
+		return {"status": "invalid", "reason": "Broadleaf resource exceeds its sixteen-MiB allocation."}
+	file.close()
+	if FileAccess.get_sha256(path) != BROADLEAF_SHA256:
+		return {"status": "invalid", "reason": "Broadleaf resource identity changed."}
+	var mesh := ResourceLoader.load(path, "ArrayMesh") as ArrayMesh
+	if mesh == null or mesh.get_surface_count() != 3 or not ResourceLoader.get_dependencies(path).is_empty():
+		return {"status": "invalid", "reason": "Broadleaf needs one self-contained branch, leaf and trunk mesh."}
+	return {"status": "ready", "mesh": mesh}
+
+static func _prepare_broadleaf() -> void:
+	if _broadleaf_initialized:
+		return
+	_broadleaf_initialized = true
+	var loaded := read_broadleaf()
+	if loaded.status != "ready":
+		push_error("Cannot compose qualified broadleaf trees: " + str(loaded.get("reason", loaded.status)))
+		return
+	_broadleaf_mesh = loaded.mesh
+	var bounds := _broadleaf_mesh.get_aabb()
+	var leaf_positions: PackedVector3Array = _broadleaf_mesh.surface_get_arrays(1)[Mesh.ARRAY_VERTEX]
+	var leaf_bounds := AABB(leaf_positions[0], Vector3.ZERO)
+	for leaf_position in leaf_positions:
+		leaf_bounds = leaf_bounds.expand(leaf_position)
+	var solids := support_boxes()
+	var woody: Array[Dictionary] = fir_specs()
+	for candidate in range(320):
+		var side := 1.0 if candidate % 2 == 0 else -1.0
+		if _broadleaf_descriptors.size() == 1:
+			var first: Dictionary = _broadleaf_descriptors[0]
+			var first_side := 1.0 if first.center.x > river_center_x(first.center.z) else -1.0
+			if side == first_side:
+				continue
+		var z := -19.0 + float((candidate * 17) % 40)
+		# The native arrival timber sources occupy the east working bank.
+		# Scenic broadleaf roots stay outside that small resource cluster.
+		if side > 0.0 and z > -2.0 and z < 11.0:
+			continue
+		var x := river_center_x(z) + side * (channel_half_width(z) + 5.4 + float(candidate % 7) * 1.2)
+		var grid := cell(x, z)
+		var a := vertex(grid.x, grid.y)
+		var b := vertex(grid.x + 1, grid.y)
+		var c := vertex(grid.x + 1, grid.y + 1)
+		var d := vertex(grid.x, grid.y + 1)
+		var tx := (x - a.x) / (b.x - a.x)
+		var tz := (z - a.z) / (d.z - a.z)
+		var normal := (c - a).cross(b - a).normalized() if tz <= tx else (d - a).cross(c - a).normalized()
+		if normal.y < 0.9:
+			continue
+		var at := Vector3(x, height_at(x, z) - 0.02, z)
+		var scale := 1.26 + float(candidate % 3) * 0.08
+		var basis := Basis(Vector3.UP, float(candidate) * 2.399963)
+		var pose := Transform3D(basis.scaled_local(Vector3.ONE * scale), at)
+		# Two rotated copies of the selected leaf surface fill the crown.
+		# Clear their complete geometry along with the base tree.
+		var envelope: AABB = pose * bounds
+		for angle in [-0.42, 0.42]:
+			var fill_pose := pose * Transform3D(Basis(Vector3.UP, angle), Vector3.ZERO)
+			envelope = envelope.merge(fill_pose * leaf_bounds)
+		var clear := envelope.position.z >= -23.0 and envelope.end.z <= 23.0
+		var margin := 0.4 + 1.5 * envelope.size.z / 16.0
+		for row in range(9):
+			var edge_z := lerpf(envelope.position.z, envelope.end.z, float(row) / 8.0)
+			var edge_x := river_center_x(edge_z) + side * (channel_half_width(edge_z) + margin)
+			if (side < 0.0 and envelope.end.x >= edge_x) or (side > 0.0 and envelope.position.x <= edge_x):
+				clear = false
+		for solid in solids:
+			var box: AABB = Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size)
+			if envelope.intersects(box.grow(0.25)):
+				clear = false
+		for tree in woody + _broadleaf_descriptors:
+			if envelope.intersects(tree.bounds.grow(0.6)):
+				clear = false
+		if not clear:
+			continue
+		var faces := PackedVector3Array()
+		var arrays: Array = _broadleaf_mesh.surface_get_arrays(2)
+		var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		for n in range(0, indices.size(), 3):
+			var p := pose * positions[indices[n]]
+			var q := pose * positions[indices[n + 1]]
+			var r := pose * positions[indices[n + 2]]
+			if (q - p).cross(r - p).length_squared() > 0.0:
+				faces.append_array(PackedVector3Array([p, q, r]))
+		var id := "broadleaf_%02d" % _broadleaf_descriptors.size()
+		_broadleaf_descriptors.append({"id": id, "center": at, "basis": basis, "scale": scale, "bounds": envelope})
+		_broadleaf_faces.append_array(faces)
+		_broadleaf_contact_rows.append({"id": id, "faces": faces, "bounds": envelope})
+		if _broadleaf_descriptors.size() == 2:
+			break
+	if _broadleaf_descriptors.size() != 2:
+		push_error("The broadleaf worksite could not fit both clear rooted trees.")
+
+static func broadleaf_specs() -> Array[Dictionary]:
+	_prepare_broadleaf()
+	return _broadleaf_descriptors.duplicate(true)
+
+static func broadleaf_mesh() -> ArrayMesh:
+	_prepare_broadleaf()
+	return _broadleaf_mesh
+
+static func broadleaf_collision_faces() -> PackedVector3Array:
+	_prepare_broadleaf()
+	return _broadleaf_faces.duplicate()
+
 static func fir_collision_faces() -> PackedVector3Array:
 	_prepare_firs()
 	return _fir_faces.duplicate()
 
 static func _fir_capsule_distance(at: Vector3, radius: float, height: float) -> Dictionary:
 	_prepare_firs()
+	return _woody_capsule_distance(at, radius, height, _fir_contact_rows)
+
+static func _broadleaf_capsule_distance(at: Vector3, radius: float, height: float) -> Dictionary:
+	_prepare_broadleaf()
+	return _woody_capsule_distance(at, radius, height, _broadleaf_contact_rows)
+
+static func _woody_capsule_distance(at: Vector3, radius: float, height: float, rows: Array[Dictionary]) -> Dictionary:
 	var p := at - Vector3.UP * (height * 0.5 - radius)
 	var q := at + Vector3.UP * (height * 0.5 - radius)
 	var box := AABB(at - Vector3(radius, height * 0.5, radius), Vector3(radius * 2, height, radius * 2))
 	var distance := INF
 	var measured := 0
 	var closest := ""
-	for tree in _fir_contact_rows:
+	for tree in rows:
 		if not box.intersects(tree.bounds):
 			continue
 		var triangles: PackedVector3Array = tree.faces
@@ -526,11 +651,14 @@ static func capsule_overlap(at: Vector3, radius: float, height: float) -> Dictio
 	var surface := height_at(at.x, at.z)
 	var buried := maxf(surface - (at.y - height / 2.0), 0.0) if is_finite(surface) else 0.0
 	var fir := _fir_capsule_distance(at, radius, height)
-	var measure := maxf(maxf(maxf(radius - distance, 0.0), radius - fir.distance), buried)
+	var broadleaf := _broadleaf_capsule_distance(at, radius, height)
+	var measure := maxf(maxf(maxf(maxf(radius - distance, 0.0), radius - fir.distance), radius - broadleaf.distance), buried)
 	return {"analytical_overlap_measure": measure, "geometric_overlap": measure > 0.0,
 		"minimum_triangle_distance": distance, "center_surface_height": surface,
 		"subsurface_depth": buried, "triangles_measured": count, "valid": true,
-		"nearest_fir": fir.closest, "fir_triangle_distance": fir.distance, "fir_triangles_measured": fir.triangles_measured}
+		"nearest_fir": fir.closest, "fir_triangle_distance": fir.distance, "fir_triangles_measured": fir.triangles_measured,
+		"nearest_broadleaf": broadleaf.closest, "broadleaf_triangle_distance": broadleaf.distance,
+		"broadleaf_triangles_measured": broadleaf.triangles_measured}
 
 static func pad_panels() -> Array[Dictionary]:
 	# Unbuilt ground is the continuous terrain, never a hidden tiled platform.

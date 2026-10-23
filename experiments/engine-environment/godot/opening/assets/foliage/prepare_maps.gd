@@ -10,8 +10,30 @@ const PINE_PINS := {
 	"pine_sapling_small.bin": "b4d2fc73d53f1d8717eb5ef9a2c66957d2a53152787e543aace88fcd6fca94ef",
 	"pine_sapling_small_1k.gltf": "f358c01926861dd082f32dba60f7c9fba232b585a985cf38c0d2229eecf4bc48"
 }
+const BROADLEAF_PINS := {
+	"tree_small_02_1k.gltf": "3062a709614c05b80fdc1e56583998bc3cb1027b0d52f956c8ecfb882ff8ca6d",
+	"tree_small_02.bin": "8da6c3c389ad8748286d1b7488cd827f75ebdad9d8f59ef7dfb0916df5edc634",
+	"textures/tree_small_02_branch_diff_1k.jpg": "a71b768e330c0c6cca097e30314f6b4e842ef724a1370f6aab14b4434eec64cb",
+	"textures/tree_small_02_branch_nor_gl_1k.jpg": "a2efae9e7fede259601188cd5cb7e561fc502bd87e04d862a9532b2d8e647a62",
+	"textures/tree_small_02_branch_arm_1k.jpg": "8968b46d76c67da09ebbf4eed04b8123c9e0ddf5b55d123968b35b32aa76d27a",
+	"textures/tree_small_02_leaves_diff_1k.jpg": "261e7d7a5ac7d2e16ea8823ff8510be8f3f615999724232994039ad2885e5c36",
+	"textures/tree_small_02_leaves_alpha_1k.png": "4f143e2dda8a6a572f427ac378b92255d21761e4611de0d26e21816c01aa533b",
+	"textures/tree_small_02_leaves_nor_gl_1k.jpg": "8c72e04fb23e16ae1df79c01385a638473d1dd4dede3d51e83d70153c129f09b",
+	"textures/tree_small_02_leaves_arm_1k.jpg": "71f81374daf5a8f3e6eb2c694264a1769fdb0bea508178e4105618eecea83c3e",
+	"textures/tree_small_02_diff_1k.jpg": "4e0093f407b3a1120a36de49a48ebe5a465a9a9b77e361c7a3e66866e115e404",
+	"textures/tree_small_02_nor_gl_1k.jpg": "9c83be074c950ea1b94c732c0c0291b53b9ba357f932d378bafe3ca3b4418871",
+	"textures/tree_small_02_arm_1k.jpg": "891c5a1bb124292984b01558e9f2b0302d27d2fa3ccf9dfc6c34f9ea4ca24e6c"
+}
+const SHRUB_PINS := {
+	"shrub_03_1k.gltf": "b76d7c14bc027e834e82d3f984c32b5d060e62908aa90ff9420a637ca253a8ea",
+	"shrub_03.bin": "bf4df21e6d2a2bc5f00b4c9142f776171fe7da00cf960001825748067af542b6",
+	"textures/shrub_03_diff_1k.jpg": "3cadc7aba46d3aabbd7d6d2b1d04aa32e2a7da0bc87c2d38ef3cb1ee42cb03ec",
+	"textures/shrub_03_alpha_1k.png": "daef00278879a024fd05216aaa1376067a5f25f1b911d08d9bbdc50fda4a0d66",
+	"textures/shrub_03_nor_gl_1k.jpg": "ff856bacfce859b8a7555dd9a3b92fbd36b2e775d486be71df485afb4235d6c9",
+	"textures/shrub_03_arm_1k.jpg": "3e2b16812a623037138eedace958210c5f3443a827bbe69663045bba5612f815"
+}
 
-func pine_image(path: String, role: String) -> Image:
+func pine_image(path: String, role: String, target_size: int = 0) -> Image:
 	var image := Image.load_from_file(path)
 	if image == null or image.get_size() != Vector2i(1024, 1024):
 		fail("Unexpected pine source image: " + path)
@@ -22,7 +44,8 @@ func pine_image(path: String, role: String) -> Image:
 		for y in range(1024):
 			for x in range(1024):
 				image.set_pixel(x, y, image.get_pixel(x, y).srgb_to_linear())
-	image.resize(384 if role == "albedo" else 256, 384 if role == "albedo" else 256, Image.INTERPOLATE_LANCZOS)
+	var dimension := target_size if target_size > 0 else (384 if role == "albedo" else 256)
+	image.resize(dimension, dimension, Image.INTERPOLATE_LANCZOS)
 	var bytes := PackedByteArray()
 	bytes.resize(image.get_width() * image.get_height() * 3)
 	var maximum_normal_error := 0.0
@@ -396,6 +419,228 @@ func prepare_fir(family: String, output: String) -> void:
 	print(JSON.stringify(report))
 	quit(0 if report.status == "pass" else 1)
 
+func _botanical_maps(family: String, prefix: String, cutout: bool = false, color_size: int = 192, data_size: int = 128) -> Dictionary:
+	var maps := {}
+	for role in ["albedo", "normal", "arm"]:
+		var suffix: String = {"albedo": "diff", "normal": "nor_gl", "arm": "arm"}[role]
+		var image := pine_image(family.path_join("textures/" + prefix + "_" + suffix + "_1k.jpg"), role,
+			color_size if role == "albedo" else data_size)
+		if image == null:
+			return {}
+		if role == "albedo" and cutout:
+			var mask := Image.load_from_file(family.path_join("textures/" + prefix + "_alpha_1k.png"))
+			if mask == null or mask.get_size() != Vector2i(1024, 1024):
+				fail("Unexpected botanical cutout mask: " + prefix)
+				return {}
+			mask.convert(Image.FORMAT_L8)
+			mask.resize(color_size, color_size, Image.INTERPOLATE_LANCZOS)
+			var rgb := image.get_data()
+			var alpha := mask.get_data()
+			var rgba := PackedByteArray()
+			rgba.resize(color_size * color_size * 4)
+			for pixel in range(color_size * color_size):
+				for channel in range(3):
+					rgba[pixel * 4 + channel] = rgb[pixel * 3 + channel]
+				rgba[pixel * 4 + 3] = alpha[pixel]
+			image = Image.create_from_data(color_size, color_size, false, Image.FORMAT_RGBA8, rgba)
+			if image.generate_mipmaps() != OK:
+				fail("Cannot prepare botanical cutout mipmaps: " + prefix)
+				return {}
+		maps[role] = ImageTexture.create_from_image(image)
+	return maps
+
+func _botanical_finish(source: Material, maps: Dictionary, cutout: bool = false) -> StandardMaterial3D:
+	var finish := source.duplicate(false) as StandardMaterial3D
+	if finish == null:
+		return null
+	finish.albedo_texture = maps.albedo
+	finish.normal_texture = maps.normal
+	finish.roughness_texture = maps.arm
+	finish.metallic_texture = maps.arm
+	finish.ao_texture = maps.arm if finish.ao_enabled else null
+	finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR if cutout else BaseMaterial3D.TRANSPARENCY_DISABLED
+	if cutout:
+		finish.alpha_scissor_threshold = 0.5
+	return finish
+
+func _compact_botanical_surface(source: Array, selected: PackedInt32Array) -> Array:
+	var vertices: PackedVector3Array = source[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = source[Mesh.ARRAY_NORMAL]
+	var uvs: PackedVector2Array = source[Mesh.ARRAY_TEX_UV]
+	var secondary: PackedVector2Array = source[Mesh.ARRAY_TEX_UV2] if source[Mesh.ARRAY_TEX_UV2] != null else PackedVector2Array()
+	var tangents: PackedFloat32Array = source[Mesh.ARRAY_TANGENT] if source[Mesh.ARRAY_TANGENT] != null else PackedFloat32Array()
+	var compact := []
+	compact.resize(Mesh.ARRAY_MAX)
+	var positions_out := PackedVector3Array()
+	var normals_out := PackedVector3Array()
+	var uv_out := PackedVector2Array()
+	var secondary_out := PackedVector2Array()
+	var tangents_out := PackedFloat32Array()
+	var indices_out := PackedInt32Array()
+	var remap := {}
+	for original: int in selected:
+		if original < 0 or original >= vertices.size():
+			return []
+		if not remap.has(original):
+			remap[original] = positions_out.size()
+			positions_out.append(vertices[original])
+			normals_out.append(normals[original])
+			uv_out.append(uvs[original])
+			if not secondary.is_empty():
+				secondary_out.append(secondary[original])
+			if not tangents.is_empty():
+				for channel in range(4):
+					tangents_out.append(tangents[original * 4 + channel])
+		indices_out.append(remap[original])
+	compact[Mesh.ARRAY_VERTEX] = positions_out
+	compact[Mesh.ARRAY_NORMAL] = normals_out
+	compact[Mesh.ARRAY_TEX_UV] = uv_out
+	if not secondary_out.is_empty():
+		compact[Mesh.ARRAY_TEX_UV2] = secondary_out
+	if not tangents_out.is_empty():
+		compact[Mesh.ARRAY_TANGENT] = tangents_out
+	compact[Mesh.ARRAY_INDEX] = indices_out
+	return compact
+
+func prepare_broadleaf(family: String, output: String) -> void:
+	if not output.is_absolute_path() or DirAccess.dir_exists_absolute(output):
+		fail("Use a fresh external broadleaf output directory.")
+		return
+	for relative in BROADLEAF_PINS:
+		if FileAccess.get_sha256(family.path_join(relative)) != BROADLEAF_PINS[relative]:
+			fail("Broadleaf source identity changed: " + relative)
+			return
+	var state := GLTFState.new()
+	state.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
+	if GLTFDocument.new().append_from_file(family.path_join("tree_small_02_1k.gltf"), state) != OK or state.get_meshes().size() != 1:
+		fail("Cannot import the qualified broadleaf source.")
+		return
+	var original: ImporterMesh = state.get_meshes()[0].mesh
+	if original.get_surface_count() != 3:
+		fail("Broadleaf source must have branch, leaf and trunk surfaces.")
+		return
+	var mesh := ArrayMesh.new()
+	var report := {"status": "pass", "source_leaf_triangles": 1939380,
+		"selected_leaf_triangles": 49120, "surfaces": []}
+	for surface in range(3):
+		var derived := ImporterMesh.new()
+		derived.add_surface(Mesh.PRIMITIVE_TRIANGLES, original.get_surface_arrays(surface), [], {},
+			original.get_surface_material(surface), ["Branches", "Leaves", "Trunk"][surface], original.get_surface_format(surface))
+		derived.generate_lods(60.0, 0.0, [])
+		var level: int = [2, 2, 1][surface]
+		var expected: int = [11372, 49120, 7071][surface]
+		if derived.get_surface_lod_count(0) <= level or derived.get_surface_lod_indices(0, level).size() != expected * 3:
+			fail("Pinned broadleaf distance detail changed at surface " + str(surface))
+			return
+		var arrays: Array = _compact_botanical_surface(original.get_surface_arrays(surface),
+			derived.get_surface_lod_indices(0, level))
+		if arrays.is_empty():
+			fail("Broadleaf compaction produced an invalid surface.")
+			return
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
+		var role: String = ["branch", "leaves", ""][surface]
+		var prefix: String = "tree_small_02" + ("_" + role if not role.is_empty() else "")
+		var maps := _botanical_maps(family, prefix, surface == 1)
+		if maps.is_empty():
+			return
+		var finish := _botanical_finish(original.get_surface_material(surface), maps, surface == 1)
+		if finish == null:
+			fail("Broadleaf source material is not a standard material.")
+			return
+		mesh.surface_set_material(surface, finish)
+		report.surfaces.append({"vertices": mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX].size(),
+			"triangles": mesh.surface_get_arrays(surface)[Mesh.ARRAY_INDEX].size() / 3})
+	if DirAccess.make_dir_absolute(output) != OK:
+		fail("Cannot create broadleaf output directory.")
+		return
+	var path := output.path_join("broadleaf_tree.res")
+	if ResourceSaver.save(mesh, path, ResourceSaver.FLAG_COMPRESS | ResourceSaver.FLAG_BUNDLE_RESOURCES) != OK:
+		fail("Cannot save broadleaf resource.")
+		return
+	var loaded := ResourceLoader.load(path, "ArrayMesh", ResourceLoader.CACHE_MODE_IGNORE) as ArrayMesh
+	if loaded == null or loaded.get_surface_count() != 3 or not ResourceLoader.get_dependencies(path).is_empty():
+		fail("Broadleaf resource lost a surface or has external dependencies.")
+		return
+	for surface in range(3):
+		if loaded.surface_get_arrays(surface) != mesh.surface_get_arrays(surface):
+			fail("Broadleaf resource changed geometry during roundtrip.")
+			return
+	report["resource_bytes"] = FileAccess.get_file_as_bytes(path).size()
+	report["resource_sha256"] = FileAccess.get_sha256(path)
+	report["bounds"] = str(mesh.get_aabb())
+	report["status"] = "pass" if report.resource_bytes <= 16777216 else "fail"
+	var receipt := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)
+	receipt.store_string(JSON.stringify(report, "  ") + "\n")
+	receipt.close()
+	print(JSON.stringify(report))
+	quit(0 if report.status == "pass" else 1)
+
+func prepare_shrub(family: String, output: String) -> void:
+	if not output.is_absolute_path() or DirAccess.dir_exists_absolute(output):
+		fail("Use a fresh external shrub output directory.")
+		return
+	for relative in SHRUB_PINS:
+		if FileAccess.get_sha256(family.path_join(relative)) != SHRUB_PINS[relative]:
+			fail("Shrub source identity changed: " + relative)
+			return
+	var state := GLTFState.new()
+	state.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
+	if GLTFDocument.new().append_from_file(family.path_join("shrub_03_1k.gltf"), state) != OK or state.get_meshes().size() != 4:
+		fail("Cannot import the qualified shrub variants.")
+		return
+	var maps := _botanical_maps(family, "shrub_03", true, 128, 64)
+	if maps.is_empty() or DirAccess.make_dir_absolute(output) != OK:
+		fail("Cannot create shrub output directory or prepared maps.")
+		return
+	var report := {"status": "pass", "variants": []}
+	for variant in range(2):
+		var original: ImporterMesh = state.get_meshes()[variant].mesh
+		if original.get_surface_count() != 1:
+			fail("Selected shrub variant has an unexpected surface count.")
+			return
+		var stem := original.get_mesh()
+		var finish := _botanical_finish(original.get_surface_material(0), maps, true)
+		if stem == null or finish == null:
+			fail("Cannot prepare the selected shrub variant.")
+			return
+		# The photographed foliage is yellow-green under the opening sun.
+		# Cool its biome tint so these read as green bushes in the worksite.
+		finish.albedo_color = Color(0.38, 0.54, 0.52)
+		# Each source mesh is one small upright plant. Arrange separate complete
+		# stems at one terrain root to make a true waist-high bush silhouette.
+		var cluster := SurfaceTool.new()
+		cluster.begin(Mesh.PRIMITIVE_TRIANGLES)
+		cluster.set_material(finish)
+		var stems := 7 if variant == 0 else 5
+		for n in range(stems):
+			var theta := float(n) * 2.399963 + float(variant) * 0.7
+			var radial := 0.0 if n == 0 else (0.13 + float(n % 3) * 0.045)
+			var offset := Vector3(cos(theta) * radial, 0.0, sin(theta) * radial)
+			var scale := 2.75 if variant == 0 else 2.2
+			cluster.append_from(stem, 0, Transform3D(Basis(Vector3.UP, theta).scaled_local(Vector3.ONE * scale), offset))
+		var mesh := cluster.commit()
+		if mesh == null or mesh.get_surface_count() != 1:
+			fail("Cannot combine complete shrub stems.")
+			return
+		mesh.surface_set_material(0, finish)
+		var path := output.path_join("shrub_%s.res" % ["tall", "low"][variant])
+		if ResourceSaver.save(mesh, path, ResourceSaver.FLAG_COMPRESS | ResourceSaver.FLAG_BUNDLE_RESOURCES) != OK:
+			fail("Cannot save shrub variant.")
+			return
+		var loaded := ResourceLoader.load(path, "ArrayMesh", ResourceLoader.CACHE_MODE_IGNORE) as ArrayMesh
+		if loaded == null or not ResourceLoader.get_dependencies(path).is_empty() or loaded.surface_get_arrays(0) != mesh.surface_get_arrays(0):
+			fail("Shrub resource changed or has external dependencies.")
+			return
+		report.variants.append({"name": ["tall", "low"][variant], "source_mesh": variant, "complete_stems": stems,
+			"triangles": mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX].size() / 3,
+			"bounds": str(mesh.get_aabb()), "bytes": FileAccess.get_file_as_bytes(path).size(), "sha256": FileAccess.get_sha256(path)})
+	var receipt := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)
+	receipt.store_string(JSON.stringify(report, "  ") + "\n")
+	receipt.close()
+	print(JSON.stringify(report))
+	quit()
+
 func fail(message: String) -> void:
 	push_error(message)
 	quit(1)
@@ -669,6 +914,12 @@ func _initialize() -> void:
 		return
 	if material == "fir":
 		prepare_fir(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-fir"))
+		return
+	if material == "broadleaf":
+		prepare_broadleaf(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-broadleaf"))
+		return
+	if material == "shrub":
+		prepare_shrub(family, pine_output if not pine_output.is_empty() else family.path_join("prepared-shrub"))
 		return
 	if material == "forest-ground":
 		prepare_forest_ground(family)

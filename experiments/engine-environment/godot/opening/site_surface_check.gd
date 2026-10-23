@@ -254,6 +254,7 @@ func check_bank_firs_physics() -> void:
 	var registered: Dictionary = PhysicsServer3D.shape_get_data(shape_rid)
 	var expected := Surface.faces()
 	expected.append_array(Surface.fir_collision_faces())
+	expected.append_array(Surface.broadleaf_collision_faces())
 	verify(registered.faces == expected and registered.backface_collision == true,
 		"Original terrain plus exact transformed woody facets is the actual native two-sided floor shape.")
 	var query := PhysicsShapeQueryParameters3D.new()
@@ -275,6 +276,20 @@ func check_bank_firs_physics() -> void:
 		verify(native_hit and measured.geometric_overlap and measured.nearest_fir == spec.id and measured.fir_triangles_measured > 0,
 			"A real capsule intersects the woody trunk and the matching analytical contact is retained.")
 		verify(measured.subsurface_depth == 0.0, "The positive witness is above the ground, so terrain burial cannot substitute for wood contact.")
+		contacts.append({"tree": spec.id, "at": at, "native_hit": native_hit, "measure": measured})
+	for spec in Surface.broadleaf_specs():
+		var at: Vector3 = spec.center + Vector3.UP * 1.2
+		query.transform = Transform3D(Basis.IDENTITY, at)
+		var hits := world.get_world_3d().direct_space_state.intersect_shape(query, 128)
+		var native_hit := false
+		for hit in hits:
+			native_hit = native_hit or hit.rid == rid
+		var measured := Surface.capsule_overlap(at, capsule.radius, capsule.height)
+		verify(native_hit and measured.geometric_overlap and measured.nearest_broadleaf == spec.id
+			and measured.broadleaf_triangles_measured > 0,
+			"A real capsule intersects each broadleaf trunk and matching analytical contact is retained.")
+		verify(measured.subsurface_depth == 0.0,
+			"Broadleaf contact comes from the woody surface rather than terrain burial.")
 		contacts.append({"tree": spec.id, "at": at, "native_hit": native_hit, "measure": measured})
 	query.transform = Transform3D(Basis.IDENTITY, Vector3(1.65, 2, 1.65))
 	var clear := world.get_world_3d().direct_space_state.intersect_shape(query, 128)
@@ -306,7 +321,8 @@ func check_bank_firs_physics() -> void:
 	verify(world._geometry_registered() and world.bodies.is_empty() and world.machines.is_empty(),
 		"The restored fixture remains registered without a player, machine or second state owner.")
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "scope": "actual static fixture registration and capsule queries",
-		"tree_contacts": contacts, "terrain_triangles": Surface.faces().size() / 3, "wood_triangles": Surface.fir_collision_faces().size() / 3,
+		"tree_contacts": contacts, "terrain_triangles": Surface.faces().size() / 3,
+		"wood_triangles": (Surface.fir_collision_faces().size() + Surface.broadleaf_collision_faces().size()) / 3,
 		"authority": "invented empty facts only", "gameplay": "not_run", "desktop": "not_used"}))
 	world.free()
 	quit(1 if failed else 0)

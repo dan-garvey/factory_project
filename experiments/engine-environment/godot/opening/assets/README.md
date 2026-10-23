@@ -803,6 +803,13 @@ plants. These small stems add no collision or saved vegetation state. Historical
 captures without the resource omit them; native resource and presentation checks
 do not establish rendered quality, GPU cost or a general tree interaction policy.
 
+The [sourced broadleaf](broadleaf/CREDITS.md) is a genuinely different tree form
+beside the firs and young pines: two branching trunks and spreading leaf crowns
+root on opposite banks. Their actual woody facets join the existing physical
+ground shape. The [green bushes](shrub/CREDITS.md) group complete broad-leaf
+understory plants into two low, rounded forms. They are terrain-fitted and
+construction-cleared visual foliage; they add no new wood stock or interaction.
+
 The [original carried multitool](multitool/CREDITS.md) supplies a compact cutter,
 dark grip and reclaim heel as an editable scene. Its materials and bevelled
 geometry are shared by actor hand attachments and the local close view. The
