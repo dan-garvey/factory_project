@@ -297,6 +297,12 @@ enum class Error {
                                      Quantity work_remainder = 0,
                                      Quantity work_remainder_denominator = 1);
 
+// World authenticates the four-cell support, clearance and actor reach before
+// a carried sheet is placed. The sheet keeps its serial and orientation.
+[[nodiscard]] Error place_sheet(State&, const Config&, const Path&,
+                                const std::string& actor, WorkId sheet_id,
+                                const DropPoint& origin);
+
 // A ready press may compact exactly one stock chunk's mass of recovered
 // copper offcuts at its clear work point. World authenticates the assembled
 // press, crank holder and physical reach before this custody transfer.

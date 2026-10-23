@@ -121,6 +121,15 @@ void broad_projection() {
     check(get<I>(V(get<O>(state, "material_mass")), "accounted_mass") == 64 &&
           get<I>(V(get<O>(state, "cargo").at("P")), "raw") == 0,
         "Constructing the broad area keeps every finite copper unit in custody.");
+    auto stage = request("broad-no-sheet-stage", "place_sheet");
+    stage.emplace("center", V(A{V(I{12}), V(I{0}), V(I{0})}));
+    stage.emplace("sheet_id", V(I{1}));
+    pose(host, 4.95, 0.0, ++epoch);
+    const auto stage_refusal = host.command("P", stage);
+    check(!get<bool>(stage_refusal, "accepted") &&
+          get<std::string>(stage_refusal, "reason") == "unavailable_input" &&
+          get<A>(host.projection(), "dropped_material").empty(),
+        "Host accepts the staging wire but cannot invent a sheet absent from finite arrival cargo.");
     auto feed = request("broad-no-stock-feed", "feed_broad_press");
     feed.emplace("entity", get<A>(V(get<O>(broad.front(), "parts")), "anvils").front());
     pose(host, 4.95, 0.0, ++epoch);
