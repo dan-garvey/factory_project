@@ -325,6 +325,64 @@ void placed_press_projection() {
     pickup_product(raised_restored, 7, 5, 0, "pickup-raised-product");
     check(get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 2,
           "The elevated arrangement forms and retrieves a second product from finite ore.");
+    auto delivery = request("first-plate-delivery", "deliver_first_plate");
+    delivery.emplace("entity", V("first-freight-beacon"));
+    const auto distant = raised_restored.command("P", delivery);
+    check(!get<bool>(distant, "accepted") && get<std::string>(distant, "reason") == "out_of_reach" &&
+          get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 2,
+          "The camera or a remote workcell cannot deliver a plate from outside actor reach.");
+    check(get<bool>(raised_restored.publish_actor("Q", {V(9.9), V(1.0), V(6.6)}, 101), "accepted"),
+          "A second actor can approach the one world-space beacon.");
+    auto q_delivery = delivery;
+    q_delivery.at("client") = V("Q");
+    q_delivery.at("request") = V("empty-hand-delivery");
+    const auto empty = raised_restored.command("Q", q_delivery);
+    check(!get<bool>(empty, "accepted") && get<std::string>(empty, "reason") == "no_plate" &&
+          !get<bool>(V(get<O>(raised_restored.projection(), "freight_beacon")), "order_complete"),
+          "The nearby teammate cannot ship another actor's plate or complete the order empty handed.");
+    check(get<bool>(raised_restored.publish_actor("P", {V(9.9), V(1.0), V(6.6)}, 102), "accepted"),
+          "The plate holder reaches the freight receiver physically.");
+    auto successful = delivery;
+    successful.at("request") = V("ship-carried-plate");
+    const auto sent = accepted(raised_restored, successful);
+    check(get<I>(sent, "shipped_products") == 1 &&
+          get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 1 &&
+          get<bool>(V(get<O>(raised_restored.projection(), "freight_beacon")), "order_complete"),
+          "Exactly one actually formed plate leaves P's cargo and completes the finite order.");
+    const auto shipped_checkpoint = raised_restored.checkpoint();
+    auto forged = get<O>(shipped_checkpoint, "world");
+    auto forged_state = get<O>(V(forged), "state");
+    auto forged_material = get<O>(V(forged_state), "material");
+    forged_material.at("shipped_products") = V(I{0});
+    forged_state.at("material") = V(std::move(forged_material));
+    forged.at("state") = V(std::move(forged_state));
+    auto forged_host = std::get<O>(shipped_checkpoint.storage());
+    forged_host.at("world") = V(std::move(forged));
+    check(!get<bool>(raised_restored.validate_checkpoint(V(std::move(forged_host))), "accepted"),
+          "A checkpoint cannot erase the shipment receipt while the delivered plate has left cargo.");
+    check(get<bool>(raised_restored.command("P", successful), "duplicate") &&
+          !factory::values::typed_difference(shipped_checkpoint, raised_restored.checkpoint()),
+          "A repeated delivery request returns its cached receipt without another debit.");
+    auto second = delivery;
+    second.at("request") = V("ship-again");
+    const auto full = raised_restored.command("P", second);
+    check(!get<bool>(full, "accepted") && get<std::string>(full, "reason") == "order_filled" &&
+          get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 1,
+          "A fresh request cannot spend the other plate after the first order is filled.");
+    Host freight_restored;
+    check(get<bool>(freight_restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(freight_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
+          "The fresh freight Host initializes its trusted site.");
+    const auto freight_restore_result = freight_restored.restore_checkpoint(shipped_checkpoint);
+    if (!get<bool>(freight_restore_result, "accepted"))
+        throw std::runtime_error("Freight restore refused: " + get<std::string>(freight_restore_result, "reason"));
+    check(
+          get<bool>(V(get<O>(freight_restored.projection(), "freight_beacon")), "order_complete") &&
+          get<I>(get<O>(freight_restored.projection(), "cargo").at("P"), "products") == 1,
+          "A fresh shared Host and late join retain the same receipt and remaining product.");
+    check(get<bool>(freight_restored.command("P", successful), "duplicate") &&
+          !factory::values::typed_difference(shipped_checkpoint, freight_restored.checkpoint()),
+          "The original successful request remains retry safe after checkpoint restore.");
 }
 } // namespace
 

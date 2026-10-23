@@ -26,6 +26,12 @@ class FooterView extends Opening:
 	func _process(_delta: float) -> void:
 		pass
 
+class FreightActionView extends FooterView:
+	var requests: Array[Dictionary] = []
+	func issue(action: Dictionary) -> Dictionary:
+		requests.append(action.duplicate(true))
+		return {"accepted": false, "reason": "view_only"}
+
 class SharedFooterView extends SharedOpening:
 	func _ready() -> void:
 		pass
@@ -209,6 +215,68 @@ func check_shared_manager_log() -> void:
 	verify(not view.manager_log_open and not view.manager_log_layer.visible,
 		"A shared worker can close the work log and return to the confirmed site.")
 	view.session = null
+	view.free()
+	finish_checks()
+
+func check_freight_beacon_view() -> void:
+	var source := NativeModel.new("freight-view-fixture", ["P"], true)
+	verify(source.boot_result.get("accepted", false), "The real native arrival supplies a beacon projection.")
+	if not source.boot_result.get("accepted", false):
+		finish_checks()
+		return
+	var view := FreightActionView.new()
+	view.model = source
+	view.client = "P"
+	view.state = source.projection()
+	root.add_child(view)
+	view._build_world()
+	view._build_interface()
+	view._sync_freight_beacon_visual()
+	var beacon: Dictionary = view.state.freight_beacon
+	verify(view.freight_beacon_visual != null and view.freight_beacon_visual.name == "MeridianFreightBeacon"
+		and view.freight_beacon_visual.get_meta("freight_beacon") == beacon.id
+		and view.freight_beacon_visual.get_node_or_null("OrderSignal") != null
+		and view.freight_beacon_visual.get_node_or_null("CargoSocket") != null,
+		"The confirmed native identity has a visible receiver and signal in the ordinary scene.")
+	var position: Array = beacon.position
+	verify(is_equal_approx(view.freight_beacon_visual.position.x, float(position[0]))
+		and is_equal_approx(view.freight_beacon_visual.position.z, float(position[2]))
+		and beacon.center == [6, 0, 4],
+		"The receiver uses the native world-space anchor east of the pod.")
+	for _frame in range(3):
+		await physics_frame
+	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
+	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.3, 0))
+	var hit := view._screen_pick(root.get_visible_rect().size / 2.0)
+	verify(not hit.is_empty() and hit.collider == view.freight_beacon_visual,
+		"A camera ray selects the freight receiver's visible physical pick target.")
+	view.state.actors.P.ready = true
+	view.distance = 0.0
+	view._open_pointed_machine()
+	verify(view.requests == [{"action": "deliver_first_plate", "entity": beacon.id}],
+		"E on the pointed receiver requests exactly one native delivery and creates no client stock.")
+	view._refresh_ui()
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--freight-screenshot="):
+			for _frame in range(3):
+				await process_frame
+			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--freight-screenshot=")) == OK,
+				"The passive beacon view can be retained for visual inspection.")
+	verify("SHIP ONE PLATE" in view.goal_label.text,
+		"The initial Meridian order asks for a shipment while construction remains open.")
+	view.state = view.state.duplicate(true)
+	view.state.cargo.P.products = 1
+	view._refresh_ui()
+	verify("east freight beacon" in view.goal_label.text,
+		"A carried product changes the next cue to a reachable world-space delivery.")
+	view.state.freight_beacon.order_complete = true
+	view.state.freight_beacon.shipped_products = 1
+	view.state.cargo.P.products = 0
+	view._sync_freight_beacon_visual()
+	view._refresh_ui()
+	verify("DELIVERED" in view.goal_label.text and "Keep building" in view.goal_label.text
+		and not view.freight_beacon_visual.get_node("OrderSignal").visible,
+		"The completed receipt changes the signal and leaves open-ended building visible.")
 	view.free()
 	finish_checks()
 
@@ -637,6 +705,9 @@ func run_native_route_report() -> void:
 	finish_checks()
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--freight-beacon-only"):
+		call_deferred("check_freight_beacon_view")
+		return
 	if OS.get_cmdline_user_args().has("--route-report-only"):
 		run_native_route_report.call_deferred()
 		return

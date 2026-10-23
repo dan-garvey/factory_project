@@ -354,6 +354,9 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
             same("entity", "target") && same("component", "component");
+    if (*action == "deliver_first_plate")
+        return *original_action == "deliver_first_plate" && keys(*wire, {"entity"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "take_hand_crank" || *action == "return_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
@@ -741,6 +744,8 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         seed.issued_entities.emplace("landing-pod", 1);
         seed.fabrication_hub = world::FabricationHub{"pod-fabrication-hub", world::landing_hub_center(center), 1};
         seed.issued_entities.emplace(seed.fabrication_hub->id, 1);
+        seed.freight_beacon = world::FreightBeacon{"first-freight-beacon", world::landing_freight_center(center), 1};
+        seed.issued_entities.emplace(seed.freight_beacon->id, 1);
         seed.hand_crank = world::HandCrank{"pod-hand-crank", 1, std::nullopt};
         seed.issued_entities.emplace(seed.hand_crank->id, 1);
         const auto deck = world::landing_deck_centers(center);
@@ -1294,6 +1299,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
         normalized.at("action") = Value("harvest_source");
         normalized.emplace("target", wire.at("target"));
+    } else if (*action == "deliver_first_plate") {
+        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+            return refuse("invalid_command");
+        normalized.at("action") = Value("deliver_first_plate");
+        normalized.emplace("target", wire.at("entity"));
+        normalized.emplace("generation", Value(snapshot.state.freight_beacon &&
+            snapshot.state.freight_beacon->id == *field<std::string>(wire, "entity") ?
+            snapshot.state.freight_beacon->generation : Integer{0}));
     } else if (*action == "craft_component") {
         if (!keys(wire, {"entity", "component"}) || !field<std::string>(wire, "entity") ||
             !field<std::string>(wire, "component")) return refuse("invalid_command");
@@ -2145,6 +2158,16 @@ Value Host::projection() const {
         }
         projection.emplace("component_recipes", Value(std::move(recipes)));
         projection.emplace("component_capacity", Value(profile_.material.component_capacity));
+        const auto& beacon = *state.freight_beacon;
+        projection.emplace("freight_beacon", Value(Object{{"id", Value(beacon.id)},
+            {"generation", Value(beacon.generation)},
+            {"center", Value(Array{Value(beacon.center[0] / height_denominator),
+                Value(beacon.center[1]), Value(beacon.center[2] / height_denominator)})},
+            {"position", Value(Array{Value(beacon.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
+                Value(beacon.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
+                Value(beacon.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})},
+            {"shipped_products", Value(state.material.shipped_products)},
+            {"order_complete", Value(state.material.shipped_products == 1)}}));
         const auto& crank = *state.hand_crank;
         projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
             {"generation", Value(crank.generation)},

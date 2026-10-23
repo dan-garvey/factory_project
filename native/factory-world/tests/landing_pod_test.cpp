@@ -38,6 +38,8 @@ std::pair<w::Profile, w::State> seed() {
     state.issued_entities.emplace("landing-pod", 1);
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub", w::landing_hub_center(*profile.landing_pod_center), 1};
     state.issued_entities.emplace("pod-fabrication-hub", 1);
+    state.freight_beacon = w::FreightBeacon{"first-freight-beacon", w::landing_freight_center(*profile.landing_pod_center), 1};
+    state.issued_entities.emplace("first-freight-beacon", 1);
     state.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
     state.issued_entities.emplace("pod-hand-crank", 1);
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);

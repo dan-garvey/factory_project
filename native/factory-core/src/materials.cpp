@@ -281,6 +281,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         return Error::invalid_configuration;
     if (config.manual_ore && (config.manual_ore->id.empty() ||
         config.timber_sites.contains(config.manual_ore->id))) return Error::invalid_configuration;
+    if (!config.manual_ore && state.shipped_products != 0) return Error::invalid_state;
     const auto valid_center = [](const DropPoint& center) {
         for (const auto coordinate : center)
             if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate) return false;
@@ -317,7 +318,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         current_work += cargo.work_lots.size();
     }
     const auto& stock = state.stock;
-    if (state.initial_units < 0 || stock.source < 0 || stock.collector < 0 ||
+    if (state.initial_units < 0 || state.shipped_products < 0 || stock.source < 0 || stock.collector < 0 ||
         stock.belt < 0 || stock.input < 0 || stock.output < 0 ||
         stock.collector > config.collector_capacity || stock.belt > 1 ||
         stock.input > config.input_units_per_product || stock.output > 1 ||
@@ -352,7 +353,8 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     if (state.processing && !add(total, state.processing->recipe.input_units_per_product)) {
         return Error::quantity_overflow;
     }
-    if (!products(total, stock.output, config.input_units_per_product)) return Error::quantity_overflow;
+    if (!products(total, stock.output, config.input_units_per_product) ||
+        !products(total, state.shipped_products, config.input_units_per_product)) return Error::quantity_overflow;
     for (const auto& [span_id, lane] : state.belt_lanes) {
         if (span_id.empty() || lane.slots.size() < 2 || lane.slots.size() > maximum_belt_slots ||
             lane.phase <= -work_subticks_per_tick || lane.phase >= work_subticks_per_tick ||
