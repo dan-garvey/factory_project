@@ -3,6 +3,7 @@
 #include "factory/materials.hpp"
 #include "factory/mechanics.hpp"
 
+#include <array>
 #include <map>
 #include <optional>
 #include <string>
@@ -137,6 +138,39 @@ struct GuidedPressInspection {
 [[nodiscard]] GuidedPressInspection inspect_guided_press(
     const std::vector<Part>& placed, const mechanics::Point& anvil_center);
 
+// A four-cell work face is one broad stroke, not four separate 1x1 presses.
+// Cells are ordered by z row, then x column, from the lowest x/z anvil.
+// Each separate ram has an exterior shaft/cog pair. Readiness here covers
+// placed geometry; World must still verify common signed motion, workpiece
+// support and custody before forming one broad sheet.
+struct BroadPress {
+    mechanics::Point origin{};
+    std::array<mechanics::Point, 4> work_centers{};
+    std::array<std::string, 4> anvils{};
+    std::array<std::string, 4> rams{};
+    std::array<std::string, 4> guides{};
+    std::array<std::string, 4> shafts{};
+    std::array<std::string, 4> drive_cogs{};
+    std::array<mechanics::Point, 4> shaft_centers{};
+    std::array<mechanics::Point, 4> cog_centers{};
+    std::array<materials::Component, 4> shaft_materials{};
+    std::array<materials::Component, 4> cog_materials{};
+    bool operator==(const BroadPress&) const = default;
+};
+
+enum class BroadPressStatus {
+    ready, invalid_input, missing_anvil, missing_ram, missing_guide,
+    blocked_stroke, missing_shaft, missing_cog, ambiguous,
+};
+
+struct BroadPressInspection {
+    BroadPressStatus status{BroadPressStatus::invalid_input};
+    std::optional<BroadPress> press;
+};
+
+[[nodiscard]] BroadPressInspection inspect_broad_press(
+    const std::vector<Part>& placed, const mechanics::Point& lowest_anvil_center);
+
 // Recognize a press at any common-grid frame center. Anvil, ram, guide and
 // mount stack at distinct quarter-grid heights; a shaft and cog approach from
 // one horizontal side. Both opposed lower feed paths are inspected for actual
@@ -161,6 +195,8 @@ public:
     [[nodiscard]] PressInspection inspect_press(const mechanics::Point& frame_center) const;
     [[nodiscard]] GuidedPressInspection inspect_guided_press(
         const mechanics::Point& anvil_center) const;
+    [[nodiscard]] BroadPressInspection inspect_broad_press(
+        const mechanics::Point& lowest_anvil_center) const;
 
 private:
     std::map<mechanics::Point, const Part*> by_center_;

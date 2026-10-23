@@ -272,6 +272,101 @@ void guided_press_without_structure() {
           "The work center follows the shared four-step world height grid.");
 }
 
+void broad_press_from_repeated_work_faces() {
+    const auto parts_at = [](g::Point origin, bool drive_from_x_edges) {
+        std::vector<a::Part> placed;
+        for (std::size_t index = 0; index < 4; ++index) {
+            const g::Point cell{origin[0] + static_cast<g::Integer>(index % 2) * 4,
+                origin[1], origin[2] + static_cast<g::Integer>(index / 2) * 4};
+            placed.push_back({"anvil" + std::to_string(index), m::Component::anvil, cell, 1});
+            placed.push_back({"ram" + std::to_string(index), m::Component::ram_face,
+                {cell[0], cell[1] + 1, cell[2]}, 1});
+            placed.push_back({"guide" + std::to_string(index), m::Component::sliding_guide,
+                {cell[0], cell[1] + 3, cell[2]}, 1});
+        }
+        for (std::size_t index = 0; index < 4; ++index) {
+            const auto& cell = placed[index * 3].center;
+            const g::Point outward = drive_from_x_edges ?
+                g::Point{index % 2 == 0 ? -1 : 1, 0, 0} :
+                g::Point{0, 0, index / 2 == 0 ? -1 : 1};
+            placed.push_back({"shaft" + std::to_string(index), m::Component::wooden_shaft,
+                {cell[0] + outward[0], cell[1] + 4, cell[2] + outward[2]}, 1});
+            placed.push_back({"cog" + std::to_string(index), m::Component::wooden_cog,
+                {cell[0] + 2 * outward[0], cell[1] + 4, cell[2] + 2 * outward[2]}, 1});
+        }
+        return placed;
+    };
+    const g::Point ground{0, 0, 0};
+    auto placed = parts_at(ground, true);
+    const auto first = a::inspect_broad_press(placed, ground);
+    check(first.status == a::BroadPressStatus::ready && first.press &&
+          first.press->origin == ground &&
+          first.press->work_centers == std::array<g::Point, 4>{{{0, 0, 0}, {4, 0, 0},
+              {0, 0, 4}, {4, 0, 4}}},
+          "Four repeated anvil and ram cells form one frame-free broad work area.");
+    for (std::size_t index = 0; index < 4; ++index)
+        check(first.press->anvils[index] == "anvil" + std::to_string(index) &&
+              first.press->rams[index] == "ram" + std::to_string(index) &&
+              first.press->guides[index] == "guide" + std::to_string(index) &&
+              first.press->shafts[index] == "shaft" + std::to_string(index) &&
+              first.press->drive_cogs[index] == "cog" + std::to_string(index),
+              "Every broad work face retains its own placed contacts and exterior drive.");
+
+    const g::Point raised{8, 4, 12};
+    placed = parts_at(raised, false);
+    placed[18].kind = m::Component::softmetal_shaft;
+    placed[19].kind = m::Component::softmetal_cog;
+    const a::Layout layout(placed);
+    const auto alternate = layout.inspect_broad_press(raised);
+    check(alternate.status == a::BroadPressStatus::ready && alternate.press &&
+          alternate.press->shaft_centers[3] == g::Point{12, 8, 17} &&
+          alternate.press->cog_centers[3] == g::Point{12, 8, 18} &&
+          alternate.press->shaft_materials[3] == m::Component::softmetal_shaft,
+          "Raised north/south edge drives use the same world grid and accept metal parts.");
+    check(a::inspect_broad_press(placed, {9, 4, 12}).status ==
+          a::BroadPressStatus::invalid_input,
+          "A broad area cannot invent a shifted local grid origin.");
+    placed.erase(placed.begin() + 9);
+    check(a::inspect_broad_press(placed, raised).status == a::BroadPressStatus::missing_anvil,
+          "Missing one support tile refuses the entire broad workpiece face.");
+    placed = parts_at(raised, false);
+    placed[10].center[0] += 1;
+    check(a::inspect_broad_press(placed, raised).status == a::BroadPressStatus::missing_ram,
+          "One shifted ram cannot claim matching broad contact.");
+    placed = parts_at(raised, false);
+    placed.erase(placed.begin() + 11);
+    check(a::inspect_broad_press(placed, raised).status == a::BroadPressStatus::missing_guide,
+          "Every floating ram needs its own stroke guide.");
+    placed = parts_at(raised, false);
+    placed.push_back(part("stroke-obstacle", m::Component::receiver_tray, {12, 6, 16}));
+    check(a::inspect_broad_press(placed, raised).status == a::BroadPressStatus::blocked_stroke,
+          "A component in any swept cell blocks the shared stroke.");
+    placed = parts_at(ground, true);
+    placed.pop_back();
+    check(a::inspect_broad_press(placed, ground).status == a::BroadPressStatus::missing_cog,
+          "Each separate ram needs a complete shaft and cog drive.");
+    placed = parts_at(ground, true);
+    placed.erase(placed.begin() + 14);
+    placed.erase(placed.begin() + 14);
+    check(a::inspect_broad_press(placed, ground).status == a::BroadPressStatus::missing_shaft,
+          "Reclaiming one pad's drive makes the broad area incomplete without altering other parts.");
+    placed = parts_at(ground, true);
+    placed.push_back(part("other-shaft", m::Component::wooden_shaft, {0, 4, -1}));
+    placed.push_back(part("other-cog", m::Component::wooden_cog, {0, 4, -2}));
+    check(a::inspect_broad_press(placed, ground).status == a::BroadPressStatus::ambiguous,
+          "Two complete edge drives at one pad require an explicit selection.");
+    placed = parts_at(ground, true);
+    placed.resize(12);
+    placed.push_back(part("inner-shaft", m::Component::wooden_shaft, {1, 4, 0}));
+    placed.push_back(part("inner-cog", m::Component::wooden_cog, {2, 4, 0}));
+    check(a::inspect_broad_press(placed, ground).status == a::BroadPressStatus::missing_shaft,
+          "An interior drive attachment cannot replace four exterior connections.");
+    placed = parts_at(ground, true);
+    placed[1].id = placed.front().id;
+    check(a::inspect_broad_press(placed, ground).status == a::BroadPressStatus::invalid_input,
+          "Repeated parts still need distinct issued identities.");
+}
+
 void indexed_independent_assemblies() {
     std::vector<a::Part> placed;
     placed.reserve(1700);
@@ -362,6 +457,7 @@ int main() {
         press_arrangements_and_clearance();
         press_missing_and_invalid_parts();
         guided_press_without_structure();
+        broad_press_from_repeated_work_faces();
         indexed_independent_assemblies();
         std::cout << "assembly_test: " << checks << " checks passed\n";
         return 0;
