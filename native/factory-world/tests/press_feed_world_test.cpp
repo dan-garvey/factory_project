@@ -293,6 +293,75 @@ void actor_feed_is_physical_custody() {
     turn.emplace("generation", V(frame_generation));
     turn.emplace("drive", V(shaft));
     turn.emplace("exit", V(point(7, 1, 0)));
+    // The same admitted construction history must remain valid when the
+    // trusted arrival recipe assigns four mass units to a stock chunk.
+    auto copper_site = source;
+    copper_site.profile.material.raw_mass = 4;
+    copper_site.profile.material.plate_mass = 3;
+    copper_site.profile.material.sheet_mass = 12;
+    Runner copper(copper_site);
+    copper.p = run.p;
+    copper.world = w::World::restore("press-feed", copper_site.profile, run.world->snapshot());
+    check(copper.world != nullptr, "The built hand press restores under the copper mass profile.");
+    if (copper.world) {
+        for (int stroke = 0; stroke < 3; ++stroke) {
+            auto copper_turn = turn;
+            copper_turn.at("request") = V("copper-turn-" + std::to_string(stroke));
+            copper.accept("P", copper_turn);
+        }
+        const auto pressed = copper.world->snapshot();
+        check(pressed.state.material.dropped_material.at({7, 1, 0}).products == 1 &&
+              pressed.state.material.dropped_material.at({8, 1, 0}).offcuts == 1 &&
+              w::validate(copper_site.profile, pressed),
+              "A real World press keeps its plate and recoverable offcut in separate custody.");
+        auto relocated_offcut = pressed;
+        const auto remnant = relocated_offcut.state.material.dropped_material.at({8, 1, 0});
+        relocated_offcut.state.material.dropped_material.erase({8, 1, 0});
+        relocated_offcut.state.material.dropped_material.emplace(g::Point{8, 1, 1}, remnant);
+        check(!w::World::restore("press-feed", copper_site.profile, relocated_offcut),
+              "A checkpoint cannot move the offcut away from its press without an accepted pickup.");
+        const auto copper_save = w::encode_checkpoint(copper_site.profile, pressed);
+        check(std::holds_alternative<V>(copper_save),
+              "The World checkpoint accepts the mass-conserving pressed state.");
+        if (const auto* bytes = std::get_if<V>(&copper_save)) {
+            const auto copper_load = w::decode_checkpoint(copper_site.profile, "press-feed", *bytes);
+            check(std::holds_alternative<w::Snapshot>(copper_load),
+                  "The typed World checkpoint decodes the distinct plate and offcut.");
+            if (const auto* restored = std::get_if<w::Snapshot>(&copper_load)) {
+                Runner resumed(copper_site);
+                resumed.world = w::World::restore("press-feed", copper_site.profile, *restored);
+                resumed.p = run.p;
+                check(resumed.world != nullptr, "Two actors resume one authoritative copper worksite.");
+                if (resumed.world) {
+                    auto offcut_pickup = request("Q", "q-pickup-copper-offcut", "pickup_material");
+                    offcut_pickup.emplace("center", V(point(8, 1, 0)));
+                    offcut_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+                        {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
+                    resumed.accept("Q", offcut_pickup);
+                    check(resumed.world->snapshot().state.material.cargo.at("Q").offcuts == 1 &&
+                          w::validate(copper_site.profile, resumed.world->snapshot()),
+                          "Q retrieves the real offcut after restore without changing P's plate.");
+                    const auto after_q = resumed.world->snapshot();
+                    const auto q_retry = resumed.send("Q", offcut_pickup);
+                    check(q_retry.completed() && q_retry.result &&
+                          std::get<bool>(q_retry.result->at("duplicate").storage()) &&
+                          resumed.world->snapshot().state == after_q.state,
+                          "Q's exact pickup retry cannot duplicate the offcut.");
+                    auto plate_pickup = request("P", "p-pickup-copper-plate", "pickup_material");
+                    plate_pickup.emplace("center", V(point(7, 1, 0)));
+                    plate_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+                        {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+                    resumed.accept("P", plate_pickup);
+                    const auto both_carried = resumed.world->snapshot();
+                    check(both_carried.state.material.cargo.at("P").products == 1 &&
+                          both_carried.state.material.cargo.at("Q").offcuts == 1 &&
+                          w::validate(copper_site.profile, both_carried) &&
+                          std::holds_alternative<V>(w::encode_checkpoint(copper_site.profile, both_carried)),
+                          "P and Q retain separate physical forms through one saved World.");
+                }
+            }
+        }
+    }
     auto wrong_drive = turn;
     wrong_drive.at("request") = V("wrong-press-drive");
     wrong_drive.at("drive") = V(frame);
@@ -899,6 +968,62 @@ void two_placed_presses_advance_distinct_powered_work() {
           drive.mechanical.motion.at(shafts[1]).state == g::MotionState::rotating &&
           frames[0] != frames[1] && shafts[0] != shafts[1],
           "Two placed press frames and shafts receive distinct actual rotating identities.");
+    auto copper_site = source;
+    copper_site.profile.material.raw_mass = 4;
+    copper_site.profile.material.plate_mass = 3;
+    copper_site.profile.material.sheet_mass = 12;
+    Runner copper(copper_site);
+    copper.world = w::World::restore("press-feed", copper_site.profile, run.world->snapshot());
+    check(copper.world != nullptr, "The complete powered press restores under copper mass custody.");
+    if (copper.world) {
+        auto feed = request("P", "copper-auto-feed", "feed_press");
+        feed.emplace("target", V(frames[0]));
+        feed.emplace("generation", V(frame_generations[0]));
+        feed.emplace("entry", V(point(1, 1, 0)));
+        copper.accept("P", feed);
+        for (int tick = 0; tick < 3; ++tick)
+            check(copper.world->tick().error == w::TransactionError::none,
+                  "A powered copper press advances a real stock lot without losing mass.");
+        const auto automatic = copper.world->snapshot();
+        check(automatic.state.material.dropped_material.at({0, 1, 0}).offcuts == 1 &&
+              automatic.state.material.dropped_material.at({-1, 1, 0}).products == 1 &&
+              w::validate(copper_site.profile, automatic) &&
+              std::holds_alternative<V>(w::encode_checkpoint(copper_site.profile, automatic)),
+              "Automatic copper output preserves its plate and work-face offcut in one saved World.");
+        auto relocated = automatic;
+        const auto loose_offcut = relocated.state.material.dropped_material.at({0, 1, 0});
+        relocated.state.material.dropped_material.erase({0, 1, 0});
+        relocated.state.material.dropped_material.emplace(g::Point{0, 1, 1}, loose_offcut);
+        check(!w::World::restore("press-feed", copper_site.profile, relocated),
+              "An automatic press offcut cannot relocate in a forged checkpoint.");
+        Runner product_first(copper_site);
+        product_first.world = w::World::restore("press-feed", copper_site.profile, automatic);
+        check(product_first.world != nullptr, "The automatic copper product restores before either pickup.");
+        if (product_first.world) {
+            auto plate_pickup = request("P", "p-pickup-auto-copper-plate", "pickup_material");
+            plate_pickup.emplace("center", V(point(-1, 1, 0)));
+            plate_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+                {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+            product_first.accept("P", plate_pickup);
+            check(w::validate(copper_site.profile, product_first.world->snapshot()),
+                  "Picking the automatic plate first still binds its uncollected offcut to the press.");
+        }
+        auto offcut_pickup = request("Q", "q-pickup-automatic-copper-offcut", "pickup_material");
+        offcut_pickup.emplace("center", V(point(0, 1, 0)));
+        offcut_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
+        copper.accept("Q", offcut_pickup);
+        check(copper.world->snapshot().state.material.cargo.at("Q").offcuts == 1 &&
+              w::validate(copper_site.profile, copper.world->snapshot()),
+              "Q may recover the automatic press offcut while P retains the plate route.");
+        if (product_first.world) {
+            product_first.accept("Q", offcut_pickup);
+            check(product_first.world->snapshot().state.material.cargo.at("P").products == 1 &&
+                  product_first.world->snapshot().state.material.cargo.at("Q").offcuts == 1 &&
+                  w::validate(copper_site.profile, product_first.world->snapshot()),
+                  "Both pickup orders retain separate P and Q custody after automatic forming.");
+        }
+    }
     auto half_source = source;
     half_source.profile.waterwheel_rate = {1, 2};
     for (auto& power : half_source.state.topology.sources)
