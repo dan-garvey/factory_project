@@ -2198,12 +2198,15 @@ func _native_view_cache_regression() -> void:
 	verify(tick.has("entities") and model.view_projection() == tick and model.full_projection_calls == 0,
 		"A successful native tick supplies the complete next view without another projection.")
 	var saved: Dictionary = model.checkpoint()
+	var retained_scene_view: Dictionary = model._view_projection_borrowed()
 	model.full_projection_calls = 0
 	model.command_as("P", {"action": "invalid", "context": tick.context,
 		"client": "P", "request": "cache-refusal"})
 	var after_command: Dictionary = model.view_projection()
 	verify(model.full_projection_calls == 1 and after_command == model.projection(),
 		"Even a refused command invalidates the view before the next observation.")
+	verify(retained_scene_view == tick and retained_scene_view.has("actors"),
+		"Invalidation replaces the borrowed cache without clearing an in-progress scene view.")
 	model.full_projection_calls = 0
 	model.invalidate_actor("P")
 	var invalidated: Dictionary = model.view_projection()

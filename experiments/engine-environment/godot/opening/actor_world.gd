@@ -681,7 +681,8 @@ func _box_distance_squared(point: Vector3, half: Vector3) -> float:
 func _on_native_cut() -> void:
 	if model == null or not is_inside_tree():
 		return
-	var snapshot: Dictionary = model.view_projection() if model.has_method("view_projection") else model.projection()
+	var snapshot: Dictionary = model._view_projection_borrowed() if model.has_method("_view_projection_borrowed") \
+		else model.view_projection() if model.has_method("view_projection") else model.projection()
 	var stamp := _native_topology_stamp(snapshot)
 	var topology: Dictionary = {"accepted": true} if not stamp.is_empty() and stamp == _topology_stamp \
 		else sync_topology(snapshot)

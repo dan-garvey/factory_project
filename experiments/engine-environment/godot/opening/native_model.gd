@@ -70,14 +70,18 @@ func projection() -> Dictionary:
 	return _invoke("projection", [])
 
 func view_projection() -> Dictionary:
-	# Ordinary rendering and physical cuts read the same confirmed World facts
-	# between ticks. Keep the public projection() fresh for explicit validation.
+	# External callers receive an isolated snapshot they may safely inspect or edit.
+	return _view_projection_borrowed().duplicate(true)
+
+func _view_projection_borrowed() -> Dictionary:
+	# Only the opening and actor bridge borrow these confirmed World facts. They
+	# read without modifying them; commands and ticks replace the cached value.
 	if _view_cache.is_empty():
 		var observed: Dictionary = projection()
 		if not _complete_projection(observed):
 			return observed
 		_view_cache = observed
-	return _view_cache.duplicate(true)
+	return _view_cache
 
 func _complete_projection(value: Dictionary) -> bool:
 	return value.get("context") is String and typeof(value.get("revision")) == TYPE_INT \
@@ -89,7 +93,7 @@ func command(intent: Dictionary) -> Dictionary:
 func command_as(authenticated_actor: String, intent: Dictionary) -> Dictionary:
 	# Session supplies its authenticated binding, never a client-selected actor.
 	# The native Host independently requires the wire client to match it.
-	_view_cache.clear()
+	_view_cache = {}
 	return _invoke("command", [authenticated_actor, intent])
 
 func advance() -> Dictionary:
@@ -101,10 +105,10 @@ func publish_actor(actor: String, position: Array, native_epoch: int) -> Diction
 	var result: Dictionary = _invoke("publish_actor", [actor, position, native_epoch])
 	if not result.get("accepted", false):
 		# A rejected malformed sample may invalidate the Host actor.
-		_view_cache.clear()
+		_view_cache = {}
 	elif not _view_cache.is_empty():
 		if not _view_cache.actors.has(actor):
-			_view_cache.clear()
+			_view_cache = {}
 		else:
 			var current: Dictionary = _view_cache.actors[actor]
 			current.position = [float(position[0]), float(position[1]), float(position[2])]
@@ -117,7 +121,7 @@ func actor_projection(actor: String) -> Dictionary:
 	return _invoke("actor_projection", [actor])
 
 func invalidate_actor(actor: String) -> void:
-	_view_cache.clear()
+	_view_cache = {}
 	_invoke("invalidate_actor", [actor])
 
 func checkpoint() -> Dictionary:
@@ -127,5 +131,5 @@ func validate_checkpoint(value: Dictionary) -> Dictionary:
 	return _invoke("validate_checkpoint", [value])
 
 func restore_checkpoint(value: Variant) -> Dictionary:
-	_view_cache.clear()
+	_view_cache = {}
 	return _invoke("restore_checkpoint", [value])
