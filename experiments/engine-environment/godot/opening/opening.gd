@@ -5675,6 +5675,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if _pause_menu_open():
 		if event is InputEventKey and event.pressed and not event.echo:
+			var used := true
 			match event.keycode:
 				KEY_ESCAPE: pause_menu.hide()
 				KEY_F5:
@@ -5682,7 +5683,9 @@ func _input(event: InputEvent) -> void:
 						_save_worksite()
 				KEY_F9: _load_worksite()
 				KEY_Q: pause_exit_confirmation.popup_centered()
-			get_viewport().set_input_as_handled()
+				_: used = false
+			if used:
+				get_viewport().set_input_as_handled()
 		return
 	if manager_log_open:
 		if event is InputEventKey:
