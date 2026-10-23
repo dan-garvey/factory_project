@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -193,7 +194,8 @@ void powered_cog_world(bool benchmark) {
     if (!std::holds_alternative<w::Snapshot>(decoded) ||
         std::get<w::Snapshot>(decoded).state != initial.state)
         throw std::runtime_error("The powered cog checkpoint lost an identity.");
-    if (!w::World::restore("mixed-scale", profile, std::get<w::Snapshot>(decoded)))
+    auto restored = w::World::restore("mixed-scale", profile, std::get<w::Snapshot>(decoded));
+    if (!restored)
         throw std::runtime_error("The restored mixed World rejected its checkpoint.");
     if (world->tick().error != w::TransactionError::none ||
         !w::validate(profile, world->snapshot()))
@@ -243,6 +245,29 @@ void powered_cog_world(bool benchmark) {
         std::cout << "WORLD_COG_STAGE name=tick cogs=" << cog_count
                   << " samples=" << ticks.size() << " median_ms=" << ticks[50]
                   << " p95_ms=" << ticks[94] << '\n';
+    }
+    if (restored->tick().error != w::TransactionError::none ||
+        restored->snapshot().state != advanced.state ||
+        restored->snapshot().revision != advanced.revision)
+        throw std::runtime_error("The restored mixed World diverged on its first tick.");
+    for (int step = 0; step < 2; ++step)
+        if (world->tick().error != w::TransactionError::none ||
+            restored->tick().error != w::TransactionError::none ||
+            restored->snapshot().state != world->snapshot().state ||
+            restored->snapshot().revision != world->snapshot().revision)
+            throw std::runtime_error("Restored mixed press work diverged during production.");
+    const auto finished = world->snapshot();
+    if (!w::validate(profile, finished))
+        throw std::runtime_error("Finished mixed work lost finite custody.");
+    std::set<m::WorkId> produced_ids;
+    for (const auto base : {g::Integer{800}, g::Integer{840}}) {
+        const g::Point exit{base - 1, 1, 16};
+        const auto product = finished.state.material.dropped_material.find(exit);
+        const auto witness = finished.state.press_output_at_exit.find(exit);
+        if (product == finished.state.material.dropped_material.end() ||
+            product->second.products != 1 || witness == finished.state.press_output_at_exit.end() ||
+            !produced_ids.insert(witness->second).second)
+            throw std::runtime_error("One modular line failed to produce a plate.");
     }
     std::cout << "WORLD_COG_SCALE_CHECK rotating=" << cog_count
               << " collectors=2 presses=2 passed\n";
