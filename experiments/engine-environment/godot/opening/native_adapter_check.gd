@@ -116,7 +116,7 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
-	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-belt", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -529,6 +529,7 @@ func _arrival_belt_run(panel, capture_prefix: String) -> void:
 		return
 	var inlet := ""
 	var far := ""
+	var middle := ""
 	for route_shaft in [
 		{"center": [-4, 4, 0], "name": "middle"},
 		{"center": [0, 4, 0], "name": "inlet"},
@@ -538,6 +539,7 @@ func _arrival_belt_run(panel, capture_prefix: String) -> void:
 			"axis": "x", "half_span": 2})
 		if placed.is_empty():
 			return
+		if route_shaft.name == "middle": middle = placed.entity
 		if route_shaft.name == "inlet": inlet = placed.entity
 		if route_shaft.name == "far": far = placed.entity
 	var belt_recipe := -1
@@ -615,7 +617,92 @@ func _arrival_belt_run(panel, capture_prefix: String) -> void:
 		if not _expect(workshop != null and workshop.save_png(capture_prefix + "-workshop.png") == OK,
 				"The scrollable receiver-status controls are retained in a second passive frame"):
 			return
+	if mode == "arrival-belt-controls":
+		if not await _arrival_belt_controls(middle, span.entity):
+			return
 	_record("pass")
+
+func _arrival_belt_controls(middle: String, span: String) -> bool:
+	# The pod-first route has earned these parts through ordinary harvesting and
+	# workshop controls. Exercise F on a real, reachable shaft after that route.
+	var span_view: Node3D
+	for child: Node in opening.transmission_presenter.get_children():
+		if child is Node3D and child.get_meta("entity", "") == span:
+			span_view = child
+	if not _expect(span_view != null and span_view.get_node_or_null("Pick") != null,
+			"The confirmed belt retains its own selection body"):
+		return false
+	var pick: Node = span_view.get_node("Pick")
+	opening._refresh()
+	opening._refresh()
+	if not _expect(is_instance_valid(span_view) and is_instance_valid(pick)
+			and span_view.get_node_or_null("Pick") == pick,
+			"Unchanged projection refresh preserves the belt and pick identities"):
+		return false
+	opening._select_tool("inspect")
+	var selected_sequence: int = opening.request_sequence
+	opening._world_click(Vector2i(0, -1), span)
+	if not _expect(opening.selected == span and opening.request_sequence == selected_sequence,
+			"The confirmed belt opens its inspector without submitting an authority request"):
+		return false
+	if not await _approach(Vector2(0.4, 2.8)):
+		return false
+	var before: Dictionary = opening.model.checkpoint()
+	var before_state: Dictionary = opening.model.projection()
+	var sequence: int = opening.request_sequence
+	var key := InputEventKey.new()
+	key.keycode = KEY_F
+	key.pressed = true
+	opening._unhandled_input(key)
+	if not _expect(opening.mode == "deconstruct", "F enters dedicated deconstruction"):
+		return false
+	opening._world_click(Vector2i(-1, 0), middle)
+	var after: Dictionary = opening.model.checkpoint()
+	var after_state: Dictionary = opening.model.projection()
+	if not _expect(opening.request_sequence == sequence + 1
+			and after.world.history.order == before.world.history.order + 1,
+			"One ordinary deconstruction click submits one native request"):
+		return false
+	var record: Dictionary = after.world.history.records[-1]
+	var wire: Dictionary = record.intent.wire
+	if not _expect(wire.get("action") == "remove" and wire.get("entity") == middle
+			and record.result.get("accepted", false)
+			and not after_state.transmission_parts.has(middle),
+			"F removes the exact confirmed middle shaft identity"):
+		return false
+	if not _expect(after_state.belt_spans.has(span)
+			and after_state.belt_spans[span] == before_state.belt_spans[span]
+			and after_state.part_kits.P.shaft == before_state.part_kits.P.shaft + 1
+			and after_state.stock == before_state.stock and after_state.cargo == before_state.cargo,
+			"Dismantling refunds one shaft while preserving belt and material custody"):
+		return false
+	var retry: Dictionary = opening.model.command(wire)
+	if not _expect(retry.get("accepted", false) and retry.get("duplicate", false)
+			and after == opening.model.checkpoint(),
+			"The exact original removal receipt cannot remove a second part"):
+		return false
+	var reach: Dictionary = retry.get("reach", {})
+	var cut: Dictionary = opening.actor_world.diagnostics("P", retry.get("native_epoch", 0))
+	var sample: Dictionary = cut.get("sample", {})
+	var center := [-4.0 * OpeningGeometry.PITCH / 4.0,
+		OpeningGeometry.ANCHOR_HEIGHT + 4.0 * OpeningGeometry.PITCH / 4.0, 0.0]
+	var squared := 0.0
+	if sample.get("position") is Array and sample.position.size() == 3:
+		for axis in 3:
+			var offset: float = sample.position[axis] - center[axis]
+			squared += offset * offset
+	if not _expect(cut.get("available", false) and sample.get("registered", false)
+			and sample.get("ready", false) and sample.get("native_epoch") == retry.get("native_epoch")
+			and sample.get("position") == reach.get("position")
+			and reach.get("targets") == [center]
+			and reach.get("distances_squared") == [squared]
+			and squared <= 16.0,
+			"The removal receipt retains its original physical four-metre reach cut"):
+		return false
+	var saved: Dictionary = opening._save_worksite()
+	return _expect(saved.get("accepted", false)
+		and saved.get("native_preflight", {}).get("accepted", false),
+		"Store publishes the recovered shaft and unchanged belt custody")
 
 func _arrival_belt_resume_run() -> void:
 	var restored: Dictionary = opening.model.projection()
@@ -737,12 +824,12 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_run() -> void:
-	deadline = Time.get_ticks_msec() + (180000 if mode == "arrival-belt" else 120000)
+	deadline = Time.get_ticks_msec() + (180000 if mode in ["arrival-belt", "arrival-belt-controls"] else 120000)
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-belt", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-press", "arrival-resume", "arrival-craft-capacity", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -786,7 +873,7 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
-	if mode == "arrival-belt":
+	if mode in ["arrival-belt", "arrival-belt-controls"]:
 		await _arrival_belt_run(panel, capture_prefix)
 		return
 	if mode == "arrival-belt-resume":
