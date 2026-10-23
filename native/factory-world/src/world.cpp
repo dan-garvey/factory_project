@@ -4033,58 +4033,71 @@ Advance World::tick() noexcept {
                 CollectorMouth{collector->machine_center, receiver});
             if (!inserted) entry->second.reset();
         }
-        struct PressMouth { mechanics::Point frame; mechanics::Point exit; };
+        struct PressMouth { mechanics::Point anchor; mechanics::Point exit; };
         std::map<mechanics::Point, std::optional<PressMouth>> press_mouths;
-        struct PressInlet { mechanics::Point frame; mechanics::Point work; bool clear; };
+        struct PressInlet { mechanics::Point anchor; mechanics::Point work; bool clear; };
         std::map<mechanics::Point, std::optional<PressInlet>> press_inlets;
         std::map<mechanics::Point, std::size_t> press_inlet_claims;
         if (!candidate.topology.belt_spans.empty()) {
             std::set<mechanics::Point> component_centers;
             for (const auto& part : placed) component_centers.insert(part.center);
-            for (const auto& [frame_center, inspected] : tick_layout_->presses_by_frame) {
-                if (inspected.press || inspected.status == assembly::PressStatus::ambiguous) {
+            const auto include_press = [&](const mechanics::Point& anchor,
+                    const mechanics::Point& work, const std::vector<assembly::PressFeed>* feeds,
+                    bool ambiguous) {
+                if (feeds || ambiguous) {
                     for (const auto& direction : {mechanics::Point{1, 0, 0}, mechanics::Point{-1, 0, 0},
                                                   mechanics::Point{0, 0, 1}, mechanics::Point{0, 0, -1}}) {
-                        const mechanics::Point mouth{frame_center[0] + 4 * direction[0], frame_center[1],
-                            frame_center[2] + 4 * direction[2]};
+                        const mechanics::Point mouth{anchor[0] + 4 * direction[0], anchor[1],
+                            anchor[2] + 4 * direction[2]};
                         ++press_inlet_claims[mouth];
                     }
                 }
-                if (!inspected.press) continue;
-                const auto& press = *inspected.press;
-                for (const auto& feed : press.open_feeds) {
-                    const auto entry_direction = mechanics::Point{feed.entry[0] - press.work_center[0], 0,
-                        feed.entry[2] - press.work_center[2]};
-                    auto entry_mouth = press.frame_center;
+                if (!feeds) return;
+                for (const auto& feed : *feeds) {
+                    const auto entry_direction = mechanics::Point{feed.entry[0] - work[0], 0,
+                        feed.entry[2] - work[2]};
+                    auto entry_mouth = anchor;
                     entry_mouth[0] += 4 * entry_direction[0];
                     entry_mouth[2] += 4 * entry_direction[2];
                     bool entry_clear = true;
                     for (Integer distance = 2; distance <= 3; ++distance) {
-                        const mechanics::Point along{press.work_center[0] + distance * entry_direction[0],
-                            press.work_center[1], press.work_center[2] + distance * entry_direction[2]};
+                        const mechanics::Point along{work[0] + distance * entry_direction[0],
+                            work[1], work[2] + distance * entry_direction[2]};
                         if (component_centers.contains(along)) { entry_clear = false; break; }
                     }
                     const auto [inlet, unique_inlet] = press_inlets.emplace(entry_mouth,
-                        PressInlet{press.frame_center, press.work_center, entry_clear});
+                        PressInlet{anchor, work, entry_clear});
                     if (!unique_inlet) inlet->second.reset();
-                    const auto direction = mechanics::Point{feed.exit[0] - press.work_center[0], 0,
-                        feed.exit[2] - press.work_center[2]};
-                    auto mouth = press.frame_center;
+                    const auto direction = mechanics::Point{feed.exit[0] - work[0], 0,
+                        feed.exit[2] - work[2]};
+                    auto mouth = anchor;
                     mouth[0] += 4 * direction[0];
                     mouth[2] += 4 * direction[2];
                     // The open work face alone is insufficient: the short chute
                     // down to a full-tile belt mouth must remain physically clear.
                     bool clear = true;
                     for (Integer distance = 2; distance <= 3; ++distance) {
-                        const mechanics::Point along{press.work_center[0] + distance * direction[0],
-                            press.work_center[1], press.work_center[2] + distance * direction[2]};
+                        const mechanics::Point along{work[0] + distance * direction[0],
+                            work[1], work[2] + distance * direction[2]};
                         if (component_centers.contains(along)) { clear = false; break; }
                     }
                     if (!clear) continue;
                     const auto [entry, inserted] = press_mouths.emplace(mouth,
-                        PressMouth{press.frame_center, feed.exit});
+                        PressMouth{anchor, feed.exit});
                     if (!inserted) entry->second.reset();
                 }
+            };
+            for (const auto& [frame_center, inspected] : tick_layout_->presses_by_frame) {
+                const auto* press = inspected.press ? &*inspected.press : nullptr;
+                include_press(frame_center, press ? press->work_center : mechanics::Point{},
+                    press ? &press->open_feeds : nullptr,
+                    inspected.status == assembly::PressStatus::ambiguous);
+            }
+            for (const auto& [anvil_center, inspected] : tick_layout_->presses_by_anvil) {
+                const auto* press = inspected.press ? &*inspected.press : nullptr;
+                include_press(anvil_center, press ? press->work_center : mechanics::Point{},
+                    press ? &press->open_feeds : nullptr,
+                    inspected.status == assembly::PressStatus::ambiguous);
             }
         }
         // Capture loose items before any lane moves. This gives a deterministic
@@ -4229,7 +4242,7 @@ Advance World::tick() noexcept {
                 const bool aligned_inlet = inlet != press_inlets.end() && inlet->second &&
                     press_inlet_claims.at(endpoint) == 1 &&
                     farther(toward_last ? path->tiles[path->tiles.size() - 2] : path->tiles[1],
-                        inlet->second->frame) > farther(endpoint, inlet->second->frame);
+                        inlet->second->anchor) > farther(endpoint, inlet->second->anchor);
                 const bool can_feed_press = aligned_inlet && inlet->second->clear &&
                     !candidate.material.dropped_material.contains(inlet->second->work) &&
                     candidate.material.dropped_material.size() < materials::maximum_drop_points &&
