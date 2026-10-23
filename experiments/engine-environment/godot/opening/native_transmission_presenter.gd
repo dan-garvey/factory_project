@@ -28,6 +28,7 @@ var _cargo_anchors: Array[Node3D] = []
 var _motion_context := ""
 var _motion_revision: Variant = null
 var _generations: Dictionary = {}
+var _visual_rates: Dictionary = {}
 var _visual_angles: Dictionary = {}
 var _visual_rotations: Dictionary = {}
 var _gear_batches: Dictionary = {}
@@ -63,6 +64,7 @@ func _clear_motion() -> void:
 	_motion_context = ""
 	_motion_revision = null
 	_generations.clear()
+	_visual_rates.clear()
 	_visual_angles.clear()
 	_visual_rotations.clear()
 
@@ -89,6 +91,15 @@ func _sync_motion(snapshot: Dictionary) -> void:
 			_visual_angles.erase(id)
 			_visual_rotations.erase(id)
 	_generations = current
+	# Native revisions freeze confirmed motion. Keep the active rates once per
+	# projection instead of parsing every part's motion each render frame.
+	_visual_rates.clear()
+	var motions: Variant = snapshot.get("motion", {})
+	if motions is Dictionary:
+		for id: String in current:
+			var rate := signed_rate(motions.get(id))
+			if rate != 0.0:
+				_visual_rates[id] = rate
 	_motion_revision = snapshot.get("revision")
 
 static func signed_rate(motion: Variant) -> float:
@@ -163,13 +174,18 @@ func advance_visual_motion(delta: float) -> void:
 	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") or identity_count != _generations.size():
 		_sync_motion(snapshot)
 	var changed_gears := false
-	for id: String in _generations:
-		var rate := signed_rate(snapshot.motion.get(id))
+	# Synthetic callers can mutate one revision in place, so they retain the
+	# direct lookup. Native World increments revision on every changed state.
+	var native_motion := host.get("model") is NativeModel
+	var rates: Dictionary = _visual_rates if native_motion else _generations
+	for id: String in rates:
+		var rate: float = rates[id] if native_motion else signed_rate(snapshot.motion.get(id))
 		if rate != 0.0:
 			var step := delta * rate * VISUAL_RADIANS_PER_SECOND
-			if not is_finite(step) or not is_finite(visual_rotation(id) + step):
+			var rotation := visual_rotation(id) + step
+			if not is_finite(step) or not is_finite(rotation):
 				continue
-			_visual_rotations[id] = visual_rotation(id) + step
+			_visual_rotations[id] = rotation
 			_visual_angles[id] = wrapf(visual_angle(id) + step, -PI, PI)
 			changed_gears = changed_gears or _batched_gear_ids.has(id)
 	_apply_angles(changed_gears)
