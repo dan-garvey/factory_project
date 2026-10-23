@@ -7508,6 +7508,7 @@ func _warm_packed_machine_previews() -> void:
 	await RenderingServer.frame_post_draw
 	for anchor in packed_preview_nodes.values():
 		anchor.visible = false
+	await _warm_transmission_placement_previews(view_size)
 	var frames_waited := 0
 	while not state.get("actors", {}).get(client, {}).get("ready", false) and frames_waited < 120:
 		frames_waited += 1
@@ -7533,6 +7534,32 @@ func _warm_packed_machine_previews() -> void:
 		set_process(resume_processing)
 		_message(opening_message, opening_refused)
 	cover.free()
+
+func _warm_transmission_placement_previews(view_size: Vector2) -> void:
+	# Draw the two cog sizes and the shaft while the workshop cover is visible.
+	# Their shared meshes and render resources then exist before a tool click.
+	var assets = load("res://opening/native_transmission_assets.gd")
+	var warm_nodes: Array[Node3D] = []
+	for teeth in [2, 4]:
+		var cog := MeshInstance3D.new()
+		cog.name = "CogPreviewWarmup%d" % teeth
+		cog.mesh = assets.complete_gear_mesh(PITCH / 2.0, teeth, Color("687a7b"), PITCH)
+		cog.position = camera.project_position(Vector2(view_size.x * (0.2 if teeth == 2 else 0.8),
+			view_size.y * 0.5), 7.0)
+		add_child(cog)
+		_style_machine_preview(cog)
+		warm_nodes.append(cog)
+	var shaft := Node3D.new()
+	shaft.name = "ShaftPreviewWarmup"
+	shaft.position = camera.project_position(view_size * Vector2(0.5, 0.5), 7.0)
+	add_child(shaft)
+	assets.shaft(shaft, PITCH, Color("687a7b"))
+	_style_machine_preview(shaft)
+	warm_nodes.append(shaft)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	for node in warm_nodes:
+		node.free()
 
 func _choose_machine_preview(pooled: Node3D = null) -> void:
 	var desired := pooled
