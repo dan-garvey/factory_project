@@ -400,6 +400,8 @@ func _batch_motion_check() -> void:
 	_check(batch_root != null and batch_root.get_child_count() > 0
 		and not view.machine_dynamic_batches.is_empty(),
 		"Twelve native wheels share static and moving render batches.")
+	_check(view.machine_batched_rotor_slots.size() == 12,
+		"Each batched wheel has a direct moving-instance slot.")
 	var retained_joinery := 0
 	var hidden_core := 0
 	for part in view.machine_root.get_child(0).get_node("WheelRotor").find_children("*", "MeshInstance3D", true, false):
@@ -449,10 +451,16 @@ func _batch_motion_check() -> void:
 		"Nearby and distant wheels use separate moving batches with the same authored rotor mesh.")
 	var far_base := far_rotor.basis
 	var far_id := far_rotor.get_instance_id()
+	var far_slot: Dictionary = view.machine_batched_rotor_slots.get(far_id, {})
+	_check(not far_slot.is_empty(), "The distant wheel keeps its own moving-instance slot.")
+	var far_instance_before: Transform3D = far_slot.mesh.get_instance_transform(far_slot.index)
 	view._animate_wheel(0.1)
 	_check(near_rotor.basis.is_equal_approx(bases[0] * Basis(Vector3.BACK, 0.1))
 		and far_rotor.basis.is_equal_approx(far_base) and not view.wheel_batch_poses.has(far_id),
 		"Near joinery turns while an offscreen distant rotor holds its last pose.")
+	if DisplayServer.get_name() != "headless":
+		_check(far_slot.mesh.get_instance_transform(far_slot.index).is_equal_approx(far_instance_before),
+			"The offscreen wheel slot holds its last rendered pose.")
 	view.camera.look_at(far_rotor.global_position)
 	view._animate_wheel(0.1)
 	_check(far_rotor.basis.is_equal_approx(far_base) and view.wheel_batch_poses.has(far_id),
@@ -478,10 +486,19 @@ func _batch_motion_check() -> void:
 	_check(not view.wheel_batch_poses.has(far_id)
 		and far_rotor.basis.is_equal_approx(far_base * Basis(Vector3.BACK, 1.2)),
 		"Walking to a distant wheel immediately catches its detailed joinery up to motion.")
+	var near_slot: Dictionary = view.machine_batched_rotor_slots[near_rotor.get_instance_id()]
+	var original_near_basis := near_rotor.basis
+	near_rotor.basis = original_near_basis * Basis(Vector3.BACK, 0.17)
+	view._update_machine_dynamic_batches()
+	if DisplayServer.get_name() != "headless":
+		_check(near_slot.mesh.get_instance_transform(near_slot.index).is_equal_approx(
+			near_slot.parent_pose * near_rotor.transform),
+			"A direct full batch refresh still updates a rotor outside the visible-only path.")
+	near_rotor.basis = original_near_basis
 	view.state.entities.erase("wheel-11")
 	view._rebuild_machines()
 	_check(view.machine_root.get_node_or_null("MachineVisualBatches") == null
-		and view.machine_dynamic_batches.is_empty(),
+		and view.machine_dynamic_batches.is_empty() and view.machine_batched_rotor_slots.is_empty(),
 		"Falling below the batching threshold restores direct render meshes.")
 	var unbatched_rotor := view.machine_root.get_child(0).get_node("WheelRotor") as Node3D
 	var unbatched_base := unbatched_rotor.basis

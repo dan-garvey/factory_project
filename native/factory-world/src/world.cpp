@@ -2753,6 +2753,28 @@ Advance World::tick() noexcept {
         if (error != materials::Error::none) throw error;
         const auto& motion = drive.mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
+        // Ready modular collectors draw from the same finite ore source as the
+        // old whole-machine path, but each tray owns its own loose output.
+        // Resolve all receiver claims before emitting so a repeated/ambiguous
+        // site face cannot debit ore twice or select an arbitrary assembly.
+        std::map<mechanics::Point, std::optional<assembly::Collector>> collectors_by_receiver;
+        for (const auto& face : profile_.collector_faces) {
+            const auto inspected = layout.inspect_collector(face);
+            if (!inspected.collector) continue;
+            const auto [entry, inserted] = collectors_by_receiver.emplace(
+                inspected.collector->receiver_center, *inspected.collector);
+            if (!inserted) entry->second.reset();
+        }
+        for (const auto& [receiver, collector] : collectors_by_receiver) {
+            if (!collector || candidate.material.stock.source == 0 ||
+                candidate.material.dropped_material.contains(receiver) ||
+                candidate.material.dropped_material.size() >= materials::maximum_drop_points) continue;
+            const auto shaft = motion.motion.find(collector->shaft);
+            if (shaft == motion.motion.end() || shaft->second.state != mechanics::MotionState::rotating)
+                continue;
+            --candidate.material.stock.source;
+            candidate.material.dropped_material.emplace(receiver, materials::Cargo{1, 0, {}});
+        }
         // Belt routes query the same immutable placed topology several times.
         // Preserve the first matching part at a point while avoiding one full
         // scan per endpoint and material port.
@@ -2778,18 +2800,14 @@ Advance World::tick() noexcept {
         // full tile on that same side. Duplicate claims are left for pickup.
         using CollectorMouth = std::pair<mechanics::Point, mechanics::Point>; // frame, tray
         std::map<mechanics::Point, std::optional<CollectorMouth>> collector_mouths;
-        if (!profile_.collector_faces.empty()) {
-            for (const auto& face : profile_.collector_faces) {
-                const auto inspected = layout.inspect_collector(face);
-                if (!inspected.collector) continue;
-                const auto& collector = *inspected.collector;
-                auto mouth = collector.machine_center;
-                for (std::size_t axis = 0; axis < mouth.size(); ++axis)
-                    mouth[axis] += 4 * (collector.receiver_center[axis] - collector.machine_center[axis]);
-                const auto [entry, inserted] = collector_mouths.emplace(mouth,
-                    CollectorMouth{collector.machine_center, collector.receiver_center});
-                if (!inserted) entry->second.reset();
-            }
+        for (const auto& [receiver, collector] : collectors_by_receiver) {
+            if (!collector) continue;
+            auto mouth = collector->machine_center;
+            for (std::size_t axis = 0; axis < mouth.size(); ++axis)
+                mouth[axis] += 4 * (receiver[axis] - collector->machine_center[axis]);
+            const auto [entry, inserted] = collector_mouths.emplace(mouth,
+                CollectorMouth{collector->machine_center, receiver});
+            if (!inserted) entry->second.reset();
         }
         // Capture loose items before any lane moves. This gives a deterministic
         // one-tick handoff between adjacent belts regardless of span ordering.
