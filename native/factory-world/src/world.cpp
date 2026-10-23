@@ -132,6 +132,13 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "craft_part") return keys(intent, {"target", "generation", "role", "half_span"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
         field<std::string>(intent, "role") && field<Integer>(intent, "half_span");
+    if (action == "stow_fabrication_hub")
+        return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
+            field<Integer>(intent, "generation");
+    if (action == "deploy_fabrication_hub")
+        return keys(intent, {"target", "generation", "center"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+            field<Value::Array>(intent, "center");
     if (action == "take_hand_crank" || action == "return_hand_crank")
         return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
             field<Integer>(intent, "generation");
@@ -337,8 +344,22 @@ Value belt_cargo_value(const materials::Cargo& cargo) {
                         {"work_lots", Value(std::move(lots))}});
 }
 
+using PlacedHistory = std::map<std::string, std::pair<materials::Component, mechanics::Point>>;
+
+std::optional<mechanics::Point> historical_bench_center(const std::optional<FabricationHub>& hub,
+        const PlacedHistory& placed_components, const std::string* target) {
+    if (!target) return std::nullopt;
+    if (hub && !hub->holder && *target == hub->id) return hub->center;
+    const auto placed = placed_components.find(*target);
+    return placed != placed_components.end() &&
+        placed->second.first == materials::Component::wooden_workbench ?
+        std::optional<mechanics::Point>(placed->second.second) : std::nullopt;
+}
+
 bool historical_facts(const Profile& profile, const authority::Record& record,
-                      const std::string& actor, const std::string& action) {
+                      const std::string& actor, const std::string& action,
+                      const PlacedHistory& placed_components,
+                      const std::optional<FabricationHub>& hub) {
     if (action == "shaft_between" || action == "remove_shaft_between") return false;
     const auto& result = record.result;
     const auto* reason = field<std::string>(result, "reason");
@@ -446,12 +467,13 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* count = field<Integer>(result, "component_count");
         const auto component = requested_component ? materials::component_from_name(*requested_component) : std::nullopt;
         const auto cost = component ? materials::component_cost(*component) : std::nullopt;
-        return profile.landing_pod_center && target && *target == "pod-fabrication-hub" &&
-            requested_generation && *requested_generation == 1 && entity && *entity == *target &&
-            generation && *generation == 1 && made && requested_component && *made == *requested_component &&
+        const auto bench_center = historical_bench_center(hub, placed_components, target);
+        return bench_center && target && requested_generation && *requested_generation > 0 &&
+            entity && *entity == *target && generation && *generation == *requested_generation &&
+            made && requested_component && *made == *requested_component &&
             cost && timber && *timber == cost->timber && raw && *raw == cost->ore &&
             count && *count > 0 && *count <= profile.material.component_capacity &&
-            targets.front() == anchor(profile, landing_hub_center(*profile.landing_pod_center)) && result.size() == 20;
+            targets.front() == anchor(profile, *bench_center) && result.size() == 20;
     }
     if (action == "field_craft") {
         const auto* requested = field<std::string>(record.intent, "component");
@@ -499,13 +521,14 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* timber = field<Integer>(result, "spent_timber");
         const auto* raw = field<Integer>(result, "spent_raw");
         const auto* count = field<Integer>(result, "part_count");
-        return profile.landing_pod_center && target && *target == "pod-fabrication-hub" &&
-            requested_generation && *requested_generation == 1 && entity && *entity == *target &&
-            generation && *generation == 1 && requested_role && made_role && *made_role == *requested_role &&
+        const auto bench_center = historical_bench_center(hub, placed_components, target);
+        return bench_center && target && requested_generation && *requested_generation > 0 &&
+            entity && *entity == *target && generation && *generation == *requested_generation &&
+            requested_role && made_role && *made_role == *requested_role &&
             requested_span && made_span && *made_span == *requested_span &&
             recipe != profile.fabrication_parts.end() && timber && *timber == recipe->second.timber &&
             raw && *raw == recipe->second.ore && count && *count > 0 && *count <= 4096 &&
-            targets.front() == anchor(profile, landing_hub_center(*profile.landing_pod_center)) && result.size() == 21;
+            targets.front() == anchor(profile, *bench_center) && result.size() == 21;
     }
     if (action == "take_hand_crank" || action == "return_hand_crank") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -518,6 +541,22 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             entity && *entity == *target && generation && *generation == 1 &&
             holder && *holder == (action == "take_hand_crank" ? actor : "pod") &&
             targets.front() == anchor(profile, *profile.landing_pod_center) && result.size() == 17;
+    }
+    if (action == "stow_fabrication_hub" || action == "deploy_fabrication_hub") {
+        const bool deploy = action == "deploy_fabrication_hub";
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* holder = field<std::string>(result, "holder");
+        const auto center = deploy ? grid_point(record.intent) :
+            (hub ? std::optional<mechanics::Point>(hub->center) : std::nullopt);
+        return hub && target && *target == hub->id && requested_generation &&
+            *requested_generation == hub->generation && entity && *entity == hub->id &&
+            generation && *generation == hub->generation && holder &&
+            *holder == (deploy ? "installed" : actor) &&
+            (deploy ? hub->holder == actor : !hub->holder) && center &&
+            targets.front() == anchor(profile, *center) && result.size() == 17;
     }
     if (action == "turn_hand_crank") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -726,7 +765,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     stationary::Kit fabricated_parts;
     std::map<std::string, stationary::Kit> fabricated_balances;
     std::map<std::string, stationary::PartSpec> installed_fabrication;
-    std::map<std::string, std::pair<materials::Component, mechanics::Point>> placed_components;
+    PlacedHistory placed_components;
+    std::optional<FabricationHub> historical_hub;
+    if (profile.landing_pod_center)
+        historical_hub = FabricationHub{"pod-fabrication-hub",
+            landing_hub_center(*profile.landing_pod_center), 1};
     struct PressWorkRecord {
         materials::WorkId id{}; // Zero means a fed raw blank.
         Integer remaining{};
@@ -786,7 +829,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (source == snapshot.state.issued_entities.end() || source->second != *from_generation ||
                 destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
         }
-        if (!historical_facts(profile, record, *actor, *action)) return false;
+        if (!historical_facts(profile, record, *actor, *action, placed_components, historical_hub))
+            return false;
+        if (*action == "stow_fabrication_hub") historical_hub->holder = *actor;
+        if (*action == "deploy_fabrication_hub") {
+            historical_hub->holder.reset();
+            historical_hub->center = *grid_point(record.intent);
+        }
         if (*action == "place_foundations" || *action == "place_foundation" ||
             *action == "remove_foundation") {
             const auto kit = foundation_kits.find(*actor);
@@ -1142,6 +1191,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     if (profile.landing_pod_center && (!snapshot.state.hand_crank ||
         snapshot.state.hand_crank->holder != crank_holder)) return false;
     if (placed_components.size() != snapshot.state.placed_components.size()) return false;
+    if (historical_hub != snapshot.state.fabrication_hub) return false;
     for (const auto& [id, placed] : snapshot.state.placed_components) {
         const auto found = placed_components.find(id);
         if (found == placed_components.end() || found->second != std::make_pair(placed.kind, placed.center)) return false;
@@ -1492,15 +1542,26 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
     if (state.fabrication_hub) {
         const auto& hub = *state.fabrication_hub;
         const auto issued = state.issued_entities.find(hub.id);
-        const auto support = state.foundations.find("pod-floor-7");
         if (hub.id != "pod-fabrication-hub" || hub.generation != 1 ||
-            hub.center != landing_hub_center(*profile.landing_pod_center) ||
             issued == state.issued_entities.end() || issued->second != hub.generation ||
             part(state.topology, hub.id) || state.foundations.contains(hub.id) ||
-            support == state.foundations.end() || support->second.center != hub.center)
+            (hub.holder && !profile.actors.contains(*hub.holder)) ||
+            std::any_of(hub.center.begin(), hub.center.end(),
+                [](Integer coordinate) { return coordinate < -mechanics::maximum_coordinate ||
+                    coordinate > mechanics::maximum_coordinate; }) ||
+            std::any_of(hub.center.begin(), hub.center.end(),
+                [](Integer coordinate) { return coordinate % 4 != 0; }) ||
+            (!hub.holder && hub.center[1] != 0 &&
+             std::none_of(state.foundations.begin(), state.foundations.end(),
+                 [&](const auto& entry) { return entry.second.center == hub.center; })))
             return false;
-        for (const auto& placed : state.topology.parts)
-            if (material_machine(placed.role) && placed.geometry.center == hub.center) return false;
+        if (snapshot.revision == 0 &&
+            (hub.holder || hub.center != landing_hub_center(*profile.landing_pod_center) ||
+             !state.foundations.contains("pod-floor-7"))) return false;
+        if (!hub.holder) {
+            for (const auto& placed : state.topology.parts)
+                if (material_machine(placed.role) && placed.geometry.center == hub.center) return false;
+        }
     }
     if (state.freight_beacon) {
         const auto& beacon = *state.freight_beacon;
@@ -1531,10 +1592,17 @@ bool validate(const Profile& profile, const Snapshot& snapshot) {
             placed.generation <= 0 || !id.starts_with(allocated_prefix) ||
             !materials::component_cost(placed.kind) ||
             !component_centers.insert(placed.center).second ||
-            (state.fabrication_hub && placed.center == state.fabrication_hub->center) ||
+            (state.fabrication_hub && !state.fabrication_hub->holder &&
+             placed.center == state.fabrication_hub->center) ||
             !add(component_totals[placed.kind], 1)) return false;
         for (const auto coordinate : placed.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
+        if (placed.kind == materials::Component::wooden_workbench &&
+            (std::any_of(placed.center.begin(), placed.center.end(),
+                [](Integer coordinate) { return coordinate % 4 != 0; }) ||
+             (placed.center[1] != 0 &&
+              std::none_of(state.foundations.begin(), state.foundations.end(),
+                  [&](const auto& entry) { return entry.second.center == placed.center; })))) return false;
         if (part(state.topology, id) || state.foundations.contains(id) ||
             std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
                 [&](const auto& item) { return item.geometry.center == placed.center; })) return false;
@@ -1819,9 +1887,16 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto* generation = field<Integer>(intent, "generation");
         const auto* requested = field<std::string>(intent, "component");
         if (!id || !generation || !requested) return refused("invalid_target");
-        if (!state.fabrication_hub || *id != state.fabrication_hub->id)
-            return refused("unknown_target", *id);
-        if (*generation != state.fabrication_hub->generation)
+        const auto placed_bench = state.placed_components.find(*id);
+        const auto bench = state.fabrication_hub && !state.fabrication_hub->holder &&
+            *id == state.fabrication_hub->id ?
+            std::optional<FabricationHub>(*state.fabrication_hub) :
+            placed_bench != state.placed_components.end() &&
+                placed_bench->second.kind == materials::Component::wooden_workbench ?
+                std::optional<FabricationHub>(FabricationHub{*id, placed_bench->second.center,
+                    placed_bench->second.generation}) : std::nullopt;
+        if (!bench) return refused("unknown_target", *id);
+        if (*generation != bench->generation)
             return refused("stale_generation", *id);
         const auto component = materials::component_from_name(*requested);
         const auto cost = component ? materials::component_cost(*component) : std::nullopt;
@@ -1831,7 +1906,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto checked_cut = *cut;
         checked_cut.build_reach = profile_.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, state.fabrication_hub->center)});
+            {anchor(profile_, bench->center)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
@@ -1881,9 +1956,16 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto* requested = field<std::string>(intent, "role");
         const auto* half_span = field<Integer>(intent, "half_span");
         if (!id || !generation || !requested || !half_span) return refused("invalid_target");
-        if (!state.fabrication_hub || *id != state.fabrication_hub->id)
-            return refused("unknown_target", *id);
-        if (*generation != state.fabrication_hub->generation)
+        const auto placed_bench = state.placed_components.find(*id);
+        const auto bench = state.fabrication_hub && !state.fabrication_hub->holder &&
+            *id == state.fabrication_hub->id ?
+            std::optional<FabricationHub>(*state.fabrication_hub) :
+            placed_bench != state.placed_components.end() &&
+                placed_bench->second.kind == materials::Component::wooden_workbench ?
+                std::optional<FabricationHub>(FabricationHub{*id, placed_bench->second.center,
+                    placed_bench->second.generation}) : std::nullopt;
+        if (!bench) return refused("unknown_target", *id);
+        if (*generation != bench->generation)
             return refused("stale_generation", *id);
         const auto selected = role(*requested);
         const auto recipe = selected ? profile_.fabrication_parts.find({*selected, 0, *half_span}) :
@@ -1894,7 +1976,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto checked_cut = *cut;
         checked_cut.build_reach = profile_.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, state.fabrication_hub->center)});
+            {anchor(profile_, bench->center)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
@@ -1917,6 +1999,48 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("spent_timber", Value(cost.timber));
         facts.emplace("spent_raw", Value(cost.ore));
         facts.emplace("part_count", Value(candidate.kits.at(binding.actor).at(recipe->first)));
+        return accepted(std::move(candidate), *id, std::move(facts));
+    }
+    if (*action == "stow_fabrication_hub" || *action == "deploy_fabrication_hub") {
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        if (!id || !generation) return refused("invalid_target");
+        if (!state.fabrication_hub || *id != state.fabrication_hub->id)
+            return refused("unknown_target", *id);
+        const auto& hub = *state.fabrication_hub;
+        if (*generation != hub.generation) return refused("stale_generation", *id);
+        const bool deploy = *action == "deploy_fabrication_hub";
+        if (deploy ? (!hub.holder || *hub.holder != binding.actor) : hub.holder.has_value())
+            return refused(deploy ? "not_holder" : "already_stowed", *id);
+        const auto location = deploy ? grid_point(intent) : std::optional<mechanics::Point>(hub.center);
+        if (!location) return refused("invalid_cell", *id);
+        const auto center = *location;
+        if (deploy &&
+            (std::any_of(center.begin(), center.end(),
+                [](Integer coordinate) { return coordinate % 4 != 0; }) ||
+             (center[1] != 0 &&
+              std::none_of(state.foundations.begin(), state.foundations.end(),
+                  [&](const auto& entry) { return entry.second.center == center; }))))
+            return refused("unsupported_bench", *id);
+        if (deploy &&
+            (std::any_of(state.placed_components.begin(), state.placed_components.end(),
+                [&](const auto& entry) { return entry.second.center == center; }) ||
+             std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
+                [&](const auto& item) { return item.geometry.center == center; })))
+            return refused("occupied", *id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut, {anchor(profile_, center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        auto candidate = state;
+        candidate.fabrication_hub->center = center;
+        candidate.fabrication_hub->holder = deploy ? std::nullopt : std::optional<std::string>(binding.actor);
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("holder", Value(deploy ? "installed" : binding.actor));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "take_hand_crank" || *action == "return_hand_crank") {
@@ -2103,6 +2227,13 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (!placing && found->second.generation != *generation) return refused("stale_generation", *target);
         const auto center = placing ? *location : found->second.center;
         const auto kind = placing ? *component : found->second.kind;
+        if (placing && kind == materials::Component::wooden_workbench &&
+            (std::any_of(center.begin(), center.end(),
+                [](Integer coordinate) { return coordinate % 4 != 0; }) ||
+             (center[1] != 0 &&
+              std::none_of(state.foundations.begin(), state.foundations.end(),
+                  [&](const auto& entry) { return entry.second.center == center; }))))
+            return refused("unsupported_bench");
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready");
         auto checked_cut = *cut;
@@ -2122,7 +2253,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 state.issued_entities.size() == maximum_issued_entities ||
                 state.next_entity_serial == std::numeric_limits<Integer>::max())
                 return refused("identity_limit", "", std::move(facts));
-            if ((state.fabrication_hub && center == state.fabrication_hub->center) ||
+            if ((state.fabrication_hub && !state.fabrication_hub->holder &&
+                 center == state.fabrication_hub->center) ||
                 std::any_of(state.placed_components.begin(), state.placed_components.end(),
                     [&](const auto& entry) { return entry.second.center == center; }) ||
                 std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
@@ -2211,7 +2343,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             const auto found = state.foundations.find(*id);
             if (found == state.foundations.end()) return refused("unknown_target", *id);
             if (found->second.generation != *expected) return refused("stale_generation", *id);
-            if (state.fabrication_hub && found->second.center == state.fabrication_hub->center)
+            if (state.fabrication_hub && !state.fabrication_hub->holder &&
+                found->second.center == state.fabrication_hub->center)
                 return refused("foundation_in_use", *id);
             if (std::any_of(state.placed_components.begin(), state.placed_components.end(),
                     [&](const auto& entry) { return entry.second.center == found->second.center; }))
@@ -2472,7 +2605,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             (*selected_role == Role::gearbox && *selected_axis != mechanics::Axis::y) ||
             (*selected_role == Role::vertical_gearbox && *selected_axis == mechanics::Axis::y)) return refused("invalid_part");
         if (*selected_role == Role::belt) return refused("invalid_part");
-        if (state.fabrication_hub && material_machine(*selected_role) &&
+        if (state.fabrication_hub && !state.fabrication_hub->holder && material_machine(*selected_role) &&
             *location == state.fabrication_hub->center) return refused("occupied");
         if ((material_machine(*selected_role) || *selected_role == Role::waterwheel) && (*location)[1] % 4 != 0)
             return refused("unaligned_elevation");

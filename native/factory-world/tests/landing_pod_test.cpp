@@ -1,5 +1,6 @@
 #include "factory/checkpoint.hpp"
 
+#include <array>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -644,6 +645,174 @@ void placed_components_keep_custody_and_history() {
     check(!w::World::restore("placed-chapter", profile, impossible),
           "Restore rejects a forged history that temporarily carries a frame and shaft in one slot.");
 }
+
+void portable_bench_crafts_with_finite_shared_stock() {
+    auto [profile, state] = seed();
+    profile.build_reach = 6;
+    profile.material.timber_sites = {{"field-tree", {{20, 0, 16}, 8}}};
+    profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
+    profile.material.component_capacity = 1;
+    state.material.timber_remaining = {{"field-tree", 8}};
+    auto world = w::World::create("portable-bench", profile, state);
+    check(world != nullptr, "One pod and finite timber and ore initialize for bench relocation.");
+    const auto send = [&](const O& intent, std::array<double, 3> position) {
+        const auto actor = std::get<std::string>(intent.at("actor").storage());
+        const auto client = std::get<std::string>(intent.at("client").storage());
+        return world->command({actor, client}, intent,
+            [position](const std::string& observed) -> std::optional<a::ActorCut> {
+                return a::ActorCut{observed, position, 1, true, 6};
+            });
+    };
+    for (int index = 0; index < 4; ++index) {
+        const O cut{{"context", V("portable-bench")}, {"client", V("P-client")},
+            {"request", V("wood-" + std::to_string(index))}, {"actor", V("P")},
+            {"action", V("harvest_source")}, {"target", V("field-tree")}};
+        const auto result = send(cut, {20, 0, 16});
+        check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
+              "P cuts each of four finite timber units for a portable bench.");
+    }
+    const O shape{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("shape-bench")}, {"actor", V("P")}, {"action", V("field_craft")},
+        {"component", V("wooden_workbench")}};
+    const auto made = send(shape, {20, 0, 16});
+    check(made.completed() && std::get<bool>(made.result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_workbench) == 1 &&
+          world->snapshot().state.material.timber_remaining.at("field-tree") == 4,
+          "The multitool shapes a bench from four carried timber without pod access.");
+    const O place{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("place-bench")}, {"actor", V("P")}, {"action", V("place_component")},
+        {"component", V("wooden_workbench")},
+        {"center", V(V::Array{V(I{24}), V(I{0}), V(I{16})})}};
+    const auto built = send(place, {20, 0, 16});
+    check(built.completed() && std::get<bool>(built.result->at("accepted").storage()),
+          "P installs the bench on the common tile grid away from the pod.");
+    const auto bench_id = std::get<std::string>(built.result->at("entity").storage());
+    const auto bench_generation = std::get<I>(built.result->at("generation").storage());
+    check(world->snapshot().state.material.placed_components.at(m::Component::wooden_workbench) == 1 &&
+          world->snapshot().state.material.cargo.at("P").components.empty(),
+          "Placed bench timber stays in the same conserved component ledger.");
+    const O stow_hub{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("stow-pod-workshop")}, {"actor", V("P")},
+        {"action", V("stow_fabrication_hub")}, {"target", V("pod-fabrication-hub")},
+        {"generation", V(I{1})}};
+    const auto stowed = send(stow_hub, {8, 0, 16});
+    check(stowed.completed() && std::get<bool>(stowed.result->at("accepted").storage()) &&
+          world->snapshot().state.fabrication_hub->holder == "P",
+          "P unbolts the one issued pod workshop into explicit actor custody.");
+    const O pod_craft{{"context", V("portable-bench")}, {"client", V("Q-client")},
+        {"request", V("craft-at-stowed-pod")}, {"actor", V("Q")},
+        {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
+        {"generation", V(I{1})}, {"component", V("cutting_edge")}};
+    const auto absent_pod = send(pod_craft, {8, 0, 16});
+    check(absent_pod.completed() && !std::get<bool>(absent_pod.result->at("accepted").storage()) &&
+          std::get<std::string>(absent_pod.result->at("reason").storage()) == "unknown_target",
+          "A stowed pod workshop cannot remain a hidden remote crafting authority.");
+    const O ore{{"context", V("portable-bench")}, {"client", V("Q-client")},
+        {"request", V("mine-ore")}, {"actor", V("Q")},
+        {"action", V("harvest_source")}, {"target", V("ore")}};
+    check(std::get<bool>(send(ore, {-3, 0, 0}).result->at("accepted").storage()),
+          "Q hand mines one unit from the collector's finite ore source.");
+    const O craft{{"context", V("portable-bench")}, {"client", V("Q-client")},
+        {"request", V("shape-edge")}, {"actor", V("Q")}, {"action", V("craft_component")},
+        {"target", V(bench_id)}, {"generation", V(bench_generation)},
+        {"component", V("cutting_edge")}};
+    const auto distant = send(craft, {-3, 0, 0});
+    check(distant.completed() && !std::get<bool>(distant.result->at("accepted").storage()) &&
+          std::get<std::string>(distant.result->at("reason").storage()) == "out_of_reach" &&
+          world->snapshot().state.material.cargo.at("Q").raw_units == 1,
+          "Q cannot spend carried ore at the remote placed bench.");
+    auto near_craft = craft;
+    near_craft.at("request") = V("shape-edge-near");
+    const auto edge = send(near_craft, {24, 0, 16});
+    if (!edge.completed() || !std::get<bool>(edge.result->at("accepted").storage()))
+        throw std::runtime_error("Portable bench metal craft refused: " +
+            (edge.result ? std::get<std::string>(edge.result->at("reason").storage()) :
+                "transaction " + std::to_string(static_cast<int>(edge.error))));
+    check(edge.completed() && std::get<bool>(edge.result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("Q").components.at(m::Component::cutting_edge) == 1 &&
+          world->snapshot().state.material.cargo.at("Q").raw_units == 0,
+          "A second actor cold shapes its own metal at P's shared placed bench.");
+    const auto after_edge = world->snapshot();
+    const auto duplicate_edge = send(near_craft, {24, 0, 16});
+    check(duplicate_edge.completed() && std::get<bool>(duplicate_edge.result->at("duplicate").storage()) &&
+          world->snapshot().state == after_edge.state,
+          "Repeating the bench craft request does not spend or mint another component.");
+    auto second_ore = ore;
+    second_ore.at("request") = V("mine-second-ore");
+    check(std::get<bool>(send(second_ore, {-3, 0, 0}).result->at("accepted").storage()),
+          "Q carries a second ore blank while its component slot is full.");
+    auto full_craft = near_craft;
+    full_craft.at("request") = V("full-bench-cargo");
+    const auto full = send(full_craft, {24, 0, 16});
+    check(full.completed() && !std::get<bool>(full.result->at("accepted").storage()) &&
+          std::get<std::string>(full.result->at("reason").storage()) == "inventory_full" &&
+          world->snapshot().state.material.cargo.at("Q").raw_units == 1,
+          "A full actor component slot refuses bench crafting without spending ore.");
+    const auto saved = world->snapshot();
+    const auto encoded = w::encode_checkpoint(profile, saved);
+    check(std::holds_alternative<V>(encoded) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(profile, "portable-bench", std::get<V>(encoded))) &&
+          w::World::restore("portable-bench", profile, saved) != nullptr,
+          "Checkpoint and strict history restore keep placed bench identity and both actors' custody.");
+    const O reclaim{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("reclaim-bench")}, {"actor", V("P")},
+        {"action", V("reclaim_component")}, {"target", V(bench_id)},
+        {"generation", V(bench_generation)}};
+    auto stale_reclaim = reclaim;
+    stale_reclaim.at("request") = V("stale-bench-reclaim");
+    stale_reclaim.at("generation") = V(bench_generation + 1);
+    const auto stale = send(stale_reclaim, {20, 0, 16});
+    check(stale.completed() && !std::get<bool>(stale.result->at("accepted").storage()) &&
+          std::get<std::string>(stale.result->at("reason").storage()) == "stale_generation" &&
+          world->snapshot().state.placed_components.contains(bench_id),
+          "A stale bench generation cannot reclaim a live workshop.");
+    check(std::get<bool>(send(reclaim, {20, 0, 16}).result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_workbench) == 1,
+          "P reclaims the exact bench into carried component stock without a refund mint.");
+    auto after_removal = craft;
+    after_removal.at("request") = V("shape-at-missing-bench");
+    const auto missing = send(after_removal, {24, 0, 16});
+    check(missing.completed() && !std::get<bool>(missing.result->at("accepted").storage()) &&
+          std::get<std::string>(missing.result->at("reason").storage()) == "unknown_target",
+          "A removed bench cannot keep crafting through its historical identity.");
+    auto raised = place;
+    raised.at("request") = V("unsupported-bench");
+    raised.at("center") = V(V::Array{V(I{24}), V(I{4}), V(I{16})});
+    const auto unsupported = send(raised, {20, 0, 16});
+    check(unsupported.completed() && !std::get<bool>(unsupported.result->at("accepted").storage()) &&
+          std::get<std::string>(unsupported.result->at("reason").storage()) == "unsupported_bench" &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_workbench) == 1,
+          "An elevated bench needs an ordinary aligned foundation and cannot lose its component on refusal.");
+    const O deploy_hub{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("deploy-pod-workshop")}, {"actor", V("P")},
+        {"action", V("deploy_fabrication_hub")}, {"target", V("pod-fabrication-hub")},
+        {"generation", V(I{1})},
+        {"center", V(V::Array{V(I{28}), V(I{0}), V(I{16})})}};
+    const auto deployed = send(deploy_hub, {24, 0, 16});
+    check(deployed.completed() && std::get<bool>(deployed.result->at("accepted").storage()) &&
+          !world->snapshot().state.fabrication_hub->holder &&
+          world->snapshot().state.fabrication_hub->center == factory::mechanics::Point{28, 0, 16} &&
+          w::World::restore("portable-bench", profile, world->snapshot()) != nullptr,
+          "The same issued pod workshop redeploys away from the pod and survives strict replay.");
+    auto reinstall = place;
+    reinstall.at("request") = V("reinstall-bench");
+    const auto reinstalled = send(reinstall, {20, 0, 16});
+    check(reinstalled.completed() && std::get<bool>(reinstalled.result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("P").components.empty(),
+          "P reinstalls the reclaimed bench and frees the one carried component slot.");
+    const O more_wood{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("fifth-wood")}, {"actor", V("P")},
+        {"action", V("harvest_source")}, {"target", V("field-tree")}};
+    check(std::get<bool>(send(more_wood, {20, 0, 16}).result->at("accepted").storage()),
+          "P obtains one more finite timber for crafting after moving the pod hub.");
+    const O moved_craft{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("moved-hub-shaft")}, {"actor", V("P")},
+        {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
+        {"generation", V(I{1})}, {"component", V("wooden_shaft")}};
+    check(std::get<bool>(send(moved_craft, {28, 0, 16}).result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1,
+          "The relocated pod workshop crafts from P's own new timber at its actual position.");
+}
 }  // namespace
 
 int main() {
@@ -656,6 +825,7 @@ int main() {
         deck_recovery_is_a_normal_world_transaction();
         reachable_craft_uses_one_hub_and_owned_ingredients();
         placed_components_keep_custody_and_history();
+        portable_bench_crafts_with_finite_shared_stock();
         std::cout << "landing_pod_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

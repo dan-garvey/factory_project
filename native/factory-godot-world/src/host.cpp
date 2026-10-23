@@ -38,6 +38,15 @@ constexpr double machine_width = 1.45;
 constexpr double machine_height = 1.65;
 constexpr double machine_center_height = 0.8;
 
+Integer crafting_bench_generation(const world::State& state, const std::string& id) {
+    if (state.fabrication_hub && !state.fabrication_hub->holder && state.fabrication_hub->id == id)
+        return state.fabrication_hub->generation;
+    const auto placed = state.placed_components.find(id);
+    return placed != state.placed_components.end() &&
+        placed->second.kind == materials::Component::wooden_workbench ?
+        placed->second.generation : Integer{0};
+}
+
 const char* collector_status_name(assembly::Status status) {
     switch (status) {
         case assembly::Status::ready: return "ready";
@@ -201,6 +210,9 @@ Bounds component_bounds(const world::Profile& profile,
         case materials::Component::wooden_frame:
             // The frame's four load-bearing feet meet the level's floor.
             return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.2025, 0.45, 0.2025}};
+        case materials::Component::wooden_workbench:
+            // A floor-seated table is usable on ground or an ordinary joined deck.
+            return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.34, 0.45, 0.30}};
         case materials::Component::tool_mount:
             return {{at[0], at[1] + 0.10, at[2]}, {0.20, 0.18, 0.19}};
         case materials::Component::anvil:
@@ -387,6 +399,13 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "field_craft")
         return *original_action == "field_craft" && keys(*wire, {"component"}) &&
             field<std::string>(*wire, "component") && same("component", "component");
+    if (*action == "stow_fabrication_hub")
+        return *original_action == "stow_fabrication_hub" && keys(*wire, {"entity"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "target");
+    if (*action == "deploy_fabrication_hub")
+        return *original_action == "deploy_fabrication_hub" && keys(*wire, {"entity", "center"}) &&
+            field<std::string>(*wire, "entity") && field<Array>(*wire, "center") &&
+            same("entity", "target") && same("center", "center");
     if (*action == "deliver_first_plate")
         return *original_action == "deliver_first_plate" && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
@@ -1356,24 +1375,50 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             !field<std::string>(wire, "component")) return refuse("invalid_command");
         normalized.at("action") = Value("craft_component");
         normalized.emplace("target", wire.at("entity"));
-        normalized.emplace("generation", Value(snapshot.state.fabrication_hub &&
-            snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
-            snapshot.state.fabrication_hub->generation : Integer{0}));
+        normalized.emplace("generation", Value(crafting_bench_generation(snapshot.state,
+            *field<std::string>(wire, "entity"))));
         normalized.emplace("component", wire.at("component"));
     } else if (*action == "field_craft") {
         if (!keys(wire, {"component"}) || !field<std::string>(wire, "component"))
             return refuse("invalid_command");
         normalized.at("action") = Value("field_craft");
         normalized.emplace("component", wire.at("component"));
+    } else if (*action == "stow_fabrication_hub" || *action == "deploy_fabrication_hub") {
+        const bool deploy = *action == "deploy_fabrication_hub";
+        if (!keys(wire, deploy ? std::initializer_list<const char*>{"entity", "center"} :
+                std::initializer_list<const char*>{"entity"}) ||
+            !field<std::string>(wire, "entity")) return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
+        normalized.emplace("target", wire.at("entity"));
+        normalized.emplace("generation", Value(snapshot.state.fabrication_hub &&
+            snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
+            snapshot.state.fabrication_hub->generation : Integer{0}));
+        if (deploy) {
+            const auto* point = field<Array>(wire, "center");
+            if (!point || point->size() != 3) return refuse("invalid_center");
+            mechanics::Point center{};
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                const auto* coordinate = std::get_if<Integer>(&point->at(axis).storage());
+                if (!coordinate || *coordinate < -mechanics::maximum_coordinate ||
+                    *coordinate > mechanics::maximum_coordinate) return refuse("invalid_center");
+                center[axis] = *coordinate;
+            }
+            const auto volume = component_bounds(profile_, materials::Component::wooden_workbench, center);
+            if (const auto* refusal = component_site_refusal(materials::Component::wooden_workbench, center))
+                return refuse(refusal);
+            if (placement_blocked(volume.center, volume.half)) return refuse("actor_occupied");
+            if (const auto* refusal = component_space_refusal(snapshot.state,
+                    materials::Component::wooden_workbench, center)) return refuse(refusal);
+            normalized.emplace("center", wire.at("center"));
+        }
     } else if (*action == "craft_part") {
         if (!keys(wire, {"entity", "role", "half_span"}) ||
             !field<std::string>(wire, "entity") || !field<std::string>(wire, "role") ||
             !field<Integer>(wire, "half_span")) return refuse("invalid_command");
         normalized.at("action") = Value("craft_part");
         normalized.emplace("target", wire.at("entity"));
-        normalized.emplace("generation", Value(snapshot.state.fabrication_hub &&
-            snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
-            snapshot.state.fabrication_hub->generation : Integer{0}));
+        normalized.emplace("generation", Value(crafting_bench_generation(snapshot.state,
+            *field<std::string>(wire, "entity"))));
         normalized.emplace("role", wire.at("role"));
         normalized.emplace("half_span", wire.at("half_span"));
     } else if (*action == "take_hand_crank" || *action == "return_hand_crank") {
@@ -2204,22 +2249,36 @@ Value Host::projection() const {
             {"generation", Value(pod.generation)},
             {"center", Value(Array{Value(pod.center[0] / height_denominator),
                 Value(pod.center[1]), Value(pod.center[2] / height_denominator)})},
-            {"deployed", Value(true)}, {"hub_ready", Value(state.fabrication_hub.has_value())}}));
+            {"deployed", Value(true)}, {"hub_ready", Value(state.fabrication_hub &&
+                !state.fabrication_hub->holder)}}));
         const auto& hub = *state.fabrication_hub;
         projection.emplace("fabrication_hub", Value(Object{{"id", Value(hub.id)},
             {"generation", Value(hub.generation)},
+            {"installed", Value(!hub.holder)},
+            {"holder", hub.holder ? Value(*hub.holder) : Value(nullptr)},
             {"center", Value(Array{Value(hub.center[0] / height_denominator),
                 Value(hub.center[1]), Value(hub.center[2] / height_denominator)})},
             {"position", Value(Array{Value(hub.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
                 Value(hub.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                 Value(hub.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+        Array benches;
+        for (const auto& [id, placed] : state.placed_components)
+            if (placed.kind == materials::Component::wooden_workbench)
+                benches.emplace_back(Object{{"id", Value(id)},
+                    {"generation", Value(placed.generation)},
+                    {"center", Value(Array{Value(placed.center[0] / height_denominator),
+                        Value(placed.center[1]), Value(placed.center[2] / height_denominator)})},
+                    {"position", Value(Array{Value(placed.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
+                        Value(placed.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
+                        Value(placed.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}});
+        projection.emplace("fabrication_benches", Value(std::move(benches)));
         Object recipes;
         for (const auto kind : {materials::Component::wooden_frame, materials::Component::wooden_shaft,
                 materials::Component::wooden_cog, materials::Component::receiver_tray,
                 materials::Component::tool_mount, materials::Component::sliding_guide,
                 materials::Component::cutting_edge, materials::Component::anvil,
                 materials::Component::ram_face, materials::Component::softmetal_shaft,
-                materials::Component::softmetal_cog}) {
+                materials::Component::softmetal_cog, materials::Component::wooden_workbench}) {
             const auto cost = materials::component_cost(kind);
             if (cost) recipes.emplace(materials::component_name(kind), Value(Object{
                 {"timber", Value(cost->timber)}, {"softmetal", Value(cost->ore)}}));
@@ -2367,6 +2426,15 @@ Host::Decoded Host::decode(const Value& input) const {
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
     if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
+    if (snapshot.state.fabrication_hub && !snapshot.state.fabrication_hub->holder &&
+        profile_.landing_pod_center && snapshot.state.fabrication_hub->center !=
+            world::landing_hub_center(*profile_.landing_pod_center)) {
+        const auto center = snapshot.state.fabrication_hub->center;
+        if (const auto* refusal = component_site_refusal(materials::Component::wooden_workbench, center))
+            return {nullptr, refusal};
+        if (const auto* refusal = component_space_refusal(snapshot.state,
+                materials::Component::wooden_workbench, center)) return {nullptr, refusal};
+    }
     for (const auto& [id, component] : snapshot.state.placed_components) {
         if (const auto* refusal = component_site_refusal(component.kind, component.center))
             return {nullptr, refusal};
