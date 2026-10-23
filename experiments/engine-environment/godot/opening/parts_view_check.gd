@@ -1809,6 +1809,16 @@ func _object_menu_check() -> void:
 		and not view.object_workshop_route.visible
 		and view.arrival_assembly_controls.component_choice.is_visible_in_tree(),
 		"The object panel shades the worksite, shows its craft controls, and begins with global details collapsed.")
+	for viewport_size in [Vector2i(800, 600), Vector2i(640, 480)]:
+		view._fit_object_menu(viewport_size)
+		await process_frame
+		var panel_rect := Rect2(view.object_menu.position, view.object_menu.size)
+		verify(panel_rect.position.x >= 0.0 and panel_rect.position.y >= 0.0
+			and panel_rect.end.x <= viewport_size.x and panel_rect.end.y <= viewport_size.y
+			and absf(panel_rect.get_center().x - viewport_size.x / 2.0) <= 2.0,
+			"The open object panel fits a simulated resized viewport.")
+	view._fit_object_menu(Vector2i(1280, 800))
+	await process_frame
 	key.keycode = KEY_D
 	key.ctrl_pressed = true
 	view._input(key)

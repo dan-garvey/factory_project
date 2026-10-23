@@ -4655,10 +4655,14 @@ var object_menu_title: Label
 var object_menu_operations_label: Label
 var object_menu_close: Button
 var object_menu_operations: VBoxContainer
+var object_menu_detail_panel: PanelContainer
+var object_menu_desired_extent := Vector2i(500, 400)
+var object_menu_viewport_size := Vector2i.ZERO
 var worksite_details_section: VBoxContainer
 var object_workshop_craft_column: VBoxContainer
 var object_workshop_collector: VBoxContainer
 var object_workshop_route: VBoxContainer
+var object_workshop_sections: Array[VBoxContainer] = []
 var object_menu_target := ""
 var recovery_actions
 var loose_material_controls
@@ -5380,6 +5384,8 @@ func _process(delta: float) -> void:
 		return
 	_update_camera()
 	_advance_arrival_reveal(delta)
+	if _object_menu_open() and Vector2i(get_viewport().get_visible_rect().size) != object_menu_viewport_size:
+		_fit_object_menu()
 	_refresh_pointed_summary()
 	if not legacy_fixture:
 		return
@@ -6276,13 +6282,35 @@ func _open_pointed_machine() -> void:
 	var compact_collector := _is_collector_frame(target)
 	if compact_bench or compact_collector:
 		arrival_assembly_scroll.custom_minimum_size.y = 0
-	var extent := Vector2i(760 if object_menu_operations.visible else 500,
+	object_menu_desired_extent = Vector2i(760 if object_menu_operations.visible else 500,
 		400 if compact_collector else 440 if compact_bench else 520 if object_menu_operations.visible else 400)
+	var extent := _object_menu_extent()
 	object_menu.min_size = extent
 	object_menu.popup_centered(extent)
-	object_menu.size = extent
+	_fit_object_menu()
 	object_menu_close.grab_focus()
 	_refresh_ui()
+
+func _object_menu_extent(viewport: Vector2i = Vector2i.ZERO) -> Vector2i:
+	if viewport == Vector2i.ZERO:
+		viewport = Vector2i(get_viewport().get_visible_rect().size)
+	return Vector2i(mini(object_menu_desired_extent.x, maxi(320, viewport.x - 24)),
+		mini(object_menu_desired_extent.y, maxi(280, viewport.y - 24)))
+
+func _fit_object_menu(viewport: Vector2i = Vector2i.ZERO) -> void:
+	if viewport == Vector2i.ZERO:
+		viewport = Vector2i(get_viewport().get_visible_rect().size)
+	var narrow := viewport.x < 800
+	object_menu_detail_panel.custom_minimum_size.x = 180 if narrow else 220
+	object_menu_operations.custom_minimum_size.x = 340 if narrow else 420
+	arrival_assembly_controls.custom_minimum_size.x = 340 if narrow else 410
+	for section in object_workshop_sections:
+		section.custom_minimum_size.x = 160 if narrow else 195
+	var extent := _object_menu_extent(viewport)
+	object_menu.min_size = extent
+	object_menu.size = extent
+	object_menu.position = (viewport - object_menu.size) / 2
+	object_menu_viewport_size = viewport
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
@@ -9796,6 +9824,7 @@ func _build_object_menu(root: Control, detail_panel: PanelContainer) -> void:
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	shell.add_child(columns)
 	detail_panel.reparent(columns)
+	object_menu_detail_panel = detail_panel
 	detail_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	detail_panel.custom_minimum_size = Vector2(220, 0)
 	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -9839,6 +9868,7 @@ func _layout_object_workshop() -> void:
 	object_workshop_route = right
 	object_workshop_collector = collector
 	for section in [left, right, collector]:
+		object_workshop_sections.append(section)
 		section.custom_minimum_size.x = 195
 		section.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		section.add_theme_constant_override("separation", 6)
