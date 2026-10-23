@@ -1733,7 +1733,11 @@ func refresh() -> void:
 				label.text = "%d held workpiece" % drop.work_lots.size()
 			label.position.y = 1.2 if int(drop.get("offcuts", 0)) > 0 else 0.3
 			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-			label.no_depth_test = int(drop.get("offcuts", 0)) > 0
+			label.fixed_size = true
+			label.font_size = 24
+			label.pixel_size = 0.00075
+			label.outline_size = 6
+			label.no_depth_test = true
 			visual.add_child(label)
 	var rendered: Dictionary = {}
 	var gear_anchors: Dictionary = {}

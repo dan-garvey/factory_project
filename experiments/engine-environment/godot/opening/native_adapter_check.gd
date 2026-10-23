@@ -3,6 +3,7 @@ extends SceneTree
 const NativeModel = preload("res://opening/native_model.gd")
 const OpeningGeometry = preload("res://opening/site_geometry.gd")
 const OpeningScene = preload("res://opening/opening.gd")
+const TransmissionPresenter = preload("res://opening/native_transmission_presenter.gd")
 var opening
 var destination := ""
 var mode := ""
@@ -627,10 +628,55 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 			and opening.model.projection().material_mass.accounted_mass == 64,
 			"Two more local blanks become plates beside the retained second plate without gifted stock"):
 		return false
+	var press_frame: String = str(opening.model.projection().press_assemblies[0].frame)
+	if opening._object_menu_open() and opening.object_menu_target != press_frame:
+		opening.object_menu.hide()
+		await process_frame
+	if not opening._object_menu_open():
+		opening._open_object_menu_for(press_frame)
+	if not _expect(opening._object_menu_open() and opening.object_menu_target == press_frame
+			and opening.object_menu_operations.visible
+			and panel.compact_button.is_visible_in_tree() and not panel.compact_button.disabled
+			and panel.compact_button.icon != null
+			and panel.compact_button.focus_mode == Control.FOCUS_ALL
+			and panel.compact_button.accessibility_name.contains("offcuts")
+			and panel.compact_button.tooltip_text.contains("[4/4]"),
+			"Four recovered offcuts expose a visible, focusable press compaction control"):
+		return false
+	if not capture_prefix.is_empty():
+		await process_frame
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-recycle-control.png") == OK,
+				"The selected press and its offcut control are retained as passive scene pixels"):
+			return false
+	panel.compact_button.pressed.emit()
+	var recycled: Dictionary = opening.model.projection()
+	if not _expect(recycled.cargo.P.offcuts == 0 and recycled.cargo.P.products == 3
+			and recycled.dropped_material.size() == 1
+			and recycled.dropped_material[0].raw == 1
+			and recycled.material_mass.accounted_mass == 64
+			and panel.compact_button.disabled,
+			"The ordinary press compacts four carried offcuts into one recoverable full-mass blank"):
+		return false
 	opening.object_menu_close.pressed.emit()
 	if not _expect(not opening._object_menu_open(),
 			"Closing the inspected press returns ordinary E control for the repeat shipment"):
 		return false
+	if not capture_prefix.is_empty():
+		var prior_focus: Vector3 = opening.focus
+		var prior_distance: float = opening.distance
+		var prior_pitch: float = opening.orbit_pitch
+		opening.focus = TransmissionPresenter.world_center(recycled.dropped_material[0].center) + Vector3.UP * 0.45
+		opening.distance = 3.5
+		opening.orbit_pitch = 0.45
+		opening._update_camera()
+		await process_frame
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-recycled-blank.png") == OK,
+				"The recycled blank and press controls are retained as passive scene pixels"):
+			return false
+		opening.focus = prior_focus
+		opening.distance = prior_distance
+		opening.orbit_pitch = prior_pitch
+		opening._update_camera()
 	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
 		return false
 	opening.distance = 0.0
@@ -1623,7 +1669,9 @@ func _arrival_run() -> void:
 		if not _expect(opening.last_load_result.get("accepted", false)
 				and opening.arrival_reveal_audio == null
 				and restored.cargo.P.products == (0 if repeat_complete else 1 if first_delivered else 2)
-				and restored.cargo.P.offcuts == (4 if repeat_complete else 2)
+				and restored.cargo.P.offcuts == (0 if repeat_complete else 2)
+				and (restored.dropped_material.size() == 1 and restored.dropped_material[0].raw == 1
+					if repeat_complete else true)
 				and restored.material_mass.accounted_mass == 64
 				and restored.freight_beacon.order_complete == first_delivered
 				and restored.freight_beacon.shipped_products == (4 if repeat_complete else 1 if first_delivered else 0)

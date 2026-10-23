@@ -370,6 +370,7 @@ class ArrivalAssemblyControls:
 	var route_choice: OptionButton
 	var held_work_choice: OptionButton
 	var feed_button: Button
+	var compact_button: Button
 	var refeed_work_button: Button
 	var turn_button: Button
 	var pickup_button: Button
@@ -450,6 +451,17 @@ class ArrivalAssemblyControls:
 		press_section.add_child(press_actions)
 		feed_button = host._button(press_actions, "Feed blank  F", _feed)
 		turn_button = host._button(press_actions, "Turn crank  T", _turn)
+		compact_button = host._button(press_actions, "", _compact_offcuts)
+		compact_button.icon = load("res://opening/assets/menu-icons/compact-offcuts.svg")
+		compact_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		compact_button.custom_minimum_size = Vector2(46, 37)
+		compact_button.accessibility_name = "Compact four copper offcuts into one stock blank"
+		compact_button.focus_mode = Control.FOCUS_ALL
+		var compact_shortcut := Shortcut.new()
+		var compact_key := InputEventKey.new()
+		compact_key.keycode = KEY_B
+		compact_shortcut.events = [compact_key]
+		compact_button.shortcut = compact_shortcut
 		held_work_choice = OptionButton.new()
 		held_work_choice.name = "HeldPressWorkChoice"
 		held_work_choice.item_selected.connect(func(index: int) -> void:
@@ -675,6 +687,7 @@ class ArrivalAssemblyControls:
 			var exit_drop := _exit_drop()
 			var advice := "Reinsert carried work or feed a blank." if not _held_work_ids.is_empty() \
 				else "Feed one carried ore blank." if int(cargo.get("raw", 0)) > 0 \
+				else "Compact four carried copper offcuts here to recover a blank." if int(cargo.get("offcuts", 0)) >= 4 \
 				else "Cut ore with the multitool or build a collector."
 			if not work.is_empty():
 				advice = "Pick up the copper offcut beneath the ram before feeding again." if int(work.get("offcuts", 0)) > 0 \
@@ -688,6 +701,11 @@ class ArrivalAssemblyControls:
 		var can_operate := ready and status == "ready" and not routes.is_empty()
 		feed_button.visible = not _frame.is_empty()
 		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1 or not _work_drop().is_empty()
+		compact_button.visible = not _frame.is_empty() and int(cargo.get("offcuts", 0)) > 0
+		compact_button.disabled = not can_operate or int(cargo.get("offcuts", 0)) < 4 \
+			or crank.get("holder") != actor or not _work_drop().is_empty() \
+			or not _press.get("parts", {}).has("shaft")
+		compact_button.tooltip_text = "Compact four carried copper offcuts into one stock blank at this press. Hold the crank and clear the work face. [%d/4]  B" % mini(4, int(cargo.get("offcuts", 0)))
 		held_work_choice.visible = not _frame.is_empty() and not _held_work_ids.is_empty()
 		refeed_work_button.visible = held_work_choice.visible
 		refeed_work_button.disabled = not can_operate or not _work_drop().is_empty()
@@ -884,6 +902,14 @@ class ArrivalAssemblyControls:
 		var route := _route()
 		if host != null and not route.is_empty() and not _frame.is_empty():
 			host.issue({"action": "feed_press", "entity": _frame, "entry": route.entry})
+
+	func _compact_offcuts() -> void:
+		var host = _host_view()
+		var route := _route()
+		var parts: Dictionary = _press.get("parts", {})
+		if host != null and not route.is_empty() and not _frame.is_empty() and parts.has("shaft"):
+			host.issue({"action": "compact_offcuts", "entity": _frame,
+				"entry": route.entry, "drive": parts.shaft})
 
 	func _refeed_work() -> void:
 		var host = _host_view()

@@ -184,6 +184,7 @@ GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
     if (!ram) return {PressStatus::missing_ram, std::nullopt};
     const auto* guide = at(by_center, raised(3), materials::Component::sliding_guide);
     if (!guide) return {PressStatus::missing_guide, std::nullopt};
+    if (by_center.contains(raised(2))) return {PressStatus::blocked_stroke, std::nullopt};
 
     constexpr std::array<Point, 4> directions{{{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}}};
     bool shaft_seen = false;

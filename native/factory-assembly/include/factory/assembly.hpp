@@ -104,6 +104,7 @@ enum class PressStatus {
     missing_mount,
     missing_shaft,
     missing_cog,
+    blocked_stroke,
     blocked_feed,
     ambiguous,
 };
