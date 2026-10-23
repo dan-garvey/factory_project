@@ -172,7 +172,10 @@ const char* phase_name(Phase phase) noexcept {
 }
 
 Progress inspect(const godot_world::Host& host, const std::string& actor) {
-    const auto projection = host.projection();
+    return inspect(host.projection(), actor);
+}
+
+Progress inspect(const values::Value& projection, const std::string& actor) {
     const auto* root = std::get_if<O>(&projection.storage());
     if (!root) return {};
     const auto* inventories = field<O>(*root, "inventories");
