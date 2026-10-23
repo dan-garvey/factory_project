@@ -135,6 +135,12 @@ struct State {
     std::map<mechanics::Point, materials::WorkId> press_output_at_exit;
     std::map<mechanics::Point, std::set<materials::WorkId>> press_output_exported;
     std::map<materials::WorkId, PressProgressWitness> press_progress;
+    // Belt-fed work remains in the same material State. These identity claims
+    // distinguish its eventual product from actor-fed press history on restore.
+    // Zero denotes a raw blank that has not yet received a WorkId.
+    std::map<mechanics::Point, materials::WorkId> belt_press_work;
+    std::map<mechanics::Point, std::set<materials::WorkId>> belt_press_products;
+    std::set<materials::WorkId> belt_press_work_ids;
     bool operator==(const State&) const = default;
 };
 

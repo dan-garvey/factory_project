@@ -1,9 +1,11 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 
 namespace {
@@ -384,11 +386,165 @@ void placed_press_projection() {
           !factory::values::typed_difference(shipped_checkpoint, freight_restored.checkpoint()),
           "The original successful request remains retry safe after checkpoint restore.");
 }
+
+void belt_fed_press_projection() {
+    A heights;
+    for (int row = 0; row < 4; ++row) {
+        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
+        heights.emplace_back(row < 2 ? -1.65 : -0.02);
+        heights.emplace_back(row < 2 ? -1.65 : -0.02);
+    }
+    const O site{{"axis", V(A{V(-128.0), V(1.0), V(1.8), V(128.0)})},
+        {"heights", V(std::move(heights))}, {"obstacles", V(A{})},
+        {"water", V(A{V(A{V(I{8}), V(I{-8}), V(I{-20}), V(I{-400}), V(I{200}), V(I{0})})})}};
+    Host host;
+    check(get<bool>(host.initialize_arrival("press-site", {"P", "Q"}), "accepted"),
+          "A detached arrival Host initializes its actual opening roster.");
+    const auto configured = host.configure_terrain(site);
+    if (!get<bool>(configured, "accepted"))
+        throw std::runtime_error("Synthetic wet site refused: " + get<std::string>(configured, "reason"));
+    check(get<bool>(configured, "accepted"),
+          "A detached arrival Host binds a synthetic wet worksite for the physical inlet route.");
+    I epoch{};
+    const auto observe = [&](double x, double z) {
+        check(get<bool>(host.publish_actor("P", {V(x), V(1.0), V(z)}, ++epoch), "accepted"),
+              "The actor reports a physical pose before construction or harvest.");
+    };
+    observe(6.6, 3.3);
+    for (int n = 0; n < 8; ++n) {
+        auto cut = request("inlet-host-wood-south-" + std::to_string(n), "harvest_source");
+        cut.emplace("target", V("tree-east-south"));
+        accepted(host, cut);
+    }
+    observe(6.6, 11.55);
+    for (int n = 0; n < 8; ++n) {
+        auto cut = request("inlet-host-wood-north-" + std::to_string(n), "harvest_source");
+        cut.emplace("target", V("tree-east-north"));
+        accepted(host, cut);
+    }
+    observe(0, 1.65);
+    for (int n = 0; n < 7; ++n) {
+        auto cut = request("inlet-host-ore-" + std::to_string(n), "harvest_source");
+        cut.emplace("target", V("opening-softmetal"));
+        accepted(host, cut);
+    }
+    observe(1.65, 6.6);
+    for (const auto* name : {"wooden_frame", "anvil", "ram_face", "sliding_guide",
+                              "tool_mount", "wooden_shaft", "wooden_cog"}) {
+        auto craft = request(std::string("inlet-host-craft-") + name, "craft_component");
+        craft.emplace("entity", V("pod-fabrication-hub"));
+        craft.emplace("component", V(name));
+        accepted(host, craft);
+    }
+    for (const auto& [name, role, span] : {
+             std::tuple{"shaft-a", "shaft", I{2}}, std::tuple{"shaft-b", "shaft", I{2}},
+             std::tuple{"shaft-c", "shaft", I{2}}, std::tuple{"belt", "belt", I{0}},
+             std::tuple{"wheel", "waterwheel", I{0}}}) {
+        auto craft = request(std::string("inlet-host-fabricate-") + name, "craft_part");
+        craft.emplace("entity", V("pod-fabrication-hub"));
+        craft.emplace("role", V(role));
+        craft.emplace("half_span", V(span));
+        accepted(host, craft);
+    }
+    observe(1.4, 0);
+    auto foundation = request("inlet-host-foundation", "place_foundation");
+    foundation.emplace("cell", V(A{V(I{0}), V(I{0})}));
+    foundation.emplace("level", V(I{4}));
+    accepted(host, foundation);
+    std::string frame;
+    for (const auto& [name, center] : {
+             std::pair{"wooden_frame", A{V(I{0}), V(I{4}), V(I{0})}},
+             std::pair{"anvil", A{V(I{0}), V(I{5}), V(I{0})}},
+             std::pair{"ram_face", A{V(I{0}), V(I{6}), V(I{0})}},
+             std::pair{"sliding_guide", A{V(I{0}), V(I{7}), V(I{0})}},
+             std::pair{"tool_mount", A{V(I{0}), V(I{8}), V(I{0})}},
+             std::pair{"wooden_shaft", A{V(I{1}), V(I{8}), V(I{0})}},
+             std::pair{"wooden_cog", A{V(I{2}), V(I{8}), V(I{0})}}}) {
+        auto place = request(std::string("inlet-host-place-") + name, "place_component");
+        place.emplace("component", V(name));
+        place.emplace("center", V(center));
+        const auto result = accepted(host, place);
+        if (std::string(name) == "wooden_frame") frame = get<std::string>(result, "entity");
+    }
+    check(get<std::string>(inspection(host), "status") == "ready" &&
+          get<std::string>(inspection(host), "frame") == frame,
+          "The raised press is recognized from its seven placed parts before belt installation.");
+    observe(3.3, 0);
+    auto wheel = request("inlet-host-wheel", "place");
+    wheel.emplace("kind", V("wheel"));
+    wheel.emplace("cell", V(A{V(I{2}), V(I{-2})}));
+    wheel.emplace("level", V(I{4}));
+    wheel.emplace("axis", V("z"));
+    const auto wheel_id = get<std::string>(accepted(host, wheel), "entity");
+    std::string outside, mouth;
+    for (const auto& [name, center] : {
+             std::pair{"drive", A{V(I{8}), V(I{4}), V(I{-4})}},
+             std::pair{"outside", A{V(I{8}), V(I{4}), V(I{0})}},
+             std::pair{"mouth", A{V(I{4}), V(I{4}), V(I{0})}}}) {
+        observe(std::get<I>(center[0].storage()) * 0.4125,
+            std::get<I>(center[2].storage()) * 0.4125);
+        auto shaft = request(std::string("inlet-host-shaft-") + name, "place_shaft");
+        shaft.emplace("center", V(center));
+        shaft.emplace("axis", V("z"));
+        shaft.emplace("half_span", V(I{2}));
+        const auto id = get<std::string>(accepted(host, shaft), "entity");
+        if (std::string(name) == "outside") outside = id;
+        if (std::string(name) == "mouth") mouth = id;
+    }
+    observe(2.475, 0);
+    auto install = request("inlet-host-belt", "place_belt_span");
+    install.emplace("from", V(outside));
+    install.emplace("to", V(mouth));
+    const auto belt = get<std::string>(accepted(host, install), "entity");
+    check(get<I>(V(get<O>(host.projection(), "motion").at(wheel_id)), "numerator") != 0,
+          "The placed wet wheel actually rotates the raised belt shafts.");
+    auto load = request("inlet-host-load", "load_belt_slot");
+    load.emplace("entity", V(belt));
+    load.emplace("slot", V(I{0}));
+    load.emplace("item", V("raw"));
+    load.emplace("work_id", V(I{0}));
+    accepted(host, load);
+    bool fed = false;
+    for (int n = 0; n < 32 && !fed; ++n) {
+        (void)host.advance();
+        const auto drops = get<A>(host.projection(), "dropped_material");
+        fed = std::any_of(drops.begin(), drops.end(), [](const V& drop) {
+            return !factory::values::typed_difference(V(get<A>(drop, "center")),
+                V(A{V(I{0}), V(I{5}), V(I{0})})) && get<I>(drop, "raw") == 1;
+        });
+    }
+    check(fed && get<A>(inspection(host), "open_feeds").size() == 4,
+          "The detached Host projects the real powered belt blank at the raised press work point.");
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(get<bool>(fresh.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(fresh.configure_terrain(site), "accepted") &&
+          get<bool>(fresh.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, fresh.checkpoint()),
+          "A fresh Host restores the same belt-fed press work and physical site.");
+    check(get<bool>(fresh.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, ++epoch), "accepted"),
+          "The actor returns to the pod for the manual press crank.");
+    auto take = request("inlet-host-take-crank", "take_hand_crank");
+    take.emplace("entity", V("pod-hand-crank"));
+    accepted(fresh, take);
+    check(get<bool>(fresh.publish_actor("P", {V(1.4), V(1.0), V(0.0)}, ++epoch), "accepted"),
+          "The crank holder reaches the belt-fed raised press.");
+    const auto press_shaft = get<std::string>(V(get<O>(inspection(fresh), "parts")), "shaft");
+    for (int n = 0; n < 3; ++n)
+        accepted(fresh, turn("inlet-host-turn-" + std::to_string(n), frame, press_shaft, -1, 5, 0));
+    const auto products = get<A>(fresh.projection(), "dropped_material");
+    check(std::any_of(products.begin(), products.end(), [](const V& drop) {
+              return !factory::values::typed_difference(V(get<A>(drop, "center")),
+                  V(A{V(I{-1}), V(I{5}), V(I{0})})) && get<I>(drop, "products") == 1;
+          }) && get<bool>(fresh.validate_checkpoint(fresh.checkpoint()), "accepted"),
+          "The restored belt-fed blank becomes one physical plate through the normal press crank.");
+}
 } // namespace
 
 int main() {
     try {
         placed_press_projection();
+        belt_fed_press_projection();
         std::cout << "press_assembly_host_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

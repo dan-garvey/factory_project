@@ -201,7 +201,7 @@ Vertical and sideways spans transmit rotation without carrying cargo or actors.
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
 logical World checkpoint has schema 11, including workshop custody and placement,
 the first freight beacon, building facings, the trusted interaction offset and
-identified belt spans and modular press output witnesses.
+identified belt spans, modular press output witnesses and belt-fed work claims.
 Manual press receipts carry the prior work item, and productive tick witnesses
 bind automatic progress to its work identity during restore.
 The arrival material ledger inside it has schema 11 and retains shipped plate

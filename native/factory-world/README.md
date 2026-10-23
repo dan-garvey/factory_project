@@ -168,6 +168,12 @@ while per-work automatic progress witnesses come only from productive material
 ticks. Restore checks each one-turn transition against that work identity;
 unrelated World revisions do not count as press progress. The witnesses do not
 own cargo or create products.
+An inward powered belt may feed one raw blank or matching WorkLot through a
+clear quarter-grid press face from its adjacent full-tile endpoint. A full
+work point, obstructed chute or ambiguous assembly retains the item on the
+belt. Belt-fed work and its output identities are checkpoint witnesses in the
+same World, and actor pickup clears a waiting output claim. The press still
+uses its placed drive or the actor's crank for the actual work cycle.
 Earlier checkpoints are refused rather than migrated. The native Host checks actor and site clearance.
 World owns canonical multi-slot lane custody; vertical and sideways power-only
 spans require empty lanes. The Godot Host admits all four path kinds with
