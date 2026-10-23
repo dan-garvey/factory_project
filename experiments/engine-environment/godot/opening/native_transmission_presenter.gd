@@ -40,7 +40,9 @@ var _batched_gear_ids: Dictionary = {}
 var _gear_anchor_cache: Dictionary = {}
 var _moving_anchors: Array[Node3D] = []
 var _direction_meshes: Dictionary = {}
-var _support_meshes: Dictionary = {}
+var _support_components: Dictionary = {}
+var _unit_support_box: BoxMesh
+var _unit_support_cylinder: CylinderMesh
 static var _relay_shells: Dictionary = {}
 static var _cutting_blade_meshes: Dictionary = {}
 static var _receiver_pan_mesh: ArrayMesh
@@ -274,7 +276,7 @@ func _support_point(value: Variant) -> bool:
 			return false
 	return true
 
-func _confirmed_support(id: String, part: Dictionary) -> Node3D:
+func _confirmed_support(id: String, part: Dictionary, attached := true) -> Node3D:
 	var support: Variant = part.get("support")
 	if not support is Dictionary or not _support_point(support.get("foot")) or not _support_point(support.get("bearing")):
 		return null
@@ -285,7 +287,8 @@ func _confirmed_support(id: String, part: Dictionary) -> Node3D:
 	var frame := Node3D.new()
 	frame.name = "FixedSupport"
 	frame.set_meta("supported_entity", id)
-	add_child(frame)
+	if attached:
+		add_child(frame)
 	var cast := Finish.material("cast", Color("82908d"), 0.78, 0.48)
 	var worked := Finish.material("worked", Color("bac5c0"), 0.86, 0.32)
 	var dark := Finish.material("cast", Color("424e4c"), 0.72, 0.53)
@@ -296,7 +299,8 @@ func _confirmed_support(id: String, part: Dictionary) -> Node3D:
 			bolt.position = foot + Vector3(x_sign * 0.125, 0.128, z_sign * 0.125)
 	var height: float = bearing.y - 0.24 - foot.y
 	if height <= 0.0:
-		remove_child(frame)
+		if attached:
+			remove_child(frame)
 		frame.free()
 		return null
 	var across: Vector3 = Vector3.FORWARD if part.axis == 0 else Vector3.RIGHT
@@ -364,33 +368,63 @@ func _support_style(part: Dictionary) -> String:
 		components.append(snappedf(value, 0.0001))
 	return JSON.stringify(components)
 
-func _support_mesh(part: Dictionary, id: String, key: String) -> ArrayMesh:
-	if _support_meshes.has(key):
-		return _support_meshes[key]
-	var frame := _confirmed_support(id, part)
+func _support_parts(part: Dictionary, id: String, key: String) -> Array:
+	# The confirmed frame uses boxes and cylinders. Keep their exact positions
+	# and dimensions while sharing two primitives across irregular terrain seats.
+	if _support_components.has(key):
+		return _support_components[key]
+	var frame := _confirmed_support(id, part, false)
 	if frame == null:
-		return null
+		return []
+	if _unit_support_box == null:
+		_unit_support_box = BoxMesh.new()
+		_unit_support_box.size = Vector3.ONE
+	if _unit_support_cylinder == null:
+		_unit_support_cylinder = CylinderMesh.new()
+		_unit_support_cylinder.top_radius = 1.0
+		_unit_support_cylinder.bottom_radius = 1.0
+		_unit_support_cylinder.height = 1.0
+		_unit_support_cylinder.radial_segments = 20
 	var localize := Transform3D(Basis.IDENTITY, -world_center(part.center))
-	var materials: Array[Material] = []
-	var surfaces: Array[SurfaceTool] = []
+	var result: Array = []
 	for child: MeshInstance3D in frame.get_children():
-		var finish := child.material_override
-		var group := materials.find(finish)
-		if group < 0:
-			group = materials.size()
-			materials.append(finish)
-			var surface := SurfaceTool.new()
-			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-			surfaces.append(surface)
-		Assets.append_triangles(surfaces[group], child.mesh, 0, localize * child.transform)
-	var mesh := ArrayMesh.new()
-	for index in surfaces.size():
-		surfaces[index].commit(mesh)
-		mesh.surface_set_material(index, materials[index])
-	remove_child(frame)
+		var source := child.mesh
+		var prototype: Mesh = source
+		var scale := Vector3.ONE
+		if source is BoxMesh:
+			var box := source as BoxMesh
+			if box.subdivide_width == 0 and box.subdivide_height == 0 and box.subdivide_depth == 0:
+				prototype = _unit_support_box
+				scale = box.size
+		elif source is CylinderMesh:
+			var cylinder := source as CylinderMesh
+			if is_equal_approx(cylinder.top_radius, cylinder.bottom_radius) and cylinder.radial_segments == 20:
+				prototype = _unit_support_cylinder
+				scale = Vector3(cylinder.top_radius, cylinder.height, cylinder.top_radius)
+		result.append({"mesh": prototype, "finish": child.material_override,
+			"pose": localize * child.transform * Transform3D(Basis.IDENTITY.scaled(scale), Vector3.ZERO)})
 	frame.free()
-	_support_meshes[key] = mesh
-	return mesh
+	_support_components[key] = result
+	return result
+
+func _add_support_primitives(groups: Dictionary) -> void:
+	var buckets := {}
+	for style: String in groups:
+		var group: Dictionary = groups[style]
+		var components := _support_parts(group.part, group.id, style)
+		for pose: Transform3D in group.poses:
+			for component: Dictionary in components:
+				var finish: Material = component.finish
+				var key := "%d:%d" % [component.mesh.get_instance_id(),
+					finish.get_instance_id() if finish != null else 0]
+				if not buckets.has(key):
+					buckets[key] = {"mesh": component.mesh, "finish": finish, "poses": []}
+				buckets[key].poses.append(pose * component.pose)
+	for key: String in buckets:
+		var bucket: Dictionary = buckets[key]
+		var poses: Array[Transform3D] = []
+		poses.assign(bucket.poses)
+		_add_batch(bucket.mesh, poses, "SupportPrimitive", bucket.finish)
 
 func _support_box(parent: Node3D, name_value: String, at: Vector3, size: Vector3,
 		material: Material, formed := false) -> void:
@@ -641,7 +675,8 @@ func _direction_mesh(radius: float, sign_value: int) -> ArrayMesh:
 	_direction_meshes[key] = result
 	return result
 
-func _add_batch(mesh: Mesh, poses: Array[Transform3D], name_value: String) -> MultiMesh:
+func _add_batch(mesh: Mesh, poses: Array[Transform3D], name_value: String,
+		finish: Material = null) -> MultiMesh:
 	var batch := MultiMesh.new()
 	batch.transform_format = MultiMesh.TRANSFORM_3D
 	batch.mesh = mesh
@@ -654,6 +689,10 @@ func _add_batch(mesh: Mesh, poses: Array[Transform3D], name_value: String) -> Mu
 	var visual := MultiMeshInstance3D.new()
 	visual.name = name_value
 	visual.multimesh = batch
+	if name_value == "SupportPrimitive":
+		visual.set_meta("support_primitive", true)
+	if finish != null:
+		visual.material_override = finish
 	add_child(visual)
 	return batch
 
@@ -1688,13 +1727,8 @@ func refresh() -> void:
 		else:
 			_relay_case(anchor, id, part)
 	if batch_gears:
-		for style: String in support_groups:
-			var group: Dictionary = support_groups[style]
-			var support_mesh := _support_mesh(group.part, group.id, style)
-			if support_mesh != null:
-				var poses: Array[Transform3D] = []
-				poses.assign(group.poses)
-				_add_batch(support_mesh, poses, "SupportBatch")
+		if not support_groups.is_empty():
+			_add_support_primitives(support_groups)
 		for teeth: int in gear_anchors:
 			var anchors: Array = gear_anchors[teeth]
 			var poses: Array[Transform3D] = []

@@ -1402,6 +1402,40 @@ pixel hashes differ with phase. This is adapter presentation evidence only;
 it does not measure native custody, legal placement or player understanding.
 See `factory-yau.9.26` for exact logs and source revisions.
 
+## GDC-30: irregular support heights need shared primitive instances
+
+The native presenter formerly keyed each cog support batch by foot and bearing
+coordinates rounded to 0.0001 m. Different terrain seats could therefore
+create one multi-surface draw group per cog, even while the gears themselves
+were batched. An exact-source external fixture based on published `8b35c6a`
+varied only the support foot height over 400 synthetic rotating cogs. At
+1280 by 800 in pinned Godot 4.7.2 WSL X11 Compatibility on RTX 3090, the
+close whole-Opening median and p95 were 54.657 and 57.531 ms with 2,343 draws;
+the first build took 9.171 s and appending a cog refreshed in 112.5 ms.
+
+The presenter now instantiates the support's exact box and cylinder dimensions
+through shared primitive meshes, grouped by finish. The same external view
+measured 23.693 and 24.944 ms with 304 draws, a 5.402 s first build and a
+28.0 ms append refresh. With 400 identical flat supports, the old and new
+paths measured 25.082/33.058 and 24.521/25.898 ms median/p95 respectively;
+the new append refresh was 26.1 rather than 15.8 ms. A separate isolated
+20-cog close image comparison changed 1,049 of 1,024,000 pixels, with maximum
+channel difference 12; inspection found no missing support or cog geometry.
+The small differences are consistent with scaling the shared primitive in an
+instance transform, but their exact rendering cause was not traced.
+The graphical native transmission view check passed 171 assertions, and the
+isolated varied-support fixture passed with 100 cog picks, five support
+primitive groups and 1,000 instances. A whole-Opening validation reached its
+pass marker but reported two exit-time GL texture leaks; it is not used as a
+clean check.
+
+These are passive synthetic presentation measurements, not legal native World
+placements or a human playtest. The WSL whole-frame result remains above the
+16.7 ms budget for 60 FPS. The first cog still pays roughly 0.5 s of cold
+procedural mesh setup in an isolated process; `factory-yau.9.22` tracks that
+separately. The representative active mixed-machine and Windows targets remain
+open in `factory-yau.9` and `factory-yau.9.12`.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,

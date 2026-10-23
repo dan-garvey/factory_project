@@ -2644,6 +2644,7 @@ func _run() -> void:
 func _scale_benchmark() -> void:
 	var count := 200
 	var supports := false
+	var varied_supports := false
 	var capture := ""
 	var close_view := false
 	var large_every := 0
@@ -2658,6 +2659,9 @@ func _scale_benchmark() -> void:
 			count = int(argument.trim_prefix("--count="))
 		elif argument == "--supports":
 			supports = true
+		elif argument == "--varied-supports":
+			supports = true
+			varied_supports = true
 		elif argument.begins_with("--capture="):
 			capture = argument.trim_prefix("--capture=")
 		elif argument == "--close":
@@ -2736,7 +2740,9 @@ func _scale_benchmark() -> void:
 			"teeth": 4 if large_every > 0 and index % large_every == 0 else 2}
 		if supports:
 			var at := Vector3(float(x) * 1.65, 0.0, float(z) * 1.65)
-			host.state.transmission_parts[id].support = {"foot": [at.x, 0.24, at.z],
+			if varied_supports:
+				at.y = 0.06 * sin(float(index) * 0.37)
+			host.state.transmission_parts[id].support = {"foot": [at.x, 0.24 + at.y, at.z],
 				"bearing": [at.x, 0.7325, at.z]}
 		host.state.motion[id] = {"state": "stalled" if stopped else "rotating",
 			"numerator": 0 if stopped else (1 if index % 2 == 0 else -1),
@@ -2758,10 +2764,15 @@ func _scale_benchmark() -> void:
 	var build_ms := float(Time.get_ticks_usec() - before) / 1000.0
 	var pick_count := 0
 	var batched_count := 0
+	var support_instances := 0
+	var support_batches := 0
 	var valid_geometry := true
 	for child: Node in presenter.get_children():
 		if child.has_meta("entity"):
 			pick_count += int(child.has_node("Pick"))
+		if child is MultiMeshInstance3D and child.get_meta("support_primitive", false):
+			support_batches += 1
+			support_instances += child.multimesh.instance_count
 		if not child is MultiMeshInstance3D or not child.name.begins_with("CogBatch"):
 			continue
 		batched_count += child.multimesh.instance_count
@@ -2774,6 +2785,10 @@ func _scale_benchmark() -> void:
 	if pick_count != count or (count >= batch_minimum and
 			(batched_count != count or not valid_geometry)):
 		push_error("The rendered cog geometry or individual picks failed scale validation.")
+		quit(1)
+		return
+	if supports and count >= batch_minimum and (support_batches < 2 or support_instances < count * 8):
+		push_error("The batched support primitives lost confirmed support geometry: %d batches, %d instances for %d supports." % [support_batches, support_instances, count])
 		quit(1)
 		return
 	if verify_only:
@@ -2876,6 +2891,8 @@ func _scale_benchmark() -> void:
 			quit(1)
 			return
 		print("COG_SCALE_VALIDATION " + JSON.stringify({"count": count, "supports": supports,
+			"varied_supports": varied_supports, "support_instances": support_instances,
+			"support_batches": support_batches,
 			"cycle_axes": cycle_axes, "large_every": large_every, "picks": pick_count,
 			"batched": batched_count, "status": "pass"}))
 		scene.free()
@@ -2913,7 +2930,9 @@ func _scale_benchmark() -> void:
 		var image := root.get_texture().get_image()
 		image.save_png(capture)
 	var result := {"count": count, "build_ms": build_ms,
-		"supports": supports, "large_every": large_every,
+		"supports": supports, "varied_supports": varied_supports,
+		"support_instances": support_instances, "support_batches": support_batches,
+		"large_every": large_every,
 		"stopped": stopped, "refresh_every_frame": refresh_every_frame,
 		"trusted_revision": trusted_revision,
 		"motion_median_ms": motion_times[motion_times.size() / 2],
