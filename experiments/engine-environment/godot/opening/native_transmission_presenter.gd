@@ -1027,7 +1027,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			for z in [-0.155, 0.155]:
 				_support_beam(anchor, "SideBrace", Vector3(-0.14, -0.29, z),
 					Vector3(0.14, 0.22, z), 0.035, timber, true)
-			_support_box(anchor, "OpenWorkBed", Vector3(0, 0.35, 0), Vector3(0.37, 0.06, 0.37), timber, true)
+			_support_box(anchor, "OpenWorkBed", Vector3(0, 0.35, 0), Vector3(0.405, 0.06, 0.405), timber, true)
 			for z in [-0.155, 0.155]:
 				_support_box(anchor, "BedIron", Vector3(0, 0.385, z), Vector3(0.35, 0.012, 0.025), worked, true)
 			for x in [-0.155, 0.155]:
@@ -1117,6 +1117,29 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			pan.name = "OpenPan"
 			pan.mesh = _formed_receiver_pan()
 			anchor.add_child(pan)
+			# The near-side hooks and underside rails give this independently placed
+			# receiver a visible mounting direction without bridging the native
+			# occupied gap or inventing a second material path.
+			for x in [-0.125, 0.125]:
+				var side := "Left" if x < 0.0 else "Right"
+				_support_box(anchor, "ReceiverHook" + side, Vector3(x, 0.005, -0.1925),
+					Vector3(0.045, 0.17, 0.025), dark, true)
+				_support_beam(anchor, "ReceiverUnderRail" + side, Vector3(x, -0.08, -0.185),
+					Vector3(x, 0.005, 0.105), 0.025, dark, true)
+			for x in [-0.161, 0.161]:
+				_support_box(anchor, "ReceiverRolledSide%s" % ("Left" if x < 0.0 else "Right"),
+					Vector3(x, 0.133, 0),
+					Vector3(0.018, 0.014, 0.37), dark, true)
+			for z in [-0.18, 0.18]:
+				_support_box(anchor, "ReceiverRolledEnd%s" % ("Near" if z < 0.0 else "Far"),
+					Vector3(0, 0.133, z),
+					Vector3(0.34, 0.014, 0.018), dark, true)
+			for x in [-0.13, 0.13]:
+				for z in [-0.17, 0.17]:
+					var name_value := "ReceiverRivet%s%s" % ["Left" if x < 0.0 else "Right",
+						"Near" if z < 0.0 else "Far"]
+					var rivet := _support_cylinder(anchor, name_value, 0.009, 0.007, worked)
+					rivet.position = Vector3(x, 0.141, z)
 		"wooden_shaft", "softmetal_shaft":
 			_support_box(anchor, "BearingFoot", Vector3(0, -0.07, 0), Vector3(0.35, 0.07, 0.35), dark)
 			var fitted := drive_direction.length_squared() > 0.5

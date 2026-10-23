@@ -6139,6 +6139,7 @@ func _maybe_start_arrival_reveal() -> void:
 		return
 	arrival_reveal_pod_anchor = landing_pod_visual.position
 	arrival_reveal_elapsed = 0.0
+	_release_character_controls()
 	arrival_reveal_active = true
 	if character_presenter != null:
 		character_presenter.visible = false
@@ -6205,6 +6206,7 @@ func _advance_arrival_reveal(delta: float) -> void:
 func _finish_arrival_reveal() -> void:
 	if not arrival_reveal_active:
 		return
+	_release_character_controls()
 	arrival_reveal_elapsed = ARRIVAL_REVEAL_SECONDS
 	_pose_arrival_reveal()
 	arrival_reveal_active = false
@@ -7489,6 +7491,7 @@ func _refresh_manager_log() -> void:
 func _toggle_manager_log() -> void:
 	if legacy_fixture or manager_log_layer == null or arrival_reveal_active or explanation_open or _catalog_open():
 		return
+	_release_character_controls()
 	manager_log_open = not manager_log_open
 	manager_log_layer.visible = manager_log_open
 	_refresh_ui()
@@ -8146,7 +8149,9 @@ func _fit_guided_footer() -> void:
 		and _guided_step({}).tool == "collector" \
 		and status_label.text == FIRST_COLLECTOR_HINT
 	status_label.visible = not redundant_intro
-	var right: float = -308.0 if inspector.get_parent().get_parent().visible else -18.0
+	var inspector_panel: Control = inspector.get_parent().get_parent()
+	var right: float = inspector_panel.get_global_rect().position.x - get_viewport().get_visible_rect().end.x - 18.0 \
+		if inspector_panel.visible else -18.0
 	if not is_equal_approx(status_footer.offset_right, right):
 		status_footer.set_anchor_and_offset(SIDE_RIGHT, 1.0, right)
 	var left_anchor := 1.0 if redundant_intro else 0.0
