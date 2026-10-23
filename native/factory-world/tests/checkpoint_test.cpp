@@ -246,6 +246,11 @@ void bounds_and_large_integers() {
     V deep(nullptr);
     for (int index = 0; index < 34; ++index) deep = V(O{{"nested", std::move(deep)}});
     refusal(f.profile, edited(f.checkpoint, {"extra"}, std::move(deep)), w::CheckpointReason::limit);
+    const V oversized(V::Array(a::maximum_records * 128, V(nullptr)));
+    const auto over_budget = w::decode_checkpoint(f.profile, "saved-world", oversized);
+    check(std::holds_alternative<w::CheckpointRefusal>(over_budget) &&
+          std::get<w::CheckpointRefusal>(over_budget).reason == w::CheckpointReason::limit,
+          "An oversized checkpoint Value tree remains bounded before schema decode.");
     V::Array lots(m::maximum_live_work_lots + 1, V(nullptr));
     refusal(f.profile, edited(f.checkpoint, {"state", "material", "cargo", "P", "work_lots"}, V(lots)),
             w::CheckpointReason::limit);

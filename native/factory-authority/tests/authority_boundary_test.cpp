@@ -122,6 +122,11 @@ void import_and_bounds() {
     for (int n = 0; n < 40; ++n) nested = V(V::Array{std::move(nested)});
     const auto depth = a::prepare_record(empty, intent(), {false, "blocked", "", {{"nested", nested}}}, 0);
     require(depth.error == a::Error::limit && !depth.next, "Over-depth facts cannot be cached.");
+    const V too_many_nodes(V::Array(a::maximum_records * 64, V{}));
+    const auto breadth = a::prepare_record(empty, intent(),
+        {false, "blocked", "", {{"breadth", too_many_nodes}}}, 0);
+    require(breadth.error == a::Error::limit && !breadth.next,
+        "An oversized Value tree cannot exceed the bounded history node allowance.");
     O missing_action = intent();
     missing_action.erase("action");
     const auto unsupported = a::prepare_record(empty, missing_action, {false, "unsupported_action", "", {}}, 0);

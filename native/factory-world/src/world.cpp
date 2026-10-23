@@ -779,6 +779,25 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::map<std::string, stationary::Kit> fabricated_balances;
     std::map<std::string, stationary::PartSpec> installed_fabrication;
     PlacedHistory placed_components;
+    // Recorded component changes are replayed in order. Several press commands
+    // can inspect the same historical layout; rebuild its index only when a
+    // placement or reclaim changes that prefix.
+    std::vector<assembly::Part> historical_parts;
+    std::optional<assembly::Layout> historical_layout;
+    const auto inspect_historical_press = [&](const mechanics::Point& center) {
+        if (!historical_layout) {
+            historical_parts.clear();
+            historical_parts.reserve(placed_components.size());
+            for (const auto& [id, placed] : placed_components) {
+                const auto issued = snapshot.state.issued_entities.find(id);
+                if (issued == snapshot.state.issued_entities.end())
+                    return assembly::PressInspection{};
+                historical_parts.push_back({id, placed.first, placed.second, issued->second});
+            }
+            historical_layout.emplace(historical_parts);
+        }
+        return historical_layout->inspect_press(center);
+    };
     std::optional<FabricationHub> historical_hub;
     if (profile.landing_pod_center)
         historical_hub = FabricationHub{"pod-fabrication-hub",
@@ -968,14 +987,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto frame = placed_components.find(*entity);
             if (frame == placed_components.end() || frame->second.first != materials::Component::wooden_frame ||
                 !selected_entry || !selected_work) return false;
-            std::vector<assembly::Part> parts;
-            parts.reserve(placed_components.size());
-            for (const auto& [id, placed] : placed_components) {
-                const auto issued = snapshot.state.issued_entities.find(id);
-                if (issued == snapshot.state.issued_entities.end()) return false;
-                parts.push_back({id, placed.first, placed.second, issued->second});
-            }
-            const auto inspected = assembly::inspect_press(parts, frame->second.second);
+            const auto inspected = inspect_historical_press(frame->second.second);
             if (!inspected.press || inspected.press->frame != *entity ||
                 inspected.press->work_center != *selected_work ||
                 std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
@@ -1011,14 +1023,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 !selected_shaft || !lots || !products || !prior_raw || !prior_lots || !prior_auto ||
                 !formed_id || frame == placed_components.end() ||
                 frame->second.first != materials::Component::wooden_frame) return false;
-            std::vector<assembly::Part> parts;
-            parts.reserve(placed_components.size());
-            for (const auto& [id, placed] : placed_components) {
-                const auto issued = snapshot.state.issued_entities.find(id);
-                if (issued == snapshot.state.issued_entities.end()) return false;
-                parts.push_back({id, placed.first, placed.second, issued->second});
-            }
-            const auto inspected = assembly::inspect_press(parts, frame->second.second);
+            const auto inspected = inspect_historical_press(frame->second.second);
             if (!inspected.press || inspected.press->frame != *entity ||
                 inspected.press->shaft != *drive ||
                 inspected.press->shaft_center != *selected_shaft ||
@@ -1291,6 +1296,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
             if (carried != *field<Integer>(record.result, "component_count") ||
                 !within_component_capacity(*actor)) return false;
+            historical_layout.reset();
         }
         if (placement(*action)) {
             const auto* role_name = field<std::string>(record.intent, "role");
@@ -3171,7 +3177,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 }
 
 Advance World::tick() noexcept {
-    return owner_->advance([&](const Snapshot& snapshot) -> std::optional<State> {
+    return owner_->advance_retaining_history([&](const Snapshot& snapshot) -> std::optional<State> {
         auto candidate = snapshot.state;
         // Material stepping changes custody, not the placed power graph. Reuse
         // its drive across ticks until a command or refusal invalidates it.
