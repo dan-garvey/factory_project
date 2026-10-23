@@ -148,6 +148,52 @@ public:
         }
     }
 
+    // A trusted system step keeps the exact request history. The current
+    // owner already validated it on create, restore or the last transaction;
+    // increasing only the revision cannot invalidate any recorded revision.
+    // Temporarily transfer that history to the candidate so its complete
+    // domain validator still sees every record. A failed or throwing validator
+    // restores the original before returning, without copying the log.
+    template<class Step, class CandidateValidator>
+    [[nodiscard]] Advance advance_retaining_history(
+            Step&& step, CandidateValidator&& validate_candidate) noexcept {
+        static_assert(std::is_nothrow_swappable_v<authority::History>);
+        if (applying_) return {TransactionError::reentrant, false, current_->revision};
+        Active guard(applying_);
+        try {
+            auto candidate = std::invoke(std::forward<Step>(step), std::as_const(*current_));
+            if (!candidate) return {TransactionError::none, false, current_->revision};
+            if (current_->revision == std::numeric_limits<authority::Integer>::max())
+                return {TransactionError::invalid_candidate, false, current_->revision};
+            auto next = std::make_unique<Snapshot>(Snapshot{
+                std::move(*candidate), {}, current_->revision + 1});
+            struct HistoryTransfer {
+                Snapshot& prior;
+                Snapshot& candidate;
+                bool committed{};
+                HistoryTransfer(Snapshot& old_snapshot, Snapshot& new_snapshot) noexcept
+                    : prior(old_snapshot), candidate(new_snapshot) {
+                    using std::swap;
+                    swap(prior.history, candidate.history);
+                }
+                ~HistoryTransfer() noexcept {
+                    if (committed) return;
+                    using std::swap;
+                    swap(prior.history, candidate.history);
+                }
+            } transfer(*current_, *next);
+            if (!std::invoke(std::forward<CandidateValidator>(validate_candidate),
+                             std::as_const(*next)))
+                return {TransactionError::invalid_candidate, false, current_->revision};
+            Advance result{TransactionError::none, true, next->revision};
+            current_.swap(next);
+            transfer.committed = true;
+            return result;
+        } catch (...) {
+            return {TransactionError::preparation_failed, false, current_->revision};
+        }
+    }
+
     // Session must already bind the actor/request to its authenticated caller.
     // The handler receives only const current facts and runs only for a fresh
     // valid request. It derives targets and applies current native/reach/rule

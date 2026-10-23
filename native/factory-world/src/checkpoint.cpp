@@ -21,7 +21,11 @@ using Integer = Value::Integer;
 struct Budget {
     std::size_t nodes{}, bytes{};
     void visit(const Value& value, std::size_t depth = 0) {
-        if (depth > 32 || ++nodes > 100000) refuse(CheckpointReason::limit, "$");
+        // The checkpoint contains both the bounded request history and the
+        // current worksite. Allow their combined tree to reach the same
+        // 4,096-record scale while retaining the byte and depth ceilings.
+        if (depth > 32 || ++nodes > authority::maximum_records * 128)
+            refuse(CheckpointReason::limit, "$");
         const auto text = [&](const std::string& string) {
             if (string.size() > 1048576 || bytes > 4194304 - string.size())
                 refuse(CheckpointReason::limit, "$");

@@ -23,23 +23,26 @@ struct ProductiveSite {
     w::Snapshot snapshot;
 };
 
-ProductiveSite productive_site(g::Integer cycle_ticks = 2) {
+ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2) {
+    if (line_count < 2 || line_count > 80)
+        throw std::runtime_error("The productive scale count is outside the bounded fixture.");
     w::Profile profile;
     profile.material = {1, 2, cycle_ticks};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
-    profile.material.timber_sites = {{"tree", {{12, 0, 12}, 40}}};
-    profile.material.hand_carry_capacity = 100;
-    profile.initial_units = 100;
+    const g::Integer timber_units = std::max<g::Integer>(40, line_count * 15);
+    profile.material.timber_sites = {{"tree", {{12, 0, 12}, timber_units}}};
+    profile.material.hand_carry_capacity = std::max<g::Integer>(100, line_count * 20 + 10);
+    profile.initial_units = std::max<g::Integer>(100, line_count * 32);
     profile.actors = {"P"};
     profile.foundation_parts = 9;
     profile.starting_foundation_kits = {{"P", 0}};
     profile.landing_pod_center = g::Point{0, 0, 1000};
     profile.build_reach = 10000;
-    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 4}};
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, line_count * 2}};
     w::State seed;
     seed.material.initial_units = profile.initial_units;
     seed.material.stock.source = profile.initial_units;
-    seed.material.timber_remaining = {{"tree", 40}};
+    seed.material.timber_remaining = {{"tree", timber_units}};
     seed.material.cargo.emplace("P", m::Cargo{});
     seed.kits.emplace("P", s::Kit{});
     seed.foundation_kits.emplace("P", 0);
@@ -58,7 +61,8 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2) {
         seed.foundations.emplace(id, w::Foundation{deck[index], 1});
         seed.issued_entities.emplace(id, 1);
     }
-    for (const auto base : {g::Integer{800}, g::Integer{840}}) {
+    for (int line = 0; line < line_count; ++line) {
+        const g::Integer base = 800 + line * 40;
         profile.collector_faces.push_back({{base, 0, 0}, {-1, 0, 0}});
         for (const auto& [suffix, height, z] : {
                 std::tuple{"collector-wheel", g::Integer{0}, g::Integer{0}},
@@ -77,7 +81,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2) {
         }
     }
     auto world = w::World::create("mixed-scale", profile, seed);
-    if (!world) throw std::runtime_error("The four-source modular startup was rejected.");
+    if (!world) throw std::runtime_error("The many-source modular startup was rejected.");
     const w::ObserveActor nearby = [](const std::string& actor) -> std::optional<factory::authority::ActorCut> {
         return factory::authority::ActorCut{actor, {0, 0, 0}, 1, true, 10000};
     };
@@ -92,11 +96,16 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2) {
         if (!result.completed() || !result.result ||
             !std::get<bool>(result.result->at("accepted").storage()))
             throw std::runtime_error(std::string("Mixed site setup refused ") + action + ": " +
-                (result.result ? std::get<std::string>(result.result->at("reason").storage()) : "no result"));
+                (result.result ? std::get<std::string>(result.result->at("reason").storage()) :
+                    "no result at request " + std::to_string(request) + " (transaction " +
+                    std::to_string(static_cast<int>(result.error)) + ", history " +
+                    std::to_string(static_cast<int>(result.history_error)) + ")"));
         return *result.result;
     };
-    for (int index = 0; index < 30; ++index) issue("harvest_source", {{"target", V("tree")}});
-    for (int index = 0; index < 10; ++index) issue("harvest_source", {{"target", V("ore")}});
+    for (int index = 0; index < line_count * 15; ++index)
+        issue("harvest_source", {{"target", V("tree")}});
+    for (int index = 0; index < line_count * 5; ++index)
+        issue("harvest_source", {{"target", V("ore")}});
     const auto place = [&](const char* component, g::Point center) -> V::Object {
         issue("craft_component", {{"target", V("pod-fabrication-hub")},
             {"generation", V(g::Integer{1})}, {"component", V(component)}});
@@ -104,8 +113,10 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2) {
             {"center", V(V::Array{V(center[0]), V(center[1]), V(center[2])})}});
     };
     std::vector<std::pair<std::string, g::Integer>> presses;
+    std::vector<std::pair<std::string, g::Integer>> press_mounts;
     std::vector<std::string> driven_shafts;
-    for (const auto base : {g::Integer{800}, g::Integer{840}}) {
+    for (int line = 0; line < line_count; ++line) {
+        const g::Integer base = 800 + line * 40;
         place("wooden_frame", {base, 0, 0});
         place("tool_mount", {base - 1, 0, 0});
         place("cutting_edge", {base - 2, 0, 0});
@@ -118,7 +129,9 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2) {
         place("anvil", {base, 1, 16});
         place("ram_face", {base, 2, 16});
         place("sliding_guide", {base, 3, 16});
-        place("tool_mount", {base, 4, 16});
+        const auto mount = place("tool_mount", {base, 4, 16});
+        press_mounts.emplace_back(std::get<std::string>(mount.at("entity").storage()),
+            std::get<g::Integer>(mount.at("generation").storage()));
         driven_shafts.push_back(std::get<std::string>(
             place("wooden_shaft", {base + 1, 4, 16}).at("entity").storage()));
         place("wooden_cog", {base + 2, 4, 16});
@@ -131,10 +144,18 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2) {
             throw std::runtime_error("A modular machine shaft stopped: " + id);
     const auto before = world->snapshot();
     if (world->tick().error != w::TransactionError::none ||
-        world->snapshot().state.material.stock.source != before.state.material.stock.source - 2)
-        throw std::runtime_error("Both modular collectors did not produce independently.");
+        world->snapshot().state.material.stock.source != before.state.material.stock.source - line_count)
+        throw std::runtime_error("Every modular collector did not produce independently.");
     for (std::size_t index = 0; index < presses.size(); ++index) {
-        const auto base = index == 0 ? g::Integer{800} : g::Integer{840};
+        const g::Integer base = 800 + static_cast<g::Integer>(index) * 40;
+        if (line_count == 10 && index == 1) {
+            // A later build invalidates the historical press layout after the
+            // first feed; the second feed must inspect the new exact prefix.
+            issue("reclaim_component", {{"target", V(press_mounts[index].first)},
+                {"generation", V(press_mounts[index].second)}});
+            issue("place_component", {{"component", V("tool_mount")},
+                {"center", V(V::Array{V(base), V(g::Integer{4}), V(g::Integer{16})})}});
+        }
         issue("pickup_material", {{"center", V(V::Array{V(base), V(g::Integer{0}), V(g::Integer{1})})},
             {"expected", V(V::Object{{"raw", V(g::Integer{1})}, {"products", V(g::Integer{0})},
                 {"work_lots", V(V::Array{})}})}});
@@ -347,6 +368,95 @@ void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = fal
               << " collectors=2 presses=2 passed\n";
 }
 
+void productive_line_scale(int line_count) {
+    const auto build_started = std::chrono::steady_clock::now();
+    auto site = productive_site(200, line_count);
+    const double build_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - build_started).count();
+    if (site.snapshot.state.placed_components.size() != static_cast<std::size_t>(line_count) * 12 ||
+        site.snapshot.state.topology.parts.size() != static_cast<std::size_t>(line_count) * 2 ||
+        site.profile.collector_faces.size() != static_cast<std::size_t>(line_count))
+        throw std::runtime_error("A productive line lost a constructed component or source.");
+    const auto saved = w::encode_checkpoint(site.profile, site.snapshot);
+    if (!std::holds_alternative<V>(saved))
+        throw std::runtime_error("The multiline World checkpoint could not encode: reason " +
+            std::to_string(static_cast<int>(std::get<w::CheckpointRefusal>(saved).reason)) +
+            " at " + std::get<w::CheckpointRefusal>(saved).path);
+    const auto decoded = w::decode_checkpoint(site.profile, "mixed-scale", std::get<V>(saved));
+    if (!std::holds_alternative<w::Snapshot>(decoded) ||
+        std::get<w::Snapshot>(decoded).state != site.snapshot.state)
+        throw std::runtime_error("The multiline checkpoint did not conserve its construction.");
+    auto live = w::World::restore("mixed-scale", site.profile, site.snapshot);
+    auto fresh = w::World::restore("mixed-scale", site.profile, std::get<w::Snapshot>(decoded));
+    if (!live || !fresh || live->tick().error != w::TransactionError::none ||
+        fresh->tick().error != w::TransactionError::none ||
+        live->snapshot().state != fresh->snapshot().state ||
+        live->snapshot().revision != fresh->snapshot().revision)
+        throw std::runtime_error("Two restored productive multiline Worlds diverged.");
+    const auto& state = live->snapshot().state;
+    std::set<m::WorkId> work_ids;
+    for (int line = 0; line < line_count; ++line) {
+        const g::Integer base = 800 + line * 40;
+        const auto receiver = state.material.dropped_material.find({base, 0, 1});
+        const auto work = state.material.dropped_material.find({base, 1, 16});
+        if (receiver == state.material.dropped_material.end() || receiver->second.raw_units != 1 ||
+            work == state.material.dropped_material.end() || work->second.work_lots.size() != 1 ||
+            !work_ids.insert(work->second.work_lots.front().id).second)
+            throw std::runtime_error("A productive line lost unique received ore or press work.");
+    }
+    const auto stage_snapshot = live->snapshot();
+    const auto measure_stage = [&](const char* name, auto&& operation) {
+        std::vector<double> samples;
+        samples.reserve(20);
+        for (int sample = 0; sample < 20; ++sample) {
+            const auto start = std::chrono::steady_clock::now();
+            operation();
+            samples.push_back(std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start).count());
+        }
+        std::sort(samples.begin(), samples.end());
+        std::cout << "WORLD_PRODUCTIVE_STAGE name=" << name << " count=" << line_count
+                  << " median_ms=" << samples[10] << " p95_ms=" << samples[18] << '\n';
+    };
+    measure_stage("drive_power", [&] {
+        if (!w::drive_power(site.profile, stage_snapshot.state).mechanical.accepted())
+            throw std::runtime_error("The measured multiline drive failed.");
+    });
+    measure_stage("validate", [&] {
+        if (!w::validate(site.profile, stage_snapshot))
+            throw std::runtime_error("The measured multiline World failed validation.");
+    });
+    measure_stage("generic_history", [&] {
+        if (factory::authority::validate_history(stage_snapshot.history, stage_snapshot.revision) !=
+                factory::authority::Error::none)
+            throw std::runtime_error("The measured request history failed validation.");
+    });
+    measure_stage("history_copy", [&] {
+        const auto copied = stage_snapshot.history;
+        if (copied.records.size() != stage_snapshot.history.records.size())
+            throw std::runtime_error("The measured request history was not copied.");
+    });
+    std::vector<double> ticks;
+    ticks.reserve(20);
+    for (int sample = 0; sample < 20; ++sample) {
+        const auto start = std::chrono::steady_clock::now();
+        if (live->tick().error != w::TransactionError::none)
+            throw std::runtime_error("The sustained multiline tick failed.");
+        ticks.push_back(std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count());
+    }
+    std::sort(ticks.begin(), ticks.end());
+    if (!w::validate(site.profile, live->snapshot()) ||
+        live->snapshot().state.press_progress.size() != static_cast<std::size_t>(line_count))
+        throw std::runtime_error("Sustained multiline work or finite custody was invalid.");
+    std::cout << "WORLD_PRODUCTIVE_LINES count=" << line_count
+              << " components=" << site.snapshot.state.placed_components.size()
+              << " records=" << site.snapshot.history.records.size()
+              << " work=" << work_ids.size() << " build_ms=" << build_ms
+              << " tick_median_ms=" << ticks[10] << " tick_p95_ms=" << ticks[18]
+              << " passed\n";
+}
+
 int main(int argc, char** argv) {
     w::Profile profile;
     w::State state;
@@ -425,9 +535,14 @@ int main(int argc, char** argv) {
                   << " p95_ms=" << samples[19] << '\n';
     }
     const std::string mode = argc > 1 ? argv[1] : "";
-    powered_cog_world(mode == "--benchmark" || mode == "--benchmark-sustained-400" ||
-        mode == "--benchmark-sustained-1000", mode == "--benchmark-sustained-1000" ? 1000 : 400,
-        mode == "--benchmark-sustained-400" || mode == "--benchmark-sustained-1000");
+    if (mode == "--lines-10" || mode == "--lines-20" || mode == "--lines-40" ||
+        mode == "--lines-80")
+        productive_line_scale(mode == "--lines-10" ? 10 : mode == "--lines-20" ? 20 :
+            mode == "--lines-40" ? 40 : 80);
+    else
+        powered_cog_world(mode == "--benchmark" || mode == "--benchmark-sustained-400" ||
+            mode == "--benchmark-sustained-1000", mode == "--benchmark-sustained-1000" ? 1000 : 400,
+            mode == "--benchmark-sustained-400" || mode == "--benchmark-sustained-1000");
     std::cout << "WORLD_MODULAR_CHECK collectors=" << collectors
               << " presses=" << presses << " placed=" << state.placed_components.size()
               << " passed\n";
