@@ -195,6 +195,23 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
     feed.emplace("generation", V(anvil_generation));
     feed.emplace("entry", V(point(center[0] + direction[0], center[1],
                                  center[2] + direction[2])));
+    auto block_stroke = request("P", "guided-place-stroke-obstacle", "place_component");
+    block_stroke.emplace("component", V("tool_mount"));
+    block_stroke.emplace("center", V(point(center[0], center[1] + 2, center[2])));
+    const auto obstruction = run.accept("P", block_stroke);
+    const auto before_blocked_stroke = run.world->snapshot().state;
+    auto blocked_feed = feed;
+    blocked_feed.at("request") = V("guided-blocked-stroke-feed");
+    run.refuses("P", blocked_feed, "incomplete_assembly");
+    check(run.world->snapshot().state == before_blocked_stroke,
+          "A blocked guided stroke refuses feed without debiting the actor's copper.");
+    check(codec_restore(source.profile, run.world->snapshot(),
+              "The blocked guided press retains its exact refusal and copper custody on reload.") != nullptr,
+          "A blocked stroke and refused feed survive the normal World checkpoint.");
+    auto clear_stroke = request("P", "guided-clear-stroke", "reclaim_component");
+    clear_stroke.emplace("target", obstruction.at("entity"));
+    clear_stroke.emplace("generation", obstruction.at("generation"));
+    run.accept("P", clear_stroke);
     run.accept("P", feed);
     const auto power = w::drive_power(source.profile, run.world->snapshot().state);
     check(power.mechanical.accepted() && power.mechanical.motion.at(anvil).state ==

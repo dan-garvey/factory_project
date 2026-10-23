@@ -142,7 +142,7 @@ void guided_press_host_path() {
           "A fresh arrival has no guided press or gifted frame.");
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
           "The actor reaches finite timber for the five-part press.");
-    for (int index = 0; index < 4; ++index) {
+    for (int index = 0; index < 5; ++index) {
         auto cut = request("guided-wood-" + std::to_string(index), "harvest_source");
         cut.emplace("target", V("tree-east-south"));
         accepted(host, cut);
@@ -155,11 +155,12 @@ void guided_press_host_path() {
         accepted(host, cut);
     }
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
-          "The actor reaches the pod bench with the exact guided-press bill.");
+          "The actor reaches the pod bench with guided-press parts and a temporary obstruction.");
     auto take = request("guided-take-crank", "take_hand_crank");
     take.emplace("entity", V("pod-hand-crank"));
     accepted(host, take);
-    for (const auto* kind : {"anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"}) {
+    for (const auto* kind : {"anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog",
+                             "tool_mount"}) {
         auto craft = request(std::string("guided-craft-") + kind, "craft_component");
         craft.emplace("entity", V("pod-fabrication-hub"));
         craft.emplace("component", V(kind));
@@ -180,6 +181,23 @@ void guided_press_host_path() {
     check(!get<bool>(host.command("P", feed("guided-premature-feed", anvil, 9, 0, 0)),
               "accepted"), "An incomplete guided press refuses feed without consuming a blank.");
     const auto cog = place(host, "wooden_cog", 10, 4, 0, "guided-place-cog");
+    auto stroke_obstacle = request("guided-place-stroke-obstacle", "place_component");
+    stroke_obstacle.emplace("component", V("tool_mount"));
+    stroke_obstacle.emplace("center", V(A{V(I{8}), V(I{2}), V(I{0})}));
+    const auto before_obstruction = host.projection();
+    const auto refused_obstruction = host.command("P", stroke_obstacle);
+    const auto after_obstruction = host.projection();
+    check(!get<bool>(refused_obstruction, "accepted") &&
+          get<std::string>(refused_obstruction, "reason") == "occupied" &&
+          !factory::values::typed_difference(V(get<O>(before_obstruction, "cargo")),
+              V(get<O>(after_obstruction, "cargo"))) &&
+          !factory::values::typed_difference(V(get<O>(before_obstruction, "placed_components")),
+              V(get<O>(after_obstruction, "placed_components"))) &&
+          !factory::values::typed_difference(V(get<O>(before_obstruction, "material_mass")),
+              V(get<O>(after_obstruction, "material_mass"))) &&
+          get<std::string>(get<A>(after_obstruction, "guided_press_assemblies").front(),
+              "status") == "ready",
+          "Host records the physical refusal while retaining the same press and material custody.");
     const auto ready = get<A>(host.projection(), "guided_press_assemblies").front();
     const auto pieces = get<O>(ready, "parts");
     check(get<std::string>(ready, "status") == "ready" &&

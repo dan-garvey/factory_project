@@ -238,6 +238,10 @@ void guided_press_without_structure() {
           elevated.press->shaft_center == g::Point{8, 8, 11} &&
           elevated.press->cog_material == m::Component::softmetal_cog,
           "The same anvil-centered rule admits raised, rotated and metal drive geometry.");
+    placed.push_back(part("stroke-obstacle", m::Component::receiver_tray, {8, 6, 12}));
+    check(a::inspect_guided_press(placed, raised).status == a::PressStatus::blocked_stroke,
+          "A placed part between the raised ram and guide blocks their real stroke.");
+    placed.pop_back();
     placed[1].center[1] += 2;
     check(a::inspect_guided_press(placed, raised).status == a::PressStatus::invalid_input,
           "A ram cannot occupy the guide's grid position.");

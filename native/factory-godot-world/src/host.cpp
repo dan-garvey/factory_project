@@ -74,6 +74,7 @@ const char* press_status_name(assembly::PressStatus status) {
         case assembly::PressStatus::missing_mount: return "missing_mount";
         case assembly::PressStatus::missing_shaft: return "missing_shaft";
         case assembly::PressStatus::missing_cog: return "missing_cog";
+        case assembly::PressStatus::blocked_stroke: return "blocked_stroke";
         case assembly::PressStatus::blocked_feed: return "blocked_feed";
         case assembly::PressStatus::ambiguous: return "ambiguous";
     }

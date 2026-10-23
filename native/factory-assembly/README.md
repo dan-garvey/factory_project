@@ -31,7 +31,9 @@ its consumers migrate.
 four-step grid. The ram face is one quarter step above it, the unmounted
 sliding guide is three steps above it, and a shaft with a cog approaches at
 the next full-grid axle height. No frame or tool mount is required. The same
-clear-feed and ambiguous-drive refusals apply at ground or raised height.
+clear-feed and ambiguous-drive refusals apply at ground or raised height. A
+placed component in the quarter-grid stroke cell between ram and guide makes
+the guided press unready without moving material.
 Assembly inspection remains read-only; native World owns power, work and
 material custody. Native World and Host consume the guided arrangement; the
 ordinary scene still consumes framed rows.
