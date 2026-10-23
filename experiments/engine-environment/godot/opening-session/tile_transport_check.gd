@@ -6,7 +6,11 @@ extends SceneTree
 ## --directory and --port; start clients after the server-ready marker. Require
 ## all three exit statuses and PASS markers. Then start server-resume, resume-P
 ## and resume-Q with the same directory and port, after the first server exits.
-## Require all six processes to pass. Add --span-belt for a constructed
+## Require all six processes to pass.
+## The default native arrival route harvests two finite timber units, crafts
+## two shaft kits at the pod, and builds, restores and reclaims those parts.
+## All actor positions in this fixture are synthetic trusted observations.
+## Add --span-belt for a constructed
 ## mechanical span and its restored removal over the Session transport. Add
 ## --powered-span instead to exercise a native waterwheel-driven span, or
 ## --inclined-span to construct its elevated 45-degree counterpart. Add
@@ -805,22 +809,37 @@ func run() -> void:
 			session.context = session.world.context
 			verify(FileAccess.get_sha256(save_path) == input_hash, "Restoring preserves the original Store bytes")
 			if failed: quit(1); return
-		verify(session.world.publish_actor("P", [1.65, 1.0, -1.65], 1).get("accepted", false), "Synthetic P observation is accepted")
+		var first_pose := [1.65, 1.0, -1.65] if role == "server-resume" else [6.6, 1.0, 3.3]
+		verify(session.world.publish_actor("P", first_pose, 1).get("accepted", false), "Synthetic P observation is accepted")
 		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q observation is accepted")
 		if failed: quit(1); return
 		if role == "server-resume":
 			mark("resume-server-ready")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-clients-done")), "Both resumed clients must finish"): quit(1); return
-			verify(session.world.projection().transmission_parts.size() == 1, "The resumed authority retains the shaft after cog removal")
+			verify(session.world.projection().transmission_parts.size() == 1, "The resumed authority retains the first shaft after reclaiming the second")
 			verify(FileAccess.get_sha256(save_path) == input_hash, "Continued work does not modify the original save")
 			if failed: quit(1); return
 			mark("resume-server-done")
 			finish_role()
 			return
 		mark("server-ready")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join("harvest-done")), "P harvests the finite tree through Session"): quit(1); return
+		var harvested: Dictionary = session.world.projection()
+		verify(harvested.cargo.P.timber == 2 and harvested.hand_sources["tree-east-south"].remaining == 6
+			and harvested.part_kits.P.shaft == 0, "Harvested timber remains in native cargo before fabrication")
+		verify(session.world.publish_actor("P", [3.3, 1.0, 4.8], 2).get("accepted", false), "Synthetic P reaches the pod workshop")
+		if failed: quit(1); return
+		mark("craft-ready")
+		if not await until(func(): return FileAccess.file_exists(directory.path_join("craft-done")), "P fabricates finite shaft kits through Session"): quit(1); return
+		var crafted: Dictionary = session.world.projection()
+		verify(crafted.cargo.P.timber == 0 and crafted.part_kits.P.shaft == 2
+			and crafted.hand_sources["tree-east-south"].remaining == 6, "The one native World conserves both fabricated shaft bills")
+		verify(session.world.publish_actor("P", [1.65, 1.0, -1.65], 3).get("accepted", false), "Synthetic P reaches the construction tiles")
+		if failed: quit(1); return
+		mark("build-ready")
 		if not await until(func(): return FileAccess.file_exists(directory.path_join("clients-done")), "Both clients must finish"): quit(1); return
 		var saved: Dictionary = session.world.checkpoint()
-		var fresh = NativeModel.new(session.context, ["P", "Q"])
+		var fresh = NativeModel.new(session.context, ["P", "Q"], true)
 		verify(fresh.boot_result.get("accepted", false), "A fresh native Host initializes")
 		verify(fresh.restore_checkpoint(saved).get("accepted", false), "The authority checkpoint restores into a fresh Host")
 		verify(fresh.checkpoint() == saved, "The restored checkpoint preserves geometry, custody, and request history")
@@ -840,21 +859,23 @@ func run() -> void:
 				verify(not old_namespace.is_empty() and session.request_namespace != old_namespace,
 					"The resumed client receives a fresh request namespace")
 				var snapshot: Dictionary = session.projection()
-				verify(snapshot.transmission_parts.size() == 2 and snapshot.part_kits.P.shaft == 7 and snapshot.part_kits.P.gear == 9, "P receives the restored parts and custody")
-				var cog_id := ""
+				verify(snapshot.transmission_parts.size() == 2 and snapshot.part_kits.P.shaft == 0
+					and snapshot.hand_sources["tree-east-south"].remaining == 6, "P receives two crafted shafts and depleted finite source")
+				var far_shaft_id := ""
 				for id in snapshot.transmission_parts:
-					if snapshot.transmission_parts[id].kind == "gear": cog_id = str(id)
-				verify(not cog_id.is_empty(), "The saved cog keeps a usable identity")
+					if snapshot.transmission_parts[id].center == [4, 4, 0]: far_shaft_id = str(id)
+				verify(not far_shaft_id.is_empty(), "The saved second shaft keeps a usable identity")
 				if failed: quit(1); return
-				var removed: Dictionary = await issue({"action": "remove", "entity": cog_id})
-				verify(removed.get("accepted", false), "P removes the restored cog through the resumed Session: " + str(removed.get("reason", "")))
+				var removed: Dictionary = await issue({"action": "remove", "entity": far_shaft_id})
+				verify(removed.get("accepted", false), "P removes the restored shaft through the resumed Session: " + str(removed.get("reason", "")))
 				if failed: quit(1); return
 				mark("resume-P-done")
 			else:
 				if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-P-done")), "P completes continued work"): quit(1); return
 				if not await until(func(): return session.projection().get("transmission_parts", {}).size() == 1, "Q observes the resumed removal"): quit(1); return
 				var resumed_view: Dictionary = session.projection()
-				verify(resumed_view.part_kits.P.shaft == 7 and resumed_view.part_kits.P.gear == 10, "Q observes the actual cog refund")
+				verify(resumed_view.part_kits.P.shaft == 1 and resumed_view.hand_sources["tree-east-south"].remaining == 6,
+					"Q observes one real shaft refund with no new timber")
 				if failed: quit(1); return
 				mark("resume-clients-done")
 				if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-server-done")), "The resumed authority verifies continuation"): quit(1); return
@@ -868,6 +889,18 @@ func run() -> void:
 				namespace_file.store_string(session.request_namespace)
 				namespace_file.close()
 			if failed: quit(1); return
+			for cut in range(2):
+				var harvest: Dictionary = await issue({"action": "harvest_source", "target": "tree-east-south"})
+				verify(harvest.get("accepted", false), "P cuts one finite timber unit through Session: " + str(harvest.get("reason", "")))
+			if failed: quit(1); return
+			mark("harvest-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("craft-ready")), "P reaches the pod workshop"): quit(1); return
+			for kit in range(2):
+				var crafted: Dictionary = await issue({"action": "craft_part", "entity": "pod-fabrication-hub", "role": "shaft", "half_span": 2})
+				verify(crafted.get("accepted", false), "P fabricates a shaft from carried timber: " + str(crafted.get("reason", "")))
+			if failed: quit(1); return
+			mark("craft-done")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("build-ready")), "P reaches the transmission tiles"): quit(1); return
 			var shaft: Dictionary = await issue({"action": "place_shaft", "center": [0, 4, 0], "axis": "x", "half_span": 2})
 			verify(shaft.get("accepted", false), "P places a one-tile shaft: " + str(shaft.get("reason", "")))
 			var request: String = shaft.get("request", "")
@@ -876,11 +909,11 @@ func run() -> void:
 			if await until(func(): return replies.has(request), "Retry receives its cached outcome"):
 				verify(replies[request].get("accepted", false) and replies[request].get("duplicate", false), "Retry must not spend a second shaft")
 				replies.erase(request)
-			var cog: Dictionary = await issue({"action": "place_gear", "center": [4, 4, 0], "axis": "x", "teeth": 2})
-			verify(cog.get("accepted", false), "P places an adjacent tile cog: " + str(cog.get("reason", "")))
-			var invalid: Dictionary = await issue({"action": "place_gear", "center": [5, 4, 0], "axis": "x", "teeth": 2})
+			var second: Dictionary = await issue({"action": "place_shaft", "center": [4, 4, 0], "axis": "z", "half_span": 2})
+			verify(second.get("accepted", false), "P places a second crafted tile shaft: " + str(second.get("reason", "")))
+			var invalid: Dictionary = await issue({"action": "place_shaft", "center": [5, 4, 0], "axis": "z", "half_span": 2})
 			verify(not invalid.get("accepted", true) and invalid.get("reason") == "invalid_cell",
-				"The authority rejects an off-grid cog over the real wire")
+				"The authority rejects an off-grid shaft over the real wire")
 			if failed: quit(1); return
 			mark("P-done")
 		else:
@@ -890,12 +923,9 @@ func run() -> void:
 			var centers := []
 			for part in view.transmission_parts.values(): centers.append(part.center)
 			verify([0, 4, 0] in centers and [4, 4, 0] in centers, "Q sees the same distinct tile centers")
-			verify(view.part_kits.P.shaft == 7 and view.part_kits.P.gear == 9, "Q sees one shaft and one cog debited")
-			var connected := false
-			for edge in view.engagements:
-				if edge.kind == 1 and view.transmission_parts.has(edge.a) and view.transmission_parts.has(edge.b):
-					connected = true
-			verify(connected, "Q observes the confirmed shaft-to-cog axle engagement")
+			verify(view.part_kits.P.shaft == 0 and view.cargo.P.timber == 0
+				and view.hand_sources["tree-east-south"].remaining == 6,
+				"Q sees two installed shafts funded by exactly two finite timber cuts")
 			if failed: quit(1); return
 			mark("clients-done")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join("server-done")), "Server verifies fresh-Host restore"): quit(1); return
