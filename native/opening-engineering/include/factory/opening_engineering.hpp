@@ -32,11 +32,15 @@ struct Progress {
 // session binding. This is present eligibility, not confirmation or persistence.
 // Scene mounting and readable physical explanation remain integration work.
 [[nodiscard]] Progress inspect(const godot_world::Host&, const std::string& actor);
+// The extension may reuse the same trusted Host projection it is returning to
+// Godot. This input must come from Host, never from a client observation.
+[[nodiscard]] Progress inspect(const values::Value& current_projection, const std::string& actor);
 
 // Formatting only: the input report must come from trusted native inspection,
-// never a client command. The wrapper obtains that current report itself.
+// never a client command. The wrapper obtains or already holds that report.
 // Publish this at the existing extension/Session boundary; Host::projection()
 // remains unchanged. This does not install an engine binding or scene mount.
 [[nodiscard]] values::Value format_progress(const Progress&, const std::string& actor);
 [[nodiscard]] values::Value projection(const godot_world::Host&, const std::string& actor);
+[[nodiscard]] values::Value projection(const values::Value& current_projection, const std::string& actor);
 }  // namespace factory::opening_engineering

@@ -64,15 +64,21 @@ void live_read_only_contract() {
     factory::godot_world::Host host;
     check(field<bool>(host.initialize("payload-native", {"P", "Q"}), "accepted"), "The unchanged opening Host initializes.");
     const auto saved = host.checkpoint();
+    const auto current = host.projection();
     for (const auto* actor : {"P", "Q"}) {
         const auto expected = e::inspect(host, actor);
         const auto value = e::projection(host, actor);
+        check(!factory::values::typed_difference(value, e::projection(current, actor)) &&
+              expected.phase == e::inspect(current, actor).phase,
+              "One trusted projection supplies the same per-actor progress as a fresh Host read.");
         check(field<bool>(value, "known_actor") && !field<bool>(value, "ready") &&
               field<std::string>(value, "phase") == "first_shift" && field<I>(value, "products") == expected.products &&
               field<std::string>(value, "actor") == actor,
               "The wrapper publishes the current per-actor inspector result without an actor observation or step.");
     }
     const auto unknown = e::projection(host, "not-in-roster");
+    check(!factory::values::typed_difference(unknown, e::projection(current, "not-in-roster")),
+          "The reused projection preserves unknown-actor refusal.");
     check(!field<bool>(unknown, "known_actor") && !field<bool>(unknown, "ready") && field<I>(unknown, "products") == 0,
           "Unknown actor lookup cannot borrow a registered actor's objective or create a participant.");
     check(!factory::values::typed_difference(saved, host.checkpoint()),

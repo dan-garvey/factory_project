@@ -21,6 +21,10 @@ values::Value format_progress(const Progress& progress, const std::string& actor
 }
 
 values::Value projection(const godot_world::Host& host, const std::string& actor) {
-    return format_progress(inspect(host, actor), actor);
+    return projection(host.projection(), actor);
+}
+
+values::Value projection(const values::Value& current_projection, const std::string& actor) {
+    return format_progress(inspect(current_projection, actor), actor);
 }
 }  // namespace factory::opening_engineering
