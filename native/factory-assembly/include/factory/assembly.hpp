@@ -3,6 +3,7 @@
 #include "factory/materials.hpp"
 #include "factory/mechanics.hpp"
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -117,5 +118,26 @@ struct PressInspection {
 // placed-part clearance. Work, power and item custody are separate authority.
 [[nodiscard]] PressInspection inspect_press(const std::vector<Part>& placed,
                                             const mechanics::Point& frame_center);
+
+// Validate/index one caller-owned immutable component snapshot. The vector
+// must outlive the layout. World can inspect many collector faces and press
+// frames against the same cut without rebuilding the map for each machine.
+class Layout final {
+public:
+    explicit Layout(const std::vector<Part>& placed);
+    Layout(std::vector<Part>&&) = delete;
+    Layout(const Layout&) = delete;
+    Layout& operator=(const Layout&) = delete;
+    Layout(Layout&&) = delete;
+    Layout& operator=(Layout&&) = delete;
+
+    [[nodiscard]] bool valid() const noexcept { return valid_; }
+    [[nodiscard]] Inspection inspect_collector(const OreFace& face) const;
+    [[nodiscard]] PressInspection inspect_press(const mechanics::Point& frame_center) const;
+
+private:
+    std::map<mechanics::Point, const Part*> by_center_;
+    bool valid_{};
+};
 
 }  // namespace factory::assembly

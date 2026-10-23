@@ -3,6 +3,7 @@
 #include <array>
 #include <map>
 #include <set>
+#include <utility>
 
 namespace factory::assembly {
 namespace {
@@ -61,14 +62,21 @@ bool valid_part(const Part& part) {
 
 }  // namespace
 
-Inspection inspect_collector(const std::vector<Part>& placed, const OreFace& face) {
-    if (!valid_face(face) || placed.size() > 4096) return {Status::invalid_input, std::nullopt};
-    std::map<Point, const Part*> by_center;
+Layout::Layout(const std::vector<Part>& placed) {
+    if (placed.size() > 4096) return;
     std::set<std::string> ids;
     for (const auto& part : placed)
         if (!valid_part(part) || !ids.insert(part.id).second ||
-            !by_center.emplace(part.center, &part).second)
-            return {Status::invalid_input, std::nullopt};
+            !by_center_.emplace(part.center, &part).second) {
+            by_center_.clear();
+            return;
+        }
+    valid_ = true;
+}
+
+Inspection Layout::inspect_collector(const OreFace& face) const {
+    if (!valid_ || !valid_face(face)) return {Status::invalid_input, std::nullopt};
+    const auto& by_center = by_center_;
 
     const auto* frame = at(by_center, face.machine_center, materials::Component::wooden_frame);
     if (!frame) return {Status::missing_frame, std::nullopt};
@@ -110,18 +118,13 @@ Inspection inspect_collector(const std::vector<Part>& placed, const OreFace& fac
     return {Status::missing_shaft, std::nullopt};
 }
 
-PressInspection inspect_press(const std::vector<Part>& placed, const Point& center) {
+PressInspection Layout::inspect_press(const Point& center) const {
     for (const auto coordinate : center)
         if (coordinate % 4 != 0 || coordinate < -mechanics::maximum_coordinate + 4 ||
             coordinate > mechanics::maximum_coordinate - 4)
             return {PressStatus::invalid_input, std::nullopt};
-    if (placed.size() > 4096) return {PressStatus::invalid_input, std::nullopt};
-    std::map<Point, const Part*> by_center;
-    std::set<std::string> ids;
-    for (const auto& item : placed)
-        if (!valid_part(item) || !ids.insert(item.id).second ||
-            !by_center.emplace(item.center, &item).second)
-            return {PressStatus::invalid_input, std::nullopt};
+    if (!valid_) return {PressStatus::invalid_input, std::nullopt};
+    const auto& by_center = by_center_;
     const auto raised = [&](Integer height) { return Point{center[0], center[1] + height, center[2]}; };
     const auto* frame = at(by_center, center, materials::Component::wooden_frame);
     if (!frame) return {PressStatus::missing_frame, std::nullopt};
@@ -165,6 +168,14 @@ PressInspection inspect_press(const std::vector<Part>& placed, const Point& cent
     }
     if (press.open_feeds.empty()) return {PressStatus::blocked_feed, std::nullopt};
     return {PressStatus::ready, std::move(press)};
+}
+
+Inspection inspect_collector(const std::vector<Part>& placed, const OreFace& face) {
+    return Layout(placed).inspect_collector(face);
+}
+
+PressInspection inspect_press(const std::vector<Part>& placed, const Point& center) {
+    return Layout(placed).inspect_press(center);
 }
 
 }  // namespace factory::assembly
