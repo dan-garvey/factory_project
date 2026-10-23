@@ -4,10 +4,15 @@ An experimental 3D opening for a mechanically focused factory game. The ordinary
 offline entry now starts from the native arrival profile: a common-grid deck,
 finite resources and carried foundation parts, with no complete starter machines.
 Point at a tree or the ore deposit and press E to gather finite material through
-the native owner. At the pod workshop, make separate collector and press parts;
-the powered-route recipes make shaft tiles, belt spans and a waterwheel from
-carried stock. Fit a collector receiver beside an outward belt inlet, then turn
-its fitted shaft with the pod crank to cut a blank. The wheel powers belt travel.
+the native owner. At the pod workshop, make separate collector and press parts.
+Shape four timber into a wooden workbench with the multitool, place it on clear
+ground or a foundation top, and choose it in Craft parts to work away from the
+pod. Use Stow pod workshop under Craft parts to carry the issued hub; choose Place
+carried pod workshop and click a clear full tile to reinstall it while the pod
+stays at the landing site. The powered-route recipes make shaft tiles, belt spans
+and a waterwheel from carried stock. Fit a collector receiver beside an outward
+belt inlet, then turn its fitted shaft with the pod crank to cut a blank. The
+wheel powers belt travel.
 The HUD shows carried timber, softmetal and the next local step. This remains
 an unfinished chapter; shared arrival adoption and human play feedback remain open.
 The earlier complete collector, belt, press and four-plate scenarios remain

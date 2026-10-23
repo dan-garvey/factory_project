@@ -257,6 +257,21 @@ enum class Error {
 [[nodiscard]] Error turn_press(State&, const Config&, const Path&,
                                const DropPoint& work, const DropPoint& exit);
 
+// World supplies only ready, rotating modular presses with unique work and
+// exit points. All supplied presses advance in one candidate material state,
+// so many local machines do not copy and validate the entire ledger each.
+// A missing or incompatible work item and an occupied exit pause that press.
+struct PressStep {
+    DropPoint work{};
+    DropPoint exit{};
+    Quantity work_subticks{work_subticks_per_tick};
+    Quantity work_remainder{};
+    Quantity work_remainder_denominator{1};
+    bool operator==(const PressStep&) const = default;
+};
+[[nodiscard]] Error step_presses(State&, const Config&, const Path&,
+                                 const std::vector<PressStep>&);
+
 // World must first authenticate the actor and admit reach to the exact point.
 [[nodiscard]] Error pickup_material(State&, const Config&, const Path&, const std::string&, const DropPoint&);
 

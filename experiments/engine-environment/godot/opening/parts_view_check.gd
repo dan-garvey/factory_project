@@ -1263,9 +1263,10 @@ func _shared_component_results() -> void:
 		{"action": "reclaim_component", "accepted": true, "reason": "", "text": "Component returned to your carried cargo."},
 		{"action": "craft_component", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber or softmetal shown for this component."},
 		{"action": "craft_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place a carried part to make room."},
-		{"action": "craft_component", "accepted": false, "reason": "out_of_reach", "text": "Move beside the pod workshop to craft this component."},
+		{"action": "craft_component", "accepted": false, "reason": "out_of_reach", "text": "Move beside the selected workshop to craft this component."},
 		{"action": "field_craft", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber shown for this component."},
-		{"action": "field_craft", "accepted": false, "reason": "unavailable_recipe", "text": "Metal components need the pod bench."},
+		{"action": "field_craft", "accepted": false, "reason": "unavailable_recipe", "text": "Metal components need a workshop."},
+		{"action": "craft_part", "accepted": false, "reason": "out_of_reach", "text": "Move beside the selected workshop to make a transmission kit."},
 		{"action": "reclaim_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place another carried part before reclaiming."}]
 	for sample: Dictionary in cases:
 		var view := SharedSettlementView.new()
