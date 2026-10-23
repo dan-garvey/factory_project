@@ -1254,7 +1254,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             !add(witness_count, 1)) return false;
     }
     for (const auto& [point, ids] : snapshot.state.press_output_exported) {
-        if (ids.empty() || !historical_press_exits.contains(point)) return false;
+        if (ids.empty() || !historical_press_exits.contains(point) ||
+            !press_products.contains(point)) return false;
         for (const auto id : ids)
             if (id <= 0 || id >= snapshot.state.material.next_work_id ||
                 !witnessed_products.insert(id).second || !add(witness_count, 1)) return false;
@@ -1264,7 +1265,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto exported = snapshot.state.press_output_exported.find(point);
         const auto exported_count = exported == snapshot.state.press_output_exported.end() ?
             0 : static_cast<Integer>(exported->second.size());
-        if (claimed < 1 || claimed > waiting + exported_count) return false;
+        if (claimed < 1 || claimed != waiting + exported_count) return false;
     }
     Integer live_products = 0;
     if (!add(live_products, snapshot.state.material.stock.output) ||
