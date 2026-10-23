@@ -32,6 +32,64 @@ O craft(const char* client, const char* request, const char* component) {
         {"component", V(component)}};
 }
 
+O shape(const char* client, const char* request, const char* component) {
+    return {{"context", V("field-site")}, {"client", V(client)}, {"request", V(request)},
+        {"action", V("field_craft")}, {"component", V(component)}};
+}
+
+O field_cut(const char* request) {
+    return {{"context", V("field-site")}, {"client", V("P")}, {"request", V(request)},
+        {"action", V("harvest_source")}, {"target", V("tree-east-south")}};
+}
+
+void field_wood_uses_physical_actor_and_one_ledger() {
+    Host host;
+    check(get<bool>(host.initialize_arrival("field-site", {"P", "Q"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(8.25)}, 1), "accepted"),
+          "Two physical actors initialize, with P beyond the pod bench's reach.");
+    for (int index = 0; index < 4; ++index) {
+        const auto request = "field-cut-" + std::to_string(index);
+        const auto outcome = host.command("P", field_cut(request.c_str()));
+        check(get<bool>(outcome, "accepted"),
+              "The multitool moves one finite timber from the field tree into P's cargo.");
+    }
+    const auto made = shape("P", "field-frame", "wooden_frame");
+    check(get<bool>(host.command("P", made), "accepted") &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1 &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_frame") == 1 &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 4,
+          "P shapes a wooden frame at the tree while the distant bench stays unused.");
+    const auto after = host.checkpoint();
+    check(get<bool>(host.command("P", made), "duplicate") &&
+          !factory::values::typed_difference(after, host.checkpoint()),
+          "The exact Host wire replay does not create another wooden frame.");
+    const auto metal = host.command("P", shape("P", "field-metal", "cutting_edge"));
+    check(!get<bool>(metal, "accepted") && get<std::string>(metal, "reason") == "unavailable_recipe" &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1 &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_frame") == 1 &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 4,
+          "The same tool refuses metal forming in the field without changing custody.");
+    const auto other = host.command("Q", shape("Q", "other-wood", "wooden_shaft"));
+    check(!get<bool>(other, "accepted") && get<std::string>(other, "reason") == "unavailable_input" &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1,
+          "Q cannot spend P's carried timber with the same field tool command.");
+    check(get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
+          "Host validates the shaped frame and both actors' conserved cargo.");
+    Host restored;
+    check(get<bool>(restored.initialize_arrival("field-site", {"P", "Q"}), "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.restore_checkpoint(host.checkpoint()), "accepted") &&
+          !factory::values::typed_difference(host.checkpoint(), restored.checkpoint()),
+          "Fresh Host continuation retains the field craft, finite timber and refused requests.");
+    check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 2), "accepted") &&
+          get<bool>(restored.command("P", O{{"context", V("field-site")}, {"client", V("P")},
+              {"request", V("bench-shaft")}, {"action", V("craft_component")},
+              {"entity", V("pod-fabrication-hub")}, {"component", V("wooden_shaft")}}), "accepted"),
+          "The existing pod bench still crafts from the remaining carried timber after restore.");
+}
+
 void shared_harvest() {
     Host host;
     check(get<bool>(host.initialize_arrival("harvest-site", {"P", "Q"}), "accepted") &&
@@ -153,6 +211,7 @@ void shared_harvest() {
 int main() {
     try {
         shared_harvest();
+        field_wood_uses_physical_actor_and_one_ledger();
         std::cout << "harvest_host_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

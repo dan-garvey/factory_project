@@ -152,6 +152,12 @@ func verify(condition: bool, reason: String) -> void:
 		failures += 1
 		print("TRANSMISSION_VIEW_FAILURE: " + reason)
 
+func part_anchor(presenter: Node3D, id: String) -> Node3D:
+	for child: Node in presenter.get_children():
+		if child is Node3D and child.get_meta("entity", "") == id:
+			return child
+	return null
+
 func fixture() -> Dictionary:
 	return {"context": "helper-fixture", "options": {"native": true},
 		"actors": {"P": {"ready": true}, "Q": {"ready": true}},
@@ -2685,6 +2691,8 @@ func _scale_benchmark() -> void:
 		return
 	if verify_only:
 		var unchanged: Dictionary = host.state.duplicate(true)
+		var retained_anchor: Node3D = part_anchor(presenter, "cog-0") if trusted_revision and count >= Presenter.GEAR_BATCH_THRESHOLD else null
+		var retained_pick: Node = retained_anchor.get_node("Pick") if retained_anchor != null else null
 		presenter.advance_visual_motion(0.1)
 		var matches := host.state == unchanged
 		if not matches:
@@ -2720,6 +2728,38 @@ func _scale_benchmark() -> void:
 			if trusted_revision:
 				host.state.revision += 1
 			presenter.refresh()
+		if retained_anchor != null:
+			matches = matches and part_anchor(presenter, "cog-0") == retained_anchor \
+				and retained_anchor.get_node("Pick") == retained_pick
+			var extra: Dictionary = host.state.transmission_parts["cog-0"].duplicate(true)
+			extra.center = [500, 4, 500]
+			host.state.transmission_parts["cog-extra"] = extra
+			host.state.motion["cog-extra"] = host.state.motion["cog-0"].duplicate(true)
+			host.state.revision += 1
+			presenter.refresh()
+			var added_anchor: Node3D = part_anchor(presenter, "cog-extra")
+			matches = matches and part_anchor(presenter, "cog-0") == retained_anchor \
+				and retained_anchor.get_node("Pick") == retained_pick and added_anchor != null \
+				and added_anchor.has_node("Pick")
+			host.state.transmission_parts.erase("cog-extra")
+			host.state.motion.erase("cog-extra")
+			host.state.revision += 1
+			presenter.refresh()
+			matches = matches and not is_instance_valid(added_anchor) \
+				and part_anchor(presenter, "cog-0") == retained_anchor
+			var rebuilt: Dictionary = host.state.transmission_parts["cog-0"].duplicate(true)
+			rebuilt.generation += 1
+			host.state.transmission_parts["cog-0"] = rebuilt
+			host.state.revision += 1
+			presenter.refresh()
+			var regenerated_anchor: Node3D = part_anchor(presenter, "cog-0")
+			matches = matches and not is_instance_valid(retained_anchor) and regenerated_anchor != null \
+				and regenerated_anchor.has_node("Pick")
+			host.state.context = "new-synthetic-cog-context"
+			host.state.revision += 1
+			presenter.refresh()
+			matches = matches and not is_instance_valid(regenerated_anchor) \
+				and part_anchor(presenter, "cog-0").has_node("Pick")
 		if count == Presenter.GEAR_BATCH_THRESHOLD:
 			var last := "cog-%d" % (count - 1)
 			var removed: Dictionary = host.state.transmission_parts[last]

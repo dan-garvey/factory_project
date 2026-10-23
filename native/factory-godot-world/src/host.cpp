@@ -384,6 +384,9 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
             same("entity", "target") && same("component", "component");
+    if (*action == "field_craft")
+        return *original_action == "field_craft" && keys(*wire, {"component"}) &&
+            field<std::string>(*wire, "component") && same("component", "component");
     if (*action == "deliver_first_plate")
         return *original_action == "deliver_first_plate" && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
@@ -1356,6 +1359,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("generation", Value(snapshot.state.fabrication_hub &&
             snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
             snapshot.state.fabrication_hub->generation : Integer{0}));
+        normalized.emplace("component", wire.at("component"));
+    } else if (*action == "field_craft") {
+        if (!keys(wire, {"component"}) || !field<std::string>(wire, "component"))
+            return refuse("invalid_command");
+        normalized.at("action") = Value("field_craft");
         normalized.emplace("component", wire.at("component"));
     } else if (*action == "craft_part") {
         if (!keys(wire, {"entity", "role", "half_span"}) ||

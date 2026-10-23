@@ -33,6 +33,7 @@ var _visual_angles: Dictionary = {}
 var _visual_rotations: Dictionary = {}
 var _gear_batches: Dictionary = {}
 var _batched_gear_ids: Dictionary = {}
+var _gear_anchor_cache: Dictionary = {}
 var _moving_anchors: Array[Node3D] = []
 var _direction_meshes: Dictionary = {}
 var _support_meshes: Dictionary = {}
@@ -48,17 +49,19 @@ func configure(host: Object) -> void:
 	_clear_motion()
 	refresh()
 
-func _clear() -> void:
+func _clear(retained_nodes: Dictionary = {}) -> void:
 	_cargo_keys.clear()
 	_cargo_elapsed.clear()
 	_cargo_anchors.clear()
 	_gear_batches.clear()
 	_batched_gear_ids.clear()
+	_gear_anchor_cache.clear()
 	_native_view_context = ""
 	_native_view_revision = null
 	_moving_anchors.clear()
 	for child in get_children():
-		child.free()
+		if not retained_nodes.has(child.get_instance_id()):
+			child.free()
 
 func _clear_motion() -> void:
 	_motion_context = ""
@@ -1501,8 +1504,29 @@ func refresh() -> void:
 		_native_view_revision = native_revision if native_model else null
 		_refresh_belt_cargo(spans)
 		return
+	var gear_count := 0
+	for part: Variant in parts.values():
+		if _valid_part(part) and part.kind == "gear":
+			gear_count += 1
+	var batch_gears := gear_count >= GEAR_BATCH_THRESHOLD
+	# Native revisions identify confirmed topology. Keep identical batched pick
+	# bodies across cuts; the changing MultiMesh and support batches rebuild below.
+	var reused_gears: Dictionary = {}
+	var retained_nodes: Dictionary = {}
+	if native_model and native_context == _native_view_context and batch_gears:
+		for id: Variant in parts:
+			var part: Variant = parts[id]
+			if typeof(id) != TYPE_STRING or not part is Dictionary or part.get("kind") != "gear" \
+					or not _gear_anchor_cache.has(id):
+				continue
+			var cached: Dictionary = _gear_anchor_cache[id]
+			var old_anchor: Variant = cached.get("anchor")
+			if cached.part == part and is_instance_valid(old_anchor) and old_anchor is Node3D \
+					and old_anchor.get_parent() == self:
+				reused_gears[id] = cached
+				retained_nodes[old_anchor.get_instance_id()] = true
 	_sync_motion(snapshot)
-	_clear()
+	_clear(retained_nodes)
 	# Projections can mutate their dictionaries after this call. Keep an owned
 	# snapshot so a later motion or topology change cannot change the baseline.
 	_view_key = next_key.duplicate(true)
@@ -1530,11 +1554,6 @@ func refresh() -> void:
 			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 			visual.add_child(label)
 	var rendered: Dictionary = {}
-	var gear_count := 0
-	for part: Variant in parts.values():
-		if _valid_part(part) and part.kind == "gear":
-			gear_count += 1
-	var batch_gears := gear_count >= GEAR_BATCH_THRESHOLD
 	var gear_anchors: Dictionary = {}
 	var direction_poses: Dictionary = {1: [], -1: []}
 	var support_groups: Dictionary = {}
@@ -1542,17 +1561,20 @@ func refresh() -> void:
 		var part: Variant = parts[id]
 		if typeof(id) != TYPE_STRING or not _valid_part(part):
 			continue
-		var anchor := Node3D.new()
-		anchor.name = "Part%d" % rendered.size()
-		anchor.set_meta("entity", id)
-		anchor.set_meta("kind", part.kind)
-		if part.kind in ["gear", "shaft"]:
-			anchor.set_meta("axis", part.axis)
-		anchor.position = world_center(part.center)
-		anchor.basis = axis_basis(part.axis) if part.kind in ["gear", "shaft"] else Basis.IDENTITY
-		add_child(anchor)
+		var reused: bool = reused_gears.has(id)
+		var anchor: Node3D = reused_gears[id].anchor if reused else Node3D.new()
+		if not reused:
+			anchor.name = "Part%d" % rendered.size()
+			anchor.set_meta("entity", id)
+			anchor.set_meta("kind", part.kind)
+			if part.kind in ["gear", "shaft"]:
+				anchor.set_meta("axis", part.axis)
+			anchor.position = world_center(part.center)
+			anchor.basis = axis_basis(part.axis) if part.kind in ["gear", "shaft"] else Basis.IDENTITY
+			add_child(anchor)
+		var style := ""
 		if batch_gears:
-			var style := _support_style(part)
+			style = str(reused_gears[id].style) if reused else _support_style(part)
 			if not style.is_empty():
 				if not support_groups.has(style):
 					support_groups[style] = {"part": part, "id": id, "poses": []}
@@ -1567,15 +1589,19 @@ func refresh() -> void:
 		if part.kind == "gear":
 			var radius: float = Geometry.PITCH / 2.0
 			if batch_gears:
-				anchor.set_meta("batched_gear", true)
+				if not reused:
+					anchor.set_meta("batched_gear", true)
 				_batched_gear_ids[id] = true
 				if not gear_anchors.has(part.teeth):
 					gear_anchors[part.teeth] = []
 				gear_anchors[part.teeth].append(anchor)
+				_gear_anchor_cache[id] = {"part": reused_gears[id].part if reused else part.duplicate(true),
+					"anchor": anchor, "style": style}
 			else:
 				Assets.gear(anchor, radius, part.teeth, color)
 				Assets.shaft(anchor, Geometry.PITCH, color)
-			_pick(anchor, id, radius, 0.24, Geometry.PITCH)
+			if not reused:
+				_pick(anchor, id, radius, 0.24, Geometry.PITCH)
 			if rotating:
 				var sign_value := 1 if motion.numerator > 0 else -1
 				if batch_gears:
