@@ -7816,6 +7816,11 @@ func _machine_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
 		surface.set_material(group.material)
 		combined = surface.commit(combined)
 	combined = _machine_finish_mesh(combined)
+	# Keep the full composite and its finishes at close range. Godot selects
+	# simpler indices only when their projected error fits the viewport LOD.
+	var importer := ImporterMesh.from_mesh(combined)
+	importer.generate_lods(60.0, 60.0, [])
+	combined = importer.get_mesh()
 	machine_batch_composite_meshes[key] = combined
 	return combined
 
