@@ -112,6 +112,31 @@ struct PressInspection {
     std::optional<Press> press;
 };
 
+// A guided press head is located by its placed anvil. The guide constrains the
+// ram stroke; no frame or structural mount is part of this working geometry.
+struct GuidedPress {
+    std::string anvil;
+    std::string ram;
+    std::string guide;
+    std::string shaft;
+    std::string drive_cog;
+    mechanics::Point work_center{};
+    mechanics::Point shaft_center{};
+    mechanics::Point cog_center{};
+    materials::Component shaft_material{};
+    materials::Component cog_material{};
+    std::vector<PressFeed> open_feeds;
+    bool operator==(const GuidedPress&) const = default;
+};
+
+struct GuidedPressInspection {
+    PressStatus status{PressStatus::invalid_input};
+    std::optional<GuidedPress> press;
+};
+
+[[nodiscard]] GuidedPressInspection inspect_guided_press(
+    const std::vector<Part>& placed, const mechanics::Point& anvil_center);
+
 // Recognize a press at any common-grid frame center. Anvil, ram, guide and
 // mount stack at distinct quarter-grid heights; a shaft and cog approach from
 // one horizontal side. Both opposed lower feed paths are inspected for actual
@@ -134,6 +159,8 @@ public:
     [[nodiscard]] bool valid() const noexcept { return valid_; }
     [[nodiscard]] Inspection inspect_collector(const OreFace& face) const;
     [[nodiscard]] PressInspection inspect_press(const mechanics::Point& frame_center) const;
+    [[nodiscard]] GuidedPressInspection inspect_guided_press(
+        const mechanics::Point& anvil_center) const;
 
 private:
     std::map<mechanics::Point, const Part*> by_center_;

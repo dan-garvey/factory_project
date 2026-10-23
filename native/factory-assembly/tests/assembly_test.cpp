@@ -205,6 +205,73 @@ void press_missing_and_invalid_parts() {
           "Duplicate centers and off-grid press origins refuse before recognition.");
 }
 
+void guided_press_without_structure() {
+    const auto parts_at = [](g::Point center, g::Point drive) {
+        return std::vector<a::Part>{
+            part("anvil", m::Component::anvil, center),
+            part("ram", m::Component::ram_face,
+                 {center[0], center[1] + 1, center[2]}),
+            part("guide", m::Component::sliding_guide,
+                 {center[0], center[1] + 2, center[2]}),
+            part("shaft", m::Component::wooden_shaft,
+                 {center[0] + drive[0], center[1] + 2, center[2] + drive[2]}),
+            part("cog", m::Component::wooden_cog,
+                 {center[0] + 2 * drive[0], center[1] + 2, center[2] + 2 * drive[2]}),
+        };
+    };
+    const g::Point ground{0, 0, 0};
+    auto placed = parts_at(ground, {1, 0, 0});
+    const auto first = a::inspect_guided_press(placed, ground);
+    check(first.status == a::PressStatus::ready && first.press &&
+          first.press->anvil == "anvil" && first.press->ram == "ram" &&
+          first.press->guide == "guide" && first.press->shaft == "shaft" &&
+          first.press->drive_cog == "cog" && first.press->open_feeds.size() == 4,
+          "Five independently placed working parts form a press without a frame or mount.");
+    const g::Point raised{8, 4, 12};
+    placed = parts_at(raised, {0, 0, -1});
+    placed[3].kind = m::Component::softmetal_shaft;
+    placed[4].kind = m::Component::softmetal_cog;
+    const a::Layout layout(placed);
+    const auto elevated = layout.inspect_guided_press(raised);
+    check(elevated.status == a::PressStatus::ready && elevated.press &&
+          elevated.press->work_center == raised &&
+          elevated.press->shaft_center == g::Point{8, 6, 11} &&
+          elevated.press->cog_material == m::Component::softmetal_cog,
+          "The same anvil-centered rule admits raised, rotated and metal drive geometry.");
+    placed[1].center[1] += 1;
+    check(a::inspect_guided_press(placed, raised).status == a::PressStatus::invalid_input,
+          "A ram cannot occupy the guide's grid position.");
+    placed[1].center = {8, 7, 12};
+    check(a::inspect_guided_press(placed, raised).status == a::PressStatus::missing_ram,
+          "A misaligned ram cannot claim workpiece contact.");
+    placed[1].center = {8, 5, 12};
+    placed.erase(placed.begin() + 2);
+    check(a::inspect_guided_press(placed, raised).status == a::PressStatus::missing_guide,
+          "A free ram requires a placed stroke guide.");
+    placed = parts_at(ground, {1, 0, 0});
+    placed.push_back(part("west-shaft", m::Component::wooden_shaft, {-1, 2, 0}));
+    placed.push_back(part("west-cog", m::Component::wooden_cog, {-2, 2, 0}));
+    check(a::inspect_guided_press(placed, ground).status == a::PressStatus::ambiguous,
+          "Two complete drives require an explicit selection.");
+    placed.pop_back(); placed.pop_back();
+    for (const auto& direction : std::array<g::Point, 4>{{{1, 0, 0}, {-1, 0, 0},
+                                                         {0, 0, 1}, {0, 0, -1}}}) {
+        const auto axis = direction[0] != 0 ? "x" : "z";
+        const auto sign = direction[0] + direction[2] > 0 ? "plus" : "minus";
+        placed.push_back({std::string(axis) + sign, m::Component::receiver_tray,
+                          {direction[0], 0, direction[2]}, 1});
+    }
+    check(a::inspect_guided_press(placed, ground).status == a::PressStatus::blocked_feed,
+          "Obstructed opposing feed and exit faces cannot be used.");
+    placed = parts_at(ground, {1, 0, 0});
+    placed.erase(placed.begin());
+    check(a::inspect_guided_press(placed, ground).status == a::PressStatus::missing_anvil,
+          "A guided ram cannot form stock without an anvil.");
+    check(a::inspect_guided_press(parts_at(ground, {1, 0, 0}), {0, 1, 0}).status ==
+          a::PressStatus::invalid_input,
+          "The work center follows the shared four-step world height grid.");
+}
+
 void indexed_independent_assemblies() {
     std::vector<a::Part> placed;
     placed.reserve(1700);
@@ -294,6 +361,7 @@ int main() {
         malformed_and_ambiguous_input();
         press_arrangements_and_clearance();
         press_missing_and_invalid_parts();
+        guided_press_without_structure();
         indexed_independent_assemblies();
         std::cout << "assembly_test: " << checks << " checks passed\n";
         return 0;

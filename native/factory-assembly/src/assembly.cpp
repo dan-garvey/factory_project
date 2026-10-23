@@ -170,12 +170,61 @@ PressInspection Layout::inspect_press(const Point& center) const {
     return {PressStatus::ready, std::move(press)};
 }
 
+GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
+    for (const auto coordinate : center)
+        if (coordinate % 4 != 0 || coordinate < -mechanics::maximum_coordinate + 4 ||
+            coordinate > mechanics::maximum_coordinate - 4)
+            return {PressStatus::invalid_input, std::nullopt};
+    if (!valid_) return {PressStatus::invalid_input, std::nullopt};
+    const auto& by_center = by_center_;
+    const auto raised = [&](Integer height) { return Point{center[0], center[1] + height, center[2]}; };
+    const auto* anvil = at(by_center, center, materials::Component::anvil);
+    if (!anvil) return {PressStatus::missing_anvil, std::nullopt};
+    const auto* ram = at(by_center, raised(1), materials::Component::ram_face);
+    if (!ram) return {PressStatus::missing_ram, std::nullopt};
+    const auto* guide = at(by_center, raised(2), materials::Component::sliding_guide);
+    if (!guide) return {PressStatus::missing_guide, std::nullopt};
+
+    constexpr std::array<Point, 4> directions{{{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}}};
+    bool shaft_seen = false;
+    std::vector<GuidedPress> candidates;
+    for (const auto& direction : directions) {
+        const Point shaft_center{center[0] + direction[0], center[1] + 2,
+                                 center[2] + direction[2]};
+        const auto* shaft = shaft_at(by_center, shaft_center);
+        if (!shaft) continue;
+        shaft_seen = true;
+        const Point cog_center{center[0] + 2 * direction[0], center[1] + 2,
+                               center[2] + 2 * direction[2]};
+        const auto* cog = cog_at(by_center, cog_center);
+        if (!cog) continue;
+        candidates.push_back({anvil->id, ram->id, guide->id, shaft->id, cog->id,
+            center, shaft_center, cog_center, shaft->kind, cog->kind, {}});
+    }
+    if (candidates.empty()) return {shaft_seen ? PressStatus::missing_cog : PressStatus::missing_shaft,
+                                    std::nullopt};
+    if (candidates.size() > 1) return {PressStatus::ambiguous, std::nullopt};
+    auto& press = candidates.front();
+    for (const auto& direction : directions) {
+        const Point entry{center[0] + direction[0], center[1], center[2] + direction[2]};
+        const Point exit{center[0] - direction[0], center[1], center[2] - direction[2]};
+        if (!by_center.contains(entry) && !by_center.contains(exit))
+            press.open_feeds.push_back({entry, exit});
+    }
+    if (press.open_feeds.empty()) return {PressStatus::blocked_feed, std::nullopt};
+    return {PressStatus::ready, std::move(press)};
+}
+
 Inspection inspect_collector(const std::vector<Part>& placed, const OreFace& face) {
     return Layout(placed).inspect_collector(face);
 }
 
 PressInspection inspect_press(const std::vector<Part>& placed, const Point& center) {
     return Layout(placed).inspect_press(center);
+}
+
+GuidedPressInspection inspect_guided_press(const std::vector<Part>& placed, const Point& center) {
+    return Layout(placed).inspect_guided_press(center);
 }
 
 }  // namespace factory::assembly
