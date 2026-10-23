@@ -326,16 +326,19 @@ func check_freight_beacon_view() -> void:
 		and view.freight_beacon_visual.get_meta("freight_beacon") == beacon.id
 		and marker != null and marker.billboard == BaseMaterial3D.BILLBOARD_ENABLED,
 		"The native beacon has a camera-facing shipment label.")
-	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).is_empty(),
-		"The freight point is a graphical cue without player-unbuilt receiver hardware.")
+	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).size() == 8
+		and view.freight_beacon_visual.get_node_or_null("GroundPad") is MeshInstance3D
+		and view.freight_beacon_visual.get_node_or_null("ReceivingSlot") is MeshInstance3D
+		and not marker.fixed_size and not marker.no_depth_test,
+		"The native freight point has a grounded visible receiver and a depth-tested attached cue.")
 	verify(view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER
 		and view.freight_beacon_visual.collision_mask == 0,
-		"The graphical marker adds only selection, not actor collision or construction authority.")
+		"The dispatch pylon adds only selection, not actor collision or construction authority.")
 	var position: Array = beacon.position
 	verify(is_equal_approx(view.freight_beacon_visual.position.x, float(position[0]))
 		and is_equal_approx(view.freight_beacon_visual.position.z, float(position[2]))
 		and beacon.center == [6, 0, 4],
-		"The shipment marker retains the native world-space point east of the pod.")
+		"The visible dispatch pylon retains the native world-space point east of the pod.")
 	for _frame in range(3):
 		await physics_frame
 	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
@@ -351,7 +354,7 @@ func check_freight_beacon_view() -> void:
 	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 2.5, 0))
 	var high_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
 	verify(high_hit.is_empty() or high_hit.collider != view.freight_beacon_visual,
-		"The removed gantry leaves no invisible tall selection body.")
+		"The dispatch pylon has no invisible tall selection body.")
 	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
 	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.3, 0))
 	view.state.actors.P.ready = true
