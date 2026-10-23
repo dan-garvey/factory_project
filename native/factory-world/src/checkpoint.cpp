@@ -301,7 +301,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
         Value output(Object{
-            {"schema", Value(Integer{10})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{11})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -347,7 +347,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
                         Value(component.center[2])})}, {"generation", Value(component.generation)}}));
             state.emplace("placed_components", Value(std::move(placed)));
-            Array waiting, exported;
+            Array waiting, exported, belt_work, belt_products;
             for (const auto& [center, id] : snapshot.state.press_output_at_exit)
                 waiting.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
                     {"work_id", Value(id)}});
@@ -357,8 +357,22 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 exported.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
                     {"work_ids", Value(std::move(work_ids))}});
             }
+            for (const auto& [center, id] : snapshot.state.belt_press_work)
+                belt_work.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
+                    {"work_id", Value(id)}});
+            for (const auto& [center, ids] : snapshot.state.belt_press_products) {
+                Array work_ids;
+                for (const auto id : ids) work_ids.emplace_back(id);
+                belt_products.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
+                    {"work_ids", Value(std::move(work_ids))}});
+            }
             state.emplace("press_output_at_exit", Value(std::move(waiting)));
             state.emplace("press_output_exported", Value(std::move(exported)));
+            state.emplace("belt_press_work", Value(std::move(belt_work)));
+            state.emplace("belt_press_products", Value(std::move(belt_products)));
+            Array belt_work_ids;
+            for (const auto id : snapshot.state.belt_press_work_ids) belt_work_ids.emplace_back(id);
+            state.emplace("belt_press_work_ids", Value(std::move(belt_work_ids)));
             root.at("state") = Value(std::move(state));
             output = Value(std::move(root));
         }
@@ -372,7 +386,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 10) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 11) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -382,7 +396,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -463,6 +477,28 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                     if (!ids.insert(scalar<Integer>(id, "$.state.press_output_exported.work_ids")).second)
                         refuse(CheckpointReason::invalid_world, "$.state.press_output_exported.work_ids");
             }
+            for (const auto& value : array(state.at("belt_press_work"), "$.state.belt_press_work", 4096)) {
+                const auto& entry = fields(value, "$.state.belt_press_work", {"center", "work_id"});
+                if (!candidate.state.belt_press_work.emplace(
+                        read_point(entry.at("center"), "$.state.belt_press_work.center"),
+                        integer(entry, "work_id", "$.state.belt_press_work")).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.belt_press_work");
+            }
+            for (const auto& value : array(state.at("belt_press_products"), "$.state.belt_press_products", 4096)) {
+                const auto& entry = fields(value, "$.state.belt_press_products", {"center", "work_ids"});
+                const auto center = read_point(entry.at("center"), "$.state.belt_press_products.center");
+                const auto& work_ids = array(entry.at("work_ids"), "$.state.belt_press_products.work_ids", 4096);
+                auto& ids = candidate.state.belt_press_products[center];
+                if (!ids.empty() || work_ids.empty())
+                    refuse(CheckpointReason::invalid_world, "$.state.belt_press_products");
+                for (const auto& id : work_ids)
+                    if (!ids.insert(scalar<Integer>(id, "$.state.belt_press_products.work_ids")).second)
+                        refuse(CheckpointReason::invalid_world, "$.state.belt_press_products.work_ids");
+            }
+            for (const auto& id : array(state.at("belt_press_work_ids"), "$.state.belt_press_work_ids", 4096))
+                if (!candidate.state.belt_press_work_ids.insert(
+                        scalar<Integer>(id, "$.state.belt_press_work_ids")).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.belt_press_work_ids");
         }
         if (profile.foundation_parts > 0) {
             const auto& foundations = object(state.at("foundations"), "$.state.foundations");

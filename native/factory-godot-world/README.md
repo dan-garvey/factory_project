@@ -199,9 +199,9 @@ very close to the body even when the exact rotated boxes do not overlap.
 Vertical and sideways spans transmit rotation without carrying cargo or actors.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
-logical World checkpoint has schema 10, including workshop custody and placement,
+logical World checkpoint has schema 11, including workshop custody and placement,
 the first freight beacon, building facings, the trusted interaction offset and
-identified belt spans and modular press output witnesses.
+identified belt spans, modular press output witnesses and belt-fed work claims.
 The arrival material ledger inside it has schema 11 and retains shipped plate
 custody. Earlier logical formats are refused without migration. The physical
 envelope remains schema 3. Its arrival material payload has schema 11, including

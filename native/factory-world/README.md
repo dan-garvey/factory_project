@@ -152,7 +152,7 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 10 and retains the single identified freight
+The logical checkpoint uses schema 11 and retains the single identified freight
 beacon, its conserved first shipment, the pod workshop's installed or held
 custody and relocated center, and collector/press quarter-turn
 facings as well as identified horizontal, inclined,
@@ -163,6 +163,12 @@ generation, retry history and the ordered shaft centers used by its reach receip
 For a modular press, the checkpoint also retains the work identities waiting at
 its exit or already exported to a belt. Those witnesses do not own material;
 the single material ledger continues to hold every plate and belt slot.
+An inward powered belt may feed one raw blank or matching WorkLot through a
+clear quarter-grid press face from its adjacent full-tile endpoint. A full
+work point, obstructed chute or ambiguous assembly retains the item on the
+belt. Belt-fed work and its output identities are checkpoint witnesses in the
+same World, and actor pickup clears a waiting output claim. The press still
+uses its placed drive or the actor's crank for the actual work cycle.
 Earlier checkpoints are refused rather than migrated. The native Host checks actor and site clearance.
 World owns canonical multi-slot lane custody; vertical and sideways power-only
 spans require empty lanes. The Godot Host admits all four path kinds with
