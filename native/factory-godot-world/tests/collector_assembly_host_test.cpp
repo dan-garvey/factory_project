@@ -235,7 +235,7 @@ void collector_readiness_tracks_real_parts() {
     auto pickup = request("pickup-first", "pickup_material");
     pickup.emplace("center", V(A{V(I{0}), V(I{0}), V(I{1})}));
     pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
-        {"work_lots", V(A{})}}));
+        {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
     check(get<bool>(restored.command("P", pickup), "accepted") &&
           get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 1,
           "The actor can recover the actual receiver item after restore.");
@@ -300,7 +300,7 @@ void collector_readiness_tracks_real_parts() {
     auto recover_loose = request("pickup-after-dismantle", "pickup_material");
     recover_loose.emplace("center", V(A{V(I{0}), V(I{0}), V(I{-1})}));
     recover_loose.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
-        {"work_lots", V(A{})}}));
+        {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
     check(get<bool>(restored.command("P", recover_loose), "accepted") &&
           get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 2,
           "The output remains recoverable after its collector tray is removed.");

@@ -215,10 +215,11 @@ Manual press receipts carry the prior work item, and productive tick records
 bind automatic progress to its work identity, revision and press work point
 during restore. These mutable records check save consistency; they do not
 authenticate an arbitrarily rewritten save.
-The arrival material ledger inside it has schema 11 and retains shipped plate
-custody. Earlier logical formats are refused without migration. The physical
-envelope remains schema 3. Its arrival material payload has schema 11, including
-typed loose material and timber/ore embodied in fabricated stationary kits. The
+The arrival material ledger inside it has schema 12 and retains shipped plate,
+copper offcut and sheet custody. Earlier logical formats are refused without
+migration. The physical envelope remains schema 3. Its arrival material payload
+has schema 12, including typed loose material and timber/ore embodied in
+fabricated stationary kits. The
 nonresource material payload remains schema 6. Earlier payloads are refused
 rather than migrated.
 It retains typed material, kits, topology, issued identities, original history and

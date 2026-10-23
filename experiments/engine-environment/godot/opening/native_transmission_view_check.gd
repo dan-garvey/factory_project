@@ -1893,7 +1893,8 @@ func _loose_material() -> void:
 		"The confirmed stack is rendered at its world location without requiring the belt to exist.")
 	host.mutate_allowed = true
 	for drop in [{"center": [2, 0, 4], "raw": 0, "products": 1, "work_lots": []},
-		{"center": [2, 0, 4], "raw": 0, "products": 0, "work_lots": [{"id": 7}]}]:
+		{"center": [2, 0, 4], "raw": 0, "products": 0, "work_lots": [{"id": 7}]},
+		{"center": [2, 0, 4], "raw": 0, "products": 0, "work_lots": [], "offcuts": 1, "sheets": 0}]:
 		host.state.dropped_material = [drop]
 		presenter.refresh()
 		menu._open()
@@ -1902,6 +1903,10 @@ func _loose_material() -> void:
 		var expected: Dictionary = drop.duplicate(true)
 		expected.erase("center")
 		verify(host.calls.back() == {"action": "pickup_material", "center": [2, 0, 4], "expected": expected}, "Typed loose cargo uses the confirmed pickup request.")
+		if drop.get("offcuts", 0) > 0:
+			var offcut_visual := presenter.get_node_or_null("CopperOffcuts")
+			verify(offcut_visual is Node3D and offcut_visual.position == Presenter.world_center([2, 0, 4]) and offcut_visual.find_children("*", "MeshInstance3D", true, false).size() == 6 and menu.get_popup().get_item_text(0).contains("offcut"),
+				"The recovered copper remnant has a distinct world visual and visible pickup offer.")
 		menu._open()
 		host.state.dropped_material = [{"center": [2, 0, 4], "raw": 1, "products": 0, "work_lots": []}]
 		var count := host.calls.size()
@@ -1918,14 +1923,14 @@ func _loose_material() -> void:
 	host.state.dropped_material = [{"center": [2, 0, 4], "raw": 3, "products": 0, "work_lots": []}]
 	host.state.revision = 1
 	host.state.order = 1
-	session._apply_frame({"context": "helper-fixture", "serial": 1, "snapshot": host.state})
+	session._apply_frame({"context": "helper-fixture", "serial": 1, "snapshot": host.state}, true)
 	verify(session.projection().dropped_material == host.state.dropped_material,
 		"The read-only Session frame retains the server's loose-material projection.")
 	var mixed := {"center": [2, 0, 4], "raw": 1, "products": 1, "work_lots": [{"id": 7, "recipe_input": 1, "cycle_ticks": 2, "remaining": 1, "completed_subticks": 123, "work_remainder": 1, "work_remainder_denominator": 3}]}
 	host.state.dropped_material = [mixed]
 	host.state.revision = 2
 	host.state.order = 2
-	session._apply_frame({"context": "helper-fixture", "serial": 2, "snapshot": host.state})
+	session._apply_frame({"context": "helper-fixture", "serial": 2, "snapshot": host.state}, true)
 	var remote := HostStub.new()
 	remote.state = session.projection()
 	var remote_menu := LooseControls.new()
@@ -1939,7 +1944,7 @@ func _loose_material() -> void:
 	host.state.dropped_material = []
 	host.state.revision = 3
 	host.state.order = 3
-	session._apply_frame({"context": "helper-fixture", "serial": 3, "snapshot": host.state})
+	session._apply_frame({"context": "helper-fixture", "serial": 3, "snapshot": host.state}, true)
 	verify(session.projection().dropped_material.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
 	session.free()
 

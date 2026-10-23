@@ -710,7 +710,7 @@ const char* kind(Role role) {
     return "invalid";
 }
 
-Value cargo_value(const materials::Cargo& cargo, bool resources = false) {
+Value cargo_value(const materials::Cargo& cargo, bool resources = false, bool copper = false) {
     Array lots;
     for (const auto& lot : cargo.work_lots) lots.emplace_back(Object{
         {"id", Value(lot.id)}, {"recipe_input", Value(lot.recipe.input_units_per_product)},
@@ -726,7 +726,53 @@ Value cargo_value(const materials::Cargo& cargo, bool resources = false) {
             components.emplace(materials::component_name(kind), Value(count));
         output.emplace("components", Value(std::move(components)));
     }
+    if (copper) {
+        output.emplace("offcuts", Value(cargo.offcuts));
+        output.emplace("sheets", Value(cargo.sheets));
+    }
     return Value(std::move(output));
+}
+
+bool copper_forms(const materials::Config& config) {
+    return config.raw_mass != 1 || config.plate_mass != 0 || config.sheet_mass != 0;
+}
+
+Value material_mass_value(const materials::State& state, const materials::Config& config) {
+    Integer stock_chunks = state.stock.source + state.stock.collector +
+        state.stock.belt + state.stock.input;
+    Integer work_chunks = state.processing ? state.processing->recipe.input_units_per_product : 0;
+    Integer plates = state.stock.output + state.shipped_products;
+    Integer offcuts = state.stock.offcuts;
+    Integer sheets = 0;
+    Integer embodied_chunks = state.fabricated_raw;
+    const auto count_cargo = [&](const materials::Cargo& cargo) {
+        stock_chunks += cargo.raw_units;
+        plates += cargo.products;
+        offcuts += cargo.offcuts;
+        sheets += cargo.sheets;
+        for (const auto& lot : cargo.work_lots)
+            work_chunks += lot.recipe.input_units_per_product;
+        for (const auto& [kind, count] : cargo.components)
+            embodied_chunks += materials::component_cost(kind)->ore * count;
+    };
+    for (const auto& [actor, cargo] : state.cargo) { (void)actor; count_cargo(cargo); }
+    for (const auto& [point, cargo] : state.dropped_material) { (void)point; count_cargo(cargo); }
+    for (const auto& [id, lane] : state.belt_lanes) {
+        (void)id;
+        for (const auto& slot : lane.slots) if (slot) count_cargo(*slot);
+    }
+    for (const auto& [kind, count] : state.placed_components)
+        embodied_chunks += materials::component_cost(kind)->ore * count;
+    const Integer plate_mass = config.plate_mass == 0 ?
+        config.input_units_per_product * config.raw_mass : config.plate_mass;
+    const Integer accounted = (stock_chunks + work_chunks + embodied_chunks) * config.raw_mass +
+        plates * plate_mass + offcuts + sheets * config.sheet_mass;
+    return Value(Object{{"stock_chunks", Value(stock_chunks)},
+        {"work_chunks", Value(work_chunks)}, {"plates", Value(plates)},
+        {"offcut_units", Value(offcuts)}, {"sheets", Value(sheets)},
+        {"embodied_chunks", Value(embodied_chunks)},
+        {"accounted_mass", Value(accounted)},
+        {"initial_mass", Value(state.initial_units * config.raw_mass)}});
 }
 
 Value kit_value(const stationary::Kit& kit) {
@@ -797,6 +843,9 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     if (arrival) {
         profile.landing_pod_center = mechanics::Point{4, 0, 16};
         profile.material.manual_ore = materials::OreSite{"opening-softmetal", {-3, 0, 0}};
+        profile.material.raw_mass = 4;
+        profile.material.plate_mass = 3;
+        profile.material.sheet_mass = 12;
         for (const auto& cell : mineral_site::opening_cells)
             for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
                 profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
@@ -2157,9 +2206,10 @@ Value Host::advance_tick_fields() {
 
 Object Host::tick_fields(const world::Snapshot& snapshot) const {
     const auto& state = snapshot.state;
+    const bool copper = copper_forms(profile_.material);
     Array dropped_material;
     for (const auto& [point, contents] : state.material.dropped_material) {
-        auto drop = std::get<Object>(cargo_value(contents).storage());
+        auto drop = std::get<Object>(cargo_value(contents, false, copper).storage());
         drop.emplace("center", Value(Array{Value(point[0]), Value(point[1]), Value(point[2])}));
         dropped_material.emplace_back(std::move(drop));
     }
@@ -2172,7 +2222,7 @@ Object Host::tick_fields(const world::Snapshot& snapshot) const {
         const auto& lane = state.material.belt_lanes.at(span.geometry.id);
         Array slots;
         for (const auto& item : lane.slots) {
-            slots.push_back(item ? cargo_value(*item) : Value(nullptr));
+            slots.push_back(item ? cargo_value(*item, false, copper) : Value(nullptr));
             if (!item) continue;
             belt_raw_units += item->raw_units;
             for (const auto& lot : item->work_lots) belt_raw_units += lot.recipe.input_units_per_product;
@@ -2187,14 +2237,17 @@ Object Host::tick_fields(const world::Snapshot& snapshot) const {
         player += contents.products;
     }
     const auto& stock = state.material.stock;
+    Object stock_fields{{"source", Value(stock.source)}, {"collector", Value(stock.collector)},
+        {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
+        {"held", Value(state.material.processing ? state.material.processing->recipe.input_units_per_product : 0)},
+        {"output", Value(stock.output)}, {"player", Value(player)}};
+    if (copper) stock_fields.emplace("offcuts", Value(stock.offcuts));
     Object fields{{"revision", Value(snapshot.revision)},
         {"belt_spans", Value(std::move(belt_spans))}, {"line_belt_raw", Value(belt_raw_units)},
         {"dropped_material", Value(std::move(dropped_material))},
-        {"stock", Value(Object{{"source", Value(stock.source)}, {"collector", Value(stock.collector)},
-            {"belt", Value(stock.belt)}, {"input", Value(stock.input)},
-            {"held", Value(state.material.processing ? state.material.processing->recipe.input_units_per_product : 0)},
-            {"output", Value(stock.output)}, {"player", Value(player)}})},
+        {"stock", Value(std::move(stock_fields))},
         {"remaining", Value(state.material.processing ? state.material.processing->remaining_ticks : 0)}};
+    if (copper) fields.emplace("material_mass", material_mass_value(state.material, profile_.material));
     if (profile_.material.manual_ore) {
         const auto site_position = [this](const materials::DropPoint& center) {
             return Value(Array{
@@ -2302,7 +2355,8 @@ Value Host::projection() const {
     for (const auto& [actor, contents] : state.material.cargo) {
         inventories.emplace(actor, Value(contents.products));
         cargo.emplace(actor, cargo_value(contents,
-            profile_.material.manual_ore.has_value() || !profile_.material.timber_sites.empty()));
+            profile_.material.manual_ore.has_value() || !profile_.material.timber_sites.empty(),
+            copper_forms(profile_.material)));
     }
     for (const auto& [actor, kit] : state.kits) {
         auto projected_kit = std::get<Object>(kit_value(kit).storage());
@@ -2348,7 +2402,8 @@ Value Host::projection() const {
         {"part_specifications", Value(std::move(specifications))},
         {"parts", Value(std::move(player_parts))}, {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(foundations))},
-        {"source_deposit", Value(Object{{"id", Value("opening-softmetal")},
+        {"source_deposit", Value(Object{{"id", Value(profile_.material.manual_ore ?
+            profile_.material.manual_ore->id : std::string{})},
             {"cells", Value(std::move(mineral_cells))}, {"initial_units", Value(profile_.initial_units)},
             {"collector_capacity", Value(profile_.material.collector_capacity)},
             {"maximum_depth", Value(mineral_site::extraction_depth_steps * height_step)}})},

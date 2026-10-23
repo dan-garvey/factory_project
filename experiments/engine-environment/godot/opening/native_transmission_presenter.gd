@@ -1704,7 +1704,7 @@ func refresh() -> void:
 	var drops: Variant = snapshot.get("dropped_material", [])
 	if drops is Array:
 		for drop: Variant in drops:
-			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty()):
+			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty() and int(drop.get("offcuts", 0)) == 0 and int(drop.get("sheets", 0)) == 0):
 				continue
 			var location := world_center(drop.center)
 			var visual: Node3D
@@ -1713,10 +1713,17 @@ func refresh() -> void:
 				visual.position = location
 			elif drop.products > 0:
 				visual = Items.stamped_plate(self, location)
+			elif int(drop.get("offcuts", 0)) > 0:
+				visual = Items.copper_offcuts(self, location)
+			elif int(drop.get("sheets", 0)) > 0:
+				visual = _cylinder(self, "CopperSheet", 0.17, 0.018, Color("d39768"))
+				visual.position = location
 			else:
 				visual = Items.workpiece_billet(self, location)
 			var label := Label3D.new()
 			label.text = "%d blank(s), %d plate(s), %d workpiece(s) · pick up in menu" % [drop.raw, drop.products, drop.work_lots.size()]
+			if drop.has("offcuts"):
+				label.text = "%d blank(s), %d plate(s), %d workpiece(s), %d offcut(s), %d sheet(s) · pick up in menu" % [drop.raw, drop.products, drop.work_lots.size(), drop.offcuts, drop.sheets]
 			label.position.y = 0.3
 			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 			visual.add_child(label)

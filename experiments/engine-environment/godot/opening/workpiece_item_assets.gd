@@ -396,6 +396,28 @@ static func stamped_plate(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
 	return assembly
 
 
+static func copper_offcuts(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
+	var assembly := Node3D.new()
+	assembly.name = "CopperOffcuts"
+	assembly.position = at
+	assembly.set_meta("item_kind", "copper_offcuts")
+	parent.add_child(assembly)
+	# Narrow L-shaped trimmings read as press waste rather than another plate.
+	# The three pieces sit slightly apart so the exposed cut edges catch light.
+	for index in 3:
+		var piece := Node3D.new()
+		piece.name = "Trimming%d" % index
+		piece.position = Vector3(-0.09 + float(index) * 0.085, 0.003 + float(index) * 0.007,
+			-0.045 + float(index % 2) * 0.08)
+		piece.rotation.y = float(index - 1) * 0.32
+		assembly.add_child(piece)
+		_part(piece, "CopperStrip", Visuals.box_mesh(Vector3(0.12, 0.014, 0.026)),
+			Vector3(0.035, 0.0, 0.0), Color("bc7650"), 0.87, 0.32)
+		_part(piece, "CutTab", Visuals.box_mesh(Vector3(0.028, 0.014, 0.075)),
+			Vector3(-0.01, 0.0, 0.025), Color("d49168"), 0.85, 0.36)
+	return assembly
+
+
 static func _material_rotated(state: Dictionary, entity_id: Variant, entity: Dictionary) -> bool:
 	if not state.get("options", {}).get("native", false):
 		return false

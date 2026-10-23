@@ -107,7 +107,7 @@ void pickup_product(Host& host, I x, I y, I z, const char* request_id) {
     auto wire = request(request_id, "pickup_material");
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
     wire.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
-        {"work_lots", V(A{})}}));
+        {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
     accepted(host, wire);
 }
 
@@ -115,8 +115,23 @@ void recover_blank(Host& host, I x, I y, I z, const char* request_id) {
     auto wire = request(request_id, "pickup_material");
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
     wire.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
-        {"work_lots", V(A{})}}));
+        {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
     accepted(host, wire);
+}
+
+void pickup_offcut(Host& host, I x, I y, I z, const char* request_id) {
+    auto wire = request(request_id, "pickup_material");
+    wire.emplace("center", V(A{V(x), V(y), V(z)}));
+    wire.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(A{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
+    accepted(host, wire);
+}
+
+void conserved_copper(const Host& host) {
+    const auto mass = get<O>(host.projection(), "material_mass");
+    check(get<I>(V(mass), "accounted_mass") == 64 &&
+          get<I>(V(mass), "initial_mass") == 64,
+          "Every projected arrival holder accounts for the finite copper reserve.");
 }
 
 void placed_press_projection() {
@@ -125,6 +140,7 @@ void placed_press_projection() {
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<A>(host.projection(), "press_assemblies").empty(),
           "A fresh arrival has no gifted press assembly.");
+    conserved_copper(host);
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
           "The actor approaches the finite timber site outside the pod deck.");
     for (int index = 0; index < 8; ++index) {
@@ -267,7 +283,8 @@ void placed_press_projection() {
     auto recover_work = request("recover-partial-work", "pickup_material");
     recover_work.emplace("center", held_drop.at("center"));
     recover_work.emplace("expected", V(O{{"raw", held_drop.at("raw")},
-        {"products", held_drop.at("products")}, {"work_lots", held_drop.at("work_lots")}}));
+        {"products", held_drop.at("products")}, {"work_lots", held_drop.at("work_lots")},
+        {"offcuts", held_drop.at("offcuts")}, {"sheets", held_drop.at("sheets")}}));
     accepted(resumed_work, recover_work);
     auto hand_refeed = request("hand-refeed-partial", "refeed_press_work");
     hand_refeed.emplace("entity", V(frame));
@@ -320,11 +337,24 @@ void placed_press_projection() {
           "Fresh Host recovery preserves the finished plate in P's cargo.");
     accepted(host, turn("advance-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
     accepted(host, turn("finish-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
-    check(get<A>(host.projection(), "dropped_material").size() == 1,
-          "The alternate drive makes one real product at its chosen lower exit.");
+    const auto finished_drops = get<A>(host.projection(), "dropped_material");
+    check(finished_drops.size() == 2 &&
+          std::any_of(finished_drops.begin(), finished_drops.end(), [](const V& drop) {
+              return get<I>(drop, "products") == 1;
+          }) &&
+          std::any_of(finished_drops.begin(), finished_drops.end(), [](const V& drop) {
+              return get<I>(drop, "offcuts") == 1;
+          }),
+          "One plate exits while its one-unit copper offcut remains at the work point.");
+    conserved_copper(host);
     pickup_product(host, 7, 1, 0, "pickup-mirrored-product");
+    pickup_offcut(host, 8, 1, 0, "pickup-mirrored-offcut");
     check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 1,
           "The formed product enters the same actor cargo ledger after pickup.");
+    check(get<I>(get<O>(host.projection(), "cargo").at("P"), "offcuts") == 1 &&
+          get<A>(host.projection(), "dropped_material").empty(),
+          "The distinct offcut is recoverable into actor custody without moving the plate again.");
+    conserved_copper(host);
     const auto saved = host.checkpoint();
     auto hub_obstruction = factory::godot_world::tests::flat_site();
     hub_obstruction.at("obstacles") = V(A{V(A{
@@ -535,6 +565,7 @@ void placed_press_projection() {
     }
     check(get<bool>(repeat_restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 106), "accepted"),
           "The worker reaches the same reconfigurable raised press.");
+    pickup_offcut(repeat_restored, 8, 5, 0, "repeat-recover-prior-offcut");
     for (int index = 0; index < 2; ++index) {
         const auto suffix = std::to_string(index);
         accepted(repeat_restored, feed("repeat-feed-" + suffix, raised_frame, 9, 5, 0));
@@ -542,7 +573,9 @@ void placed_press_projection() {
         accepted(repeat_restored, turn("repeat-advance-" + suffix, raised_frame, raised_shaft, 7, 5, 0));
         accepted(repeat_restored, turn("repeat-finish-" + suffix, raised_frame, raised_shaft, 7, 5, 0));
         pickup_product(repeat_restored, 7, 5, 0, ("repeat-pickup-" + suffix).c_str());
+        pickup_offcut(repeat_restored, 8, 5, 0, ("repeat-offcut-" + suffix).c_str());
     }
+    conserved_copper(repeat_restored);
     check(get<I>(get<O>(repeat_restored.projection(), "cargo").at("P"), "products") == 2 &&
           get<I>(V(get<O>(repeat_restored.projection(), "freight_beacon")), "repeat_order_shipped") == 1,
           "Two further products are formed from actual local ore without changing the order receipt.");

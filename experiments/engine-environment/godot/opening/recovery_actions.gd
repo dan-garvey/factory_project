@@ -280,12 +280,15 @@ class LooseMaterialControls:
 		_world = context.world
 		_actor = context.actor
 		for drop: Variant in context.drops:
-			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty()):
+			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty() and int(drop.get("offcuts", 0)) == 0 and int(drop.get("sheets", 0)) == 0):
 				continue
 			var point: Array = drop.center
 			if typeof(point[0]) != TYPE_INT or typeof(point[1]) != TYPE_INT or typeof(point[2]) != TYPE_INT:
 				continue
-			get_popup().add_item("%d blank(s), %d plate(s), %d workpiece(s) at %s" % [drop.raw, drop.products, drop.work_lots.size(), str(point)], _offers.size())
+			var label := "%d blank(s), %d plate(s), %d workpiece(s)" % [drop.raw, drop.products, drop.work_lots.size()]
+			if drop.has("offcuts"):
+				label += ", %d offcut(s), %d sheet(s)" % [drop.offcuts, drop.sheets]
+			get_popup().add_item("%s at %s" % [label, str(point)], _offers.size())
 			_offers.append(drop.duplicate(true))
 
 	func _choose(id: int) -> void:
@@ -674,7 +677,8 @@ class ArrivalAssemblyControls:
 				else "Feed one carried ore blank." if int(cargo.get("raw", 0)) > 0 \
 				else "Cut ore with the multitool or build a collector."
 			if not work.is_empty():
-				advice = "Exit holds a plate; pick it up, then turn again." if int(exit_drop.get("products", 0)) > 0 \
+				advice = "Pick up the copper offcut beneath the ram before feeding again." if int(work.get("offcuts", 0)) > 0 \
+					else "Exit holds a plate; pick it up, then turn again." if int(exit_drop.get("products", 0)) > 0 \
 					else "Turn the crank to advance retained work."
 			press_status.text = "Press ready · %d clear feed routes. %s" % [routes.size(), advice]
 		else:
@@ -683,7 +687,7 @@ class ArrivalAssemblyControls:
 		route_choice.visible = not routes.is_empty()
 		var can_operate := ready and status == "ready" and not routes.is_empty()
 		feed_button.visible = not _frame.is_empty()
-		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1
+		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1 or not _work_drop().is_empty()
 		held_work_choice.visible = not _frame.is_empty() and not _held_work_ids.is_empty()
 		refeed_work_button.visible = held_work_choice.visible
 		refeed_work_button.disabled = not can_operate or not _work_drop().is_empty()
@@ -693,6 +697,7 @@ class ArrivalAssemblyControls:
 		pickup_button.disabled = not ready or _exit_drop().is_empty()
 		recover_work_button.visible = not _frame.is_empty()
 		recover_work_button.disabled = not ready or _work_drop().is_empty()
+		recover_work_button.text = "Pick up copper offcut  U" if int(_work_drop().get("offcuts", 0)) > 0 else "Recover held work  U"
 		if changed_target:
 			open_context()
 
@@ -898,9 +903,10 @@ class ArrivalAssemblyControls:
 	func _pickup_at(drop: Dictionary) -> void:
 		var host = _host_view()
 		if host != null and not drop.is_empty():
+			var expected := drop.duplicate(true)
+			expected.erase("center")
 			host.issue({"action": "pickup_material", "center": drop.center,
-				"expected": {"raw": drop.raw, "products": drop.products,
-					"work_lots": drop.work_lots}})
+				"expected": expected})
 
 	func _pickup_exit() -> void:
 		_pickup_at(_exit_drop())
