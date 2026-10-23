@@ -1058,7 +1058,8 @@ func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
 		fitting.free()
 
 func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
-		occupied_size: Vector3, press_role: String, collector_angle: float) -> void:
+		occupied_size: Vector3, press_role: String, collector_angle: float,
+		collector_support_drop: float) -> void:
 	var timber: Material = WheelArt.support_timber_finish()
 	if timber == null:
 		timber = Visuals.material(Color("76604a"), 0.12, 0.78)
@@ -1092,6 +1093,9 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				_support_box(anchor, "PressCrownBearing", Vector3(0, -0.07, 0),
 					Vector3(0.20, 0.10, 0.20), worked)
 			else:
+				if collector_support_drop > 0.0:
+					_collector_tool_support(anchor, "Mount", collector_angle,
+						collector_support_drop, -0.13, 0.21, dark, worked)
 				_cast_mount_foot(anchor, "SlidingFoot", Vector3(0, -0.11, 0),
 					Vector3(0.37, 0.06, 0.33), dark, worked)
 				var clamp := ClampBody.instantiate() as Node3D
@@ -1152,6 +1156,9 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				placed_tooth.position = Vector3(sin(angle), 0, cos(angle)) * 0.113
 				placed_tooth.rotation.y = angle
 		"cutting_edge":
+			if collector_support_drop > 0.0:
+				_collector_tool_support(anchor, "Edge", collector_angle,
+					collector_support_drop, -0.10, 0.2025, dark, worked)
 			_cast_mount_foot(anchor, "BladeCarrier", Vector3(0, -0.07, 0),
 				Vector3(0.40, 0.07, 0.32), dark, worked)
 			var blade := MeshInstance3D.new()
@@ -1225,10 +1232,53 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		_:
 			_support_box(anchor, "UnfittedPart", Vector3.ZERO, Vector3(0.24, 0.20, 0.24), dark)
 
+func _collector_tool_support(anchor: Node3D, label: String, angle: float,
+		drop: float, top: float, rear_face: float, cast: Material,
+		worked: Material) -> void:
+	# This visible load path is allowed only when the trusted native occupied
+	# volume reaches the frame floor. Each placed part owns its own two posts;
+	# removing a neighbour cannot leave a decorative bridge in empty space.
+	var facing := Basis(Vector3.UP, angle)
+	var height := drop + top
+	if height <= 0.0:
+		return
+	for side in [-1.0, 1.0]:
+		var suffix := "Left" if side < 0.0 else "Right"
+		_support_box(anchor, label + "SupportPost" + suffix,
+			facing * Vector3(0.12, (-drop + top) * 0.5, side * 0.11),
+			Vector3(0.045, height, 0.045), cast, true)
+		(anchor.get_node(label + "SupportPost" + suffix) as MeshInstance3D).rotation.y = angle
+		_support_box(anchor, label + "GroundShoe" + suffix,
+			facing * Vector3(0.12, -drop + 0.018, side * 0.11),
+			Vector3(0.075, 0.036, 0.075), worked, true)
+		(anchor.get_node(label + "GroundShoe" + suffix) as MeshInstance3D).rotation.y = angle
+		_support_beam(anchor, label + "KneeBrace" + suffix,
+			facing * Vector3(0.12, -drop + 0.14, side * 0.11),
+			facing * Vector3(-0.12, top - 0.02, side * 0.11),
+			0.025, worked, true)
+		if label == "Mount":
+			# The two rails carry the independent edge's rear dock without
+			# closing the open material path between the cutter and receiver.
+			_support_box(anchor, "MountForwardRail" + suffix,
+				facing * Vector3(-0.025, -0.24, side * 0.11),
+				Vector3(0.37, 0.045, 0.045), worked, true)
+			(anchor.get_node("MountForwardRail" + suffix) as MeshInstance3D).rotation.y = angle
+	if label == "Mount":
+		# The frame's open timber bed ends at the same floor-relative height
+		# in both admitted collector layouts. This tie reaches its near face.
+		_support_box(anchor, "MountFrameTie",
+			facing * Vector3(0.185, 0.835 - drop, 0),
+			Vector3(0.05, 0.05, 0.27), worked, true)
+		(anchor.get_node("MountFrameTie") as MeshInstance3D).rotation.y = angle
+	_support_box(anchor, label + "RearDock", facing * Vector3(rear_face - 0.0225,
+		top - 0.025, 0), Vector3(0.045, 0.05, 0.27), worked, true)
+	(anchor.get_node(label + "RearDock") as MeshInstance3D).rotation.y = angle
+
 func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var drives: Dictionary = {}
 	var press_roles: Dictionary = {}
 	var collector_facings: Dictionary = {}
+	var collector_floors: Dictionary = {}
 	var by_cell: Dictionary = {}
 	var placed: Variant = snapshot.get("placed_components", {})
 	if placed is Dictionary:
@@ -1264,6 +1314,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 							var expected := "tool_mount" if step == 1 else "cutting_edge"
 							if boxes.has(id) and boxes[id].component == expected:
 								collector_facings[id] = angle
+								collector_floors[id] = float(origin.y) * UNIT
 			if assembly.get("status") != "ready" or not assembly.get("parts") is Dictionary:
 				continue
 			var frame_id: Variant = assembly.parts.get("frame")
@@ -1320,11 +1371,29 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		var anchor := Node3D.new()
 		anchor.name = "PlacedComponent"
 		anchor.position = spec.center
+		var support_drop := 0.0
+		if collector_floors.has(id) and spec.component in ["tool_mount", "cutting_edge"] \
+				and press_roles.get(id, "") != "mount":
+			var cell: Array = placed[id].center
+			var head_y := float(cell[1]) * UNIT + Geometry.ANCHOR_HEIGHT \
+				+ (0.10 if spec.component == "tool_mount" else -0.015)
+			var floor_y: float = collector_floors[id]
+			var face_span: float = spec.size.x if absf(cos(float(collector_facings[id]))) > 0.5 else spec.size.z
+			var needed_span := 0.42 if spec.component == "tool_mount" else 0.405
+			var head_top := head_y + (0.18 if spec.component == "tool_mount" else 0.12)
+			if absf(spec.center.y - spec.size.y * 0.5 - floor_y) < 0.001 \
+					and spec.center.y + spec.size.y * 0.5 + 0.001 >= head_top \
+					and face_span + 0.001 >= needed_span \
+					and absf(spec.center.x - float(cell[0]) * UNIT) < 0.001 \
+					and absf(spec.center.z - float(cell[2]) * UNIT) < 0.001:
+				anchor.position.y = head_y
+				support_drop = head_y - floor_y
 		anchor.set_meta("component_entity", id)
 		anchor.set_meta("component_kind", spec.component)
 		add_child(anchor)
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
-			spec.size, press_roles.get(id, ""), float(collector_facings.get(id, 0.0)))
+			spec.size, press_roles.get(id, ""), float(collector_facings.get(id, 0.0)),
+			support_drop)
 
 func _render_receiver_chutes(snapshot: Dictionary) -> void:
 	# A chute joins only a native ready receiver to a native belt endpoint at

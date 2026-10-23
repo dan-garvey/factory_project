@@ -481,6 +481,127 @@ func _component_view() -> void:
 		if node.get_meta("component_entity", "") == "edge":
 			verify((node.get_node("FormedBlade") as MeshInstance3D).basis.x.x > 0.99,
 				"An unknown assembly status cannot supply a speculative tool orientation.")
+	var supported: Dictionary = _component_fixture()
+	# A larger native occupied descriptor is a new placement generation; the
+	# actor bridge deliberately keeps a placed generation's collision immutable.
+	supported.placed_components.mount.generation = 2
+	supported.placed_components.edge.generation = 2
+	supported.placed_components.mount.center = [0, 1, 1]
+	supported.placed_components.mount.occupied.center = [0.0, 0.75875, 0.4125]
+	supported.placed_components.mount.occupied.half = [0.20, 0.75875, 0.21]
+	supported.placed_components.edge.center = [0, 1, 2]
+	supported.placed_components.edge.occupied.center = [0.0, 0.67125, 0.825]
+	supported.placed_components.edge.occupied.half = [0.21, 0.67125, 0.2025]
+	supported.placed_components.tray.center = [1, 0, 0]
+	supported.placed_components.tray.occupied.center = [0.4125, 0.7425, 0.0]
+	supported.placed_components.shaft.center = [-1, 0, 0]
+	supported.placed_components.shaft.occupied.center = [-0.4125, 0.825, 0.0]
+	supported.collector_assemblies[0].toward_ore = [0, 0, 1]
+	facts.state = supported
+	host.state = supported
+	physical.sync_topology()
+	view.refresh()
+	var supported_boxes: Dictionary = Geometry.component_boxes(supported).boxes
+	var supported_anchors: Dictionary = {}
+	for node: Node in view.get_children():
+		var id: Variant = node.get_meta("component_entity", "")
+		if id in ["frame", "mount", "edge"]:
+			supported_anchors[id] = node
+		if id not in ["mount", "edge"]:
+			continue
+		var label := "Mount" if id == "mount" else "Edge"
+		var shoe := node.get_node(label + "GroundShoeLeft") as MeshInstance3D
+		var shoe_bounds: AABB = shoe.global_transform * shoe.mesh.get_aabb()
+		verify(absf(shoe_bounds.position.y) < 0.001,
+			"A confirmed supported %s part meets the assembly floor." % id)
+		var dock := node.get_node(label + "RearDock") as MeshInstance3D
+		var dock_bounds: AABB = dock.global_transform * dock.mesh.get_aabb()
+		var neighbour_face := 0.2025 if id == "mount" else 0.6225
+		verify(absf(dock_bounds.position.z - neighbour_face) < 0.001,
+			"The %s part touches only its native neighbour face." % id)
+		var spec: Dictionary = supported_boxes[id]
+		var body: StaticBody3D = physical.component_bodies[id]
+		verify(body.position == spec.center and (body.get_child(0) as CollisionShape3D).shape.size == spec.size,
+			"The extended %s actor collider uses its exact native occupied box." % id)
+		for found: Node in node.find_children("*", "MeshInstance3D", true, false):
+			var piece := found as MeshInstance3D
+			var detail: AABB = piece.global_transform * piece.mesh.get_aabb()
+			verify(AABB(spec.center - spec.size * 0.5, spec.size).grow(0.0002).encloses(detail),
+				"The supported %s/%s mesh stays inside the native occupied box." % [id, piece.name])
+	var rail := supported_anchors.mount.get_node("MountForwardRailLeft") as MeshInstance3D
+	var edge_dock := supported_anchors.edge.get_node("EdgeRearDock") as MeshInstance3D
+	var rail_bounds: AABB = rail.global_transform * rail.mesh.get_aabb()
+	var edge_dock_bounds: AABB = edge_dock.global_transform * edge_dock.mesh.get_aabb()
+	verify(absf(rail_bounds.end.z - edge_dock_bounds.position.z) < 0.001
+		and rail_bounds.position.y < edge_dock_bounds.end.y
+		and edge_dock_bounds.position.y < rail_bounds.end.y,
+		"The framed mount rails physically meet the independently placed edge dock.")
+	var frame_tie := supported_anchors.mount.get_node("MountFrameTie") as MeshInstance3D
+	var frame_bed := supported_anchors.frame.get_node("OpenWorkBed") as MeshInstance3D
+	var tie_bounds: AABB = frame_tie.global_transform * frame_tie.mesh.get_aabb()
+	var bed_bounds: AABB = frame_bed.global_transform * frame_bed.mesh.get_aabb()
+	verify(absf(tie_bounds.position.z - bed_bounds.end.z) < 0.001
+		and tie_bounds.position.y < bed_bounds.end.y and bed_bounds.position.y < tie_bounds.end.y,
+		"The raised mount ties to the independent frame's actual open bed.")
+	supported.placed_components.erase("frame")
+	supported.collector_assemblies[0].status = "missing_frame"
+	facts.state = supported
+	host.state = supported
+	physical.sync_topology()
+	view.refresh()
+	var retained_supports := 0
+	for node: Node in view.get_children():
+		var id: Variant = node.get_meta("component_entity", "")
+		if id == "mount" and node.has_node("MountSupportPostLeft"):
+			retained_supports += 1
+		if id == "edge" and node.has_node("EdgeSupportPostLeft"):
+			retained_supports += 1
+	verify(retained_supports == 2 and not physical.component_bodies.has("frame"),
+		"Removing the frame removes its body while independently placed supports remain grounded.")
+	supported.placed_components.mount.occupied.center = [0.0, 1.3375, 0.4125]
+	supported.placed_components.mount.occupied.half = [0.20, 0.18, 0.19]
+	supported.placed_components.mount.generation = 3
+	facts.state = supported
+	host.state = supported
+	physical.sync_topology()
+	view.refresh()
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "mount":
+			verify(node.find_children("MountSupportPost*", "MeshInstance3D", true, false).is_empty(),
+				"A short native occupied box cannot gain decorative load-bearing legs.")
+	var west_supported: Dictionary = _component_fixture()
+	west_supported.placed_components.mount.occupied.center = [-0.4125, 0.5525, 0.0]
+	west_supported.placed_components.mount.occupied.half = [0.21, 0.5525, 0.19]
+	west_supported.placed_components.edge.occupied.center = [-0.825, 0.465, 0.0]
+	west_supported.placed_components.edge.occupied.half = [0.2025, 0.465, 0.18]
+	facts.state = west_supported
+	host.state = west_supported
+	physical.sync_topology()
+	view.refresh()
+	var west_boxes: Dictionary = Geometry.component_boxes(west_supported).boxes
+	var west_anchors: Dictionary = {}
+	for node: Node in view.get_children():
+		var id: Variant = node.get_meta("component_entity", "")
+		if id not in ["mount", "edge"]:
+			continue
+		west_anchors[id] = node
+		var label := "Mount" if id == "mount" else "Edge"
+		var shoe := node.get_node(label + "GroundShoeLeft") as MeshInstance3D
+		var shoe_bounds: AABB = shoe.global_transform * shoe.mesh.get_aabb()
+		verify(absf(shoe_bounds.position.y) < 0.001,
+			"The lower west-facing %s part also stands on the assembly floor." % id)
+		var spec: Dictionary = west_boxes[id]
+		for found: Node in node.find_children("*", "MeshInstance3D", true, false):
+			var piece := found as MeshInstance3D
+			var detail: AABB = piece.global_transform * piece.mesh.get_aabb()
+			verify(AABB(spec.center - spec.size * 0.5, spec.size).grow(0.0002).encloses(detail),
+				"The west-facing %s/%s stays inside its native occupied box." % [id, piece.name])
+	var west_rail := west_anchors.mount.get_node("MountForwardRailLeft") as MeshInstance3D
+	var west_dock := west_anchors.edge.get_node("EdgeRearDock") as MeshInstance3D
+	var west_rail_bounds: AABB = west_rail.global_transform * west_rail.mesh.get_aabb()
+	var west_dock_bounds: AABB = west_dock.global_transform * west_dock.mesh.get_aabb()
+	verify(absf(west_rail_bounds.position.x - west_dock_bounds.end.x) < 0.001,
+		"The lower west-facing independent tool parts meet at their admitted faces.")
 	view.free()
 	physical.free()
 	await process_frame
