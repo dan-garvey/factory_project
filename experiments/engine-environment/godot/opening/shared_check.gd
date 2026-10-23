@@ -4,7 +4,7 @@ extends SceneTree
 const KEYS := {"1": KEY_1, "2": KEY_2, "3": KEY_3, "4": KEY_4,
 	"5": KEY_5, "6": KEY_6, "7": KEY_7, "8": KEY_8, "B": KEY_B,
 	"W": KEY_W, "A": KEY_A, "S": KEY_S, "D": KEY_D, "P": KEY_P,
-	"F": KEY_F, "G": KEY_G, "I": KEY_I, "R": KEY_R, "H": KEY_H,
+	"F": KEY_F, "G": KEY_G, "R": KEY_R, "H": KEY_H,
 	"SPACE": KEY_SPACE, "F5": KEY_F5, "F9": KEY_F9, "ESCAPE": KEY_ESCAPE,
 	"RIGHT": KEY_RIGHT, "LEFT": KEY_LEFT, "HOME": KEY_HOME}
 const BUTTONS := ["confirm_button", "retrieve_button", "remove_button",

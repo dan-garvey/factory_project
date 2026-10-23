@@ -268,24 +268,34 @@ func _geometry(ids: Dictionary, running: bool) -> bool:
 		"The train retains the original sixteen raw units without a product or throughput claim")
 
 func _inspect(id: String, center: Array) -> bool:
-	_key(KEY_I)
+	_key(KEY_ESCAPE)
 	await physics_frame
 	_click(center)
 	await process_frame
+	_key(KEY_E)
 	await process_frame
 	if not facts.has("inspections"):
 		facts["inspections"] = []
-	var worksite: Rect2 = opening.remove_button.get_parent().get_parent().get_global_rect()
+	var worksite: Rect2 = opening.object_menu.get_global_rect()
 	var footer: Rect2 = opening.status_label.get_parent().get_parent().get_global_rect()
+	var selected_object: String = opening.selected
+	var inspection_text: String = opening.inspector.text
+	var removal_ready: bool = not opening.remove_button.disabled
+	var menu_open: bool = opening.object_menu.visible
 	facts.inspections.append({"target": id, "selected": opening.selected, "text": opening.inspector.text,
 		"remove_disabled": opening.remove_button.disabled, "request_sequence": session.request_sequence,
 		"snapshot": session.projection(), "viewport": [root.size.x, root.size.y],
 		"worksite": [worksite.position.x, worksite.position.y, worksite.size.x, worksite.size.y],
 		"footer": [footer.position.x, footer.position.y, footer.size.x, footer.size.y]})
-	return _expect(opening.selected == id and "Cogwheel" in opening.inspector.text and not opening.remove_button.disabled,
-		"Ordinary inspection must select the confirmed cog through its actual pick body") and _expect(
-		worksite.end.y <= footer.position.y and worksite.end.x <= root.size.x - 18,
-		"The actual selected shared cog inspector must fit above its connection footer")
+	_key(KEY_ESCAPE)
+	await process_frame
+	return _expect(menu_open and selected_object == id and "Cogwheel" in inspection_text and removal_ready
+		and opening.selected.is_empty(),
+		"E must open the confirmed cog details through its actual pick body, then Escape must clear them") and _expect(
+		absf(worksite.get_center().x - root.size.x / 2.0) < 30.0
+		and absf(worksite.get_center().y - root.size.y / 2.0) < 30.0
+		and worksite.size.x >= 480.0 and worksite.end.x <= root.size.x,
+		"The selected shared cog details must fit in a centered object panel")
 
 func _initial() -> bool:
 	var observed: Dictionary = session.projection()

@@ -100,7 +100,7 @@ func _run() -> void:
 	var still: Dictionary = scene.model.projection()
 	_check(still.stock == paused.stock and still.remaining == paused.remaining, "Stopped drive must retain phase and every quantity.")
 	scene._refresh()
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _click_cell(2)
 	var held_revision: int = scene.model.projection().revision
 	await _click_screen(scene.remove_button.get_global_rect().get_center())
@@ -120,7 +120,7 @@ func _run() -> void:
 	root.add_child(scene)
 	await process_frame
 	await physics_frame
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _click_cell(2)
 	var collected_before: int = scene.model.projection().inventories.get("P", 0)
 	await _key(KEY_R)
@@ -142,7 +142,7 @@ func _run() -> void:
 	_check(scene.model.projection() == before_confirm, "Goal confirmation must not consume material.")
 	# Empty stopped wheel removal tests the real finite-part refund path.
 	scene.issue({"action": "set_power", "active": false})
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _click_cell(-1)
 	await _click_screen(scene.remove_button.get_global_rect().get_center())
 	_check(scene.model.projection().parts.get("wheel", 0) == 1, "Dismantling must refund the physical wheel part.")

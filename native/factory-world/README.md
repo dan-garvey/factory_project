@@ -156,7 +156,7 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 12 and retains the single identified freight
+The logical checkpoint uses schema 13 and retains the single identified freight
 beacon, its first shipment and three later conserved shipments in the same
 material ledger, the pod workshop's installed or held
 custody and relocated center, and collector/press quarter-turn
@@ -165,6 +165,11 @@ vertical and sideways belt spans and their shaft endpoints. A span counts agains
 part inventory as a conveyor. `place_belt_span` consumes a belt and checks
 reach to both shaft identities; `remove_belt_span` refunds it. Both retain
 generation, retry history and the ordered shaft centers used by its reach receipt.
+Accepted removals retain the removed part or span shape in their native history
+receipt. Restore reverses later layout edits when checking automatic tick
+witnesses used by manual press receipts; a later wheel toggle or construction
+edit does not lend an unrelated tick to the press. Schema 12 is
+refused rather than migrated because its removal history lacks these shapes.
 For a modular press, the checkpoint also retains the work identities waiting at
 its exit or already exported to a belt. Those witnesses do not own material;
 the single material ledger continues to hold every plate and belt slot.

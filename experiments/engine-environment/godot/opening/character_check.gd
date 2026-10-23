@@ -283,7 +283,7 @@ func _run() -> void:
 	_cut("controlled_clock_retained_work")
 	scene.auto_advance = true
 	await _walk(3.3, 1.65)
-	await _key(KEY_I)
+	await _key(KEY_ESCAPE)
 	await _cell(2)
 	for _tick in range(80):
 		scene._refresh()

@@ -429,6 +429,7 @@ void belt_span_checkpoint() {
     refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{4})), w::CheckpointReason::unsupported_schema);
     refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{5})), w::CheckpointReason::unsupported_schema);
     refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{10})), w::CheckpointReason::unsupported_schema);
+    refusal(profile, edited(std::get<V>(encoded), {"schema"}, V(I{12})), w::CheckpointReason::unsupported_schema);
     auto malformed = state; malformed.topology.belt_spans[0].geometry.last_shaft = "missing";
     check(!w::World::create("saved-world", profile, malformed), "A dangling saved belt endpoint is refused.");
     malformed = state; malformed.kits.at("P")[{s::Role::belt, 0, 0}] = 1;
@@ -1216,6 +1217,10 @@ void belt_span_commands() {
               restored->snapshot().state.kits.at("P").at({s::Role::belt, 0, 0}) == 1 &&
               s::power_view(restored->snapshot().state.topology).mechanical.motion.at("right").state == g::MotionState::unpowered,
           "Removing the span refunds one belt and stops remote power.");
+    auto missing_removed_span = restored->snapshot();
+    missing_removed_span.history.records.back().result.erase("removed_span");
+    check(!w::World::restore("saved-world", profile, missing_removed_span),
+          "A removed belt receipt must retain the shape needed for historical power checks.");
     endpoint.at("request") = V("remove-endpoint-after-belt");
     accepted(send(*restored, endpoint));
     const auto after = w::encode_checkpoint(profile, restored->snapshot());

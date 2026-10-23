@@ -4646,6 +4646,24 @@ var power_label: Label
 var inspector: Label
 var inspector_title: Label
 var inspection_actions: HBoxContainer
+var pointed_summary: PanelContainer
+var pointed_name: Label
+var pointed_detail: Label
+var object_menu: PopupPanel
+var object_menu_scrim: ColorRect
+var object_menu_title: Label
+var object_menu_operations_label: Label
+var object_menu_close: Button
+var object_menu_operations: VBoxContainer
+var object_menu_detail_panel: PanelContainer
+var object_menu_desired_extent := Vector2i(500, 400)
+var object_menu_viewport_size := Vector2i.ZERO
+var worksite_details_section: VBoxContainer
+var object_workshop_craft_column: VBoxContainer
+var object_workshop_collector: VBoxContainer
+var object_workshop_route: VBoxContainer
+var object_workshop_sections: Array[VBoxContainer] = []
+var object_menu_target := ""
 var recovery_actions
 var loose_material_controls
 var transmission_controls
@@ -4819,12 +4837,15 @@ func _actor_failed(actor: String, reason: String) -> void:
 	get_tree().quit(1)
 
 func _can_control_character() -> bool:
+	return _actor_ready_for_actions() and not _object_menu_open()
+
+func _actor_ready_for_actions() -> bool:
 	return not legacy_fixture and not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
 		and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
 
 func _can_choose_tool() -> bool:
 	# The catalog holds movement while keeping its own choices available.
-	return not arrival_reveal_active and not manager_log_open and not explanation_open and not startup_save_pending \
+	return not arrival_reveal_active and not manager_log_open and not explanation_open and not startup_save_pending and not _object_menu_open() \
 		and (legacy_fixture or state.get("actors", {}).get(client, {}).get("ready", false))
 
 func _native_transmission() -> bool:
@@ -5363,6 +5384,9 @@ func _process(delta: float) -> void:
 		return
 	_update_camera()
 	_advance_arrival_reveal(delta)
+	if _object_menu_open() and Vector2i(get_viewport().get_visible_rect().size) != object_menu_viewport_size:
+		_fit_object_menu()
+	_refresh_pointed_summary()
 	if not legacy_fixture:
 		return
 	var pan := Vector2(float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
@@ -5587,6 +5611,45 @@ func _input(event: InputEvent) -> void:
 			_finish_arrival_reveal(true)
 		get_viewport().set_input_as_handled()
 		return
+	if _object_menu_open():
+		if event is InputEventKey and event.pressed and not event.echo:
+			var used := false
+			if event.keycode in [KEY_ESCAPE, KEY_E]:
+				object_menu.hide()
+				used = true
+			elif event.keycode == KEY_DELETE:
+				used = _activate_button(remove_button)
+			elif event.ctrl_pressed and event.keycode == KEY_D:
+				used = _activate_button(details_button)
+			elif event.ctrl_pressed and event.keycode == KEY_R:
+				used = _activate_button(retrieve_button)
+			elif event.ctrl_pressed and event.keycode == KEY_M:
+				used = _open_action_menu(recovery_actions.action_button if recovery_actions != null else null)
+			elif event.ctrl_pressed and event.keycode == KEY_L:
+				used = _open_action_menu(loose_material_controls)
+			elif event.keycode == KEY_F5 and not startup_save_pending:
+				_save_worksite()
+				used = true
+			elif event.keycode == KEY_F9:
+				_load_worksite()
+				used = true
+			elif not event.ctrl_pressed and arrival_assembly_controls != null:
+				var actions = arrival_assembly_controls
+				match event.keycode:
+					KEY_C: used = _activate_button(actions.craft_button) or _activate_button(actions.crank_button)
+					KEY_P: used = _activate_button(actions.place_button) or _activate_button(actions.pickup_button)
+					KEY_F: used = _activate_button(actions.feed_button)
+					KEY_T: used = _activate_button(actions.turn_button) or _activate_button(actions.collector_crank_button)
+					KEY_X: used = _activate_button(actions.collector_cut_button)
+					KEY_R: used = _activate_button(actions.refeed_work_button)
+					KEY_U: used = _activate_button(actions.recover_work_button)
+					KEY_V: used = _activate_button(actions.field_craft_button)
+					KEY_S: used = _activate_button(actions.pod_workshop_button)
+					KEY_M: used = _activate_button(actions.part_craft_button)
+					KEY_K: used = _activate_button(actions.part_place_button)
+			if used:
+				get_viewport().set_input_as_handled()
+		return
 	if manager_log_open:
 		if event is InputEventKey:
 			if event.pressed and not event.echo and event.keycode in [KEY_J, KEY_ESCAPE]:
@@ -5629,7 +5692,7 @@ func _input(event: InputEvent) -> void:
 		var handled := false
 		if event.ctrl_pressed:
 			match event.keycode:
-				KEY_D: handled = _activate_button(details_button)
+				KEY_D: handled = _activate_button(details_button) if legacy_fixture else false
 				KEY_ENTER, KEY_KP_ENTER: handled = _activate_button(confirm_button)
 				KEY_R: handled = _activate_button(retrieve_button)
 				KEY_M: handled = _open_action_menu(recovery_actions.action_button if recovery_actions != null else null)
@@ -5710,7 +5773,7 @@ func _open_action_menu(button: MenuButton) -> bool:
 	return true
 
 func _unhandled_input(event: InputEvent) -> void:
-	if explanation_open:
+	if explanation_open or _object_menu_open():
 		return
 	if event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
@@ -5752,9 +5815,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E:
 				if _native_transmission():
 					_interact_pointed()
-			KEY_I:
-				if not _native_transmission():
-					_select_tool("inspect")
 			KEY_ESCAPE: _select_tool("inspect")
 			KEY_R:
 				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
@@ -5855,9 +5915,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		if mode == "belt":
 			_message("Select the Belt tool and choose two parallel shafts.", true)
 			return
-		if mode == "inspect" and (state.get("transmission_parts", {}).has(entity_id) or state.get("belt_spans", {}).has(entity_id)):
-			selected = entity_id
-			_refresh_ui()
+		if mode == "inspect":
 			return
 	if mode != "foundation" and state.entities.has(entity_id):
 		var actual: Array = state.entities[entity_id].cell
@@ -6207,6 +6265,52 @@ func _open_pointed_machine() -> void:
 	_refresh_ui()
 	if arrival_assembly_controls != null:
 		arrival_assembly_controls.open_context()
+	object_menu_target = target
+	object_menu_title.text = _object_name(target)
+	object_menu_operations_label.text = "CRAFT PARTS"
+	for row: Variant in state.get("press_assemblies", []):
+		if row is Dictionary and row.get("frame", "") == target:
+			object_menu_operations_label.text = "PRESS WORK"
+	for row: Variant in state.get("collector_assemblies", []):
+		if row is Dictionary and row.get("parts", {}).get("frame", "") == target:
+			object_menu_operations_label.text = "COLLECTOR"
+	object_menu_operations.visible = _object_supports_operations(target) and arrival_assembly_scroll.visible
+	_release_character_controls()
+	object_menu_scrim.visible = true
+	var compact_bench: bool = state.get("placed_components", {}).get(target, {}).get("component", "") == "wooden_workbench" \
+		and state.get("part_recipes", []).is_empty()
+	var compact_collector := _is_collector_frame(target)
+	if compact_bench or compact_collector:
+		arrival_assembly_scroll.custom_minimum_size.y = 0
+	object_menu_desired_extent = Vector2i(760 if object_menu_operations.visible else 500,
+		400 if compact_collector else 440 if compact_bench else 520 if object_menu_operations.visible else 400)
+	var extent := _object_menu_extent()
+	object_menu.min_size = extent
+	object_menu.popup_centered(extent)
+	_fit_object_menu()
+	object_menu_close.grab_focus()
+	_refresh_ui()
+
+func _object_menu_extent(viewport: Vector2i = Vector2i.ZERO) -> Vector2i:
+	if viewport == Vector2i.ZERO:
+		viewport = Vector2i(get_viewport().get_visible_rect().size)
+	return Vector2i(mini(object_menu_desired_extent.x, maxi(320, viewport.x - 24)),
+		mini(object_menu_desired_extent.y, maxi(280, viewport.y - 24)))
+
+func _fit_object_menu(viewport: Vector2i = Vector2i.ZERO) -> void:
+	if viewport == Vector2i.ZERO:
+		viewport = Vector2i(get_viewport().get_visible_rect().size)
+	var narrow := viewport.x < 800
+	object_menu_detail_panel.custom_minimum_size.x = 180 if narrow else 220
+	object_menu_operations.custom_minimum_size.x = 340 if narrow else 420
+	arrival_assembly_controls.custom_minimum_size.x = 340 if narrow else 410
+	for section in object_workshop_sections:
+		section.custom_minimum_size.x = 160 if narrow else 195
+	var extent := _object_menu_extent(viewport)
+	object_menu.min_size = extent
+	object_menu.size = extent
+	object_menu.position = (viewport - object_menu.size) / 2
+	object_menu_viewport_size = viewport
 
 func _remove_selected() -> void:
 	if not selected.is_empty():
@@ -6216,6 +6320,8 @@ func _remove_selected() -> void:
 		var outcome := issue({"action": removal, "entity": selected})
 		if outcome.accepted:
 			selected = ""
+			if _object_menu_open():
+				object_menu.hide()
 			_refresh_ui()
 
 func _confirm_goal() -> void:
@@ -6327,6 +6433,8 @@ func _component_center_allowed(center: Array) -> bool:
 		and absf(center[2] * Geometry.HEIGHT_STEP) <= half
 
 func _screen_pick(screen: Vector2) -> Dictionary:
+	if camera == null or not camera.is_inside_tree():
+		return {}
 	var origin := camera.project_ray_origin(screen)
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + camera.project_ray_normal(screen) * 80)
 	query.collision_mask = Geometry.PICK_LAYER | Geometry.MACHINE_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER
@@ -8751,6 +8859,9 @@ func _refresh_ui() -> void:
 	_refresh_hand_trees()
 	if stock_label == null:
 		return
+	if _object_menu_open() and not _contains_target(state, object_menu_target):
+		object_menu.hide()
+		return
 	_refresh_transmission()
 	var inventory := int(state.inventories.get(client, 0))
 	goal_progress.max_value = 4
@@ -8802,7 +8913,7 @@ func _refresh_ui() -> void:
 			str(state.fabrication_hub.get("center", []))
 	elif _native_transmission() and state.get("placed_components", {}).has(selected):
 		var component: Dictionary = state.placed_components[selected]
-		var detail := "Choose this workshop under Craft parts, then stand nearby to use it."
+		var detail := "Craft here when nearby."
 		if component.get("component", "") != "wooden_workbench":
 			detail = "Reclaim with Delete or choose a press route below."
 		inspector.text = "%s\nGrid center %s\n%s" % [
@@ -8811,14 +8922,35 @@ func _refresh_ui() -> void:
 	else:
 		inspector.text = "Point at a machine and press E to open it."
 	inspector.tooltip_text = inspector.text
-	if not show_details:
+	if _object_menu_open() and _contains_target(state, selected):
+		var detail_lines := inspector.text.split("\n")
+		inspector.text = "\n".join(detail_lines.slice(1, detail_lines.size()))
+	elif not show_details:
 		var inspection_lines := inspector.text.split("\n")
 		inspector.text = "\n".join(inspection_lines.slice(0, mini(3, inspection_lines.size())))
 	_refresh_guided_tools()
 	_refresh_manager_log()
 	if arrival_assembly_controls != null:
-		arrival_assembly_controls.refresh(state, client, selected, _can_control_character())
+		arrival_assembly_controls.refresh(state, client, selected, _actor_ready_for_actions())
+		if _object_menu_open():
+			var hub_id: String = str(state.get("fabrication_hub", {}).get("id", ""))
+			var selected_hub := not hub_id.is_empty() and selected == hub_id
+			var selected_bench := false
+			for bench: Variant in state.get("fabrication_benches", []):
+				selected_bench = selected_bench or (bench is Dictionary and bench.get("id", "") == selected)
+			arrival_assembly_controls.bench_choice.visible = not selected_hub and not selected_bench
+			arrival_assembly_controls.pod_workshop_button.visible = selected_hub and arrival_assembly_controls.pod_workshop_button.visible
+			arrival_assembly_controls.field_craft_button.visible = selected_hub and arrival_assembly_controls.field_craft_button.visible
+			arrival_assembly_controls.reclaim_button.visible = false
 		arrival_assembly_scroll.visible = arrival_assembly_controls.visible
+		if object_workshop_route != null:
+			var collector_context := _is_collector_frame(object_menu_target)
+			object_workshop_craft_column.visible = not collector_context
+			object_workshop_collector.visible = collector_context
+			object_workshop_route.visible = not collector_context and not state.get("part_recipes", []).is_empty()
+		if object_menu_operations != null:
+			object_menu_operations.visible = _object_menu_open() and _object_supports_operations(object_menu_target) \
+				and arrival_assembly_scroll.visible
 	if recovery_actions != null:
 		recovery_actions.refresh()
 	if loose_material_controls != null:
@@ -8980,17 +9112,20 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
 	lesson_button.visible = not arrival
-	details_button.text = "Less  ^D" if show_details else "Details  ^D"
+	details_button.text = ("Hide worksite  Ctrl+D" if show_details else "Worksite  Ctrl+D") if object_menu != null \
+		else ("Less  ^D" if show_details else "Details  ^D")
 	details_button.disabled = explanation_open
 	for control in [stock_label, power_label, save_button, load_button]:
 		control.visible = show_details
+	if worksite_details_section != null:
+		worksite_details_section.visible = show_details
 	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
-	controls_label.text = "WASD move · E interact · B build · F remove · Ctrl+D details" if arrival \
-		else "B catalog · 1–8 build · E open · F remove · H guide · Ctrl+D details"
+	controls_label.text = "WASD move · E interact · B build · F remove" if arrival \
+		else "B catalog · 1–8 build · E open · F remove · H guide"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
-	inspector_title.visible = target_selected or show_details or not snapshot_ready or not _can_choose_tool()
-	inspector.visible = target_selected or show_details \
+	inspector_title.visible = object_menu == null and (target_selected or show_details or not snapshot_ready or not _can_choose_tool())
+	inspector.visible = target_selected if object_menu != null else target_selected or show_details \
 		or not snapshot_ready or not _can_choose_tool()
 	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
 	remove_button.visible = target_selected
@@ -9057,17 +9192,6 @@ func _cycle_placement_axis() -> void:
 func _refresh_placement_options() -> void:
 	if placement_options_panel == null:
 		return
-	if _native_transmission() and mode == "inspect" and _placement_ready():
-		var source_id := _screen_hand_source(_pointed_screen_position())
-		var source := _hand_source(source_id)
-		if not source.is_empty():
-			placement_options_panel.visible = true
-			placement_options_title.text = "CUT TIMBER" if source.kind == "tree" else "CUT SOFTMETAL"
-			placement_options_hint.text = "Depleted · choose another source" if source.remaining == 0 \
-				else "Use multitool  [E] · %d remaining" % source.remaining
-			placement_options_axis.visible = false
-			_fit_placement_options()
-			return
 	var placing_machine := machine_preview != null and machine_preview.visible
 	var placing_component := mode == "component" and hover != null and hover.visible
 	var placing_pod := mode == "pod_workshop" and hover != null and hover.visible
@@ -9464,16 +9588,13 @@ func _has_material_connection(incoming: bool) -> bool:
 func _refresh_machine_captions() -> void:
 	if not _native_transmission() or machine_root == null:
 		return
-	var pointed := ""
-	if not explanation_open and not show_details and _preview_pointer_clear():
-		pointed = _screen_entity(get_viewport().get_mouse_position())
 	for anchor in machine_root.get_children():
 		var caption := anchor.get_node_or_null("MachineCaption") as Label3D
 		if caption == null:
 			continue
 		var entity_id: String = anchor.get_meta("machine_entity", "")
 		caption.visible = not explanation_open and (show_details or entity_id == selected \
-			or entity_id == pending_link or entity_id == pointed)
+			or entity_id == pending_link)
 
 func _update_cursor() -> void:
 	_refresh_machine_preview()
@@ -9540,7 +9661,8 @@ func _fit_guided_footer() -> void:
 	footer_fit_pending = false
 	# Wrapped text settles after its container width. Fit again at that
 	# boundary, rather than retaining an early oversized minimum height.
-	for column in [build_column, inspector.get_parent() if inspector != null else null]:
+	var columns_to_fit := [build_column] if object_menu != null else [build_column, inspector.get_parent() if inspector != null else null]
+	for column in columns_to_fit:
 		if column != null:
 			var panel: Control = column.get_parent()
 			if column == inspector.get_parent():
@@ -9563,9 +9685,11 @@ func _fit_guided_footer() -> void:
 		and _guided_step({}).tool == "collector" \
 		and status_label.text == FIRST_COLLECTOR_HINT)
 	status_label.visible = not status_label.text.is_empty() and not redundant_intro
-	var inspector_panel: Control = inspector.get_parent().get_parent()
-	var right: float = inspector_panel.get_global_rect().position.x - get_viewport().get_visible_rect().end.x - 18.0 \
-		if inspector_panel.visible else -18.0
+	var right := -18.0
+	if object_menu == null:
+		var inspector_panel: Control = inspector.get_parent().get_parent()
+		right = inspector_panel.get_global_rect().position.x - get_viewport().get_visible_rect().end.x - 18.0 \
+			if inspector_panel.visible else -18.0
 	if not is_equal_approx(status_footer.offset_right, right):
 		status_footer.set_anchor_and_offset(SIDE_RIGHT, 1.0, right)
 	var left_anchor := 1.0 if redundant_intro else 0.0
@@ -9639,6 +9763,224 @@ func _hud_surface(column: VBoxContainer, opacity: float, padding: int = 10) -> v
 	style.set_content_margin_all(padding)
 	panel.add_theme_stylebox_override("panel", style)
 	column.add_theme_constant_override("separation", 5)
+
+func _build_pointed_summary(root: Control) -> void:
+	pointed_summary = PanelContainer.new()
+	pointed_summary.name = "PointedSummary"
+	pointed_summary.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var surface := StyleBoxFlat.new()
+	surface.bg_color = Color(0.035, 0.065, 0.075, 0.68)
+	surface.set_corner_radius_all(5)
+	surface.set_content_margin_all(7)
+	pointed_summary.add_theme_stylebox_override("panel", surface)
+	root.add_child(pointed_summary)
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override("separation", 1)
+	pointed_summary.add_child(column)
+	pointed_name = _label(column, "", 14, Color("f4f5eb"))
+	pointed_detail = _label(column, "", 11, Color("b9ceca"))
+	pointed_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pointed_detail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pointed_summary.visible = false
+
+func _build_object_menu(root: Control, detail_panel: PanelContainer) -> void:
+	object_menu_scrim = ColorRect.new()
+	object_menu_scrim.name = "ObjectMenuShade"
+	object_menu_scrim.color = Color(0.01, 0.02, 0.025, 0.58)
+	object_menu_scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(object_menu_scrim)
+	object_menu_scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	object_menu_scrim.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			object_menu.hide())
+	object_menu_scrim.visible = false
+	object_menu = PopupPanel.new()
+	object_menu.name = "ObjectMenu"
+	object_menu.theme = root.theme.duplicate()
+	var surface := StyleBoxFlat.new()
+	surface.bg_color = Color(0.035, 0.06, 0.075, 0.97)
+	surface.set_corner_radius_all(10)
+	object_menu.theme.set_stylebox("panel", "PopupPanel", surface)
+	root.add_child(object_menu)
+	var margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 18)
+	object_menu.add_child(margin)
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var shell := VBoxContainer.new()
+	shell.add_theme_constant_override("separation", 12)
+	margin.add_child(shell)
+	var header := HBoxContainer.new()
+	shell.add_child(header)
+	object_menu_title = _label(header, "", 22, Color("f1d7a5"))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(spacer)
+	object_menu_close = _button(header, "Close  Esc", object_menu.hide)
+	object_menu_close.custom_minimum_size = Vector2(105, 32)
+	shell.add_child(HSeparator.new())
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 20)
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	shell.add_child(columns)
+	detail_panel.reparent(columns)
+	object_menu_detail_panel = detail_panel
+	detail_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	detail_panel.custom_minimum_size = Vector2(220, 0)
+	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	var detail_column := inspector.get_parent() as VBoxContainer
+	details_button.reparent(detail_column)
+	details_button.visible = true
+	worksite_details_section = VBoxContainer.new()
+	detail_column.add_child(worksite_details_section)
+	for control in [actor_label, power_label, stock_label, save_button, load_button]:
+		control.reparent(worksite_details_section)
+	worksite_details_section.visible = false
+	object_menu_operations = VBoxContainer.new()
+	object_menu_operations.custom_minimum_size.x = 420
+	object_menu_operations.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	object_menu_operations.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	object_menu_operations.add_theme_constant_override("separation", 8)
+	columns.add_child(object_menu_operations)
+	object_menu_operations_label = _label(object_menu_operations, "CRAFT PARTS", 12, Color("f4bf75"))
+	arrival_assembly_scroll.reparent(object_menu_operations)
+	arrival_assembly_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	arrival_assembly_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	arrival_assembly_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_layout_object_workshop()
+	arrival_assembly_controls.craft_tab.visible = false
+	arrival_assembly_controls.press_tab.visible = false
+	object_menu_operations.visible = false
+	object_menu.popup_hide.connect(_on_object_menu_closed)
+
+func _layout_object_workshop() -> void:
+	var craft := arrival_assembly_controls.craft_section as VBoxContainer
+	var entries := craft.get_children()
+	var powered_index: int = arrival_assembly_controls.part_choice.get_index() - 1
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 14)
+	craft.add_child(columns)
+	var left := VBoxContainer.new()
+	var right := VBoxContainer.new()
+	var collector := VBoxContainer.new()
+	object_workshop_craft_column = left
+	object_workshop_route = right
+	object_workshop_collector = collector
+	for section in [left, right, collector]:
+		object_workshop_sections.append(section)
+		section.custom_minimum_size.x = 195
+		section.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		section.add_theme_constant_override("separation", 6)
+		columns.add_child(section)
+	for index in range(entries.size()):
+		(entries[index] as Control).reparent(left if index < powered_index else right)
+	(entries[0] as Control).visible = false
+	var collector_actions := arrival_assembly_controls.collector_cut_button.get_parent() as HBoxContainer
+	var collector_column := VBoxContainer.new()
+	collector_column.add_theme_constant_override("separation", 5)
+	var parent := collector_actions.get_parent()
+	parent.add_child(collector_column)
+	parent.move_child(collector_column, collector_actions.get_index())
+	for action in collector_actions.get_children():
+		action.reparent(collector_column)
+	collector_actions.queue_free()
+	arrival_assembly_controls.collector_status.reparent(collector)
+	collector_column.reparent(collector)
+	arrival_assembly_controls.custom_minimum_size.x = 410
+	arrival_assembly_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	arrival_assembly_controls.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+
+func _object_menu_open() -> bool:
+	return object_menu != null and object_menu.visible
+
+func _on_object_menu_closed() -> void:
+	object_menu_scrim.visible = false
+	object_menu_target = ""
+	selected = ""
+	show_details = false
+	_refresh_ui()
+
+func _object_name(target: String) -> String:
+	if state.get("entities", {}).has(target):
+		return NAMES.get(state.entities[target].kind, str(state.entities[target].kind).capitalize())
+	if state.get("foundations", {}).has(target):
+		return "Factory floor" if int(state.foundations[target].get("level", 0)) % Geometry.HEIGHT_DENOMINATOR == 0 else "Access step"
+	if state.get("transmission_parts", {}).has(target):
+		return str(state.transmission_parts[target].get("kind", "Drive part")).replace("_", " ").capitalize()
+	if state.get("belt_spans", {}).has(target):
+		return "Mechanical belt"
+	if target == state.get("fabrication_hub", {}).get("id", ""):
+		return "Pod workshop"
+	if state.get("placed_components", {}).has(target):
+		var component: String = str(state.placed_components[target].get("component", "part"))
+		return "Wooden workbench" if component == "wooden_workbench" else component.replace("_", " ").capitalize()
+	return ""
+
+func _object_supports_operations(target: String) -> bool:
+	if target == state.get("fabrication_hub", {}).get("id", "") and not target.is_empty():
+		return true
+	if state.get("entities", {}).get(target, {}).get("kind", "") in ["collector", "processor"]:
+		return true
+	if state.get("placed_components", {}).get(target, {}).get("component", "") == "wooden_workbench":
+		return true
+	for row: Variant in state.get("fabrication_benches", []):
+		if row is Dictionary and row.get("id", "") == target:
+			return true
+	for row: Variant in state.get("press_assemblies", []):
+		if row is Dictionary and row.get("frame", "") == target:
+			return true
+	return _is_collector_frame(target)
+
+func _is_collector_frame(target: String) -> bool:
+	if target.is_empty():
+		return false
+	for row: Variant in state.get("collector_assemblies", []):
+		if row is Dictionary and row.get("parts", {}).get("frame", "") == target:
+			return true
+	return false
+
+func _pointed_summary_data(screen: Vector2) -> Dictionary:
+	if camera == null or not camera.is_inside_tree():
+		return {}
+	var hit := _screen_pick(screen)
+	if not hit.is_empty() and hit.collider.get_meta("freight_beacon", "") == state.get("freight_beacon", {}).get("id", "") \
+			and not str(hit.collider.get_meta("freight_beacon", "")).is_empty():
+		return {"name": "Freight beacon", "detail": "E  Deliver plate"}
+	var target: String = str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
+	if _contains_target(state, target):
+		var detail := "E  Open"
+		if state.get("entities", {}).get(target, {}).get("kind") == "processor":
+			detail = "%d ready  ·  E Open" % int(state.get("stock", {}).get("output", 0))
+		return {"name": _object_name(target), "detail": detail, "target": target}
+	var source := _hand_source(_screen_hand_source(screen))
+	if not source.is_empty():
+		return {"name": "Timber tree" if source.kind == "tree" else "Ore deposit",
+			"detail": "%d left  ·  E Harvest" % source.remaining}
+	return {}
+
+func _refresh_pointed_summary() -> void:
+	if pointed_summary == null or camera == null:
+		return
+	if arrival_reveal_active or explanation_open or manager_log_open or _catalog_open() or _object_menu_open():
+		pointed_summary.visible = false
+		return
+	var screen := _pointed_screen_position()
+	if distance > 0.0 and get_viewport().gui_get_hovered_control() != null:
+		pointed_summary.visible = false
+		return
+	var summary := _pointed_summary_data(screen)
+	pointed_summary.visible = not summary.is_empty()
+	if summary.is_empty():
+		return
+	pointed_name.text = summary.name
+	pointed_detail.text = summary.detail
+	pointed_summary.size = pointed_summary.get_combined_minimum_size()
+	var extent := get_viewport().get_visible_rect().size
+	pointed_summary.position = Vector2(
+		clampf(screen.x + 20.0, 12.0, extent.x - pointed_summary.size.x - 12.0),
+		clampf(screen.y + 20.0, 12.0, extent.y - pointed_summary.size.y - 12.0))
 
 func _build_interface() -> void:
 	# A revisable opening adapter limit, not a fixed window or a game-world rule.
@@ -9857,6 +10199,9 @@ func _build_interface() -> void:
 	right.add_child(HSeparator.new())
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
+	if not legacy_fixture:
+		_build_object_menu(root, right_panel as PanelContainer)
+		_build_pointed_summary(root)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
 	if not legacy_fixture:
 		_hud_surface(bottom, 0.43, 7)

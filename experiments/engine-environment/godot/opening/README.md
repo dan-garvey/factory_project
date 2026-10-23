@@ -15,7 +15,7 @@ body.
 Build, dismantle, retrieve and connection targets must be within the
 authority's provisional four-world-unit sphere. Move closer after a refusal
 and deliberately retry. A wheel in flowing water drives connected parts automatically.
-Read-only inspection, Help,
+Read-only pointer summaries and object details, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
 In the new arrival, the first Meridian order instead asks for one actual
 formed plate at the freight beacon east of the pod. Carry the plate beside the
@@ -23,15 +23,16 @@ receiver and point at it with **E**. The native receipt removes exactly one
 plate from actor cargo, persists through save/rejoin and leaves the workshop
 open for more construction. The four-plate confirmation above describes the
 older complete-machine fixture, not an arrival objective.
-The workshop starts as two compact tabs. Choose **Craft parts** or **Press work**
-to open its controls; choose the same tab again to close them. Point at a
-workshop, collector or press and use **E** to open its relevant controls directly.
+Point at a workshop, collector or press and use **E** to open a centered object
+panel. The workshop's craft and route sections share that panel. **Esc** closes
+it; **Ctrl+D** reveals worksite counters and save controls inside it.
 The detached `--script res://opening/guidance_cue_check.gd -- --camera-zoom-only`
 verifies offline and shared camera transitions without launching a controlled
 game session.
 
 The native physical view has eight quick-select slots and a short next-step
-prompt. It starts in inspection; choose **Collector [1]** to begin building.
+prompt. Pointing at a built part shows its name and one short cue without selecting
+it; choose **Collector [1]** to begin building.
 The placement preview appears after selecting a construction tool.
 The default native collector, belt, press and three-tile waterwheel forms have
 baked preview scenes in `assets/prebuilt-preview-*.scn`. After changing their
@@ -73,13 +74,19 @@ building ghost is active. It shows placement, rotation and the applicable axle,
 height, size or foundation-area controls. Reopening derives goal advice from the
 actual worksite.
 
-Point at an existing machine or part and press **E** to open its inspector and
-available material actions. In third person, point with the mouse; at the
+Point at an existing machine or part to see a small summary. Press **E** to open
+its centered detail and action panel. In third person, point with the mouse; at the
 closest first-person view, aim at the center of the screen. Press **F** to enter
 deconstruction, then click the part to reclaim it; **Esc** leaves the mode.
 The worksite still checks character reach and retained contents before removing
 anything. **C** selects a manual material link, and **G** selects a shaft tool.
-The old Inspect button is gone from the playable opening.
+Inspect has no button or hotkey. Clicking while idle does not pin a selection.
+Inside an E panel, the visible actions use **C** craft or take the press crank,
+**P** place or pick up, **F** feed, **T** turn or take the collector crank,
+**X** cut, **R** reinsert, **U** recover, **V** shape, **S** stow the pod,
+**M** make a kit, and **K** place a kit. Use arrow keys and Enter in selectors.
+**Delete** removes the opened object, **Ctrl+D** expands worksite details, and
+**Esc** closes the panel. Disabled actions stay disabled from the keyboard.
 
 **Rotate [R]** turns a collector or press by 90 degrees before placement. The
 preview turns its outlet and horizontal drive axle while keeping the collector's
@@ -87,7 +94,7 @@ source-facing intake fixed, and marks the collector's
 **OUT** side or the press's **IN** side. Material only crosses the matching side;
 a belt against another side queues its contents. Four turns return to the
 original facing. The chosen facing belongs to the placed machine and survives
-save/reopen and shared projection. R retains retrieval while inspecting a press.
+save/reopen and shared projection. Use **Ctrl+R** to collect from an opened press.
 For a waterwheel, Rotate changes its horizontal axle; the shaft/cog menu retains
 the explicit axle choices. Square foundations keep the same world grid.
 
@@ -402,8 +409,8 @@ unchanged; `startup.json` retains the actual observation.
 
 Controls: 1 collector, 2 belt, 3 press, 4 waterwheel; click a square to place.
 Material ports face +x. F selects a material connection; G selects a drive
-connection; click its two neighboring ends. I selects inspection, R retrieves
-from the selected press. Right-drag orbits, mouse
+connection; click its two neighboring ends. Escape returns to idle; click a
+machine for the historical scripted inspection fixture. Right-drag orbits, mouse
 wheel zooms, WASD pans and Home recenters. H opens a read-only explanation;
 construction controls are unavailable until it closes. Help shows a populated
 3D example in its own physics world, with a separate instance of the same rules

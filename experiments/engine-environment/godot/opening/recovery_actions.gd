@@ -407,9 +407,9 @@ class ArrivalAssemblyControls:
 		recipe_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var component_actions := VBoxContainer.new()
 		craft_section.add_child(component_actions)
-		craft_button = host._button(component_actions, "Craft at bench", _craft)
+		craft_button = host._button(component_actions, "Craft at bench  C", _craft)
 		place_button = host._button(component_actions, "Place", _place)
-		field_craft_button = host._button(craft_section, "Shape wood · multitool", _field_craft)
+		field_craft_button = host._button(craft_section, "Shape wood · multitool  V", _field_craft)
 		field_craft_button.tooltip_text = "Shape the selected wooden component from carried timber."
 		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
@@ -425,8 +425,8 @@ class ArrivalAssemblyControls:
 		part_cost_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var part_actions := HBoxContainer.new()
 		craft_section.add_child(part_actions)
-		part_craft_button = host._button(part_actions, "Make kit", _craft_part)
-		part_place_button = host._button(part_actions, "Place kit", _place_part)
+		part_craft_button = host._button(part_actions, "Make kit  M", _craft_part)
+		part_place_button = host._button(part_actions, "Place kit  K", _place_part)
 		route_status_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		route_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		collector_status = host._label(craft_section, "", 12, Color("bfd1cc"))
@@ -434,7 +434,7 @@ class ArrivalAssemblyControls:
 		var collector_actions := HBoxContainer.new()
 		craft_section.add_child(collector_actions)
 		collector_crank_button = host._button(collector_actions, "Take pod crank", _crank)
-		collector_cut_button = host._button(collector_actions, "Cut ore deposit", _cut_collector)
+		collector_cut_button = host._button(collector_actions, "Cut ore deposit  X", _cut_collector)
 		press_section = VBoxContainer.new()
 		column.add_child(press_section)
 		press_status = host._label(press_section, "Select a frame with E", 13, Color("bfd1cc"))
@@ -445,17 +445,17 @@ class ArrivalAssemblyControls:
 		press_section.add_child(route_choice)
 		var press_actions := HBoxContainer.new()
 		press_section.add_child(press_actions)
-		feed_button = host._button(press_actions, "Feed blank", _feed)
-		turn_button = host._button(press_actions, "Turn crank", _turn)
+		feed_button = host._button(press_actions, "Feed blank  F", _feed)
+		turn_button = host._button(press_actions, "Turn crank  T", _turn)
 		held_work_choice = OptionButton.new()
 		held_work_choice.name = "HeldPressWorkChoice"
 		held_work_choice.item_selected.connect(func(index: int) -> void:
 			if index >= 0 and index < _held_work_ids.size():
 				_held_work_id = _held_work_ids[index])
 		press_section.add_child(held_work_choice)
-		refeed_work_button = host._button(press_section, "Reinsert held work", _refeed_work)
-		pickup_button = host._button(press_section, "Pick up exit product", _pickup_exit)
-		recover_work_button = host._button(press_section, "Recover held work", _recover_work)
+		refeed_work_button = host._button(press_section, "Reinsert held work  R", _refeed_work)
+		pickup_button = host._button(press_section, "Pick up exit product  P", _pickup_exit)
+		recover_work_button = host._button(press_section, "Recover held work  U", _recover_work)
 		crank_button = host._button(press_section, "Take pod crank", _crank)
 		_update_page()
 		visible = false
@@ -558,12 +558,17 @@ class ArrivalAssemblyControls:
 		pod_workshop_button.disabled = not ready or (not pod.get("installed", false) and pod.get("holder") != actor)
 		pod_workshop_button.text = "Stow pod workshop" if pod.get("installed", false) else \
 			"Place carried pod workshop" if pod.get("holder") == actor else "Pod workshop carried by another worker"
+		pod_workshop_button.text += "  S"
 		var total_parts := 0
 		for amount in components.values():
 			total_parts += int(amount)
-		recipe_label.text = "Needs %d timber + %d softmetal\nCarry %d timber + %d softmetal\nParts %d / %d · metal needs a workshop" % [
-			cost.get("timber", 0), cost.get("softmetal", 0), cargo.get("timber", 0),
-			cargo.get("raw", 0), total_parts, snapshot.get("component_capacity", 0)]
+		var material_cost := "%d timber" % int(cost.get("timber", 0))
+		var material_carried := "%d timber" % int(cargo.get("timber", 0))
+		if int(cost.get("softmetal", 0)) > 0:
+			material_cost += " + %d softmetal" % int(cost.get("softmetal", 0))
+			material_carried += " + %d softmetal" % int(cargo.get("raw", 0))
+		recipe_label.text = "Need %s · Carry %s\n%d / %d parts carried" % [
+			material_cost, material_carried, total_parts, snapshot.get("component_capacity", 0)]
 		var selected_rating: int = int(cost.get("load_rating", 0))
 		component_choice.tooltip_text = "Rated for %d load. The weakest shaft or cog limits a connected drive; overload stalls without damage." % selected_rating \
 			if selected_rating > 0 else ""
@@ -583,7 +588,7 @@ class ArrivalAssemblyControls:
 		field_craft_button.visible = not cost.is_empty() and int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
 		field_craft_button.disabled = not ready or not field_craft_button.visible
 		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
-		place_button.text = "Place %s" % COMPONENTS[component_choice.selected][1]
+		place_button.text = "Place %s  P" % COMPONENTS[component_choice.selected][1]
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
 		reclaim_button.disabled = not ready or not reclaim_button.visible
 		var part_recipes: Array = snapshot.get("part_recipes", [])
@@ -611,7 +616,7 @@ class ArrivalAssemblyControls:
 			part_cost_label.text = "Needs %d timber + %d softmetal\nMake beside the selected workshop" % [recipe.get("timber", 0), recipe.get("softmetal", 0)]
 			part_craft_button.disabled = not ready or selected_bench.is_empty()
 			part_place_button.disabled = not ready or selected_count < 1
-			part_place_button.text = "Connect shafts" if recipe.get("kind") == "belt" else "Place kit"
+			part_place_button.text = ("Connect shafts" if recipe.get("kind") == "belt" else "Place kit") + "  K"
 		route_status_label.text = _receiver_route_status(snapshot)
 		var crank: Dictionary = snapshot.get("hand_crank", {})
 		var collector: Dictionary = _selected_collector(snapshot, selected)
@@ -627,13 +632,13 @@ class ArrivalAssemblyControls:
 			collector_status.text = "Collector receiver holds an ore blank. Pick it up before another cut." if receiver_full else \
 				"Collector ready. Turn its fitted shaft to cut one ore blank." if collector_state == "ready" else \
 				"Collector: %s" % COLLECTOR_NEXT.get(collector_state, "Choose a clear ore-deposit frame.")
-			collector_crank_button.text = "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
+			collector_crank_button.text = ("Return crank to pod" if crank.get("holder") == actor else "Take pod crank") + "  T"
 			collector_crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
 			collector_cut_button.disabled = not ready or collector_state != "ready" or receiver_full \
 				or crank.get("holder") != actor or not collector_parts.has("shaft")
 		crank_button.visible = not crank.is_empty()
 		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
-		crank_button.text = "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
+		crank_button.text = ("Return crank to pod" if crank.get("holder") == actor else "Take pod crank") + "  C"
 		_press = _selected_press(snapshot, selected)
 		_frame = str(_press.get("frame", ""))
 		if _frame != _last_frame:
