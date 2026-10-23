@@ -119,19 +119,19 @@ func _construct(action: Dictionary) -> Dictionary:
 	var reply := _issue(action)
 	return reply if _expect(reply.get("accepted", false), "The current immersed route admits " + str(action)) else {}
 
-func _approach(target: Vector2) -> bool:
-	if not await _walk_to(target):
+func _approach(target: Vector2, actor: String = "P") -> bool:
+	if not await _walk_to(target, false, actor):
 		return false
 	for _frame in range(4):
 		await physics_frame
 		await process_frame
-	var sample: Dictionary = opening.actor_world.diagnostics("P").sample
+	var sample: Dictionary = opening.actor_world.diagnostics(actor).sample
 	return _expect(sample.ready and sample.registered and sample.on_floor and sample.control == [0.0, 0.0],
 		"The real approach finishes with a released, registered actor on the floor")
 
-func _approach_points(points: Array[Vector2]) -> bool:
+func _approach_points(points: Array[Vector2], actor: String = "P") -> bool:
 	for point in points:
-		if not await _approach(point):
+		if not await _approach(point, actor):
 			return false
 	return true
 
@@ -417,7 +417,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -487,30 +487,30 @@ func _run() -> void:
 		return
 	_record("pass")
 
-func _walk_to(target: Vector2, jump: bool = false) -> bool:
+func _walk_to(target: Vector2, jump: bool = false, actor: String = "P") -> bool:
 	var jumped := false
 	var highest_foot := -INF
 	var leg_deadline := mini(deadline, Time.get_ticks_msec() + 45000)
 	while Time.get_ticks_msec() < leg_deadline:
-		var body = opening.actor_world.bodies.P
+		var body = opening.actor_world.bodies[actor]
 		var at: Vector3 = body.global_position
 		highest_foot = maxf(highest_foot, at.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0)
 		var gap := target - Vector2(at.x, at.z)
 		if gap.length() < 0.08:
-			opening.actor_world.release_control("P")
+			opening.actor_world.release_control(actor)
 			if jump:
 				facts["foundation_jump"] = {"edge_sent": jumped, "highest_foot": highest_foot}
 			return true
 		var jump_edge: bool = jump and not jumped and gap.length() < 1.2 and body.is_on_floor()
-		if not _expect(opening.actor_world.set_control("P", gap.normalized(), jump_edge).accepted,
+		if not _expect(opening.actor_world.set_control(actor, gap.normalized(), jump_edge).accepted,
 				"The fixture walks through the real character motor without setting a pose"):
 			return false
 		jumped = jumped or jump_edge
 		await physics_frame
 		await process_frame
-	opening.actor_world.release_control("P")
-	var stopped_at: Vector3 = opening.actor_world.bodies.P.global_position
-	facts["failed_walk"] = {"target": target, "stopped_at": stopped_at}
+	opening.actor_world.release_control(actor)
+	var stopped_at: Vector3 = opening.actor_world.bodies[actor].global_position
+	facts["failed_walk"] = {"actor": actor, "target": target, "stopped_at": stopped_at}
 	return _expect(false, "The bounded native walk must reach %s; stopped at %s" % [target, stopped_at])
 
 func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String) -> bool:
@@ -1563,12 +1563,12 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	if mode in ["arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume"]:
+	if mode in ["arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -1620,6 +1620,23 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-repeat-delivery-q-resume":
+		while Time.get_ticks_msec() < deadline and not opening.model.projection().actors.Q.ready:
+			await physics_frame
+			await process_frame
+		var q_saved: Dictionary = opening.model.projection()
+		if not _expect(opening.last_load_result.get("accepted", false)
+				and q_saved.actors.Q.ready and opening.actor_world.bodies.Q.is_on_floor()
+				and q_saved.cargo.Q.raw == 1 and q_saved.cargo.P.raw == 0
+				and q_saved.cargo.P.offcuts == 0 and q_saved.dropped_material.is_empty()
+				and q_saved.material_mass.accounted_mass == 64
+				and q_saved.freight_beacon.repeat_order_complete
+				and q_saved.hand_crank.holder == "pod" and opening.landing_crank_visual.visible
+				and opening.model.validate_checkpoint(opening.model.checkpoint()).get("accepted", false),
+				"A third process restores Q's physically recovered blank and P's next command without mass drift"):
+			return
+		_record("pass")
+		return
 	if mode == "arrival-repeat-delivery":
 		if not _expect(not opening.manager_log_repeat_entry.visible,
 				"The ordinary first-order Work log keeps the repeat commission hidden"):
@@ -1718,6 +1735,24 @@ func _arrival_run() -> void:
 				"A resumed worker can return from the log without replaying arrival or changing stock"):
 			return
 		if repeat_complete:
+			if not await _approach_points([Vector2(1.65, 3.3), Vector2(4.95, 3.3),
+					Vector2(4.95, 4.95)], "Q"):
+				return
+			var before_q: Dictionary = opening.model.projection()
+			var recycled_drop: Dictionary = before_q.dropped_material[0]
+			var expected_drop: Dictionary = recycled_drop.duplicate(true)
+			expected_drop.erase("center")
+			var q_reply: Dictionary = opening.model.command_as("Q", {"action": "pickup_material",
+				"context": before_q.context, "client": "Q", "request": "saved-recycled-blank-q",
+				"center": recycled_drop.center, "expected": expected_drop})
+			opening.actor_world.sync_topology()
+			opening._refresh_from_projection(opening.model.projection())
+			var after_q: Dictionary = opening.model.projection()
+			if not _expect(q_reply.get("accepted", false) and after_q.cargo.Q.raw == 1
+					and after_q.cargo.P == before_q.cargo.P and after_q.dropped_material.is_empty()
+					and after_q.material_mass.accounted_mass == 64,
+					"Physical Q recovers the Store-restored blank without changing P's cargo or copper mass"):
+				return
 			if not await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95),
 					Vector2(1.65, 4.95)]):
 				return
@@ -1726,6 +1761,13 @@ func _arrival_run() -> void:
 				and opening.landing_crank_visual.visible,
 				"The resumed ordinary panel can make a new native command"):
 			return
+		if repeat_complete:
+			var saved_after_q: Dictionary = opening._save_worksite()
+			if not _expect(saved_after_q.get("accepted", false)
+					and saved_after_q.get("native_preflight", {}).get("accepted", false)
+					and FileAccess.file_exists(opening.save_slot),
+					"Store validates and saves the second actor's physical recovery and P's next command"):
+				return
 		_record("pass")
 		return
 	if not _expect(panel != null and not opening._object_menu_open(),
