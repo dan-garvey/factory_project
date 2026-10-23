@@ -385,6 +385,59 @@ func _component_placement_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(prefix + "-anvil.png") == OK,
 			"Retain the isolated anvil ghost snapped to the frame top.")
+	view.state.placed_components.clear()
+	view.state.cargo.P.components.wooden_frame = 1
+	choice.kind = "wooden_frame"
+	view.aimed = ""
+	view.component_nudge_active = true
+	view.state.foundations = {"raised_floor": {"cell": [1, 0], "level": 1}}
+	view.component_nudge_center = [4, 0, 0]
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and view.component_preview_blocked,
+		"A component nudged into a projected foundation shows the native occupied point in red.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		camera.position = view.component_preview.position + Vector3(1.15, 1.7, 2.4)
+		camera.look_at(view.component_preview.position)
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-foundation-blocked.png") == OK,
+			"Retain the foundation-obstructed component ghost.")
+	view.component_nudge_center = [8, 0, 0]
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and not view.component_preview_blocked,
+		"Nudging away from the foundation restores a clear ghost.")
+	view.state.foundations.clear()
+	var rock: Dictionary = SiteSurface.support_boxes()[0]
+	view.component_nudge_center = [roundi(rock.center.x / Geometry.HEIGHT_STEP),
+		roundi(rock.center.y / Geometry.HEIGHT_STEP),
+		roundi(rock.center.z / Geometry.HEIGHT_STEP)]
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and view.component_preview_blocked,
+		"A normal terrain rock's shared occupied envelope turns the ghost red.")
+	view.state.cargo.P.components.cutting_edge = 1
+	view.state.collector_assemblies = [{"center": [0, 0, 0], "toward_ore": [-1, 0, 0]}]
+	choice.kind = "cutting_edge"
+	view.component_nudge_center = [-2, 0, 0]
+	var source: Dictionary = SiteSurface.source_outcrop()
+	var source_box: AABB = Transform3D(source.basis, source.center) * \
+		AABB(-source.size * 0.5, source.size)
+	var cutter: Dictionary = view._component_candidate_box(choice.kind, view.component_nudge_center)
+	verify(source_box.intersects(AABB(cutter.center - cutter.half, cutter.size)),
+		"The trusted cutter point actually overlaps the source envelope in this control.")
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and not view.component_preview_blocked,
+		"The trusted ore-face cutting edge remains clear despite its allowed source contact.")
+	verify(view.component_preview.has_node("EdgeSupportPostLeft")
+		and is_equal_approx(view.component_preview.position.y,
+			view.component_nudge_center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT - 0.015),
+		"The cutter ghost includes its floor-reaching support at the native head height.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		camera.position = view.component_preview.position + Vector3(1.15, 1.7, 2.4)
+		camera.look_at(view.component_preview.position)
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-ore-cutter.png") == OK,
+			"Retain the allowed ore-face cutter and its floor-reaching support.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,

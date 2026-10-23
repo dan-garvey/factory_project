@@ -4594,6 +4594,7 @@ var selection_ring: MeshInstance3D
 var machine_preview: Node3D
 var component_preview: Node3D
 var component_preview_kind := ""
+var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
 var component_preview_blocked := false
 var component_preview_snap := ""
@@ -6459,12 +6460,37 @@ func _component_center_allowed(center: Array) -> bool:
 	return absf(center[0] * Geometry.HEIGHT_STEP) <= half \
 		and absf(center[2] * Geometry.HEIGHT_STEP) <= half
 
+func _component_collector_face(kind: String, center: Array) -> Dictionary:
+	if kind not in ["tool_mount", "cutting_edge"]:
+		return {}
+	var step := 1 if kind == "tool_mount" else 2
+	for face: Dictionary in state.get("collector_assemblies", []):
+		var machine: Variant = face.get("center")
+		var toward: Variant = face.get("toward_ore")
+		if machine is Array and machine.size() == 3 and toward is Array and toward.size() == 3 \
+				and center[0] == machine[0] + step * toward[0] \
+				and center[1] in [machine[1], machine[1] + 1] \
+				and center[2] == machine[2] + step * toward[2]:
+			return face
+	return {}
+
 func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 	var at := Vector3(center[0] * Geometry.HEIGHT_STEP,
 		center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
 		center[2] * Geometry.HEIGHT_STEP)
 	var occupied := at
 	var half := Vector3(0.14, 0.14, 0.14)
+	var collector_face := _component_collector_face(kind, center)
+	if not collector_face.is_empty():
+		var floor_y: float = collector_face.center[1] * Geometry.HEIGHT_STEP
+		var top_y: float = at.y + (0.28 if kind == "tool_mount" else 0.105)
+		var along_x: bool = collector_face.toward_ore[0] != 0
+		var face_half := 0.21 if kind == "tool_mount" else 0.2025
+		occupied.y = (floor_y + top_y) * 0.5
+		half = Vector3(face_half if along_x else (0.20 if kind == "tool_mount" else 0.21),
+			(top_y - floor_y) * 0.5,
+			(0.19 if kind == "tool_mount" else 0.18) if along_x else face_half)
+		return {"center": occupied, "half": half, "size": half * 2.0}
 	match kind:
 		"wooden_frame":
 			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45
@@ -6502,12 +6528,20 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			half = Vector3(Geometry.HEIGHT_STEP - 0.205, 0.14, Geometry.HEIGHT_STEP - 0.205)
 	return {"center": occupied, "half": half, "size": half * 2.0}
 
-func _component_candidate_blocked(box: Dictionary) -> bool:
+func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) -> bool:
 	var result: Dictionary = Geometry.component_boxes(state)
 	var occupied: Array = result.get("boxes", {}).values() if result.get("accepted", false) else []
 	var mechanical: Dictionary = Geometry.mechanical_boxes(state)
 	if mechanical.get("accepted", false):
 		occupied.append_array(mechanical.get("boxes", {}).values())
+	for foundation: Dictionary in state.get("foundations", {}).values():
+		var cell: Variant = foundation.get("cell")
+		if not cell is Array or cell.size() != 2 or typeof(foundation.get("level")) != TYPE_INT:
+			continue
+		var top := Vector3(cell[0] * Geometry.PITCH,
+			foundation.level * Geometry.HEIGHT_STEP, cell[1] * Geometry.PITCH)
+		occupied.append({"center": top - Vector3.UP * Geometry.FOUNDATION_DEPTH * 0.5,
+			"size": Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)})
 	for entity: Dictionary in state.get("entities", {}).values():
 		if entity.get("cell") is Array and entity.cell.size() == 2:
 			occupied.append({"center": _entity_position(entity) + Vector3.UP * 0.8,
@@ -6518,9 +6552,10 @@ func _component_candidate_blocked(box: Dictionary) -> bool:
 			occupied.append({"center": Vector3(position[0], position[1], position[2]),
 				"size": Vector3(Geometry.CAPSULE_RADIUS * 2.0, Geometry.CAPSULE_HEIGHT,
 					Geometry.CAPSULE_RADIUS * 2.0)})
+	var source_contact := kind == "cutting_edge" and not _component_collector_face(kind, center).is_empty()
 	if ProductionEnvironment.Surface != null:
 		for solid: Dictionary in ProductionEnvironment.Surface.support_boxes():
-			if solid.get("id", "") != "source_outcrop":
+			if solid.get("id", "") == "source_outcrop" and source_contact:
 				continue
 			var obstacle: AABB = Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size)
 			occupied.append({"center": obstacle.get_center(), "size": obstacle.size})
@@ -6547,7 +6582,7 @@ func _refresh_component_preview() -> void:
 	if center.size() != 3:
 		return
 	var box := _component_candidate_box(kind, center)
-	component_preview_blocked = not _component_center_allowed(center) or _component_candidate_blocked(box)
+	component_preview_blocked = not _component_center_allowed(center) or _component_candidate_blocked(kind, center, box)
 	component_preview_snap = ""
 	if component_nudge_active:
 		component_preview_snap = "Nudged point"
@@ -6558,16 +6593,30 @@ func _refresh_component_preview() -> void:
 			else "Beside %s" % pointed_kind.replace("_", " ")
 	else:
 		component_preview_snap = "Floor grid"
-	if kind != component_preview_kind:
+	var collector_face := _component_collector_face(kind, center)
+	var collector_angle := 0.0
+	var collector_support_drop := 0.0
+	var visual_center: Vector3 = box.center
+	if not collector_face.is_empty():
+		var toward: Array = collector_face.toward_ore
+		collector_angle = atan2(float(toward[2]), -float(toward[0]))
+		var floor_y: float = collector_face.center[1] * Geometry.HEIGHT_STEP
+		visual_center.y = center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT \
+			+ (0.10 if kind == "tool_mount" else -0.015)
+		collector_support_drop = visual_center.y - floor_y
+	var preview_key := "%s:%s:%s" % [kind, collector_angle, collector_support_drop]
+	if preview_key != component_preview_pose_key:
 		for child in component_preview.get_children():
 			child.free()
-		transmission_presenter.preview_component(component_preview, kind, box.size)
+		transmission_presenter.preview_component(component_preview, kind, box.size,
+			collector_angle, collector_support_drop)
 		component_preview_kind = kind
+		component_preview_pose_key = preview_key
 		component_preview_material = StandardMaterial3D.new()
 		component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		component_preview_material.roughness = 0.72
 		_style_component_preview(component_preview)
-	component_preview.position = box.center
+	component_preview.position = visual_center
 	component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
 		else Color(0.91, 0.73, 0.40, 0.56)
 	component_preview.visible = true
