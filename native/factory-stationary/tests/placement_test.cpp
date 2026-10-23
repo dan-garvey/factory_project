@@ -221,6 +221,24 @@ void shaft_occupancy() {
     }
 }
 
+void source_identity_admission() {
+    auto original = fixture().topology;
+    check(s::power_view(original).mechanical.accepted(),
+          "The complete placed-wheel source bindings are valid.");
+    auto duplicate = original;
+    duplicate.sources.push_back(duplicate.sources.front());
+    check(!s::power_view(duplicate).mechanical.accepted(),
+          "A second source binding for the same wheel is refused.");
+    auto missing = original;
+    missing.sources.front().hub = "absent-wheel";
+    check(!s::power_view(missing).mechanical.accepted(),
+          "A source cannot bind an unknown part identity.");
+    auto wrong_role = original;
+    wrong_role.sources.front().hub = "shaft-A";
+    check(!s::power_view(wrong_role).mechanical.accepted(),
+          "A source cannot bind a real shaft instead of a waterwheel.");
+}
+
 void belt_span_custody() {
     s::Topology topology;
     topology.parts = {hub("wheel", s::Role::waterwheel, {0, 0, -4}),
@@ -291,6 +309,7 @@ int main() {
         rebuild_returned_source();
         exact_specification_and_refusals();
         shaft_occupancy();
+        source_identity_admission();
         belt_span_custody();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"invented_stationary_rebuild\","
                      "\"checks\":" << checks << "}\n";

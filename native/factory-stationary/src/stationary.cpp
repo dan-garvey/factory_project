@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <limits>
 #include <set>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace factory::stationary {
 namespace {
@@ -77,6 +80,9 @@ bool structure(const Topology& topology) {
 
     std::set<std::string> ids;
     std::set<Role> machines;
+    std::unordered_map<std::string_view, const PlacedPart*> parts_by_id;
+    parts_by_id.reserve(topology.parts.size());
+    std::vector<const PlacedPart*> shafts;
     for (const auto& part : topology.parts) {
         if (part.role == Role::belt || !identity(part.geometry.id) || part.generation <= 0 ||
             !valid_spec(specification(part)) || !valid_rotation(part)) return false;
@@ -87,6 +93,8 @@ bool structure(const Topology& topology) {
                               mechanics::Kind::hub;
         if (part.geometry.kind != expected || !ids.insert(part.geometry.id).second)
             return false;
+        parts_by_id.emplace(part.geometry.id, &part);
+        if (part.role == Role::shaft) shafts.push_back(&part);
         if ((part.role == Role::gearbox && part.geometry.axis != mechanics::Axis::y) ||
             (part.role == Role::vertical_gearbox && part.geometry.axis == mechanics::Axis::y)) return false;
         if ((part.role == Role::collector || part.role == Role::processor) &&
@@ -97,15 +105,15 @@ bool structure(const Topology& topology) {
         if (!identity(span.geometry.id) || span.generation <= 0 || !ids.insert(span.geometry.id).second)
             return false;
 
-    for (std::size_t i = 0; i < topology.parts.size(); ++i)
-        for (std::size_t j = i + 1; j < topology.parts.size(); ++j)
-            if (overlapping_shafts(topology.parts[i], topology.parts[j])) return false;
+    for (std::size_t i = 0; i < shafts.size(); ++i)
+        for (std::size_t j = i + 1; j < shafts.size(); ++j)
+            if (overlapping_shafts(*shafts[i], *shafts[j])) return false;
 
     std::set<std::string> sources;
     for (const auto& source : topology.sources) {
         if (!identity(source.hub) || source.rate.denominator <= 0) return false;
-        const auto* part = find(topology, source.hub);
-        if (part == nullptr || part->role != Role::waterwheel ||
+        const auto part = parts_by_id.find(source.hub);
+        if (part == parts_by_id.end() || part->second->role != Role::waterwheel ||
             !sources.insert(source.hub).second) return false;
     }
     return true;
