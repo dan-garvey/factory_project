@@ -4044,6 +4044,12 @@ class MechanicalAmbience:
 	var emitters: Dictionary = {}
 	var listener: AudioListener3D
 	var context := ""
+	var scanned_entities: Dictionary = {}
+	var scanned_motions: Dictionary = {}
+	var scanned_listener_position := Vector3.ZERO
+	var scanned_revision := -1
+	var scanned_order := -1
+	var source_scan_ready := false
 
 	func _init() -> void:
 		listener = AudioListener3D.new()
@@ -4104,6 +4110,11 @@ class MechanicalAmbience:
 		if is_inside_tree() and listener.is_current():
 			listener.clear_current()
 		context = ""
+		scanned_entities = {}
+		scanned_motions = {}
+		scanned_revision = -1
+		scanned_order = -1
+		source_scan_ready = false
 
 	func sync(snapshot: Dictionary, actor: String, ready: bool, camera_basis: Basis) -> void:
 		var options: Variant = snapshot.get("options")
@@ -4127,6 +4138,23 @@ class MechanicalAmbience:
 		listener.basis = camera_basis.orthonormalized()
 		if not listener.is_current():
 			listener.make_current()
+		# A borrowed native observation keeps its source dictionaries immutable
+		# until the next confirmed cut. Actor publications may replace only its
+		# actor facts, so the physical ear position is a separate cache key.
+		# Camera rotation still reaches the listener on every render cut.
+		var revision: Variant = snapshot.get("revision")
+		var order: Variant = snapshot.get("order")
+		var versioned := typeof(revision) == TYPE_INT and typeof(order) == TYPE_INT
+		if versioned and source_scan_ready and revision == scanned_revision and order == scanned_order \
+				and is_same(entities, scanned_entities) and is_same(motions, scanned_motions) \
+				and listener.position == scanned_listener_position:
+			return
+		scanned_entities = entities
+		scanned_motions = motions
+		scanned_listener_position = listener.position
+		scanned_revision = int(revision) if versioned else -1
+		scanned_order = int(order) if versioned else -1
+		source_scan_ready = versioned
 		var audible: Dictionary = {}
 		for id: Variant in entities:
 			var entity: Variant = entities[id]

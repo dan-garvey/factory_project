@@ -1266,6 +1266,22 @@ and unchanged invented state. These checks create no live Model. They do not
 establish full-scene appearance, human understanding, timed tool use or contact
 animation; those require their own actual consumer evidence.
 
+## GDC-24: replaceable shared views must not queue behind old actor samples
+
+The shared adapter publishes full state while native bodies move. Reliable
+delivery of every superseded pose can leave a slow rendered client displaying
+old positions and stock. Session uses ordered unreliable channel 1 for these
+replaceable snapshots and coalesces each received burst before cloning state and
+notifying the view. Welcome, input, commands and original outcomes remain reliable
+on channel 0; outcomes are processed immediately, with monotonic view checks.
+This changes presentation delivery, not the World clock or actor authority.
+
+Godot's [transfer-mode and channel documentation](https://docs.godotengine.org/en/stable/tutorials/networking/high_level_multiplayer.html#channels)
+describes the independent streams. The [pinned ENet implementation](https://github.com/godotengine/godot/blob/ed1daf0bf/modules/enet/enet_multiplayer_peer.cpp#L315)
+supports unreliable fragmentation. Large full-state packets can lose fragments;
+continued publication supplies a newer view. This is a bounded loopback adapter,
+not a claim of production networking, packet-loss tolerance or scale acceptance.
+
 ## Required follow-through
 
 This first source/API/evidence audit leaves actual backend identification,
