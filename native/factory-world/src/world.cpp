@@ -1835,7 +1835,8 @@ static bool tick_preserves_history_bound_fields(const State& prior, const State&
 
 static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot,
                                 const DrivePower* evaluated_drive,
-                                bool replay_history = true) {
+                                bool replay_domain = true,
+                                bool replay_generic = true) {
     if (profile.actors.empty() || profile.actors.size() > maximum_actors || profile.initial_units < 0 ||
         profile.finite_parts.size() + profile.fabrication_parts.size() > stationary::maximum_specifications ||
         profile.waterwheel_rate.numerator == 0 || profile.waterwheel_rate.denominator <= 0 ||
@@ -2006,7 +2007,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     if (state.material.initial_units != profile.initial_units ||
         state.material.cargo.size() != profile.actors.size() || state.kits.size() != profile.actors.size() ||
         state.issued_entities.size() > maximum_issued_entities || state.next_entity_serial < 1 ||
-        (replay_history && authority::validate_history(snapshot.history, snapshot.revision) !=
+        (replay_generic && authority::validate_history(snapshot.history, snapshot.revision) !=
             authority::Error::none))
         return false;
     std::size_t current_work = state.material.processing ? 1 : 0;
@@ -2140,7 +2141,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
                            !drive_power(profile, state).mechanical.accepted()) ||
         materials::validate(state.material, profile.material, material_path(state.topology)) != materials::Error::none)
         return false;
-    return !replay_history || history_domain(profile, snapshot, totals);
+    return !replay_domain || history_domain(profile, snapshot, totals);
 }
 
 bool validate(const Profile& profile, const Snapshot& snapshot) {
@@ -2173,6 +2174,13 @@ Delivery World::command(const Binding& binding, const Object& intent, const Obse
                 owner_->current_revision()};
     return owner_->apply(intent, [&](const Snapshot& snapshot, const Object& request) {
         return plan(binding, snapshot, request, observe);
+    }, [&](const Snapshot& candidate) {
+        // The validated prior and the native planner are the only sources of a
+        // command candidate. Owner checks the appended generic history before
+        // the swap; this checks the current structural and material state.
+        // Full domain replay remains mandatory on create, restore and the
+        // public validator used by independent command audits.
+        return validate_with_drive(profile_, candidate, nullptr, false, false);
     });
 }
 
@@ -2183,7 +2191,10 @@ Delivery World::refuse(const Binding& binding, const Object& intent, std::string
     if (!profile_.actors.contains(binding.actor) || !identity(binding.client) ||
         !actor || *actor != binding.actor || !client || *client != binding.client)
         return {TransactionError::history, authority::Error::wrong_actor, std::nullopt, owner_->current_revision()};
-    return owner_->apply(intent, [&](const Snapshot&, const Object&) { return refused(std::move(reason)); });
+    return owner_->apply(intent, [&](const Snapshot&, const Object&) { return refused(std::move(reason)); },
+        [&](const Snapshot& candidate) {
+            return validate_with_drive(profile_, candidate, nullptr, false, false);
+        });
 }
 
 Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
@@ -3677,7 +3688,7 @@ Advance World::tick() noexcept {
         // proved the exact history. This trusted transition retains that log,
         // checks command-bound fields above, then validates current State.
         return prior && tick_preserves_history_bound_fields(prior->state, candidate.state) &&
-            tick_drive_ && validate_with_drive(profile_, candidate, &*tick_drive_, false);
+            tick_drive_ && validate_with_drive(profile_, candidate, &*tick_drive_, false, false);
     });
 }
 

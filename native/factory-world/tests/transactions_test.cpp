@@ -221,6 +221,24 @@ void failed_preparation_is_atomic() {
     unchanged(*owner, before);
 }
 
+void trusted_command_validator_is_atomic() {
+    auto owner = Owner::create_new("world-1", Marker{}, valid);
+    const auto before = owner->snapshot();
+    const auto rejected = owner->apply(intent("trusted:1"), [](const auto&, const auto&) {
+        return accepted(1);
+    }, [](const auto&) { return false; });
+    require(rejected.error == w::TransactionError::invalid_candidate && !rejected.result,
+            "A trusted command validator can reject before publishing its appended history.");
+    unchanged(*owner, before);
+    const auto committed = owner->apply(intent("trusted:1"), [](const auto&, const auto&) {
+        return accepted(1);
+    }, valid);
+    const auto after = owner->snapshot();
+    require(committed.completed() && after.state.value == 1 && after.history.order == 1 &&
+            a::validate_history(after.history, after.revision) == a::Error::none,
+            "A rejected trusted command leaves its request identity and prefix proof reusable.");
+}
+
 struct CopyFault {
     static inline bool fail{};
     I marker{};
@@ -370,6 +388,7 @@ int main() {
         creation_and_detached_reads();
         commit_refusal_and_historical_retry();
         failed_preparation_is_atomic();
+        trusted_command_validator_is_atomic();
         refused_state_copy_failure();
         advance_with_domain_witness();
         retained_history_step_is_atomic();

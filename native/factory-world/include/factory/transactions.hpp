@@ -84,10 +84,10 @@ public:
         if (!validator) return nullptr;
         auto initial = std::make_unique<Snapshot>(
             Snapshot{seed, {std::move(context), 0, {}}, 0});
-        if (authority::validate_history(initial->history, 0) != authority::Error::none ||
-            !validator(*initial)) return nullptr;
+        auto proof = authority::prove_history(initial->history, 0);
+        if (!proof || !validator(*initial)) return nullptr;
         return std::unique_ptr<TransactionOwner>(
-            new TransactionOwner(std::move(initial), std::move(validator)));
+            new TransactionOwner(std::move(initial), std::move(validator), std::move(*proof)));
     }
 
     // Explicit import of a complete already decoded snapshot. Validate before
@@ -95,11 +95,12 @@ public:
     // There is no fallback to create_new when this path refuses.
     [[nodiscard]] static std::unique_ptr<TransactionOwner> restore(
             const Snapshot& saved, Validator validator) {
-        if (!validator || authority::validate_history(saved.history, saved.revision) != authority::Error::none ||
-            !validator(saved)) return nullptr;
+        if (!validator) return nullptr;
+        auto proof = authority::prove_history(saved.history, saved.revision);
+        if (!proof || !validator(saved)) return nullptr;
         auto initial = std::make_unique<Snapshot>(saved);
         return std::unique_ptr<TransactionOwner>(
-            new TransactionOwner(std::move(initial), std::move(validator)));
+            new TransactionOwner(std::move(initial), std::move(validator), std::move(*proof)));
     }
 
     TransactionOwner(const TransactionOwner&) = delete;
@@ -201,11 +202,18 @@ public:
     // API nor the generic history helper accepts a client pose as authority.
     template<class Handler>
     [[nodiscard]] Delivery apply(const authority::Object& intent, Handler&& handler) noexcept {
+        return apply(intent, std::forward<Handler>(handler), validator_);
+    }
+
+    // A domain owner may supply a validator for a trusted command plan. The
+    // generic appended-history envelope is still checked here before commit.
+    template<class Handler, class CandidateValidator>
+    [[nodiscard]] Delivery apply(const authority::Object& intent, Handler&& handler,
+                                 CandidateValidator&& validate_candidate) noexcept {
         if (applying_) return failure(TransactionError::reentrant);
         Active guard(applying_);
         try {
-            const auto lookup = authority::inspect_request(
-                current_->history, intent, current_->revision);
+            const auto lookup = authority::inspect_validated_request(current_->history, intent);
             if (lookup.error != authority::Error::none)
                 return failure(TransactionError::history, lookup.error);
             if (lookup.cached) {
@@ -220,25 +228,56 @@ public:
             if (decision.outcome.accepted != decision.candidate.has_value())
                 return failure(TransactionError::invalid_decision);
 
-            auto prepared = authority::prepare_record(current_->history, intent,
+            auto prepared = authority::prepare_record_tail(current_->history, intent,
                 decision.outcome, current_->revision);
             if (prepared.error != authority::Error::none)
                 return failure(TransactionError::history, prepared.error);
-            if (prepared.duplicate || !prepared.next || !prepared.record)
+            if (!prepared.record)
                 return failure(TransactionError::invalid_decision);
 
             State next_state = decision.candidate
                 ? std::move(*decision.candidate) : current_->state;
             auto next = std::make_unique<Snapshot>(Snapshot{
-                std::move(next_state), std::move(*prepared.next),
+                std::move(next_state), {},
                 prepared.resulting_revision});
-            if (!validator_(*next)) return failure(TransactionError::invalid_candidate);
+            struct HistoryAppend {
+                Snapshot& prior;
+                Snapshot& candidate;
+                bool appended{};
+                bool committed{};
+                HistoryAppend(Snapshot& old_snapshot, Snapshot& new_snapshot) noexcept
+                    : prior(old_snapshot), candidate(new_snapshot) {
+                    using std::swap;
+                    swap(prior.history, candidate.history);
+                }
+                ~HistoryAppend() noexcept {
+                    if (committed) return;
+                    if (appended) {
+                        candidate.history.records.pop_back();
+                        --candidate.history.order;
+                    }
+                    using std::swap;
+                    swap(prior.history, candidate.history);
+                }
+            } append(*current_, *next);
+            next->history.records.push_back(std::move(*prepared.record));
+            ++next->history.order;
+            append.appended = true;
+            authority::HistoryProof next_proof;
+            if (!authority::validate_history_append(next->history, next->revision, proof_, next_proof) ||
+                !std::invoke(std::forward<CandidateValidator>(validate_candidate),
+                             std::as_const(*next)))
+                return failure(TransactionError::invalid_candidate);
 
             // Prepare delivery before the only commit. Stored duplicate remains
             // false, and every returned map is owned independently of history.
             Delivery delivery{TransactionError::none, authority::Error::none,
-                              std::move(prepared.record->result), next->revision};
+                              next->history.records.back().result, next->revision};
+            static_assert(std::is_nothrow_swappable_v<authority::HistoryProof>);
+            using std::swap;
+            swap(proof_, next_proof);
             current_.swap(next);
+            append.committed = true;
             return delivery;
         } catch (...) {
             // Preparation, handler and validator failures publish no result or
@@ -258,8 +297,9 @@ private:
         bool& flag_;
     };
 
-    TransactionOwner(std::unique_ptr<Snapshot> initial, Validator validator) noexcept
-        : current_(std::move(initial)), validator_(std::move(validator)) {}
+    TransactionOwner(std::unique_ptr<Snapshot> initial, Validator validator,
+                     authority::HistoryProof proof) noexcept
+        : current_(std::move(initial)), validator_(std::move(validator)), proof_(std::move(proof)) {}
 
     [[nodiscard]] Delivery failure(TransactionError error,
             authority::Error history_error = authority::Error::none) const noexcept {
@@ -268,6 +308,7 @@ private:
 
     std::unique_ptr<Snapshot> current_;
     Validator validator_;
+    authority::HistoryProof proof_;
     bool applying_{};
 };
 

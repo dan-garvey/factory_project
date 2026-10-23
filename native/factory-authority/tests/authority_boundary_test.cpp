@@ -75,6 +75,54 @@ void history_and_replay() {
     require(spoof.error == a::Error::invalid_outcome && !spoof.next, "Extra facts cannot replace authority envelope fields.");
 }
 
+void validated_prefix_append() {
+    const a::History empty{"world-1", 0, {}};
+    const auto proof = a::prove_history(empty, 0);
+    require(proof && proof->records == 0, "An empty validated prefix has a usable proof.");
+    const auto first = a::prepare_record(empty, intent(), {true, "placed", "gear-1", {}}, 0);
+    a::HistoryProof next;
+    require(first.next && a::validate_history_append(*first.next, 1, *proof, next) &&
+            next.records == 1 && next.last_record_revision == 1 &&
+            a::prove_history(*first.next, 1)->nodes == next.nodes &&
+            a::prove_history(*first.next, 1)->bytes == next.bytes,
+            "An appended accepted record has the same aggregate proof as full replay.");
+    const auto refused = a::prepare_record(*first.next, intent("P", "peer-a:2"),
+        {false, "blocked", "", {}}, 3);
+    a::HistoryProof after_refusal;
+    require(refused.next && a::validate_history_append(*refused.next, 3, next, after_refusal) &&
+            after_refusal.last_record_revision == 3 &&
+            a::prove_history(*refused.next, 3)->nodes == after_refusal.nodes,
+            "A refusal after two unrecorded ticks retains its literal revision and budget.");
+    auto duplicate = *first.next;
+    duplicate.records.push_back(duplicate.records.front());
+    duplicate.order = 2;
+    duplicate.records.back().result["order"] = V(I{2});
+    duplicate.records.back().result["revision"] = V(I{2});
+    require(!a::validate_history_append(duplicate, 2, next, after_refusal),
+            "A tail proof refuses a repeated client-request pair.");
+    auto corrupt = *refused.next;
+    corrupt.records.back().result["duplicate"] = V(true);
+    require(!a::validate_history_append(corrupt, 3, next, after_refusal),
+            "A delivered duplicate flag cannot become an original historical receipt.");
+
+    a::History bounded = empty;
+    const a::Outcome large_refusal{false, "blocked", "", {{"payload", V(std::string(1'000'000, 'x'))}}};
+    for (int index = 0; index < 4; ++index) {
+        const std::string request = "large:" + std::to_string(index);
+        const auto prepared = a::prepare_record(bounded, intent("P", request.c_str()), large_refusal, 0);
+        require(prepared.next.has_value(), "The bounded prefix accepts four individually valid large receipts.");
+        bounded = std::move(*prepared.next);
+    }
+    const auto bounded_proof = a::prove_history(bounded, 0);
+    const auto fifth = a::prepare_record_tail(bounded, intent("P", "large:4"), large_refusal, 0);
+    require(bounded_proof && fifth.record, "A valid prefix prepares one more individually bounded receipt.");
+    ++bounded.order;
+    bounded.records.push_back(std::move(*fifth.record));
+    require(!a::validate_history_append(bounded, 0, *bounded_proof, after_refusal) &&
+            a::validate_history(bounded, 0) == a::Error::limit,
+            "The incremental proof and full replay both refuse the cumulative text budget.");
+}
+
 void import_and_bounds() {
     const a::History empty{"world-1", 0, {}};
     const auto first = a::prepare_record(empty, intent(), {true, "placed", "gear-1", {}}, 0);
@@ -179,6 +227,7 @@ void literal_reach() {
 int main() {
     try {
         history_and_replay();
+        validated_prefix_append();
         import_and_bounds();
         literal_reach();
         std::cout << "Passed " << checks << " invented authority-boundary checks. No engine or live World was started.\n";

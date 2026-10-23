@@ -3,6 +3,7 @@
 #include "factory/value.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -59,13 +60,42 @@ struct Preparation {
     Integer resulting_revision{};
 };
 
+struct TailPreparation {
+    Error error{Error::none};
+    std::optional<Record> record;
+    Integer resulting_revision{};
+};
+
+// Derived proof of a fully validated immutable prefix. TransactionOwner keeps
+// it with the canonical history and advances it only after an atomic commit.
+struct HistoryProof {
+    std::string context;
+    std::size_t records{};
+    std::size_t nodes{};
+    std::size_t bytes{};
+    Integer last_record_revision{};
+};
+
 [[nodiscard]] const char* error_name(Error) noexcept;
 [[nodiscard]] Error validate_history(const History&, Integer current_revision);
+[[nodiscard]] std::optional<HistoryProof> prove_history(const History&, Integer current_revision);
+// The caller must have checked this request is fresh against the proved prefix.
+// Validate only the appended record and aggregate depth/node/text budget.
+[[nodiscard]] bool validate_history_append(const History&, Integer current_revision,
+                                           const HistoryProof& prior, HistoryProof& next);
 
 // Call before any current admission or rule evaluation. A retry returns the
 // original stored result; no current pose, topology or recipe is an input.
 [[nodiscard]] Lookup inspect_request(const History&, const Object& intent,
                                      Integer current_revision);
+
+// TransactionOwner has already validated its current immutable history on
+// create, restore or the last commit. These helpers inspect that exact prefix
+// and prepare one bounded record without replaying or copying the prefix.
+// The owner must validate the appended history before its atomic commit.
+[[nodiscard]] Lookup inspect_validated_request(const History&, const Object& intent);
+[[nodiscard]] TailPreparation prepare_record_tail(const History&, const Object& intent,
+                                                  const Outcome&, Integer current_revision);
 
 // Pure preparation, never a commit. The owning World must validate and commit
 // the material/topology candidate and this history candidate together.
