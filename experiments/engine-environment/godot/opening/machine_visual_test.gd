@@ -426,10 +426,27 @@ func _batch_motion_check() -> void:
 			"Every wheel keeps its own confirmed motion instead of borrowing the last wheel rotor.")
 	view.state.entities["wheel-11"].cell = [100, 0]
 	view._rebuild_machines()
+	var isolated_rotor := view.machine_root.get_child(11).get_node("WheelRotor") as Node3D
+	_check(not view.machine_batched_rotors.has(isolated_rotor.get_instance_id())
+		and isolated_rotor.find_children("*", "MeshInstance3D", true, false).any(
+			func(part: Node) -> bool: return part.visible and (part as MeshInstance3D).visibility_range_end <= 0.0),
+		"A lone wheel in a spatial cell keeps its original rendered rotor mesh.")
+	view.state.entities["wheel-8"].cell = [101, 0]
+	view._rebuild_machines()
 	view.camera = Camera3D.new()
 	view.add_child(view.camera)
 	var near_rotor := view.machine_root.get_child(0).get_node("WheelRotor") as Node3D
 	var far_rotor := view.machine_root.get_child(11).get_node("WheelRotor") as Node3D
+	var near_group := -1
+	var far_group := -1
+	for group_index in view.machine_dynamic_batches.size():
+		for part: Dictionary in view.machine_dynamic_batches[group_index].parts:
+			if part.node == near_rotor:
+				near_group = group_index
+			elif part.node == far_rotor:
+				far_group = group_index
+	_check(near_group >= 0 and far_group >= 0 and near_group != far_group,
+		"Nearby and distant wheels use separate moving batches with the same authored rotor mesh.")
 	var far_base := far_rotor.basis
 	var far_id := far_rotor.get_instance_id()
 	view._animate_wheel(0.1)

@@ -7333,6 +7333,9 @@ const MACHINE_BATCH_THRESHOLD := 12
 # covers the largest authored rim and a camera move between render cuts.
 const WHEEL_DETAIL_UPDATE_RADIUS := 48.0
 const WHEEL_MOTION_VISIBILITY_MARGIN := 16.0
+# Bound moving rotor batches by worksite region so distant wheels do not
+# submit the complete field to the color and shadow passes.
+const WHEEL_ROTOR_BATCH_CELL := 32.0
 
 func _machine_batch_surface_mesh(part: MeshInstance3D) -> Mesh:
 	var source: Mesh = part.mesh
@@ -7534,7 +7537,9 @@ func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 		var hidden_core: Array[MeshInstance3D] = []
 		var combined := _wheel_rotor_batch_mesh(node, hidden_core)
 		if combined != null:
-			var key := [combined.get_instance_id(), 0, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, 1]
+			var bucket := Vector2i(floori(next_pose.origin.x / WHEEL_ROTOR_BATCH_CELL),
+				floori(next_pose.origin.z / WHEEL_ROTOR_BATCH_CELL))
+			var key := [combined.get_instance_id(), 0, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, 1, bucket]
 			if not dynamic_groups.has(key):
 				dynamic_groups[key] = {"mesh": combined, "material": null,
 					"shadow": GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "layers": 1, "parts": []}
