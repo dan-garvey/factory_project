@@ -51,7 +51,7 @@ axle variants, press rotations and axles, belt axles and resized waterwheels
 use baked presentation resources. The native opening requests those
 resources during its arrival reveal, then attaches them only after loading has
 finished. Waterwheel preview resources share one baked rotor per size and one
-support module per alternate axle. They cover sizes three through sixteen on
+support module per alternate axle. They cover sizes three through nine on
 all three axes; larger sizes retain the procedural preview path. This preview
 range is not a native wheel-size rule.
 The native Belt slot places a shaft span, so its baked machine form is retained

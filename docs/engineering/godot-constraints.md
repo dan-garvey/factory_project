@@ -1506,12 +1506,15 @@ says detached scene chunks can be built in a worker, but instancing rendering
 nodes on worker threads is not thread safe by default. The current preview
 adapter therefore reuses the packed collector and press bodies, swaps small
 prebaked intake or drive modules and rotates exact existing parts on the main
-thread. Wheel sizes three through sixteen share one compressed baked rotor per
+thread. Wheel sizes three through nine share one compressed baked rotor per
 size, two alternate-axle support modules and the default packed wheel. This
 preserves exact procedural geometry without duplicating every size for every
 axle. Resource requests run four at a time during the native arrival reveal,
-after the workshop cover is removed. The 25 variant resources keep the staged
-Godot project below the existing 48 MiB compiler-input cap.
+after the workshop cover is removed. The 18 variant resources keep the staged
+Godot project below the existing 48 MiB compiler-input cap after the current
+main character-asset join. The broader three-through-sixteen candidate passed
+the same fixture on its own revision but exceeded that cap after the join.
+The joined three-through-nine range passed 108 headless variant cases.
 
 An invented-state graphical fixture on pinned Godot 4.7.2 WSL Compatibility,
 RTX 3090 and 1280 by 800 measured the earlier whole-scene candidate's first
@@ -1520,13 +1523,14 @@ at about 4.1, 1.8, 4.6 and 6.5 ms CPU after the default form had drawn. Their
 first visible draw intervals were about 9 to 14 ms. The shared-rotor candidate
 measured 5.672 ms CPU and 6.472 ms first draw for an alternate-axle nine-tile
 wheel on WSL Wayland. One hundred twenty-nine headless variant cases compared
-baked world geometry with procedural forms. A passive ordinary native opening
-reached cover removal at 19.847 s; its 25 resource requests completed at
+the broader candidate's baked world geometry with procedural forms. A passive
+ordinary native opening for that candidate reached cover removal at 19.847 s;
+its 25 resource requests completed at
 20.606 s, before the 22.693 s end of the arrival reveal. The earlier
 whole-scene candidate reached cover removal at 19.579 s, and its paired
 no-request control at 19.774 s. These are source-matched adapter and WSL
 renderer measurements, not a human selection or Windows target result.
-Wheel sizes above sixteen retain procedural preview construction; this is a
+Wheel sizes above nine retain procedural preview construction; this is a
 preview-cache limit, not a native size rule. Exact logs and revision limits are
 in `factory-yau.9.27.1`.
 
