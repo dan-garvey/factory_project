@@ -21,6 +21,7 @@ Value::Value(const char* value) : data_(std::string{}) {
 Value::Value(Array value) : data_(std::move(value)) {}
 Value::Value(Object value) : data_(std::move(value)) {}
 Type Value::type() const noexcept { return static_cast<Type>(data_.index()); }
+Value::Object Value::take_object() && { return std::get<Object>(std::move(data_)); }
 
 const char* type_name(Type type) noexcept {
     switch (type) {

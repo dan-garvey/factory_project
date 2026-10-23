@@ -460,6 +460,14 @@ void actor_feed_is_physical_custody() {
     run.accept("P", pickup_product);
     check(run.world->snapshot().state.material.cargo.at("P").products == 1,
           "A physical actor retrieves the single formed product.");
+    auto forged_export = run.world->snapshot();
+    check(forged_export.state.press_output_at_exit.empty() &&
+          forged_export.state.press_output_exported.empty(),
+          "The actor pickup fixture has no press output export witness.");
+    forged_export.state.press_output_exported[{7, 1, 0}].insert(
+        formed.state.press_output_at_exit.at({7, 1, 0}));
+    check(!w::World::restore("press-feed", source.profile, forged_export),
+          "A checkpoint cannot claim that an actor-picked plate was exported to a belt.");
     auto forged_finish = run.world->snapshot();
     V::Array prior_work;
     for (const auto& record : forged_finish.history.records)

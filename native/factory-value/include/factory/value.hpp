@@ -34,6 +34,10 @@ public:
 
     [[nodiscard]] Type type() const noexcept;
     [[nodiscard]] const Storage& storage() const noexcept { return data_; }
+    // A completed wire value can transfer its root without copying the
+    // potentially large nested object. The rvalue qualifier prevents a
+    // borrowed authority snapshot from being consumed accidentally.
+    [[nodiscard]] Object take_object() &&;
 
 private:
     Storage data_;

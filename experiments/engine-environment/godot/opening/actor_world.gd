@@ -377,11 +377,15 @@ func _array(at: Vector3) -> Array:
 func _geometry_registered() -> bool:
 	if floor_body == null or global_transform != Transform3D.IDENTITY:
 		return false
+	# Validate every registered body against one current World cut. Rebuilding
+	# the native projection inside the per-machine loop scales with both the
+	# number of machines and the size of the complete worksite.
+	var snapshot: Dictionary = model.projection()
 	var space: RID = get_world_3d().space
-	var derived: Dictionary = Geometry.mechanical_boxes(model.projection())
+	var derived: Dictionary = Geometry.mechanical_boxes(snapshot)
 	if not derived.get("accepted", false) or derived.boxes != mechanical_specs or mechanical_bodies.size() != mechanical_specs.size():
 		return false
-	var components: Dictionary = Geometry.component_boxes(model.projection())
+	var components: Dictionary = Geometry.component_boxes(snapshot)
 	if not components.get("accepted", false) or components.boxes != component_specs \
 			or component_bodies.size() != component_specs.size():
 		return false
@@ -446,7 +450,7 @@ func _geometry_registered() -> bool:
 		var entity_id: String = str(body.get_meta("entity", "")) if body != floor_body else ""
 		var entity_spec: Dictionary = machine_specs.get(entity_id, {})
 		var support_result: Dictionary = Geometry.wheel_support_boxes(entity_spec) if entity_spec.has("supports") else {"accepted": true, "boxes": []}
-		var intake_result: Dictionary = Geometry.collector_intake_boxes(entity_spec) if model.projection().get("options", {}).get("native", false) else {"accepted": true, "boxes": []}
+		var intake_result: Dictionary = Geometry.collector_intake_boxes(entity_spec) if snapshot.get("options", {}).get("native", false) else {"accepted": true, "boxes": []}
 		if not support_result.get("accepted", false) or not intake_result.get("accepted", false):
 			return false
 		var expected_shape_count: int = 1 + support_result.boxes.size() + intake_result.boxes.size()
