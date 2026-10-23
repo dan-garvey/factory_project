@@ -270,6 +270,14 @@ authority::Point anchor(const Profile& profile, const mechanics::Point& point) {
             static_cast<double>(point[2]) * profile.meters_per_grid_unit + profile.anchor_offset[2]};
 }
 
+std::vector<authority::Point> broad_reach_targets(const Profile& profile,
+                                                   const mechanics::Point& origin) {
+    std::vector<authority::Point> targets;
+    targets.reserve(4);
+    for (const auto& cell : broad_cells(origin)) targets.push_back(anchor(profile, cell));
+    return targets;
+}
+
 // A rectangle uses the same absolute quarter-pitch coordinates as every part.
 // Bound the complete request before enumerating it or changing any custody.
 std::vector<mechanics::Point> foundation_area(const Object& intent) {
@@ -563,7 +571,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
         !position || !points || !distances ||
         (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
-         broad_pickup ? points->size() != 4 :
+         (broad_pickup || action == "feed_broad_press" ||
+             action == "refeed_broad_press_work") ? points->size() != 4 :
          points->size() != (((two_endpoints(action) && action != "place_selected_belt_span") ||
              action == "compact_offcuts") ? 2 : 1)) ||
         distances->size() != points->size()) return false;
@@ -612,12 +621,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
         if (!location || targets.front() != anchor(profile, *location) ||
-            (broad_pickup && (targets[1] != anchor(profile,
-                {(*location)[0] + 4, (*location)[1], (*location)[2]}) ||
-                targets[2] != anchor(profile,
-                {(*location)[0], (*location)[1], (*location)[2] + 4}) ||
-                targets[3] != anchor(profile,
-                {(*location)[0] + 4, (*location)[1], (*location)[2] + 4}))) ||
+            (broad_pickup && targets != broad_reach_targets(profile, *location)) ||
             !raw || *raw < 0 || !products || *products < 0 ||
             !work || work->size() > maximum_current_work || !entity || !entity->empty() || !generation || *generation != 0 ||
             !press_id || *press_id < 0 || (*press_id > 0 && *products != 1) ||
@@ -825,7 +829,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             std::get_if<Object>(&lots->front().storage()) : nullptr;
         return target && entity && *target == *entity && requested_generation && generation &&
             *requested_generation == *generation && *generation > 0 && location &&
-            targets.front() == anchor(profile, *location) &&
+            targets == broad_reach_targets(profile, *location) &&
             result.size() == (refeed ? 18 : 19) &&
             (refeed ? (work_id && *work_id > 0 && lot && lot->size() == 8 &&
                 field<std::string>(*lot, "output_form") &&
@@ -3273,12 +3277,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto cut = observe(binding.actor);
         if (!cut) return refused("actor_unready");
         cut->build_reach = profile_.build_reach;
-        std::vector<authority::Point> reach_targets{anchor(profile_, *point)};
-        if (broad_item)
-            for (const mechanics::Point offset : {mechanics::Point{4, 0, 0},
-                    mechanics::Point{0, 0, 4}, mechanics::Point{4, 0, 4}})
-                reach_targets.push_back(anchor(profile_, {(*point)[0] + offset[0],
-                    (*point)[1], (*point)[2] + offset[2]}));
+        std::vector<authority::Point> reach_targets = broad_item ?
+            broad_reach_targets(profile_, *point) :
+            std::vector<authority::Point>{anchor(profile_, *point)};
         auto reach = authority::check_reach(binding.actor, *cut, reach_targets);
         Object facts = reach.receipt ? reach_facts(binding, *reach.receipt) : Object{};
         if (reach.error != authority::Error::none) return refused(authority::error_name(reach.error), "", std::move(facts));
@@ -3645,7 +3646,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto checked_cut = *cut;
         checked_cut.build_reach = profile_.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, press.origin)});
+            broad_reach_targets(profile_, press.origin));
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
