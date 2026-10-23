@@ -1,51 +1,54 @@
 {
-  "asset": "shrub_03",
-  "source": "https://polyhaven.com/a/shrub_03",
+  "asset": "searsia_lucida",
+  "source": "https://polyhaven.com/a/searsia_lucida",
   "license": "CC0-1.0",
-  "author": "Rico Cilliers",
-  "captured": "2026-10-22",
+  "authors": {
+    "model": "James Ray Cock",
+    "photography": "Jenelle van Heerden"
+  },
+  "captured": "2026-10-23",
   "source_pins": [
     {
-      "file": "shrub_03_1k.gltf",
-      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/shrub_03/shrub_03_1k.gltf",
-      "bytes": 7296,
-      "api_md5": "2c1ef10ff17e23f81d29c851d1409c9a",
-      "sha256": "b76d7c14bc027e834e82d3f984c32b5d060e62908aa90ff9420a637ca253a8ea"
+      "file": "searsia_lucida_1k.gltf",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/searsia_lucida/searsia_lucida_1k.gltf",
+      "bytes": 31443,
+      "api_md5": "befd961f4f139131eda7dfca952e8d78",
+      "sha256": "ebdc8d776c058b9a6f9a04c57ca0540368531febd3bfa007d2e2d8af8d368f67"
     },
     {
-      "file": "shrub_03.bin",
-      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/4k/shrub_03/shrub_03.bin",
-      "bytes": 238684,
-      "api_md5": "c26c6ed23b0034664eab5a0e3ee00f6a",
-      "sha256": "bf4df21e6d2a2bc5f00b4c9142f776171fe7da00cf960001825748067af542b6"
+      "file": "searsia_lucida.bin",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/searsia_lucida/searsia_lucida.bin",
+      "bytes": 17913396,
+      "api_md5": "aa4c42ee903a3ac22d53386d82480e6d",
+      "sha256": "e0be13cac215725de1f8438d96e1010049d655512a0608c36eabe2ba5abff851"
     },
     {
-      "file": "textures/shrub_03_arm_1k.jpg",
-      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/shrub_03/shrub_03_arm_1k.jpg",
-      "bytes": 396238,
-      "api_md5": "67faf4c5c213589b41a3bd18d378fa7d",
-      "sha256": "3e2b16812a623037138eedace958210c5f3443a827bbe69663045bba5612f815"
+      "file": "textures/searsia_lucida_alpha_1k.png",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/searsia_lucida/searsia_lucida_alpha_1k.png",
+      "bytes": 54408,
+      "api_md5": "dd64ebe2b0c5cabf6b8eb2e11df1c4a0",
+      "sha256": "2306c054f7188aa34fdbfd1be725899159c82730c1a5c14fcc56ef7353107006"
     },
     {
-      "file": "textures/shrub_03_diff_1k.jpg",
-      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/shrub_03/shrub_03_diff_1k.jpg",
-      "bytes": 481841,
-      "api_md5": "5da9190b7c2837a9e209a3fe774dba3c",
-      "sha256": "3cadc7aba46d3aabbd7d6d2b1d04aa32e2a7da0bc87c2d38ef3cb1ee42cb03ec"
+      "file": "textures/searsia_lucida_arm_1k.jpg",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/searsia_lucida/searsia_lucida_arm_1k.jpg",
+      "bytes": 580075,
+      "api_md5": "979fb34427cc5b5580ce89feaff65ef9",
+      "sha256": "f7bf2359e932d3633ac99a5f9e6a507eda439b64937eb6774585da3d0fb6d3d7"
     },
     {
-      "file": "textures/shrub_03_nor_gl_1k.jpg",
-      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/shrub_03/shrub_03_nor_gl_1k.jpg",
-      "bytes": 504734,
-      "api_md5": "38956b2171644cfefda2ef542e055100",
-      "sha256": "ff856bacfce859b8a7555dd9a3b92fbd36b2e775d486be71df485afb4235d6c9"
+      "file": "textures/searsia_lucida_diff_1k.jpg",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/searsia_lucida/searsia_lucida_diff_1k.jpg",
+      "bytes": 498655,
+      "api_md5": "d41a7089a41122ddc4edc96288105ecd",
+      "sha256": "5d99ed106c6629d91cf5d29f067c1fd10ff4894df40634abb6c4694c59d3c764"
     },
     {
-      "file": "textures/shrub_03_alpha_1k.png",
-      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/shrub_03/shrub_03_alpha_1k.png",
-      "bytes": 79069,
-      "api_md5": "57a2d0fd7ea02ebeb8de321652f9f58a",
-      "sha256": "daef00278879a024fd05216aaa1376067a5f25f1b911d08d9bbdc50fda4a0d66"
+      "file": "textures/searsia_lucida_nor_gl_1k.jpg",
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/searsia_lucida/searsia_lucida_nor_gl_1k.jpg",
+      "bytes": 793264,
+      "api_md5": "a1e95f7d4cb702b8c6ddfedaafbadcc5",
+      "sha256": "d28556973d1cbf96c5327341be7a71da66ac63ed97b31f22162376a9f95b0041"
     }
   ],
   "preparation": {

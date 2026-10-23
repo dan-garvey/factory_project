@@ -998,6 +998,8 @@ func check_site_render() -> void:
 	view.camera.look_at(Vector3(1.0, 0.0, 3.0))
 	await process_frame
 	await RenderingServer.frame_post_draw
+	await process_frame
+	await RenderingServer.frame_post_draw
 	var bank_image := viewport.get_texture().get_image()
 	var bank_path := fixture_directory.path_join("site-bank-side.png")
 	verify(bank_image.get_size() == viewport.size and not FileAccess.file_exists(bank_path)
@@ -1831,16 +1833,22 @@ func check_botanical_species() -> void:
 				verify(spec.bounds.grow(0.001).encloses(envelope),
 					"Whole rotated crown fill remains inside the bank-clearance envelope.")
 		var shrubs: Node3D = scenery.get_node("ShrubUnderstory")
-		verify(shrubs.get_child_count() == 2, "Both original shrub forms are mounted separately.")
+		verify(shrubs.get_child_count() == 2, "Both complete woody shrub forms are mounted separately.")
 		for variant in range(2):
 			var patch := shrubs.get_child(variant) as MultiMeshInstance3D
 			if not verify(patch != null and patch.multimesh != null and patch.multimesh.instance_count >= 5,
 				"Each shrub form grows at several terrain roots."):
 				continue
-			var shrub_finish := patch.multimesh.mesh.surface_get_material(0) as StandardMaterial3D
-			verify(shrub_finish != null and shrub_finish.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-				and shrub_finish.albedo_texture.get_image().get_format() == Image.FORMAT_RGBA8,
-				"Shrub leaf cards use their source cutout silhouette.")
+			var shrub_mesh := patch.multimesh.mesh
+			var wood := shrub_mesh.surface_get_material(0) as StandardMaterial3D
+			var leaves := shrub_mesh.surface_get_material(1) as StandardMaterial3D
+			var twigs := shrub_mesh.surface_get_material(2) as StandardMaterial3D
+			verify(shrub_mesh.get_surface_count() == 3 and wood != null and leaves != null and twigs != null
+				and wood.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED
+				and leaves.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+				and twigs.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+				and leaves.albedo_texture.get_image().get_format() == Image.FORMAT_RGBA8,
+				"Complete woody bushes retain solid bark and source cutout foliage.")
 			var candidate: PackedFloat32Array = patch.get_meta("candidate_buffer")
 			verify(candidate.size() == patch.multimesh.instance_count * 12 and patch.visibility_range_end <= 40.0,
 				"Soft bushes retain complete transforms and a bounded visibility range.")

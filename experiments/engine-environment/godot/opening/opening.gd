@@ -2813,8 +2813,8 @@ class ProductionEnvironment:
 	static var pine_source_status := "uninitialized"
 	static var pine_cluster_mesh: ArrayMesh
 	const SHRUB_FILES := ["res://opening/assets/shrub/shrub_tall.res", "res://opening/assets/shrub/shrub_low.res"]
-	const SHRUB_SHA256 := ["9f8f09e07498e76781e863cc168d9ce5e515d9930f506b2b72371f5043159ab9",
-		"8184769f704233cdbf322d599e2eec7b0112f26f054965f1e8a567161315a7b0"]
+	const SHRUB_SHA256 := ["b13e205e991152435f581e4c29a393098cc8ce0854c409846656f475b230bf25",
+		"ee2b375f3f26abef349419321534ad53618a348ddfbbdd226109c3b4d88f0565"]
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var broadleaf_fill_mesh: ArrayMesh
 	static var rock_boulder_mesh: ArrayMesh
@@ -3741,7 +3741,7 @@ class ProductionEnvironment:
 				return false
 			file.close()
 			var mesh := ResourceLoader.load(path, "ArrayMesh") as ArrayMesh
-			if mesh == null or mesh.get_surface_count() != 1 or not ResourceLoader.get_dependencies(path).is_empty():
+			if mesh == null or mesh.get_surface_count() != 3 or not ResourceLoader.get_dependencies(path).is_empty():
 				push_error("Qualified shrub resource has missing or external components.")
 				return false
 			shrub_meshes.append(mesh)
@@ -3795,7 +3795,7 @@ class ProductionEnvironment:
 					basis.x.z, basis.y.z, basis.z.z, at.z]))
 				bounds = envelope if count == 0 else bounds.merge(envelope)
 				count += 1
-				if count == 7:
+				if count == 12:
 					break
 			var instances := MultiMesh.new()
 			instances.transform_format = MultiMesh.TRANSFORM_3D

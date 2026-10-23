@@ -25,12 +25,12 @@ const BROADLEAF_PINS := {
 	"textures/tree_small_02_arm_1k.jpg": "891c5a1bb124292984b01558e9f2b0302d27d2fa3ccf9dfc6c34f9ea4ca24e6c"
 }
 const SHRUB_PINS := {
-	"shrub_03_1k.gltf": "b76d7c14bc027e834e82d3f984c32b5d060e62908aa90ff9420a637ca253a8ea",
-	"shrub_03.bin": "bf4df21e6d2a2bc5f00b4c9142f776171fe7da00cf960001825748067af542b6",
-	"textures/shrub_03_diff_1k.jpg": "3cadc7aba46d3aabbd7d6d2b1d04aa32e2a7da0bc87c2d38ef3cb1ee42cb03ec",
-	"textures/shrub_03_alpha_1k.png": "daef00278879a024fd05216aaa1376067a5f25f1b911d08d9bbdc50fda4a0d66",
-	"textures/shrub_03_nor_gl_1k.jpg": "ff856bacfce859b8a7555dd9a3b92fbd36b2e775d486be71df485afb4235d6c9",
-	"textures/shrub_03_arm_1k.jpg": "3e2b16812a623037138eedace958210c5f3443a827bbe69663045bba5612f815"
+	"searsia_lucida_1k.gltf": "ebdc8d776c058b9a6f9a04c57ca0540368531febd3bfa007d2e2d8af8d368f67",
+	"searsia_lucida.bin": "e0be13cac215725de1f8438d96e1010049d655512a0608c36eabe2ba5abff851",
+	"textures/searsia_lucida_diff_1k.jpg": "5d99ed106c6629d91cf5d29f067c1fd10ff4894df40634abb6c4694c59d3c764",
+	"textures/searsia_lucida_alpha_1k.png": "2306c054f7188aa34fdbfd1be725899159c82730c1a5c14fcc56ef7353107006",
+	"textures/searsia_lucida_nor_gl_1k.jpg": "d28556973d1cbf96c5327341be7a71da66ac63ed97b31f22162376a9f95b0041",
+	"textures/searsia_lucida_arm_1k.jpg": "f7bf2359e932d3633ac99a5f9e6a507eda439b64937eb6774585da3d0fb6d3d7"
 }
 
 func pine_image(path: String, role: String, target_size: int = 0) -> Image:
@@ -586,65 +586,50 @@ func prepare_shrub(family: String, output: String) -> void:
 			return
 	var state := GLTFState.new()
 	state.handle_binary_image_mode = GLTFState.HANDLE_BINARY_IMAGE_MODE_EMBED_AS_UNCOMPRESSED
-	if GLTFDocument.new().append_from_file(family.path_join("shrub_03_1k.gltf"), state) != OK or state.get_meshes().size() != 4:
+	if GLTFDocument.new().append_from_file(family.path_join("searsia_lucida_1k.gltf"), state) != OK or state.get_meshes().size() != 7:
 		fail("Cannot import the qualified shrub variants.")
 		return
-	var maps := _botanical_maps(family, "shrub_03", true, 128, 64)
+	var maps := _botanical_maps(family, "searsia_lucida", true, 128, 64)
 	if maps.is_empty() or DirAccess.make_dir_absolute(output) != OK:
 		fail("Cannot create shrub output directory or prepared maps.")
 		return
 	var report := {"status": "pass", "variants": []}
 	for variant in range(2):
-		var original: ImporterMesh = state.get_meshes()[variant].mesh
-		if original.get_surface_count() != 1:
+		var source_index := 4 if variant == 0 else 5
+		var original: ImporterMesh = state.get_meshes()[source_index].mesh
+		if original.get_surface_count() != 3:
 			fail("Selected shrub variant has an unexpected surface count.")
 			return
-		var stem := original.get_mesh()
-		var finish := _botanical_finish(original.get_surface_material(0), maps, true)
-		if stem == null or finish == null:
+		var mesh := original.get_mesh()
+		if mesh == null:
 			fail("Cannot prepare the selected shrub variant.")
 			return
-		# The photographed foliage is yellow-green under the opening sun.
-		# Cool its biome tint so these read as green bushes in the worksite.
-		finish.albedo_color = Color(0.38, 0.54, 0.52)
-		# Each source mesh is one small upright plant. Arrange separate complete
-		# stems at one terrain root to make a true waist-high bush silhouette.
-		var cluster := SurfaceTool.new()
-		cluster.begin(Mesh.PRIMITIVE_TRIANGLES)
-		cluster.set_material(finish)
-		var tall_stems := 5 if variant == 0 else 3
-		var low_stems := 2
-		for n in range(tall_stems + low_stems):
-			var theta := float(n) * 2.399963 + float(variant) * 0.7
-			var undergrowth := n >= tall_stems
-			var radial := 0.0
-			if n > 0:
-				radial = 0.07 + float(n % 3) * 0.04 if undergrowth else 0.13 + float(n % 3) * 0.045
-			var offset := Vector3(cos(theta) * radial, 0.0, -sin(theta) * radial)
-			var scale := 0.0
-			if undergrowth:
-				scale = 1.28 + float(n % 3) * 0.13 if variant == 0 else 1.05 + float(n % 2) * 0.13
-			else:
-				scale = 2.75 - float(n % 4) * 0.12 if variant == 0 else 2.2 - float(n % 3) * 0.10
-			var lean := 0.0 if n == 0 else 0.12 + float(n % 3) * 0.045
-			var pose := Basis(Vector3.UP, theta) * Basis(Vector3.FORWARD, lean)
-			cluster.append_from(stem, 0, Transform3D(pose.scaled_local(Vector3.ONE * scale), offset))
-		var mesh := cluster.commit()
-		if mesh == null or mesh.get_surface_count() != 1:
-			fail("Cannot combine complete shrub stems.")
-			return
-		mesh.surface_set_material(0, finish)
+		var counts := []
+		for surface in range(3):
+			var finish := _botanical_finish(original.get_surface_material(surface), maps, surface > 0)
+			if finish == null:
+				fail("Cannot prepare the selected shrub material.")
+				return
+			# The donor's dry leaves need a restrained green tint in this river biome.
+			# Bark and narrow twigs keep their photographed source color.
+			if surface == 1:
+				finish.albedo_color = Color(0.55, 0.75, 0.58)
+			mesh.surface_set_material(surface, finish)
+			counts.append(mesh.surface_get_arrays(surface)[Mesh.ARRAY_INDEX].size() / 3)
 		var path := output.path_join("shrub_%s.res" % ["tall", "low"][variant])
 		if ResourceSaver.save(mesh, path, ResourceSaver.FLAG_COMPRESS | ResourceSaver.FLAG_BUNDLE_RESOURCES) != OK:
 			fail("Cannot save shrub variant.")
 			return
 		var loaded := ResourceLoader.load(path, "ArrayMesh", ResourceLoader.CACHE_MODE_IGNORE) as ArrayMesh
-		if loaded == null or not ResourceLoader.get_dependencies(path).is_empty() or loaded.surface_get_arrays(0) != mesh.surface_get_arrays(0):
+		if loaded == null or not ResourceLoader.get_dependencies(path).is_empty():
 			fail("Shrub resource changed or has external dependencies.")
 			return
-		report.variants.append({"name": ["tall", "low"][variant], "source_mesh": variant,
-			"complete_stems": tall_stems + low_stems, "lower_fill_stems": low_stems,
-			"triangles": mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX].size() / 3,
+		for surface in range(3):
+			if loaded.surface_get_arrays(surface) != mesh.surface_get_arrays(surface):
+				fail("Shrub geometry changed during roundtrip.")
+				return
+		report.variants.append({"name": ["tall", "low"][variant], "source_mesh": source_index,
+			"triangles_by_surface": counts,
 			"bounds": str(mesh.get_aabb()), "bytes": FileAccess.get_file_as_bytes(path).size(), "sha256": FileAccess.get_sha256(path)})
 	var receipt := FileAccess.open(output.path_join("result.json"), FileAccess.WRITE)
 	receipt.store_string(JSON.stringify(report, "  ") + "\n")
