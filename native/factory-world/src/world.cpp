@@ -774,10 +774,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         materials::WorkId id{}; // Zero means a fed raw blank.
         Integer remaining{};
         std::optional<mechanics::Point> automatic_exit;
+        Integer last_tick_seen{};
     };
     std::map<mechanics::Point, PressWorkRecord> press_work;
     std::set<mechanics::Point> press_products;
     std::set<materials::WorkId> press_work_ids;
+    Integer history_revision = 0;
+    Integer ticks_seen = 0;
     const auto within_component_capacity = [&](const std::string& actor) {
         Integer carried = 0;
         for (const auto& [owner_kind, count] : crafted_components)
@@ -791,6 +794,15 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto* action = field<std::string>(record.intent, "action");
         const auto* accepted_value = field<bool>(record.result, "accepted");
         if (!actor || !profile.actors.contains(*actor) || !action || !accepted_value) return false;
+        const auto* result_revision = field<Integer>(record.result, "revision");
+        if (!result_revision || *result_revision < history_revision) return false;
+        const Integer revision_gap = *result_revision - history_revision;
+        if (revision_gap < (*accepted_value ? 1 : 0)) return false;
+        // World::tick is the only authority advance without a request record.
+        // Other accepted commands consume one revision each and cannot prove
+        // that a pending press lot received automatic work.
+        ticks_seen += revision_gap - (*accepted_value ? 1 : 0);
+        history_revision = *result_revision;
         if (record.intent.contains("wire")) {
             const auto* wire = field<Object>(record.intent, "wire");
             if (!wire) return false;
@@ -939,11 +951,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             automatic_exit[0] -= inspected.press->shaft_center[0] - inspected.press->frame_center[0];
             automatic_exit[2] -= inspected.press->shaft_center[2] - inspected.press->frame_center[2];
             if (const auto previous = press_work.find(*selected_work); previous != press_work.end()) {
-                if (!previous->second.automatic_exit ||
+                if (!previous->second.automatic_exit || previous->second.last_tick_seen == ticks_seen ||
                     !press_products.insert(*previous->second.automatic_exit).second) return false;
                 press_work.erase(previous);
             }
-            press_work.emplace(*selected_work, PressWorkRecord{0, 0, automatic_exit});
+            press_work.emplace(*selected_work, PressWorkRecord{0, 0, automatic_exit, ticks_seen});
         }
         if (*action == "turn_press_crank") {
             const auto* drive = field<std::string>(record.intent, "drive");
@@ -993,6 +1005,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 } else if (*id != entry.id || entry.remaining == 0 ||
                            *remaining >= entry.remaining) return false;
                 entry.remaining = *remaining;
+                entry.last_tick_seen = ticks_seen;
             } else {
                 // An automatic tick can complete a lot between manual turns.
                 if (!lots->empty() || *products != 1 ||
@@ -1008,7 +1021,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             bool claimed_product = press_products.erase(*point) != 0;
             if (!claimed_product) {
                 for (auto active = press_work.begin(); active != press_work.end(); ++active) {
-                    if (active->second.automatic_exit != *point) continue;
+                    if (active->second.automatic_exit != *point ||
+                        active->second.last_tick_seen == ticks_seen) continue;
                     press_work.erase(active);
                     claimed_product = true;
                     break;
@@ -1185,6 +1199,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
         }
     }
+    if (snapshot.revision < history_revision) return false;
+    ticks_seen += snapshot.revision - history_revision;
     for (const auto& [id, site] : profile.material.timber_sites) {
         const auto remaining = snapshot.state.material.timber_remaining.find(id);
         if (remaining == snapshot.state.material.timber_remaining.end() ||
@@ -1194,7 +1210,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto item = snapshot.state.material.dropped_material.find(point);
         if (work.id == 0) {
             if (item == snapshot.state.material.dropped_material.end()) {
-                if (!work.automatic_exit) return false;
+                if (!work.automatic_exit || work.last_tick_seen == ticks_seen) return false;
                 const auto output = snapshot.state.material.dropped_material.find(*work.automatic_exit);
                 if (output == snapshot.state.material.dropped_material.end() ||
                     output->second != materials::Cargo{0, 1, {}}) return false;
@@ -1210,7 +1226,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             } else return false;
         } else {
             if (item == snapshot.state.material.dropped_material.end()) {
-                if (!work.automatic_exit) return false;
+                if (!work.automatic_exit || work.last_tick_seen == ticks_seen) return false;
                 const auto output = snapshot.state.material.dropped_material.find(*work.automatic_exit);
                 if (output == snapshot.state.material.dropped_material.end() ||
                     output->second != materials::Cargo{0, 1, {}}) return false;
