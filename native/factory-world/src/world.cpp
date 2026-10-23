@@ -150,6 +150,10 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "entry"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "entry");
+    if (action == "refeed_press_work")
+        return keys(intent, {"target", "generation", "entry", "work_id"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+            field<Value::Array>(intent, "entry") && field<Integer>(intent, "work_id");
     if (action == "turn_press_crank")
         return keys(intent, {"target", "generation", "drive", "exit"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
@@ -581,20 +585,29 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             source && *source >= 0 && *source < profile.initial_units &&
             targets.front() == anchor(profile, *shaft_center) && result.size() == 20;
     }
-    if (action == "feed_press") {
+    if (action == "feed_press" || action == "refeed_press_work") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* requested_generation = field<Integer>(record.intent, "generation");
         const auto* entry = field<Value::Array>(record.intent, "entry");
+        const auto* requested_work_id = action == "refeed_press_work" ?
+            field<Integer>(record.intent, "work_id") : nullptr;
         const auto* work = field<Value::Array>(result, "work_center");
         const auto selected_entry = entry ? grid_point(Object{{"center", Value(*entry)}}) : std::nullopt;
         const auto selected_work = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
         const auto* moved = field<Integer>(result, "moved_raw");
+        const auto* moved_work = field<Value::Array>(result, "moved_work");
+        const auto* moved_lot = moved_work && moved_work->size() == 1 ?
+            std::get_if<Object>(&moved_work->front().storage()) : nullptr;
+        const auto* moved_id = moved_lot ? field<Integer>(*moved_lot, "id") : nullptr;
         return profile.landing_pod_center && target && entity && *target == *entity &&
             requested_generation && generation && *requested_generation == *generation &&
-            *generation > 0 && selected_entry && selected_work && moved && *moved == 1 &&
-            targets.front() == anchor(profile, *selected_entry) && result.size() == 18;
+            *generation > 0 && selected_entry && selected_work &&
+            (action == "feed_press" ? moved && *moved == 1 && result.size() == 18 :
+                requested_work_id && *requested_work_id > 0 && moved_lot && moved_lot->size() == 7 &&
+                moved_id && *moved_id == *requested_work_id && result.size() == 18) &&
+            targets.front() == anchor(profile, *selected_entry);
     }
     if (action == "turn_press_crank") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -771,6 +784,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     // A landing starts every actor with empty raw cargo, so its command history
     // can account for each later unit without inventing a second material State.
     std::map<std::string, Integer> carried_raw;
+    std::map<std::string, std::map<materials::WorkId, Value>> carried_work;
     Integer harvested_ore = 0;
     Integer cranked_ore = 0;
     Integer shipped_plates = 0;
@@ -977,9 +991,30 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 grid_point(Object{{"center", Value(*shaft)}}) != selected.collector->shaft_center ||
                 !add(cranked_ore, 1)) return false;
         }
-        if (*action == "feed_press") {
-            if (carried_raw[*actor] < 1) return false;
-            --carried_raw[*actor];
+        if (*action == "feed_press" || *action == "refeed_press_work") {
+            const bool refeed_work = *action == "refeed_press_work";
+            const auto* work_id = refeed_work ? field<Integer>(record.intent, "work_id") : nullptr;
+            const auto* moved_work = refeed_work ? field<Value::Array>(record.result, "moved_work") : nullptr;
+            const auto* moved_lot = moved_work && moved_work->size() == 1 ?
+                std::get_if<Object>(&moved_work->front().storage()) : nullptr;
+            const auto* moved_id = moved_lot ? field<Integer>(*moved_lot, "id") : nullptr;
+            const auto* remaining = moved_lot ? field<Integer>(*moved_lot, "remaining_ticks") : nullptr;
+            Integer prior_automatic = 0;
+            if (refeed_work) {
+                if (!work_id || *work_id <= 0 || !moved_lot || moved_lot->size() != 7 ||
+                    !moved_id || *moved_id != *work_id || !remaining ||
+                    *remaining < 0 || *remaining > profile.material.cycle_ticks) return false;
+                const auto carried = carried_work[*actor].find(*work_id);
+                if (carried == carried_work[*actor].end() ||
+                    values::typed_difference(carried->second, moved_work->front())) return false;
+                carried_work[*actor].erase(carried);
+                prior_automatic = profile.material.cycle_ticks - *remaining - manual_reductions[*work_id];
+                if (prior_automatic < 0 || prior_automatic > profile.material.cycle_ticks ||
+                    !press_work_ids.contains(*work_id)) return false;
+            } else {
+                if (carried_raw[*actor] < 1) return false;
+                --carried_raw[*actor];
+            }
             const auto* entry = field<Value::Array>(record.intent, "entry");
             const auto* work = field<Value::Array>(record.result, "work_center");
             const auto selected_entry = entry ? grid_point(Object{{"center", Value(*entry)}}) : std::nullopt;
@@ -1002,7 +1037,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     !add(press_products[*previous->second.automatic_exit], 1)) return false;
                 press_work.erase(previous);
             }
-            press_work.emplace(*selected_work, PressWorkRecord{0, 0, automatic_exit, ticks_seen});
+            press_work.emplace(*selected_work, PressWorkRecord{
+                refeed_work ? *work_id : materials::WorkId{0},
+                refeed_work ? *remaining : Integer{0}, automatic_exit, ticks_seen, prior_automatic});
         }
         if (*action == "turn_press_crank") {
             const auto* drive = field<std::string>(record.intent, "drive");
@@ -1262,6 +1299,24 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 press_work.erase(active);
             }
             belt_press_turns.erase(*point);
+        }
+        if (*action == "pickup_material" || *action == "recover" ||
+            *action == "recover_belt_slot") {
+            const auto* moved_work = field<Value::Array>(record.result, "moved_work");
+            if (!moved_work) return false;
+            for (const auto& value : *moved_work) {
+                const auto* lot = std::get_if<Object>(&value.storage());
+                const auto* id = lot ? field<Integer>(*lot, "id") : nullptr;
+                if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
+                    !carried_work[*actor].emplace(*id, value).second) return false;
+            }
+        }
+        if (*action == "insert_work" ||
+            (*action == "load_belt_slot" && field<std::string>(record.intent, "item") &&
+             *field<std::string>(record.intent, "item") == "work")) {
+            const auto* id = field<Integer>(record.intent, "work_id");
+            if (!id) return false;
+            carried_work[*actor].erase(*id);
         }
         if (profile.landing_pod_center &&
             (*action == "pickup_material" || *action == "recover" ||
@@ -2547,12 +2602,15 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("source_remaining", Value(candidate.material.stock.source));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
-    if (*action == "feed_press") {
+    if (*action == "feed_press" || *action == "refeed_press_work") {
+        const bool refeed_work = *action == "refeed_press_work";
         if (!profile_.landing_pod_center) return refused("press_unavailable");
         const auto* id = field<std::string>(intent, "target");
         const auto* generation = field<Integer>(intent, "generation");
         const auto* entry = field<Value::Array>(intent, "entry");
+        const auto* work_id = refeed_work ? field<Integer>(intent, "work_id") : nullptr;
         if (!id || !generation || !entry) return refused("invalid_target");
+        if (refeed_work && (!work_id || *work_id <= 0)) return refused("invalid_work_id", *id);
         const auto selected_entry = grid_point(Object{{"center", Value(*entry)}});
         if (!selected_entry) return refused("invalid_entry", *id);
         const auto frame = state.placed_components.find(*id);
@@ -2577,19 +2635,41 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
-        if (state.material.cargo.at(binding.actor).raw_units < 1)
+        const auto& carried = state.material.cargo.at(binding.actor);
+        const auto selected_work = refeed_work ? std::find_if(carried.work_lots.begin(),
+            carried.work_lots.end(), [&](const materials::WorkLot& lot) { return lot.id == *work_id; }) :
+            carried.work_lots.end();
+        if (refeed_work) {
+            if (selected_work == carried.work_lots.end())
+                return refused("unavailable_work", *id, std::move(facts));
+            if (selected_work->recipe != materials::RecipeSignature{
+                    profile_.material.input_units_per_product, profile_.material.cycle_ticks} ||
+                !state.press_progress.contains(*work_id))
+                return refused("incompatible_work", *id, std::move(facts));
+        } else if (carried.raw_units < 1) {
             return refused("unavailable_input", *id, std::move(facts));
+        }
         const auto work = inspected.press->work_center;
         if (state.material.dropped_material.contains(work))
             return refused("input_full", *id, std::move(facts));
         if (state.material.dropped_material.size() >= materials::maximum_drop_points)
             return refused("output_full", *id, std::move(facts));
         auto candidate = state;
-        --candidate.material.cargo.at(binding.actor).raw_units;
-        candidate.material.dropped_material.emplace(work, materials::Cargo{1, 0, {}});
+        if (refeed_work) {
+            const auto lot = *selected_work;
+            auto& next_lots = candidate.material.cargo.at(binding.actor).work_lots;
+            next_lots.erase(std::find_if(next_lots.begin(), next_lots.end(),
+                [&](const materials::WorkLot& item) { return item.id == *work_id; }));
+            candidate.material.dropped_material.emplace(work,
+                materials::Cargo{0, 0, std::vector<materials::WorkLot>{lot}});
+            facts.emplace("moved_work", lots_value(std::vector<materials::WorkLot>{lot}));
+        } else {
+            --candidate.material.cargo.at(binding.actor).raw_units;
+            candidate.material.dropped_material.emplace(work, materials::Cargo{1, 0, {}});
+            facts.emplace("moved_raw", Value(Integer{1}));
+        }
         facts.emplace("generation", Value(*generation));
         facts.emplace("work_center", Value(Value::Array{Value(work[0]), Value(work[1]), Value(work[2])}));
-        facts.emplace("moved_raw", Value(Integer{1}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "turn_press_crank") {

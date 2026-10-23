@@ -305,6 +305,18 @@ play or proof that the repeat commission is finished. Optional
 `--cog-capture-prefix=/absolute/owned/path` saves passive `-ready.png` and
 `-delivered.png` pylon views for this phase too.
 
+`--cog-phase=hand-refeed` starts from the same alternate collector save. P
+feeds its carried blank, starts a partial WorkLot, then uses the selected
+press's Recover held work and Reinsert held work buttons. Q observes the same
+work ID moving from press to P's cargo and back before P finishes and picks
+up one plate. `--cog-phase=hand-refeed-resume` checks the resulting native
+Store on both fresh clients. The initial comparison checks placed component
+identities and centers; Host recalculates their occupied boxes from current
+geometry when loading the older alternate collector save. These are scripted scene callbacks and exact
+custody checks, not human usability evidence. Optional
+`--refeed-capture-prefix=/absolute/owned/path` saves a passive
+`-recovered.png` view of the selected press panel.
+
 The low-level dedicated entry accepts optional `--resume-input` and
 `--save-file` paths in the same owned directory as its lifecycle files. These
 are host process options, never RPCs. Input is decoded into the one actual

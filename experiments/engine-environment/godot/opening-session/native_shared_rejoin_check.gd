@@ -4,6 +4,7 @@ extends "res://opening-session/native_shared_cog_check.gd"
 var prepared: Dictionary = {}
 var baseline: Dictionary = {}
 var shipment_capture_prefix := ""
+var refeed_capture_prefix := ""
 
 func _chapter_ui_material(snapshot: Dictionary) -> Dictionary:
 	return {"order": snapshot.get("order"), "cargo": snapshot.get("cargo"),
@@ -1035,6 +1036,180 @@ func _alternate_collector_resume() -> bool:
 		and restored.placed_components.get(collector.get("parts", {}).get("shaft", ""), {}).get("center") == [0, 4, 3],
 		"Fresh Store host preserves the alternate collector and its finite carried blank")
 
+func _hand_refeed_initial() -> bool:
+	var earlier: Dictionary = _read(previous.path_join("P-result.bin"))
+	var saved: Dictionary = earlier.get("projection", {})
+	var restored: Dictionary = session.projection()
+	var before_parts: Dictionary = saved.get("placed_components", {})
+	var joined_parts: Dictionary = restored.get("placed_components", {})
+	if not _expect(earlier.get("status") == "pass" and saved.get("order") == 64
+		and restored.get("order") == 64 and joined_parts.size() == before_parts.size(),
+		"The joined host starts from the exact alternate collector Store order and part count"):
+		return false
+	for id in before_parts:
+		var old_part: Dictionary = before_parts[id]
+		var part: Dictionary = joined_parts.get(id, {})
+		if not _expect(part.get("component") == old_part.get("component")
+			and part.get("center") == old_part.get("center")
+			and part.get("generation") == old_part.get("generation"),
+			"The joined host preserves each placed part identity and shared-grid center"):
+			return false
+	var collector: Dictionary = _alternate_collector(restored)
+	return _expect(_same(restored.get("cargo"), saved.get("cargo"))
+		and _same(restored.get("hand_sources"), saved.get("hand_sources"))
+		and _same(restored.get("dropped_material"), saved.get("dropped_material"))
+		and _same(restored.get("freight_beacon"), saved.get("freight_beacon"))
+		and restored.cargo.P.raw == 1 and restored.freight_beacon.shipped_products == 1
+		and joined_parts.get(collector.get("parts", {}).get("receiver", ""), {}).get("center") == [0, 4, 5]
+		and joined_parts.get(collector.get("parts", {}).get("shaft", ""), {}).get("center") == [0, 4, 3],
+		"The joined host retains the finite blank and alternate collector route")
+
+func _hand_refeed_p() -> bool:
+	if not _hand_refeed_initial() or (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	for target in [Vector2(0.0, 4.95), Vector2(1.65, 4.95), Vector2(3.3, 4.95)]:
+		if not await _chapter_ui_walk(target):
+			return false
+	var press: Dictionary = _plate_ui_ready_press(session.projection())
+	var frame: String = str(press.get("frame", ""))
+	if not _expect(not frame.is_empty() and press.get("open_feeds", []).size() > 0
+		and session.projection().cargo.P.raw == 1,
+		"P carries the alternate collector blank to the original ready press"):
+		return false
+	opening._select_tool("inspect")
+	opening._world_click(Vector2i(3, 4), frame)
+	var panel = opening.arrival_assembly_controls
+	var route: Dictionary = press.open_feeds[0]
+	if not _expect(opening.selected == frame and not panel.feed_button.disabled,
+		"The selected press offers the ordinary first feed"):
+		return false
+	if (await _chapter_ui_call("Feed the recovered-work test blank",
+		{"action": "feed_press", "entity": frame, "entry": route.entry},
+		panel.feed_button.pressed.emit)).is_empty():
+		return false
+	var turn_wire := {"action": "turn_press_crank", "entity": frame,
+		"drive": press.parts.shaft, "exit": route.exit}
+	if (await _chapter_ui_call("Start partial modular press work", turn_wire,
+		panel.turn_button.pressed.emit)).is_empty():
+		return false
+	var held: Dictionary = _plate_ui_drop(session.projection(), press.work_center)
+	if not _expect(held.get("work_lots", []).size() == 1 and held.work_lots[0].remaining == 2
+		and not panel.recover_work_button.disabled,
+		"One positively identified partial WorkLot can be recovered from the press"):
+		return false
+	var work_id: int = int(held.work_lots[0].id)
+	if not _expect(_write("P-work.bin", {"status": "pass", "order": session.projection().order,
+		"work_id": work_id, "work_center": press.work_center}), "Publish the retained work identity") \
+			or (await _barrier("Q-work.bin")).is_empty():
+		return false
+	if (await _chapter_ui_call("Recover partial work with the ordinary panel",
+		{"action": "pickup_material", "center": press.work_center,
+			"expected": {"raw": 0, "products": 0, "work_lots": held.work_lots}},
+		panel.recover_work_button.pressed.emit)).is_empty():
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), press.work_center).is_empty()
+		and session.projection().cargo.P.work_lots.size() == 1
+		and session.projection().cargo.P.work_lots[0].id == work_id
+		and panel.refeed_work_button.visible and not panel.refeed_work_button.disabled
+		and panel.held_work_choice.get_item_text(panel.held_work_choice.selected).contains("#%d" % work_id),
+		"The panel exposes the exact carried WorkLot for reinsertion"):
+		return false
+	if not refeed_capture_prefix.is_empty():
+		await process_frame
+		if not _expect(root.get_texture().get_image().save_png(refeed_capture_prefix + "-recovered.png") == OK,
+			"Retain the selected press panel with the recovered WorkLot"):
+			return false
+	if not _expect(_write("P-recovered.bin", {"status": "pass", "order": session.projection().order,
+		"work_id": work_id}), "Publish recovered actor custody") \
+			or (await _barrier("Q-recovered.bin")).is_empty():
+		return false
+	if (await _chapter_ui_call("Reinsert the carried partial WorkLot",
+		{"action": "refeed_press_work", "entity": frame, "entry": route.entry, "work_id": work_id},
+		panel.refeed_work_button.pressed.emit)).is_empty():
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), press.work_center).get("work_lots", []) == held.work_lots
+		and session.projection().cargo.P.work_lots.is_empty(),
+		"The same unfinished WorkLot returns to the work point with no duplicate"):
+		return false
+	if not _expect(_write("P-reinserted.bin", {"status": "pass", "order": session.projection().order,
+		"work_id": work_id}), "Publish the reinserted WorkLot") \
+			or (await _barrier("Q-reinserted.bin")).is_empty():
+		return false
+	for turn in range(2):
+		if (await _chapter_ui_call("Finish reinserted work %d" % turn, turn_wire,
+			panel.turn_button.pressed.emit)).is_empty():
+			return false
+	if not _expect(_plate_ui_drop(session.projection(), route.exit).get("products") == 1
+		and session.projection().cargo.P.work_lots.is_empty(),
+		"Two more turns finish the retained work at the same press exit"):
+		return false
+	if (await _chapter_ui_call("Pick up the recovered-work plate",
+		{"action": "pickup_material", "center": route.exit,
+			"expected": {"raw": 0, "products": 1, "work_lots": []}},
+		panel.pickup_button.pressed.emit)).is_empty():
+		return false
+	var finished: Dictionary = session.projection()
+	if not _expect(finished.order == 71 and finished.cargo.P.products == 1
+		and finished.cargo.P.raw == 0 and finished.cargo.P.work_lots.is_empty()
+		and finished.hand_sources["opening-softmetal"].remaining == 9,
+		"The recovered ore blank yields one plate without a second source debit"):
+		return false
+	if not _expect(_write("P-complete.bin", {"status": "pass", "order": finished.order,
+		"work_id": work_id}), "Publish the completed recovered-work route"):
+		return false
+	return not (await _barrier("Q-complete.bin")).is_empty()
+
+func _hand_refeed_q() -> bool:
+	if not _hand_refeed_initial() or not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q joins the same pre-work Store state"):
+		return false
+	var work: Dictionary = await _barrier("P-work.bin")
+	if work.is_empty() or not await _until(func(): return session.projection().order >= work.order,
+		"Q receives P's partial WorkLot"):
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), work.work_center).get("work_lots", [])[0].id == work.work_id,
+		"Q sees the original work identity under the press") \
+			or not _expect(_write("Q-work.bin", {"status": "pass"}), "Release recovery"):
+		return false
+	var recovered: Dictionary = await _barrier("P-recovered.bin")
+	if recovered.is_empty() or not await _until(func(): return session.projection().order >= recovered.order,
+		"Q receives P's recovered work custody"):
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), work.work_center).is_empty()
+		and session.projection().cargo.P.work_lots[0].id == work.work_id,
+		"Q sees the exact workpiece in P's cargo") \
+			or not _expect(_write("Q-recovered.bin", {"status": "pass"}), "Release reinsertion"):
+		return false
+	var reinserted: Dictionary = await _barrier("P-reinserted.bin")
+	if reinserted.is_empty() or not await _until(func(): return session.projection().order >= reinserted.order,
+		"Q receives the manually reinserted work"):
+		return false
+	if not _expect(_plate_ui_drop(session.projection(), work.work_center).get("work_lots", [])[0].id == work.work_id
+		and session.projection().cargo.P.work_lots.is_empty(),
+		"Q sees the same WorkLot returned to the press") \
+			or not _expect(_write("Q-reinserted.bin", {"status": "pass"}), "Release completion"):
+		return false
+	var complete: Dictionary = await _barrier("P-complete.bin")
+	if complete.is_empty() or not await _until(func(): return session.projection().order >= complete.order,
+		"Q receives the formed plate"):
+		return false
+	return _expect(session.projection().cargo.P.products == 1
+		and session.projection().cargo.P.work_lots.is_empty()
+		and session.projection().hand_sources["opening-softmetal"].remaining == 9,
+		"Q observes one conserved recovered-work product") \
+		and _expect(_write("Q-complete.bin", {"status": "pass"}), "Release the completed P route")
+
+func _hand_refeed_resume() -> bool:
+	var earlier: Dictionary = _read(previous.path_join("P-result.bin"))
+	var saved: Dictionary = earlier.get("projection", {})
+	var restored: Dictionary = session.projection()
+	return _expect(earlier.get("status") == "pass" and saved.get("order") == 71
+		and restored.get("order") == saved.get("order")
+		and _same(restored.get("cargo"), saved.get("cargo"))
+		and _same(restored.get("dropped_material"), saved.get("dropped_material"))
+		and restored.cargo.P.products == 1 and restored.cargo.P.work_lots.is_empty(),
+		"Fresh Store host retains the exact recovered-work plate and empty work point")
+
 func _alternate_repeat_p() -> bool:
 	if not _alternate_collector_resume() or (await _barrier("Q-ready.bin")).is_empty():
 		return false
@@ -1223,7 +1398,7 @@ func _alternate_repeat_resume() -> bool:
 func _run_shipment_ui() -> void:
 	if actor not in ["P", "Q"] or phase not in ["collector-shipment", "collector-shipment-resume",
 			"mirrored-press", "mirrored-press-resume", "alternate-collector", "alternate-collector-resume",
-			"alternate-repeat", "alternate-repeat-resume"] \
+			"alternate-repeat", "alternate-repeat-resume", "hand-refeed", "hand-refeed-resume"] \
 			or not directory.is_absolute_path() or not previous.is_absolute_path():
 		push_error("The collector-derived shipment needs role, phase and owned evidence paths")
 		quit(1)
@@ -1232,8 +1407,12 @@ func _run_shipment_ui() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--cog-capture-prefix="):
 			shipment_capture_prefix = argument.trim_prefix("--cog-capture-prefix=")
+		elif argument.begins_with("--refeed-capture-prefix="):
+			refeed_capture_prefix = argument.trim_prefix("--refeed-capture-prefix=")
 	if phase.begins_with("mirrored-"):
 		facts.evidence = "ordinary_shared_native_mirrored_press_callbacks"
+	elif phase.begins_with("hand-refeed"):
+		facts.evidence = "ordinary_shared_native_recovered_press_work_callbacks"
 	elif phase.begins_with("alternate-repeat"):
 		facts.evidence = "ordinary_shared_native_alternate_collector_repeat_freight_callbacks"
 	elif phase.begins_with("alternate-"):
@@ -1265,6 +1444,10 @@ func _run_shipment_ui() -> void:
 		passed = _alternate_collector_resume()
 	elif phase == "alternate-repeat":
 		passed = await _alternate_repeat_p() if actor == "P" else await _alternate_repeat_q()
+	elif phase == "hand-refeed":
+		passed = await _hand_refeed_p() if actor == "P" else await _hand_refeed_q()
+	elif phase == "hand-refeed-resume":
+		passed = _hand_refeed_resume()
 	else:
 		passed = _alternate_repeat_resume()
 	if passed and not written:
@@ -1479,7 +1662,8 @@ func _q() -> bool:
 
 func _run() -> void:
 	if phase in ["collector-shipment", "collector-shipment-resume", "mirrored-press", "mirrored-press-resume",
-			"alternate-collector", "alternate-collector-resume", "alternate-repeat", "alternate-repeat-resume"]:
+			"alternate-collector", "alternate-collector-resume", "alternate-repeat", "alternate-repeat-resume",
+			"hand-refeed", "hand-refeed-resume"]:
 		await _run_shipment_ui()
 		return
 	if phase in ["collector-plate", "collector-plate-resume"]:

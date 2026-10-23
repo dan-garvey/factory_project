@@ -255,6 +255,69 @@ void placed_press_projection() {
     check(get<bool>(host.command("P", mirrored_turn), "duplicate") &&
           !factory::values::typed_difference(pending, host.checkpoint()),
           "A shared Host retry cannot advance the mirrored press twice.");
+    Host resumed_work;
+    check(get<bool>(resumed_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(resumed_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(resumed_work.restore_checkpoint(pending), "accepted") &&
+          get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 5), "accepted"),
+          "A fresh Host resumes the one-turn partial press work near its frame.");
+    const auto held_drop = std::get<O>(get<A>(resumed_work.projection(), "dropped_material").front().storage());
+    const auto held_lot = std::get<O>(get<A>(V(held_drop), "work_lots").front().storage());
+    const auto held_id = get<I>(V(held_lot), "id");
+    auto recover_work = request("recover-partial-work", "pickup_material");
+    recover_work.emplace("center", held_drop.at("center"));
+    recover_work.emplace("expected", V(O{{"raw", held_drop.at("raw")},
+        {"products", held_drop.at("products")}, {"work_lots", held_drop.at("work_lots")}}));
+    accepted(resumed_work, recover_work);
+    auto hand_refeed = request("hand-refeed-partial", "refeed_press_work");
+    hand_refeed.emplace("entity", V(frame));
+    hand_refeed.emplace("entry", V(A{V(I{9}), V(I{1}), V(I{0})}));
+    hand_refeed.emplace("work_id", V(held_id));
+    auto wrong_id = hand_refeed;
+    wrong_id.at("request") = V("hand-refeed-wrong-id");
+    wrong_id.at("work_id") = V(held_id + 1);
+    const auto wrong_result = resumed_work.command("P", wrong_id);
+    check(!get<bool>(wrong_result, "accepted") &&
+          get<std::string>(wrong_result, "reason") == "unavailable_work",
+          "The wire command rejects an uncarried WorkLot identity.");
+    accepted(resumed_work, hand_refeed);
+    const auto reinserted_work = resumed_work.checkpoint();
+    check(get<bool>(resumed_work.command("P", hand_refeed), "duplicate") &&
+          !factory::values::typed_difference(reinserted_work, resumed_work.checkpoint()) &&
+          get<A>(get<O>(resumed_work.projection(), "cargo").at("P"), "work_lots").empty(),
+          "Host hand refeed moves the exact partial lot once from actor custody into the press.");
+    check(get<bool>(resumed_work.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 6), "accepted"),
+          "P walks to the ore deposit for a separate busy-feed control blank.");
+    auto harvest_busy_blank = request("harvest-busy-control-blank", "harvest_source");
+    harvest_busy_blank.emplace("target", V("opening-softmetal"));
+    accepted(resumed_work, harvest_busy_blank);
+    check(get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
+          "P returns to the occupied press with one genuinely carried blank.");
+    const auto busy_projection = resumed_work.projection();
+    const auto busy_feed = resumed_work.command("P", feed("feed-occupied-reinserted-work", frame, 9, 1, 0));
+    check(!get<bool>(busy_feed, "accepted") && get<std::string>(busy_feed, "reason") == "input_full" &&
+          !factory::values::typed_difference(V(get<O>(busy_projection, "cargo")),
+              V(get<O>(resumed_work.projection(), "cargo"))) &&
+          !factory::values::typed_difference(V(get<A>(busy_projection, "dropped_material")),
+              V(get<A>(resumed_work.projection(), "dropped_material"))),
+          "A busy reinserted press cannot consume another carried blank.");
+    Host restored_work;
+    check(get<bool>(restored_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(restored_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored_work.restore_checkpoint(reinserted_work), "accepted") &&
+          get<bool>(restored_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 6), "accepted"),
+          "Fresh Host restore retains the manually reinserted partial WorkLot.");
+    accepted(restored_work, turn("advance-reinserted-work", frame, mirrored_shaft, 7, 1, 0));
+    accepted(restored_work, turn("finish-reinserted-work", frame, mirrored_shaft, 7, 1, 0));
+    pickup_product(restored_work, 7, 1, 0, "pickup-reinserted-product");
+    check(get<I>(get<O>(restored_work.projection(), "cargo").at("P"), "products") == 1,
+          "The recovered partial WorkLot produces one pickable plate after fresh Host restore.");
+    Host final_work;
+    check(get<bool>(final_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(final_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(final_work.restore_checkpoint(restored_work.checkpoint()), "accepted") &&
+          get<I>(get<O>(final_work.projection(), "cargo").at("P"), "products") == 1,
+          "Fresh Host recovery preserves the finished plate in P's cargo.");
     accepted(host, turn("advance-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
     accepted(host, turn("finish-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
     check(get<A>(host.projection(), "dropped_material").size() == 1,
