@@ -215,6 +215,76 @@ void guided_press_host_path() {
           get<std::string>(get<A>(restored.projection(), "guided_press_assemblies").front(),
               "status") == "ready",
           "A fresh Host resumes the exact guided assembly and conserved copper worksite.");
+    check(get<bool>(restored.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 5), "accepted"),
+          "The restored worker resumes at the physical press before recovering its output.");
+    for (int index = 0; index < 4; ++index) {
+        if (index > 0) {
+            check(get<bool>(restored.publish_actor("P", {V(0.0), V(1.0), V(1.65)},
+                    5 + index * 2 - 1), "accepted"),
+                  "The worker returns to the finite ore deposit for another real blank.");
+            auto harvest = request("guided-recycle-ore-" + std::to_string(index), "harvest_source");
+            harvest.emplace("target", V("opening-softmetal"));
+            accepted(restored, harvest);
+            check(get<bool>(restored.publish_actor("P", {V(1.0), V(1.0), V(0.0)},
+                    5 + index * 2), "accepted"),
+                  "The worker brings that blank back within reach of the selected press.");
+            accepted(restored, feed("guided-recycle-feed-" + std::to_string(index),
+                                    anvil, 9, 0, 0));
+            for (int tick = 0; tick < 3; ++tick)
+                accepted(restored, turn("guided-recycle-turn-" + std::to_string(index) +
+                    "-" + std::to_string(tick), anvil, shaft, 7, 0, 0));
+        }
+        pickup_offcut(restored, 8, 0, 0,
+                      ("guided-recycle-offcut-" + std::to_string(index)).c_str());
+        pickup_product(restored, 7, 0, 0,
+                       ("guided-recycle-plate-" + std::to_string(index)).c_str());
+    }
+    conserved_copper(restored);
+    check(get<I>(get<O>(restored.projection(), "cargo").at("P"), "offcuts") == 4 &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "products") == 4,
+          "Four physical guided strokes leave four recoverable plates and four offcuts.");
+    auto compact = request("guided-compact", "compact_offcuts");
+    compact.emplace("entity", V(anvil));
+    compact.emplace("entry", V(A{V(I{9}), V(I{0}), V(I{0})}));
+    compact.emplace("drive", V(shaft));
+    auto wrong_drive = compact;
+    wrong_drive.at("request") = V("guided-compact-wrong-drive");
+    wrong_drive.at("drive") = V(cog);
+    check(!get<bool>(restored.command("P", wrong_drive), "accepted") &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "offcuts") == 4,
+          "An unrelated cog cannot compact or consume the actor's offcuts.");
+    const auto compact_result = accepted(restored, compact);
+    const auto recycled_drops = get<A>(restored.projection(), "dropped_material");
+    check(get<I>(compact_result, "moved_offcuts") == 4 &&
+          get<I>(compact_result, "formed_raw") == 1 &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "offcuts") == 0 &&
+          std::any_of(recycled_drops.begin(), recycled_drops.end(), [](const V& drop) {
+                  return get<I>(drop, "raw") == 1 &&
+                      !factory::values::typed_difference(V(get<A>(drop, "center")),
+                          V(A{V(I{8}), V(I{0}), V(I{0})}));
+              }), "The ordinary Host wire places one recycled blank at the clear work face.");
+    const auto compacted = restored.checkpoint();
+    check(get<bool>(restored.command("P", compact), "duplicate") &&
+          !factory::values::typed_difference(compacted, restored.checkpoint()),
+          "An exact compacting retry does not duplicate the recycled blank.");
+    Host fresh;
+    check(get<bool>(fresh.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(fresh.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(fresh.restore_checkpoint(compacted), "accepted") &&
+          !factory::values::typed_difference(compacted, fresh.checkpoint()),
+          "A fresh Host restores the exact recycled blank and custody receipt.");
+    check(get<bool>(fresh.publish_actor("Q", {V(1.0), V(1.0), V(0.0)}, 1), "accepted"),
+          "The second actor reaches the compacted blank through ordinary pose authority.");
+    auto q_pickup = request("guided-q-recycled-blank", "pickup_material");
+    q_pickup.at("client") = V("Q");
+    q_pickup.emplace("center", V(A{V(I{8}), V(I{0}), V(I{0})}));
+    q_pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
+        {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+    check(get<bool>(fresh.command("Q", q_pickup), "accepted") &&
+          get<I>(get<O>(fresh.projection(), "cargo").at("Q"), "raw") == 1 &&
+          get<I>(get<O>(fresh.projection(), "cargo").at("P"), "products") == 4,
+          "A second actor physically recovers the saved blank without moving P's plates.");
+    conserved_copper(fresh);
 }
 
 void placed_press_projection() {

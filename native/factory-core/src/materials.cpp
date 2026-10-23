@@ -531,6 +531,26 @@ Error turn_press(State& state, const Config& config, const Path& path,
     return Error::none;
 }
 
+Error compact_offcuts(State& state, const Config& config, const Path& path,
+                      const std::string& actor, const DropPoint& work) {
+    const auto valid = validate(state, config, path);
+    if (valid != Error::none) return valid;
+    if (config.plate_mass <= 0 || config.raw_mass <= config.plate_mass ||
+        config.input_units_per_product != 1) return Error::unavailable_recipe;
+    const auto carried = state.cargo.find(actor);
+    if (actor.empty() || carried == state.cargo.end()) return Error::invalid_actor;
+    if (carried->second.offcuts < config.raw_mass) return Error::unavailable_input;
+    if (state.dropped_material.contains(work) ||
+        state.dropped_material.size() >= maximum_drop_points) return Error::unavailable_output;
+    auto next = state;
+    next.cargo.at(actor).offcuts -= config.raw_mass;
+    next.dropped_material.emplace(work, Cargo{1, 0, {}});
+    const auto result = validate(next, config, path);
+    if (result != Error::none) return result;
+    state = std::move(next);
+    return Error::none;
+}
+
 Error step_presses(State& state, const Config& config, const Path& path,
                    const std::vector<PressStep>& steps) {
     const auto input_error = validate(state, config, path);

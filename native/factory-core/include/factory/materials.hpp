@@ -266,6 +266,12 @@ enum class Error {
 [[nodiscard]] Error turn_press(State&, const Config&, const Path&,
                                const DropPoint& work, const DropPoint& exit);
 
+// A ready press may compact exactly one stock chunk's mass of recovered
+// copper offcuts at its clear work point. World authenticates the assembled
+// press, crank holder and physical reach before this custody transfer.
+[[nodiscard]] Error compact_offcuts(State&, const Config&, const Path&,
+                                    const std::string& actor, const DropPoint& work);
+
 // World supplies only ready, rotating modular presses with unique work and
 // exit points. All supplied presses advance in one candidate material state,
 // so many local machines do not copy and validate the entire ledger each.

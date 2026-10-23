@@ -150,6 +150,10 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "entry"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "entry");
+    if (action == "compact_offcuts")
+        return keys(intent, {"target", "generation", "entry", "drive"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+            field<Value::Array>(intent, "entry") && field<std::string>(intent, "drive");
     if (action == "refeed_press_work")
         return keys(intent, {"target", "generation", "entry", "work_id"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
@@ -482,7 +486,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
         !position || !points || !distances ||
         (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
-         points->size() != ((two_endpoints(action) && action != "place_selected_belt_span") ? 2 : 1)) ||
+         points->size() != (((two_endpoints(action) && action != "place_selected_belt_span") ||
+             action == "compact_offcuts") ? 2 : 1)) ||
         distances->size() != points->size()) return false;
     const auto point = [](const Value::Array& array) -> std::optional<authority::Point> {
         if (array.size() != 3) return std::nullopt;
@@ -726,6 +731,26 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
                 requested_work_id && *requested_work_id > 0 && moved_lot && moved_lot->size() == 7 &&
                 moved_id && *moved_id == *requested_work_id && result.size() == 18) &&
             targets.front() == anchor(profile, *selected_entry);
+    }
+    if (action == "compact_offcuts") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* entry = field<Value::Array>(record.intent, "entry");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* work = field<Value::Array>(result, "work_center");
+        const auto* shaft = field<Value::Array>(result, "shaft_center");
+        const auto* spent = field<Integer>(result, "moved_offcuts");
+        const auto* formed = field<Integer>(result, "formed_raw");
+        const auto selected_entry = entry ? grid_point(Object{{"center", Value(*entry)}}) : std::nullopt;
+        const auto selected_work = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
+        const auto selected_shaft = shaft ? grid_point(Object{{"center", Value(*shaft)}}) : std::nullopt;
+        return copper_profile(profile.material) && target && entity && *target == *entity &&
+            requested_generation && generation && *requested_generation == *generation &&
+            *generation > 0 && selected_entry && selected_work && selected_shaft &&
+            spent && *spent == profile.material.raw_mass && formed && *formed == 1 &&
+            targets.front() == anchor(profile, *selected_entry) &&
+            targets.at(1) == anchor(profile, *selected_shaft) && result.size() == 20;
     }
     if (action == "turn_press_crank") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -1350,8 +1375,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 grid_point(Object{{"center", Value(*shaft)}}) != selected.collector->shaft_center ||
                 !add(cranked_ore, 1)) return false;
         }
-        if (*action == "feed_press" || *action == "refeed_press_work") {
+        if (*action == "feed_press" || *action == "refeed_press_work" ||
+            *action == "compact_offcuts") {
             const bool refeed_work = *action == "refeed_press_work";
+            const bool compacting = *action == "compact_offcuts";
             const auto* work_id = refeed_work ? field<Integer>(record.intent, "work_id") : nullptr;
             const auto* moved_work = refeed_work ? field<Value::Array>(record.result, "moved_work") : nullptr;
             const auto* moved_lot = moved_work && moved_work->size() == 1 ?
@@ -1376,6 +1403,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     return false;
                 refed_ids.insert(*work_id);
                 last_refeed_revision[*work_id] = *result_revision;
+            } else if (compacting) {
+                if (crank_holder != *actor ||
+                    carried_offcuts[*actor] < profile.material.raw_mass) return false;
+                carried_offcuts[*actor] -= profile.material.raw_mass;
             } else {
                 if (carried_raw[*actor] < 1) return false;
                 --carried_raw[*actor];
@@ -1394,6 +1425,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 inspected.press->work_center != *selected_work ||
                 std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                     [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; })) return false;
+            if (compacting) {
+                const auto* drive = field<std::string>(record.intent, "drive");
+                const auto* shaft = field<Value::Array>(record.result, "shaft_center");
+                if (!drive || *drive != inspected.press->shaft || !shaft ||
+                    grid_point(Object{{"center", Value(*shaft)}}) != inspected.press->shaft_center)
+                    return false;
+            }
             auto automatic_exit = inspected.press->work_center;
             automatic_exit[0] -= inspected.press->shaft_center[0] - inspected.press->anchor_center[0];
             automatic_exit[2] -= inspected.press->shaft_center[2] - inspected.press->anchor_center[2];
@@ -3065,14 +3103,18 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("source_remaining", Value(candidate.material.stock.source));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
-    if (*action == "feed_press" || *action == "refeed_press_work") {
+    if (*action == "feed_press" || *action == "refeed_press_work" ||
+        *action == "compact_offcuts") {
         const bool refeed_work = *action == "refeed_press_work";
+        const bool compacting = *action == "compact_offcuts";
         if (!profile_.landing_pod_center) return refused("press_unavailable");
         const auto* id = field<std::string>(intent, "target");
         const auto* generation = field<Integer>(intent, "generation");
         const auto* entry = field<Value::Array>(intent, "entry");
+        const auto* drive = compacting ? field<std::string>(intent, "drive") : nullptr;
         const auto* work_id = refeed_work ? field<Integer>(intent, "work_id") : nullptr;
-        if (!id || !generation || !entry) return refused("invalid_target");
+        if (!id || !generation || !entry || (compacting && !drive))
+            return refused("invalid_target");
         if (refeed_work && (!work_id || *work_id <= 0)) return refused("invalid_work_id", *id);
         const auto selected_entry = grid_point(Object{{"center", Value(*entry)}});
         if (!selected_entry) return refused("invalid_entry", *id);
@@ -3089,6 +3131,13 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             return refused("ambiguous_assembly", *id);
         if (!inspected.press || inspected.press->anchor != *id)
             return refused("incomplete_assembly", *id);
+        if (compacting && (!copper_profile(profile_.material) ||
+            profile_.material.input_units_per_product != 1))
+            return refused("unavailable_recipe", *id);
+        if (compacting && (!state.hand_crank || state.hand_crank->holder != binding.actor))
+            return refused("not_crank_holder", *id);
+        if (compacting && inspected.press->shaft != *drive)
+            return refused("wrong_drive_shaft", *id);
         if (std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                 [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; }))
             return refused("blocked_feed", *id);
@@ -3096,8 +3145,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (!cut) return refused("actor_unready", *id);
         auto checked_cut = *cut;
         checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, *selected_entry)});
+        std::vector<authority::Point> reach_targets{anchor(profile_, *selected_entry)};
+        if (compacting) reach_targets.push_back(anchor(profile_, inspected.press->shaft_center));
+        const auto checked = authority::check_reach(binding.actor, checked_cut, reach_targets);
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
@@ -3112,7 +3162,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                     profile_.material.input_units_per_product, profile_.material.cycle_ticks} ||
                 !state.press_progress.contains(*work_id))
                 return refused("incompatible_work", *id, std::move(facts));
-        } else if (carried.raw_units < 1) {
+        } else if (compacting && carried.offcuts < profile_.material.raw_mass) {
+            return refused("unavailable_input", *id, std::move(facts));
+        } else if (!compacting && carried.raw_units < 1) {
             return refused("unavailable_input", *id, std::move(facts));
         }
         const auto work = inspected.press->work_center;
@@ -3130,6 +3182,16 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 materials::Cargo{0, 0, std::vector<materials::WorkLot>{lot}});
             candidate.press_progress.at(*work_id).refeed_seen = true;
             facts.emplace("moved_work", lots_value(std::vector<materials::WorkLot>{lot}));
+        } else if (compacting) {
+            const auto error = materials::compact_offcuts(candidate.material, profile_.material,
+                material_path(candidate.topology), binding.actor, work);
+            if (error != materials::Error::none)
+                return refused(materials::error_name(error), *id, std::move(facts));
+            facts.emplace("moved_offcuts", Value(profile_.material.raw_mass));
+            facts.emplace("formed_raw", Value(Integer{1}));
+            facts.emplace("shaft_center", Value(Value::Array{
+                Value(inspected.press->shaft_center[0]), Value(inspected.press->shaft_center[1]),
+                Value(inspected.press->shaft_center[2])}));
         } else {
             --candidate.material.cargo.at(binding.actor).raw_units;
             candidate.material.dropped_material.emplace(work, materials::Cargo{1, 0, {}});

@@ -272,6 +272,79 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
           "A frame-free press makes one plate and one retained offcut from finite copper.");
     codec_restore(source.profile, finished,
                   "A frame-free finished press and its separate offcut survive checkpoint reload.");
+    if (center[1] == 0) {
+        const auto recover = [&](int index, g::Point at, I products, I offcuts) {
+            auto pickup = request("P", "guided-recover-" + std::to_string(index) + "-" +
+                std::to_string(products), "pickup_material");
+            pickup.emplace("center", V(point(at[0], at[1], at[2])));
+            pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(products)},
+                {"work_lots", V(V::Array{})}, {"offcuts", V(offcuts)}, {"sheets", V(I{0})}}));
+            run.accept("P", pickup);
+        };
+        for (int index = 0; index < 4; ++index) {
+            if (index > 0) {
+                run.p = {0, 1, 1.65};
+                auto harvest = request("P", "guided-recycle-ore-" + std::to_string(index),
+                    "harvest_source");
+                harvest.emplace("target", V("ore"));
+                run.accept("P", harvest);
+                run.p = {2, 1, 0};
+                auto again = feed;
+                again.at("request") = V("guided-recycle-feed-" + std::to_string(index));
+                run.accept("P", again);
+                for (int turn_index = 0; turn_index < 3; ++turn_index) {
+                    turn.at("request") = V("guided-recycle-turn-" + std::to_string(index) +
+                        "-" + std::to_string(turn_index));
+                    run.accept("P", turn);
+                }
+            }
+            recover(index, center, 0, 1);
+            recover(index, exit, 1, 0);
+        }
+        const auto four = run.world->snapshot();
+        check(four.state.material.cargo.at("P").products == 4 &&
+              four.state.material.cargo.at("P").offcuts == 4 &&
+              w::validate(source.profile, four),
+              "Four real strokes leave four plates and four separately recovered offcuts.");
+        auto compact = request("P", "guided-compact-offcuts", "compact_offcuts");
+        compact.emplace("target", V(anvil));
+        compact.emplace("generation", V(anvil_generation));
+        compact.emplace("entry", V(point(center[0] + direction[0], center[1],
+                                         center[2] + direction[2])));
+        compact.emplace("drive", V(shaft));
+        auto wrong = compact;
+        wrong.at("request") = V("guided-compact-wrong-drive");
+        wrong.at("drive") = V(anvil);
+        run.refuses("P", wrong, "wrong_drive_shaft");
+        check(run.world->snapshot().state == four.state,
+              "A wrong compacting drive leaves every copper holder unchanged.");
+        run.accept("P", compact);
+        const auto compacted = run.world->snapshot();
+        check(compacted.state.material.cargo.at("P").offcuts == 0 &&
+              compacted.state.material.cargo.at("P").products == 4 &&
+              compacted.state.material.dropped_material.at(center).raw_units == 1 &&
+              w::validate(source.profile, compacted),
+              "A held crank compacts four recovered offcuts into one full-mass work-face blank.");
+        check(run.send("P", compact).completed() &&
+              run.world->snapshot().state == compacted.state,
+              "An exact compacting retry does not create another blank or debit copper twice.");
+        auto forged = compacted;
+        forged.state.material.dropped_material.erase(center);
+        ++forged.state.material.cargo.at("Q").raw_units;
+        check(!w::World::restore("press-feed", source.profile, forged),
+              "A checkpoint cannot move the compacted blank to Q without a pickup receipt.");
+        codec_restore(source.profile, compacted,
+                      "A fresh World retains the compacted blank at its work point.");
+        auto q_pickup = request("Q", "guided-q-pickup-recycled-blank", "pickup_material");
+        q_pickup.emplace("center", V(point(center[0], center[1], center[2])));
+        q_pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+        run.accept("Q", q_pickup);
+        check(run.world->snapshot().state.material.cargo.at("Q").raw_units == 1 &&
+              run.world->snapshot().state.material.cargo.at("P").products == 4 &&
+              w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
+              "Q physically picks up the exact recycled blank without taking P's plates.");
+    }
 }
 
 void actor_feed_is_physical_custody() {

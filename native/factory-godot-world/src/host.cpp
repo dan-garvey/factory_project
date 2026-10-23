@@ -445,6 +445,11 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
             same("entity", "target") && same("entry", "entry");
+    if (*action == "compact_offcuts")
+        return *original_action == *action && keys(*wire, {"entity", "entry", "drive"}) &&
+            field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
+            field<std::string>(*wire, "drive") && same("entity", "target") &&
+            same("entry", "entry") && same("drive", "drive");
     if (*action == "refeed_press_work")
         return *original_action == *action && keys(*wire, {"entity", "entry", "work_id"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
@@ -1576,12 +1581,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
-    } else if (*action == "feed_press" || *action == "refeed_press_work") {
+    } else if (*action == "feed_press" || *action == "refeed_press_work" ||
+               *action == "compact_offcuts") {
         const bool refeed_work = *action == "refeed_press_work";
+        const bool compacting = *action == "compact_offcuts";
         if (!keys(wire, refeed_work ? std::initializer_list<const char*>{"entity", "entry", "work_id"} :
+                compacting ? std::initializer_list<const char*>{"entity", "entry", "drive"} :
                 std::initializer_list<const char*>{"entity", "entry"}) ||
             !field<std::string>(wire, "entity") || !field<Array>(wire, "entry") ||
-            (refeed_work && !field<Integer>(wire, "work_id"))) return refuse("invalid_command");
+            (refeed_work && !field<Integer>(wire, "work_id")) ||
+            (compacting && !field<std::string>(wire, "drive"))) return refuse("invalid_command");
         const auto& entry = *field<Array>(wire, "entry");
         if (entry.size() == 3) {
             mechanics::Point center{};
@@ -1602,6 +1611,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             Integer{0} : found->second.generation));
         normalized.emplace("entry", wire.at("entry"));
         if (refeed_work) normalized.emplace("work_id", wire.at("work_id"));
+        if (compacting) normalized.emplace("drive", wire.at("drive"));
     } else if (*action == "turn_press_crank") {
         if (!keys(wire, {"entity", "drive", "exit"}) ||
             !field<std::string>(wire, "entity") || !field<std::string>(wire, "drive") ||

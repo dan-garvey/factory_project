@@ -84,10 +84,31 @@ int main() {
         check(std::holds_alternative<m::CodecRefusal>(wrong_profile),
               "The one-to-one fixture cannot load a copper checkpoint as its own schema.");
     }
+    m::State compact;
+    compact.initial_units = 1;
+    compact.cargo.emplace("P", m::Cargo{});
+    compact.cargo.at("P").offcuts = 4;
+    check(m::validate(compact, recipe, path) == m::Error::none,
+          "Four recovered one-unit offcuts retain exactly one stock chunk of mass.");
+    const auto four_offcuts = compact;
+    check(m::compact_offcuts(compact, recipe, path, "Q", work) == m::Error::invalid_actor &&
+          compact == four_offcuts,
+          "An unbound actor cannot compact someone else's recovered copper.");
+    check(m::compact_offcuts(compact, recipe, path, "P", work) == m::Error::none &&
+          compact.cargo.at("P").offcuts == 0 && compact.dropped_material.at(work).raw_units == 1 &&
+          m::validate(compact, recipe, path) == m::Error::none,
+          "Explicit compaction places one full-mass blank at the work face.");
+    const auto compacted = compact;
+    check(m::compact_offcuts(compact, recipe, path, "P", work) == m::Error::unavailable_input &&
+          compact == compacted,
+          "Retrying compaction cannot mint another blank from spent offcuts.");
+    check(m::pickup_material(compact, recipe, path, "P", work) == m::Error::none &&
+          compact.cargo.at("P").raw_units == 1 && m::validate(compact, recipe, path) == m::Error::none,
+          "The reprocessed stock remains recoverable through ordinary pickup.");
     state.cargo.at("P").offcuts = 0;
     check(m::validate(state, recipe, path) == m::Error::invalid_state,
           "Removing even one offcut unit breaks native mass conservation.");
-    check(before != formed && checks == 15, "The fixture exercised actual stock and formed states.");
+    check(before != formed && checks == 20, "The fixture exercised actual stock and formed states.");
     std::cout << "{\"checks\":" << checks << ",\"evidence\":\"copper_material_mass\"}\n";
-    return failures == 0 && checks == 16 ? 0 : 1;
+    return failures == 0 && checks == 21 ? 0 : 1;
 }
