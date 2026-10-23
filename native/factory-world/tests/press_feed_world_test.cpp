@@ -803,6 +803,80 @@ void two_placed_presses_advance_distinct_powered_work() {
           drive.mechanical.motion.at(shafts[1]).state == g::MotionState::rotating &&
           frames[0] != frames[1] && shafts[0] != shafts[1],
           "Two placed press frames and shafts receive distinct actual rotating identities.");
+    auto half_source = source;
+    half_source.profile.waterwheel_rate = {1, 2};
+    for (auto& power : half_source.state.topology.sources)
+        power.rate = half_source.profile.waterwheel_rate;
+    auto half_ready = run.world->snapshot();
+    for (auto& power : half_ready.state.topology.sources)
+        power.rate = half_source.profile.waterwheel_rate;
+    Runner fractional(half_source);
+    fractional.world = w::World::restore("press-feed", half_source.profile, half_ready);
+    check(fractional.world != nullptr,
+          "The same assembled press site restores with a half-speed wheel before feeding.");
+    auto fractional_feed = request("P", "feed-half-speed-press", "feed_press");
+    fractional_feed.emplace("target", V(frames[0]));
+    fractional_feed.emplace("generation", V(frame_generations[0]));
+    fractional_feed.emplace("entry", V(point(1, 1, 0)));
+    fractional.accept("P", fractional_feed);
+    check(fractional.world->tick().error == w::TransactionError::none &&
+          fractional.world->tick().error == w::TransactionError::none,
+          "Two half-speed ticks allocate then fractionally advance a real WorkLot.");
+    const auto half_lot = fractional.world->snapshot().state.material.dropped_material.at({0, 1, 0})
+        .work_lots.front();
+    check(half_lot.remaining_ticks == 2 &&
+          half_lot.completed_subticks == m::work_subticks_per_tick / 2 &&
+          w::World::restore("press-feed", half_source.profile, fractional.world->snapshot()) != nullptr,
+          "The automatic partial WorkLot retains its exact half-tick progress in a checkpoint.");
+    auto recover_fractional = request("P", "recover-fractional-work", "pickup_material");
+    recover_fractional.emplace("center", V(point(0, 1, 0)));
+    recover_fractional.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        {"work_lots", V(V::Array{V(O{{"id", V(half_lot.id)}, {"recipe_input", V(I{1})},
+            {"cycle_ticks", V(I{2})}, {"remaining", V(half_lot.remaining_ticks)},
+            {"completed_subticks", V(half_lot.completed_subticks)},
+            {"work_remainder", V(half_lot.work_remainder)},
+            {"work_remainder_denominator", V(half_lot.work_remainder_denominator)}})})}}));
+    fractional.accept("P", recover_fractional);
+    auto reinsert_fractional = request("P", "reinsert-fractional-work", "refeed_press_work");
+    reinsert_fractional.emplace("target", V(frames[0]));
+    reinsert_fractional.emplace("generation", V(frame_generations[0]));
+    reinsert_fractional.emplace("entry", V(point(1, 1, 0)));
+    reinsert_fractional.emplace("work_id", V(half_lot.id));
+    fractional.accept("P", reinsert_fractional);
+    const auto half_reinserted = fractional.world->snapshot();
+    check(half_reinserted.state.material.cargo.at("P").work_lots.empty() &&
+          half_reinserted.state.material.dropped_material.at({0, 1, 0}).work_lots ==
+              std::vector<m::WorkLot>{half_lot} &&
+          w::World::restore("press-feed", half_source.profile, half_reinserted) != nullptr,
+          "Hand refeed preserves the original ID and fractional progress on the powered work point.");
+    auto forged_half_finish = half_reinserted;
+    forged_half_finish.state.material.dropped_material.erase({0, 1, 0});
+    forged_half_finish.state.material.dropped_material.emplace(g::Point{-1, 1, 0}, m::Cargo{0, 1, {}});
+    forged_half_finish.state.press_output_at_exit[{ -1, 1, 0 }] = half_lot.id;
+    forged_half_finish.state.press_progress.erase(half_lot.id);
+    check(!w::World::restore("press-feed", half_source.profile, forged_half_finish),
+          "A forged instant product cannot skip the remaining fractional power after hand refeed.");
+    for (int tick = 0; tick < 3; ++tick) {
+        check(fractional.world->tick().error == w::TransactionError::none &&
+              w::World::restore("press-feed", half_source.profile, fractional.world->snapshot()) != nullptr,
+              "Each real half-speed continuation step retains a restorable WorkLot or product.");
+        if (tick == 0) {
+            auto premature = fractional.world->snapshot();
+            premature.state.material.dropped_material.erase({0, 1, 0});
+            premature.state.material.dropped_material.emplace(g::Point{-1, 1, 0}, m::Cargo{0, 1, {}});
+            premature.state.press_output_at_exit[{ -1, 1, 0 }] = half_lot.id;
+            premature.state.press_progress.erase(half_lot.id);
+            check(!w::World::restore("press-feed", half_source.profile, premature),
+                  "One half-speed continuation tick cannot claim a fully formed reinserted plate.");
+            premature.state.press_progress[half_lot.id].automatic_remaining_ticks =
+                half_lot.remaining_ticks;
+            check(!w::World::restore("press-feed", half_source.profile, premature),
+                  "An inflated saved progress counter cannot claim a plate before enough powered ticks.");
+        }
+    }
+    check(fractional.world->snapshot().state.material.dropped_material.at({-1, 1, 0}).products == 1 &&
+          !fractional.world->snapshot().state.material.dropped_material.contains({0, 1, 0}),
+          "The retained half-tick plus three later half-speed ticks form exactly one plate.");
     for (int index = 0; index < 2; ++index) {
         auto feed = request("P", "feed-powered-" + std::to_string(index), "feed_press");
         feed.emplace("target", V(frames[index]));
@@ -915,6 +989,10 @@ void two_placed_presses_advance_distinct_powered_work() {
     run.accept("P", feed_recovery);
     check(run.world->tick().error == w::TransactionError::none,
           "Power starts the fifth blank before actor recovery.");
+    check(run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
+              .work_lots.front().remaining_ticks == 1,
+          "A powered tick advances the fifth WorkLot before it leaves the press.");
     const auto recoverable = run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
         .work_lots.front();
     auto recover = request("P", "recover-powered-partial", "pickup_material");
@@ -930,7 +1008,38 @@ void two_placed_presses_advance_distinct_powered_work() {
           run.world->snapshot().state.material.cargo.at("P").work_lots.back() == recoverable &&
           !run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
           w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
-          "Actor recovery returns the exact automatically started partial lot and valid checkpoint.");
+          "Actor recovery returns the exact automatically advanced partial lot and valid checkpoint.");
+    Runner refeed_powered(source);
+    refeed_powered.world = w::World::restore("press-feed", source.profile, run.world->snapshot());
+    auto hand_refeed = request("P", "refeed-powered-partial", "refeed_press_work");
+    hand_refeed.emplace("target", V(frames[0]));
+    hand_refeed.emplace("generation", V(frame_generations[0]));
+    hand_refeed.emplace("entry", V(point(1, 1, 0)));
+    hand_refeed.emplace("work_id", V(recoverable.id));
+    auto wrong_powered_id = hand_refeed;
+    wrong_powered_id.at("request") = V("refeed-wrong-powered-id");
+    wrong_powered_id.at("work_id") = V(recoverable.id + 1);
+    refeed_powered.refuses("P", wrong_powered_id, "unavailable_work");
+    refeed_powered.accept("P", hand_refeed);
+    const auto reinserted_powered = refeed_powered.world->snapshot();
+    check(reinserted_powered.state.material.cargo.at("P").work_lots.empty() &&
+          reinserted_powered.state.material.dropped_material.at({0, 1, 0}).work_lots ==
+              std::vector<m::WorkLot>{recoverable} &&
+          w::World::restore("press-feed", source.profile, reinserted_powered) != nullptr,
+          "Exact-ID hand refeed preserves an automatically advanced lot under its original press.");
+    const auto products_before = reinserted_powered.state.material.cargo.at("P").products;
+    check(refeed_powered.world->tick().error == w::TransactionError::none,
+          "The reinserted partial WorkLot accepts one more real powered tick.");
+    check(refeed_powered.world->snapshot().state.material.dropped_material.at({-1, 1, 0}).products == 1,
+          "One remaining powered tick forms a single product from the reinserted WorkLot.");
+    check(w::World::restore("press-feed", source.profile, refeed_powered.world->snapshot()) != nullptr,
+          "The powered completion of reinserted work restores from its history.");
+    auto pick_reformed = pickup;
+    pick_reformed.at("request") = V("pickup-refed-powered-product");
+    refeed_powered.accept("P", pick_reformed);
+    check(refeed_powered.world->snapshot().state.material.cargo.at("P").products == products_before + 1 &&
+          w::World::restore("press-feed", source.profile, refeed_powered.world->snapshot()) != nullptr,
+          "The reformed product enters actor cargo once with valid powered history.");
 }
 
 void belt_feeds_a_placed_press() {
