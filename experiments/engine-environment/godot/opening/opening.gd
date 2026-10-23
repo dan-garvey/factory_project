@@ -4039,6 +4039,7 @@ class ConstructionAudio:
 class MechanicalAmbience:
 	extends Node3D
 	## Disposable audio from confirmed motion, never a simulation clock.
+	const SOURCE_AUDIBLE_RADIUS := 16.0
 	static var loops: Dictionary = {}
 	var emitters: Dictionary = {}
 	var listener: AudioListener3D
@@ -4137,6 +4138,10 @@ class MechanicalAmbience:
 			if typeof(kind) != TYPE_STRING or kind not in ["collector", "belt", "processor", "wheel"] \
 				or not cell is Array or cell.size() != 2 or typeof(cell[0]) != TYPE_INT or typeof(cell[1]) != TYPE_INT:
 				continue
+			var source_position := Vector3(cell[0] * Geometry.PITCH, 0.7, cell[1] * Geometry.PITCH)
+			if not source_position.is_finite() or listener.position.distance_squared_to(source_position) \
+					> SOURCE_AUDIBLE_RADIUS * SOURCE_AUDIBLE_RADIUS:
+				continue
 			audible[id] = true
 			if emitters.has(id) and emitters[id].get_meta("kind") != kind:
 				emitters[id].stop()
@@ -4150,14 +4155,14 @@ class MechanicalAmbience:
 				emitter.volume_db = -23.0
 				emitter.max_db = -14.0
 				emitter.unit_size = 2.5
-				emitter.max_distance = 16.0
+				emitter.max_distance = SOURCE_AUDIBLE_RADIUS
 				emitter.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
 				emitter.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
 				add_child(emitter)
 				emitters[id] = emitter
 			# A bounded timbre change, not a rate clamp in the native mechanics.
 			emitters[id].pitch_scale = clampf(absf(float(motion.numerator) / float(motion.denominator)), 0.6, 1.8)
-			emitters[id].position = Vector3(cell[0] * Geometry.PITCH, 0.7, cell[1] * Geometry.PITCH)
+			emitters[id].position = source_position
 			if not emitters[id].playing:
 				emitters[id].play()
 		for id in emitters.keys():

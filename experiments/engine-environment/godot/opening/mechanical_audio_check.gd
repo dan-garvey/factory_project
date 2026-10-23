@@ -145,6 +145,45 @@ func check_projection_audio() -> void:
 	verify(before == observation(), "Audio operations leave the original observation byte/type values intact.")
 	bed.silence()
 	bed.free()
+	var range_bed := Ambience.new()
+	root.add_child(range_bed)
+	var range_snapshot := observation()
+	range_snapshot.entities.wheel.cell = [100, 100]
+	range_bed.sync(range_snapshot, "P", true, facing)
+	verify(range_bed.emitters.size() == 3 and not range_bed.emitters.has("wheel"),
+		"A rotating source beyond its authored 16-meter audio limit creates no emitter.")
+	range_snapshot.actors.P.position = [165.0, 1.0, 165.0]
+	range_bed.sync(range_snapshot, "P", true, facing)
+	verify(range_bed.emitters.size() == 1 and range_bed.emitters.has("wheel")
+		and range_bed.emitters.wheel.stream == Ambience.make_loop("wheel"),
+		"Walking into range starts the original wheel sound and removes distant sources.")
+	var nearby_wheel: AudioStreamPlayer3D = range_bed.emitters.get("wheel")
+	range_snapshot.actors.P.position = [3.0, 1.0, 5.0]
+	range_bed.sync(range_snapshot, "P", true, facing)
+	verify(range_bed.emitters.size() == 3 and not is_instance_valid(nearby_wheel),
+		"Leaving range releases the formerly audible source.")
+	range_snapshot.motion.wheel.state = "stopped"
+	range_snapshot.actors.P.position = [165.0, 1.0, 165.0]
+	range_bed.sync(range_snapshot, "P", true, facing)
+	verify(range_bed.emitters.is_empty(), "Returning to a stopped distant wheel remains silent.")
+	range_bed.silence()
+	range_bed.free()
+	var crowded_bed := Ambience.new()
+	root.add_child(crowded_bed)
+	var crowded := observation()
+	crowded.entities.clear()
+	crowded.motion.clear()
+	for index in 1000:
+		var id := "distant-wheel-%d" % index
+		crowded.entities[id] = {"kind": "wheel", "cell": [100 + index % 40, 100 + floori(float(index) / 40.0)]}
+		crowded.motion[id] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	crowded.entities["local_wheel"] = {"kind": "wheel", "cell": [1, 2]}
+	crowded.motion["local_wheel"] = {"state": "rotating", "numerator": 1, "denominator": 1}
+	crowded_bed.sync(crowded, "P", true, facing)
+	verify(crowded_bed.emitters.size() == 1 and crowded_bed.emitters.has("local_wheel"),
+		"A thousand silent distant wheels do not allocate sound players around one nearby source.")
+	crowded_bed.silence()
+	crowded_bed.free()
 
 func check_view_callbacks(shared: bool) -> void:
 	var view = SharedFixture.new() if shared else ViewFixture.new()
