@@ -15,11 +15,14 @@ var failures := 0
 class CountingNativeModel extends "res://opening/native_model.gd":
 	var full_projection_calls := 0
 	var native_advance_calls := 0
+	var native_delta_calls := 0
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
 		elif method == "advance":
 			native_advance_calls += 1
+		elif method == "advance_delta":
+			native_delta_calls += 1
 		return super._invoke(method, arguments)
 
 class TopologyStub extends RefCounted:
@@ -2551,6 +2554,10 @@ func _native_view_cache_regression() -> void:
 	verify(not trusted._view_projection_borrowed().entities.has("invented-machine")
 		and not trusted._view_projection_borrowed().actors.P.ready,
 		"External view callers cannot edit a trusted opening tick.")
+	var borrowed_tick: Dictionary = trusted._advance_borrowed()
+	verify(trusted.native_delta_calls == 1 and trusted.native_advance_calls == 1
+		and borrowed_tick == trusted.projection(),
+		"A trusted no-change tick merges the native delta into the exact full view.")
 	var public_tick := trusted.advance()
 	public_tick.entities["invented-machine"] = {}
 	verify(not trusted.view_projection().entities.has("invented-machine"),

@@ -67,6 +67,9 @@ func _invoke(method: String, arguments: Array) -> Dictionary:
 	return value
 
 func projection() -> Dictionary:
+	# Public snapshots can be edited by callers. Do not use one as the base for
+	# the next trusted tick delta.
+	_view_cache = {}
 	return _invoke("projection", [])
 
 func view_projection() -> Dictionary:
@@ -104,7 +107,24 @@ func advance() -> Dictionary:
 func _advance_borrowed() -> Dictionary:
 	# The opening reads this confirmed tick without mutating it. Public advance()
 	# keeps its isolated cache for callers that may edit the returned dictionary.
-	var observed: Dictionary = _invoke("advance", [])
+	if _view_cache.is_empty():
+		var complete: Dictionary = _invoke("advance", [])
+		_view_cache = complete if _complete_projection(complete) else {}
+		return complete
+	var delta: Dictionary = _invoke("advance_delta", [])
+	var observed: Dictionary = {}
+	if delta.get("full") is Dictionary:
+		observed = delta.full
+	elif delta.get("changes") is Dictionary and delta.get("removed") is Array:
+		observed = _view_cache.duplicate()
+		for key in delta.removed:
+			observed.erase(key)
+		for key in delta.changes:
+			observed[key] = delta.changes[key]
+	else:
+		# A boundary refusal is not a confirmed tick or a reusable view.
+		_view_cache = {}
+		return delta
 	_view_cache = observed if _complete_projection(observed) else {}
 	return observed
 
