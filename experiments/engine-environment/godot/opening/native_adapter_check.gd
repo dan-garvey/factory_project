@@ -2203,6 +2203,8 @@ func _arrival_run() -> void:
 	opening._select_tool("component")
 	var expected_status := ["missing_ram", "missing_guide", "missing_shaft",
 		"missing_cog", "ready"]
+	var press_parts: Dictionary = {}
+	var original_camera_distance: float = opening.distance
 	for index in range(part_list.size()):
 		var kind: String = part_list[index]
 		if not panel.craft_section.visible:
@@ -2217,22 +2219,106 @@ func _arrival_run() -> void:
 		var requested_center := [3 * OpeningGeometry.HEIGHT_DENOMINATOR + maxi(index - 2, 0),
 			[0, 1, 3, 4, 4][index] + (OpeningGeometry.HEIGHT_DENOMINATOR if raised else 0),
 			4 * OpeningGeometry.HEIGHT_DENOMINATOR]
-		opening.component_nudge_active = true
-		opening.component_nudge_center = requested_center.duplicate()
 		var before: int = opening.model.projection().order
-		opening._world_click(Vector2i(3, 4))
-		opening.component_nudge_active = false
-		opening.component_nudge_center.clear()
+		var before_parts: Dictionary = opening.model.projection().placed_components
+		if mode == "arrival-press":
+			if index == 3 and not await _approach(Vector2(6.6, 6.6)):
+				return
+			await physics_frame
+			await process_frame
+			opening.distance = 0.0
+			opening._update_camera()
+			var target := Vector3(4.95, 0.0, 6.6)
+			var expected_face := Vector3.UP
+			var target_id := ""
+			if index > 0:
+				target_id = str(press_parts["ram_face" if index == 2 else "anvil"])
+				var occupied: Dictionary = opening.model.projection().placed_components[target_id].occupied
+				var center: Array = occupied.center
+				var half: Array = occupied.half
+				target = Vector3(float(center[0]), float(center[1]), float(center[2]))
+				if index < 3:
+					target.y += float(half[1])
+				else:
+					target.x += float(half[0])
+					expected_face = Vector3.RIGHT
+			var direction: Vector3 = (target - opening.camera.global_position).normalized()
+			opening.orbit_yaw = atan2(-direction.x, -direction.z)
+			opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+			opening._update_camera()
+			var screen: Vector2 = opening._pointed_screen_position()
+			var hit: Dictionary = opening._screen_pick(screen)
+			var pointed: String = opening._screen_entity(screen)
+			var tile: Vector2i = opening._screen_cell(screen)
+			if not _expect(not opening.component_nudge_active
+					and (not target_id.is_empty() or tile == Vector2i(3, 4))
+					and (target_id.is_empty() or (pointed == target_id
+					and not hit.is_empty() and hit.normal.dot(expected_face) > 0.8)),
+					"The physical actor can point at the fitted %s face for %s: %s" % [
+						target_id if not target_id.is_empty() else "floor", kind,
+						str({"camera": opening.camera.global_position, "target": target,
+							"pointed": pointed, "normal": hit.get("normal"), "tile": tile})]):
+				return
+			opening._refresh_component_preview()
+			var ghost_center: Array = opening._component_place_center(tile, pointed)
+			if not _expect(ghost_center == requested_center and opening.component_preview.visible
+					and not opening.component_preview_blocked
+					and opening.component_preview.position.distance_to(
+						opening._component_candidate_box(kind, ghost_center).center) < 0.001,
+					"The native-ready %s ghost shows the same reachable press socket the click will send" % kind):
+				return
+			if index == 2 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+				await RenderingServer.frame_post_draw
+				if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-guide-snap.png") == OK,
+						"Retain the anvil-targeted raised guide ghost in the ordinary scene"):
+					return
+				pointed = opening._screen_entity(screen)
+				tile = opening._screen_cell(screen)
+				if not _expect(pointed == target_id and opening._component_place_center(tile, pointed) == ghost_center,
+						"The persistent actor-eye aim keeps the guide click on the visible ghost after its rendered frame"):
+					return
+			opening._world_click(tile, pointed)
+		else:
+			opening.component_nudge_active = true
+			opening.component_nudge_center = requested_center.duplicate()
+			opening._world_click(Vector2i(3, 4))
+			opening.component_nudge_active = false
+			opening.component_nudge_center.clear()
 		var projection: Dictionary = opening.model.projection()
-		if not _expect(projection.order == before + 1 and projection.placed_components.size() == index + 1,
-				"The ordinary click submits the locked %s point at %s: %s" % [kind,
+		if not _expect(projection.order == before + 1 and projection.placed_components.size() == index + 1
+				and projection.placed_components.values().any(func(part: Variant) -> bool:
+					return part.component == kind and part.center == requested_center),
+				"The ordinary click submits the %s point at %s: %s" % [kind,
 					str(requested_center), opening.status_label.text]):
 			return
+		for id: String in projection.placed_components:
+			if not before_parts.has(id):
+				press_parts[kind] = id
 		if not _expect(projection.guided_press_assemblies.size() == 1
 				and projection.guided_press_assemblies[0].status == expected_status[index],
 				"The native recognizer reports the current fitted press stage"):
 			return
+	if mode == "arrival-press":
+		opening.distance = original_camera_distance
+		opening._update_camera()
+		if not await _approach(Vector2(4.95, 4.95)):
+			return
 	var ready: Dictionary = opening.model.projection().guided_press_assemblies[0]
+	if mode == "arrival-press" and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening._select_tool("inspect")
+		opening.distance = 0.0
+		opening._update_camera()
+		var press_target := Vector3(4.95, 1.35, 6.6)
+		var press_direction: Vector3 = (press_target - opening.camera.global_position).normalized()
+		opening.orbit_yaw = atan2(-press_direction.x, -press_direction.z)
+		opening.orbit_pitch = asin(clampf(-press_direction.y, -1.0, 1.0))
+		opening._update_camera()
+		await RenderingServer.frame_post_draw
+		var ordinary_captured: bool = root.get_texture().get_image().save_png(capture_prefix + "-ready-press.png") == OK
+		var close_captured: bool = await _capture_guided_close(str(ready.parts.ram), capture_prefix + "-ready-close.png")
+		if not _expect(ordinary_captured and close_captured,
+				"Retain the fitted press in the ordinary actor view and a close passive view"):
+			return
 	if raised and not _expect(ready.center == [12, 4, 16] and ready.work_center == [12, 4, 16],
 			"The raised native press keeps the anvil workface on the same foundation height grid"):
 		return
