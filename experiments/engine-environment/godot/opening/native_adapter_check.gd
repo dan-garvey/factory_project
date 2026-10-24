@@ -2089,8 +2089,10 @@ func _arrival_run() -> void:
 		return
 	var initial: Dictionary = opening.model.projection()
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
-			and initial.placed_components.is_empty() and initial.component_recipes.size() == 12,
-			"Two finite trees and the ore deposit supply both chapter bills without gifted machines"):
+			and initial.placed_components.is_empty() and initial.component_recipes.size() == 14
+			and initial.component_recipes.wooden_slide.timber == 3
+			and initial.component_recipes.softmetal_slide.softmetal == 4,
+			"Two finite trees and the ore deposit supply the original route while native slides remain finite options"):
 		return
 	var part_list := ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"]
 	var collector_list := ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]
