@@ -1629,6 +1629,7 @@ func _arrival_hotbar() -> void:
 	view.state.cargo.P.products = 1
 	view.state.cargo.P.work_lots = [{"id": 7}]
 	view.state.hand_crank = {"holder": "P"}
+	view.state.workshop_completed_actors = ["P"]
 	view._refresh_ui()
 	verify(bar.material_counts.timber.text == "5" and bar.material_counts.raw.text == "3"
 		and bar.material_counts.products.text == "1" and bar.material_counts.work_lots.text == "1"
@@ -1637,7 +1638,7 @@ func _arrival_hotbar() -> void:
 		"Carried material icons read the active actor's confirmed cargo and hand tools.")
 	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
 		and view.goal_label.text.contains("PLATE IN INVENTORY"),
-		"The objective completes from the actor's plate while the inventory window owns counts.")
+		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_label.text)
 	bar.open_catalog(7)
 	bar.material_buttons.timber.grab_focus()
 	await settle_widgets()
@@ -2104,10 +2105,11 @@ func _workshop_pages() -> void:
 		view._build_interface()
 		view._refresh_ui()
 		var panel = view.arrival_assembly_controls
+		var inventory = view.building_hotbar
 		await process_frame
 		await process_frame
 		verify(not view.object_menu.visible and not panel.is_visible_in_tree()
-			and not panel.craft_section.visible and not panel.press_section.visible,
+			and not inventory.catalog.visible and not panel.press_section.visible,
 			"A fresh opening leaves workshop controls off the game view.")
 		var escape := InputEventKey.new()
 		escape.pressed = true
@@ -2131,16 +2133,13 @@ func _workshop_pages() -> void:
 			break
 		view.pointed = "pod-fabrication-hub"
 		view._open_pointed_machine()
-		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree() and not panel.press_section.visible
-			and panel.selected_bench == view.pointed and not panel.craft_tab.visible
-			and panel.field_craft_button.is_visible_in_tree() and panel.craft_button.is_visible_in_tree()
+		verify(inventory.catalog.visible and inventory.context_bench == view.pointed
+			and not view.object_menu.visible and inventory.recipe_buttons["component:wooden_frame"].visible
 			and not view.save_button.is_visible_in_tree() and not view.load_button.is_visible_in_tree(),
-			"Ordinary E shows pod crafting directly in its centered panel.")
-		verify(panel.foundation_craft_row.is_visible_in_tree()
-			and panel.foundation_craft_button.is_visible_in_tree()
-			and panel.foundation_craft_label.is_visible_in_tree()
-			and panel.foundation_craft_label.text == "Foundation\n2 timber",
-			"The separate foundation action keeps its native name and cost visible beside the icon.")
+			"Ordinary E shows pod crafting directly in the shared inventory.")
+		verify(inventory.recipe_buttons["foundation"].visible
+			and "2 timber + 0 ore" in inventory.recipe_buttons["foundation"].tooltip_text,
+			"The foundation recipe keeps its native name and cost beside the icon.")
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-foundation-label.png") == OK,
@@ -2148,18 +2147,17 @@ func _workshop_pages() -> void:
 		root.size = Vector2i(640, 480)
 		view._fit_object_menu(Vector2i(640, 480))
 		await process_frame
-		var icon_rect: Rect2 = panel.foundation_craft_button.get_global_rect()
-		var label_rect: Rect2 = panel.foundation_craft_label.get_global_rect()
-		var operations_rect: Rect2 = view.object_menu_operations.get_global_rect()
-		verify(icon_rect.end.x <= label_rect.position.x + 1.0
-			and label_rect.end.x <= operations_rect.end.x + 1.0
-			and label_rect.end.y <= operations_rect.end.y + 1.0,
-			"The foundation icon and cost fit together inside a narrow workshop panel.")
+		inventory._configure_catalog_layout(Vector2i(640, 480))
+		inventory._place_catalog()
+		var popup_rect := Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size))
+		verify(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(popup_rect)
+			and not inventory.recipe_scroll.get_h_scroll_bar().visible,
+			"The foundation recipe and cost fit inside the narrow inventory window.")
 		root.size = Vector2i(1280, 800)
-		view._fit_object_menu(Vector2i(1280, 800))
-		view._input(escape)
-		verify(not view.object_menu.visible and not view.pause_menu.visible,
-			"Escape closes an object panel without opening the worksite menu underneath it.")
+		inventory._configure_catalog_layout(Vector2i(1280, 800))
+		inventory._input(escape)
+		verify(not inventory.catalog.visible and not view.pause_menu.visible,
+			"Escape closes inventory without opening the worksite menu underneath it.")
 		view._unhandled_input(escape)
 		verify(view.pause_menu.visible, "The next idle Escape opens worksite actions.")
 		view.pause_exit_button.pressed.emit()
@@ -2170,22 +2168,21 @@ func _workshop_pages() -> void:
 		view.pause_menu.hide()
 		await process_frame
 		view._open_pointed_machine()
-		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree(),
-			"Ordinary E reopens the same workshop with its actions ready.")
-		view.object_menu.hide()
+		verify(inventory.catalog.visible and inventory.context_bench == "pod-fabrication-hub",
+			"Ordinary E reopens the same workshop recipes.")
+		inventory.catalog.hide()
 		await process_frame
 		view.pointed = "field-bench"
 		view._open_pointed_machine()
-		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree()
-			and panel.selected_bench == "field-bench" and not panel.bench_choice.visible
-			and not panel.pod_workshop_button.visible and panel.reclaim_button.is_visible_in_tree()
-			and not view.remove_button.visible,
-			"The built workbench shows its craft actions and one reclaim icon without unrelated pod controls.")
-		view.object_menu.hide()
+		verify(inventory.catalog.visible and inventory.context_bench == "field-bench"
+			and inventory.context_action.visible and "Reclaim wooden workbench" in inventory.context_action.tooltip_text
+			and not view.object_menu.visible,
+			"The built workbench shows its recipes and one reclaim icon without pod controls.")
+		inventory.catalog.hide()
 		await process_frame
 		view.pointed = "press-anvil"
 		view._open_pointed_machine()
-		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree() and not panel.craft_section.visible
+		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree() and not panel.collector_section.visible
 			and panel.feed_button.is_visible_in_tree() and not panel.feed_button.disabled,
 			"Ordinary E on a confirmed press exposes its existing feed controls.")
 		var press_icons := [panel.feed_button, panel.refeed_work_button, panel.turn_button,
@@ -2348,16 +2345,13 @@ func _workshop_pages() -> void:
 				"Closing the object menu cancels a held crank before another request.")
 			view.issued.clear()
 			view.state.erase("dropped_material")
-		panel.press_tab.pressed.emit()
-		view._refresh_ui()
-		verify(panel.press_section.visible and not panel.press_section.is_visible_in_tree(),
-			"A page explicitly opened without a target stays offscreen until an object is opened.")
+		verify(not panel.press_section.is_visible_in_tree(),
+			"Closing a press panel removes its actions from the game view.")
 		view.pointed = "collector-frame"
 		view._open_pointed_machine()
-		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree()
+		verify(view.object_menu.visible and panel.collector_section.is_visible_in_tree()
 			and not panel.press_section.visible
-			and panel.collector_cut_button.is_visible_in_tree()
-			and not view.object_workshop_craft_column.visible,
+			and panel.collector_cut_button.is_visible_in_tree(),
 			"Ordinary E on a collector shows its cutting controls without unrelated crafting.")
 		verify(panel.collector_crank_button.text.is_empty() and panel.collector_cut_button.text.is_empty()
 			and panel.collector_crank_button.icon != null and panel.collector_cut_button.icon != null
@@ -2397,146 +2391,83 @@ func _field_craft_widget() -> void:
 	view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0},
 		"cutting_edge": {"timber": 0, "softmetal": 1},
 		"wooden_shaft": {"timber": 1, "softmetal": 0, "load_rating": 8},
-		"wooden_cog": {"timber": 2, "softmetal": 0, "load_rating": 8},
-		"softmetal_shaft": {"timber": 0, "softmetal": 2, "load_rating": 24},
-		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24}}
-	view.state.component_capacity = 20
+		"softmetal_shaft": {"timber": 0, "softmetal": 2, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
-	view.state.part_kits.P.foundation = 0
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
-	view.state.placed_components = {}
 	root.add_child(view)
 	view.selection_ring = MeshInstance3D.new()
 	view.add_child(view.selection_ring)
 	view._build_interface()
-	var panel = view.arrival_assembly_controls
-	panel.refresh(view.state, view.client, view.selected, true)
-	panel.craft_tab.pressed.emit()
-	verify(panel.craft_button.text.is_empty() and panel.field_craft_button.text.is_empty()
-		and panel.place_button.text.is_empty()
-		and panel.craft_button.icon != null and panel.field_craft_button.icon != null
-		and panel.place_button.icon != null and panel.foundation_craft_button.icon != null
-		and "C" in panel.craft_button.tooltip_text
-		and "V" in panel.field_craft_button.tooltip_text
-		and "P" in panel.place_button.tooltip_text
-		and not panel.craft_button.accessibility_name.is_empty()
-		and not panel.field_craft_button.accessibility_name.is_empty()
-		and not panel.place_button.accessibility_name.is_empty(),
-		"The grouped workshop uses focused, described icons for bench craft, floor, field shape and placement.")
-	verify(panel.foundation_craft_button.visible and not panel.foundation_craft_button.disabled
-		and panel.foundation_craft_button.icon != null
-		and panel.foundation_craft_label.visible
-		and panel.foundation_craft_label.text == "Foundation\n2 timber"
-		and "2 timber" in panel.foundation_craft_button.tooltip_text
-		and "Craft one foundation" in panel.foundation_craft_button.accessibility_name,
-		"The ordinary workshop exposes a focused foundation icon with the native timber bill.")
-	panel.foundation_craft_button.pressed.emit()
+	var inventory = view.building_hotbar
+	inventory.open_catalog()
+	var frame: Button = inventory.recipe_buttons["component:wooden_frame"]
+	var edge: Button = inventory.recipe_buttons["component:cutting_edge"]
+	var foundation: Button = inventory.recipe_buttons["foundation"]
+	verify(inventory.catalog.visible and frame.visible and edge.visible and foundation.visible
+		and frame.icon != null and edge.icon != null and foundation.icon != null
+		and "3 timber + 0 ore" in frame.tooltip_text and "Field or bench" in frame.tooltip_text
+		and "Bench" in edge.tooltip_text and "2 timber + 0 ore" in foundation.tooltip_text,
+		"The shared inventory shows described field and bench recipes with native bills.")
+	frame.grab_focus()
+	verify(inventory.focus_description.text == frame.tooltip_text and not frame.accessibility_name.is_empty(),
+		"Recipe focus and hover expose the same cost and action description.")
+	frame.pressed.emit()
+	verify(view.issued == [{"action": "field_craft", "component": "wooden_frame"}],
+		"A field recipe submits an actor-bound native shape action without a forged bench.")
+	view.issued.clear()
+	edge.pressed.emit()
+	verify(view.issued.is_empty() and "Open a fabrication bench" in inventory.focus_description.text,
+		"A metal recipe explains its bench requirement in the field.")
+	inventory.catalog.hide()
+	inventory.open_at_bench("pod-fabrication-hub")
+	edge.pressed.emit()
+	verify(view.issued == [{"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"}],
+		"The same recipe uses the selected native pod identity at a bench.")
+	view.issued.clear()
+	foundation.pressed.emit()
 	verify(view.issued == [{"action": "craft_foundation", "entity": "pod-fabrication-hub"}],
-		"The ordinary icon submits one actor-bound foundation craft at the selected workshop.")
+		"The foundation recipe sends one native bench craft action.")
 	view.issued.clear()
 	view.state.cargo.P.timber = 1
-	panel.refresh(view.state, view.client, view.selected, true)
-	panel.foundation_craft_button.pressed.emit()
-	verify(panel.foundation_craft_button.disabled and view.issued.is_empty(),
-		"Missing native timber disables the icon and cannot send a craft command.")
+	inventory.refresh()
+	foundation.pressed.emit()
+	verify(view.issued.is_empty() and "Carry the ingredients" in inventory.focus_description.text,
+		"Missing timber keeps the foundation recipe visible without sending a command.")
 	view.state.cargo.P.timber = 3
-	panel.refresh(view.state, view.client, view.selected, true)
-	verify(panel != null and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
-		"An arriving actor carrying timber sees the multitool shape action for a wooden frame.")
-	panel.field_craft_button.pressed.emit()
-	verify(view.issued == [{"action": "field_craft", "component": "wooden_frame"}],
-		"The field control submits the selected wooden recipe without a forged hub target or location.")
-	var edge_index := -1
-	for index in panel.COMPONENTS.size():
-		if panel.COMPONENTS[index][0] == "cutting_edge":
-			edge_index = index
-	verify(edge_index >= 0, "The metal cutting edge remains in the component picker.")
-	if edge_index >= 0:
-		panel.component_choice.select(edge_index)
-		panel._component_selected(edge_index)
-		verify(not panel.field_craft_button.visible and not panel.craft_button.disabled,
-			"Metal disables hand shaping and keeps the pod bench route selectable.")
-		panel.craft_button.pressed.emit()
-		verify(view.issued.back() == {"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"},
-			"The metal button retains the native pod hub identity.")
-	verify(panel.component_choice.get_item_text(1) == "Wooden shaft  ×0"
-		and panel.component_choice.get_item_text(9) == "Softmetal shaft  ×0",
-		"The compact component picker retains full part names and carried counts.")
-	panel.component_choice.select(1)
-	panel._component_selected(1)
-	verify("Rated for 8 load" in panel.component_choice.tooltip_text
-		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
-		and "Need 1 timber" in panel.recipe_label.text
-		and not "parts carried" in panel.recipe_label.text,
-		"A wooden shaft shows its recipe and stock without advertising a player carry limit.")
-	panel.component_choice.select(9)
-	panel._component_selected(9)
-	verify("Rated for 24 load" in panel.component_choice.tooltip_text
-		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
-		and "Need 0 timber + 2 softmetal" in panel.recipe_label.text,
-		"The softmetal replacement shows the stronger rating and workshop bill.")
 	view.state.part_recipes = [{"kind": "belt", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0}]
 	view.state.part_specifications = {"P": [{"kind": "belt", "teeth": 0, "half_span": 0, "count": 1}]}
-	panel.refresh(view.state, view.client, view.selected, true)
-	verify(panel.part_craft_button.text.is_empty() and panel.part_place_button.text.is_empty()
-		and panel.part_craft_button.icon != null and panel.part_place_button.icon != null
-		and not panel.part_craft_button.disabled and not panel.part_place_button.disabled
-		and "2 timber + 1 softmetal" in panel.part_craft_button.tooltip_text
-		and "Connect shafts" in panel.part_place_button.tooltip_text
-		and "1 carried" in panel.part_place_button.tooltip_text
-		and "shortcut M" in panel.part_craft_button.accessibility_name
-		and "shortcut K" in panel.part_place_button.accessibility_name,
-		"Powered-route crafting and belt connection use two described icons with projected cost and custody.")
-	view.issued.clear()
-	panel.part_craft_button.pressed.emit()
+	inventory.refresh()
+	var belt_recipe: Button = inventory.recipe_buttons["part:0"]
+	verify("2 timber + 1 ore" in belt_recipe.tooltip_text and belt_recipe.icon != null
+		and "rated for 8 load" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text
+		and "rated for 24 load" in inventory.recipe_buttons["component:softmetal_shaft"].tooltip_text,
+		"The recipe grid shows actual drive bills and load ratings.")
+	belt_recipe.pressed.emit()
 	verify(view.issued == [{"action": "craft_part", "entity": "pod-fabrication-hub", "role": "belt", "half_span": 0}],
-		"The powered-route craft icon keeps the native selected-workshop payload.")
-	# Stress the longest craft choice and action with a deliberately large count.
-	# The ordinary scene now fits these controls inside a centered workshop.
-	root.size = Vector2i(1280, 800)
-	var scroll: ScrollContainer = view.arrival_assembly_scroll
-	scroll.visible = true
-	panel.component_choice.set_item_text(9, "Softmetal shaft  ×999")
-	panel.place_button.text = "Place softmetal shaft"
-	panel.part_choice.add_item("Waterwheel  ×999")
+		"The powered-route recipe keeps the selected workshop identity.")
+	root.size = Vector2i(640, 480)
+	inventory._configure_catalog_layout(Vector2i(640, 480))
+	inventory._place_catalog()
 	await process_frame
-	await process_frame
-	verify(not scroll.get_h_scroll_bar().visible,
-		"Long craft choices and the bench, field and placement actions need no sideways scrolling.")
-	scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
-	await process_frame
-	verify(scroll.get_global_rect().has_point(panel.part_place_button.get_global_rect().get_center()),
-		"Vertical scrolling reaches the final powered-route placement action in the compact panel.")
-	panel._show_page(true)
-	panel.press_status.text = "Press ready · 4 clear feed routes. Turn the crank to advance retained work."
-	panel.route_choice.add_item("Feed north → exit south")
-	panel.crank_button.visible = true
-	await process_frame
-	await process_frame
-	verify(not scroll.get_h_scroll_bar().visible,
-		"Press guidance and actions fit the compact worksite panel without sideways scrolling.")
-	scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
-	await process_frame
-	verify(scroll.get_global_rect().has_point(panel.crank_button.get_global_rect().get_center()),
-		"Vertical scrolling reaches the final press action in the compact panel.")
+	verify(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+		Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
+		and not inventory.recipe_scroll.get_h_scroll_bar().visible,
+		"The recipe grid remains reachable without sideways scrolling at a narrow viewport.")
 	var shared := SharedWidgets.new()
 	shared.session = SessionStub.new()
 	shared.client = "Q"
 	shared.state = view.state.duplicate(true)
 	root.add_child(shared)
 	shared._build_interface()
-	var shared_panel = shared.arrival_assembly_controls
-	shared_panel.component_choice.select(9)
-	shared_panel._component_selected(9)
-	verify("Drive limits: wood 8 · softmetal 24" in shared_panel.recipe_label.text
-		and "Rated for 24 load" in shared_panel.component_choice.tooltip_text
-		and shared_panel.foundation_craft_button.disabled
-		and shared.issued.is_empty(),
-		"The shared workshop reads its own carried timber and drive rating without sending a craft command.")
+	shared.building_hotbar.open_at_bench("pod-fabrication-hub")
+	var shared_recipe: Button = shared.building_hotbar.recipe_buttons["component:softmetal_shaft"]
+	verify("rated for 24 load" in shared_recipe.tooltip_text
+		and "Carry the ingredients" in shared_recipe.tooltip_text and shared.issued.is_empty(),
+		"A shared worker sees its own cargo and native recipe ratings.")
 	shared.free()
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
-		"models": 0, "desktop_operations": 0, "scope": "field craft controls and compact workshop layout over invented projection"}))
+		"models": 0, "desktop_operations": 0, "scope": "field and bench inventory recipes over invented projection"}))
 	quit(0 if failures == 0 else 1)
 
 func _buttons() -> void:
@@ -2674,87 +2605,67 @@ func _object_menu_check() -> void:
 		"Clicking while idle does not pin an inspector or send a command.")
 	view._open_pointed_machine()
 	await process_frame
-	verify(view.object_menu.visible and view.object_menu_title.text.to_lower() == "wooden workbench"
-		and view.object_menu_operations.visible and view.arrival_assembly_controls.craft_section.visible,
-		"E opens the actual workbench controls in a centered object panel.")
-	verify(view.object_menu_close.text.is_empty() and view.object_menu_close.icon != null
-		and view.object_menu_close.tooltip_text == "Close object menu · Esc"
-		and view.object_menu_close.accessibility_name == "Close object menu, shortcut Escape"
-		and view.object_menu_close.has_focus(),
-		"The close icon has a focus description and receives focus when E opens the menu.")
-	verify(view.object_menu.position.x > 100 and view.object_menu.position.y > 40
-		and view.object_menu.size.x >= 740 and view.object_menu.size.y >= 420
-		and not view._can_control_character() and view._actor_ready_for_actions(),
-		"The large panel fits the viewport, holds movement, and leaves object actions available.")
-	verify(view.object_menu_scrim.visible and not view.stock_label.is_visible_in_tree()
-		and not view.object_workshop_route.visible
-		and view.arrival_assembly_controls.component_choice.is_visible_in_tree(),
-		"The object panel shades the worksite and shows craft controls without generic worksite status.")
+	var inventory = view.building_hotbar
+	verify(inventory.catalog.visible and inventory.context_bench == "bench"
+		and not view.object_menu.visible and inventory.recipe_buttons["component:wooden_frame"].visible,
+		"E opens the built bench recipes in the shared inventory window.")
+	verify(not view._can_control_character() and view._can_choose_tool()
+		and inventory.recipe_buttons["component:wooden_frame"].focus_mode == Control.FOCUS_ALL,
+		"The inventory holds movement and keeps recipe icons keyboard focusable.")
 	for viewport_size in [Vector2i(800, 600), Vector2i(640, 480)]:
-		view._fit_object_menu(viewport_size)
+		root.size = viewport_size
+		inventory._configure_catalog_layout(viewport_size)
+		inventory._place_catalog()
 		await process_frame
-		var panel_rect := Rect2(view.object_menu.position, view.object_menu.size)
+		var panel_rect := Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size))
 		verify(panel_rect.position.x >= 0.0 and panel_rect.position.y >= 0.0
 			and panel_rect.end.x <= viewport_size.x and panel_rect.end.y <= viewport_size.y
-			and absf(panel_rect.get_center().x - viewport_size.x / 2.0) <= 2.0
-			and view.object_menu_close.is_visible_in_tree() and view.object_menu_close.size.x >= 40.0,
-			"The open object panel fits a simulated resized viewport.")
-	view._fit_object_menu(Vector2i(1280, 800))
+			and absf(panel_rect.get_center().x - viewport_size.x / 2.0) <= 2.0,
+			"The E-opened inventory fits a simulated resized viewport.")
+	root.size = Vector2i(1280, 800)
+	inventory._configure_catalog_layout(Vector2i(1280, 800))
 	await process_frame
 	key.keycode = KEY_D
 	key.ctrl_pressed = true
 	view._input(key)
-	verify(view.object_menu.visible and view.inspector.is_visible_in_tree()
-		and not view.stock_label.is_visible_in_tree(),
-		"Ctrl+D cannot open generic worksite details in the object panel.")
+	verify(inventory.catalog.visible and not view.stock_label.is_visible_in_tree(),
+		"Ctrl+D cannot open generic worksite details over inventory.")
 	key.ctrl_pressed = false
 	verify(view.issued.is_empty(), "Opening the workbench remains a read-only view action.")
-	key.keycode = KEY_C
-	view._input(key)
+	inventory.recipe_buttons["component:wooden_frame"].pressed.emit()
 	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_frame"}],
-		"C activates the visible bench craft button through its normal action callback.")
+		"The focused bench recipe submits its exact native component command.")
 	view.issued.clear()
-	view.arrival_assembly_controls.component_choice.select(1)
-	view.arrival_assembly_controls.component_choice.item_selected.emit(1)
-	verify(not view.arrival_assembly_controls.craft_button.disabled,
-		"Choosing another valid component keeps the open workbench ready to craft.")
-	view._input(key)
+	verify(inventory.recipe_buttons["component:wooden_shaft"].visible,
+		"The second component remains discoverable without a selection dropdown.")
+	inventory.recipe_buttons["component:wooden_shaft"].pressed.emit()
 	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_shaft"}],
-		"C crafts the newly chosen component while its object panel remains open.")
+		"The second recipe crafts at the same selected bench.")
 	view.issued.clear()
 	view.state.part_recipes = [
 		{"kind": "shaft", "teeth": 0, "half_span": 2, "timber": 1, "softmetal": 0},
 		{"kind": "wheel", "teeth": 0, "half_span": 0, "timber": 2, "softmetal": 0}]
 	view._refresh_ui()
-	verify(view.object_workshop_route.visible and not view.arrival_assembly_controls.part_craft_button.disabled,
-		"A valid transmission recipe starts actionable in the open workshop panel.")
-	view.arrival_assembly_controls.part_choice.select(1)
-	view.arrival_assembly_controls.part_choice.item_selected.emit(1)
-	verify(not view.arrival_assembly_controls.part_craft_button.disabled,
-		"Changing the transmission recipe preserves the modal workshop's action readiness.")
-	key.keycode = KEY_M
-	view._input(key)
+	verify(inventory.recipe_buttons.has("part:1") and inventory.recipe_buttons["part:1"].visible,
+		"A valid transmission recipe appears in the open inventory.")
+	inventory.recipe_buttons["part:1"].pressed.emit()
 	verify(view.issued == [{"action": "craft_part", "entity": "bench", "role": "waterwheel", "half_span": 0}],
-		"M crafts the newly chosen transmission recipe while the panel remains open.")
+		"The waterwheel recipe crafts at the selected bench.")
 	view.issued.clear()
 	view.state.actors.P.ready = false
-	view.arrival_assembly_controls.component_choice.select(0)
-	view.arrival_assembly_controls.component_choice.item_selected.emit(0)
-	verify(view.arrival_assembly_controls.craft_button.disabled
-		and view.arrival_assembly_controls.part_craft_button.disabled,
-		"An unready actor cannot enable either recipe action by changing the selection.")
+	view._refresh_ui()
+	verify(inventory.recipe_buttons["component:wooden_frame"].disabled
+		and inventory.recipe_buttons["part:1"].disabled,
+		"An unready actor cannot enable either recipe action.")
 	view.state.actors.P.ready = true
 	view._refresh_ui()
-	key.keycode = KEY_P
-	view._input(key)
-	verify(view.issued.is_empty() and view.arrival_assembly_controls.place_button.disabled,
-		"P cannot activate a disabled placement action in the workbench panel.")
+	verify(view.issued.is_empty(), "Read-only inventory navigation creates no native command.")
 	key.keycode = KEY_ESCAPE
-	view._input(key)
+	inventory._input(key)
 	await process_frame
-	verify(not view.object_menu.visible and not view.object_menu_scrim.visible
-		and view.selected.is_empty() and view.issued.is_empty(),
-		"Escape closes the panel and clears its selected object without a game request.")
+	verify(not inventory.catalog.visible and not view.object_menu_scrim.visible
+		and view.issued.is_empty(),
+		"Escape closes inventory without a game request.")
 	view.hit = {}
 	view.source_id = "tree"
 	view._refresh_pointed_summary()
@@ -2789,7 +2700,7 @@ func _object_menu_check() -> void:
 		await process_frame
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(prefix + "-menu.png") == OK,
-			"Retain the centered workbench panel pixels.")
+			"Retain the E-opened bench inventory pixels.")
 	view.free()
 	var shared := SharedWidgets.new()
 	shared.session = SessionStub.new()
@@ -2806,17 +2717,16 @@ func _object_menu_check() -> void:
 	shared._refresh_ui()
 	shared._open_pointed_machine()
 	await process_frame
-	verify(shared.object_menu.visible and not shared.arrival_assembly_controls.craft_button.disabled,
+	verify(shared.building_hotbar.catalog.visible
+		and not shared.building_hotbar.recipe_buttons["component:wooden_frame"].disabled,
 		"A connected shared worker can use the selected workbench while movement is held.")
-	shared.arrival_assembly_controls.component_choice.select(1)
-	shared.arrival_assembly_controls.component_choice.item_selected.emit(1)
-	verify(not shared.arrival_assembly_controls.craft_button.disabled,
-		"Changing the shared worker's valid component keeps its open workbench actionable.")
+	verify(shared.building_hotbar.recipe_buttons["component:wooden_shaft"].visible,
+		"The shared worker sees another valid recipe without a dropdown.")
 	shared.pending_actions = {"waiting": {}}
 	shared._refresh_ui()
-	verify(shared.arrival_assembly_controls.craft_button.disabled,
-		"An unresolved shared action disables the object-panel craft button.")
-	shared.object_menu.hide()
+	verify(shared.building_hotbar.recipe_buttons["component:wooden_frame"].disabled,
+		"An unresolved shared action disables the inventory recipe.")
+	shared.building_hotbar.catalog.hide()
 	await process_frame
 	verify(shared._can_control_character(),
 		"An unresolved shared action does not stop ordinary character movement after closing the panel.")
@@ -2825,8 +2735,8 @@ func _object_menu_check() -> void:
 	await process_frame
 	shared.session.ready = false
 	shared._refresh_ui()
-	verify(shared.arrival_assembly_controls.craft_button.disabled,
-		"Disconnection makes the retained shared workbench panel read-only.")
+	verify(shared.building_hotbar.recipe_buttons["component:wooden_frame"].disabled,
+		"Disconnection makes the retained shared workbench inventory read-only.")
 	shared.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"models": 0, "desktop_operations": 0, "scope": "isolated ordinary workbench UI"}))

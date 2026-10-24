@@ -4684,10 +4684,6 @@ var object_menu_operations: VBoxContainer
 var object_menu_detail_panel: PanelContainer
 var object_menu_desired_extent := Vector2i(500, 400)
 var object_menu_viewport_size := Vector2i.ZERO
-var object_workshop_craft_column: VBoxContainer
-var object_workshop_collector: VBoxContainer
-var object_workshop_route: VBoxContainer
-var object_workshop_sections: Array[VBoxContainer] = []
 var object_menu_target := ""
 var pause_menu: PopupPanel
 var pause_menu_scrim: ColorRect
@@ -5673,17 +5669,13 @@ func _input(event: InputEvent) -> void:
 			elif not event.ctrl_pressed and arrival_assembly_controls != null:
 				var actions = arrival_assembly_controls
 				match event.keycode:
-					KEY_C: used = _activate_button(actions.craft_button) or _activate_button(actions.crank_button)
-					KEY_P: used = _activate_button(actions.place_button) or _activate_button(actions.pickup_button)
+					KEY_C: used = _activate_button(actions.crank_button)
+					KEY_P: used = _activate_button(actions.pickup_button)
 					KEY_F: used = _activate_button(actions.feed_button)
 					KEY_T: used = actions.press_turn_key() or _activate_button(actions.collector_crank_button)
 					KEY_X: used = _activate_button(actions.collector_cut_button)
 					KEY_R: used = _activate_button(actions.refeed_work_button)
 					KEY_U: used = _activate_button(actions.recover_work_button)
-					KEY_V: used = _activate_button(actions.field_craft_button)
-					KEY_S: used = _activate_button(actions.pod_workshop_button)
-					KEY_M: used = _activate_button(actions.part_craft_button)
-					KEY_K: used = _activate_button(actions.part_place_button)
 			if used:
 				get_viewport().set_input_as_handled()
 		return
@@ -6377,13 +6369,11 @@ func _open_object_menu_for(target: String) -> void:
 	object_menu_operations.visible = _object_supports_operations(target) and arrival_assembly_scroll.visible
 	_release_character_controls()
 	object_menu_scrim.visible = true
-	var compact_bench: bool = state.get("placed_components", {}).get(target, {}).get("component", "") == "wooden_workbench" \
-		and state.get("part_recipes", []).is_empty()
 	var compact_collector := _is_collector_frame(target)
-	if compact_bench or compact_collector:
+	if compact_collector:
 		arrival_assembly_scroll.custom_minimum_size.y = 0
 	object_menu_desired_extent = Vector2i(760 if object_menu_operations.visible else 500,
-		400 if compact_collector else 440 if compact_bench else 520 if object_menu_operations.visible else 400)
+		400 if compact_collector else 520 if object_menu_operations.visible else 400)
 	var extent := _object_menu_extent()
 	object_menu.min_size = extent
 	object_menu.popup_centered(extent)
@@ -6404,8 +6394,6 @@ func _fit_object_menu(viewport: Vector2i = Vector2i.ZERO) -> void:
 	object_menu_detail_panel.custom_minimum_size.x = 180 if narrow else 220
 	object_menu_operations.custom_minimum_size.x = 340 if narrow else 420
 	arrival_assembly_controls.custom_minimum_size.x = 340 if narrow else 410
-	for section in object_workshop_sections:
-		section.custom_minimum_size.x = 160 if narrow else 195
 	var extent := _object_menu_extent(viewport)
 	object_menu.min_size = extent
 	object_menu.size = extent
@@ -9172,11 +9160,11 @@ func _refresh_ui() -> void:
 		inspector.text = _belt_inspection(state.belt_spans[selected], state.get("motion", {}))
 	elif _native_transmission() and state.get("fabrication_hub", {}).get("installed", false) \
 			and selected == state.fabrication_hub.get("id", ""):
-		inspector.text = "Pod workshop\nGrid center %s\nStow here or under Craft parts to move it." % \
+		inspector.text = "Pod workshop\nGrid center %s\nPress E for recipes and stowage." % \
 			str(state.fabrication_hub.get("center", []))
 	elif _native_transmission() and state.get("placed_components", {}).has(selected):
 		var component: Dictionary = state.placed_components[selected]
-		var detail := "Craft here when nearby."
+		var detail := "Press E for recipes when nearby."
 		if component.get("component", "") != "wooden_workbench":
 			detail = "Reclaim with Delete or choose a press route below."
 		inspector.text = "%s\nGrid center %s\n%s" % [
@@ -9196,24 +9184,11 @@ func _refresh_ui() -> void:
 	if arrival_assembly_controls != null:
 		arrival_assembly_controls.refresh(state, client, selected, _can_use_object_actions())
 		if _object_menu_open():
-			var hub_id: String = str(state.get("fabrication_hub", {}).get("id", ""))
-			var selected_hub := not hub_id.is_empty() and selected == hub_id
-			var selected_bench := false
-			for bench: Variant in state.get("fabrication_benches", []):
-				selected_bench = selected_bench or (bench is Dictionary and bench.get("id", "") == selected)
-			arrival_assembly_controls.bench_choice.visible = not selected_hub and not selected_bench
-			arrival_assembly_controls.pod_workshop_button.visible = selected_hub and arrival_assembly_controls.pod_workshop_button.visible
-			arrival_assembly_controls.field_craft_button.visible = selected_hub and arrival_assembly_controls.field_craft_button.visible
 			var selected_placed: bool = state.get("placed_components", {}).has(selected)
 			arrival_assembly_controls.reclaim_button.visible = selected_placed
 			if selected_placed:
 				remove_button.visible = false
 		arrival_assembly_scroll.visible = arrival_assembly_controls.visible
-		if object_workshop_route != null:
-			var collector_context := _is_collector_frame(object_menu_target)
-			object_workshop_craft_column.visible = false
-			object_workshop_collector.visible = collector_context
-			object_workshop_route.visible = false
 		if object_menu_operations != null:
 			object_menu_operations.visible = _object_menu_open() and _object_supports_operations(object_menu_target) \
 				and arrival_assembly_scroll.visible
@@ -10084,53 +10059,16 @@ func _build_object_menu(root: Control, detail_panel: PanelContainer) -> void:
 	object_menu_operations.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	object_menu_operations.add_theme_constant_override("separation", 8)
 	columns.add_child(object_menu_operations)
-	object_menu_operations_label = _label(object_menu_operations, "CRAFT PARTS", 12, Color("f4bf75"))
+	object_menu_operations_label = _label(object_menu_operations, "MACHINE ACTIONS", 12, Color("f4bf75"))
 	arrival_assembly_scroll.reparent(object_menu_operations)
 	arrival_assembly_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	arrival_assembly_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	arrival_assembly_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_layout_object_workshop()
-	arrival_assembly_controls.craft_tab.visible = false
-	arrival_assembly_controls.press_tab.visible = false
-	object_menu_operations.visible = false
-	object_menu.popup_hide.connect(_on_object_menu_closed)
-
-func _layout_object_workshop() -> void:
-	var craft := arrival_assembly_controls.craft_section as VBoxContainer
-	var entries := craft.get_children()
-	var powered_index: int = arrival_assembly_controls.part_choice.get_index() - 1
-	var columns := HBoxContainer.new()
-	columns.add_theme_constant_override("separation", 14)
-	craft.add_child(columns)
-	var left := VBoxContainer.new()
-	var right := VBoxContainer.new()
-	var collector := VBoxContainer.new()
-	object_workshop_craft_column = left
-	object_workshop_route = right
-	object_workshop_collector = collector
-	for section in [left, right, collector]:
-		object_workshop_sections.append(section)
-		section.custom_minimum_size.x = 195
-		section.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		section.add_theme_constant_override("separation", 6)
-		columns.add_child(section)
-	for index in range(entries.size()):
-		(entries[index] as Control).reparent(left if index < powered_index else right)
-	(entries[0] as Control).visible = false
-	var collector_actions := arrival_assembly_controls.collector_cut_button.get_parent() as HBoxContainer
-	var collector_column := VBoxContainer.new()
-	collector_column.add_theme_constant_override("separation", 5)
-	var parent := collector_actions.get_parent()
-	parent.add_child(collector_column)
-	parent.move_child(collector_column, collector_actions.get_index())
-	for action in collector_actions.get_children():
-		action.reparent(collector_column)
-	collector_actions.queue_free()
-	arrival_assembly_controls.collector_status.reparent(collector)
-	collector_column.reparent(collector)
 	arrival_assembly_controls.custom_minimum_size.x = 410
 	arrival_assembly_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	arrival_assembly_controls.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	object_menu_operations.visible = false
+	object_menu.popup_hide.connect(_on_object_menu_closed)
 
 func _object_menu_open() -> bool:
 	return object_menu != null and object_menu.visible
