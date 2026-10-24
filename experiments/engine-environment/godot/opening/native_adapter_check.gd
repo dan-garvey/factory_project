@@ -548,7 +548,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-press-site", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -1152,7 +1152,7 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 		return
 	_record("pass")
 
-func _arrival_belt_run(panel, capture_prefix: String) -> void:
+func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> void:
 	# This uses the ordinary arrival scene, its physical actor, workshop buttons
 	# and the native terrain. Commands still pass through the one scene Model.
 	for source in [
@@ -1328,7 +1328,8 @@ func _arrival_belt_run(panel, capture_prefix: String) -> void:
 	if mode == "arrival-belt-controls":
 		if not await _arrival_belt_controls(middle, span.entity):
 			return
-	_record("pass")
+	if finish:
+		_record("pass")
 
 func _arrival_belt_controls(middle: String, span: String) -> bool:
 	# The pod-first route has earned these parts through ordinary harvesting and
@@ -1685,6 +1686,90 @@ func _supplied_hardware_run() -> void:
 	print("SUPPLIED_HARDWARE_PHYSICS " + JSON.stringify(facts.supplied_hardware))
 	_record("pass")
 
+func _arrival_press_site_run(panel) -> void:
+	# Compose the ordinary collector route and the frame-free press in one
+	# finite scene. The separate powered discharge remains a later consumer.
+	await _arrival_belt_run(panel, "", false)
+	if written:
+		return
+	if not _expect(opening.model.projection().line_belt_raw == 1,
+			"The actor-built collector and powered belt deliver one finite blank"):
+		return
+	facts["collector_route"] = opening.model.projection()
+	for source in [
+		{"point": Vector2(4.95, 4.95), "cuts": 0},
+		{"point": Vector2(4.95, 9.9), "cuts": 0},
+		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 2},
+		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 8},
+		{"point": Vector2(4.95, 9.9), "cuts": 0},
+		{"point": Vector2(4.95, 4.95), "cuts": 0},
+		{"point": Vector2(4.95, 3.3), "cuts": 0},
+		{"point": Vector2(4.95, 0.0), "cuts": 0},
+		{"point": Vector2(1.65, 0.0), "id": "opening-softmetal", "cuts": 8},
+	]:
+		if not await _approach(source.point):
+			return
+		for cut in range(source.cuts):
+			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
+				return
+	if not _expect(opening.model.projection().cargo.P.timber == 10
+			and opening.model.projection().cargo.P.raw == 8,
+			"The remaining finite trees and ore supply the guided press and output route"):
+		return
+	if not await _approach_points([Vector2(4.95, 0.0), Vector2(4.95, 3.3),
+			Vector2(4.95, 4.95), Vector2(3.3, 4.95)]):
+		return
+	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "softmetal_cog", "receiver_tray"]:
+		var selected := -1
+		for choice in range(panel.COMPONENTS.size()):
+			if panel.COMPONENTS[choice][0] == kind:
+				selected = choice
+		if not _expect(selected >= 0, "The ordinary workshop lists the finite guided press component"):
+			return
+		panel.component_choice.select(selected)
+		panel._component_selected(selected)
+		var before: Dictionary = opening.model.projection()
+		panel.craft_button.pressed.emit()
+		var after: Dictionary = opening.model.projection()
+		if not _expect(after.order == before.order + 1
+				and int(after.cargo.P.components.get(kind, 0)) == int(before.cargo.P.components.get(kind, 0)) + 1,
+				"The ordinary workshop crafts one finite guided press component"):
+			return
+	if not _expect(opening.model.projection().cargo.P.timber == 6
+			and opening.model.projection().cargo.P.raw == 2,
+			"The metal cog preserves the exact timber bill for an output route"):
+		return
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 3.3),
+			Vector2(4.95, 0.0), Vector2(1.65, 0.0), Vector2(1.65, -0.55),
+			Vector2(1.1, -1.2)]):
+		return
+	if _construct({"action": "place_foundation", "cell": [0, -2], "level": 4}).is_empty():
+		return
+	for part in [
+		{"kind": "anvil", "center": [0, 4, -8]},
+		{"kind": "ram_face", "center": [0, 5, -8]},
+		{"kind": "sliding_guide", "center": [0, 7, -8]},
+		{"kind": "wooden_shaft", "center": [0, 8, -7]},
+		{"kind": "softmetal_cog", "center": [0, 8, -6]},
+		{"kind": "receiver_tray", "center": [1, 4, -8]},
+	]:
+		if _construct({"action": "place_component", "component": part.kind,
+				"center": part.center}).is_empty():
+			return
+	var press: Dictionary = opening.model.projection()
+	if not _expect(press.guided_press_assemblies.size() == 1
+			and press.guided_press_assemblies[0].status == "ready"
+			and press.guided_press_assemblies[0].offcut_receiver == [1, 4, -8],
+			"The actor fits one elevated guided press and a side tray beside the real belt"):
+		return
+	facts["press_stage"] = press
+	var saved: Dictionary = opening._save_worksite()
+	facts["press_save"] = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store accepts the same finite collector, elevated guided press and physical side tray"):
+		return
+	_record("pass")
+
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_raised_press_resume_run(panel) -> void:
 	var restored: Dictionary = opening.model.projection()
@@ -1729,18 +1814,18 @@ func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode == "arrival-repeat-delivery":
 		deadline = Time.get_ticks_msec() + 240000
-	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-delivery"]:
+	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-delivery"]:
 		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	if mode in ["arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume"]:
+	if mode in ["arrival-press-site", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -1792,6 +1877,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-press-site":
+		await _arrival_press_site_run(panel)
+		return
 	if mode == "arrival-raised-press-resume":
 		await _arrival_raised_press_resume_run(panel)
 		return
