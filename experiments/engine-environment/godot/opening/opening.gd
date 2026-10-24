@@ -6332,8 +6332,9 @@ func _interact_pointed() -> void:
 		return
 	var crank: Dictionary = _pointed_pod_crank(_pointed_screen_position())
 	if not crank.is_empty():
-		issue({"action": "return_hand_crank" if crank.holder == client else "take_hand_crank",
-			"entity": crank.id})
+		if crank.get("holder") in ["pod", client]:
+			issue({"action": "return_hand_crank" if crank.holder == client else "take_hand_crank",
+				"entity": crank.id})
 		return
 	var source_id := _screen_hand_source(_pointed_screen_position()) if mode == "inspect" else ""
 	var source := _hand_source(source_id)
