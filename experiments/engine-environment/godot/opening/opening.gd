@@ -5322,7 +5322,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"contains_stock": "Retrieve the material before removing this machine.",
 			"not_at_stream": "Set the wheel in the water with its lower rim immersed and clear of the bed.",
 			"not_at_seam": "Place the collector over the ore deposit beside the rock.",
-			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."))
+			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."), action.action)
 		if action.action == "craft_component":
 			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
@@ -5358,7 +5358,17 @@ func _harvest_result_text(outcome: Dictionary) -> String:
 		return "Cutting…"
 	return "Collected %d softmetal %s." % [raw, "blank" if raw == 1 else "blanks"]
 
-func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
+func _press_contact_refusal(entity: String) -> String:
+	for assembly: Variant in state.get("guided_press_assemblies", []):
+		if not assembly is Dictionary or assembly.get("anvil", "") != entity:
+			continue
+		match assembly.get("status", ""):
+			"missing_ram": return "No working face contacts this support."
+			"missing_guide": return "The working face has no guided stroke."
+			"missing_shaft", "missing_cog": return "No rotary input reaches this working face."
+	return "No compatible working face acts on this support."
+
+func _material_refusal_message(outcome: Dictionary, fallback: String, action_name: String = "") -> String:
 	var advice: String = {
 		"unavailable_source": "That source is unavailable or depleted. Choose another tree or ore deposit.",
 		"inventory_full": "Your carried inventory is full. Store or use material before collecting more.",
@@ -5378,6 +5388,10 @@ func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
 		var text: Variant = recovery_actions.call("refusal_text", outcome)
 		if typeof(text) == TYPE_STRING and not text.is_empty():
 			return text
+	if _native_transmission() and action_name in ["feed_press", "refeed_press_work", "turn_press_crank"] \
+			and outcome.get("reason") == "incomplete_assembly" \
+			and not outcome.get("uncertain", false):
+		return _press_contact_refusal(str(outcome.get("entity", "")))
 	if _native_transmission() and outcome.get("reason") == "not_at_seam":
 		return "Place the collector on the ore-colored ground beside the rock. A foundation there at factory floor height can support it."
 	return fallback

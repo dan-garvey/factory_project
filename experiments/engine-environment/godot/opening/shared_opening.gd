@@ -292,7 +292,7 @@ func _settle_pending() -> void:
 				"actor_occupied": "a character is in that square; move clear before placing the machine.",
 				"powered": "stop the drive before editing.", "held_stock": "material remains in that machine.",
 				"ports_not_adjacent": "choose neighboring ports in the arrow's direction.",
-				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason)))
+				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason)), item.action.action)
 			if item.action.action == "craft_component":
 				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
 					"inventory_full": "Your component bag is full. Place a carried part to make room.",

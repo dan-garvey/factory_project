@@ -2081,6 +2081,56 @@ func _shared_component_results() -> void:
 		verify(view.pending_actions.is_empty() and view.state == before and view.model == null,
 			"Settling shared component feedback consumes only the confirmed request, not native stock.")
 		view.free()
+	for sample: Dictionary in [
+		{"status": "missing_ram", "text": "No working face contacts this support."},
+		{"status": "missing_guide", "text": "The working face has no guided stroke."},
+		{"status": "missing_cog", "text": "No rotary input reaches this working face."},
+		{"status": "", "text": "No compatible working face acts on this support."},
+	]:
+		var press_view := SharedSettlementView.new()
+		press_view.session = SessionStub.new()
+		press_view.client = "P"
+		press_view.state = fixture()
+		press_view.state.context = "shared-press-refusal"
+		press_view.state.revision = 4
+		press_view.state.order = 9
+		press_view.state.options = {"native": true, "physical": true}
+		press_view.state.guided_press_assemblies = [] if sample.status.is_empty() else [
+			{"anvil": "press-anvil", "status": sample.status}]
+		var before_press: Dictionary = press_view.state.duplicate(true)
+		press_view.pending_actions = {"P-press": {"action": {"action": "feed_press", "entity": "press-anvil"},
+			"outcome": {"accepted": false, "reason": "incomplete_assembly", "entity": "press-anvil",
+			"context": press_view.state.context, "revision": 4, "order": 9}}}
+		press_view._settle_pending()
+		verify(press_view.observed == sample.text and press_view.observed_refusal
+			and press_view.state == before_press and press_view.pending_actions.is_empty(),
+			"A shared refused press operation explains the projected local contact state without changing work.")
+		var local_view := Opening.new()
+		local_view.state = press_view.state.duplicate(true)
+		verify(local_view._material_refusal_message(
+			{"reason": "incomplete_assembly", "entity": "press-anvil"}, "fallback", "feed_press") == sample.text,
+			"A local refused press operation uses the same projected contact explanation.")
+		verify(local_view._material_refusal_message(
+			{"reason": "incomplete_assembly", "entity": "press-anvil"}, "fallback", "place_component") == "fallback",
+			"Other incomplete actions do not receive press contact feedback.")
+		local_view.free()
+		press_view.free()
+	var collector_view := SharedSettlementView.new()
+	collector_view.session = SessionStub.new()
+	collector_view.client = "P"
+	collector_view.state = fixture()
+	collector_view.state.context = "shared-collector-refusal"
+	collector_view.state.revision = 4
+	collector_view.state.order = 9
+	collector_view.state.options = {"native": true, "physical": true}
+	collector_view.pending_actions = {"P-collector": {"action": {"action": "turn_hand_crank", "entity": "shaft"},
+		"outcome": {"accepted": false, "reason": "incomplete_assembly", "entity": "shaft",
+		"context": collector_view.state.context, "revision": 4, "order": 9}}}
+	collector_view._settle_pending()
+	verify(collector_view.observed == "Fit the collector's missing component before cutting ore."
+		and collector_view.observed_refusal,
+		"The collector retains its own native incomplete-assembly refusal.")
+	collector_view.free()
 	var waiting := SharedSettlementView.new()
 	waiting.session = SessionStub.new()
 	waiting.client = "P"
