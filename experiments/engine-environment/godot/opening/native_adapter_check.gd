@@ -2289,7 +2289,12 @@ func _arrival_run() -> void:
 		for turn in range(3):
 			if not _expect(not panel.turn_button.disabled, "A retained workpiece enables the selected drive"):
 				return
+			var before_cues: int = opening.construction_audio.heard.size()
 			panel.turn_button.pressed.emit()
+			if not _expect(opening.construction_audio.heard.size() == before_cues + 1
+					and opening.construction_audio.stream == OpeningScene.ConstructionAudio.make_stream("assembly"),
+					"Only the confirmed hand turn emits one restrained work impact"):
+				return
 			if raised:
 				var die_y: float = _guided_die_y(str(ready.parts.ram))
 				if not _expect(is_finite(ready_die_y) and is_finite(die_y)
