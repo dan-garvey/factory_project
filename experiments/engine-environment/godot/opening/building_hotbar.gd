@@ -25,7 +25,8 @@ const COMPONENT_ICONS := {
 	"tool_mount": "tool_mount.svg", "sliding_guide": "sliding_guide.svg",
 	"cutting_edge": "cutting_edge.svg", "anvil": "anvil.svg",
 	"ram_face": "ram_face.svg", "softmetal_shaft": "softmetal_shaft.svg",
-	"softmetal_cog": "softmetal_cog.svg", "wooden_workbench": "wooden_workbench.svg"}
+	"softmetal_cog": "softmetal_cog.svg", "wooden_workbench": "wooden_workbench.svg",
+	"wooden_slide": "wooden_slide.svg", "softmetal_slide": "softmetal_slide.svg"}
 var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []

@@ -112,6 +112,9 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if "--slide-view-only" in OS.get_cmdline_user_args():
+		call_deferred("_slide_view_check")
+		return
 	if "--component-placement-only" in OS.get_cmdline_user_args():
 		call_deferred("_component_placement_check")
 		return
@@ -1572,7 +1575,9 @@ func _arrival_hotbar() -> void:
 		"tool_mount": {"timber": 1, "softmetal": 0},
 		"cutting_edge": {"timber": 0, "softmetal": 1},
 		"anvil": {"timber": 0, "softmetal": 2},
-		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24}}
+		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24},
+		"wooden_slide": {"timber": 3, "softmetal": 0, "load_rating": 8},
+		"softmetal_slide": {"timber": 0, "softmetal": 4, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "softmetal": 0,
 		"teeth": 0, "half_span": 2}]
@@ -1751,6 +1756,35 @@ func _arrival_hotbar() -> void:
 	verify(view.state.cargo.P.components.wooden_frame == 2 and initial.cargo.P.components.is_empty()
 		and view.model == null and view.actor_world == null,
 		"Hotbar interaction changes no component custody or simulation state.")
+	view.state.cargo.P.components.wooden_slide = 1
+	view.state.cargo.P.components.softmetal_slide = 1
+	view.state.cargo.P.timber = 3
+	view.state.cargo.P.raw = 4
+	view._refresh_ui()
+	bar.open_catalog()
+	var slide_key := InputEventKey.new()
+	slide_key.keycode = KEY_8
+	slide_key.pressed = true
+	bar._input(slide_key)
+	bar.component_buttons.wooden_slide.grab_focus()
+	await settle_widgets()
+	verify(bar.focus_description.text.contains("Wooden slide")
+		and bar.component_buttons.wooden_slide.icon != bar.component_buttons.softmetal_slide.icon
+		and bar.component_counts.wooden_slide.text == "1",
+		"Each slide has a distinct focused icon with its actual carried count.")
+	bar.component_buttons.wooden_slide.pressed.emit()
+	verify(bar.slots[7] == "component:wooden_slide" and view.mode == "component"
+		and view.arrival_assembly_controls.selected_name() == "wooden_slide",
+		"The numbered target and focused wooden slide select the ordinary placement tool.")
+	bar.open_catalog(7)
+	bar.recipe_buttons["component:wooden_slide"].pressed.emit()
+	verify(view.issued.back() == {"action": "field_craft", "component": "wooden_slide"},
+		"The wooden slide recipe uses the existing finite field craft command.")
+	bar.open_at_bench("pod-fabrication-hub")
+	bar.recipe_buttons["component:softmetal_slide"].pressed.emit()
+	verify(view.issued.back() == {"action": "craft_component", "entity": "pod-fabrication-hub",
+		"component": "softmetal_slide"},
+		"The metal slide recipe uses the existing bench and native custody path.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,
@@ -1774,7 +1808,8 @@ func _render_arrival_hotbar() -> void:
 	view.state.hand_sources = {}
 	view.state.part_kits.P = {"foundation": 15}
 	view.state.cargo = {"P": {"components": {"wooden_frame": 2, "wooden_shaft": 1,
-		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "softmetal_cog": 1},
+		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "softmetal_cog": 1,
+		"wooden_slide": 1, "softmetal_slide": 1},
 		"timber": 7, "raw": 3, "products": 1, "offcuts": 2, "sheets": 1,
 		"work_lots": [{"id": 7}]}}
 	view.state.hand_crank = {"holder": "P"}
@@ -1785,7 +1820,9 @@ func _render_arrival_hotbar() -> void:
 		"tool_mount": {"timber": 1, "softmetal": 0},
 		"cutting_edge": {"timber": 0, "softmetal": 1},
 		"anvil": {"timber": 0, "softmetal": 2},
-		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24}}
+		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24},
+		"wooden_slide": {"timber": 3, "softmetal": 0, "load_rating": 8},
+		"softmetal_slide": {"timber": 0, "softmetal": 4, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "softmetal": 0,
 		"teeth": 0, "half_span": 2}]
@@ -1796,12 +1833,17 @@ func _render_arrival_hotbar() -> void:
 	view.add_child(view.selection_ring)
 	view._build_interface()
 	view._refresh_ui()
+	var bar = view.building_hotbar
+	bar.open_catalog(7)
+	bar.component_buttons.wooden_slide.pressed.emit()
+	view._refresh_ui()
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-bar.png") == OK,
 		"Retain the rendered arrival component hotbar.")
-	var bar = view.building_hotbar
 	bar.open_catalog(7)
+	var inventory_scroll: ScrollContainer = bar.catalog.find_child("InventoryItems", true, false)
+	inventory_scroll.ensure_control_visible(bar.component_buttons.softmetal_slide)
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK,
@@ -1825,7 +1867,6 @@ func _render_arrival_hotbar() -> void:
 	view.state.hand_crank.holder = "P"
 	view.state.part_kits.P = {"foundation": 15}
 	view._refresh_ui()
-	var inventory_scroll: ScrollContainer = bar.catalog.find_child("InventoryItems", true, false)
 	await settle_widgets()
 	inventory_scroll.scroll_vertical = int(inventory_scroll.get_v_scroll_bar().max_value)
 	await settle_widgets()
@@ -2764,4 +2805,82 @@ func _object_menu_check() -> void:
 	shared.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"models": 0, "desktop_operations": 0, "scope": "isolated ordinary workbench UI"}))
+	quit(0 if failures == 0 else 1)
+func _slide_view_check() -> void:
+	var cycle := 4096
+	var at_rest := {"subticks": 0, "remainder": 0, "denominator": 1, "cycle_subticks": cycle}
+	var halfway := {"subticks": 2048, "remainder": 0, "denominator": 1, "cycle_subticks": cycle}
+	var quarter := {"subticks": 1024, "remainder": 0, "denominator": 1, "cycle_subticks": cycle}
+	verify(is_zero_approx(ComponentPresenter.slide_carriage_drop(at_rest, 0.37)),
+		"The native rest phase presents the carriage at its top position.")
+	verify(is_equal_approx(ComponentPresenter.slide_carriage_drop(halfway, 0.37), -0.37),
+		"Half a native cycle presents the bottom of the stroke.")
+	verify(is_equal_approx(ComponentPresenter.slide_carriage_drop(quarter, 0.37), -0.185),
+		"A quarter native cycle presents an intermediate carriage position.")
+	verify(is_zero_approx(ComponentPresenter.slide_carriage_drop({"subticks": 4096,
+		"remainder": 0, "denominator": 1, "cycle_subticks": cycle}, 0.37)),
+		"An invalid phase cannot put the carriage outside its occupied volume.")
+	var presenter := ComponentPresenter.new()
+	root.add_child(presenter)
+	var samples := [
+		{"kind": "wooden_slide", "phase": null, "x": -0.7, "name": "Preview"},
+		{"kind": "wooden_slide", "phase": halfway, "x": 0.0, "name": "PlacedWood"},
+		{"kind": "softmetal_slide", "phase": quarter, "x": 0.7, "name": "PlacedMetal"}]
+	for sample: Dictionary in samples:
+		var anchor := Node3D.new()
+		anchor.name = sample.name
+		anchor.position = Vector3(sample.x, 0.55, 0)
+		presenter.add_child(anchor)
+		if sample.phase == null:
+			presenter.preview_component(anchor, sample.kind, Vector3(0.42, 0.825, 0.42))
+		else:
+			presenter._placed_component(anchor, sample.kind, Vector3.ZERO,
+				Vector3(0.42, 0.825, 0.42), "", 0.0, 0.0, Vector3.ZERO, sample.phase)
+		verify(anchor.has_node("SlideRail") and anchor.has_node("SlideCrown")
+			and anchor.has_node("IntegralInputShaft") and anchor.has_node("SlideCarriage"),
+			"Each slide has fixed rails, an exposed input and a separate carriage.")
+		var carriage := anchor.get_node("SlideCarriage") as Node3D
+		verify(carriage.position.y - 0.103 > -0.4125 and carriage.position.y + 0.07 < 0.4125,
+			"The native phase keeps the carriage inside the admitted swept height.")
+	verify(presenter.get_node("Preview/SlideCarriage").position.y >
+		presenter.get_node("PlacedMetal/SlideCarriage").position.y and
+		presenter.get_node("PlacedMetal/SlideCarriage").position.y >
+		presenter.get_node("PlacedWood/SlideCarriage").position.y,
+		"Projected phases change visible carriage positions in stroke order.")
+	var image_path := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--slide-image="):
+			image_path = argument.trim_prefix("--slide-image=")
+	if not image_path.is_empty():
+		verify(DisplayServer.get_name().to_lower() != "headless",
+			"A passive pixel capture needs a rendered display.")
+		root.size = Vector2i(1280, 760)
+		var world := WorldEnvironment.new()
+		var environment := Environment.new()
+		environment.background_mode = Environment.BG_COLOR
+		environment.background_color = Color("313b39")
+		world.environment = environment
+		presenter.add_child(world)
+		var floor := MeshInstance3D.new()
+		var floor_mesh := BoxMesh.new()
+		floor_mesh.size = Vector3(2.2, 0.06, 1.2)
+		floor.mesh = floor_mesh
+		floor.position.y = 0.03
+		presenter.add_child(floor)
+		var sun := DirectionalLight3D.new()
+		sun.rotation_degrees = Vector3(-45, -30, 0)
+		presenter.add_child(sun)
+		var camera := Camera3D.new()
+		camera.position = Vector3(1.3, 1.3, 2.7)
+		camera.fov = 38
+		presenter.add_child(camera)
+		camera.look_at(Vector3(0, 0.56, 0))
+		camera.make_current()
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(image_path) == OK,
+			"The slide mesh can be inspected in a passive render.")
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail",
+		"checks": checks, "failures": failures, "models": 0, "desktop_operations": 0,
+		"scope": "isolated preview and projected-phase meshes"}))
 	quit(0 if failures == 0 else 1)
