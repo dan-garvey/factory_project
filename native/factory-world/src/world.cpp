@@ -152,8 +152,11 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "sheet_id"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Integer>(intent, "sheet_id");
-    if (action == "harvest_source") return keys(intent, {"target"}) && field<std::string>(intent, "target");
+    if (action == "harvest_source" || action == "fast_harvest_source")
+        return keys(intent, {"target"}) && field<std::string>(intent, "target");
     if (action == "finish_harvest" || action == "cancel_harvest") return keys(intent, {});
+    if (action == "set_developer_conveniences")
+        return keys(intent, {"enabled"}) && field<bool>(intent, "enabled");
     if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
         field<std::string>(intent, "component");
@@ -569,6 +572,18 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             generation && *generation == 0 && reason && *reason == "ok" &&
             result.size() == 11;
     }
+    if (action == "set_developer_conveniences") {
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* result_actor = field<std::string>(result, "actor");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* enabled = field<bool>(result, "enabled");
+        const auto* reason = field<std::string>(result, "reason");
+        return entity && entity->empty() && result_actor && *result_actor == actor &&
+            generation && *generation == 0 && enabled &&
+            field<bool>(record.intent, "enabled") &&
+            *enabled == *field<bool>(record.intent, "enabled") && reason && *reason == "ok" &&
+            result.size() == 12;
+    }
     const auto* reason = field<std::string>(result, "reason");
     const auto* epoch = field<Integer>(result, "native_epoch");
     const auto* reach = field<double>(result, "build_reach");
@@ -582,7 +597,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     const bool broad_pickup = (picked_sheets && *picked_sheets > 0) ||
         (picked_work && std::any_of(picked_work->begin(), picked_work->end(),
             [](const Value& value) { return sheet_lot(value).has_value(); }));
-    const double expected_reach = (action == "harvest_source" || action == "finish_harvest") &&
+    const double expected_reach = (action == "harvest_source" || action == "fast_harvest_source" ||
+        action == "finish_harvest") &&
         profile.manual_cut_reach > 0 ? profile.manual_cut_reach : profile.build_reach;
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != expected_reach ||
         !position || !points || !distances ||
@@ -735,8 +751,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             *products == (*strokes == 4 ? 4 : 0) && origin &&
             targets == broad_reach_targets(profile, *origin) && result.size() == 20;
     }
-    if (action == "harvest_source" || action == "finish_harvest") {
-        const auto* id = action == "harvest_source" ?
+    if (action == "harvest_source" || action == "fast_harvest_source" || action == "finish_harvest") {
+        const auto* id = action != "finish_harvest" ?
             field<std::string>(record.intent, "target") : field<std::string>(result, "entity");
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
@@ -1628,6 +1644,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::optional<std::string> crank_holder;
     struct HistoricalCut { std::string target; Integer start_revision{}; };
     std::map<std::string, HistoricalCut> historical_cuts;
+    bool historical_developer_conveniences = false;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
         const auto* action = field<std::string>(record.intent, "action");
@@ -1672,8 +1689,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto* generation = field<Integer>(record.result, "generation");
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
         if (*action != "pickup_material" && *action != "place_sheet" &&
-            *action != "harvest_source" && *action != "finish_harvest" &&
-            *action != "cancel_harvest" && *action != "field_craft") {
+            *action != "harvest_source" && *action != "fast_harvest_source" &&
+            *action != "finish_harvest" && *action != "cancel_harvest" &&
+            *action != "set_developer_conveniences" && *action != "field_craft") {
             const auto issued = snapshot.state.issued_entities.find(*entity);
             if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
         }
@@ -1707,7 +1725,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         }
         const auto prior_cut = historical_cuts.find(*actor);
         if (prior_cut != historical_cuts.end() && *action != "finish_harvest" &&
-            *action != "cancel_harvest") return false;
+            *action != "cancel_harvest" && *action != "set_developer_conveniences") return false;
+        if (*action == "set_developer_conveniences") {
+            historical_developer_conveniences = *field<bool>(record.intent, "enabled");
+            historical_cuts.clear();
+        }
+        if (*action == "fast_harvest_source" && !historical_developer_conveniences) return false;
         if (*action == "harvest_source") {
             const auto& target = *field<std::string>(record.intent, "target");
             if (std::any_of(historical_cuts.begin(), historical_cuts.end(),
@@ -1749,7 +1772,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 return false;
             carried_timber[*actor] -= foundation_timber_cost;
         }
-        if (*action == "finish_harvest") {
+        if (*action == "finish_harvest" || *action == "fast_harvest_source") {
             const auto& id = *entity;
             if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
                 if (!add(harvested_ore, 1) ||
@@ -2625,7 +2648,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
         }
     }
-    if (historical_cuts.size() != snapshot.state.manual_cuts.size()) return false;
+    if (historical_developer_conveniences != snapshot.state.developer_conveniences ||
+        historical_cuts.size() != snapshot.state.manual_cuts.size()) return false;
     for (const auto& [actor, expected] : historical_cuts) {
         const auto current = snapshot.state.manual_cuts.find(actor);
         if (current == snapshot.state.manual_cuts.end() ||
@@ -3718,6 +3742,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto* action = field<std::string>(intent, "action");
     if (!action || !shape(intent, *action)) return refused("invalid_command");
     const auto& state = snapshot.state;
+    if (*action == "set_developer_conveniences") {
+        auto candidate = state;
+        candidate.developer_conveniences = *field<bool>(intent, "enabled");
+        candidate.manual_cuts.clear();
+        return accepted(std::move(candidate), {}, {{"actor", Value(binding.actor)},
+            {"generation", Value(Integer{0})},
+            {"enabled", Value(*field<bool>(intent, "enabled"))}});
+    }
     const auto pending = state.manual_cuts.find(binding.actor);
     if (pending != state.manual_cuts.end() && *action != "finish_harvest" &&
         *action != "cancel_harvest") return refused("actor_busy", pending->second.target);
@@ -3981,7 +4013,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("formed_products", Value(progress.strokes == 4 ? Integer{4} : Integer{0}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
-    if (*action == "harvest_source") {
+    if (*action == "harvest_source" || *action == "fast_harvest_source") {
+        const bool fast = *action == "fast_harvest_source";
+        if (fast && !state.developer_conveniences) return refused("developer_mode_off");
         const auto* id = field<std::string>(intent, "target");
         if (!id) return refused("invalid_target");
         const bool ore = profile_.material.manual_ore && profile_.material.manual_ore->id == *id;
@@ -4004,12 +4038,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto error = materials::harvest_source(candidate.material, profile_.material,
             material_path(candidate.topology), binding.actor, *id);
         if (error != materials::Error::none) return refused(materials::error_name(error), *id, std::move(facts));
-        candidate = state;
-        candidate.manual_cuts.emplace(binding.actor, State::ManualCut{
-            *id, snapshot.revision + 1, manual_cut_ticks, 0});
+        if (!fast) {
+            candidate = state;
+            candidate.manual_cuts.emplace(binding.actor, State::ManualCut{
+                *id, snapshot.revision + 1, manual_cut_ticks, 0});
+        }
         facts.emplace("generation", Value(Integer{1}));
-        facts.emplace("moved_raw", Value(Integer{0}));
-        facts.emplace("moved_timber", Value(Integer{0}));
+        facts.emplace("moved_raw", Value(Integer{fast && ore ? 1 : 0}));
+        facts.emplace("moved_timber", Value(Integer{fast && !ore ? 1 : 0}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "field_craft") {

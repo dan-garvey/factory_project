@@ -319,7 +319,8 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
                 {"issued_entities", Value(std::move(issued))},
                 {"next_entity_serial", Value(snapshot.state.next_entity_serial)},
-                {"manual_cuts", Value(std::move(manual_cuts))}})}});
+                {"manual_cuts", Value(std::move(manual_cuts))},
+                {"developer_conveniences", Value(snapshot.state.developer_conveniences)}})}});
         if (profile.foundation_parts > 0) {
             Object foundations, foundation_kits;
             for (const auto& [id, foundation] : snapshot.state.foundations)
@@ -446,10 +447,12 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits"}) :
-            fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts"});
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits"}) :
+            fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences"});
+        candidate.state.developer_conveniences = scalar<bool>(state.at("developer_conveniences"),
+            "$.state.developer_conveniences");
         const auto& cut_records = object(state.at("manual_cuts"), "$.state.manual_cuts");
         if (cut_records.size() > profile.actors.size())
             refuse(CheckpointReason::limit, "$.state.manual_cuts");
