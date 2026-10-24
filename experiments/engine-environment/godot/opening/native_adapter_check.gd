@@ -126,6 +126,31 @@ func _guided_die_y(ram_id: String) -> float:
 			return die.position.y if die != null else NAN
 	return NAN
 
+func _capture_guided_close(ram_id: String, path: String) -> bool:
+	var ram_anchor: Node3D
+	for anchor: Node in opening.transmission_presenter.get_children():
+		if anchor.get_meta("component_entity", "") == ram_id:
+			ram_anchor = anchor
+	if ram_anchor == null:
+		return false
+	var close := SubViewport.new()
+	close.size = Vector2i(1280, 800)
+	close.world_3d = root.world_3d
+	close.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(close)
+	var camera := Camera3D.new()
+	close.add_child(camera)
+	camera.fov = 38.0
+	camera.position = ram_anchor.global_position + Vector3(1.05, 0.72, 1.15)
+	camera.look_at(ram_anchor.global_position + Vector3.DOWN * 0.10)
+	camera.make_current()
+	for frame in range(3):
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var captured: bool = close.get_texture().get_image().save_png(path) == OK
+	close.queue_free()
+	return captured
+
 func _approach(target: Vector2, actor: String = "P") -> bool:
 	if not await _walk_to(target, false, actor):
 		return false
@@ -2279,6 +2304,11 @@ func _arrival_run() -> void:
 						await RenderingServer.frame_post_draw
 					if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-raised-held.png") == OK,
 							"The retained billet is captured at the actor-built raised press"):
+						return
+				if turn == 1 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+					if not _expect(await _capture_guided_close(str(ready.parts.ram),
+							capture_prefix + "-forming-close.png"),
+							"The native in-stroke guided press is retained in a close passive frame"):
 						return
 	var after: Dictionary = opening.model.projection()
 	if not _expect(after.dropped_material.size() == 2
