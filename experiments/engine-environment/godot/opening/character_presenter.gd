@@ -104,10 +104,11 @@ func _exit_tree() -> void:
 
 func _multitool_frame(body: Node3D) -> Transform3D:
 	# Rocketbox's hand X points along the fingers, Y out of the palm and Z
-	# across it. Keep the authored tool in metres despite the actor's fit scale.
+	# across it. Seat the grip inside the curled fingers, and keep the authored
+	# tool in metres despite the actor's fit scale.
 	var fitted_scale: float = body.get_node("AdultHuman").scale.x
 	return Transform3D(Basis(Vector3.DOWN, Vector3.BACK, Vector3.LEFT).scaled(Vector3.ONE / fitted_scale),
-		Vector3(0.065, -0.022, 0.0))
+		Vector3(0.085, 0.018, 0.012))
 
 func _badge_quad(builder: SurfaceTool, center: Vector3, height: float,
 		width: float, tint: Color, angle: float = 0.0) -> void:

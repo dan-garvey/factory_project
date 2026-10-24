@@ -550,6 +550,18 @@ func hotbar_observation() -> Dictionary:
 		"stock": {"source": 4096, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
 		"remaining": 0, "powered": false, "power_enabled": false}
 
+func _multitool_grip_distance(body: Node3D, tool: Node3D) -> float:
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	var grip: MeshInstance3D = tool.get_node("GripCore")
+	var grip_center: Vector3 = tool.transform * grip.mesh.get_aabb().get_center()
+	var hand_pose: Transform3D = skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Hand"))
+	var farthest := 0.0
+	for finger in ["Bip01 R Finger12", "Bip01 R Finger22", "Bip01 R Finger32"]:
+		var joint: Vector3 = hand_pose.affine_inverse() * skeleton.get_bone_global_pose(
+			skeleton.find_bone(finger)).origin
+		farthest = maxf(farthest, grip_center.distance_to(joint))
+	return farthest
+
 func _multitool_presentation() -> void:
 	for shared in [false, true]:
 		var view = SharedWidgets.new() if shared else OfflineWidgets.new()
@@ -579,6 +591,9 @@ func _multitool_presentation() -> void:
 		var q_attachment: BoneAttachment3D = q_body.get_node(q_body.get_meta("multitool_attachment"))
 		verify(q_attachment.get_child(0).get_node("CuttingBlade").mesh == blade.mesh,
 			"Both shared actors reuse the same tool mesh resources.")
+		verify(_multitool_grip_distance(body, attachment.get_child(0)) < 0.05
+			and _multitool_grip_distance(q_body, q_attachment.get_child(0)) < 0.05,
+			"Both sourced hands curl around the actual cutter grip instead of hovering beside it.")
 		verify(presenter.eye_multitool == null, "The third-person view does not allocate a hidden first-person hand.")
 		var identity := attachment.get_instance_id()
 		for frame in range(10):
