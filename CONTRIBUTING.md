@@ -55,6 +55,10 @@ Use the smallest appropriate record:
 - Design/engineering documents: accepted requirements and reusable contracts, with rationale and superseded decisions where useful.
 - `.notes/` in each worktree: ignored scratch notes. Other local agents may read a deliberately shared note, but it must not be the only copy of a decision, blocker, or test result.
 
+Update existing Markdown documents instead of creating new ones. Keep new
+task-specific prose in the owning Bead. Create a new Markdown file only when
+the user explicitly requests one.
+
 Do not depend on access to a long chat log. Follow AGENTS' material-information-only rule: record a new result, finding, decision, ownership change or actionable handoff, never an unchanged status or duplicate summary. Link existing evidence rather than restating it. Use only the relevant fields of this compact entry:
 
 ```text
@@ -182,8 +186,8 @@ workstreams. When main advances before your first commit and its changed paths
 are disjoint from your staged paths, an ordinary
 `git switch -c integration/example main` in your owned checkout can carry those
 edits onto current main. Verify the resulting staged delta and preservation of
-the relevant tested inputs, then commit through the installed hook. This yields
-one authored commit and one independent review request. If Git refuses the
+the relevant tested inputs, then commit through the installed hook. The authored
+substantive change gets its normal independent review request. If Git refuses the
 switch, preserve the candidate and resolve the overlap; do not force it.
 
 For already committed work, merge the missing local/remote main changes into
@@ -191,6 +195,16 @@ your own branch instead of routinely rebasing shared work. Resolve actual
 conflicts there, check affected interactions and commit through the installed hook.
 Do not replay passing cases for unchanged relevant inputs or rewrite another
 author's branch. A textual merge alone does not establish compatibility.
+
+For a merge that only combines disjoint changes already covered by review
+requests, whether pending or completed, compare both parents, confirm exact
+preservation of the relevant blobs and test inputs, and link those requests in
+the owning Bead. Do not create a new review request just to confirm that
+preservation. Request independent review of the merge when a conflict was
+resolved, a shared interface or behavior changes in combination, or a relevant
+tested input differs. Run focused checks for the changed seam. This keeps review
+on behavior and integration risk without adding
+a second review of unchanged source.
 
 Only the short canonical-main update and push are serialized. After committing
 and testing in your own linked worktree, use the same shared advisory lock for

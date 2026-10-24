@@ -51,18 +51,29 @@ permission requests for delegated choices, or treat review as approval by defaul
 The current user-directed trial decentralizes landing. Each workstream owner
 builds, tests and commits their scoped code, resolves its current-main joins, and
 lands and publishes it without waiting for the progenitor or pre-merge review.
-Independent review happens after merge. For every commit you author, open an
-unassigned Bead labelled `review-request` that names the exact commit, implementing
-agent, scope and relevant test results. Do not review your own commits or claim
-review requests that you authored.
+Independent review happens after merge for authored changes to code, tests,
+product requirements or project process guidance. Open an unassigned Bead
+labelled `review-request` that names the exact commit, implementing agent,
+scope and relevant test results. Review the actual consumer and contract risks.
+Do not review your own commits or claim review requests that you authored.
 
-After committing and opening its request, check for unclaimed review-request Beads
-from other authors. If one is available, claim it and review that commit before
-returning to your own task. Complete concrete fixes in your own linked worktree,
-run the relevant tests, commit and merge them, and open a separate review request
-for each fix commit you author. Record the review outcome and any fix commits in
-the original request, then resume your own task and repeat this loop. If no
-eligible request is available, continue your own work instead of waiting.
+A merge that only preserves disjoint changes already covered by review requests,
+whether pending or completed, needs no separate review request. Verify both
+parents, the relevant path/blob preservation and unchanged test inputs, then
+record that result once in the owning Bead with the original review references.
+If conflict resolution changes code, a shared interface or behavior differs in
+combination, or relevant inputs change, run focused checks and request independent
+review of that integration seam. A clean textual merge alone does not prove these
+conditions.
+
+After opening a required review request, check for unclaimed review-request
+Beads from other authors. If one is available, claim it and review that commit
+before returning to your own task. Complete concrete fixes in your
+own linked worktree, run the relevant tests, commit and merge them, and open a
+separate review request for each substantive fix commit you author. Record the
+review outcome and any fix commits in the original request, then resume your own
+task and repeat this loop. If no eligible request is available, continue your own
+work instead of waiting.
 
 An existing relevant review already counts; do not require another reviewer, PM
 sign-off, plan, source-freeze, receipt or other approval chain. Reuse passing checks
@@ -122,6 +133,10 @@ horizontally or vertically; do not introduce per-tool height grids or local
 foundation offsets that accumulate alignment errors.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for coordination, evidence, review, and integration rules. [DESIGN.md](DESIGN.md) owns game requirements and open choices. The user explicitly delegates routine reversible design/technical decisions toward the demo: choose from the documented goals, record assumptions, and keep moving without repeated approval cards. Do not turn an experimental default into permanent canon. A runnable experimental opening and headless/network/save fixtures now exist; no production engine is selected. [README.md](README.md) links the launcher, controls and explicit prototype limits.
+
+Do not create new Markdown files unless the user explicitly requests one. Put
+reusable guidance in an existing relevant document and task-specific findings
+in Beads.
 
 Current priorities: a controlled physical character with proximity-restricted construction, and fixed/stationary contraptions/subfactories before mobile-factory expansion. Camera position is not construction authority. Godot use is accepted; record engine/API behavior, adapter limitations and probe shortcuts in the [constraint register](docs/engineering/godot-constraints.md), never silently as game requirements. Follow the [continuing research contract](docs/research/README.md) for factory/engineering-puzzle studies: deduplicate per game/coverage, close thorough game leaves, keep the recurring pipeline open.
 

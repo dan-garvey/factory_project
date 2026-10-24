@@ -4547,6 +4547,7 @@ class ProductionInterface:
 
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
+const CRANK_TRAY_OFFSET := Vector3(-0.65, 0.83, -1.10)
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation", "pod_workshop": "Pod workshop"}
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
@@ -4744,6 +4745,7 @@ var landing_pod_visual: Node3D
 var landing_hub_visual: Node3D
 var landing_hub_pick: StaticBody3D
 var landing_crank_visual: Node3D
+var landing_crank_pick: StaticBody3D
 var arrival_reveal_probe := false
 var arrival_reveal_active := false
 var arrival_reveal_elapsed := 0.0
@@ -6314,6 +6316,11 @@ func _screen_hand_source(screen: Vector2) -> String:
 func _interact_pointed() -> void:
 	if not _can_control_character():
 		return
+	var crank: Dictionary = _pointed_pod_crank(_pointed_screen_position())
+	if not crank.is_empty():
+		issue({"action": "return_hand_crank" if crank.holder == client else "take_hand_crank",
+			"entity": crank.id})
+		return
 	var source_id := _screen_hand_source(_pointed_screen_position()) if mode == "inspect" else ""
 	var source := _hand_source(source_id)
 	if source.is_empty():
@@ -6327,6 +6334,14 @@ func _interact_pointed() -> void:
 	if state.get("manual_cuts", {}).has(client):
 		return
 	issue({"action": "harvest_source", "target": source_id})
+
+func _pointed_pod_crank(screen: Vector2) -> Dictionary:
+	var hit := _screen_pick(screen)
+	if hit.is_empty():
+		return {}
+	var crank: Dictionary = state.get("hand_crank", {})
+	return crank if not crank.is_empty() and hit.collider == landing_crank_pick \
+		and hit.collider.get_meta("hand_crank_entity", "") == crank.get("id", "") else {}
 
 func _open_pointed_machine() -> void:
 	if _catalog_open() or not _can_control_character():
@@ -7156,10 +7171,9 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 		bolt.scale = Vector3.ONE * 0.5
 		workspace.add_child(bolt)
 	# The crank belongs to the landed pod even after its bench is moved.
-	var crank_mount := Vector3(PITCH + 0.34, 0.83, 0.20)
 	var tray := Node3D.new()
 	tray.name = "CrankTrayMount"
-	tray.position = crank_mount
+	tray.position = CRANK_TRAY_OFFSET
 	landing_pod_visual.add_child(tray)
 	_machine_box(tray, "CrankTray", Vector3.ZERO,
 		Vector3(0.35, 0.045, 0.19), dark, 0.58, 0.43)
@@ -7172,6 +7186,18 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	landing_crank_visual.set_meta("authority_entity", "pod-hand-crank")
 	landing_crank_visual.position = Vector3(0, 0.08, 0)
 	tray.add_child(landing_crank_visual)
+	landing_crank_pick = StaticBody3D.new()
+	landing_crank_pick.name = "PodCrankPick"
+	landing_crank_pick.set_meta("hand_crank_entity", state.get("hand_crank", {}).get("id", ""))
+	landing_crank_pick.collision_layer = Geometry.PICK_LAYER
+	landing_crank_pick.collision_mask = 0
+	landing_crank_pick.position = Vector3(0.04, 0.12, 0)
+	var crank_pick_shape := CollisionShape3D.new()
+	var crank_pick_box := BoxShape3D.new()
+	crank_pick_box.size = Vector3(0.38, 0.20, 0.26)
+	crank_pick_shape.shape = crank_pick_box
+	landing_crank_pick.add_child(crank_pick_shape)
+	tray.add_child(landing_crank_pick)
 	_machine_cylinder(landing_crank_visual, "CrankAxle", Vector3.ZERO, 0.025, 0.26,
 		Color("bac5ba"), Vector3(0, 0, PI / 2.0))
 	_machine_box(landing_crank_visual, "CrankHandle", Vector3(0.12, 0.055, 0),
@@ -7199,6 +7225,7 @@ func _sync_landing_pod_visual() -> void:
 			landing_hub_visual = null
 			landing_hub_pick = null
 			landing_crank_visual = null
+			landing_crank_pick = null
 		return
 	var pod: Dictionary = state.landing_pod
 	var hub: Dictionary = state.fabrication_hub
@@ -7266,7 +7293,7 @@ func _pose_arrival_reveal() -> void:
 	workspace.visible = bench_fold > 0.01
 	landing_hub_visual.visible = bench_fold > 0.01 and state.get("fabrication_hub", {}).get("installed", false)
 	var tray: Node3D = landing_pod_visual.get_node("CrankTrayMount")
-	tray.position = Vector3(PITCH + 0.34, 0.83, 0.20) * bench_fold
+	tray.position = CRANK_TRAY_OFFSET * bench_fold
 	tray.visible = bench_fold > 0.01
 	if arrival_reveal_caption != null:
 		arrival_reveal_caption.text = "SITE PACKAGE UNFOLDING" if arrival_reveal_elapsed >= 1.45 else "FIELD DESCENT IN PROGRESS"
@@ -10254,6 +10281,11 @@ func _is_collector_frame(target: String) -> bool:
 func _pointed_summary_data(screen: Vector2) -> Dictionary:
 	if camera == null or not camera.is_inside_tree():
 		return {}
+	var crank: Dictionary = _pointed_pod_crank(screen)
+	if not crank.is_empty():
+		var holder: String = str(crank.get("holder", ""))
+		return {"name": "Hand crank", "detail": "E Return" if holder == client else
+			"E Take" if holder == "pod" else "Held by %s" % holder, "target": crank.id}
 	var hit := _screen_pick(screen)
 	var target: String = str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
 	if _contains_target(state, target):
