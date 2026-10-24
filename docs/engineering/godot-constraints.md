@@ -1588,6 +1588,14 @@ provenance.
 
 ## Required follow-through
 
+Godot 4.7.2's embedded `PopupPanel` can close when its root viewport is resized.
+The Chapter 1 inventory probe therefore resizes the viewport before opening
+the popup, then checks `visible` and bounds. Its 640 by 480 presentation uses a
+scrolling icon grid; focus descriptions are mirrored in a visible label because
+the tile's `tooltip_text` alone is a pointer-hover affordance. The isolated
+rendered fixture uses invented cargo, so its screenshots establish layout and
+icon readability, not native custody or player understanding.
+
 This first source/API/evidence audit leaves actual backend identification,
 far-origin precision, concurrent factory scale, predictive movement and moving-save
 behavior explicitly unknown. Owners must add a scoped measured follow-up when

@@ -9172,7 +9172,7 @@ func _refresh_ui() -> void:
 	var inventory := int(state.inventories.get(client, 0))
 	goal_progress.max_value = 4
 	goal_progress.value = clampi(inventory, 0, 4)
-	parts_label.text = "BUILD FROM SHARED KIT" if _parts_are_shared() else "BUILD FROM CARRIED PARTS"
+	parts_label.text = "BUILD / INVENTORY"
 	goal_label.text = "FIRST SHIFT\nBring back 4 plates\n%d / 4 collected" % inventory
 	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
 	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates  [Ctrl+Enter]"
@@ -9430,9 +9430,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			order_heading = "REPEAT ORDER · DELIVERED"
 		elif shipped:
 			order_heading = "REPEAT ORDER · %d / %d PLATES" % [repeat_shipped, repeat_target]
-		goal_label.text = "%s\n%d timber · %d ore blanks carried\n%s" % [
-			order_heading,
-			carried.get("timber", 0), carried.get("raw", 0), next_work] if snapshot_ready else "Connect to the worksite."
+		goal_label.text = "%s\n%s" % [order_heading, next_work] if snapshot_ready else "Connect to the worksite."
 	else:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
