@@ -50,18 +50,13 @@ class SharedWidgets:
 		return hand_pointed
 
 class OfflineWorkshopWidgets extends OfflineWidgets:
-	var freight_body: StaticBody3D
-	var accept_shipping := false
 	var accept_press_turn := true
 	func _screen_pick(_screen: Vector2) -> Dictionary:
-		return {"collider": freight_body} if freight_body != null else {}
+		return {}
 	func issue(action: Dictionary) -> Dictionary:
 		if action.get("action", "") == "turn_press_crank":
 			issued.append(action.duplicate(true))
 			return {"accepted": accept_press_turn}
-		if str(action.get("action", "")).begins_with("deliver_"):
-			issued.append(action.duplicate(true))
-			return {"accepted": accept_shipping}
 		return super.issue(action)
 
 class SharedWorkshopWidgets extends SharedWidgets:
@@ -1613,8 +1608,8 @@ func _arrival_hotbar() -> void:
 		and "5 carried" in bar.material_buttons.timber.accessibility_name,
 		"Carried material icons read the active actor's confirmed cargo and hand tools.")
 	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
-		and view.goal_label.text.contains("FIRST ORDER"),
-		"The objective keeps order progress while the inventory window owns carried counts.")
+		and view.goal_label.text.contains("PLATE IN INVENTORY"),
+		"The objective completes from the actor's plate while the inventory window owns counts.")
 	bar.open_catalog(7)
 	bar.material_buttons.timber.grab_focus()
 	await settle_widgets()
@@ -2253,52 +2248,6 @@ func _workshop_pages() -> void:
 		view._refresh_ui()
 		verify(panel.press_section.visible and not panel.press_section.is_visible_in_tree(),
 			"A page explicitly opened without a target stays offscreen until an object is opened.")
-		if not shared:
-			var freight := StaticBody3D.new()
-			freight.set_meta("freight_beacon", "first-freight-beacon")
-			view.freight_body = freight
-			view._open_pointed_machine()
-			verify(panel.press_section.visible
-				and view.issued == [{"action": "deliver_first_plate", "entity": "first-freight-beacon"}],
-				"A rejected freight request leaves the explicitly opened page available.")
-			view.issued.clear()
-			view.accept_shipping = true
-			view._open_pointed_machine()
-			verify(not panel.craft_section.visible and not panel.press_section.visible
-				and view.issued == [{"action": "deliver_first_plate", "entity": "first-freight-beacon"}],
-				"Accepted freight E dismisses a manually opened Press work page after shipment.")
-			view.freight_body = null
-			freight.free()
-			view.issued.clear()
-		else:
-			view.pending_actions["queued-delivery"] = {"action": {"action": "deliver_first_plate"}, "outcome": {}}
-			view._settle_pending()
-			verify(panel.press_section.visible and view.pending_actions.has("queued-delivery"),
-				"A queued shared shipment keeps a manually opened page until the server decides.")
-			view.pending_actions["queued-delivery"].outcome = {"accepted": false, "reason": "no_plate",
-				"context": "workshop-pages", "revision": 1, "order": 1}
-			view._settle_pending()
-			verify(panel.press_section.visible and view.pending_actions.is_empty(),
-				"A rejected shared shipment leaves the manually opened page available.")
-			view.pending_actions["accepted-delivery"] = {"action": {"action": "deliver_first_plate"},
-				"outcome": {"accepted": true, "context": "workshop-pages", "revision": 2, "order": 2}}
-			view._settle_pending()
-			verify(panel.press_section.visible and view.pending_actions.has("accepted-delivery"),
-				"An accepted shared shipment waits for the matching current projection before closing the page.")
-			view.state.revision = 2
-			view.state.order = 2
-			view._settle_pending()
-			verify(not panel.craft_section.visible and not panel.press_section.visible
-				and view.pending_actions.is_empty(),
-				"A confirmed shared shipment dismisses a manually opened page after the server decision.")
-			panel.press_tab.pressed.emit()
-			view.pending_actions["repeat-delivery"] = {"action": {"action": "deliver_repeat_plate"},
-				"outcome": {"accepted": true, "context": "workshop-pages", "revision": 2, "order": 2}}
-			view._settle_pending()
-			verify(not panel.press_section.visible and view.pending_actions.is_empty(),
-				"A confirmed follow-up shipment also dismisses an explicitly opened workshop page.")
-			view.state.revision = 1
-			view.state.order = 1
 		view.pointed = "collector-frame"
 		view._open_pointed_machine()
 		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree()

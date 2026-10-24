@@ -17,8 +17,8 @@ for an off-site megaproject. The first work order is specific; its final purpose
 is withheld. This premise supports dry humor and later discovery without making
 dialogue, employment obedience or a single factory layout a construction gate.
 
-A descent view establishes the forest, stream, ore outcrops and distant freight
-beacon. The player wakes in a work suit with a visible multitool. The pod settles
+A descent view establishes the forest, stream and ore outcrops. The player wakes
+in a work suit with a visible multitool. The pod settles
 on the same world grid as player construction, then unfolds into a small, usable
 foundation deck, workbench, storage tray and detachable hand crank. The hatch
 opens onto the site. The pod is the first example of a compact machine unfolding
@@ -26,11 +26,9 @@ into a useful arrangement, not a magical source of unlimited stock. The player
 can inspect it, build beside it and eventually replace its functions and reclaim
 its parts. The scene should be skippable and rejoin safely at its settled state.
 
-The current freight destination uses a depth-aware shipment label and a ground
-pointer at its native delivery point. They are interface cues; outside the supplied
-pod/workshop, the player builds the visible machinery. The cue grants no hardware
-or stock and keeps the same first and repeat shipment operation. Its appearance
-remains a revisable presentation choice.
+The first workshop task completes when the player has one formed plate in their
+own inventory. There is no shipment destination in the opening worksite. Outside
+the supplied pod/workshop, the player builds the visible machinery.
 
 The AI offers one instruction at a time, with replay in the work log. Candidate
 lines are short enough to leave the game view readable:
@@ -39,16 +37,16 @@ lines are short enough to leave the game view readable:
 
 > “The kit makes tools. The tools make a factory. Corporate has provided the kit.”
 
-> “Send one formed plate to the beacon. Its final destination is outside your pay grade.”
+> “Form one plate from local stock and keep it in your inventory.”
 
 The player can cut nearby timber or ore first, make simple parts at the hub or
 with the multitool, and choose the location of the first machine. A suggested
 route teaches a hand-tended press and a hand-cranked collector, then shows how
 the same functions can be driven and fed automatically. Those are examples, not
-an exact blueprint or a tech lock. The first delivery asks for a formed plate;
-a later order asks for repeated plates and makes unattended collection and feed
-valuable. This order leaves time to design a collector without making a fixed
-assembly sequence the only way to progress.
+an exact blueprint or a tech lock. The first task asks for one carried formed
+plate. Later optional projects can make unattended collection and feed valuable.
+This leaves time to design a collector without making a fixed assembly sequence
+the only way to progress.
 
 ## Physical starting state
 

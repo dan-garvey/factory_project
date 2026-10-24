@@ -65,9 +65,9 @@ func run() -> void:
 	stage.add_child(host)
 	var presenter := Presenter.new()
 	presenter.configure(host)
-	stage.add_child(presenter)
 	presenter.set_process(false)
 	presenter.set_physics_process(false)
+	stage.add_child(presenter)
 	var worker: Node3D = presenter.views.get("P")
 	if worker == null or worker.get_node("BodyView").get_meta("source", "") \
 			!= "Microsoft Rocketbox Female_Adult_04" or host.control_calls != 0:
@@ -76,9 +76,8 @@ func run() -> void:
 		return
 	var body: Node3D = worker.get_node("BodyView")
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
-	var mark := skeleton.get_node_or_null("FieldSuitMark") as BoneAttachment3D
-	if mark == null or mark.bone_name != "Bip01 Spine2" or not mark.get_meta("presentation_only", false):
-		push_error("The field mark must follow the sourced torso without becoming actor authority.")
+	if skeleton.get_node_or_null("FieldSuitMark") != null:
+		push_error("The loose provisional suit mark must not appear beside the worker.")
 		quit(1)
 		return
 	var camera := Camera3D.new()
@@ -102,7 +101,7 @@ func run() -> void:
 		quit(1)
 		return
 	print(JSON.stringify({"status": "pass", "source": "Microsoft Rocketbox Female_Adult_04",
-		"field_mark": "torso-bound",
+		"field_mark": "removed",
 		"captures": [prefix + "-front.png", prefix + "-quarter.png", prefix + "-distant.png"],
 		"input_calls": host.control_calls, "native_actor": "not_started", "human_view": "unassessed"}))
 	quit(0)

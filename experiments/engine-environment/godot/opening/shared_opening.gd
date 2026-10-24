@@ -268,9 +268,6 @@ func _settle_pending() -> void:
 			var feedback: Dictionary = item.action.duplicate(true)
 			feedback.merge({"context": result.context, "client": client, "request": request}, true)
 			_construction_feedback(feedback, result)
-			if item.action.action in ["deliver_first_plate", "deliver_repeat_plate"] \
-					and arrival_assembly_controls != null:
-				arrival_assembly_controls.close_for_shipment()
 			if item.action.action in ["place", "place_gear", "place_shaft", "place_foundation", "place_foundations"] and _contains_target(state, result.entity):
 				selected = result.entity
 			elif item.action.action in ["remove", "remove_belt_span"] and selected == result.entity:

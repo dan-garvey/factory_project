@@ -694,81 +694,38 @@ func _walk_to(target: Vector2, jump: bool = false, actor: String = "P") -> bool:
 	facts["failed_walk"] = {"actor": actor, "target": target, "stopped_at": stopped_at}
 	return _expect(false, "The bounded native walk must reach %s; stopped at %s" % [target, stopped_at])
 
-func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String) -> bool:
+func _deliver_first_arrival_plate(held_work: Dictionary, _capture_prefix: String) -> bool:
+	# Keep the native shipment custody regression as an internal fixture. The
+	# playable first-workshop objective now completes at local inventory pickup.
 	var beacon: Dictionary = opening.model.projection().freight_beacon
 	var distant: Dictionary = _issue({"action": "deliver_first_plate", "entity": beacon.id})
 	if not _expect(not distant.get("accepted", false) and distant.get("reason") == "out_of_reach"
 			and opening.model.projection().cargo.P.products == 1,
-			"The carried plate cannot be shipped from the press by camera or remote command"):
+			"The archived native delivery path still refuses a remote cargo debit"):
 		return false
-	# Walk east of the now-solid press and pod workshop; never set a native pose.
 	if not await _approach_points([Vector2(4.95, 4.95), Vector2(6.6, 4.95),
 			Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
 		return false
-	var sample: Dictionary = opening.actor_world.diagnostics("P").sample
-	if not _expect(sample.ready and sample.registered and sample.on_floor
-			and opening.freight_beacon_visual != null,
-			"A registered physical actor reaches the visible freight receiver"):
-		return false
-	await process_frame
-	var prior_distance: float = opening.distance
-	# Aim the ordinary first-person camera from the settled actor eye. The
-	# camera selects a pick body; the native command still checks actor reach.
-	opening.distance = 0.0
-	opening.orbit_yaw = 0.0
-	opening.orbit_pitch = 0.18
-	opening._update_camera()
-	var hit: Dictionary = opening._screen_pick(root.get_visible_rect().size / 2.0)
-	if not _expect(not hit.is_empty() and hit.collider == opening.freight_beacon_visual,
-			"The ordinary E ray selects the native freight receiver's visible pick body"):
-		return false
 	var first_request: String = str(opening.request_namespace) + str(opening.request_sequence + 1)
 	var before: Dictionary = opening.model.projection()
-	opening._interact_pointed()
+	var receipt: Dictionary = _issue({"action": "deliver_first_plate", "entity": beacon.id})
 	var shipped: Dictionary = opening.model.projection()
-	if not _expect(shipped.order == before.order + 1 and shipped.cargo.P.products == 0
-			and shipped.freight_beacon.order_complete and shipped.freight_beacon.shipped_products == 1
-			and shipped.freight_beacon.repeat_order_shipped == 0
-			and not shipped.freight_beacon.repeat_order_complete
-			and opening.freight_beacon_visual.get_node("ShipmentLabel").visible
-			and "REPEAT ORDER" in opening.goal_label.text
+	if not _expect(receipt.get("accepted", false) and shipped.order == before.order + 1
+			and shipped.cargo.P.products == 0 and shipped.freight_beacon.shipped_products == 1
 			and shipped.dropped_material == held_work.dropped_material
-			and shipped.guided_press_assemblies == held_work.guided_press_assemblies,
-			"E ships exactly the first carried plate while the second press work stays retained"):
+			and shipped.guided_press_assemblies == held_work.guided_press_assemblies
+			and "FORM A PLATE · KEEP IT" in opening.goal_label.text
+			and not opening.manager_log_completion_entry.visible,
+			"Internal delivery debits one plate without satisfying the inventory goal"):
 		return false
-	if not _expect(opening.manager_log_repeat_entry.visible
-			and "0 / 3 plates received" in opening.manager_log_repeat_entry.text,
-			"The ordinary Work log reveals the repeat commission only after the first native receipt"):
-		return false
-	if not capture_prefix.is_empty():
-		opening.manager_log_button.pressed.emit()
-		await process_frame
-		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-follow-up-log.png") == OK,
-				"The revealed Work log is retained in the normal viewport"):
-			return false
-		opening._toggle_manager_log()
-	if not capture_prefix.is_empty():
-		await process_frame
-		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-beacon.png") == OK,
-				"The ordinary completed receiver cue is retained as passive pixels"):
-			return false
 	var before_retry: Dictionary = opening.model.checkpoint()
 	var retry: Dictionary = opening.model.command({"context": shipped.context, "client": "P",
 		"request": first_request, "action": "deliver_first_plate", "entity": beacon.id})
 	if not _expect(retry.get("accepted", false) and retry.get("duplicate", false)
 			and opening.model.checkpoint() == before_retry,
-			"Retrying the original freight request returns its receipt without a second debit"):
+			"Retrying the archived request cannot debit a second plate"):
 		return false
-	var again: Dictionary = _issue({"action": "deliver_first_plate", "entity": beacon.id})
-	if not _expect(not again.get("accepted", false) and again.get("reason") == "order_filled"
-			and opening.model.projection().cargo.P.products == 0
-			and opening.model.projection().dropped_material == held_work.dropped_material,
-			"A new request cannot spend retained work after the one-plate order is filled"):
-		return false
-	facts["delivery"] = {"request": first_request, "receipt": retry, "beacon": shipped.freight_beacon,
-		"physical_actor": sample}
-	opening.distance = prior_distance
-	opening._update_camera()
+	facts["delivery"] = {"request": first_request, "receipt": retry, "beacon": shipped.freight_beacon}
 	return await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95), Vector2(4.95, 4.95)])
 
 func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
@@ -860,38 +817,29 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 		opening._update_camera()
 	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
 		return false
-	opening.distance = 0.0
-	opening.orbit_yaw = 0.0
-	opening.orbit_pitch = 0.18
-	opening._update_camera()
 	for index in range(3):
-		var hit: Dictionary = opening._screen_pick(root.get_visible_rect().size / 2.0)
-		if not _expect(not hit.is_empty() and hit.collider == opening.freight_beacon_visual,
-				"The still-visible repeat marker accepts the ordinary E ray"):
-			return false
 		var before: Dictionary = opening.model.projection()
-		opening._interact_pointed()
+		var receipt: Dictionary = _issue({"action": "deliver_repeat_plate", "entity": beacon.id})
 		var after: Dictionary = opening.model.projection()
-		if not _expect(after.order == before.order + 1
+		if not _expect(receipt.get("accepted", false) and after.order == before.order + 1
 				and after.cargo.P.products == 2 - index
 				and after.freight_beacon.shipped_products == 2 + index
 				and after.freight_beacon.repeat_order_shipped == 1 + index
 				and after.freight_beacon.repeat_order_target == 3
-				and after.freight_beacon.repeat_order_complete == (index == 2)
-				and opening.freight_beacon_visual.get_node("ShipmentLabel").visible == (index < 2),
-				"Each ordinary E action ships one carried follow-up plate and updates the visible count"):
+				and after.freight_beacon.repeat_order_complete == (index == 2),
+			"The internal regression action debits one carried plate at a time"):
 			return false
 	var full: Dictionary = _issue({"action": "deliver_repeat_plate", "entity": beacon.id})
 	if not _expect(not full.get("accepted", false) and full.get("reason") == "order_filled"
 			and opening.model.projection().cargo.P.products == 0
 			and opening.model.projection().freight_beacon.shipped_products == 4
-			and "REPEAT ORDER · DELIVERED" in opening.goal_label.text,
+			and "FORM A PLATE · KEEP IT" in opening.goal_label.text,
 			"A fifth shipment refuses after the repeat order closes without changing material custody"):
 		return false
 	if not capture_prefix.is_empty():
 		await process_frame
-		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-repeat-beacon.png") == OK,
-				"The completed repeat order has a passive ordinary receiver frame"):
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-inventory-goal-after-internal-transfer.png") == OK,
+				"The ordinary viewport has no shipment cue after the internal transfer"):
 			return false
 	facts["repeat_delivery"] = {"beacon": opening.model.projection().freight_beacon,
 		"actor": opening.actor_world.diagnostics("P").sample}
@@ -1965,8 +1913,9 @@ func _arrival_run() -> void:
 		_record("pass")
 		return
 	if mode == "arrival-repeat-delivery":
-		if not _expect(not opening.manager_log_repeat_entry.visible,
-				"The ordinary first-order Work log keeps the repeat commission hidden"):
+		if not _expect(not opening.manager_log_completion_entry.visible
+				and opening.get_node_or_null("ShipmentMarker") == null,
+			"The ordinary opening waits for local inventory and has no shipment marker"):
 			return
 		if not capture_prefix.is_empty():
 			opening.manager_log_button.pressed.emit()
@@ -2034,24 +1983,19 @@ func _arrival_run() -> void:
 				and restored.hand_crank.holder == "P" and panel.visible
 				and opening.landing_pod_visual != null and not opening.landing_crank_visual.visible
 				and not opening.arrival_reveal_active,
-				"A fresh process reopens the press, finite cargo, freight receipt and one held crank"):
+				"A fresh process reopens the press, finite cargo and one held crank"):
 			return
 		if first_delivered and not _expect(restored.actors.has("Q")
 				and opening.actor_world.bodies.has("Q")
-				and ("REPEAT ORDER · DELIVERED" if repeat_complete else "REPEAT ORDER · 0 / 3") in opening.goal_label.text
-				and opening.freight_beacon_visual.get_node("ShipmentLabel").visible == (not repeat_complete),
-				"The saved first and repeat receipts remain visible to both actors on the resumed worksite"):
+				and opening.manager_log_completion_entry.visible == (restored.cargo.P.products > 0)
+				and opening.get_node_or_null("ShipmentMarker") == null,
+			"The saved inventory goal reflects only P's actual carried plate"):
 			return
 		opening.manager_log_button.pressed.emit()
 		if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
-				and ("east SHIP marker" in opening.manager_log_current.text
-					if mode == "arrival-resume" else not opening.manager_log_current.text.is_empty())
+				and not opening.manager_log_current.text.is_empty()
 				and opening.model.projection() == restored,
 				"The saved site reopens with the same replayable briefing and a current native-backed cue"):
-			return
-		if repeat_complete and not _expect(opening.manager_log_repeat_entry.visible
-				and "3 / 3 plates received" in opening.manager_log_repeat_entry.text,
-				"Fresh Store resume reopens the Work log with confirmed completed repeat progress"):
 			return
 		if repeat_complete and not capture_prefix.is_empty():
 			await process_frame
@@ -2472,16 +2416,19 @@ func _arrival_run() -> void:
 		panel.turn_button.pressed.emit()
 	var held: Dictionary = opening.model.projection()
 	if not _expect(held.dropped_material.size() == 2
-			and panel.press_status.text.contains("Exit holds a plate"),
-			"A full exit retains the second workpiece and identifies the recovery action"):
+			and panel.press_status.text.contains("Exit holds a plate")
+			and not opening.manager_log_completion_entry.visible,
+		"A plate at the exit has not yet completed the inventory objective"):
 		return
 	if not _expect(not panel.pickup_button.disabled and not panel.recover_work_button.disabled,
 			"The player can choose either exit pickup or retained work recovery"):
 		return
 	panel.pickup_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.products == 1
-			and opening.model.projection().dropped_material.size() == 1,
-			"Exit pickup leaves the second workpiece in place"):
+			and opening.model.projection().dropped_material.size() == 1
+			and "FIRST WORKSHOP  /  COMPLETE" in opening.objective_heading.text
+			and opening.manager_log_completion_entry.visible,
+		"Physical pickup completes the workshop while the second workpiece stays in place"):
 		return
 	if mode in ["arrival-delivery", "arrival-repeat-delivery"]:
 		var held_work: Dictionary = opening.model.projection()
