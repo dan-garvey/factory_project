@@ -599,7 +599,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -1903,18 +1903,18 @@ func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode == "arrival-repeat-delivery":
 		deadline = Time.get_ticks_msec() + 240000
-	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-delivery", "arrival-craft-capacity"]:
+	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-delivery", "arrival-craft-capacity"]:
 		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume"]:
+	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -1973,6 +1973,12 @@ func _arrival_run() -> void:
 		return
 	if mode == "arrival-broad-drive":
 		await _arrival_broad_drive_run(panel)
+		return
+	if mode == "arrival-broad-form":
+		await _arrival_broad_form_run()
+		return
+	if mode == "arrival-broad-cut-resume":
+		await _arrival_broad_cut_resume_run(panel)
 		return
 	if mode == "arrival-press-site":
 		await _arrival_press_site_run(panel)
@@ -2593,8 +2599,8 @@ func _arrival_broad_pad_run(panel) -> void:
 			"The original finite arrival has no gifted broad-press components"):
 		return
 	for source in [
-		{"path": [Vector2(3.3, 4.95)], "id": "tree-east-south"},
-		{"path": [Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(3.3, 9.9)],
+		{"path": [Vector2(6.0, 3.45)], "id": "tree-east-south"},
+		{"path": [Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(6.0, 11.55)],
 			"id": "tree-east-north"},
 	]:
 		var waypoints: Array[Vector2] = []
@@ -2606,7 +2612,7 @@ func _arrival_broad_pad_run(panel) -> void:
 			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
 				return
 	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 4.95),
-			Vector2(3.3, 3.3), Vector2(0.0, 1.65)]):
+			Vector2(3.3, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for cut in range(16):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
@@ -2703,6 +2709,8 @@ func _arrival_broad_drive_run(panel) -> void:
 			and start.material_mass.accounted_mass == start.material_mass.initial_mass,
 			"The fresh native World retains the exact finite broad work area"):
 		return
+	if not await _approach(Vector2(6.0, -1.2)):
+		return
 	for cut in range(6):
 		if _construct({"action": "harvest_source", "target": "tree-east-upstream"}).is_empty():
 			return
@@ -2710,7 +2718,7 @@ func _arrival_broad_drive_run(panel) -> void:
 			"The actual upstream tree supplies one wheel and four connecting shafts"):
 		return
 	if not await _approach_points([Vector2(3.3, -1.2), Vector2(3.3, 3.3),
-			Vector2(0.0, 1.65)]):
+			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 		return
@@ -2739,17 +2747,16 @@ func _arrival_broad_drive_run(panel) -> void:
 		return
 	if not await _approach_points([Vector2(3.3, 3.3), Vector2(0.0, 1.3)]):
 		return
-	if _construct({"action": "place", "kind": "wheel", "cell": [-2, 0],
+	if _construct({"action": "place", "kind": "wheel", "cell": [-2, 1],
 			"axis": "x", "level": 4}).is_empty():
 		return
-	for center in [[-4, 4, 0], [0, 4, 0], [4, 4, 0]]:
+	for center in [[-4, 4, 4], [0, 4, 4], [4, 4, 4]]:
 		if _construct({"action": "place_shaft", "center": center, "axis": "x",
 				"half_span": 2}).is_empty():
 			return
-	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, -1.2),
-			Vector2(5.8, -1.2)]):
+	if not await _approach_points([Vector2(0.0, -1.2), Vector2(3.3, -1.2)]):
 		return
-	for center in [[8, 4, 0]]:
+	for center in [[8, 4, 4]]:
 		if _construct({"action": "place_shaft", "center": center, "axis": "x",
 				"half_span": 2}).is_empty():
 			return
@@ -2758,13 +2765,241 @@ func _arrival_broad_drive_run(panel) -> void:
 	if not _expect(connected.broad_press_assemblies.size() == 1
 			and connected.broad_press_assemblies[0].geometry_status == "ready"
 			and connected.broad_press_assemblies[0].status == "ready"
-			and connected.broad_press_assemblies[0].stroke_rate[0] != 0,
-			"One physically connected wheel drives all four actor-built pad heads"):
+			and connected.broad_press_assemblies[0].stroke_rate[0] > 0,
+			"The back-row wheel route drives all four pad heads in their working direction"):
 		return
 	var saved: Dictionary = opening._save_worksite()
 	facts.save = saved
 	facts.save_slot = opening.save_slot
 	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
 			"The powered four-pad route survives Store without losing copper or wood"):
+		return
+	_record("pass")
+
+func _broad_part(state: Dictionary, kind: String, center: Array) -> Dictionary:
+	for id: String in state.placed_components:
+		var part: Dictionary = state.placed_components[id]
+		if part.component == kind and part.center == center:
+			return {"id": id, "generation": part.generation}
+	return {}
+
+func _arrival_broad_form_run() -> void:
+	deadline = Time.get_ticks_msec() + 240000
+	facts.evidence = "ordinary_finite_broad_sheet_forming"
+	var start: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and start.broad_press_assemblies.size() == 1
+			and start.broad_press_assemblies[0].status == "ready"
+			and start.cargo.P.raw == 0 and start.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The saved four-pad head has its original real drive and no gifted sheet stock"):
+		return
+	if not await _approach_points([Vector2(3.3, -1.2), Vector2(3.3, 3.3),
+			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return
+	for cut in range(3):
+		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+			return
+	if not _expect(opening.model.projection().cargo.P.raw == 3,
+			"Three finite ore chunks provide one twelve-mass broad sheet"):
+		return
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 3.3),
+			Vector2(3.3, -1.2), Vector2(5.8, -1.2), Vector2(5.8, 0.8)]):
+		return
+	var press: Dictionary = opening.model.projection().broad_press_assemblies[0]
+	var anvil: String = str(press.parts.anvils[0])
+	if _construct({"action": "feed_broad_press", "entity": anvil}).is_empty():
+		return
+	var fed: Dictionary = opening.model.projection()
+	if not _expect(fed.cargo.P.raw == 0
+			and fed.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.center == [12, 0, 0]
+					and drop.work_lots.size() == 1
+					and drop.work_lots[0].recipe_input == 3
+					and drop.work_lots[0].output_form == "sheet"))
+			and fed.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The powered broad head accepts one identity-bearing lot from exactly three chunks"):
+		return
+	var partial_ticks := 0
+	var partial: Dictionary = {}
+	for tick in range(128):
+		opening.model.advance()
+		partial_ticks += 1
+		partial = opening.model.projection()
+		if partial.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.center == [12, 0, 0]
+				and drop.work_lots.size() == 1 and drop.work_lots[0].remaining == 1)):
+			break
+	opening._refresh()
+	facts.partial_ticks = partial_ticks
+	facts.partial_work = partial.dropped_material
+	if not _expect(partial.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.center == [12, 0, 0]
+					and drop.work_lots.size() == 1 and drop.work_lots[0].remaining == 1))
+			and partial.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"Positive native drive advances the original lot to recoverable partial work"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts.partial_save = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store publishes the partial broad work and its exact native identity"):
+		return
+	_record("pass")
+
+func _arrival_broad_cut_resume_run(panel) -> void:
+	deadline = Time.get_ticks_msec() + 240000
+	facts.evidence = "ordinary_finite_broad_sheet_shear_continuation"
+	var restored: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and restored.broad_press_assemblies.size() == 1
+			and restored.broad_press_assemblies[0].status == "ready"
+			and restored.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.center == [12, 0, 0]
+					and drop.work_lots.size() == 1 and drop.work_lots[0].remaining == 1))
+			and restored.actors.P.ready and restored.actors.Q.ready
+			and opening.actor_world.bodies.P.is_on_floor()
+			and opening.actor_world.bodies.Q.is_on_floor(),
+			"A fresh scene restores the same partial broad lot and both native actors"):
+		return
+	facts.restored_partial = restored.dropped_material
+	var finishing_ticks := 0
+	var formed: Dictionary = {}
+	for tick in range(128):
+		opening.model.advance()
+		finishing_ticks += 1
+		formed = opening.model.projection()
+		if formed.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.center == [12, 0, 0]
+				and drop.sheets == 1 and drop.sheet_items.size() == 1)):
+			break
+	opening._refresh()
+	facts.finishing_ticks = finishing_ticks
+	var sheet_drop: Dictionary = {}
+	for drop: Dictionary in formed.dropped_material:
+		if drop.center == [12, 0, 0]:
+			sheet_drop = drop
+	if not _expect(sheet_drop.get("sheets", 0) == 1
+			and sheet_drop.get("sheet_items", []).size() == 1
+			and formed.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The original three-chunk lot forms one twelve-mass sheet on four supports"):
+		return
+	var sheet_id: int = int(sheet_drop.sheet_items[0].id)
+	var expected_sheet: Dictionary = sheet_drop.duplicate(true)
+	expected_sheet.erase("center")
+	if _construct({"action": "pickup_material", "center": [12, 0, 0],
+			"expected": expected_sheet}).is_empty():
+		return
+	if not _expect(opening.model.projection().cargo.P.sheets == 1
+			and opening.model.projection().cargo.P.sheet_items[0].id == sheet_id,
+			"The physical worker carries the original whole sheet identity"):
+		return
+	if not await _approach_points([Vector2(5.8, -1.2), Vector2(3.3, -1.2),
+			Vector2(3.3, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return
+	for cut in range(8):
+		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+			return
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 3.3),
+			Vector2(3.3, 4.95)]):
+		return
+	var choice := -1
+	for index in range(panel.COMPONENTS.size()):
+		if panel.COMPONENTS[index][0] == "cutting_edge":
+			choice = index
+	if not _expect(choice >= 0, "The ordinary workshop lists the interchangeable cutting face"):
+		return
+	panel.component_choice.select(choice)
+	panel._component_selected(choice)
+	for edge in range(4):
+		panel.craft_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.components.get("cutting_edge", 0) == 4
+			and opening.model.projection().cargo.P.sheets == 1,
+			"Four separately crafted blades accompany the same carried sheet"):
+		return
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(3.3, 3.3),
+			Vector2(3.3, -1.2), Vector2(5.8, -1.2), Vector2(5.8, 0.8)]):
+		return
+	var anvil: String = str(opening.model.projection().broad_press_assemblies[0].parts.anvils[0])
+	var blade_at: Array = []
+	for index in range(4):
+		var point: Array = [12 + (index % 2) * 4, 1, (index / 2) * 4]
+		var ram: Dictionary = _broad_part(opening.model.projection(), "ram_face", point)
+		if not _expect(not ram.is_empty(), "The broad press retains each separate removable face"):
+			return
+		if _construct({"action": "reclaim_component", "entity": ram.id}).is_empty():
+			return
+		blade_at.append(point)
+	for point: Array in blade_at:
+		if _construct({"action": "place_component", "component": "cutting_edge",
+				"center": point}).is_empty():
+			return
+	var cutting: Dictionary = opening.model.projection()
+	if not _expect(cutting.broad_shear_assemblies.any(func(head: Variant) -> bool:
+			return head is Dictionary and head.origin == [12, 0, 0] and head.status == "ready")
+			and cutting.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The same supported work area now has a complete driven cutting head"):
+		return
+	if _construct({"action": "place_sheet", "center": [12, 0, 0],
+			"sheet_id": sheet_id}).is_empty():
+		return
+	for stroke in range(2):
+		if _construct({"action": "stroke_broad_shear", "entity": anvil,
+				"sheet_id": sheet_id}).is_empty():
+			return
+	var interrupted: Dictionary = opening.model.projection()
+	var missing: Dictionary = _broad_part(interrupted, "cutting_edge", blade_at[3])
+	if not _expect(not missing.is_empty(), "The fourth blade has a reclaimable placed identity"):
+		return
+	if _construct({"action": "reclaim_component", "entity": missing.id}).is_empty():
+		return
+	var refused: Dictionary = _issue({"action": "stroke_broad_shear", "entity": anvil,
+		"sheet_id": sheet_id})
+	if not _expect(not refused.get("accepted", false)
+			and refused.get("reason", "") == "incomplete_shear"
+			and opening.model.projection().dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.center == [12, 0, 0]
+					and drop.sheet_items[0].id == sheet_id)),
+			"A missing blade refuses the next stroke while retaining the partial sheet"):
+		return
+	if _construct({"action": "place_component", "component": "cutting_edge",
+			"center": blade_at[3]}).is_empty():
+		return
+	for stroke in range(2):
+		if _construct({"action": "stroke_broad_shear", "entity": anvil,
+				"sheet_id": sheet_id}).is_empty():
+			return
+	var products: Dictionary = opening.model.projection()
+	var four := 0
+	for drop: Dictionary in products.dropped_material:
+		if drop.products == 1 and drop.center in [[12, 0, 0], [16, 0, 0],
+				[12, 0, 4], [16, 0, 4]]:
+			four += 1
+	if not _expect(four == 4 and products.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
+			and products.material_mass.sheets == 0 and products.material_mass.offcut_units == 0,
+			"Four separated three-mass plates replace the one sheet without an offcut"):
+		return
+	var plate_drop: Dictionary = {}
+	for drop: Dictionary in products.dropped_material:
+		if drop.center == [12, 0, 0]:
+			plate_drop = drop
+	var expected_plate: Dictionary = plate_drop.duplicate(true)
+	expected_plate.erase("center")
+	if _construct({"action": "pickup_material", "center": [12, 0, 0],
+			"expected": expected_plate}).is_empty():
+		return
+	var carried: Dictionary = opening.model.projection()
+	var remaining_plates := 0
+	for drop: Dictionary in carried.dropped_material:
+		if drop.products == 1:
+			remaining_plates += 1
+	facts.final_plate = carried.cargo.P
+	if not _expect(carried.cargo.P.products == 1
+			and remaining_plates == 3
+			and carried.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The worker carries one broad-route plate and leaves three accessible plates"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts.final_save = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store preserves the repaired cutting head and all four plate identities"):
 		return
 	_record("pass")
