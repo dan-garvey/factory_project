@@ -811,8 +811,8 @@ func _press_component_view() -> void:
 		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
 		"collector_assemblies": [], "placed_components": {
 			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
-			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 1.130625, 0.0], [0.14, 0.230625, 0.14]),
-			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.60875, 0.0], [0.14, 0.2475, 0.14]),
+			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 1.10975, 0.0], [0.14, 0.20975, 0.14]),
+			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.587875, 0.0], [0.14, 0.268375, 0.14]),
 			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 2.125625, 0.0], [0.14, 0.269375, 0.14]),
 			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2075, 0.18, 0.2075]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
@@ -920,8 +920,8 @@ func _guided_press_component_view() -> void:
 			"shaft": {"state": "rotating", "numerator": 1, "denominator": 1},
 			"cog": {"state": "rotating", "numerator": 1, "denominator": 1}},
 		"collector_assemblies": [], "press_assemblies": [], "placed_components": {
-			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.718125, 0.0], [0.14, 0.230625, 0.14]),
-			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 1.19625, 0.0], [0.14, 0.2475, 0.14]),
+			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.69725, 0.0], [0.14, 0.20975, 0.14]),
+			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 1.175375, 0.0], [0.14, 0.268375, 0.14]),
 			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 2.125625, 0.0], [0.14, 0.269375, 0.14]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
 			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
@@ -1104,10 +1104,15 @@ func _guided_press_component_view() -> void:
 	verify(held_billet != null and held_billet.get_node_or_null("Label3D") == null,
 		"The retained guided billet stays visible without a hovering work count.")
 	var half: float = state.placed_components.ram.occupied.half[1]
-	verify(absf(rest_y - forming_die.position.y - Presenter.GUIDED_RAM_REST_LIFT * 2.0 / 3.0) < 0.001
-		and forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * 0.5 >= -half
-		and forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * 0.5 <= half,
-		"Only confirmed remaining work lowers the guided die and slide inside their occupied box.")
+	var die_box: AABB = forming_die.global_transform * forming_die.mesh.get_aabb()
+	var boss: MeshInstance3D = held_billet.get_node("CenterBoss")
+	var boss_box: AABB = boss.global_transform * boss.mesh.get_aabb()
+	verify(absf(rest_y - forming_die.position.y -
+			(Presenter.GUIDED_RAM_REST_LIFT - Presenter.GUIDED_RAM_CONTACT_LIFT)) < 0.001
+		and absf(die_box.position.y - boss_box.end.y) < 0.001
+		and forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * 0.5 >= -half - 0.00001
+		and forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * 0.5 <= half + 0.00001,
+		"Confirmed work brings the die to the retained copper crown inside the swept ram box.")
 	state.dropped_material = []
 	state.revision = 8
 	host.state = state
