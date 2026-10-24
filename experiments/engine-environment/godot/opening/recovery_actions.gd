@@ -413,17 +413,16 @@ class ArrivalAssemblyControls:
 		var component_actions := VBoxContainer.new()
 		craft_section.add_child(component_actions)
 		var craft_row := HBoxContainer.new()
+		craft_row.alignment = BoxContainer.ALIGNMENT_CENTER
 		component_actions.add_child(craft_row)
-		craft_button = host._button(craft_row, "Craft at bench  C", _craft)
-		craft_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		craft_button = host._button(craft_row, "", _craft)
+		_style_workshop_icon(craft_button, "workshop-craft")
 		foundation_craft_button = host._button(craft_row, "", _craft_foundation)
-		foundation_craft_button.icon = load("res://opening/assets/build-icons/foundation.svg")
-		foundation_craft_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		foundation_craft_button.custom_minimum_size = Vector2(44, 37)
-		foundation_craft_button.focus_mode = Control.FOCUS_ALL
-		place_button = host._button(component_actions, "Place", _place)
-		field_craft_button = host._button(craft_section, "Shape wood · multitool  V", _field_craft)
-		field_craft_button.tooltip_text = "Shape the selected wooden component from carried timber."
+		_style_workshop_icon(foundation_craft_button, "foundation")
+		field_craft_button = host._button(craft_row, "", _field_craft)
+		_style_workshop_icon(field_craft_button, "workshop-shape")
+		place_button = host._button(craft_row, "", _place)
+		_style_workshop_icon(place_button, "workshop-place")
 		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
 		part_choice = OptionButton.new()
@@ -483,6 +482,12 @@ class ArrivalAssemblyControls:
 		crank_button = host._button(press_section, "Take pod crank", _crank)
 		_update_page()
 		visible = false
+
+	func _style_workshop_icon(button: Button, icon_name: String) -> void:
+		button.icon = load("res://opening/assets/build-icons/%s.svg" % icon_name)
+		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		button.custom_minimum_size = Vector2(44, 37)
+		button.focus_mode = Control.FOCUS_ALL
 
 	func selected_name() -> String:
 		return selected_component
@@ -609,6 +614,10 @@ class ArrivalAssemblyControls:
 		# Let the hub report missing input, full output and distance using its
 		# confirmed result. The bill above stays visible before the attempt.
 		craft_button.disabled = not ready or selected_bench.is_empty() or cost.is_empty()
+		var chosen_name: String = COMPONENTS[component_choice.selected][1]
+		craft_button.tooltip_text = "Craft %s at the selected workshop · need %s · carry %s · C" % [
+			chosen_name, material_cost, material_carried]
+		craft_button.accessibility_name = "Craft %s at the selected workshop, shortcut C" % chosen_name
 		var foundation_recipe: Dictionary = snapshot.get("foundation_recipe", {})
 		var foundation_cost: int = int(foundation_recipe.get("timber", 0))
 		var carried_timber: int = int(cargo.get("timber", 0))
@@ -621,8 +630,13 @@ class ArrivalAssemblyControls:
 		foundation_craft_button.accessibility_name = "Craft one foundation for %d timber at the selected workshop" % foundation_cost
 		field_craft_button.visible = not cost.is_empty() and int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
 		field_craft_button.disabled = not ready or not field_craft_button.visible
+		field_craft_button.tooltip_text = "Shape %s with the multitool · need %s · carry %s · V" % [
+			chosen_name, material_cost, material_carried]
+		field_craft_button.accessibility_name = "Shape %s with the multitool, shortcut V" % chosen_name
 		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
-		place_button.text = "Place %s  P" % COMPONENTS[component_choice.selected][1]
+		place_button.tooltip_text = "Place %s · %d carried · P" % [
+			chosen_name, int(components.get(selected_component, 0))]
+		place_button.accessibility_name = "Place %s, shortcut P" % chosen_name
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
 		reclaim_button.disabled = not ready or not reclaim_button.visible
 		var part_recipes: Array = snapshot.get("part_recipes", [])

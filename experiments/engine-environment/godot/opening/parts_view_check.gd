@@ -1991,6 +1991,17 @@ func _field_craft_widget() -> void:
 	var panel = view.arrival_assembly_controls
 	panel.refresh(view.state, view.client, view.selected, true)
 	panel.craft_tab.pressed.emit()
+	verify(panel.craft_button.text.is_empty() and panel.field_craft_button.text.is_empty()
+		and panel.place_button.text.is_empty()
+		and panel.craft_button.icon != null and panel.field_craft_button.icon != null
+		and panel.place_button.icon != null and panel.foundation_craft_button.icon != null
+		and "C" in panel.craft_button.tooltip_text
+		and "V" in panel.field_craft_button.tooltip_text
+		and "P" in panel.place_button.tooltip_text
+		and not panel.craft_button.accessibility_name.is_empty()
+		and not panel.field_craft_button.accessibility_name.is_empty()
+		and not panel.place_button.accessibility_name.is_empty(),
+		"The grouped workshop uses focused, described icons for bench craft, floor, field shape and placement.")
 	verify(panel.foundation_craft_button.visible and not panel.foundation_craft_button.disabled
 		and panel.foundation_craft_button.icon != null
 		and "2 timber" in panel.foundation_craft_button.tooltip_text
