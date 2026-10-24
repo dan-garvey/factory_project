@@ -10363,7 +10363,7 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 	var source := _hand_source(_screen_hand_source(screen))
 	if not source.is_empty():
 		return {"name": "Timber tree" if source.kind == "tree" else "Ore deposit",
-			"detail": "%d left  ·  E Harvest" % source.remaining}
+			"detail": "Depleted" if source.remaining == 0 else "%d left  ·  E Harvest" % source.remaining}
 	return {}
 
 func _refresh_pointed_summary() -> void:

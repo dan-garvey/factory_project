@@ -893,29 +893,34 @@ func _multitool_controls() -> void:
 		root.add_child(view)
 		view.selection_ring = MeshInstance3D.new()
 		view.add_child(view.selection_ring)
+		view.camera = Camera3D.new()
+		view.add_child(view.camera)
 		view._build_interface()
 		view._refresh_ui()
 		var before: Dictionary = view.state.duplicate(true)
-		verify("FIRST WORKSHOP" in view.objective_heading.text and "3 timber" in view.goal_label.text
-			and "1 softmetal" in view.goal_label.text and not view.goal_progress.visible,
-			"The arrival view teaches actual carried materials instead of the obsolete four-plate goal.")
+		verify("FIRST WORKSHOP" in view.objective_heading.text and not view.goal_progress.visible
+			and not view.goal_label.text.contains("3 timber") and not view.goal_label.text.contains("1 softmetal")
+			and view.building_hotbar.material_counts.timber.text == "3"
+			and view.building_hotbar.material_counts.raw.text == "1",
+			"The arrival objective stays focused on the order while build/inventory shows confirmed cargo.")
 		verify(not view.confirm_button.visible and not view.lesson_button.visible,
 			"Arrival offers neither old objective confirmation nor the completed-machine lesson.")
 		view._toggle_explanation()
 		verify(not view.explanation_open and view.example_presenter == null,
 			"The retired lesson shortcut cannot create its historical example in arrival.")
 		view.hand_pointed = "ore"
-		view._refresh_placement_options()
-		verify(view.placement_options_panel.visible and view.placement_options_title.text == "CUT SOFTMETAL"
-			and "2 remaining" in view.placement_options_hint.text and "E" in view.placement_options_hint.text,
+		var ore_summary: Dictionary = view._pointed_summary_data(Vector2.ZERO)
+		verify(ore_summary.get("name") == "Ore deposit" and "2 left" in ore_summary.get("detail", "")
+			and "E Harvest" in ore_summary.get("detail", ""),
 			"The pointed ore shows its native remaining stock and the real interaction key.")
 		view._interact_pointed()
 		verify(view.issued == [{"action": "harvest_source", "target": "ore"}],
 			"The ordinary source interaction submits only its native target identity.")
 		view.issued.clear()
 		view.hand_pointed = "tree"
-		view._refresh_placement_options()
-		verify(view.placement_options_title.text == "CUT TIMBER" and "1 remaining" in view.placement_options_hint.text,
+		var tree_summary: Dictionary = view._pointed_summary_data(Vector2.ZERO)
+		verify(tree_summary.get("name") == "Timber tree" and "1 left" in tree_summary.get("detail", "")
+			and "E Harvest" in tree_summary.get("detail", ""),
 			"Timber uses the same confirmed-stock interaction rather than another inventory.")
 		view._interact_pointed()
 		verify(view.issued == [{"action": "harvest_source", "target": "tree"}], "The tree keeps its distinct native source identity.")
@@ -929,9 +934,9 @@ func _multitool_controls() -> void:
 			and "full" in view._material_refusal_message({"reason": "inventory_full"}, "fallback"),
 			"Native stock and capacity refusals retain actionable advice.")
 		view.state.hand_sources.tree.remaining = 0
-		view._refresh_placement_options()
+		var depleted_summary: Dictionary = view._pointed_summary_data(Vector2.ZERO)
 		view._interact_pointed()
-		verify("Depleted" in view.placement_options_hint.text and view.issued.is_empty(),
+		verify(depleted_summary.get("detail") == "Depleted" and view.issued.is_empty(),
 			"A confirmed depleted source stays readable without submitting another harvest.")
 		view.state.hand_sources.tree.remaining = 1
 		view.state.actors.P.ready = false
