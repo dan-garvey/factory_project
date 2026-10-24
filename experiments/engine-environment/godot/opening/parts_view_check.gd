@@ -2125,6 +2125,10 @@ func _workshop_pages() -> void:
 			"Q": {"raw": 1, "timber": 3, "components": {}}}
 		view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0}}
 		view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
+		view.state.part_recipes = [
+			{"kind": "gearbox", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
+			{"kind": "vertical_gearbox", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
+			{"kind": "chain_drive", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0}]
 		view.state.component_capacity = 20
 		view.state.workshop_completed_actors = []
 		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
@@ -2181,6 +2185,11 @@ func _workshop_pages() -> void:
 		verify(inventory.recipe_buttons["foundation"].visible
 			and "2 timber + 0 ore" in inventory.recipe_buttons["foundation"].tooltip_text,
 			"The foundation recipe keeps its native name and cost beside the icon.")
+		verify("Horizontal gearbox" in inventory.recipe_buttons["part:0"].tooltip_text
+			and "Vertical gearbox" in inventory.recipe_buttons["part:1"].tooltip_text
+			and inventory.recipe_buttons["part:0"].icon.resource_path.ends_with("/gearbox.svg")
+			and inventory.recipe_buttons["part:1"].icon.resource_path.ends_with("/vertical_gearbox.svg"),
+			"The ordinary workshop shows each relay recipe by its own name and icon.")
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-foundation-label.png") == OK,
@@ -2475,7 +2484,11 @@ func _field_craft_widget() -> void:
 	verify(view.issued.is_empty() and "Carry the ingredients" in inventory.focus_description.text,
 		"Missing timber keeps the foundation recipe visible without sending a command.")
 	view.state.cargo.P.timber = 3
-	view.state.part_recipes = [{"kind": "belt", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0}]
+	view.state.part_recipes = [
+		{"kind": "belt", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
+		{"kind": "gearbox", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
+		{"kind": "vertical_gearbox", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
+		{"kind": "chain_drive", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0}]
 	view.state.part_specifications = {"P": [{"kind": "belt", "teeth": 0, "half_span": 0, "count": 1}]}
 	inventory.refresh()
 	var belt_recipe: Button = inventory.recipe_buttons["part:0"]
@@ -2486,6 +2499,17 @@ func _field_craft_widget() -> void:
 	belt_recipe.pressed.emit()
 	verify(view.issued == [{"action": "craft_part", "entity": "pod-fabrication-hub", "role": "belt", "half_span": 0}],
 		"The powered-route recipe keeps the selected workshop identity.")
+	var gearbox_recipe: Button = inventory.recipe_buttons["part:1"]
+	var vertical_gearbox_recipe: Button = inventory.recipe_buttons["part:2"]
+	var chain_recipe: Button = inventory.recipe_buttons["part:3"]
+	verify("Horizontal gearbox" in gearbox_recipe.tooltip_text
+		and "Vertical gearbox" in vertical_gearbox_recipe.tooltip_text
+		and "Chain drive" in chain_recipe.tooltip_text
+		and gearbox_recipe.icon.resource_path.ends_with("/gearbox.svg")
+		and vertical_gearbox_recipe.icon.resource_path.ends_with("/vertical_gearbox.svg")
+		and chain_recipe.icon.resource_path.ends_with("/chain_drive.svg")
+		and gearbox_recipe.accessibility_name != vertical_gearbox_recipe.accessibility_name,
+		"Native relay recipes have distinct visible icons and accessible identities.")
 	root.size = Vector2i(640, 480)
 	inventory._configure_catalog_layout(Vector2i(640, 480))
 	inventory._place_catalog()
