@@ -3142,6 +3142,16 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     const auto append = [&](mechanics::Part projected) {
         parts.push_back(std::move(projected));
     };
+    for (const auto& item : placed) {
+        if (item.kind != materials::Component::wooden_slide &&
+            item.kind != materials::Component::softmetal_slide) continue;
+        // The shaft is embodied in this one crafted part. Its identity is the
+        // placed slide, so drive, load and later carriage phase share an owner.
+        append({item.id, mechanics::Kind::shaft, item.center,
+            mechanics::Axis::x, 0, 1});
+        ratings.emplace(item.id, material_rating(item.kind));
+        impacts.emplace(item.id, 4);
+    }
     for (const auto& face : profile.collector_faces) {
         const auto inspected = layout.inspect_collector(face);
         if (!inspected.collector) continue;

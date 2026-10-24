@@ -66,7 +66,7 @@ void arrival_projection_and_restore() {
           std::abs(std::get<double>(upstream[2].storage()) + 1.65) < 1e-8,
           "Finite east timber sites include a separate upstream tree for the constructed plate route.");
     const auto recipes = get<O>(view, "component_recipes");
-    check(recipes.size() == 12 && get<I>(view, "component_capacity") == 1000000 &&
+    check(recipes.size() == 14 && get<I>(view, "component_capacity") == 1000000 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
           get<I>(recipes.at("wooden_frame"), "softmetal") == 0 &&
           get<I>(recipes.at("wooden_workbench"), "timber") == 4 &&
@@ -74,6 +74,11 @@ void arrival_projection_and_restore() {
           get<I>(recipes.at("softmetal_cog"), "timber") == 0 &&
           get<I>(recipes.at("softmetal_cog"), "softmetal") == 2,
           "The normal consumer receives every native recipe cost and the generous opening carry bound.");
+    check(get<I>(recipes.at("wooden_slide"), "timber") == 3 &&
+          get<I>(recipes.at("wooden_slide"), "load_rating") == 8 &&
+          get<I>(recipes.at("softmetal_slide"), "softmetal") == 4 &&
+          get<I>(recipes.at("softmetal_slide"), "load_rating") == 24,
+          "The one-part slide bills contain a matching material input and distinct load ratings.");
     check(get<I>(recipes.at("wooden_shaft"), "load_rating") == 8 &&
           get<I>(recipes.at("wooden_cog"), "load_rating") == 8 &&
           get<I>(recipes.at("softmetal_shaft"), "load_rating") == 24 &&
