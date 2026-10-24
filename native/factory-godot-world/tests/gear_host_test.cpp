@@ -1772,6 +1772,37 @@ void transmission_above_half_foundation() {
     }
 }
 
+void half_tile_shaft_bridge() {
+    for (const auto* axis : {"x", "z"}) {
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The half-tile bridge uses the ordinary native Host and a known site.");
+        observe(host, 2.5, 2.5, 1);
+        const auto before = field<I>(V(field<O>(host.projection(), "part_kits").at("P")), "shaft");
+        const auto bridge = std::string(axis) == "x" ?
+            shaft(2, 4, 0, "half-tile-bridge", axis) :
+            shaft(0, 4, 2, "half-tile-bridge", axis);
+        const auto placed = host.command("P", bridge);
+        check(accepted(placed), "A half-span-two shaft bridges adjacent full-grid ports along its axis; reason=" +
+              field<std::string>(placed, "reason") + ".");
+        const auto off_axis = std::string(axis) == "x" ?
+            shaft(0, 4, 2, "off-axis-bridge", axis) :
+            shaft(2, 4, 0, "off-axis-bridge", axis);
+        const auto refused = host.command("P", off_axis);
+        check(!accepted(refused) && field<std::string>(refused, "reason") == "invalid_cell" &&
+              field<I>(V(field<O>(host.projection(), "part_kits").at("P")), "shaft") == before - 1,
+              "An off-axis half-tile center refuses without spending a second shaft.");
+        const auto saved = host.checkpoint();
+        Host restored;
+        check(accepted(restored.initialize("fresh", {"P"})) &&
+              accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(restored.restore_checkpoint(saved)) &&
+              !factory::values::typed_difference(saved, restored.checkpoint()),
+              "The valid bridge and refused off-axis intent survive a fresh Host restore.");
+    }
+}
+
 void building_rotation() {
     for (I turn = 0; turn < 4; ++turn) {
         Host host;
@@ -1833,7 +1864,7 @@ int main(int argc, char** argv) {
             std::cout << "{\"status\":\"pass\",\"evidence\":\"native_building_rotation\",\"checks\":" << checks << "}\n";
             return 0;
         }
-        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); transmission_above_half_foundation(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); transmission_above_half_foundation(); half_tile_shaft_bridge(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--foundation-only") { transmission_foundation_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--terrain-only") { transmission_terrain_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--raised-route-only") { complete_span_route_host(); return 0; }
@@ -1851,7 +1882,7 @@ int main(int argc, char** argv) {
         if (argc == 1) {
             building_rotation();
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
-            transmission_tile_center(); transmission_above_half_foundation(); global_grid(); finite_large_cog(); finite_relays_and_restore(); relay_shell_terrain(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); transmission_above_half_foundation(); half_tile_shaft_bridge(); global_grid(); finite_large_cog(); finite_relays_and_restore(); relay_shell_terrain(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

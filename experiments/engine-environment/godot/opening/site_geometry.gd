@@ -142,11 +142,18 @@ static func valid_position(position) -> bool:
 	# A serialized sanity check must not invent a maximum game-world extent.
 	return true
 
-static func _mechanical_point(value: Variant) -> bool:
+static func _mechanical_point(value: Variant, part: Dictionary = {}) -> bool:
 	if not value is Array or value.size() != 3:
 		return false
-	for coordinate: Variant in value:
-		if typeof(coordinate) != TYPE_INT or coordinate < -1000000 or coordinate > 1000000 or coordinate % 4 != 0:
+	for index in range(3):
+		var coordinate: Variant = value[index]
+		if typeof(coordinate) != TYPE_INT or coordinate < -1000000 or coordinate > 1000000:
+			return false
+		var remainder: int = coordinate % 4
+		if remainder != 0 and not (part.get("kind") == "shaft"
+				and typeof(part.get("half_span")) == TYPE_INT and part.half_span == 2
+				and typeof(part.get("axis")) == TYPE_INT and part.axis == index
+				and absi(remainder) == 2):
 			return false
 	return true
 
@@ -227,7 +234,8 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 		return {"accepted": false}
 	for id: Variant in parts:
 		var part: Variant = parts[id]
-		if typeof(id) != TYPE_STRING or not part is Dictionary or not _mechanical_point(part.get("center")) or typeof(part.get("axis")) != TYPE_INT or part.axis not in [0, 1, 2]:
+		if typeof(id) != TYPE_STRING or not part is Dictionary or typeof(part.get("axis")) != TYPE_INT \
+				or part.axis not in [0, 1, 2] or not _mechanical_point(part.get("center"), part):
 			return {"accepted": false}
 		var half := Vector3.ONE * 0.1
 		if part.get("kind") == "shaft" and part.get("half_span") == 2 and typeof(part.get("half_span")) == TYPE_INT:
