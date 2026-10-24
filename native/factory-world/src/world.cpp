@@ -3367,7 +3367,9 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     if (!profile.fabrication_parts.empty() && !profile.landing_pod_center) return false;
     for (const auto& [spec, cost] : profile.fabrication_parts)
         if (!spec_valid(spec) || profile.finite_parts.contains(spec) ||
-            (spec.role != Role::waterwheel && spec.role != Role::shaft && spec.role != Role::belt) ||
+            (spec.role != Role::waterwheel && spec.role != Role::shaft &&
+             spec.role != Role::belt && spec.role != Role::gearbox &&
+             spec.role != Role::vertical_gearbox) ||
             cost.timber < 0 || cost.ore < 0 || (cost.timber == 0 && cost.ore == 0) ||
             cost.timber > 256 || cost.ore > profile.initial_units) return false;
     if (profile.landing_pod_center) {

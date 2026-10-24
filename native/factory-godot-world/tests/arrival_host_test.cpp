@@ -1,5 +1,6 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -166,7 +167,7 @@ void arrival_projection_and_restore() {
           "Late join and restore retain one settled pod with the exact same foundation custody.");
     check(get<I>(get<O>(restored.projection(), "part_kits").at("P"), "collector") == 0 &&
           get<I>(get<O>(restored.projection(), "part_kits").at("P"), "processor") == 0 &&
-          std::get<A>(get<O>(restored.projection(), "part_specifications").at("P").storage()).size() == 3,
+          std::get<A>(get<O>(restored.projection(), "part_specifications").at("P").storage()).size() == 5,
           "The restored arrival offers finite route recipes but no complete collector or press.");
 }
 
@@ -228,7 +229,15 @@ void fabricated_transmission_stock_is_finite() {
     Host host;
     initialized(host);
     const auto recipes = get<A>(host.projection(), "part_recipes");
-    check(recipes.size() == 3, "Arrival projects three powered-route recipes without gifting their kits.");
+    check(recipes.size() == 5 && std::any_of(recipes.begin(), recipes.end(), [](const V& entry) {
+              const auto* recipe = std::get_if<O>(&entry.storage());
+              return recipe && get<std::string>(V(*recipe), "kind") == "vertical_gearbox" &&
+                  get<I>(V(*recipe), "timber") == 1 && get<I>(V(*recipe), "softmetal") == 1;
+          }) && std::any_of(recipes.begin(), recipes.end(), [](const V& entry) {
+              const auto* recipe = std::get_if<O>(&entry.storage());
+              return recipe && get<std::string>(V(*recipe), "kind") == "gearbox" &&
+                  get<I>(V(*recipe), "timber") == 1 && get<I>(V(*recipe), "softmetal") == 1;
+          }), "Arrival offers finite horizontal and vertical relays without gifting their kits.");
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 1), "accepted"),
           "The actor reaches the actual pod workshop before trying a route recipe.");
     const auto craft = [](const std::string& request, const char* role, I span) {
