@@ -4,6 +4,7 @@ const NativeModel = preload("res://opening/native_model.gd")
 const OpeningGeometry = preload("res://opening/site_geometry.gd")
 const OpeningScene = preload("res://opening/opening.gd")
 const TransmissionPresenter = preload("res://opening/native_transmission_presenter.gd")
+const ARRIVAL_INITIAL_MASS := 4096 * 4
 var opening
 var destination := ""
 var mode := ""
@@ -806,7 +807,7 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 			and opening.model.projection().cargo.P.offcuts == 4
 			and opening.model.projection().cargo.P.raw == 0
 			and opening.model.projection().dropped_material.is_empty()
-			and opening.model.projection().material_mass.accounted_mass == 64,
+			and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 			"Two more local blanks become plates beside the retained second plate without gifted stock"):
 		return false
 	var press_anvil: String = str(opening.model.projection().guided_press_assemblies[0].anvil)
@@ -834,7 +835,7 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 	if not _expect(recycled.cargo.P.offcuts == 0 and recycled.cargo.P.products == 3
 			and recycled.dropped_material.size() == 1
 			and recycled.dropped_material[0].raw == 1
-			and recycled.material_mass.accounted_mass == 64
+			and recycled.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
 			and panel.compact_button.disabled,
 			"The ordinary press compacts four carried offcuts into one recoverable full-mass blank"):
 		return false
@@ -1841,7 +1842,7 @@ func _arrival_raised_press_resume_run(panel) -> void:
 					func(feed: Variant) -> bool: return drop.center == feed.exit))
 			and restored.dropped_material.any(func(drop: Variant) -> bool:
 				return drop.offcuts == 1 and drop.center == [12, 4, 16])
-			and restored.material_mass.accounted_mass == 64
+			and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
 			and opening.actor_world.bodies.P.is_on_floor(),
 			"A fresh process restores raised geometry, separate outputs and the physical worker"):
 		return
@@ -1855,7 +1856,7 @@ func _arrival_raised_press_resume_run(panel) -> void:
 	if not _expect(recovered.cargo.P.offcuts == 1
 			and recovered.dropped_material.size() == 1
 			and recovered.dropped_material[0].products == 1
-			and recovered.material_mass.accounted_mass == 64,
+			and recovered.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 			"The resumed worker recovers only the exact raised-press offcut"):
 		return
 	var saved: Dictionary = opening._save_worksite()
@@ -1962,7 +1963,7 @@ func _arrival_run() -> void:
 				and q_saved.actors.Q.ready and opening.actor_world.bodies.Q.is_on_floor()
 				and q_saved.cargo.Q.raw == 1 and q_saved.cargo.P.raw == 0
 				and q_saved.cargo.P.offcuts == 0 and q_saved.dropped_material.is_empty()
-				and q_saved.material_mass.accounted_mass == 64
+				and q_saved.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
 				and q_saved.freight_beacon.repeat_order_complete
 				and q_saved.hand_crank.holder == "pod" and opening.landing_crank_visual.visible
 				and opening.model.validate_checkpoint(opening.model.checkpoint()).get("accepted", false),
@@ -2025,7 +2026,7 @@ func _arrival_run() -> void:
 				and restored.cargo.P.offcuts == (0 if repeat_complete else 2)
 				and (restored.dropped_material.size() == 1 and restored.dropped_material[0].raw == 1
 					if repeat_complete else true)
-				and restored.material_mass.accounted_mass == 64
+				and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
 				and restored.freight_beacon.order_complete == first_delivered
 				and restored.freight_beacon.shipped_products == (4 if repeat_complete else 1 if first_delivered else 0)
 				and restored.freight_beacon.repeat_order_shipped == (3 if repeat_complete else 0)
@@ -2086,7 +2087,7 @@ func _arrival_run() -> void:
 			var after_q: Dictionary = opening.model.projection()
 			if not _expect(q_reply.get("accepted", false) and after_q.cargo.Q.raw == 1
 					and after_q.cargo.P == before_q.cargo.P and after_q.dropped_material.is_empty()
-					and after_q.material_mass.accounted_mass == 64,
+					and after_q.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 					"Physical Q recovers the Store-restored blank without changing P's cargo or copper mass"):
 				return
 			if not await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95),
@@ -2365,7 +2366,7 @@ func _arrival_run() -> void:
 		var first_turn: Dictionary = opening.model.projection()
 		if not _expect(first_turn.order == before_hold_order + 1
 				and not first_turn.dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
-				and first_turn.material_mass.accounted_mass == 64,
+				and first_turn.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 				"The first held input advances one authoritative turn and retains partial copper work"):
 			return
 		if not _expect("0 / 2 steps" in panel.press_status.text,
@@ -2432,7 +2433,7 @@ func _arrival_run() -> void:
 					func(feed: Variant) -> bool: return drop.center == feed.exit)))
 			and after.dropped_material.any(func(drop: Variant) -> bool:
 				return drop.offcuts == 1 and (not raised or drop.center == ready.work_center))
-			and after.material_mass.accounted_mass == 64,
+			and after.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 			"Repeated hand turns form one plate and retain one copper offcut at the work point"):
 		return
 	if raised:
@@ -2516,7 +2517,7 @@ func _arrival_run() -> void:
 	if not _expect(opening.model.projection().cargo.P.products == (1 if mode in ["arrival-delivery", "arrival-repeat-delivery"] else 2)
 			and opening.model.projection().cargo.P.offcuts == 2
 			and opening.model.projection().dropped_material.is_empty()
-			and opening.model.projection().material_mass.accounted_mass == 64,
+			and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 			"Both plates and both copper offcuts enter finite carried custody through ordinary controls"):
 		return
 	if mode == "arrival-repeat-delivery" and not await _deliver_repeat_arrival_plates(panel, capture_prefix):
