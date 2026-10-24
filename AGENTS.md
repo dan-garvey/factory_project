@@ -51,26 +51,27 @@ permission requests for delegated choices, or treat review as approval by defaul
 The current user-directed trial decentralizes landing. Each workstream owner
 builds, tests and commits their scoped code, resolves its current-main joins, and
 lands and publishes it without waiting for the progenitor or pre-merge review.
-Independent review happens after merge for authored changes to code, tests,
-product requirements or project process guidance. Open an unassigned Bead
-labelled `review-request` that names the exact commit, implementing agent,
-scope and relevant test results. Review the actual consumer and contract risks.
+Independent review happens after merge. For every commit you author, open an
+unassigned Bead labelled `review-request` that names the exact commit,
+implementing agent, scope and relevant test results. Review the actual consumer
+and contract risks.
 Do not review your own commits or claim review requests that you authored.
 
 A merge that only preserves disjoint changes already covered by review requests,
-whether pending or completed, needs no separate review request. Verify both
-parents, the relevant path/blob preservation and unchanged test inputs, then
-record that result once in the owning Bead with the original review references.
+whether pending or completed, still needs a review request for the merge commit.
+Verify both parents, the relevant path/blob preservation and unchanged test
+inputs, then record that result once in the owning Bead with the original review
+references. The merge review can focus on that preservation.
 If conflict resolution changes code, a shared interface or behavior differs in
 combination, or relevant inputs change, run focused checks and request independent
 review of that integration seam. A clean textual merge alone does not prove these
 conditions.
 
-After opening a required review request, check for unclaimed review-request
+After opening a review request, check for unclaimed review-request
 Beads from other authors. If one is available, claim it and review that commit
 before returning to your own task. Complete concrete fixes in your
 own linked worktree, run the relevant tests, commit and merge them, and open a
-separate review request for each substantive fix commit you author. Record the
+separate review request for each fix commit you author. Record the
 review outcome and any fix commits in the original request, then resume your own
 task and repeat this loop. If no eligible request is available, continue your own
 work instead of waiting.
