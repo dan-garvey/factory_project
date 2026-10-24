@@ -338,7 +338,7 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 	if not _expect(opening.actor_world.component_bodies.has(id) and visible_bench,
 			"The placed identity has a physical pick body and a distinct rendered work surface"):
 		return
-	if not await _approach(Vector2(0.0, 1.65)):
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 		return
@@ -529,7 +529,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		opening.set_process(true)
 	opening.object_menu.hide()
 	await process_frame
-	if not await _approach(Vector2(0.0, 1.65)):
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 		return
@@ -735,7 +735,7 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 			and opening.model.projection().cargo.P.products == 1,
 			"The first saved receipt exposes an open repeat order and one real carried plate"):
 		return false
-	if not await _approach(Vector2(0.0, 1.65)):
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return false
 	for index in range(2):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
@@ -1060,11 +1060,11 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	panel._component_selected(0)
 	# Zero-cut entries are explicit clear-aisle waypoints, not resource actions.
 	for source in [
-		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(6.0, 3.45), "id": "tree-east-south", "cuts": 8},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 8},
-		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 5},
+		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 8},
+		{"point": Vector2(0.6, 11.55), "id": "tree-north", "cuts": 5},
 	]:
 		if not await _approach(source.point):
 			return
@@ -1160,14 +1160,15 @@ func _arrival_capacity_resume_run() -> void:
 func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> void:
 	# This uses the ordinary arrival scene, its physical actor, workshop buttons
 	# and the native terrain. Commands still pass through the one scene Model.
+	var ore_for_press := 0 if finish else 8
 	for source in [
-		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(6.0, 3.45), "id": "tree-east-south", "cuts": 8},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 6},
+		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 6},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 3.3), "cuts": 0},
-		{"point": Vector2(0.0, 1.65), "id": "opening-softmetal", "cuts": 3},
+		{"point": Vector2(-0.5, 0.0), "id": "opening-softmetal", "cuts": 3 + ore_for_press},
 	]:
 		if not await _approach(source.point):
 			return
@@ -1177,8 +1178,8 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	if not _expect(opening.model.projection().cargo.P.timber == 14
-			and opening.model.projection().cargo.P.raw == 3,
-			"Two finite trees and the outcrop supply the exact collector and powered-route bill"):
+			and opening.model.projection().cargo.P.raw == 3 + ore_for_press,
+			"Two finite trees and the outcrop supply the collector route and later press stock"):
 		return
 	for kind in ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]:
 		var index := -1
@@ -1210,7 +1211,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 				"The ordinary workshop turns carried stock into one exact native route kit"):
 			return
 	if not _expect(opening.model.projection().cargo.P.timber == 0
-			and opening.model.projection().cargo.P.raw == 0,
+			and opening.model.projection().cargo.P.raw == ore_for_press,
 			"The complete collector and three-shaft route spend fourteen timber and three ore"):
 		return
 	panel.crank_button.pressed.emit()
@@ -1704,13 +1705,10 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 	for source in [
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 2},
-		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 8},
+		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 2},
+		{"point": Vector2(0.6, 11.55), "id": "tree-north", "cuts": 8},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
-		{"point": Vector2(4.95, 3.3), "cuts": 0},
-		{"point": Vector2(4.95, 0.0), "cuts": 0},
-		{"point": Vector2(1.65, 0.0), "id": "opening-softmetal", "cuts": 8},
 	]:
 		if not await _approach(source.point):
 			return
@@ -1721,8 +1719,7 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 			and opening.model.projection().cargo.P.raw == 8,
 			"The remaining finite trees and ore supply the guided press and output route"):
 		return
-	if not await _approach_points([Vector2(4.95, 0.0), Vector2(4.95, 3.3),
-			Vector2(4.95, 4.95), Vector2(3.3, 4.95)]):
+	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "softmetal_cog", "receiver_tray"]:
 		var selected := -1
@@ -2166,17 +2163,18 @@ func _arrival_run() -> void:
 		return
 	opening.object_menu.hide()
 	await process_frame
-	if not await _approach(Vector2(3.3, 4.95)):
+	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	for index in range(8):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
-	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(3.3, 9.9)]):
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(6.0, 11.55)]):
 		return
 	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
 			return
-	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 3.3), Vector2(0.0, 1.65)]):
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 3.3),
+			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():

@@ -590,7 +590,9 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     const bool broad_pickup = (picked_sheets && *picked_sheets > 0) ||
         (picked_work && std::any_of(picked_work->begin(), picked_work->end(),
             [](const Value& value) { return sheet_lot(value).has_value(); }));
-    if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
+    const double expected_reach = (action == "harvest_source" || action == "finish_harvest") &&
+        profile.manual_cut_reach > 0 ? profile.manual_cut_reach : profile.build_reach;
+    if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != expected_reach ||
         !position || !points || !distances ||
         (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
          (broad_pickup || action == "place_sheet" || action == "stroke_broad_shear" ||
@@ -3349,6 +3351,8 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         !std::isfinite(profile.meters_per_grid_unit) || profile.meters_per_grid_unit <= 0 ||
         profile.meters_per_grid_unit > 1000 || !std::isfinite(profile.build_reach) ||
         profile.build_reach <= 0 || profile.build_reach > 1000000 ||
+        !std::isfinite(profile.manual_cut_reach) || profile.manual_cut_reach < 0 ||
+        profile.manual_cut_reach > profile.build_reach ||
         profile.foundation_parts < 0 || profile.foundation_parts > 256) return false;
     if (!profile.fabrication_parts.empty() && !profile.landing_pod_center) return false;
     for (const auto& [spec, cost] : profile.fabrication_parts)
@@ -3756,7 +3760,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready", target);
         auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
+        checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
+            profile_.manual_cut_reach : profile_.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
             {anchor(profile_, center)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
@@ -4001,7 +4006,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready", *id);
         auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
+        checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
+            profile_.manual_cut_reach : profile_.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut, {anchor(profile_, center)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
@@ -5162,7 +5168,8 @@ Advance World::tick(const ObserveActor& observe) noexcept {
             const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
             const auto cut = observe ? observe(actor) : std::nullopt;
             auto checked_cut = cut.value_or(authority::ActorCut{});
-            checked_cut.build_reach = profile_.build_reach;
+            checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
+                profile_.manual_cut_reach : profile_.build_reach;
             const auto checked = cut ? authority::check_reach(actor, checked_cut,
                 {anchor(profile_, center)}) : authority::ReachResult{authority::Error::actor_unready, {}};
             if (depleted || checked.error != authority::Error::none)

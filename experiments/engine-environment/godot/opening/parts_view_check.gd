@@ -1767,6 +1767,10 @@ func _render_arrival_hotbar() -> void:
 	await settle_widgets()
 	bar.open_catalog(7)
 	await settle_widgets()
+	var catalog_surface: StyleBoxFlat = bar.catalog.get_theme_stylebox("panel", "PopupPanel") as StyleBoxFlat
+	verify(bar.catalog.position.x == 0 and bar.catalog.size.x == root.size.x
+		and catalog_surface.bg_color.a == 1.0,
+		"The narrow inventory covers the HUD edge and blocks underlying text from showing through.")
 	verify(bar.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
 		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size))),
 		"The rendered inventory fits the narrow viewport.")

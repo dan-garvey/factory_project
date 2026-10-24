@@ -141,14 +141,14 @@ void guided_press_host_path() {
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<A>(host.projection(), "guided_press_assemblies").empty(),
           "A fresh arrival has no guided press or gifted frame.");
-    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
           "The actor reaches finite timber for the five-part press.");
     for (int index = 0; index < 5; ++index) {
         auto cut = request("guided-wood-" + std::to_string(index), "harvest_source");
         cut.emplace("target", V("tree-east-south"));
         accepted(host, cut);
     }
-    check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 2), "accepted"),
           "The actor reaches finite metal stock.");
     for (int index = 0; index < 5; ++index) {
         auto cut = request("guided-ore-" + std::to_string(index), "harvest_source");
@@ -192,7 +192,7 @@ void guided_press_host_path() {
           get<bool>(shaft_first.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(shaft_first.restore_checkpoint(host.checkpoint()), "accepted"),
           "The alternate construction order starts before the press cog is placed.");
-    check(get<bool>(shaft_first.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 5), "accepted"),
+    check(get<bool>(shaft_first.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 5), "accepted"),
           "The worker reaches finite timber for a transmission shaft.");
     auto early_wood = request("early-contact-wood", "harvest_source");
     early_wood.emplace("target", V("tree-east-south"));
@@ -257,7 +257,7 @@ void guided_press_host_path() {
           get<bool>(contact.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(contact.restore_checkpoint(host.checkpoint()), "accepted"),
           "The drive contact starts from the ordinary ready press, with no gifted shaft kit.");
-    check(get<bool>(contact.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 5), "accepted"),
+    check(get<bool>(contact.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 5), "accepted"),
           "The worker reaches one more finite timber cut for the connecting shaft.");
     auto contact_wood = request("contact-wood", "harvest_source");
     contact_wood.emplace("target", V("tree-east-south"));
@@ -306,7 +306,7 @@ void guided_press_host_path() {
           get<bool>(with_tray.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(with_tray.restore_checkpoint(host.checkpoint()), "accepted"),
           "A separate Host restores the same ready guided press before fitting its receiver.");
-    check(get<bool>(with_tray.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 5), "accepted"),
+    check(get<bool>(with_tray.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 5), "accepted"),
           "The worker reaches the remaining finite timber for a receiver tray.");
     for (int index = 0; index < 2; ++index) {
         auto cut = request("guided-tray-wood-" + std::to_string(index), "harvest_source");
@@ -328,8 +328,8 @@ void guided_press_host_path() {
               V(A{V(I{8}), V(I{0}), V(I{1})})) &&
           get<I>(routed, "offcut_count") == 0 &&
           get<I>(routed, "offcut_capacity") == 4 &&
-          get<A>(routed, "open_feeds").size() == 3,
-          "Host projects the installed side receiver, finite capacity and remaining feed openings.");
+          get<A>(routed, "open_feeds").size() == 2,
+          "Host projects the side receiver, finite capacity and two valid feed openings.");
     Host tray_reopened;
     const auto tray_saved = with_tray.checkpoint();
     check(get<bool>(tray_reopened.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
@@ -367,7 +367,7 @@ void guided_press_host_path() {
           "The restored worker resumes at the physical press before recovering its output.");
     for (int index = 0; index < 4; ++index) {
         if (index > 0) {
-            check(get<bool>(restored.publish_actor("P", {V(0.0), V(1.0), V(1.65)},
+            check(get<bool>(restored.publish_actor("P", {V(-0.5), V(1.0), V(0.0)},
                     5 + index * 2 - 1), "accepted"),
                   "The worker returns to the finite ore deposit for another real blank.");
             auto harvest = request("guided-recycle-ore-" + std::to_string(index), "harvest_source");
@@ -442,14 +442,14 @@ void placed_press_projection() {
           get<A>(host.projection(), "press_assemblies").empty(),
           "A fresh arrival has no gifted press assembly.");
     conserved_copper(host);
-    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
           "The actor approaches the finite timber site outside the pod deck.");
     for (int index = 0; index < 8; ++index) {
         auto cut = request("wood-" + std::to_string(index), "harvest_source");
         cut.emplace("target", V("tree-east-south"));
         accepted(host, cut);
     }
-    check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 2), "accepted"),
           "The actor approaches the ore deposit.");
     for (int index = 0; index < 6; ++index) {
         auto cut = request("ore-" + std::to_string(index), "harvest_source");
@@ -604,7 +604,7 @@ void placed_press_projection() {
           !factory::values::typed_difference(reinserted_work, resumed_work.checkpoint()) &&
           get<A>(get<O>(resumed_work.projection(), "cargo").at("P"), "work_lots").empty(),
           "Host hand refeed moves the exact partial lot once from actor custody into the press.");
-    check(get<bool>(resumed_work.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 6), "accepted"),
+    check(get<bool>(resumed_work.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 6), "accepted"),
           "P walks to the ore deposit for a separate busy-feed control blank.");
     auto harvest_busy_blank = request("harvest-busy-control-blank", "harvest_source");
     harvest_busy_blank.emplace("target", V("opening-softmetal"));
@@ -857,7 +857,7 @@ void placed_press_projection() {
     check(!get<bool>(q_empty, "accepted") && get<std::string>(q_empty, "reason") == "no_plate" &&
           get<I>(V(get<O>(repeat_restored.projection(), "freight_beacon")), "repeat_order_shipped") == 1,
           "A nearby teammate cannot ship a plate from another actor's empty cargo.");
-    check(get<bool>(repeat_restored.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 105), "accepted"),
+    check(get<bool>(repeat_restored.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 105), "accepted"),
           "The worker returns to the finite ore deposit for two more blanks.");
     for (int index = 0; index < 2; ++index) {
         auto cut = request("repeat-ore-" + std::to_string(index), "harvest_source");
@@ -949,7 +949,7 @@ void belt_fed_press_projection() {
         cut.emplace("target", V("tree-east-north"));
         accepted(host, cut);
     }
-    observe(0, 1.65);
+    observe(-0.5, 0.0);
     for (int n = 0; n < 7; ++n) {
         auto cut = request("inlet-host-ore-" + std::to_string(n), "harvest_source");
         cut.emplace("target", V("opening-softmetal"));

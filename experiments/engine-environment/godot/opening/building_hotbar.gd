@@ -111,7 +111,7 @@ func configure(host, ui: Control) -> void:
 	catalog.name = "BuildingCatalog"
 	catalog.theme = ui.theme.duplicate()
 	var menu_surface := StyleBoxFlat.new()
-	menu_surface.bg_color = Color(0.055, 0.09, 0.11, 0.91)
+	menu_surface.bg_color = Color(0.055, 0.09, 0.11, 1.0)
 	menu_surface.set_corner_radius_all(7)
 	catalog.theme.set_stylebox("panel", "PopupPanel", menu_surface)
 	add_child(catalog)
@@ -266,8 +266,13 @@ func _place_catalog() -> void:
 	if host == null or not catalog.visible:
 		return
 	var extent: Vector2 = get_parent().size
+	catalog.size = _catalog_dimensions(extent)
 	catalog.position = Vector2i(maxi(0, int((extent.x - catalog.size.x) / 2.0)),
 		maxi(0, int((extent.y - catalog.size.y) / 2.0)))
+
+func _catalog_dimensions(extent: Vector2) -> Vector2i:
+	var width := int(extent.x) if extent.x <= 720.0 else mini(540, int(extent.x) - 16)
+	return Vector2i(width, mini(520, int(extent.y) - 16))
 
 func _view():
 	return _host.get_ref() if _host != null else null
@@ -396,8 +401,7 @@ func open_catalog(index: int = -1) -> void:
 			component_choice.select(_component_names.find(selected_component))
 			refresh()
 	var viewport_size: Vector2 = get_parent().size
-	catalog.popup_centered(Vector2i(mini(540, int(viewport_size.x) - 16),
-		mini(520, int(viewport_size.y) - 16)))
+	catalog.popup_centered(_catalog_dimensions(viewport_size))
 	destination.grab_focus()
 	host._refresh_guided_tools()
 	_place_catalog.call_deferred()
