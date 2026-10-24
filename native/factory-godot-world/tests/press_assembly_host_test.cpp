@@ -180,6 +180,41 @@ void guided_press_host_path() {
               "missing_cog", "A guided head still needs the actual drive cog.");
     check(!get<bool>(host.command("P", feed("guided-premature-feed", anvil, 9, 0, 0)),
               "accepted"), "An incomplete guided press refuses feed without consuming a blank.");
+    Host shaft_first;
+    check(get<bool>(shaft_first.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(shaft_first.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(shaft_first.restore_checkpoint(host.checkpoint()), "accepted"),
+          "The alternate construction order starts before the press cog is placed.");
+    check(get<bool>(shaft_first.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 5), "accepted"),
+          "The worker reaches finite timber for a transmission shaft.");
+    auto early_wood = request("early-contact-wood", "harvest_source");
+    early_wood.emplace("target", V("tree-east-south"));
+    accepted(shaft_first, early_wood);
+    check(get<bool>(shaft_first.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 6), "accepted"),
+          "The worker reaches the original workshop to craft the shaft kit.");
+    auto early_craft = request("early-contact-craft", "craft_part");
+    early_craft.emplace("entity", V("pod-fabrication-hub"));
+    early_craft.emplace("role", V("shaft"));
+    early_craft.emplace("half_span", V(I{2}));
+    accepted(shaft_first, early_craft);
+    check(get<bool>(shaft_first.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 7), "accepted"),
+          "The worker reaches the first press drive cell.");
+    auto early_shaft = request("early-contact-place", "place_shaft");
+    early_shaft.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
+    early_shaft.emplace("axis", V("x"));
+    early_shaft.emplace("half_span", V(I{2}));
+    const auto early_shaft_id = get<std::string>(accepted(shaft_first, early_shaft), "entity");
+    const auto early_cog = place(shaft_first, "wooden_cog", 10, 4, 0,
+        "early-contact-place-cog");
+    const auto early_engagements = get<A>(shaft_first.projection(), "engagements");
+    check(std::any_of(early_engagements.begin(), early_engagements.end(),
+              [&](const V& edge) {
+                  const auto first = get<std::string>(edge, "a");
+                  const auto second = get<std::string>(edge, "b");
+                  return (first == early_shaft_id && second == early_cog) ||
+                      (second == early_shaft_id && first == early_cog);
+              }) && get<bool>(shaft_first.validate_checkpoint(shaft_first.checkpoint()), "accepted"),
+          "The cog can finish the same physical engagement after its shaft is placed first.");
     const auto cog = place(host, "wooden_cog", 10, 4, 0, "guided-place-cog");
     auto stroke_obstacle = request("guided-place-stroke-obstacle", "place_component");
     stroke_obstacle.emplace("component", V("tool_mount"));
@@ -210,6 +245,55 @@ void guided_press_host_path() {
           !pieces.contains("frame") && !pieces.contains("mount") &&
           get<A>(ready, "open_feeds").size() == 4,
           "The Host names exactly five issued working parts and four open feed directions.");
+    Host contact;
+    check(get<bool>(contact.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(contact.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(contact.restore_checkpoint(host.checkpoint()), "accepted"),
+          "The drive contact starts from the ordinary ready press, with no gifted shaft kit.");
+    check(get<bool>(contact.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 5), "accepted"),
+          "The worker reaches one more finite timber cut for the connecting shaft.");
+    auto contact_wood = request("contact-wood", "harvest_source");
+    contact_wood.emplace("target", V("tree-east-south"));
+    accepted(contact, contact_wood);
+    check(get<bool>(contact.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 6), "accepted"),
+          "The worker returns to the ordinary workshop with the shaft bill.");
+    auto craft_shaft = request("contact-craft-shaft", "craft_part");
+    craft_shaft.emplace("entity", V("pod-fabrication-hub"));
+    craft_shaft.emplace("role", V("shaft"));
+    craft_shaft.emplace("half_span", V(I{2}));
+    accepted(contact, craft_shaft);
+    check(get<bool>(contact.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 7), "accepted"),
+          "The worker reaches the press cog and its intended transmission cell.");
+    auto connecting_shaft = request("contact-place-shaft", "place_shaft");
+    connecting_shaft.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
+    connecting_shaft.emplace("axis", V("x"));
+    connecting_shaft.emplace("half_span", V(I{2}));
+    auto obstructed = connecting_shaft;
+    obstructed.at("request") = V("contact-obstructed-shaft");
+    obstructed.at("center") = V(A{V(I{8}), V(I{4}), V(I{0})});
+    const auto before_contact = contact.projection();
+    const auto obstructed_result = contact.command("P", obstructed);
+    check(!get<bool>(obstructed_result, "accepted") &&
+          get<std::string>(obstructed_result, "reason") == "occupied",
+          "The mating-face allowance does not admit a shaft through the guide.");
+    const auto after_refusal = contact.projection();
+    check(!factory::values::typed_difference(
+              V(get<O>(before_contact, "cargo")), V(get<O>(after_refusal, "cargo"))) &&
+          !factory::values::typed_difference(
+              V(get<O>(before_contact, "part_kits")), V(get<O>(after_refusal, "part_kits"))) &&
+          !factory::values::typed_difference(
+              V(get<O>(before_contact, "placed_components")),
+              V(get<O>(after_refusal, "placed_components"))),
+          "A refused guide collision preserves stock, kit and placed components.");
+    const auto connecting_id = get<std::string>(accepted(contact, connecting_shaft), "entity");
+    const auto engagements = get<A>(contact.projection(), "engagements");
+    check(std::any_of(engagements.begin(), engagements.end(), [&](const V& edge) {
+              const auto first = get<std::string>(edge, "a");
+              const auto second = get<std::string>(edge, "b");
+              return (first == connecting_id && second == cog) ||
+                  (second == connecting_id && first == cog);
+          }) && get<bool>(contact.validate_checkpoint(contact.checkpoint()), "accepted"),
+          "The placed one-tile shaft engages the press cog and survives native validation.");
     Host with_tray;
     check(get<bool>(with_tray.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(with_tray.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&

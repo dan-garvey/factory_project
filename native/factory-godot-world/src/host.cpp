@@ -368,6 +368,19 @@ bool transmission_intersects(const Bounds& other, const mechanics::Point& center
         (gear && overlap(other, {at, gear_half_extents(axis, 0)}));
 }
 
+bool shaft_meets_component_cog(std::optional<materials::Component> kind,
+        const mechanics::Point& component, const mechanics::Point& shaft, mechanics::Axis axis) {
+    if (kind != materials::Component::wooden_cog &&
+        kind != materials::Component::softmetal_cog) return false;
+    if (axis != mechanics::Axis::x && axis != mechanics::Axis::z) return false;
+    const auto along = static_cast<std::size_t>(axis);
+    for (std::size_t dimension = 0; dimension < 3; ++dimension)
+        if (dimension != along && component[dimension] != shaft[dimension]) return false;
+    // A one-tile shaft ends at the hub center two height steps away. Its
+    // placement box and the cog's occupied box overlap at this intended joint.
+    return std::abs(component[along] - shaft[along]) == 2;
+}
+
 bool collector_intake_intersects(const Bounds& intake, const world::Profile& profile,
         const stationary::PlacedPart& other) {
     if (other.role == Role::shaft || other.role == Role::gear)
@@ -1420,7 +1433,9 @@ const char* Host::component_space_refusal(const world::State& state,
     for (const auto& part : state.topology.parts) {
         if (part.role == Role::gear || part.role == Role::shaft) {
             if (transmission_intersects(volume, part.geometry.center, part.geometry.axis,
-                                        part.role == Role::gear)) return "occupied";
+                                        part.role == Role::gear) &&
+                !(part.role == Role::shaft && shaft_meets_component_cog(
+                    kind, center, part.geometry.center, part.geometry.axis))) return "occupied";
         } else if (overlap(volume, part_bounds(profile_, part))) return "occupied";
         if (part.role == Role::collector)
             for (const auto& external : collector_external_bounds(part.geometry.center))
@@ -2006,7 +2021,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
             if (transmission_intersects(component_bounds(profile_, component.kind, component.center),
-                    *center, verified_axis, false)) return refuse("occupied");
+                    *center, verified_axis, false) &&
+                !shaft_meets_component_cog(component.kind, component.center, *center,
+                    verified_axis)) return refuse("occupied");
         }
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         normalized.at("action") = Value("place");
