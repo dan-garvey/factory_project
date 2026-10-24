@@ -88,6 +88,13 @@ void one_piece_slide_custody() {
     check(!factory::values::typed_difference(get<O>(host.projection(), "slide_phases").at(slide_id),
               initial_phase),
           "An unloaded slide without input power holds its carriage phase over authority ticks.");
+    const auto thin_tick = host.advance_tick_fields();
+    const auto& thin_fields = std::get<O>(thin_tick.storage());
+    check(thin_fields.contains("slide_phases") &&
+          !factory::values::typed_difference(
+              std::get<O>(thin_fields.at("slide_phases").storage()).at(slide_id),
+              initial_phase),
+          "The tick-delta API carries the slide phase used by the ordinary scene presenter.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted") &&
           get<bool>(command("place-slide", "place_component", place), "duplicate"),

@@ -2217,6 +2217,20 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 	if not _expect(anchor != null and anchor.get_node("SlideCarriage").position.y < 0.075,
 			"The installed carriage follows the projected native phase"):
 		return
+	# Auto-advance consumes the native tick delta after its first complete view.
+	# The presenter must receive each later carriage phase, not retain the first.
+	opening.model._view_projection_borrowed()
+	var first_delta: Dictionary = opening.model._advance_borrowed()
+	opening._refresh_from_projection(first_delta)
+	var second_delta: Dictionary = opening.model._advance_borrowed()
+	opening._refresh_from_projection(second_delta)
+	var exact_phase: Dictionary = opening.model.projection().slide_phases[id]
+	if not _expect(first_delta.slide_phases[id].subticks != powered.slide_phases[id].subticks
+			and second_delta.slide_phases[id].subticks != first_delta.slide_phases[id].subticks
+			and second_delta.slide_phases[id] == exact_phase
+			and opening.state.slide_phases[id] == exact_phase,
+			"Successive native tick deltas keep the powered carriage current in the ordinary scene"):
+		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		if not _expect(await _capture_guided_close(id, capture_prefix + "-slide.png"),
 				"A passive ordinary scene capture retains the driven slide"):
