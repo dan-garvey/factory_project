@@ -2018,9 +2018,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!center) return refuse("invalid_center");
         if (!selected_axis) return refuse("invalid_axis");
         if (!span || *span != 2) return refuse("invalid_shaft");
-        if (std::any_of(center->begin(), center->end(), [](Integer coordinate) { return coordinate % 4 != 0; }))
-            return refuse("invalid_cell");
         const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
+        for (std::size_t index = 0; index < center->size(); ++index) {
+            const auto remainder = (*center)[index] % 4;
+            if (remainder != 0 &&
+                (index != static_cast<std::size_t>(verified_axis) ||
+                 (remainder != 2 && remainder != -2))) return refuse("invalid_cell");
+        }
         if (transmission_intersects_foundations(snapshot.state, *center, verified_axis, false)) return refuse("occupied");
         if (const auto* refusal = transmission_site_refusal(snapshot.state, *center, verified_axis, false)) return refuse(refusal);
         for (const auto& part : snapshot.state.topology.parts)

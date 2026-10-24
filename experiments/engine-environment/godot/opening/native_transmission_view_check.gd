@@ -2305,6 +2305,29 @@ func _mechanical_collision_geometry() -> void:
 	verify(result.boxes.a.center.is_equal_approx(Vector3(0, 0.825, 0)) and result.boxes.a.size.is_equal_approx(Vector3(0.2, 0.2, 1.65)), "Shaft bounds match Host placement dimensions.")
 	verify(result.boxes.c.center.is_equal_approx(Vector3(0, 2.475, 1.65)) and result.boxes.c.size.is_equal_approx(Vector3(0.08, 1.65, 1.65)), "Cog bounds use the axle plane and shared height origin.")
 	verify(result.boxes.c.axle_size.is_equal_approx(Vector3(1.65, 0.2, 0.2)), "The cog's separate axle reaches exactly its tile faces.")
+	var bridge: Dictionary = state.duplicate(true)
+	bridge.belt_spans.clear()
+	bridge.transmission_parts.erase("b")
+	bridge.transmission_parts.erase("c")
+	bridge.transmission_parts.a.axis = 0
+	bridge.transmission_parts.a.center = [2, 0, 0]
+	var bridge_boxes := Geometry.mechanical_boxes(bridge)
+	verify(bridge_boxes.accepted and bridge_boxes.boxes.a.center.is_equal_approx(Vector3(0.825, 0.825, 0))
+			and bridge_boxes.boxes.a.size.is_equal_approx(Vector3(1.65, 0.2, 0.2)),
+			"A half-span shaft centered between adjacent x ports has one exact physical body.")
+	bridge.transmission_parts.a.center = [-2, 0, 0]
+	verify(Geometry.mechanical_boxes(bridge).accepted,
+			"The same half-tile shaft grid works across the global origin.")
+	bridge.transmission_parts.a.center = [0, 0, 2]
+	verify(not Geometry.mechanical_boxes(bridge).accepted,
+			"A half-tile center perpendicular to the shaft axis cannot bypass physical validation.")
+	bridge.transmission_parts.a.axis = 2
+	verify(Geometry.mechanical_boxes(bridge).accepted,
+			"The along-axis half-tile bridge also has a valid z-oriented physical body.")
+	bridge.transmission_parts.a.kind = "gear"
+	bridge.transmission_parts.a.teeth = 2
+	verify(not Geometry.mechanical_boxes(bridge).accepted,
+			"A gear cannot inherit the shaft-only half-tile exception.")
 	verify(result.boxes.belt.center.is_equal_approx(Vector3(1.65, 0.825, 0)) and result.boxes.belt.size.is_equal_approx(Vector3(4.95, 0.3, 0.6)), "Belt bounds cover every tile including both pulleys.")
 	var reversed: Dictionary = state.duplicate(true)
 	reversed.belt_spans.belt = {"from": "b", "to": "a"}
