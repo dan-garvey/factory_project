@@ -548,7 +548,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -1686,6 +1686,45 @@ func _supplied_hardware_run() -> void:
 	_record("pass")
 
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
+func _arrival_raised_press_resume_run(panel) -> void:
+	var restored: Dictionary = opening.model.projection()
+	var raised_floor: bool = restored.foundations.values().any(func(floor: Variant) -> bool:
+		return floor.cell == [3, 4] and floor.level == OpeningGeometry.HEIGHT_DENOMINATOR)
+	if not _expect(opening.last_load_result.get("accepted", false) and raised_floor
+			and restored.guided_press_assemblies.size() == 1
+			and restored.guided_press_assemblies[0].status == "ready"
+			and restored.guided_press_assemblies[0].center == [12, 4, 16]
+			and restored.dropped_material.size() == 2
+			and restored.dropped_material.any(func(drop: Variant) -> bool:
+				return drop.products == 1 and restored.guided_press_assemblies[0].open_feeds.any(
+					func(feed: Variant) -> bool: return drop.center == feed.exit))
+			and restored.dropped_material.any(func(drop: Variant) -> bool:
+				return drop.offcuts == 1 and drop.center == [12, 4, 16])
+			and restored.material_mass.accounted_mass == 64
+			and opening.actor_world.bodies.P.is_on_floor(),
+			"A fresh process restores raised geometry, separate outputs and the physical worker"):
+		return
+	opening._open_object_menu_for(str(restored.guided_press_assemblies[0].anvil))
+	if not _expect(opening.object_menu.visible and panel.press_section.visible
+			and not panel.recover_work_button.disabled,
+			"The restored anvil exposes ordinary held-work recovery in its E menu"):
+		return
+	panel.recover_work_button.pressed.emit()
+	var recovered: Dictionary = opening.model.projection()
+	if not _expect(recovered.cargo.P.offcuts == 1
+			and recovered.dropped_material.size() == 1
+			and recovered.dropped_material[0].products == 1
+			and recovered.material_mass.accounted_mass == 64,
+			"The resumed worker recovers only the exact raised-press offcut"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	if not _expect(saved.get("accepted", false)
+			and saved.get("native_preflight", {}).get("accepted", false)
+			and FileAccess.file_exists(opening.save_slot),
+			"Fresh-process Store preserves the post-recovery raised worksite"):
+		return
+	_record("pass")
+
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode == "arrival-repeat-delivery":
@@ -1696,7 +1735,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -1753,6 +1792,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-raised-press-resume":
+		await _arrival_raised_press_resume_run(panel)
+		return
 	if mode == "arrival-foundation-craft-resume":
 		await _arrival_foundation_craft_resume_run(panel)
 		return
@@ -1912,6 +1954,7 @@ func _arrival_run() -> void:
 	if not _expect(panel != null and not opening._object_menu_open(),
 			"The workshop waits for its centered E interaction at landfall"):
 		return
+	var raised: bool = mode == "arrival-raised-press"
 	opening._open_object_menu_for(str(pod_state.fabrication_hub.id))
 	if not _expect(opening._object_menu_open() and panel.is_visible_in_tree()
 			and not panel.craft_button.disabled and "3 timber" in panel.recipe_label.text
@@ -1991,6 +2034,26 @@ func _arrival_run() -> void:
 			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 10,
 			"The frame-free press and collector bills use eleven timber and five ore blanks, retaining two press inputs"):
 		return
+	if raised:
+		var before_floor: Dictionary = opening.model.projection()
+		panel.foundation_craft_button.pressed.emit()
+		var floor_kit: Dictionary = opening.model.projection()
+		if not _expect(floor_kit.order == before_floor.order + 1
+				and floor_kit.cargo.P.timber == 2
+				and floor_kit.part_kits.P.foundation == before_floor.part_kits.P.foundation + 1,
+				"Two remaining local timber make one raised press floor through the ordinary workshop"):
+			return
+		opening._select_tool("foundation")
+		opening._world_click(Vector2i(3, 4))
+		var floored: Dictionary = opening.model.projection()
+		if not _expect(floored.order == floor_kit.order + 1
+				and floored.part_kits.P.foundation == before_floor.part_kits.P.foundation
+				and floored.foundations.values().any(func(floor: Variant) -> bool:
+					return floor.cell == [3, 4] and floor.level == OpeningGeometry.HEIGHT_DENOMINATOR),
+				"The ordinary foundation tool installs a shared-grid floor under the press"):
+			return
+		if not await _approach(Vector2(4.95, 4.95)):
+			return
 	opening._select_tool("component")
 	var expected_status := ["missing_ram", "missing_guide", "missing_shaft",
 		"missing_cog", "ready"]
@@ -2006,7 +2069,8 @@ func _arrival_run() -> void:
 		panel._component_selected(choice)
 		panel.place_button.pressed.emit()
 		var requested_center := [3 * OpeningGeometry.HEIGHT_DENOMINATOR + maxi(index - 2, 0),
-			[0, 1, 3, 4, 4][index], 4 * OpeningGeometry.HEIGHT_DENOMINATOR]
+			[0, 1, 3, 4, 4][index] + (OpeningGeometry.HEIGHT_DENOMINATOR if raised else 0),
+			4 * OpeningGeometry.HEIGHT_DENOMINATOR]
 		opening.component_nudge_active = true
 		opening.component_nudge_center = requested_center.duplicate()
 		var before: int = opening.model.projection().order
@@ -2023,6 +2087,9 @@ func _arrival_run() -> void:
 				"The native recognizer reports the current fitted press stage"):
 			return
 	var ready: Dictionary = opening.model.projection().guided_press_assemblies[0]
+	if raised and not _expect(ready.center == [12, 4, 16] and ready.work_center == [12, 4, 16],
+			"The raised native press keeps the anvil workface on the same foundation height grid"):
+		return
 	panel.press_tab.pressed.emit()
 	if not _expect(panel.press_section.visible and panel.press_status.text.begins_with("Press ready")
 			and panel.route_choice.get_item_count() > 0,
@@ -2044,10 +2111,29 @@ func _arrival_run() -> void:
 		panel.turn_button.pressed.emit()
 	var after: Dictionary = opening.model.projection()
 	if not _expect(after.dropped_material.size() == 2
-			and after.dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
-			and after.dropped_material.any(func(drop: Variant) -> bool: return drop.offcuts == 1)
+			and after.dropped_material.any(func(drop: Variant) -> bool:
+				return drop.products == 1 and (not raised or ready.open_feeds.any(
+					func(feed: Variant) -> bool: return drop.center == feed.exit)))
+			and after.dropped_material.any(func(drop: Variant) -> bool:
+				return drop.offcuts == 1 and (not raised or drop.center == ready.work_center))
 			and after.material_mass.accounted_mass == 64,
 			"Repeated hand turns form one plate and retain one copper offcut at the work point"):
+		return
+	if raised:
+		facts["raised_press"] = {"assembly": ready, "drops": after.dropped_material,
+			"foundation": after.foundations}
+		var raised_save: Dictionary = opening._save_worksite()
+		if not _expect(raised_save.get("accepted", false)
+				and raised_save.get("native_preflight", {}).get("accepted", false)
+				and FileAccess.file_exists(opening.save_slot),
+				"Store retains the raised press, formed plate, offcut and physical worker"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-raised-press.png") == OK,
+					"The formed raised press is retained as passive pixels"):
+				return
+		_record("pass")
 		return
 	if not capture_prefix.is_empty():
 		await process_frame
