@@ -1628,6 +1628,67 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 				if toward_shaft.length_squared() > 0.01:
 					drives[cog_id] = toward_shaft.normalized()
 					press_roles[cog_id] = "drive_cog"
+	var broad: Variant = snapshot.get("broad_press_assemblies", [])
+	if broad is Array:
+		for press: Variant in broad:
+			if not press is Dictionary or not press.get("origin") is Array \
+					or press.origin.size() != 3:
+				continue
+			var origin := Vector3i(press.origin[0], press.origin[1], press.origin[2])
+			var fitted: Variant = press.get("parts")
+			for pad in range(4):
+				var cell: Vector3i = origin + [Vector3i.ZERO, Vector3i(4, 0, 0),
+					Vector3i(0, 0, 4), Vector3i(4, 0, 4)][pad]
+				for member in [[cell, "anvils", "anvil", "anvil"],
+						[cell + Vector3i(0, 1, 0), "rams", "ram_face", "ram"],
+						[cell + Vector3i(0, 3, 0), "guides", "sliding_guide", "guide"]]:
+					var id: Variant = by_cell.get(member[0])
+					if fitted is Dictionary and fitted.get(member[1]) is Array \
+							and fitted[member[1]].size() == 4:
+						id = fitted[member[1]][pad]
+					if boxes.has(id) and boxes[id].component == member[2]:
+						press_roles[id] = member[3]
+				var guide_id: Variant = by_cell.get(cell + Vector3i(0, 3, 0))
+				var shaft_id: Variant
+				var cog_id: Variant
+				if fitted is Dictionary and fitted.get("shafts") is Array \
+						and fitted.shafts.size() == 4 and fitted.get("drive_cogs") is Array \
+						and fitted.drive_cogs.size() == 4:
+					shaft_id = fitted.shafts[pad]
+					cog_id = fitted.drive_cogs[pad]
+				else:
+					# Native Host reports the four-anvil candidate even if a pad is
+					# incomplete. Keep its other placed fittings independent; an
+					# ambiguous pair receives no apparent mechanical connection.
+					var candidates: Array = []
+					var exterior := [Vector3i.LEFT if pad % 2 == 0 else Vector3i.RIGHT,
+						Vector3i.FORWARD if pad < 2 else Vector3i.BACK]
+					for direction: Vector3i in exterior:
+						var side_shaft: Variant = by_cell.get(cell + Vector3i(0, 4, 0) + direction)
+						var side_cog: Variant = by_cell.get(cell + Vector3i(0, 4, 0) + direction * 2)
+						if boxes.has(side_shaft) and boxes.has(side_cog) \
+								and boxes[side_shaft].component.ends_with("_shaft") \
+								and boxes[side_cog].component.ends_with("_cog"):
+							candidates.append([side_shaft, side_cog])
+					if candidates.size() == 1:
+						shaft_id = candidates[0][0]
+						cog_id = candidates[0][1]
+				if boxes.has(guide_id) and boxes.has(shaft_id) \
+						and boxes[guide_id].component == "sliding_guide" \
+						and boxes[shaft_id].component.ends_with("_shaft"):
+					var toward_guide: Vector3 = boxes[guide_id].center - boxes[shaft_id].center
+					toward_guide.y = 0.0
+					if toward_guide.length_squared() > 0.01:
+						drives[shaft_id] = toward_guide.normalized()
+						press_roles[shaft_id] = "guided_shaft"
+				if boxes.has(shaft_id) and boxes.has(cog_id) \
+						and boxes[shaft_id].component.ends_with("_shaft") \
+						and boxes[cog_id].component.ends_with("_cog"):
+					var toward_shaft: Vector3 = boxes[shaft_id].center - boxes[cog_id].center
+					toward_shaft.y = 0.0
+					if toward_shaft.length_squared() > 0.01:
+						drives[cog_id] = toward_shaft.normalized()
+						press_roles[cog_id] = "drive_cog"
 	for id: String in boxes:
 		# Supplied hardware shares the collision table, but its ordinary scene
 		# already owns the pod and workshop artwork.
@@ -1766,7 +1827,8 @@ func refresh() -> void:
 	var next_key := [snapshot.get("context"), parts, motions, fixed_spans,
 		snapshot.get("engagements", []), snapshot.get("dropped_material", []),
 		component_result.boxes, snapshot.get("collector_assemblies", []),
-		snapshot.get("press_assemblies", []), snapshot.get("guided_press_assemblies", [])]
+		snapshot.get("press_assemblies", []), snapshot.get("guided_press_assemblies", []),
+		snapshot.get("broad_press_assemblies", [])]
 	if next_key == _view_key:
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null

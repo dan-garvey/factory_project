@@ -913,6 +913,129 @@ func _press_component_view() -> void:
 	physical.free()
 	await process_frame
 
+func _broad_press_component_view() -> void:
+	# The twenty records use Host's one-quarter tile centers and occupied
+	# dimensions. The broad row order is native z row, then x column.
+	var state: Dictionary = {"context": "broad-press-component-view", "revision": 1,
+		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
+		"collector_assemblies": [], "press_assemblies": [], "guided_press_assemblies": [],
+		"placed_components": {}}
+	var parts := {"anvils": [], "rams": [], "guides": [], "shafts": [], "drive_cogs": []}
+	var raised: bool = "--broad-press-raised-only" in OS.get_cmdline_user_args()
+	var base_y: int = 4 if raised else 0
+	var cells := [Vector3i(0, base_y, 0), Vector3i(4, base_y, 0),
+		Vector3i(0, base_y, 4), Vector3i(4, base_y, 4)]
+	var sides := [Vector3i.LEFT, Vector3i.RIGHT, Vector3i.BACK, Vector3i.RIGHT]
+	var step: float = Geometry.HEIGHT_STEP
+	for pad in range(4):
+		var cell: Vector3i = cells[pad]
+		var side: Vector3i = sides[pad]
+		var entries := [
+			["anvils", "anvil", "anvil", cell, 0.69725, 0.20975, 0.14],
+			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0), 1.175375, 0.268375, 0.14],
+			["guides", "guide", "sliding_guide", cell + Vector3i(0, 3, 0), 2.125625, 0.269375, 0.14],
+			["shafts", "shaft", "wooden_shaft", cell + Vector3i(0, 4, 0) + side, 2.475, 0.12, 0.205],
+			["drive_cogs", "cog", "wooden_cog", cell + Vector3i(0, 4, 0) + side * 2, 2.475, 0.14, 0.2075]]
+		for entry in entries:
+			var id: String = "%s%d" % [entry[1], pad]
+			var point: Vector3i = entry[3]
+			state.placed_components[id] = _component_record(entry[2], [point.x, point.y, point.z],
+				[float(point.x) * step, entry[4] + float(base_y) * step, float(point.z) * step],
+				[entry[6], entry[5], entry[6]])
+			parts[entry[0]].append(id)
+	state.broad_press_assemblies = [{"origin": [0, base_y, 0], "geometry_status": "ready",
+		"status": "ready", "work_centers": [[0, base_y, 0], [4, base_y, 0],
+			[0, base_y, 4], [4, base_y, 4]],
+		"parts": parts}]
+	state.motion.shaft0 = {"state": "rotating", "numerator": 1, "denominator": 1}
+	state.motion.cog0 = {"state": "rotating", "numerator": 1, "denominator": 1}
+	state.motion.shaft1 = {"state": "stalled", "numerator": 0, "denominator": 1}
+	var parsed: Dictionary = Geometry.component_boxes(state)
+	verify(parsed.get("accepted", false) and parsed.boxes.size() == 20,
+		"Four native broad pads retain twenty individually occupied placed parts.")
+	var host := HostStub.new()
+	host.state = state
+	var view := Presenter.new()
+	root.add_child(view)
+	view.configure(host)
+	var anchors := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			anchors[node.get_meta("component_entity")] = node
+	verify(anchors.size() == 20, "The broad press does not collapse four native pads into one visual body.")
+	for pad in range(4):
+		var anvil: Node3D = anchors["anvil%d" % pad]
+		var ram: Node3D = anchors["ram%d" % pad]
+		var guide: Node3D = anchors["guide%d" % pad]
+		var shaft: Node3D = anchors["shaft%d" % pad].get_node_or_null("LooseDriveShaft")
+		var cog: Node3D = anchors["cog%d" % pad].get_node_or_null("PlacedDriveCog")
+		var toward: Vector3 = Vector3(-sides[pad].x, 0, -sides[pad].z)
+		verify(anvil.get_node_or_null("OpenAnvilSeat") != null
+			and ram.get_node_or_null("MovingDie") != null
+			and guide.get_node_or_null("GuideRail") != null
+			and anchors["shaft%d" % pad].get_node_or_null("GuidedBearingSeat") != null
+			and shaft != null and cog != null
+			and shaft.global_basis.y.dot(toward) > 0.99
+			and cog.global_basis.y.dot(toward) > 0.99,
+			"Each distinct broad pad fits its work face and exterior drive toward its own guide.")
+	for id: String in parsed.boxes:
+		var spec: Dictionary = parsed.boxes[id]
+		verify(anchors[id].position == spec.center,
+			"Broad pad visuals retain the exact native occupied center of each placed identity.")
+		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
+			var mesh := found as MeshInstance3D
+			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
+			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
+				"Broad fittings stay inside their own native occupied boxes.")
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--broad-capture=") and DisplayServer.get_name() != "headless":
+			root.size = Vector2i(1280, 800)
+			var environment := Environment.new()
+			environment.background_mode = Environment.BG_COLOR
+			environment.background_color = Color("49535d")
+			environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+			environment.ambient_light_color = Color.WHITE
+			environment.ambient_light_energy = 1.4
+			var world_environment := WorldEnvironment.new()
+			world_environment.environment = environment
+			root.add_child(world_environment)
+			var light := DirectionalLight3D.new()
+			light.rotation_degrees = Vector3(-48, -35, 0)
+			light.light_energy = 2.0
+			root.add_child(light)
+			var camera := Camera3D.new()
+			camera.position = Vector3(4.2, 3.7 + float(base_y) * step, 5.0)
+			root.add_child(camera)
+			camera.look_at(Vector3(0.825, 1.45 + float(base_y) * step, 0.825))
+			camera.fov = 45.0
+			camera.current = true
+			for frame in range(3):
+				await process_frame
+				await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--broad-capture=")) == OK,
+				"A passive broad-pad image retains the four distinct native work faces.")
+			camera.free()
+			light.free()
+			world_environment.free()
+	var partial: Dictionary = state.duplicate(true)
+	partial.placed_components.erase("ram1")
+	partial.broad_press_assemblies = [{"origin": [0, base_y, 0], "geometry_status": "missing_ram",
+		"status": "missing_ram"}]
+	partial.revision = 2
+	host.state = partial
+	view.refresh()
+	var remaining := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			remaining[node.get_meta("component_entity")] = node
+	verify(remaining.size() == 19 and not remaining.has("ram1")
+		and remaining["ram0"].get_node_or_null("MovingDie") != null
+		and remaining["shaft2"].get_node_or_null("GuidedBearingSeat") != null,
+		"Losing one pad part leaves the other native identities and fittings in view.")
+	view.free()
+	await process_frame
+
 func _guided_press_component_view() -> void:
 	var state := {"context": "guided-press-component-view", "revision": 1,
 		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
@@ -2976,6 +3099,10 @@ func _run() -> void:
 		await _press_component_view()
 	elif "--guided-press-components-only" in OS.get_cmdline_user_args():
 		await _guided_press_component_view()
+	elif "--broad-press-components-only" in OS.get_cmdline_user_args():
+		await _broad_press_component_view()
+	elif "--broad-press-raised-only" in OS.get_cmdline_user_args():
+		await _broad_press_component_view()
 	elif "--physical-topology-cache-only" in OS.get_cmdline_user_args():
 		_physical_topology_cache_regression()
 	elif "--physical-actor-bridge-only" in OS.get_cmdline_user_args():
