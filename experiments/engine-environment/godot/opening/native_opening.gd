@@ -7,8 +7,7 @@ func _ready() -> void:
 		# Explicit historical entry only. Missing native resources never select it.
 		super._ready()
 		return
-	# Use the chapter roster at boot so a two-client worksite can reopen here.
-	model = NativeModel.new("opening-native-" + Crypto.new().generate_random_bytes(16).hex_encode(), ["P", "Q"], true)
+	model = NativeModel.new("opening-native-" + Crypto.new().generate_random_bytes(16).hex_encode(), ["P"], true)
 	mode = "inspect"
 	if not model.boot_result.get("accepted", false):
 		push_error("Native opening refused: " + str(model.boot_result.get("reason", "invalid_boot")))

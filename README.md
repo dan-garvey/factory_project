@@ -75,8 +75,10 @@ python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_opening.py \
 ```
 
 The artifact root must be outside Git checkouts. Each launch creates a fresh
-project copy, private profile and save slot there. Close the window to finish;
-experimental sessions are capped at 30 minutes. F5 saves the current worksite;
+project copy, private profile and save slot there. The ordinary offline opening
+has one actor; P/Q sessions use the explicit shared launcher. Close the window
+to finish; experimental sessions are capped at 30 minutes. F5 saves the current
+worksite;
 F9 explains reopening rather than replacing the live physical world. Close the
 session, then add
 `--resume /absolute/path/to/previous/session/worksite.factory` to the command.
