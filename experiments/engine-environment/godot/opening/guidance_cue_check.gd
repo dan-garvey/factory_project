@@ -471,11 +471,43 @@ func check_freight_beacon_view() -> void:
 	shared._refresh_ui()
 	verify("REPEAT ORDER · DELIVERED" in view.goal_label.text
 		and "REPEAT ORDER · DELIVERED" in shared.goal_label.text
+		and "FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
+		and view.manager_log_completion_entry.visible and shared.manager_log_completion_entry.visible
+		and view.manager_log_projects.visible and view.manager_log_projects.get_child_count() == 2
+		and (view.manager_log_projects.get_child(0).get_child(0) as TextureRect).texture != null
+		and "First workshop accepted" in view.status_label.text
+		and view.workshop_completion_cue_count == 1 and shared.workshop_completion_cue_count == 1
+		and view.workshop_completion_audio.stream.get_length() > 0.5
 		and marker != null and not marker.visible and not remote_label.visible and not point.visible
 		and not shared.freight_beacon_visual.get_node("ShipmentPoint").visible
 		and view.freight_beacon_visual.collision_layer == 0
 		and shared.freight_beacon_visual.collision_layer == 0,
 		"The fourth confirmed receipt closes both prompts without leaving receiver hardware.")
+	view._refresh_ui()
+	shared._refresh_ui()
+	verify(view.workshop_completion_cue_count == 1 and shared.workshop_completion_cue_count == 1,
+		"Refreshing the completed order does not replay the manager completion chime.")
+	var reopened := FreightActionView.new()
+	reopened.model = source
+	reopened.client = "P"
+	reopened.state = view.state.duplicate(true)
+	root.add_child(reopened)
+	reopened._build_world()
+	reopened._build_interface()
+	reopened._sync_freight_beacon_visual()
+	reopened._refresh_ui()
+	verify(reopened.manager_log_completion_entry.visible
+		and reopened.manager_log_projects.visible
+		and reopened.workshop_completion_cue_count == 0,
+		"A late completed-order view replays projects without claiming a new receipt or chime.")
+	reopened.free()
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--workshop-complete-screenshot="):
+			view.manager_log_button.pressed.emit()
+			await process_frame
+			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--workshop-complete-screenshot=")) == OK,
+				"The completed workshop log can be retained as ordinary passive pixels.")
+			view._toggle_manager_log()
 	for _frame in range(2):
 		await physics_frame
 	var filled_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
