@@ -2571,6 +2571,20 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     }
     for (const auto& [id, claim] : belt_offcut_claims) {
         const auto products = snapshot.state.belt_press_products.find(claim.exit);
+        const auto live = snapshot.state.belt_press_work.find(claim.work);
+        if (live != snapshot.state.belt_press_work.end() && live->second == id) {
+            // Reaching zero remaining work is not the same as releasing a
+            // plate. A full side tray can hold this exact belt-fed lot ready
+            // until its offcut has somewhere to go.
+            const auto waiting = snapshot.state.press_output_at_exit.find(claim.exit);
+            const auto exported = snapshot.state.press_output_exported.find(claim.exit);
+            if (snapshot.state.press_offcut_deliveries.contains(id) ||
+                (products != snapshot.state.belt_press_products.end() && products->second.contains(id)) ||
+                (waiting != snapshot.state.press_output_at_exit.end() && waiting->second == id) ||
+                (exported != snapshot.state.press_output_exported.end() && exported->second.contains(id)) ||
+                picked_press_products.contains(id)) return false;
+            continue;
+        }
         if ((products == snapshot.state.belt_press_products.end() ||
              !products->second.contains(id)) && !picked_press_products.contains(id)) return false;
         if (!recovered_belt_offcuts.contains(id) &&
