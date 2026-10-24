@@ -1171,9 +1171,24 @@ func preview_component(anchor: Node3D, kind: String, occupied_size: Vector3,
 	_placed_component(anchor, kind, Vector3.ZERO, occupied_size, press_role,
 		collector_angle, collector_support_drop, Vector3.ZERO)
 
+static func slide_carriage_drop(phase: Variant, travel: float) -> float:
+	if not phase is Dictionary or typeof(phase.get("subticks")) != TYPE_INT \
+			or typeof(phase.get("remainder")) != TYPE_INT \
+			or typeof(phase.get("denominator")) != TYPE_INT \
+			or typeof(phase.get("cycle_subticks")) != TYPE_INT:
+		return 0.0
+	var cycle: int = phase.cycle_subticks
+	var denominator: int = phase.denominator
+	if cycle <= 0 or denominator <= 0 or phase.subticks < 0 or phase.subticks >= cycle \
+			or phase.remainder < 0 or phase.remainder >= denominator:
+		return 0.0
+	var fraction := (float(phase.subticks) + float(phase.remainder) / float(denominator)) / float(cycle)
+	return -travel * (1.0 - absf(2.0 * fraction - 1.0))
+
 func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		occupied_size: Vector3, press_role: String, collector_angle: float,
-		collector_support_drop: float, receiver_to_frame: Vector3) -> void:
+		collector_support_drop: float, receiver_to_frame: Vector3,
+		slide_phase: Variant = null) -> void:
 	var timber: Material = WheelArt.support_timber_finish()
 	if timber == null:
 		timber = Visuals.material(Color("76604a"), 0.12, 0.78)
@@ -1273,6 +1288,35 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					Vector3(rail_width, occupied_size.y + stroke_reach - 0.012, 0.21), worked)
 			_support_box(anchor, "GuideCrown", Vector3(0, occupied_size.y * 0.5 - 0.035, 0),
 				Vector3(0.25, 0.055, 0.25), dark)
+		"wooden_slide", "softmetal_slide":
+			var finish: Material = timber if kind == "wooden_slide" else worked
+			var half_height := occupied_size.y * 0.5
+			var rail_height := occupied_size.y - 0.09
+			for x in [-0.155, 0.155]:
+				_support_box(anchor, "SlideRail", Vector3(x, -0.015, 0),
+					Vector3(0.045, rail_height, 0.27), finish, true)
+				_support_box(anchor, "RailWearStrip", Vector3(x, -0.015, -0.139),
+					Vector3(0.018, rail_height - 0.045, 0.008), dark)
+			_support_box(anchor, "SlideCrown", Vector3(0, half_height - 0.048, 0),
+				Vector3(0.39, 0.075, 0.34), finish, true)
+			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.027, 0.39, dark)
+			shaft.position = Vector3(0, half_height * 0.5, 0)
+			shaft.rotation.z = PI * 0.5
+			for x in [-0.172, 0.172]:
+				var bearing := _support_cylinder(anchor, "InputBearing", 0.052, 0.03, worked)
+				bearing.position = Vector3(x, half_height * 0.5, 0)
+				bearing.rotation.z = PI * 0.5
+			var carriage := Node3D.new()
+			carriage.name = "SlideCarriage"
+			carriage.position.y = 0.075 + slide_carriage_drop(slide_phase, occupied_size.y * 0.45)
+			anchor.add_child(carriage)
+			_support_box(carriage, "CarriageBody", Vector3.ZERO,
+				Vector3(0.235, 0.14, 0.23), dark, true)
+			_support_box(carriage, "CarriageFace", Vector3(0, -0.085, 0),
+				Vector3(0.29, 0.035, 0.27), finish, true)
+			for x in [-0.115, 0.115]:
+				_support_box(carriage, "CarriageShoe", Vector3(x, 0, -0.118),
+					Vector3(0.035, 0.115, 0.027), worked)
 		"wooden_cog", "softmetal_cog":
 			var direction := drive_direction.normalized() if drive_direction.length_squared() > 0.5 else Vector3.UP
 			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
@@ -1725,7 +1769,8 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		add_child(anchor)
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
 			spec.size, press_roles.get(id, ""), float(collector_facings.get(id, 0.0)),
-			support_drop, collector_receivers.get(id, Vector3.ZERO))
+			support_drop, collector_receivers.get(id, Vector3.ZERO),
+			snapshot.get("slide_phases", {}).get(id) if snapshot.get("slide_phases") is Dictionary else null)
 		if ram_lifts.has(id):
 			for child: Node in anchor.get_children():
 				if child is Node3D and (child.name == "MovingDie" or child.name.begins_with("RamSlide")):
@@ -1833,7 +1878,7 @@ func refresh() -> void:
 		snapshot.get("engagements", []), snapshot.get("dropped_material", []),
 		component_result.boxes, snapshot.get("collector_assemblies", []),
 		snapshot.get("press_assemblies", []), snapshot.get("guided_press_assemblies", []),
-		snapshot.get("broad_press_assemblies", [])]
+				snapshot.get("broad_press_assemblies", []), snapshot.get("slide_phases", {})]
 	if next_key == _view_key:
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null
