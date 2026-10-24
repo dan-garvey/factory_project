@@ -117,6 +117,13 @@ cc_test(
 )
 
 cc_test(
+    name = "press_offcut_line_test",
+    srcs = ["tests/press_offcut_line_test.cpp"],
+    deps = [":checkpoint"],
+    size = "small",
+)
+
+cc_test(
     name = "material_strength_test",
     srcs = ["tests/material_strength_test.cpp"],
     deps = [":world"],
