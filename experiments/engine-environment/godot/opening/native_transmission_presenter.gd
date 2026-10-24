@@ -1272,10 +1272,11 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var rotor := Node3D.new()
 			rotor.name = "PlacedDriveCog"
 			rotor.basis = Basis(across, direction, across.cross(direction))
-			rotor.set_meta("entity", anchor.get_meta("component_entity"))
-			rotor.set_meta("component_rotor_base", rotor.basis)
-			rotor.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
-			_moving_anchors.append(rotor)
+			if anchor.has_meta("component_entity"):
+				rotor.set_meta("entity", anchor.get_meta("component_entity"))
+				rotor.set_meta("component_rotor_base", rotor.basis)
+				rotor.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
+				_moving_anchors.append(rotor)
 			anchor.add_child(rotor)
 			var finish: Material = timber if kind == "wooden_cog" else worked
 			_support_cylinder(rotor, "CogRim", 0.095, 0.05, finish)
@@ -1384,10 +1385,11 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
 			var across := reference.cross(direction).normalized()
 			rod.basis = Basis(across, direction, across.cross(direction))
-			rod.set_meta("entity", anchor.get_meta("component_entity"))
-			rod.set_meta("component_rotor_base", rod.basis)
-			rod.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
-			_moving_anchors.append(rod)
+			if anchor.has_meta("component_entity"):
+				rod.set_meta("entity", anchor.get_meta("component_entity"))
+				rod.set_meta("component_rotor_base", rod.basis)
+				rod.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
+				_moving_anchors.append(rod)
 			rod.position.y = 0.0 if fitted else 0.035
 			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted else 0.14
 			Assets.shaft(rod, shaft_length, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
