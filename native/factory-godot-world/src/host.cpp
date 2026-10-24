@@ -39,6 +39,7 @@ constexpr double capsule_height = 1.8;
 constexpr double machine_width = 1.45;
 constexpr double machine_height = 1.65;
 constexpr double machine_center_height = 0.8;
+constexpr double press_work_crown_rise = 0.082;
 
 Integer crafting_bench_generation(const world::State& state, const std::string& id) {
     if (state.fabrication_hub && !state.fabrication_hub->holder && state.fabrication_hub->id == id)
@@ -262,12 +263,14 @@ Bounds component_bounds(const world::Profile& profile,
                     {height_step - component_shaft_half, 0.18,
                      height_step - component_shaft_half}};
         case materials::Component::anvil:
-            // The cast pedestal meets the frame's 0.9 m top and carries the
-            // open work seat. The ram begins at its upper face.
+            // The cast pedestal meets the frame's 0.9 m top. Its upper
+            // clearance reaches the retained copper crown at the work point.
+            // The ram's swept die begins at this same face.
             return vertical(at[1] - height_step + (0.9 - anchor_height),
-                at[1] + height_step * 0.3);
+                at[1] + press_work_crown_rise);
         case materials::Component::ram_face:
-            return vertical(at[1] - height_step * 0.7, at[1] + height_step * 0.5);
+            return vertical(at[1] - height_step + press_work_crown_rise,
+                at[1] + height_step * 0.5);
         case materials::Component::sliding_guide:
             // The guide meets the ram below and the unchanged tool-mount box
             // above. All three use the one construction height denominator.

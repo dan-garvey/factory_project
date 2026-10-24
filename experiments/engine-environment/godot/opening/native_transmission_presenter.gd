@@ -19,6 +19,7 @@ const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal
 const GEAR_BATCH_THRESHOLD := 4
 const LIVE_GEAR_BATCH_THRESHOLD := 1
 const GUIDED_RAM_REST_LIFT := 0.08
+const GUIDED_RAM_CONTACT_LIFT := -0.0075
 
 var _host: WeakRef
 var _view_key: Variant = null
@@ -1476,7 +1477,9 @@ func _guided_ram_lift(snapshot: Dictionary, press: Dictionary) -> float:
 		if lot.has("output_form") or typeof(lot.get("cycle_ticks")) != TYPE_INT \
 				or typeof(lot.get("remaining")) != TYPE_INT or int(lot.cycle_ticks) <= 0:
 			continue
-		return GUIDED_RAM_REST_LIFT * clampf(float(lot.remaining) / float(lot.cycle_ticks), 0.0, 1.0)
+		var progress: float = 1.0 - clampf(float(lot.remaining) / float(lot.cycle_ticks), 0.0, 1.0)
+		return lerpf(GUIDED_RAM_REST_LIFT, GUIDED_RAM_CONTACT_LIFT,
+			clampf(progress * 2.0, 0.0, 1.0))
 	return GUIDED_RAM_REST_LIFT
 
 func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:

@@ -175,6 +175,12 @@ void guided_press_host_path() {
           "An anvil is a guided candidate but does not masquerade as a framed press.");
     const auto ram = place(host, "ram_face", 8, 1, 0, "guided-place-ram");
     const auto guide = place(host, "sliding_guide", 8, 3, 0, "guided-place-guide");
+    const auto placed_work = get<O>(host.projection(), "placed_components");
+    const auto anvil_faces = vertical_faces(placed_work, anvil);
+    const auto ram_faces = vertical_faces(placed_work, ram);
+    check(std::abs(anvil_faces.second - 0.907) < 1e-9 &&
+          std::abs(ram_faces.first - anvil_faces.second) < 1e-9,
+          "The guided anvil and swept ram meet at the retained copper crown without overlapping.");
     const auto shaft = place(host, "wooden_shaft", 9, 4, 0, "guided-place-shaft");
     check(get<std::string>(get<A>(host.projection(), "guided_press_assemblies").front(), "status") ==
               "missing_cog", "A guided head still needs the actual drive cog.");
