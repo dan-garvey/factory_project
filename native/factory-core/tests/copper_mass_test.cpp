@@ -126,6 +126,40 @@ int main() {
     check(m::place_sheet(sheet, recipe, path, "P", 1, work) == m::Error::unavailable_input &&
           sheet == placed_sheet,
           "Retrying placement cannot duplicate a sheet already at the work area.");
+    auto sheared = placed_sheet;
+    check(m::shear_sheet(sheared, recipe, path, 2, work) == m::Error::unavailable_input &&
+          sheared == placed_sheet,
+          "A different sheet serial cannot authorize a cut of the staged item.");
+    auto blocked_sheet = placed_sheet;
+    blocked_sheet.initial_units = 4;
+    blocked_sheet.dropped_material.emplace(m::DropPoint{work[0] + 4, work[1], work[2]},
+        m::Cargo{1, 0, {}});
+    check(m::validate(blocked_sheet, recipe, path) == m::Error::none &&
+          m::shear_sheet(blocked_sheet, recipe, path, 1, work) == m::Error::unavailable_output &&
+          blocked_sheet.dropped_material.at(work).sheets == std::vector<m::Sheet>{{1, 2}},
+          "One occupied output cell holds the full twelve-mass sheet without making a plate.");
+    check(m::shear_sheet(sheared, recipe, path, 1, work) == m::Error::none &&
+          sheared.dropped_material.at(work) == m::Cargo{0, 1, {}} &&
+          sheared.dropped_material.at({work[0] + 4, work[1], work[2]}) == m::Cargo{0, 1, {}} &&
+          sheared.dropped_material.at({work[0], work[1], work[2] + 4}) == m::Cargo{0, 1, {}} &&
+          sheared.dropped_material.at({work[0] + 4, work[1], work[2] + 4}) == m::Cargo{0, 1, {}} &&
+          m::validate(sheared, recipe, path) == m::Error::none,
+          "One sheet becomes four separately located three-mass plates with no offcut.");
+    check(m::shear_sheet(sheared, recipe, path, 1, work) == m::Error::unavailable_input &&
+          m::validate(sheared, recipe, path) == m::Error::none,
+          "A repeated cut cannot mint another four plates from the consumed sheet.");
+    const auto cut_checkpoint = m::encode_material_state(sheared, recipe, path, {"P", "Q"});
+    m::MaterialDecoding decoded_cut = m::CodecRefusal{};
+    if (const auto* value = std::get_if<v::Value>(&cut_checkpoint))
+        decoded_cut = m::decode_material_state(*value, recipe, path, {"P", "Q"});
+    check(std::holds_alternative<m::State>(decoded_cut) &&
+          std::get<m::State>(decoded_cut) == sheared,
+          "Fresh material decoding retains all four physical plate locations.");
+    check(m::pickup_material(sheared, recipe, path, "Q", work) == m::Error::none &&
+          sheared.cargo.at("Q").products == 1 &&
+          sheared.dropped_material.size() == 3 &&
+          m::validate(sheared, recipe, path) == m::Error::none,
+          "A second actor can collect one plate without changing the other three.");
     check(m::pickup_material(sheet, recipe, path, "Q", work) == m::Error::none &&
           sheet.cargo.at("Q").sheets == std::vector<m::Sheet>{{1, 2}} &&
           !sheet.dropped_material.contains(work) && m::validate(sheet, recipe, path) == m::Error::none,
@@ -141,7 +175,7 @@ int main() {
     state.cargo.at("P").offcuts = 0;
     check(m::validate(state, recipe, path) == m::Error::invalid_state,
           "Removing even one offcut unit breaks native mass conservation.");
-    check(before != formed && checks == 26, "The fixture exercised actual stock and formed states.");
+    check(before != formed && checks == 32, "The fixture exercised actual stock and formed states.");
     std::cout << "{\"checks\":" << checks << ",\"evidence\":\"copper_material_mass\"}\n";
-    return failures == 0 && checks == 27 ? 0 : 1;
+    return failures == 0 && checks == 33 ? 0 : 1;
 }

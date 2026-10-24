@@ -335,6 +335,28 @@ void broad_press_from_repeated_work_faces() {
               first.press->drive_cogs[index] == "cog" + std::to_string(index),
               "Every broad work face retains its own placed contacts and exterior drive.");
 
+    auto cutting = placed;
+    for (std::size_t index = 0; index < 4; ++index)
+        cutting[index * 3 + 1].kind = m::Component::cutting_edge;
+    const auto shear = a::inspect_broad_shear(cutting, ground);
+    check(shear.status == a::BroadShearStatus::ready && shear.shear &&
+          shear.shear->work_centers == first.press->work_centers &&
+          shear.shear->shafts == first.press->shafts &&
+          shear.shear->blades[3] == "ram3",
+          "Four independently placed blades form one sheet-width head on supported cells.");
+    check(a::inspect_broad_press(cutting, ground).status == a::BroadPressStatus::missing_ram &&
+          a::inspect_broad_shear(placed, ground).status == a::BroadShearStatus::missing_blade,
+          "A broad forming ram cannot substitute for a cutting edge or vice versa.");
+    cutting[3 * 3 + 1].center[0] += 1;
+    check(a::inspect_broad_shear(cutting, ground).status == a::BroadShearStatus::missing_blade,
+          "A three-cell blade line cannot cut a four-cell sheet.");
+    cutting = placed;
+    for (std::size_t index = 0; index < 4; ++index)
+        cutting[index * 3 + 1].kind = m::Component::cutting_edge;
+    cutting.push_back(part("blade-obstacle", m::Component::receiver_tray, {4, 2, 4}));
+    check(a::inspect_broad_shear(cutting, ground).status == a::BroadShearStatus::blocked_stroke,
+          "An obstruction in one cutting stroke refuses the entire sheet-width head.");
+
     const g::Point raised{8, 4, 12};
     placed = parts_at(raised, false);
     placed[18].kind = m::Component::softmetal_shaft;

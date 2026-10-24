@@ -666,6 +666,40 @@ Error place_sheet(State& state, const Config& config, const Path& path,
     return Error::none;
 }
 
+Error shear_sheet(State& state, const Config& config, const Path& path,
+                  WorkId sheet_id, const DropPoint& origin) {
+    const auto valid = validate(state, config, path);
+    if (valid != Error::none) return valid;
+    if (config.sheet_mass == 0 || config.sheet_mass != 4 * config.plate_mass ||
+        config.plate_mass <= 0) return Error::unavailable_recipe;
+    if (sheet_id <= 0 || origin[0] > maximum_drop_coordinate - 4 ||
+        origin[2] > maximum_drop_coordinate - 4 || origin[0] % 4 || origin[2] % 4)
+        return Error::invalid_state;
+    const std::array<DropPoint, 4> cells{{origin,
+        {origin[0] + 4, origin[1], origin[2]},
+        {origin[0], origin[1], origin[2] + 4},
+        {origin[0] + 4, origin[1], origin[2] + 4}}};
+    const auto placed = state.dropped_material.find(origin);
+    if (placed == state.dropped_material.end() || placed->second.raw_units != 0 ||
+        placed->second.products != 0 || placed->second.offcuts != 0 ||
+        placed->second.timber != 0 || !placed->second.components.empty() ||
+        !placed->second.work_lots.empty() || placed->second.sheets.size() != 1 ||
+        placed->second.sheets.front().id != sheet_id)
+        return Error::unavailable_input;
+    if (state.dropped_material.size() > maximum_drop_points - 3 ||
+        std::any_of(cells.begin() + 1, cells.end(), [&](const DropPoint& cell) {
+            return state.dropped_material.contains(cell);
+        })) return Error::unavailable_output;
+    auto next = state;
+    next.dropped_material.at(origin) = Cargo{0, 1, {}};
+    for (const auto& cell : {cells[1], cells[2], cells[3]})
+        next.dropped_material.emplace(cell, Cargo{0, 1, {}});
+    const auto result = validate(next, config, path);
+    if (result != Error::none) return result;
+    state = std::move(next);
+    return Error::none;
+}
+
 Error compact_offcuts(State& state, const Config& config, const Path& path,
                       const std::string& actor, const DropPoint& work) {
     const auto valid = validate(state, config, path);

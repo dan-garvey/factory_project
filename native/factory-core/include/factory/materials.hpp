@@ -307,6 +307,13 @@ enum class Error {
                                 const std::string& actor, WorkId sheet_id,
                                 const DropPoint& origin);
 
+// World authenticates the four supported cutting cells, full-width blade,
+// stroke clearance, live drive and exact progress. Core then exchanges one
+// identified twelve-mass sheet for four separately collectible plates at the
+// same four cells. Occupied output leaves the entire sheet unchanged.
+[[nodiscard]] Error shear_sheet(State&, const Config&, const Path&,
+                                WorkId sheet_id, const DropPoint& origin);
+
 // A ready press may compact exactly one stock chunk's mass of recovered
 // copper offcuts at its clear work point. World authenticates the assembled
 // press, crank holder and physical reach before this custody transfer.

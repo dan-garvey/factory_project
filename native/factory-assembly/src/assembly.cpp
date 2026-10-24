@@ -235,7 +235,8 @@ GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
     return {PressStatus::ready, std::move(press)};
 }
 
-BroadPressInspection Layout::inspect_broad_press(const Point& origin) const {
+BroadPressInspection Layout::inspect_broad_head(
+        const Point& origin, materials::Component face) const {
     constexpr Integer limit = mechanics::maximum_coordinate;
     if (!valid_ || origin[0] % 4 || origin[1] % 4 || origin[2] % 4 ||
         origin[0] < -limit + 2 || origin[0] > limit - 6 ||
@@ -252,8 +253,7 @@ BroadPressInspection Layout::inspect_broad_press(const Point& origin) const {
         const auto* anvil = at(by_center_, cell, materials::Component::anvil);
         if (!anvil) return {BroadPressStatus::missing_anvil, std::nullopt};
         base.anvils[index] = anvil->id;
-        const auto* ram = at(by_center_, {cell[0], cell[1] + 1, cell[2]},
-            materials::Component::ram_face);
+        const auto* ram = at(by_center_, {cell[0], cell[1] + 1, cell[2]}, face);
         if (!ram) return {BroadPressStatus::missing_ram, std::nullopt};
         base.rams[index] = ram->id;
         const auto* guide = at(by_center_, {cell[0], cell[1] + 3, cell[2]},
@@ -305,6 +305,33 @@ BroadPressInspection Layout::inspect_broad_press(const Point& origin) const {
     return {BroadPressStatus::ready, std::move(base)};
 }
 
+BroadPressInspection Layout::inspect_broad_press(const Point& origin) const {
+    return inspect_broad_head(origin, materials::Component::ram_face);
+}
+
+BroadShearInspection Layout::inspect_broad_shear(const Point& origin) const {
+    const auto inspected = inspect_broad_head(origin, materials::Component::cutting_edge);
+    if (inspected.status != BroadPressStatus::ready || !inspected.press) {
+        switch (inspected.status) {
+            case BroadPressStatus::invalid_input: return {BroadShearStatus::invalid_input, std::nullopt};
+            case BroadPressStatus::missing_anvil: return {BroadShearStatus::missing_anvil, std::nullopt};
+            case BroadPressStatus::missing_ram: return {BroadShearStatus::missing_blade, std::nullopt};
+            case BroadPressStatus::missing_guide: return {BroadShearStatus::missing_guide, std::nullopt};
+            case BroadPressStatus::blocked_stroke: return {BroadShearStatus::blocked_stroke, std::nullopt};
+            case BroadPressStatus::missing_shaft: return {BroadShearStatus::missing_shaft, std::nullopt};
+            case BroadPressStatus::missing_cog: return {BroadShearStatus::missing_cog, std::nullopt};
+            case BroadPressStatus::ambiguous: return {BroadShearStatus::ambiguous, std::nullopt};
+            case BroadPressStatus::ready: break;
+        }
+        return {BroadShearStatus::invalid_input, std::nullopt};
+    }
+    const auto& head = *inspected.press;
+    return {BroadShearStatus::ready, BroadShear{head.origin, head.work_centers,
+        head.anvils, head.rams, head.guides, head.shafts, head.drive_cogs,
+        head.shaft_centers, head.cog_centers, head.shaft_materials,
+        head.cog_materials}};
+}
+
 Inspection inspect_collector(const std::vector<Part>& placed, const OreFace& face) {
     return Layout(placed).inspect_collector(face);
 }
@@ -319,6 +346,10 @@ GuidedPressInspection inspect_guided_press(const std::vector<Part>& placed, cons
 
 BroadPressInspection inspect_broad_press(const std::vector<Part>& placed, const Point& center) {
     return Layout(placed).inspect_broad_press(center);
+}
+
+BroadShearInspection inspect_broad_shear(const std::vector<Part>& placed, const Point& center) {
+    return Layout(placed).inspect_broad_shear(center);
 }
 
 }  // namespace factory::assembly

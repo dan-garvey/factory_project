@@ -178,6 +178,37 @@ struct BroadPressInspection {
 [[nodiscard]] BroadPressInspection inspect_broad_press(
     const std::vector<Part>& placed, const mechanics::Point& lowest_anvil_center);
 
+// A staged sheet needs four separate cutting edges over its four supported
+// cells. The same exterior drive geometry can stroke the head, but a ram face
+// is not a blade and cannot satisfy this inspection.
+struct BroadShear {
+    mechanics::Point origin{};
+    std::array<mechanics::Point, 4> work_centers{};
+    std::array<std::string, 4> anvils{};
+    std::array<std::string, 4> blades{};
+    std::array<std::string, 4> guides{};
+    std::array<std::string, 4> shafts{};
+    std::array<std::string, 4> drive_cogs{};
+    std::array<mechanics::Point, 4> shaft_centers{};
+    std::array<mechanics::Point, 4> cog_centers{};
+    std::array<materials::Component, 4> shaft_materials{};
+    std::array<materials::Component, 4> cog_materials{};
+    bool operator==(const BroadShear&) const = default;
+};
+
+enum class BroadShearStatus {
+    ready, invalid_input, missing_anvil, missing_blade, missing_guide,
+    blocked_stroke, missing_shaft, missing_cog, ambiguous,
+};
+
+struct BroadShearInspection {
+    BroadShearStatus status{BroadShearStatus::invalid_input};
+    std::optional<BroadShear> shear;
+};
+
+[[nodiscard]] BroadShearInspection inspect_broad_shear(
+    const std::vector<Part>& placed, const mechanics::Point& lowest_anvil_center);
+
 // Recognize a press at any common-grid frame center. Anvil, ram, guide and
 // mount stack at distinct quarter-grid heights; a shaft and cog approach from
 // one horizontal side. Both opposed lower feed paths are inspected for actual
@@ -204,8 +235,12 @@ public:
         const mechanics::Point& anvil_center) const;
     [[nodiscard]] BroadPressInspection inspect_broad_press(
         const mechanics::Point& lowest_anvil_center) const;
+    [[nodiscard]] BroadShearInspection inspect_broad_shear(
+        const mechanics::Point& lowest_anvil_center) const;
 
 private:
+    [[nodiscard]] BroadPressInspection inspect_broad_head(
+        const mechanics::Point& origin, materials::Component face) const;
     std::map<mechanics::Point, const Part*> by_center_;
     bool valid_{};
 };
