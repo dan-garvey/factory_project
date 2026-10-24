@@ -351,10 +351,16 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
                         Value(component.center[2])})}, {"generation", Value(component.generation)}}));
             state.emplace("placed_components", Value(std::move(placed)));
-            Array waiting, exported, belt_work, belt_products;
+            Array waiting, receiver_plates, exported, belt_work, belt_products;
             for (const auto& [center, id] : snapshot.state.press_output_at_exit)
                 waiting.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
                     {"work_id", Value(id)}});
+            for (const auto& [center, ids] : snapshot.state.press_output_at_receiver) {
+                Array work_ids;
+                for (const auto id : ids) work_ids.emplace_back(id);
+                receiver_plates.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
+                    {"work_ids", Value(std::move(work_ids))}});
+            }
             for (const auto& [center, ids] : snapshot.state.press_output_exported) {
                 Array work_ids;
                 for (const auto id : ids) work_ids.emplace_back(id);
@@ -371,6 +377,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"work_ids", Value(std::move(work_ids))}});
             }
             state.emplace("press_output_at_exit", Value(std::move(waiting)));
+            state.emplace("press_output_at_receiver", Value(std::move(receiver_plates)));
             state.emplace("press_output_exported", Value(std::move(exported)));
             Array progress;
             for (const auto& [id, witness] : snapshot.state.press_progress) {
@@ -423,7 +430,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported", "press_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -491,6 +498,19 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                         read_point(entry.at("center"), "$.state.press_output_at_exit.center"),
                         integer(entry, "work_id", "$.state.press_output_at_exit")).second)
                     refuse(CheckpointReason::invalid_world, "$.state.press_output_at_exit");
+            }
+            for (const auto& value : array(state.at("press_output_at_receiver"),
+                    "$.state.press_output_at_receiver", 4096)) {
+                const auto& entry = fields(value, "$.state.press_output_at_receiver", {"center", "work_ids"});
+                const auto center = read_point(entry.at("center"), "$.state.press_output_at_receiver.center");
+                const auto& ids = array(entry.at("work_ids"), "$.state.press_output_at_receiver.work_ids",
+                    static_cast<std::size_t>(materials::press_plate_receiver_capacity));
+                auto& receiver = candidate.state.press_output_at_receiver[center];
+                if (!receiver.empty() || ids.empty())
+                    refuse(CheckpointReason::invalid_world, "$.state.press_output_at_receiver");
+                for (const auto& id : ids)
+                    if (!receiver.insert(scalar<Integer>(id, "$.state.press_output_at_receiver.work_ids")).second)
+                        refuse(CheckpointReason::invalid_world, "$.state.press_output_at_receiver.work_ids");
             }
             const auto& exported = array(state.at("press_output_exported"), "$.state.press_output_exported", 4096);
             for (const auto& value : exported) {

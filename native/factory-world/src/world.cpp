@@ -400,6 +400,7 @@ struct WorkingPress {
     std::string shaft;
     std::vector<assembly::PressFeed> open_feeds;
     std::optional<mechanics::Point> offcut_receiver;
+    std::optional<mechanics::Point> plate_receiver;
 };
 
 struct WorkingPressInspection {
@@ -414,14 +415,15 @@ WorkingPressInspection inspect_working_press(const assembly::Layout& layout,
         if (!inspected.press) return {inspected.status, std::nullopt};
         const auto& press = *inspected.press;
         return {inspected.status, WorkingPress{press.anvil, center, press.work_center,
-            press.shaft_center, press.shaft, press.open_feeds, press.offcut_receiver}};
+            press.shaft_center, press.shaft, press.open_feeds, press.offcut_receiver,
+            press.plate_receiver}};
     }
     if (anchor_kind == materials::Component::wooden_frame) {
         const auto inspected = layout.inspect_press(center);
         if (!inspected.press) return {inspected.status, std::nullopt};
         const auto& press = *inspected.press;
         return {inspected.status, WorkingPress{press.frame, center, press.work_center,
-            press.shaft_center, press.shaft, press.open_feeds, std::nullopt}};
+            press.shaft_center, press.shaft, press.open_feeds, std::nullopt, std::nullopt}};
     }
     return {};
 }
@@ -624,6 +626,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* sheet_items = field<Value::Array>(result, "moved_sheet_items");
         const auto* work = field<Value::Array>(result, "moved_work");
         const auto* press_id = field<Integer>(result, "press_output_work_id");
+        const auto* receiver_ids = field<Value::Array>(result, "press_output_work_ids");
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
         if (!location || targets.front() != anchor(profile, *location) ||
@@ -631,7 +634,15 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             !raw || *raw < 0 || !products || *products < 0 ||
             !work || work->size() > maximum_current_work || !entity || !entity->empty() || !generation || *generation != 0 ||
             !press_id || *press_id < 0 || (*press_id > 0 && *products != 1) ||
-            result.size() != (copper ? (sheets && *sheets > 0 ? 23 : 22) : 20) ||
+            (receiver_ids && (*press_id != 0 || receiver_ids->empty() ||
+                receiver_ids->size() > static_cast<std::size_t>(materials::press_plate_receiver_capacity) ||
+                *products != static_cast<Integer>(receiver_ids->size()) ||
+                std::any_of(receiver_ids->begin(), receiver_ids->end(), [](const Value& value) {
+                    const auto* id = std::get_if<Integer>(&value.storage());
+                    return !id || *id <= 0;
+                }))) ||
+            result.size() != (copper ? (sheets && *sheets > 0 ? 23 : 22) : 20) +
+                (receiver_ids ? 1u : 0u) ||
             (copper && (!offcuts || *offcuts < 0 || !sheets || *sheets < 0 || *sheets > 1 ||
                 (*sheets > 0 && (!sheet_items || sheet_items->size() != 1)) ||
                 (*sheets == 0 && sheet_items))))
@@ -1153,6 +1164,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         Integer remaining{};
         std::optional<mechanics::Point> automatic_exit;
         Integer last_tick_seen{};
+        Integer feed_revision{};
         Integer automatic_remaining_ticks_seen{};
         Integer completed_subticks{};
         Integer work_remainder{};
@@ -1504,6 +1516,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             for (const auto& [point, id] : snapshot.state.press_output_at_exit) {
                 (void)point;
                 if (id == work.id) return true;
+            }
+            for (const auto& [point, ids] : snapshot.state.press_output_at_receiver) {
+                (void)point;
+                if (ids.contains(work.id)) return true;
             }
             for (const auto& [point, ids] : snapshot.state.press_output_exported) {
                 (void)point;
@@ -1882,7 +1898,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
             press_work.emplace(*selected_work, PressWorkRecord{
                 refeed_work ? *work_id : materials::WorkId{0},
-                refeed_work ? *remaining : Integer{0}, automatic_exit, ticks_seen, prior_automatic,
+                refeed_work ? *remaining : Integer{0}, automatic_exit, ticks_seen, *result_revision,
+                prior_automatic,
                 refeed_work ? *completed : Integer{0}, refeed_work ? *remainder : Integer{0},
                 inspected.press->shaft});
         }
@@ -2169,49 +2186,111 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 }
             }
             const auto* picked_id = field<Integer>(record.result, "press_output_work_id");
+            const auto* receiver_ids = field<Value::Array>(record.result, "press_output_work_ids");
             if (!picked_id || *picked_id < 0 || (*picked_id > 0 &&
                 (*picked_id >= snapshot.state.material.next_work_id ||
                  !picked_press_products.insert(*picked_id).second))) return false;
-            if (*picked_id > 0) {
-                const auto* moved_products = field<Integer>(record.result, "moved_products");
-                if (!moved_products || *moved_products != 1 ||
-                    !picked_product_exits.emplace(*picked_id, *point).second) return false;
-            }
-            if (*picked_id > 0 && snapshot.state.belt_press_work_ids.contains(*picked_id)) {
+            if (receiver_ids) {
                 const auto* raw = field<Integer>(record.result, "moved_raw");
                 const auto* products = field<Integer>(record.result, "moved_products");
                 const auto* work = field<Value::Array>(record.result, "moved_work");
-                if (!raw || *raw != 0 || !products || *products != 1 || !work || !work->empty())
+                if (*picked_id != 0 || !raw || *raw != 0 || !products ||
+                    *products != static_cast<Integer>(receiver_ids->size()) ||
+                    !work || !work->empty() || receiver_ids->empty() ||
+                    receiver_ids->size() > static_cast<std::size_t>(materials::press_plate_receiver_capacity))
                     return false;
-            }
-            // An older finished product can wait at the same exit while the
-            // next feed is still working. Consume that older claim first.
-            bool claimed_product = false;
-            if (const auto claimed = press_products.find(*point);
-                !snapshot.state.belt_press_work_ids.contains(*picked_id) &&
-                claimed != press_products.end() && claimed->second > 0) {
-                claimed_product = true;
-                if (--claimed->second == 0) press_products.erase(claimed);
-            }
-            if (!claimed_product && !snapshot.state.belt_press_work_ids.contains(*picked_id)) {
-                for (auto active = press_work.begin(); active != press_work.end(); ++active) {
-                    if (active->second.automatic_exit != *point ||
-                        active->second.last_tick_seen == ticks_seen ||
-                        !automatic_finish_witnessed(active->second)) continue;
-                    if (!snapshot.state.press_offcut_deliveries.contains(*picked_id) &&
-                        !record_offcut(active->first)) return false;
-                    press_work.erase(active);
-                    claimed_product = true;
-                    break;
+                Integer direct_products = *products;
+                for (const auto& value : *receiver_ids) {
+                    const auto* id = std::get_if<Integer>(&value.storage());
+                    if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id)
+                        return false;
+                    if (snapshot.state.belt_press_work_ids.contains(*id)) {
+                        const auto belt = belt_offcut_claims.find(*id);
+                        if (direct_products == 0 || belt == belt_offcut_claims.end() ||
+                            belt->second.exit != *point) return false;
+                        --direct_products;
+                    }
                 }
-            }
-            if (claimed_product) {
-                const auto* raw = field<Integer>(record.result, "moved_raw");
-                const auto* products = field<Integer>(record.result, "moved_products");
-                const auto* work = field<Value::Array>(record.result, "moved_work");
-                if (!raw || *raw != 0 || !products || *products != 1 || !work || !work->empty() ||
-                    *picked_id <= 0)
-                    return false;
+                // A last completed stroke may be picked up before another feed
+                // records its completion in command history. Settle that same
+                // witnessed work here, as the single-plate pickup does below.
+                auto claim = press_products.find(*point);
+                if (direct_products > 0 &&
+                    (claim == press_products.end() || claim->second < direct_products)) {
+                    for (auto active = press_work.begin(); active != press_work.end(); ++active) {
+                        if (active->second.automatic_exit != *point ||
+                            active->second.last_tick_seen == ticks_seen ||
+                            !automatic_finish_witnessed(active->second)) continue;
+                        const auto* completed_id = receiver_ids->empty() ? nullptr :
+                            std::get_if<Integer>(&receiver_ids->back().storage());
+                        if (!completed_id || (active->second.id != 0 &&
+                            active->second.id != *completed_id) ||
+                            snapshot.state.belt_press_work_ids.contains(*completed_id)) continue;
+                        const auto delivery = snapshot.state.press_offcut_deliveries.find(*completed_id);
+                        if (delivery == snapshot.state.press_offcut_deliveries.end() ||
+                            delivery->second.work != active->first ||
+                            delivery->second.exit != *point ||
+                            delivery->second.revision <= active->second.feed_revision ||
+                            delivery->second.revision >= *result_revision) continue;
+                        press_work.erase(active);
+                        if (!add(press_products[*point], 1)) return false;
+                        claim = press_products.find(*point);
+                        break;
+                    }
+                }
+                if (direct_products > 0) {
+                    if (claim == press_products.end() || claim->second < direct_products) return false;
+                    claim->second -= direct_products;
+                    if (claim->second == 0) press_products.erase(claim);
+                }
+                for (const auto& value : *receiver_ids) {
+                    const auto* id = std::get_if<Integer>(&value.storage());
+                    if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
+                        !picked_press_products.insert(*id).second ||
+                        !picked_product_exits.emplace(*id, *point).second) return false;
+                }
+            } else {
+                if (*picked_id > 0) {
+                    const auto* moved_products = field<Integer>(record.result, "moved_products");
+                    if (!moved_products || *moved_products != 1 ||
+                        !picked_product_exits.emplace(*picked_id, *point).second) return false;
+                }
+                if (*picked_id > 0 && snapshot.state.belt_press_work_ids.contains(*picked_id)) {
+                    const auto* raw = field<Integer>(record.result, "moved_raw");
+                    const auto* products = field<Integer>(record.result, "moved_products");
+                    const auto* work = field<Value::Array>(record.result, "moved_work");
+                    if (!raw || *raw != 0 || !products || *products != 1 || !work || !work->empty())
+                        return false;
+                }
+                // An older finished product can wait at the same exit while the
+                // next feed is still working. Consume that older claim first.
+                bool claimed_product = false;
+                if (const auto claimed = press_products.find(*point);
+                    !snapshot.state.belt_press_work_ids.contains(*picked_id) &&
+                    claimed != press_products.end() && claimed->second > 0) {
+                    claimed_product = true;
+                    if (--claimed->second == 0) press_products.erase(claimed);
+                }
+                if (!claimed_product && !snapshot.state.belt_press_work_ids.contains(*picked_id)) {
+                    for (auto active = press_work.begin(); active != press_work.end(); ++active) {
+                        if (active->second.automatic_exit != *point ||
+                            active->second.last_tick_seen == ticks_seen ||
+                            !automatic_finish_witnessed(active->second)) continue;
+                        if (!snapshot.state.press_offcut_deliveries.contains(*picked_id) &&
+                            !record_offcut(active->first)) return false;
+                        press_work.erase(active);
+                        claimed_product = true;
+                        break;
+                    }
+                }
+                if (claimed_product) {
+                    const auto* raw = field<Integer>(record.result, "moved_raw");
+                    const auto* products = field<Integer>(record.result, "moved_products");
+                    const auto* work = field<Value::Array>(record.result, "moved_work");
+                    if (!raw || *raw != 0 || !products || *products != 1 || !work || !work->empty() ||
+                        *picked_id <= 0)
+                        return false;
+                }
             }
             const auto active = press_work.find(*point);
             if (active != press_work.end()) {
@@ -2552,6 +2631,21 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             id >= snapshot.state.material.next_work_id || !witnessed_products.insert(id).second ||
             !add(witness_count, 1)) return false;
     }
+    for (const auto& [point, ids] : snapshot.state.press_output_at_receiver) {
+        const auto item = snapshot.state.material.dropped_material.find(point);
+        if (ids.empty() || ids.size() >
+                static_cast<std::size_t>(materials::press_plate_receiver_capacity) ||
+            item == snapshot.state.material.dropped_material.end() ||
+            item->second != materials::Cargo{0, static_cast<Integer>(ids.size()), {}} ||
+            !std::any_of(snapshot.state.placed_components.begin(),
+                snapshot.state.placed_components.end(), [&](const auto& entry) {
+                    return entry.second.kind == materials::Component::receiver_tray &&
+                        entry.second.center == point;
+                }) || !press_products.contains(point)) return false;
+        for (const auto id : ids)
+            if (id <= 0 || id >= snapshot.state.material.next_work_id ||
+                !witnessed_products.insert(id).second || !add(witness_count, 1)) return false;
+    }
     for (const auto& [point, ids] : snapshot.state.press_output_exported) {
         if (ids.empty() ||
             (!historical_press_exits.contains(point) &&
@@ -2577,10 +2671,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             // plate. A full side tray can hold this exact belt-fed lot ready
             // until its offcut has somewhere to go.
             const auto waiting = snapshot.state.press_output_at_exit.find(claim.exit);
+            const auto receiver = snapshot.state.press_output_at_receiver.find(claim.exit);
             const auto exported = snapshot.state.press_output_exported.find(claim.exit);
             if (snapshot.state.press_offcut_deliveries.contains(id) ||
                 (products != snapshot.state.belt_press_products.end() && products->second.contains(id)) ||
                 (waiting != snapshot.state.press_output_at_exit.end() && waiting->second == id) ||
+                (receiver != snapshot.state.press_output_at_receiver.end() &&
+                    receiver->second.contains(id)) ||
                 (exported != snapshot.state.press_output_exported.end() && exported->second.contains(id)) ||
                 picked_press_products.contains(id)) return false;
             continue;
@@ -2593,11 +2690,14 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     }
     for (const auto& [id, delivery] : snapshot.state.press_offcut_deliveries) {
         const auto waiting = snapshot.state.press_output_at_exit.find(delivery.exit);
+        const auto receiver = snapshot.state.press_output_at_receiver.find(delivery.exit);
         const auto exported = snapshot.state.press_output_exported.find(delivery.exit);
         const auto belt = snapshot.state.belt_press_products.find(delivery.exit);
         const auto picked = picked_product_exits.find(id);
         const bool known_product =
             (waiting != snapshot.state.press_output_at_exit.end() && waiting->second == id) ||
+            (receiver != snapshot.state.press_output_at_receiver.end() &&
+                receiver->second.contains(id)) ||
             (exported != snapshot.state.press_output_exported.end() && exported->second.contains(id)) ||
             (belt != snapshot.state.belt_press_products.end() && belt->second.contains(id)) ||
             (picked != picked_product_exits.end() && picked->second == delivery.exit);
@@ -2631,15 +2731,22 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         (void)ids;
         claimed_exits.insert(point);
     }
+    for (const auto& [point, ids] : snapshot.state.press_output_at_receiver) {
+        (void)ids;
+        claimed_exits.insert(point);
+    }
     for (const auto& point : claimed_exits) {
         const Integer claimed = press_products[point] +
             (snapshot.state.belt_press_products.contains(point) ?
                 static_cast<Integer>(snapshot.state.belt_press_products.at(point).size()) : 0);
         const Integer waiting = snapshot.state.press_output_at_exit.contains(point) ? 1 : 0;
+        const auto receiver = snapshot.state.press_output_at_receiver.find(point);
+        const auto received_count = receiver == snapshot.state.press_output_at_receiver.end() ?
+            0 : static_cast<Integer>(receiver->second.size());
         const auto exported = snapshot.state.press_output_exported.find(point);
         const auto exported_count = exported == snapshot.state.press_output_exported.end() ?
             0 : static_cast<Integer>(exported->second.size());
-        if (claimed < 1 || claimed != waiting + exported_count) return false;
+        if (claimed < 1 || claimed != waiting + received_count + exported_count) return false;
     }
     Integer live_products = 0;
     if (!add(live_products, snapshot.state.material.stock.output) ||
@@ -3469,6 +3576,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto press_witness = state.press_output_at_exit.find(*point);
         const auto press_work_id = press_witness == state.press_output_at_exit.end() ?
             materials::WorkId{0} : press_witness->second;
+        const auto plate_receiver = state.press_output_at_receiver.find(*point);
+        if (plate_receiver != state.press_output_at_receiver.end() &&
+            (contents.raw_units != 0 || contents.products !=
+                static_cast<Integer>(plate_receiver->second.size()) ||
+             contents.offcuts != 0 || contents.timber != 0 ||
+             !contents.components.empty() || !contents.work_lots.empty() ||
+             !contents.sheets.empty() || press_work_id != 0))
+            return refused("invalid_state", "", std::move(facts));
         State candidate = state;
         const auto error = materials::pickup_material(candidate.material, profile_.material,
                                                   material_path(candidate.topology), binding.actor, *point);
@@ -3482,6 +3597,18 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                     candidate.belt_press_products.erase(belt_claim);
                 candidate.press_output_at_exit.erase(witness);
             }
+        }
+        if (plate_receiver != state.press_output_at_receiver.end()) {
+            Value::Array identities;
+            auto belt_claim = candidate.belt_press_products.find(*point);
+            for (const auto id : plate_receiver->second) {
+                identities.emplace_back(id);
+                if (belt_claim != candidate.belt_press_products.end()) belt_claim->second.erase(id);
+            }
+            if (belt_claim != candidate.belt_press_products.end() && belt_claim->second.empty())
+                candidate.belt_press_products.erase(belt_claim);
+            facts.emplace("press_output_work_ids", Value(std::move(identities)));
+            candidate.press_output_at_receiver.erase(*point);
         }
         candidate.belt_press_work.erase(*point);
         facts.emplace("generation", Value(Integer{0}));
@@ -4103,7 +4230,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             previous_work->second.work_lots.size() == 1 ?
             previous_work->second.work_lots.front().id : materials::WorkId{0};
         const auto error = materials::turn_press(candidate.material, profile_.material,
-            material_path(candidate.topology), inspected.press->work_center, *selected_exit);
+            material_path(candidate.topology), inspected.press->work_center, *selected_exit,
+            inspected.press->plate_receiver == selected_exit);
         if (error != materials::Error::none)
             return refused(materials::error_name(error), *id, std::move(facts));
         const auto work_item = candidate.material.dropped_material.find(inspected.press->work_center);
@@ -4130,9 +4258,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 candidate.belt_press_work_ids.insert(belt_work->second);
             }
         }
-        if (finished &&
-            (completed_id <= 0 || !candidate.press_output_at_exit.emplace(*selected_exit, completed_id).second))
-            return refused("invalid_press_output", *id, std::move(facts));
+        if (finished) {
+            if (completed_id <= 0) return refused("invalid_press_output", *id, std::move(facts));
+            if (inspected.press->plate_receiver == selected_exit) {
+                if (!candidate.press_output_at_receiver[*selected_exit].insert(completed_id).second)
+                    return refused("invalid_press_output", *id, std::move(facts));
+            } else if (!candidate.press_output_at_exit.emplace(*selected_exit, completed_id).second)
+                return refused("invalid_press_output", *id, std::move(facts));
+        }
         facts.emplace("generation", Value(*generation));
         facts.emplace("shaft_center", Value(Value::Array{Value(inspected.press->shaft_center[0]),
             Value(inspected.press->shaft_center[1]), Value(inspected.press->shaft_center[2])}));
@@ -4219,6 +4352,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                         const auto cells = broad_cells(entry.first);
                         return std::find(cells.begin(), cells.end(), center) != cells.end();
                     })) return refused("occupied", *target, std::move(facts));
+            if (kind == materials::Component::receiver_tray &&
+                state.press_output_at_receiver.contains(center))
+                return refused("receiver_full", *target, std::move(facts));
             entity = *target;
             serial = *generation;
             ++cargo[kind];
@@ -4812,7 +4948,8 @@ Advance World::tick() noexcept {
         const auto include_press = [&](const mechanics::Point& anchor_center,
                 const mechanics::Point& work_center, const mechanics::Point& shaft_center,
                 const std::string& shaft_id, const std::vector<assembly::PressFeed>& feeds,
-                const std::optional<mechanics::Point>& offcut_receiver) {
+                const std::optional<mechanics::Point>& offcut_receiver,
+                const std::optional<mechanics::Point>& plate_receiver) {
             if (feeds.empty() || broad_occupied_cells.contains(work_center)) return;
             const auto shaft = motion.motion.find(shaft_id);
             if (shaft == motion.motion.end() || shaft->second.state != mechanics::MotionState::rotating)
@@ -4829,6 +4966,7 @@ Advance World::tick() noexcept {
             const auto denominator = shaft->second.rate.denominator;
             const Wide whole = scaled / denominator;
             materials::PressStep step{work_center, exit};
+            step.plate_receiver = plate_receiver && *plate_receiver == exit;
             if (offcut_receiver && !broad_occupied_cells.contains(*offcut_receiver)) {
                 step.offcut_receiver = offcut_receiver;
                 ++receiver_claims[*offcut_receiver];
@@ -4846,13 +4984,13 @@ Advance World::tick() noexcept {
             if (!inspected.press) continue;
             const auto& press = *inspected.press;
             include_press(frame_center, press.work_center, press.shaft_center,
-                press.shaft, press.open_feeds, std::nullopt);
+                press.shaft, press.open_feeds, std::nullopt, std::nullopt);
         }
         for (const auto& [anvil_center, inspected] : tick_layout_->presses_by_anvil) {
             if (!inspected.press) continue;
             const auto& press = *inspected.press;
             include_press(anvil_center, press.work_center, press.shaft_center,
-                press.shaft, press.open_feeds, press.offcut_receiver);
+                press.shaft, press.open_feeds, press.offcut_receiver, press.plate_receiver);
         }
         std::vector<materials::PressStep> press_steps;
         press_steps.reserve(presses_by_work.size());
@@ -4911,9 +5049,13 @@ Advance World::tick() noexcept {
                            current->second.work_lots.size() == 1) {
                     candidate.press_progress.try_emplace(current->second.work_lots.front().id);
                 }
-                if (completed &&
-                    !candidate.press_output_at_exit.emplace(step.exit, prior->second.first).second)
-                    throw materials::Error::invalid_state;
+                if (completed) {
+                    if (step.plate_receiver) {
+                        if (!candidate.press_output_at_receiver[step.exit].insert(prior->second.first).second)
+                            throw materials::Error::invalid_state;
+                    } else if (!candidate.press_output_at_exit.emplace(step.exit, prior->second.first).second)
+                        throw materials::Error::invalid_state;
+                }
                 if (completed && step.offcut_receiver &&
                     profile_.material.plate_mass > 0 &&
                     profile_.material.raw_mass > profile_.material.plate_mass &&

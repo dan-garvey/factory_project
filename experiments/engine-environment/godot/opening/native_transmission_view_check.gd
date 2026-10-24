@@ -2248,6 +2248,16 @@ func _loose_material() -> void:
 		var count := host.calls.size()
 		menu._choose(0)
 		verify(host.calls.size() == count, "A replacement at the same location cannot use an outdated menu offer.")
+	host.state.dropped_material = [{"center": [2, 0, 4], "raw": 0, "products": 4, "work_lots": []}]
+	presenter.refresh()
+	var plate_stack := presenter.get_node_or_null("LoosePlateStack")
+	var plate_heights: Array[float] = []
+	if plate_stack is Node3D:
+		for child in plate_stack.get_children():
+			if child is Node3D and child.get_meta("item_kind", "") == "stamped_plate":
+				plate_heights.append(child.position.y)
+	verify(plate_heights.size() == 4 and plate_heights[0] < plate_heights[3],
+		"Four confirmed products appear as four separate stacked plates in the world.")
 	host.state.dropped_material = []
 	presenter.refresh()
 	verify(presenter.get_node_or_null("LooseBlank") == null, "The presentation removes a picked-up stack after confirmed state changes.")

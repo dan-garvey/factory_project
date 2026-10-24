@@ -105,6 +105,84 @@ int main() {
     check(m::step_presses(state, recipe, path, {bad}) == m::Error::invalid_path &&
           state == before_bad_path,
           "A receiver cannot overlap a press work point or mutate accepted material.");
+
+    m::State received;
+    received.initial_units = 6;
+    received.cargo.emplace("P", m::Cargo{5, 0, {}});
+    received.cargo.emplace("Q", m::Cargo{});
+    received.dropped_material.emplace(work, m::Cargo{1, 0, {}});
+    auto fitted = press;
+    fitted.plate_receiver = true;
+    for (int cycle = 0; cycle < 4; ++cycle) {
+        if (cycle != 0) {
+            --received.cargo.at("P").raw_units;
+            received.dropped_material.emplace(work, m::Cargo{1, 0, {}});
+        }
+        for (int tick_index = 0; tick_index < 3; ++tick_index)
+            check(m::step_presses(received, recipe, path, {fitted}) == m::Error::none,
+                  "A fitted physical plate receiver accepts the next powered stroke.");
+        check(received.dropped_material.at(plate_exit).products == cycle + 1 &&
+              received.dropped_material.at(tray).offcuts == cycle + 1 &&
+              m::validate(received, recipe, path) == m::Error::none,
+              "Each finished plate remains in the outlet tray while its offcut stays in the side tray.");
+    }
+    const auto full_encoded = m::encode_material_state(received, recipe, path, {"P", "Q"});
+    const auto full_restored = std::holds_alternative<v::Value>(full_encoded) ?
+        m::decode_material_state(std::get<v::Value>(full_encoded), recipe, path, {"P", "Q"}) :
+        m::MaterialDecoding{m::CodecRefusal{}};
+    check(std::holds_alternative<m::State>(full_restored) &&
+          std::get<m::State>(full_restored) == received,
+          "Both full fitted trays preserve four products and four offcuts through material decoding.");
+    --received.cargo.at("P").raw_units;
+    received.dropped_material.emplace(work, m::Cargo{1, 0, {}});
+    for (int tick_index = 0; tick_index < 3; ++tick_index)
+        check(m::step_presses(received, recipe, path, {fitted}) == m::Error::none,
+              "The fifth lot reaches its ready state without crossing the full outlets.");
+    const auto blocked = received;
+    check(received.dropped_material.at(work).work_lots.front().remaining_ticks == 0 &&
+          m::step_presses(received, recipe, path, {fitted}) == m::Error::none && received == blocked,
+          "A full plate receiver retains the exact fifth work without duplicating mass.");
+    check(m::pickup_material(received, recipe, path, "Q", plate_exit) == m::Error::none &&
+          received.cargo.at("Q").products == 4 &&
+          m::step_presses(received, recipe, path, {fitted}) == m::Error::none &&
+          received.dropped_material.at(work).work_lots.front().remaining_ticks == 0,
+          "Clearing only the plate receiver leaves fifth work held by the full offcut tray.");
+    check(m::pickup_material(received, recipe, path, "Q", tray) == m::Error::none &&
+          received.cargo.at("Q").offcuts == 4 &&
+          m::step_presses(received, recipe, path, {fitted}) == m::Error::none &&
+          received.dropped_material.at(plate_exit).products == 1 &&
+          received.dropped_material.at(tray).offcuts == 1 &&
+          !received.dropped_material.contains(work) &&
+          m::validate(received, recipe, path) == m::Error::none,
+          "The second actor clears both separate holders and releases only the retained fifth plate.");
+
+    m::Config pure{1, 1, 2};
+    pure.raw_mass = 1;
+    pure.plate_mass = 1;
+    m::State manual;
+    manual.initial_units = 5;
+    manual.cargo.emplace("P", m::Cargo{4, 0, {}});
+    manual.dropped_material.emplace(work, m::Cargo{1, 0, {}});
+    for (int cycle = 0; cycle < 4; ++cycle) {
+        if (cycle != 0) {
+            --manual.cargo.at("P").raw_units;
+            manual.dropped_material.emplace(work, m::Cargo{1, 0, {}});
+        }
+        for (int turn = 0; turn < 3; ++turn)
+            check(m::turn_press(manual, pure, path, work, plate_exit, true) == m::Error::none,
+                  "A fitted plate tray accepts an ordinary crank turn.");
+        check(manual.dropped_material.at(plate_exit).products == cycle + 1 &&
+              m::validate(manual, pure, path) == m::Error::none,
+              "Manual products obey the same finite tray capacity as powered products.");
+    }
+    --manual.cargo.at("P").raw_units;
+    manual.dropped_material.emplace(work, m::Cargo{1, 0, {}});
+    for (int turn = 0; turn < 3; ++turn)
+        check(m::turn_press(manual, pure, path, work, plate_exit, true) == m::Error::none,
+              "A full plate tray preserves manual work until its product can leave.");
+    check(manual.dropped_material.at(work).work_lots.front().remaining_ticks == 0 &&
+          manual.dropped_material.at(plate_exit).products == 4,
+          "A full plate tray does not duplicate the fifth manually formed product.");
     std::cout << "{\"checks\":" << checks << ",\"failures\":" << failures << "}\n";
     return failures == 0 ? 0 : 1;
 }

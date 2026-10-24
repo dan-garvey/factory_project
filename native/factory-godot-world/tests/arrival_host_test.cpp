@@ -55,11 +55,14 @@ void arrival_projection_and_restore() {
     const auto trees = get<O>(view, "hand_sources");
     const auto south = get<A>(trees.at("tree-east-south"), "position");
     const auto north = get<A>(trees.at("tree-east-north"), "position");
+    const auto upstream = get<A>(trees.at("tree-east-upstream"), "position");
     check(std::abs(std::get<double>(south[0].storage()) - 6.6) < 1e-8 &&
           std::abs(std::get<double>(south[2].storage()) - 3.3) < 1e-8 &&
           std::abs(std::get<double>(north[0].storage()) - 6.6) < 1e-8 &&
-          std::abs(std::get<double>(north[2].storage()) - 11.55) < 1e-8,
-          "Both finite east timber sites stand beyond the pod deck and its east bench.");
+          std::abs(std::get<double>(north[2].storage()) - 11.55) < 1e-8 &&
+          std::abs(std::get<double>(upstream[0].storage()) - 6.6) < 1e-8 &&
+          std::abs(std::get<double>(upstream[2].storage()) + 1.65) < 1e-8,
+          "Finite east timber sites include a separate upstream tree for the constructed plate route.");
     const auto recipes = get<O>(view, "component_recipes");
     check(recipes.size() == 12 && get<I>(view, "component_capacity") == 20 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
@@ -158,7 +161,7 @@ void arrival_projection_and_restore() {
     check(get<I>(get<O>(restored.projection(), "part_kits").at("P"), "collector") == 0 &&
           get<I>(get<O>(restored.projection(), "part_kits").at("P"), "processor") == 0 &&
           std::get<A>(get<O>(restored.projection(), "part_specifications").at("P").storage()).size() == 3,
-          "The restored arrival offers three finite route recipes but no complete collector or press.");
+          "The restored arrival offers finite route recipes but no complete collector or press.");
 }
 
 void historical_initializer_keeps_its_fixture_kit() {

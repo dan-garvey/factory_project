@@ -932,7 +932,8 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         profile.material.timber_sites = {
             {"tree-east-south", {{16, 0, 8}, 8}},
             {"tree-east-north", {{16, 0, 28}, 8}},
-            {"tree-north", {{0, 0, 28}, 8}}};
+            {"tree-north", {{0, 0, 28}, 8}},
+            {"tree-east-upstream", {{16, 0, -4}, 8}}};
         profile.material.hand_carry_capacity = 24;
         // The component limit leaves room to carry one last recipe input,
         // making a full bag a reachable and recoverable workshop refusal.
@@ -2728,6 +2729,15 @@ Value Host::projection() const {
                     Value(press.cog_center[1]), Value(press.cog_center[2])}));
                 entry.emplace("shaft_material", Value(materials::component_name(press.shaft_material)));
                 entry.emplace("cog_material", Value(materials::component_name(press.cog_material)));
+                if (press.plate_receiver) {
+                    const auto& receiver = *press.plate_receiver;
+                    entry.emplace("plate_receiver", Value(Array{Value(receiver[0]),
+                        Value(receiver[1]), Value(receiver[2])}));
+                    const auto dropped = state.material.dropped_material.find(receiver);
+                    entry.emplace("plate_count", Value(dropped == state.material.dropped_material.end() ?
+                        Integer{0} : dropped->second.products));
+                    entry.emplace("plate_capacity", Value(materials::press_plate_receiver_capacity));
+                }
                 if (press.offcut_receiver) {
                     const auto& receiver = *press.offcut_receiver;
                     entry.emplace("offcut_receiver", Value(Array{Value(receiver[0]),

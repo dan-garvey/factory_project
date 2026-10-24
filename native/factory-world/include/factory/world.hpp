@@ -169,6 +169,9 @@ struct State {
     // its outlet. Once it enters a belt, the exported identity remains as a
     // checkpoint witness; material quantities still belong only to Cargo.
     std::map<mechanics::Point, materials::WorkId> press_output_at_exit;
+    // A fitted outlet tray holds completed identities alongside the physical
+    // plate count at that exact exit. Pickup clears both atomically.
+    std::map<mechanics::Point, std::set<materials::WorkId>> press_output_at_receiver;
     std::map<mechanics::Point, std::set<materials::WorkId>> press_output_exported;
     std::map<materials::WorkId, PressProgressWitness> press_progress;
     // One native tick receipt per automatically sheared offcut delivered to a

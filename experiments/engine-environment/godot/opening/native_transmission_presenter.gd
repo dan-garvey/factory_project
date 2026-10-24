@@ -1882,7 +1882,15 @@ func refresh() -> void:
 				visual = _cylinder(self, "LooseBlank", 0.15, 0.08, Color("b9a88c"))
 				visual.position = location
 			elif drop.products > 0:
-				visual = Items.stamped_plate(self, location)
+				visual = Node3D.new()
+				visual.name = "LoosePlateStack"
+				visual.position = location
+				add_child(visual)
+				# The fitted receiver holds four physical plates. Larger loose
+				# quantities keep their true count in the label without adding
+				# unbounded visual nodes.
+				for layer in range(mini(drop.products, 4)):
+					Items.stamped_plate(visual, Vector3(0, float(layer) * 0.045, 0))
 			elif int(drop.get("offcuts", 0)) > 0:
 				visual = Items.copper_offcuts(self, location)
 			elif int(drop.get("sheets", 0)) > 0:

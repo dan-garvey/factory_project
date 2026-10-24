@@ -517,7 +517,7 @@ Error step(State& state, const Config& config, const Path& path,
 }
 
 Error turn_press(State& state, const Config& config, const Path& path,
-                 const DropPoint& work, const DropPoint& exit) {
+                 const DropPoint& work, const DropPoint& exit, bool plate_receiver) {
     const auto valid = validate(state, config, path);
     if (valid != Error::none) return valid;
     if (config.input_units_per_product != 1 || work == exit) return Error::unavailable_recipe;
@@ -528,8 +528,17 @@ Error turn_press(State& state, const Config& config, const Path& path,
         (item.work_lots.size() == 1 && item.work_lots.front().recipe.output != WorkOutput::plate) ||
         item.raw_units + static_cast<Quantity>(item.work_lots.size()) != 1)
         return Error::unavailable_input;
+    const auto existing_exit = state.dropped_material.find(exit);
+    const bool plate_space = plate_receiver &&
+        (existing_exit == state.dropped_material.end() ||
+         (existing_exit->second.raw_units == 0 && existing_exit->second.products > 0 &&
+          existing_exit->second.products < press_plate_receiver_capacity &&
+          existing_exit->second.offcuts == 0 && existing_exit->second.timber == 0 &&
+          existing_exit->second.components.empty() && existing_exit->second.work_lots.empty() &&
+          existing_exit->second.sheets.empty()));
     if (item.work_lots.size() == 1 && item.work_lots.front().remaining_ticks == 0 &&
-        state.dropped_material.contains(exit)) return Error::unavailable_output;
+        existing_exit != state.dropped_material.end() && !plate_space)
+        return Error::unavailable_output;
     auto next = state;
     auto& active = next.dropped_material.at(work);
     if (active.raw_units == 1) {
@@ -542,7 +551,7 @@ Error turn_press(State& state, const Config& config, const Path& path,
     // The work location is removed before its product takes the clear exit,
     // so the number of loose locations never grows during this transfer.
     if (active.work_lots.front().remaining_ticks == 0 &&
-        !next.dropped_material.contains(exit)) {
+        (!next.dropped_material.contains(exit) || plate_space)) {
         next.dropped_material.erase(work);
         const auto remnant = config.plate_mass == 0 ? 0 : config.raw_mass - config.plate_mass;
         if (remnant > 0) {
@@ -550,7 +559,9 @@ Error turn_press(State& state, const Config& config, const Path& path,
             offcut.offcuts = remnant;
             next.dropped_material.emplace(work, std::move(offcut));
         }
-        next.dropped_material.emplace(exit, Cargo{0, 1, {}});
+        if (const auto waiting = next.dropped_material.find(exit);
+            waiting != next.dropped_material.end()) ++waiting->second.products;
+        else next.dropped_material.emplace(exit, Cargo{0, 1, {}});
     }
     const auto result = validate(next, config, path);
     if (result != Error::none) return result;
@@ -716,8 +727,16 @@ Error step_presses(State& state, const Config& config, const Path& path,
             found->second.work_lots.size() == 1 &&
             found->second.work_lots.front().recipe.output == WorkOutput::plate;
         if (!raw && !work) continue;
+        const auto exit = next.dropped_material.find(step.exit);
+        const bool plate_space = step.plate_receiver &&
+            (exit == next.dropped_material.end() ||
+             (exit->second.raw_units == 0 && exit->second.products > 0 &&
+              exit->second.products < press_plate_receiver_capacity &&
+              exit->second.offcuts == 0 && exit->second.timber == 0 &&
+              exit->second.components.empty() && exit->second.work_lots.empty() &&
+              exit->second.sheets.empty()));
         if (work && found->second.work_lots.front().remaining_ticks == 0 &&
-            next.dropped_material.contains(step.exit)) continue;
+            exit != next.dropped_material.end() && !plate_space) continue;
         auto& active = found->second;
         if (raw) {
             if (next.next_work_id == std::numeric_limits<WorkId>::max())
@@ -730,7 +749,7 @@ Error step_presses(State& state, const Config& config, const Path& path,
                          step.work_remainder, step.work_remainder_denominator);
         }
         if (active.work_lots.front().remaining_ticks == 0 &&
-            !next.dropped_material.contains(step.exit)) {
+            (next.dropped_material.find(step.exit) == next.dropped_material.end() || plate_space)) {
             const auto remnant = config.plate_mass == 0 ? 0 : config.raw_mass - config.plate_mass;
             if (remnant > 0 && step.offcut_receiver) {
                 if (remnant > press_offcut_receiver_capacity) continue;
@@ -753,7 +772,9 @@ Error step_presses(State& state, const Config& config, const Path& path,
                 const auto receiver = step.offcut_receiver.value_or(step.work);
                 next.dropped_material[receiver].offcuts += remnant;
             }
-            next.dropped_material.emplace(step.exit, Cargo{0, 1, {}});
+            if (const auto waiting = next.dropped_material.find(step.exit);
+                waiting != next.dropped_material.end()) ++waiting->second.products;
+            else next.dropped_material.emplace(step.exit, Cargo{0, 1, {}});
         }
     }
     const auto result = validate(next, config, path);

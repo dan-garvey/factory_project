@@ -19,6 +19,7 @@ inline constexpr std::size_t maximum_live_work_lots = 4096;
 inline constexpr Quantity maximum_drop_coordinate = 1000004;
 // A fitted tray holds four one-unit copper offcuts before its work face stalls.
 inline constexpr Quantity press_offcut_receiver_capacity = 4;
+inline constexpr Quantity press_plate_receiver_capacity = 4;
 inline constexpr Quantity work_subticks_per_tick = 4096;
 inline constexpr Quantity maximum_work_subticks_per_tick = 16 * work_subticks_per_tick;
 
@@ -284,7 +285,8 @@ enum class Error {
 // The first turn starts a lot; later turns advance it one tick. A ready lot
 // waits at the work point until its physical exit can receive the product.
 [[nodiscard]] Error turn_press(State&, const Config&, const Path&,
-                               const DropPoint& work, const DropPoint& exit);
+                               const DropPoint& work, const DropPoint& exit,
+                               bool plate_receiver = false);
 
 // World admits the four-cell contact, actor reach, live coupled drive and
 // outlet footprint before these custody changes. Feeding moves three carried
@@ -324,6 +326,9 @@ struct PressStep {
     Quantity work_subticks{work_subticks_per_tick};
     Quantity work_remainder{};
     Quantity work_remainder_denominator{1};
+    // A fitted plate tray can retain four distinct completed workpieces at
+    // the exit. World owns the tray geometry and the work identity ledger.
+    bool plate_receiver{};
     bool operator==(const PressStep&) const = default;
 };
 [[nodiscard]] Error step_presses(State&, const Config&, const Path&,
