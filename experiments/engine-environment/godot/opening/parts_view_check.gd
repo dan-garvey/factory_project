@@ -2424,6 +2424,42 @@ func _workshop_pages() -> void:
 		verify(view.issued == [{"action": "return_hand_crank", "entity": "pod-hand-crank"}],
 			"T in the collector panel retains the exact crank-custody command.")
 		view.issued.clear()
+		view.object_menu.hide()
+		await process_frame
+		view.state.guided_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
+			"status": "missing_ram", "parts": {}, "open_feeds": []}]
+		view.state.placed_components.erase("press-ram")
+		view._refresh_ui()
+		view.pointed = "press-anvil"
+		view._open_pointed_machine()
+		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree()
+			and view.object_menu_operations_label.text == "PART ACTIONS"
+			and view.object_menu_desired_extent == Vector2i(620, 280)
+			and not view.inspector.text.contains("press route")
+			and panel.press_status.text == "Anvil · work support"
+			and panel.reclaim_button.is_visible_in_tree()
+			and not panel.feed_actions.is_visible_in_tree()
+			and not panel.output_actions.is_visible_in_tree(),
+			"A standalone anvil shows its work support and reclaim without an unfinished press checklist.")
+		action_key.keycode = KEY_F
+		view._input(action_key)
+		action_key.keycode = KEY_T
+		view._input(action_key)
+		verify(view.issued.is_empty(),
+			"Hidden press actions do not send feed or turn commands from keyboard shortcuts.")
+		view.state.guided_press_assemblies.clear()
+		view._refresh_ui()
+		verify(panel.press_section.is_visible_in_tree()
+			and panel.press_status.text == "Anvil · work support"
+			and not panel.feed_actions.is_visible_in_tree(),
+			"A bare anvil remains inspectable without any projected press assembly.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-standalone-anvil.png") == OK,
+				"Retain the passive standalone work-support panel.")
+		view.object_menu.hide()
+		view.state = before.duplicate(true)
+		view._refresh_ui()
 		verify(view.state == before and view.issued.is_empty() and view.model == null,
 			"Workshop disclosure changes only local presentation, with no request or native state mutation.")
 		view.free()

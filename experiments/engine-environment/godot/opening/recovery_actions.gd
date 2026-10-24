@@ -316,12 +316,6 @@ class ArrivalAssemblyControls:
 		["softmetal_cog", "Softmetal cog"], ["wooden_workbench", "Wooden workbench"],
 		["wooden_slide", "Wooden slide"], ["softmetal_slide", "Softmetal slide"],
 	]
-	const PRESS_NEXT := {
-		"missing_ram": "Point at the anvil top to fit the ram face.",
-		"missing_guide": "Point at the ram top to fit the raised guide.",
-		"missing_shaft": "Point at an anvil or guide side to fit the raised drive shaft.",
-		"missing_cog": "Point at the same anvil side or the shaft end to fit the drive cog.",
-	}
 	const COLLECTOR_NEXT := {
 		"missing_mount": "Fit a tool mount toward the ore deposit.",
 		"missing_edge": "Fit a cutting edge beyond the mount.",
@@ -349,6 +343,10 @@ class ArrivalAssemblyControls:
 	var collector_cut_button: Button
 	var collector_status: Label
 	var press_status: Label
+	var feed_heading: Label
+	var feed_actions: HBoxContainer
+	var output_heading: Label
+	var output_actions: HBoxContainer
 	var route_choice: OptionButton
 	var held_work_choice: OptionButton
 	var feed_button: Button
@@ -406,15 +404,15 @@ class ArrivalAssemblyControls:
 			if index >= 0 and index < _held_work_ids.size():
 				_held_work_id = _held_work_ids[index])
 		press_section.add_child(held_work_choice)
-		host._label(press_section, "FEED & STROKE", 11, Color("f4bf75"))
-		var press_actions := HBoxContainer.new()
-		press_actions.alignment = BoxContainer.ALIGNMENT_CENTER
-		press_section.add_child(press_actions)
-		feed_button = host._button(press_actions, "", _feed)
+		feed_heading = host._label(press_section, "FEED & STROKE", 11, Color("f4bf75"))
+		feed_actions = HBoxContainer.new()
+		feed_actions.alignment = BoxContainer.ALIGNMENT_CENTER
+		press_section.add_child(feed_actions)
+		feed_button = host._button(feed_actions, "", _feed)
 		_style_workshop_icon(feed_button, "press-feed")
-		refeed_work_button = host._button(press_actions, "", _refeed_work)
+		refeed_work_button = host._button(feed_actions, "", _refeed_work)
 		_style_workshop_icon(refeed_work_button, "press-refeed")
-		turn_button = host._button(press_actions, "", _turn)
+		turn_button = host._button(feed_actions, "", _turn)
 		_style_workshop_icon(turn_button, "press-turn")
 		turn_button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 		turn_button.button_down.connect(_start_turn_hold.bind("pointer"))
@@ -425,7 +423,7 @@ class ArrivalAssemblyControls:
 		turn_repeat_timer.one_shot = true
 		turn_repeat_timer.timeout.connect(_repeat_turn)
 		add_child(turn_repeat_timer)
-		compact_button = host._button(press_actions, "", _compact_offcuts)
+		compact_button = host._button(feed_actions, "", _compact_offcuts)
 		compact_button.icon = load("res://opening/assets/menu-icons/compact-offcuts.svg")
 		compact_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		compact_button.custom_minimum_size = Vector2(46, 37)
@@ -436,8 +434,8 @@ class ArrivalAssemblyControls:
 		compact_key.keycode = KEY_B
 		compact_shortcut.events = [compact_key]
 		compact_button.shortcut = compact_shortcut
-		host._label(press_section, "OUTPUT & RECOVERY", 11, Color("f4bf75"))
-		var output_actions := HBoxContainer.new()
+		output_heading = host._label(press_section, "OUTPUT & RECOVERY", 11, Color("f4bf75"))
+		output_actions = HBoxContainer.new()
 		output_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		press_section.add_child(output_actions)
 		pickup_button = host._button(output_actions, "", _pickup_exit)
@@ -475,7 +473,8 @@ class ArrivalAssemblyControls:
 	func _update_context_size() -> void:
 		var scroller := get_parent() as ScrollContainer
 		if scroller != null:
-			scroller.custom_minimum_size.y = 280 if press_section.visible else 150 if collector_section.visible else 40
+			scroller.custom_minimum_size.y = 280 if press_section.visible and _press.get("status") == "ready" \
+				else 80 if press_section.visible else 150 if collector_section.visible else 40
 
 	func open_context() -> void:
 		var collector := _selected_collector(_snapshot, _selected)
@@ -545,6 +544,9 @@ class ArrivalAssemblyControls:
 		crank_button.accessibility_name = "%s, shortcut C" % press_crank_action
 		_press = _selected_press(snapshot, selected)
 		_anvil = str(_press.get("anvil", ""))
+		var selected_kind: String = str(snapshot.get("placed_components", {}).get(selected, {}).get("component", ""))
+		if _anvil.is_empty() and selected_kind == "anvil":
+			_anvil = selected
 		if _anvil != _last_anvil:
 			_route_index = 0
 			_last_anvil = _anvil
@@ -569,9 +571,7 @@ class ArrivalAssemblyControls:
 			_held_work_id = _held_work_ids[0] if not _held_work_ids.is_empty() else 0
 		if _held_work_id > 0:
 			held_work_choice.select(_held_work_ids.find(_held_work_id))
-		if _anvil.is_empty():
-			press_status.text = "Place an anvil, then point at it and press E.\nFit the ram and guide above it; connect a shaft and cog beside the guide."
-		elif status == "ready":
+		if status == "ready":
 			var work := _work_drop()
 			var exit_drop := _exit_drop()
 			var advice := "Reinsert carried work or feed a blank." if not _held_work_ids.is_empty() \
@@ -593,9 +593,17 @@ class ArrivalAssemblyControls:
 							advice = "Exit holds a plate; stroke %d / %d steps. Pick it up before the final step." % [cycle - remaining, cycle]
 			press_status.text = "Press ready · %d clear feed routes. %s" % [routes.size(), advice]
 		else:
-			press_status.text = "Press: %s. %s" % [status.replace("_", " "), PRESS_NEXT.get(status,
-				"Clear its fitting space or choose another anvil.")]
-		route_choice.visible = not routes.is_empty()
+			press_status.text = {
+				"anvil": "Anvil · work support",
+				"ram_face": "Ram face · contact tool",
+				"sliding_guide": "Guide · guided motion",
+			}.get(selected_kind, "Placed part")
+		var active_press := status == "ready"
+		feed_heading.visible = active_press
+		feed_actions.visible = active_press
+		output_heading.visible = active_press
+		output_actions.visible = active_press
+		route_choice.visible = active_press and not routes.is_empty()
 		var can_operate := ready and status == "ready" and not routes.is_empty()
 		feed_button.visible = not _anvil.is_empty()
 		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1 or not _work_drop().is_empty()
@@ -611,7 +619,7 @@ class ArrivalAssemblyControls:
 			or not _press.get("parts", {}).has("shaft")
 		compact_button.tooltip_text = "Compact four carried copper offcuts into one stock blank at this press. Hold the crank and clear the work face. [%d/4]  B" % mini(4, int(cargo.get("offcuts", 0)))
 		compact_button.accessibility_name = "Compact four carried copper offcuts into one blank, shortcut B"
-		held_work_choice.visible = not _anvil.is_empty() and not _held_work_ids.is_empty()
+		held_work_choice.visible = active_press and not _held_work_ids.is_empty()
 		refeed_work_button.visible = held_work_choice.visible
 		refeed_work_button.disabled = not can_operate or not _work_drop().is_empty()
 		refeed_work_button.tooltip_text = "%s · R" % (operate_cause if not can_operate else \
@@ -642,6 +650,8 @@ class ArrivalAssemblyControls:
 			"Recover material beneath the ram" if not _work_drop().is_empty() else "No material beneath the ram to recover"
 		recover_work_button.tooltip_text = "%s · U" % ("Wait for the character" if not ready else recover_action)
 		recover_work_button.accessibility_name = "%s, shortcut U" % recover_action
+		if press_section.visible:
+			_update_context_size()
 		if changed_target:
 			open_context()
 

@@ -6369,7 +6369,8 @@ func _open_object_menu_for(target: String) -> void:
 	object_menu_target = target
 	object_menu_title.text = _object_name(target)
 	object_menu_operations_label.text = "PART ACTIONS"
-	if _is_guided_press_part(target):
+	var active_press := _is_guided_press_part(target)
+	if active_press:
 		object_menu_operations_label.text = "PRESS WORK"
 	for row: Variant in state.get("collector_assemblies", []):
 		if row is Dictionary and row.get("parts", {}).get("frame", "") == target:
@@ -6378,10 +6379,11 @@ func _open_object_menu_for(target: String) -> void:
 	_release_character_controls()
 	object_menu_scrim.visible = true
 	var compact_collector := _is_collector_frame(target)
+	var compact_part: bool = state.get("placed_components", {}).has(target) and not active_press and not compact_collector
 	if compact_collector:
 		arrival_assembly_scroll.custom_minimum_size.y = 0
-	object_menu_desired_extent = Vector2i(760 if object_menu_operations.visible else 500,
-		400 if compact_collector else 520 if object_menu_operations.visible else 400)
+	object_menu_desired_extent = Vector2i(620 if compact_part else 760 if object_menu_operations.visible else 500,
+		280 if compact_part else 400 if compact_collector else 520 if object_menu_operations.visible else 400)
 	var extent := _object_menu_extent()
 	object_menu.min_size = extent
 	object_menu.popup_centered(extent)
@@ -9181,7 +9183,7 @@ func _refresh_ui() -> void:
 		var component: Dictionary = state.placed_components[selected]
 		var detail := "Press E for recipes when nearby."
 		if component.get("component", "") != "wooden_workbench":
-			detail = "Reclaim with Delete or choose a press route below."
+			detail = "Reclaim with Delete."
 		inspector.text = "%s\nGrid center %s\n%s" % [
 			str(component.get("component", "part")).replace("_", " ").capitalize(),
 			str(component.get("center", [])), detail]
@@ -10219,7 +10221,8 @@ func _is_guided_press_part(target: String) -> bool:
 		if not row is Dictionary:
 			continue
 		var parts: Variant = row.get("parts", {})
-		if row.get("anvil", "") == target or (parts is Dictionary and parts.values().has(target)):
+		if row.get("status") == "ready" and (row.get("anvil", "") == target \
+				or (parts is Dictionary and parts.values().has(target))):
 			return true
 	return false
 
