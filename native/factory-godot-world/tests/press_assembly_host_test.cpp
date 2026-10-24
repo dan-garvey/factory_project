@@ -31,7 +31,8 @@ O request(const std::string& id, const char* action) {
 }
 
 V accepted(Host& host, const O& wire) {
-    const auto result = host.command("P", wire);
+    const auto result = get<std::string>(V(wire), "action") == "harvest_source" ?
+        factory::godot_world::tests::complete_manual_cut(host, "P", wire) : host.command("P", wire);
     if (!get<bool>(result, "accepted"))
         throw std::runtime_error("Request " + get<std::string>(V(wire), "request") +
             " refused: " + get<std::string>(result, "reason"));
@@ -327,7 +328,7 @@ void guided_press_host_path() {
               V(A{V(I{8}), V(I{0}), V(I{1})})) &&
           get<I>(routed, "offcut_count") == 0 &&
           get<I>(routed, "offcut_capacity") == 4 &&
-          get<A>(routed, "open_feeds").size() == 2,
+          get<A>(routed, "open_feeds").size() == 3,
           "Host projects the installed side receiver, finite capacity and remaining feed openings.");
     Host tray_reopened;
     const auto tray_saved = with_tray.checkpoint();

@@ -240,7 +240,7 @@ void fabricated_transmission_stock_is_finite() {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
             {"request", V("timber-" + std::to_string(index))}, {"action", V("harvest_source")},
             {"target", V("tree-east-south")}};
-        check(get<bool>(host.command("P", cut), "accepted"),
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut), "accepted"),
               "Each route timber input comes from the finite visible tree.");
     }
     check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 3), "accepted"),
@@ -249,7 +249,7 @@ void fabricated_transmission_stock_is_finite() {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
             {"request", V("ore-" + std::to_string(index))}, {"action", V("harvest_source")},
             {"target", V("opening-softmetal")}};
-        check(get<bool>(host.command("P", cut), "accepted"),
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut), "accepted"),
               "Each route clasp input comes from the finite native deposit.");
     }
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 4), "accepted"),
@@ -338,7 +338,7 @@ void crafted_foundation_extends_exhausted_kit() {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
             {"request", V("floor-wood-" + std::to_string(index))},
             {"action", V("harvest_source")}, {"target", V("tree-east-south")}};
-        check(get<bool>(host.command("P", cut), "accepted"),
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut), "accepted"),
               "Foundation inputs are harvested from the finite local tree.");
     }
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 3), "accepted"),
@@ -364,7 +364,7 @@ void crafted_foundation_extends_exhausted_kit() {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
             {"request", V("floor-wood-" + std::to_string(index))},
             {"action", V("harvest_source")}, {"target", V("tree-east-south")}};
-        check(get<bool>(host.command("P", cut), "accepted"),
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut), "accepted"),
               "More floor inputs come from the declared remaining tree stock.");
     }
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 5), "accepted"),

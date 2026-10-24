@@ -1,5 +1,6 @@
 #include "factory/checkpoint.hpp"
 #include "factory/world.hpp"
+#include "native/factory-world/tests/harvest_fixture.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -96,9 +97,12 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
         fields.emplace("actor", V("P"));
         fields.emplace("action", V(action));
         const auto started = std::chrono::steady_clock::now();
-        const auto result = world->command({"P", "P-client"}, fields, nearby);
-        command_ms.push_back(std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - started).count());
+        const auto result = std::string(action) == "harvest_source" ?
+            w::tests::complete_manual_cut(*world, {"P", "P-client"}, fields, nearby) :
+            world->command({"P", "P-client"}, fields, nearby);
+        if (std::string(action) != "harvest_source")
+            command_ms.push_back(std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - started).count());
         if (!result.completed() || !result.result ||
             !std::get<bool>(result.result->at("accepted").storage()))
             throw std::runtime_error(std::string("Mixed site setup refused ") + action + ": " +

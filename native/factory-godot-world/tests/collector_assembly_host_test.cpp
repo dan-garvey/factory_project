@@ -73,13 +73,13 @@ void collector_readiness_tracks_real_parts() {
     for (int index = 0; index < 7; ++index) {
         auto wire = request("timber-" + std::to_string(index), "harvest_source");
         wire.emplace("target", V("tree-east-south"));
-        check(get<bool>(host.command("P", wire), "accepted"), "Real timber is harvested for the first collector.");
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", wire), "accepted"), "Real timber is harvested for the first collector.");
     }
     check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 2), "accepted"),
           "The actor moves to the ore deposit.");
     auto ore = request("one-ore", "harvest_source");
     ore.emplace("target", V("opening-softmetal"));
-    check(get<bool>(host.command("P", ore), "accepted"),
+    check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", ore), "accepted"),
           "A cutting edge consumes one real ore blank from the shared deposit.");
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
           "The actor returns to the pod bench.");
@@ -270,7 +270,7 @@ void collector_readiness_tracks_real_parts() {
           "The actor returns to the last piece of nearby timber.");
     auto last_timber = request("last-timber", "harvest_source");
     last_timber.emplace("target", V("tree-east-south"));
-    check(get<bool>(restored.command("P", last_timber), "accepted"),
+    check(get<bool>(factory::godot_world::tests::complete_manual_cut(restored, "P", last_timber), "accepted"),
           "One finite timber piece remains for an alternate drive experiment.");
     auto extra_craft = request("extra-shaft", "craft_component");
     extra_craft.emplace("entity", V("pod-fabrication-hub"));

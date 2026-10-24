@@ -103,6 +103,8 @@ func _boot() -> void:
 			checkpoint_failure("resume_input_changed")
 			return
 		loaded_checkpoint = session.world.checkpoint()
+		if frozen and native_authority:
+			session._frozen_cut_pending = not session.world.projection().get("manual_cuts", {}).is_empty()
 		if not compatible_opening(loaded_checkpoint):
 			checkpoint_failure("incompatible_opening")
 			return

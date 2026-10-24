@@ -5363,6 +5363,8 @@ func _harvest_result_text(outcome: Dictionary) -> String:
 	if timber > 0:
 		return "Collected %d timber." % timber
 	var raw: int = outcome.get("moved_raw", 0)
+	if raw == 0:
+		return "Cutting…"
 	return "Collected %d softmetal %s." % [raw, "blank" if raw == 1 else "blanks"]
 
 func _material_refusal_message(outcome: Dictionary, fallback: String) -> String:
@@ -6330,6 +6332,8 @@ func _interact_pointed() -> void:
 		return
 	if source.remaining == 0:
 		_message("This source is depleted. Choose another tree or ore deposit.", true)
+		return
+	if state.get("manual_cuts", {}).has(client):
 		return
 	issue({"action": "harvest_source", "target": source_id})
 
@@ -9067,7 +9071,15 @@ func _refresh_from_projection(known_projection: Dictionary) -> void:
 	# Both model paths return the complete projection from advance(). Reuse the
 	# final accepted tick in this render cut instead of projecting every part
 	# again. A failed tick or a frame without one still reads current authority.
+	var prior_cut: Dictionary = state.get("manual_cuts", {}).get(client, {})
+	var prior_cargo: Dictionary = state.get("cargo", {}).get(client, {})
 	state = known_projection
+	if not prior_cut.is_empty() and not state.get("manual_cuts", {}).has(client):
+		var current_cargo: Dictionary = state.get("cargo", {}).get(client, {})
+		var timber_added: int = int(current_cargo.get("timber", 0)) - int(prior_cargo.get("timber", 0))
+		var raw_added: int = int(current_cargo.get("raw", 0)) - int(prior_cargo.get("raw", 0))
+		_message(_harvest_result_text({"moved_timber": timber_added, "moved_raw": raw_added}) \
+			if timber_added > 0 or raw_added > 0 else "Cut interrupted.")
 	_sync_landing_pod_visual()
 	_sync_freight_beacon_visual()
 	# Shared profiles arrive after presenter creation. Choose this revisable
@@ -10360,8 +10372,13 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 		if state.get("entities", {}).get(target, {}).get("kind") == "processor":
 			detail = "%d ready  ·  E Open" % int(state.get("stock", {}).get("output", 0))
 		return {"name": _object_name(target), "detail": detail, "target": target}
-	var source := _hand_source(_screen_hand_source(screen))
+	var source_id := _screen_hand_source(screen)
+	var source := _hand_source(source_id)
 	if not source.is_empty():
+		var cut: Dictionary = state.get("manual_cuts", {}).get(client, {})
+		if cut.get("target", "") == source_id:
+			return {"name": "Timber tree" if source.kind == "tree" else "Ore deposit",
+				"detail": "Cutting…"}
 		return {"name": "Timber tree" if source.kind == "tree" else "Ore deposit",
 			"detail": "Depleted" if source.remaining == 0 else "%d left  ·  E Harvest" % source.remaining}
 	return {}

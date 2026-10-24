@@ -39,7 +39,7 @@ void bench_requires_ground_bearing() {
         const O cut_wood{{"context", V("low-bench-site")}, {"client", V("P")},
             {"request", V("low-bench-timber-" + std::to_string(index))},
             {"action", V("harvest_source")}, {"target", V("tree-east-south")}};
-        check(get<bool>(host.command("P", cut_wood), "accepted"),
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut_wood), "accepted"),
               "P harvests finite timber for the lower-site bearing control.");
     }
     const O shape_bench{{"context", V("low-bench-site")}, {"client", V("P")},
@@ -97,7 +97,7 @@ void bench_requires_ground_bearing() {
         const O cut_wood{{"context", V("low-bench-site")}, {"client", V("P")},
             {"request", V("flat-bench-timber-" + std::to_string(index))},
             {"action", V("harvest_source")}, {"target", V("tree-east-south")}};
-        check(get<bool>(flat.command("P", cut_wood), "accepted"),
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(flat, "P", cut_wood), "accepted"),
               "P harvests the finite timber for the exact restore control.");
     }
     auto flat_shape = shape_bench;

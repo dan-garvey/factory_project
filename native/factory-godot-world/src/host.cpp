@@ -465,6 +465,8 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "harvest_source")
         return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
             field<std::string>(*wire, "target") && same("target", "target");
+    if (*action == "finish_harvest" || *action == "cancel_harvest")
+        return *original_action == *action && keys(*wire, {});
     if (*action == "craft_component")
         return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
@@ -1523,6 +1525,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         return result(false, "wrong_actor");
     const auto snapshot = owned_->world->snapshot();
     const auto* request = field<std::string>(wire, "request");
+    // Server-owned completion IDs cannot be occupied by a client request.
+    if (request && request->starts_with("native-cut-"))
+        return result(false, "reserved_request");
     // Original wire comparison precedes generation lookup or translation. The
     // only cache is World's existing history; no adapter request map is created.
     if (request) for (const auto& record : snapshot.history.records) {
@@ -1562,6 +1567,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
         normalized.at("action") = Value("harvest_source");
         normalized.emplace("target", wire.at("target"));
+    } else if (*action == "finish_harvest" || *action == "cancel_harvest") {
+        if (!keys(wire, {})) return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
     } else if (*action == "deliver_first_plate" || *action == "deliver_repeat_plate") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -2294,6 +2302,7 @@ Value Host::publish_actor(const std::string& actor, const Array& position, Integ
     if (epoch <= current.epoch) return result(false, "stale_actor_sample");
     current = {*at, epoch, true};
     owned_->native_started = true;
+    if (!settle_manual_cuts(actor)) return result(false, "native_step_failed");
     return result(true, "actor_published");
 }
 
@@ -2310,26 +2319,89 @@ Value Host::invalidate_actor(const std::string& actor) {
     if (!owned_ || !owned_->actors.contains(actor)) return result(false, "unknown_actor");
     // Retain the last ordinal so invalidation cannot permit a stale sample.
     owned_->actors.at(actor).ready = false;
+    if (!settle_manual_cuts(actor)) return result(false, "native_step_failed");
     return result(true, "actor_invalidated");
 }
 
 Value Host::advance() {
     if (!owned_) return result(false, "not_initialized");
-    const auto tick = owned_->world->tick();
+    const auto tick = owned_->world->tick(observe());
     if (tick.error != world::TransactionError::none) return result(false, "native_step_failed");
+    if (!settle_manual_cuts()) return result(false, "native_step_failed");
     return projection();
 }
 
 Value Host::advance_tick_fields() {
     if (!owned_) return result(false, "not_initialized");
-    const auto tick = owned_->world->tick();
+    const auto tick = owned_->world->tick(observe());
     if (tick.error != world::TransactionError::none) return result(false, "native_step_failed");
+    if (!settle_manual_cuts()) return result(false, "native_step_failed");
     return Value(tick_fields(owned_->world->snapshot()));
+}
+
+bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) {
+    if (!owned_->world->has_manual_cuts()) return true;
+    const auto snapshot = owned_->world->snapshot();
+    for (const auto& [actor, cut] : snapshot.state.manual_cuts) {
+        if (observed_actor && actor != *observed_actor) continue;
+        const bool ore = profile_.material.manual_ore &&
+            profile_.material.manual_ore->id == cut.target;
+        const auto tree = profile_.material.timber_sites.find(cut.target);
+        if (!ore && tree == profile_.material.timber_sites.end()) return false;
+        const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
+        const authority::Point target{
+            center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0],
+            center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1],
+            center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2]};
+        const auto sampled = observe()(actor);
+        auto actor_cut = sampled.value_or(authority::ActorCut{});
+        actor_cut.build_reach = profile_.build_reach;
+        const bool lost_reach = !sampled || authority::check_reach(actor, actor_cut,
+            {target}).error != authority::Error::none;
+        const bool interrupted = cut.interrupted_revision != 0 || lost_reach;
+        if (!interrupted && cut.remaining_ticks != 0) continue;
+        const Object wire{{"context", Value(snapshot.history.context)},
+            {"client", Value(actor)},
+            {"request", Value(std::string("native-cut-") +
+                (interrupted ? "cancel-" : "finish-") + actor +
+                "-" + std::to_string(cut.start_revision))},
+            {"action", Value(interrupted ? "cancel_harvest" : "finish_harvest")}};
+        Object normalized = wire;
+        normalized.emplace("actor", Value(actor));
+        normalized.emplace("wire", Value(wire));
+        const auto delivered = owned_->world->command({actor, actor}, normalized, observe());
+        if (!delivered.completed()) return false;
+        if (!interrupted && !*field<bool>(*delivered.result, "accepted")) {
+            // A changed custody or reach condition can refuse contact after
+            // its final tick. Release the source instead of retrying a ready
+            // cut forever under the same request identity.
+            Object cancel_wire{{"context", Value(snapshot.history.context)},
+                {"client", Value(actor)},
+                {"request", Value("native-cut-cancel-" + actor + "-" +
+                    std::to_string(cut.start_revision))},
+                {"action", Value("cancel_harvest")}};
+            Object cancel = cancel_wire;
+            cancel.emplace("actor", Value(actor));
+            cancel.emplace("wire", Value(cancel_wire));
+            const auto canceled = owned_->world->command({actor, actor}, cancel, observe());
+            if (!canceled.completed() || !*field<bool>(*canceled.result, "accepted")) return false;
+        }
+    }
+    return true;
 }
 
 Object Host::tick_fields(const world::Snapshot& snapshot) const {
     const auto& state = snapshot.state;
     const bool copper = copper_forms(profile_.material);
+    Object manual_cuts, cargo;
+    for (const auto& [actor, cut] : state.manual_cuts)
+        manual_cuts.emplace(actor, Value(Object{{"target", Value(cut.target)},
+            {"remaining_ticks", Value(cut.remaining_ticks)},
+            {"duration_ticks", Value(world::manual_cut_ticks)},
+            {"interrupted", Value(cut.interrupted_revision != 0)}}));
+    for (const auto& [actor, contents] : state.material.cargo)
+        cargo.emplace(actor, cargo_value(contents,
+            profile_.material.manual_ore.has_value() || !profile_.material.timber_sites.empty(), copper));
     Array dropped_material;
     for (const auto& [point, contents] : state.material.dropped_material) {
         auto drop = std::get<Object>(cargo_value(contents, false, copper).storage());
@@ -2366,6 +2438,9 @@ Object Host::tick_fields(const world::Snapshot& snapshot) const {
         {"output", Value(stock.output)}, {"player", Value(player)}};
     if (copper) stock_fields.emplace("offcuts", Value(stock.offcuts));
     Object fields{{"revision", Value(snapshot.revision)},
+        {"order", Value(snapshot.history.order)},
+        {"manual_cuts", Value(std::move(manual_cuts))},
+        {"cargo", Value(std::move(cargo))},
         {"belt_spans", Value(std::move(belt_spans))}, {"line_belt_raw", Value(belt_raw_units)},
         {"dropped_material", Value(std::move(dropped_material))},
         {"stock", Value(std::move(stock_fields))},
@@ -2397,7 +2472,7 @@ Value Host::projection() const {
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
     const auto support_layout = transmission_supports(state);
-    Object entities, transmissions, inventories, cargo, kits, specifications, actors, foundations;
+    Object entities, transmissions, inventories, cargo, kits, specifications, actors, foundations, manual_cuts;
     Array links, drive_links, engagements;
     for (const auto& part : state.topology.parts) {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
@@ -2506,6 +2581,11 @@ Value Host::projection() const {
     for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
         {"position", point_value(sample.position)}, {"capabilities", Value(Object{{"build_reach", Value(reach)}})},
         {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)}}));
+    for (const auto& [actor, cut] : state.manual_cuts)
+        manual_cuts.emplace(actor, Value(Object{{"target", Value(cut.target)},
+            {"remaining_ticks", Value(cut.remaining_ticks)},
+            {"duration_ticks", Value(world::manual_cut_ticks)},
+            {"interrupted", Value(cut.interrupted_revision != 0)}}));
     Array mineral_cells;
     for (const auto& cell : mineral_site::opening_cells)
         mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
@@ -2524,6 +2604,7 @@ Value Host::projection() const {
         {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},
         {"part_specifications", Value(std::move(specifications))},
         {"parts", Value(std::move(player_parts))}, {"actors", Value(std::move(actors))},
+        {"manual_cuts", Value(std::move(manual_cuts))},
         {"foundations", Value(std::move(foundations))},
         {"source_deposit", Value(Object{{"id", Value(profile_.material.manual_ore ?
             profile_.material.manual_ore->id : std::string{})},

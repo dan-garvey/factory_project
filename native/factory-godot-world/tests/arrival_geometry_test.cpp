@@ -94,7 +94,8 @@ void construction_and_restore() {
         extra.emplace("client", V("P"));
         extra.emplace("request", V("solid-" + std::to_string(++sequence)));
         extra.emplace("action", V(action));
-        return host.command("P", extra);
+        return std::string(action) == "harvest_source" ?
+            factory::godot_world::tests::complete_manual_cut(host, "P", extra) : host.command("P", extra);
     };
     const auto material = [&]() {
         return std::get<O>(std::get<O>(std::get<O>(host.checkpoint().storage()).at("world").storage())

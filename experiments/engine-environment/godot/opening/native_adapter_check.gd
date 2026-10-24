@@ -117,7 +117,20 @@ func _issue(action: Dictionary) -> Dictionary:
 
 func _construct(action: Dictionary) -> Dictionary:
 	var reply := _issue(action)
-	return reply if _expect(reply.get("accepted", false), "The current immersed route admits " + str(action)) else {}
+	if not _expect(reply.get("accepted", false), "The current immersed route admits " + str(action)):
+		return {}
+	if action.get("action") == "harvest_source":
+		var source_id: String = str(action.get("target", ""))
+		var before: int = int(opening.model.projection().get("hand_sources", {}).get(source_id, {}).get("remaining", -1))
+		var cut: Dictionary = opening.model.projection().get("manual_cuts", {}).get("P", {})
+		for tick in range(int(cut.get("duration_ticks", 0))):
+			opening.model.advance()
+		opening._refresh()
+		if not _expect(not opening.state.get("manual_cuts", {}).has("P") and
+			int(opening.state.get("hand_sources", {}).get(source_id, {}).get("remaining", -1)) == before - 1,
+			"Trusted native ticks finish exactly one held source cut"):
+			return {}
+	return reply
 
 func _guided_die_y(ram_id: String) -> float:
 	for anchor: Node in opening.transmission_presenter.get_children():
@@ -2094,8 +2107,7 @@ func _arrival_run() -> void:
 	var raised: bool = mode == "arrival-raised-press"
 	opening._open_object_menu_for(str(pod_state.fabrication_hub.id))
 	if not _expect(opening._object_menu_open() and panel.is_visible_in_tree()
-			and not panel.craft_button.disabled and "3 timber" in panel.recipe_label.text
-			and "0 / 20 parts carried" in panel.recipe_label.text,
+			and not panel.craft_button.disabled and "3 timber" in panel.recipe_label.text,
 			"Opening the pod workshop exposes the current carried recipe and craft action"):
 		return
 	var empty_before: Dictionary = opening.model.projection()

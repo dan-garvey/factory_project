@@ -112,6 +112,9 @@ public:
     // Return an owned copy. No public method exposes a mutable live borrow.
     // Copy failures propagate without modifying the owner.
     [[nodiscard]] Snapshot snapshot() const { return *current_; }
+    // Read only during the owning thread's current operation. A later command
+    // or tick may replace this snapshot.
+    [[nodiscard]] const Snapshot& snapshot_ref() const noexcept { return *current_; }
     [[nodiscard]] authority::Integer current_revision() const noexcept {
         return current_->revision;
     }

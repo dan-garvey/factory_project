@@ -301,16 +301,22 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
         if (!std::holds_alternative<Value>(material)) refuse(CheckpointReason::invalid_material, "$.state.material");
         auto history = authority::encode_history(snapshot.history, snapshot.revision);
         if (!history.value) refuse(CheckpointReason::invalid_history, "$.history");
-        Object kits, issued;
+        Object kits, issued, manual_cuts;
         for (const auto& [actor, kit] : snapshot.state.kits) kits.emplace(actor, kit_value(kit));
         for (const auto& [id, generation] : snapshot.state.issued_entities) issued.emplace(id, Value(generation));
+        for (const auto& [actor, cut] : snapshot.state.manual_cuts)
+            manual_cuts.emplace(actor, Value(Object{{"target", Value(cut.target)},
+                {"start_revision", Value(cut.start_revision)},
+                {"remaining_ticks", Value(cut.remaining_ticks)},
+                {"interrupted_revision", Value(cut.interrupted_revision)}}));
         Value output(Object{
-            {"schema", Value(Integer{13})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{14})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
                 {"issued_entities", Value(std::move(issued))},
-                {"next_entity_serial", Value(snapshot.state.next_entity_serial)}})}});
+                {"next_entity_serial", Value(snapshot.state.next_entity_serial)},
+                {"manual_cuts", Value(std::move(manual_cuts))}})}});
         if (profile.foundation_parts > 0) {
             Object foundations, foundation_kits;
             for (const auto& [id, foundation] : snapshot.state.foundations)
@@ -420,7 +426,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 13) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 14) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -430,10 +436,22 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
-            fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits"}) :
+            fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts"});
+        const auto& cut_records = object(state.at("manual_cuts"), "$.state.manual_cuts");
+        if (cut_records.size() > profile.actors.size())
+            refuse(CheckpointReason::limit, "$.state.manual_cuts");
+        for (const auto& [actor, value] : cut_records) {
+            const auto& entry = fields(value, "$.state.manual_cuts",
+                {"target", "start_revision", "remaining_ticks", "interrupted_revision"});
+            candidate.state.manual_cuts.emplace(actor, State::ManualCut{
+                scalar<std::string>(entry.at("target"), "$.state.manual_cuts.target"),
+                integer(entry, "start_revision", "$.state.manual_cuts"),
+                integer(entry, "remaining_ticks", "$.state.manual_cuts"),
+                integer(entry, "interrupted_revision", "$.state.manual_cuts")});
+        }
         if (profile.landing_pod_center) {
             const auto& pod = fields(state.at("landing_pod"), "$.state.landing_pod", {"id", "center", "generation"});
             const auto& center = array(pod.at("center"), "$.state.landing_pod.center", 3);

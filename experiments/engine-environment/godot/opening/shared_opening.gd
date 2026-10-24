@@ -275,7 +275,8 @@ func _settle_pending() -> void:
 				selected = result.entity
 			elif item.action.action in ["remove", "remove_belt_span"] and selected == result.entity:
 				selected = ""
-			_message(_harvest_result_text(result) if item.action.action == "harvest_source" else {"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
+			if item.action.action != "harvest_source" or state.get("manual_cuts", {}).has(client):
+				_message(_harvest_result_text(result) if item.action.action == "harvest_source" else {"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 				"craft_component": "Component crafted from carried material.", "field_craft": "Wooden component shaped with your multitool.",
 				"craft_part": "Transmission kit made from carried timber and softmetal.",
 				"place_component": "Component placed on the shared grid.", "reclaim_component": "Component returned to your carried cargo.",

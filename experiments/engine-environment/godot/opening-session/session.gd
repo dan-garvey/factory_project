@@ -40,6 +40,7 @@ var _sent: Dictionary = {}
 var _bindings: Dictionary = {}
 var _roles: Dictionary = {}
 var _tick_seconds := 0.45
+var _frozen_cut_pending := false
 var _elapsed := 0.0
 # Optional test-only SERVER-local barriers. No client-facing RPC controls them.
 var admission_hold_path := ""
@@ -322,6 +323,18 @@ func _process(delta: float) -> void:
 		return
 	_flush_local_barriers()
 	if _tick_seconds <= 0.0:
+		# Frozen-clock fixtures still need native time for a player-initiated
+		# finite cut. The World remains the only material and timer authority.
+		if _native_authority and _frozen_cut_pending:
+			var before_cut: Dictionary = world.projection()
+			_frozen_cut_pending = not before_cut.get("manual_cuts", {}).is_empty()
+			if _frozen_cut_pending:
+				world.advance()
+				tick_count += 1
+				var cut_frame := _frame()
+				_frozen_cut_pending = not cut_frame.snapshot.get("manual_cuts", {}).is_empty()
+				if cut_frame.snapshot.revision != _full_revision or cut_frame.snapshot.order != _full_order:
+					_broadcast(cut_frame)
 		return
 	_elapsed += delta
 	while _elapsed >= _tick_seconds:
@@ -454,6 +467,8 @@ func _admit(item: Dictionary) -> void:
 	result["client"] = binding.actor
 	result["request"] = request if request is String and request.length() <= 128 else ""
 	var frame := _frame()
+	if _native_authority and _tick_seconds <= 0.0:
+		_frozen_cut_pending = not frame.snapshot.get("manual_cuts", {}).is_empty()
 	var envelope := result.duplicate(true)
 	envelope["snapshot"] = frame.snapshot
 	envelope["serial"] = frame.serial

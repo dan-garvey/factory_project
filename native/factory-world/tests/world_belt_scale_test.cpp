@@ -1,4 +1,5 @@
 #include "factory/checkpoint.hpp"
+#include "native/factory-world/tests/harvest_fixture.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -69,7 +70,9 @@ int main(int argc, char** argv) {
         return factory::authority::ActorCut{actor, {0, 0, 0}, 1, true, 100};
     };
     const auto issue = [&](const V::Object& intent) {
-        const auto result = world->command({"P", "P-client"}, intent, nearby);
+        const auto result = std::get<std::string>(intent.at("action").storage()) == "harvest_source" ?
+            w::tests::complete_manual_cut(*world, {"P", "P-client"}, intent, nearby) :
+            world->command({"P", "P-client"}, intent, nearby);
         return result.completed() && result.result &&
             std::get<bool>(result.result->at("accepted").storage());
     };

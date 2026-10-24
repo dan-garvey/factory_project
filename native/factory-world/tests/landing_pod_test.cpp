@@ -1,4 +1,5 @@
 #include "factory/checkpoint.hpp"
+#include "native/factory-world/tests/harvest_fixture.hpp"
 
 #include <array>
 #include <iostream>
@@ -90,7 +91,7 @@ void field_wood_shaping_keeps_actor_custody() {
         const O cut{{"context", V("field-shaping")}, {"client", V("P-client")},
             {"request", V("cut-" + std::to_string(index))}, {"actor", V("P")},
             {"action", V("harvest_source")}, {"target", V("field-tree")}};
-        const auto result = world->command({"P", "P-client"}, cut, field);
+        const auto result = w::tests::complete_manual_cut(*world, {"P", "P-client"}, cut, field);
         check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
               "The field actor cuts one named finite timber at a time.");
     }
@@ -375,7 +376,7 @@ void reachable_craft_uses_one_hub_and_owned_ingredients() {
         const O harvest{{"context", V("pod-craft")}, {"client", V("P-client")},
             {"request", V("tree-" + std::to_string(cut))}, {"actor", V("P")},
             {"action", V("harvest_source")}, {"target", V("tree-near-hub")}};
-        const auto result = world->command({"P", "P-client"}, harvest, near);
+        const auto result = w::tests::complete_manual_cut(*world, {"P", "P-client"}, harvest, near);
         check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
               "Each reachable cut supplies one carried timber from a named tree.");
     }
@@ -423,7 +424,7 @@ void reachable_craft_uses_one_hub_and_owned_ingredients() {
     const O more_wood{{"context", V("pod-craft")}, {"client", V("P-client")},
         {"request", V("fourth-tree")}, {"actor", V("P")},
         {"action", V("harvest_source")}, {"target", V("tree-near-hub")}};
-    const auto fourth_cut = world->command({"P", "P-client"}, more_wood, near);
+    const auto fourth_cut = w::tests::complete_manual_cut(*world, {"P", "P-client"}, more_wood, near);
     check(fourth_cut.completed() && std::get<bool>(fourth_cut.result->at("accepted").storage()),
           "One more physical cut supplies a second potential recipe input.");
     auto full_craft = craft;
@@ -475,7 +476,10 @@ void placed_components_keep_custody_and_history() {
     const auto send = [&](const O& request, w::ObserveActor pose = {}) {
         const auto actor = std::get<std::string>(request.at("actor").storage());
         const auto client = std::get<std::string>(request.at("client").storage());
-        return world->command({actor, client}, request, pose ? pose : w::ObserveActor(near));
+        const auto observed = pose ? pose : w::ObserveActor(near);
+        return std::get<std::string>(request.at("action").storage()) == "harvest_source" ?
+            w::tests::complete_manual_cut(*world, {actor, client}, request, observed) :
+            world->command({actor, client}, request, observed);
     };
     for (int cut = 0; cut < 3; ++cut) {
         const O harvest{{"context", V("placed-chapter")}, {"client", V("P-client")},
@@ -658,10 +662,12 @@ void portable_bench_crafts_with_finite_shared_stock() {
     const auto send = [&](const O& intent, std::array<double, 3> position) {
         const auto actor = std::get<std::string>(intent.at("actor").storage());
         const auto client = std::get<std::string>(intent.at("client").storage());
-        return world->command({actor, client}, intent,
-            [position](const std::string& observed) -> std::optional<a::ActorCut> {
-                return a::ActorCut{observed, position, 1, true, 6};
-            });
+        const w::ObserveActor observe = [position](const std::string& observed) -> std::optional<a::ActorCut> {
+            return a::ActorCut{observed, position, 1, true, 6};
+        };
+        return std::get<std::string>(intent.at("action").storage()) == "harvest_source" ?
+            w::tests::complete_manual_cut(*world, {actor, client}, intent, observe) :
+            world->command({actor, client}, intent, observe);
     };
     for (int index = 0; index < 4; ++index) {
         const O cut{{"context", V("portable-bench")}, {"client", V("P-client")},

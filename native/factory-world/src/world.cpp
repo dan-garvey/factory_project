@@ -154,6 +154,7 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "place_sheet") return keys(intent, {"center", "sheet_id"}) &&
         field<Value::Array>(intent, "center") && field<Integer>(intent, "sheet_id");
     if (action == "harvest_source") return keys(intent, {"target"}) && field<std::string>(intent, "target");
+    if (action == "finish_harvest" || action == "cancel_harvest") return keys(intent, {});
     if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
         field<std::string>(intent, "component");
@@ -563,6 +564,15 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
                       const std::optional<FabricationHub>& hub) {
     if (action == "shaft_between" || action == "remove_shaft_between") return false;
     const auto& result = record.result;
+    if (action == "cancel_harvest") {
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* result_actor = field<std::string>(result, "actor");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* reason = field<std::string>(result, "reason");
+        return entity && !entity->empty() && result_actor && *result_actor == actor &&
+            generation && *generation == 0 && reason && *reason == "ok" &&
+            result.size() == 11;
+    }
     const auto* reason = field<std::string>(result, "reason");
     const auto* epoch = field<Integer>(result, "native_epoch");
     const auto* reach = field<double>(result, "build_reach");
@@ -708,19 +718,22 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             *generation == 0 && targets == broad_reach_targets(profile, *origin) &&
             result.size() == 18;
     }
-    if (action == "harvest_source") {
-        const auto* id = field<std::string>(record.intent, "target");
+    if (action == "harvest_source" || action == "finish_harvest") {
+        const auto* id = action == "harvest_source" ?
+            field<std::string>(record.intent, "target") : field<std::string>(result, "entity");
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
         const auto* raw = field<Integer>(result, "moved_raw");
         const auto* timber = field<Integer>(result, "moved_timber");
         if (!id || !entity || *entity != *id || !generation || *generation != 1 ||
             !raw || !timber || result.size() != 18) return false;
+        const bool starting = action == "harvest_source";
         if (profile.material.manual_ore && *id == profile.material.manual_ore->id)
-            return *raw == 1 && *timber == 0 &&
+            return *raw == (starting ? 0 : 1) && *timber == 0 &&
                 targets.front() == anchor(profile, profile.material.manual_ore->center);
         const auto found = profile.material.timber_sites.find(*id);
-        return found != profile.material.timber_sites.end() && *raw == 0 && *timber == 1 &&
+        return found != profile.material.timber_sites.end() && *raw == 0 &&
+            *timber == (starting ? 0 : 1) &&
             targets.front() == anchor(profile, found->second.center);
     }
     if (action == "craft_component") {
@@ -1226,6 +1239,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
         }
     }
+    const auto elapsed_cut_ticks = [&](Integer start, Integer end) -> Integer {
+        if (end < start) return -1;
+        Integer ticks = end - start;
+        for (auto found = command_revisions.upper_bound(start);
+             found != command_revisions.end() && *found <= end; ++found) --ticks;
+        return ticks;
+    };
     for (const auto& [id, witness] : snapshot.state.press_progress) {
         if (id <= 0 || id >= snapshot.state.material.next_work_id ||
             witness.automatic_transitions.size() >
@@ -1601,6 +1621,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         return true;
     };
     std::optional<std::string> crank_holder;
+    struct HistoricalCut { std::string target; Integer start_revision{}; };
+    std::map<std::string, HistoricalCut> historical_cuts;
     for (const auto& record : snapshot.history.records) {
         const auto* actor = field<std::string>(record.intent, "actor");
         const auto* action = field<std::string>(record.intent, "action");
@@ -1645,7 +1667,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto* generation = field<Integer>(record.result, "generation");
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
         if (*action != "pickup_material" && *action != "place_sheet" &&
-            *action != "harvest_source" && *action != "field_craft") {
+            *action != "harvest_source" && *action != "finish_harvest" &&
+            *action != "cancel_harvest" && *action != "field_craft") {
             const auto issued = snapshot.state.issued_entities.find(*entity);
             if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
         }
@@ -1670,6 +1693,23 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         }
         if (!historical_facts(profile, record, *actor, *action, placed_components, historical_hub)) {
             return false;
+        }
+        const auto prior_cut = historical_cuts.find(*actor);
+        if (prior_cut != historical_cuts.end() && *action != "finish_harvest" &&
+            *action != "cancel_harvest") return false;
+        if (*action == "harvest_source") {
+            const auto& target = *field<std::string>(record.intent, "target");
+            if (std::any_of(historical_cuts.begin(), historical_cuts.end(),
+                    [&](const auto& entry) { return entry.second.target == target; })) return false;
+            historical_cuts.emplace(*actor, HistoricalCut{target, *result_revision});
+        }
+        if (*action == "finish_harvest" || *action == "cancel_harvest") {
+            if (prior_cut == historical_cuts.end() ||
+                prior_cut->second.target != *entity) return false;
+            if (*action == "finish_harvest" &&
+                elapsed_cut_ticks(prior_cut->second.start_revision,
+                    *result_revision - 1) < manual_cut_ticks) return false;
+            historical_cuts.erase(prior_cut);
         }
         if (*action == "stow_fabrication_hub") historical_hub->holder = *actor;
         if (*action == "deploy_fabrication_hub") {
@@ -1698,8 +1738,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 return false;
             carried_timber[*actor] -= foundation_timber_cost;
         }
-        if (*action == "harvest_source") {
-            const auto& id = *field<std::string>(record.intent, "target");
+        if (*action == "finish_harvest") {
+            const auto& id = *entity;
             if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
                 if (!add(harvested_ore, 1) ||
                     (profile.landing_pod_center && !add(carried_raw[*actor], 1))) return false;
@@ -2521,6 +2561,23 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
         }
     }
+    if (historical_cuts.size() != snapshot.state.manual_cuts.size()) return false;
+    for (const auto& [actor, expected] : historical_cuts) {
+        const auto current = snapshot.state.manual_cuts.find(actor);
+        if (current == snapshot.state.manual_cuts.end() ||
+            current->second.target != expected.target ||
+            current->second.start_revision != expected.start_revision) return false;
+        const auto& pending = current->second;
+        const auto end = pending.interrupted_revision == 0 ?
+            snapshot.revision : pending.interrupted_revision - 1;
+        if (pending.interrupted_revision != 0 &&
+            (pending.interrupted_revision <= pending.start_revision ||
+             pending.interrupted_revision > snapshot.revision ||
+             command_revisions.contains(pending.interrupted_revision))) return false;
+        const auto elapsed = elapsed_cut_ticks(pending.start_revision, end);
+        if (elapsed < 0 || pending.remaining_ticks !=
+                std::max<Integer>(0, manual_cut_ticks - elapsed)) return false;
+    }
     if (snapshot.revision < history_revision) return false;
     if (!replay_broad_ticks(history_revision + 1, snapshot.revision)) return false;
     ticks_seen += snapshot.revision - history_revision;
@@ -3230,6 +3287,20 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     for (const auto& actor : profile.actors) if (!identity(actor)) return false;
     for (const auto coordinate : profile.anchor_offset) if (!std::isfinite(coordinate)) return false;
     const auto& state = snapshot.state;
+    if (state.manual_cuts.size() > profile.actors.size()) return false;
+    std::set<std::string> occupied_sources;
+    for (const auto& [actor, cut] : state.manual_cuts) {
+        if (!profile.actors.contains(actor) ||
+            (!(profile.material.manual_ore && profile.material.manual_ore->id == cut.target) &&
+                !profile.material.timber_sites.contains(cut.target)) ||
+            !occupied_sources.insert(cut.target).second ||
+            cut.start_revision < 1 || cut.start_revision > snapshot.revision ||
+            cut.remaining_ticks < 0 || cut.remaining_ticks > manual_cut_ticks ||
+            (cut.interrupted_revision != 0 &&
+                (cut.interrupted_revision <= cut.start_revision ||
+                 cut.interrupted_revision > snapshot.revision)))
+            return false;
+    }
     if (state.landing_pod.has_value() != profile.landing_pod_center.has_value()) return false;
     if (state.fabrication_hub.has_value() != profile.landing_pod_center.has_value()) return false;
     if (state.freight_beacon.has_value() != profile.landing_pod_center.has_value()) return false;
@@ -3530,6 +3601,50 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto* action = field<std::string>(intent, "action");
     if (!action || !shape(intent, *action)) return refused("invalid_command");
     const auto& state = snapshot.state;
+    const auto pending = state.manual_cuts.find(binding.actor);
+    if (pending != state.manual_cuts.end() && *action != "finish_harvest" &&
+        *action != "cancel_harvest") return refused("actor_busy", pending->second.target);
+    if (*action == "cancel_harvest") {
+        if (pending == state.manual_cuts.end()) return refused("no_active_cut");
+        auto candidate = state;
+        const auto target = pending->second.target;
+        candidate.manual_cuts.erase(binding.actor);
+        return accepted(std::move(candidate), target,
+            {{"actor", Value(binding.actor)}, {"generation", Value(Integer{0})}});
+    }
+    if (*action == "finish_harvest") {
+        if (pending == state.manual_cuts.end()) return refused("no_active_cut");
+        const auto target = pending->second.target;
+        if (pending->second.interrupted_revision != 0)
+            return refused("cut_interrupted", target);
+        if (pending->second.remaining_ticks != 0)
+            return refused("cut_in_progress", target);
+        const bool ore = profile_.material.manual_ore &&
+            profile_.material.manual_ore->id == target;
+        const auto tree = profile_.material.timber_sites.find(target);
+        if (!ore && tree == profile_.material.timber_sites.end())
+            return refused("unknown_target", target);
+        const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", target);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), target, std::move(facts));
+        auto candidate = state;
+        const auto error = materials::harvest_source(candidate.material, profile_.material,
+            material_path(candidate.topology), binding.actor, target);
+        if (error != materials::Error::none)
+            return refused(materials::error_name(error), target, std::move(facts));
+        candidate.manual_cuts.erase(binding.actor);
+        facts.emplace("generation", Value(Integer{1}));
+        facts.emplace("moved_raw", Value(Integer{ore ? 1 : 0}));
+        facts.emplace("moved_timber", Value(Integer{ore ? 0 : 1}));
+        return accepted(std::move(candidate), target, std::move(facts));
+    }
     if (*action == "select_belt_shaft") {
         const auto* id = field<std::string>(intent, "target");
         const auto* generation = field<Integer>(intent, "generation");
@@ -3694,13 +3809,19 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
+        if (std::any_of(state.manual_cuts.begin(), state.manual_cuts.end(),
+                [&](const auto& entry) { return entry.second.target == *id; }))
+            return refused("source_busy", *id, std::move(facts));
         auto candidate = state;
         const auto error = materials::harvest_source(candidate.material, profile_.material,
             material_path(candidate.topology), binding.actor, *id);
         if (error != materials::Error::none) return refused(materials::error_name(error), *id, std::move(facts));
+        candidate = state;
+        candidate.manual_cuts.emplace(binding.actor, State::ManualCut{
+            *id, snapshot.revision + 1, manual_cut_ticks, 0});
         facts.emplace("generation", Value(Integer{1}));
-        facts.emplace("moved_raw", Value(Integer{ore ? 1 : 0}));
-        facts.emplace("moved_timber", Value(Integer{ore ? 0 : 1}));
+        facts.emplace("moved_raw", Value(Integer{0}));
+        facts.emplace("moved_timber", Value(Integer{0}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "field_craft") {
@@ -4827,11 +4948,31 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     return accepted(std::move(candidate), std::move(entity), std::move(facts));
 }
 
-Advance World::tick() noexcept {
+Advance World::tick(const ObserveActor& observe) noexcept {
     const Snapshot* prior = nullptr;
     return owner_->advance_retaining_history([&](const Snapshot& snapshot) -> std::optional<State> {
         prior = &snapshot;
         auto candidate = snapshot.state;
+        for (auto& [actor, pending] : candidate.manual_cuts) {
+            if (pending.interrupted_revision != 0) continue;
+            const bool ore = profile_.material.manual_ore &&
+                profile_.material.manual_ore->id == pending.target;
+            const auto tree = profile_.material.timber_sites.find(pending.target);
+            if (!ore && tree == profile_.material.timber_sites.end())
+                throw materials::Error::invalid_state;
+            const bool depleted = ore ? candidate.material.stock.source == 0 :
+                candidate.material.timber_remaining.at(pending.target) == 0;
+            const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
+            const auto cut = observe ? observe(actor) : std::nullopt;
+            auto checked_cut = cut.value_or(authority::ActorCut{});
+            checked_cut.build_reach = profile_.build_reach;
+            const auto checked = cut ? authority::check_reach(actor, checked_cut,
+                {anchor(profile_, center)}) : authority::ReachResult{authority::Error::actor_unready, {}};
+            if (depleted || checked.error != authority::Error::none)
+                pending.interrupted_revision = snapshot.revision + 1;
+            else if (pending.remaining_ticks > 0)
+                --pending.remaining_ticks;
+        }
         // Material stepping changes custody, not the placed power graph. Reuse
         // its drive across ticks until a command or refusal invalidates it.
         if (!tick_layout_) tick_layout_ = std::make_unique<TickLayout>(assembly_parts(candidate),
@@ -5413,7 +5554,8 @@ Advance World::tick() noexcept {
                 }
             }
         }
-        if (candidate.material == snapshot.state.material) return std::nullopt;
+        if (candidate.material == snapshot.state.material &&
+            candidate.manual_cuts == snapshot.state.manual_cuts) return std::nullopt;
         return candidate;
     }, [&](const Snapshot& candidate) {
         // Tick changes material and work bookkeeping, never topology or placed

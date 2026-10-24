@@ -928,8 +928,9 @@ func _multitool_controls() -> void:
 		verify(view.state == before and view.model == null and view.request_sequence == 0,
 			"Presentation and request selection do not debit local stock or create a Model.")
 		verify(view._harvest_result_text({"moved_timber": 1, "moved_raw": 0}) == "Collected 1 timber."
-			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 1}) == "Collected 1 softmetal blank.",
-			"Success text reports actual native moved quantities for both resource kinds.")
+			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 1}) == "Collected 1 softmetal blank."
+			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 0}) == "Cutting…",
+			"The start receipt is not mislabeled as collected stock; contact reports actual moved quantities.")
 		verify("depleted" in view._material_refusal_message({"reason": "unavailable_source"}, "fallback")
 			and "full" in view._material_refusal_message({"reason": "inventory_full"}, "fallback"),
 			"Native stock and capacity refusals retain actionable advice.")

@@ -100,6 +100,8 @@ func until(predicate: Callable, message: String) -> bool:
 	return ok
 
 func issue(action: Dictionary) -> Dictionary:
+	var source_id: String = str(action.get("target", "")) if action.get("action") == "harvest_source" else ""
+	var source_before: int = int(session.projection().get("hand_sources", {}).get(source_id, {}).get("remaining", -1))
 	var queued: Dictionary = session.submit(action)
 	verify(queued.get("queued", false), "A client request must enter the Session transport")
 	if not queued.get("queued", false): return {}
@@ -107,6 +109,10 @@ func issue(action: Dictionary) -> Dictionary:
 	if not await until(func(): return replies.has(request), "The authority must answer " + request): return {}
 	var result: Dictionary = replies[request]
 	replies.erase(request)
+	if result.get("accepted", false) and source_before >= 0:
+		if not await until(func(): return int(session.projection().get("hand_sources", {}).get(source_id, {}).get("remaining", -1)) == source_before - 1,
+			"Trusted server time completes one finite source cut"):
+			return {}
 	return result
 
 func pose(x: float, z: float) -> bool:

@@ -1,4 +1,5 @@
 #include "factory/checkpoint.hpp"
+#include "native/factory-world/tests/harvest_fixture.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -87,7 +88,9 @@ V::Object accepted(w::World& world, const V::Object& intent) {
     const w::ObserveActor nearby = [](const std::string& actor) -> std::optional<a::ActorCut> {
         return a::ActorCut{actor, {0, 0, 0}, 1, true, 100};
     };
-    const auto result = world.command({"P", "P-client"}, intent, nearby);
+    const auto result = std::get<std::string>(intent.at("action").storage()) == "harvest_source" ?
+        w::tests::complete_manual_cut(world, {"P", "P-client"}, intent, nearby) :
+        world.command({"P", "P-client"}, intent, nearby);
     if (!result.completed() || !result.result || !std::get<bool>(result.result->at("accepted").storage()))
         throw std::runtime_error("Setup action " + std::get<std::string>(intent.at("request").storage()) +
             " refused: " + (result.result ? std::get<std::string>(result.result->at("reason").storage()) : "no outcome"));
@@ -206,6 +209,11 @@ void transfers_only_to_outward_belt() {
     full.profile.initial_units = full.state.material.initial_units = 3;
     full.state.material.stock.source = 3;
     auto blocked = prepared(full);
+    auto pause = request("pause-inlet-for-hand-cut", "set_drive");
+    pause.emplace("target", V("wheel"));
+    pause.emplace("generation", V(g::Integer{1}));
+    pause.emplace("enabled", V(false));
+    accepted(*blocked, pause);
     auto extra = request("extra-ore", "harvest_source");
     extra.emplace("target", V("ore"));
     accepted(*blocked, extra);
@@ -216,6 +224,11 @@ void transfers_only_to_outward_belt() {
     load.emplace("item", V("raw"));
     load.emplace("work_id", V(g::Integer{0}));
     accepted(*blocked, load);
+    auto resume = request("resume-occupied-inlet", "set_drive");
+    resume.emplace("target", V("wheel"));
+    resume.emplace("generation", V(g::Integer{1}));
+    resume.emplace("enabled", V(true));
+    accepted(*blocked, resume);
     check(w::World::restore("collector-belt", full.profile, blocked->snapshot()) != nullptr,
           "A saved belt load restores after spending one actor-carried raw unit.");
     check(blocked->tick().error == w::TransactionError::none &&
@@ -432,11 +445,11 @@ void powers_two_modular_collectors_with_distinct_custody() {
     duplicate.collector_faces.push_back(duplicate.collector_faces.front());
     check(w::World::restore("collector-belt", duplicate, saved) == nullptr,
           "A duplicate trusted face cannot create a second claim on the same collector.");
-    pickup.at("request") = V("empty-first-before-ambiguity");
-    accepted(*world, pickup);
     auto harvest = request("wood-for-ambiguous-shaft", "harvest_source");
     harvest.emplace("target", V("tree"));
     accepted(*world, harvest);
+    pickup.at("request") = V("empty-first-before-ambiguity");
+    accepted(*world, pickup);
     auto craft = request("craft-ambiguous-shaft", "craft_component");
     craft.emplace("target", V("pod-fabrication-hub"));
     craft.emplace("generation", V(g::Integer{1}));

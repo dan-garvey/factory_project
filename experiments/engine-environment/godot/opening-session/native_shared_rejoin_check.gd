@@ -42,6 +42,12 @@ func _chapter_ui_call(label: String, expected: Dictionary, callback: Callable) -
 			and opening.state.order >= result.order and session.world == null and opening.actor_world == null,
 		label + " preserves its literal command and one native decision without client authority"):
 		return {}
+	if expected.get("action") == "harvest_source":
+		var source_id: String = str(expected.get("target", ""))
+		var before_stock: int = int(before.get("hand_sources", {}).get(source_id, {}).get("remaining", -1))
+		if not await _until(func(): return int(session.projection().get("hand_sources", {}).get(source_id, {}).get("remaining", -1)) == before_stock - 1,
+			label + " reaches native contact before the next player action"):
+			return {}
 	return result
 
 func _chapter_ui_walk(target: Vector2) -> bool:

@@ -54,14 +54,14 @@ cc_test(
 
 cc_test(
     name = "world_modular_scale_test",
-    srcs = ["tests/world_modular_scale_test.cpp"],
+    srcs = ["tests/world_modular_scale_test.cpp", "tests/harvest_fixture.hpp"],
     deps = [":checkpoint"],
     size = "medium",
 )
 
 cc_test(
     name = "world_belt_scale_test",
-    srcs = ["tests/world_belt_scale_test.cpp"],
+    srcs = ["tests/world_belt_scale_test.cpp", "tests/harvest_fixture.hpp"],
     deps = [":checkpoint"],
     size = "medium",
 )
@@ -90,7 +90,7 @@ cc_test(
 
 cc_test(
     name = "landing_pod_test",
-    srcs = ["tests/landing_pod_test.cpp"],
+    srcs = ["tests/landing_pod_test.cpp", "tests/harvest_fixture.hpp"],
     deps = [":checkpoint"],
     size = "small",
 )
@@ -104,21 +104,21 @@ cc_test(
 
 cc_test(
     name = "collector_belt_test",
-    srcs = ["tests/collector_belt_test.cpp"],
+    srcs = ["tests/collector_belt_test.cpp", "tests/harvest_fixture.hpp"],
     deps = [":checkpoint"],
     size = "small",
 )
 
 cc_test(
     name = "press_feed_world_test",
-    srcs = ["tests/press_feed_world_test.cpp"],
+    srcs = ["tests/press_feed_world_test.cpp", "tests/harvest_fixture.hpp"],
     deps = [":checkpoint"],
     size = "small",
 )
 
 cc_test(
     name = "press_offcut_line_test",
-    srcs = ["tests/press_offcut_line_test.cpp"],
+    srcs = ["tests/press_offcut_line_test.cpp", "tests/harvest_fixture.hpp"],
     deps = [":checkpoint"],
     size = "small",
 )

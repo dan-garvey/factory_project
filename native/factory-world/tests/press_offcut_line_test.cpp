@@ -1,4 +1,5 @@
 #include "factory/checkpoint.hpp"
+#include "native/factory-world/tests/harvest_fixture.hpp"
 
 #include <iostream>
 #include <memory>
@@ -116,7 +117,9 @@ struct Runner {
         const w::ObserveActor observe = [this](const std::string& selected) -> std::optional<a::ActorCut> {
             return a::ActorCut{selected, selected == "P" ? p : q, 1, true, 4};
         };
-        const auto result = world->command({actor, actor + "-client"}, intent, observe);
+        const auto result = std::get<std::string>(intent.at("action").storage()) == "harvest_source" ?
+            w::tests::complete_manual_cut(*world, {actor, actor + "-client"}, intent, observe) :
+            world->command({actor, actor + "-client"}, intent, observe);
         if (!result.completed() || !result.result ||
             !std::get<bool>(result.result->at("accepted").storage()))
             throw std::runtime_error("Request " + std::get<std::string>(intent.at("request").storage()) +

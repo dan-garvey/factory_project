@@ -1,4 +1,5 @@
 #include "factory/checkpoint.hpp"
+#include "native/factory-world/tests/harvest_fixture.hpp"
 
 #include <iostream>
 #include <memory>
@@ -100,7 +101,9 @@ struct Runner {
         const w::ObserveActor observe = [this](const std::string& selected) -> std::optional<a::ActorCut> {
             return a::ActorCut{selected, selected == "P" ? p : q, 1, true, 4};
         };
-        return world->command({actor, actor + "-client"}, intent, observe);
+        return std::get<std::string>(intent.at("action").storage()) == "harvest_source" ?
+            w::tests::complete_manual_cut(*world, {actor, actor + "-client"}, intent, observe) :
+            world->command({actor, actor + "-client"}, intent, observe);
     }
     O accept(const std::string& actor, const O& intent) {
         const auto result = send(actor, intent);
@@ -148,6 +151,13 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
         harvest.emplace("target", V("tree"));
         run.accept("P", harvest);
     }
+    if (center[1] == 0)
+        for (int index = 0; index < 4; ++index) {
+            auto harvest = request("P", "guided-offcut-timber-" + std::to_string(index),
+                "harvest_source");
+            harvest.emplace("target", V("tree-branch"));
+            run.accept("P", harvest);
+        }
     run.p = {0, 1, 1.65};
     for (int index = 0; index < 5; ++index) {
         auto harvest = request("P", "guided-ore-" + std::to_string(index), "harvest_source");
@@ -247,12 +257,6 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
         g::Point{center[0], center[1], center[2] + 1} :
         g::Point{center[0] + 1, center[1], center[2]};
     if (center[1] == 0) {
-        for (int index = 0; index < 4; ++index) {
-            auto harvest = request("P", "guided-offcut-timber-" + std::to_string(index),
-                "harvest_source");
-            harvest.emplace("target", V("tree-branch"));
-            automated.accept("P", harvest);
-        }
         for (const auto& [name, location] : {
                  std::pair{"offcut", offcut_tray}, std::pair{"plate", plate_exit}}) {
             auto craft = request("P", std::string("guided-") + name + "-craft-tray", "craft_component");

@@ -19,6 +19,9 @@ namespace factory::world {
 
 inline constexpr authority::Integer landing_deck_parts = 9;
 inline constexpr authority::Integer foundation_timber_cost = 2;
+// The ordinary World clock runs every 0.45 seconds. Three ticks give the
+// visible hand action roughly one second without making bootstrap gathering a chore.
+inline constexpr authority::Integer manual_cut_ticks = 3;
 [[nodiscard]] std::array<mechanics::Point, landing_deck_parts> landing_deck_centers(
     const mechanics::Point& center);
 
@@ -165,6 +168,16 @@ struct State {
     std::optional<FreightBeacon> freight_beacon;
     std::optional<HandCrank> hand_crank;
     std::map<std::string, PlacedComponent> placed_components;
+    struct ManualCut {
+        std::string target;
+        authority::Integer start_revision{};
+        authority::Integer remaining_ticks{};
+        // A trusted tick records the first lost-contact revision. An
+        // interrupted cut cannot complete after the actor returns.
+        authority::Integer interrupted_revision{};
+        bool operator==(const ManualCut&) const = default;
+    };
+    std::map<std::string, ManualCut> manual_cuts;
     // A finished modular press item retains its work identity while waiting at
     // its outlet. Once it enters a belt, the exported identity remains as a
     // checkpoint witness; material quantities still belong only to Cargo.
@@ -256,6 +269,9 @@ public:
         const std::string& expected_context, Profile profile, const Snapshot& saved);
 
     [[nodiscard]] Snapshot snapshot() const { return owner_->snapshot(); }
+    [[nodiscard]] bool has_manual_cuts() const noexcept {
+        return !owner_->snapshot_ref().state.manual_cuts.empty();
+    }
 
     // Exact retries are resolved before calling the host observation provider or
     // inspecting current targets. Fresh operations require literal scalar 3D
@@ -271,7 +287,7 @@ public:
 
     // Called only by the owning host's simulation loop. Local machine power is
     // derived from current geometry, with no client tick or arbitrary edge API.
-    [[nodiscard]] Advance tick() noexcept;
+    [[nodiscard]] Advance tick(const ObserveActor& observe = {}) noexcept;
 
 private:
     World(Profile profile, std::unique_ptr<Owner> owner)

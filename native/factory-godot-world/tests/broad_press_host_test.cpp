@@ -28,7 +28,8 @@ O request(const std::string& id, const char* action) {
 }
 
 V accepted(Host& host, const O& wire) {
-    const auto reply = host.command("P", wire);
+    const auto reply = get<std::string>(V(wire), "action") == "harvest_source" ?
+        factory::godot_world::tests::complete_manual_cut(host, "P", wire) : host.command("P", wire);
     if (!get<bool>(reply, "accepted"))
         throw std::runtime_error("Request " + get<std::string>(V(wire), "request") +
             " refused: " + get<std::string>(reply, "reason"));
