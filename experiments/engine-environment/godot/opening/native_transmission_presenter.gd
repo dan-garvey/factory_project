@@ -1164,10 +1164,11 @@ func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
 		fitting.free()
 
 func preview_component(anchor: Node3D, kind: String, occupied_size: Vector3,
-		collector_angle: float = 0.0, collector_support_drop: float = 0.0) -> void:
+		collector_angle: float = 0.0, collector_support_drop: float = 0.0,
+		press_role: String = "") -> void:
 	# Use the same meshes and finishes as a confirmed placed component. The
 	# caller supplies a visual candidate box; only Host can admit placement.
-	_placed_component(anchor, kind, Vector3.ZERO, occupied_size, "",
+	_placed_component(anchor, kind, Vector3.ZERO, occupied_size, press_role,
 		collector_angle, collector_support_drop, Vector3.ZERO)
 
 func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
@@ -1263,9 +1264,13 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					Vector3(0, bottom + occupied_size.y * 0.55, z),
 					Vector3(0.20, occupied_size.y * 0.50, 0.028), worked)
 		"sliding_guide":
-			for x in [-0.103, 0.103]:
-				_support_box(anchor, "GuideRail", Vector3(x, 0, 0),
-					Vector3(0.045, occupied_size.y - 0.012, 0.21), worked)
+			# Side rails span the guided stroke gap; framed guides stay short.
+			var stroke_reach := Geometry.HEIGHT_STEP if press_role == "guided_guide" else 0.0
+			var rail_x := 0.125 if press_role == "guided_guide" else 0.103
+			var rail_width := 0.03 if press_role == "guided_guide" else 0.045
+			for x in [-rail_x, rail_x]:
+				_support_box(anchor, "GuideRail", Vector3(x, -stroke_reach * 0.5, 0),
+					Vector3(rail_width, occupied_size.y + stroke_reach - 0.012, 0.21), worked)
 			_support_box(anchor, "GuideCrown", Vector3(0, occupied_size.y * 0.5 - 0.035, 0),
 				Vector3(0.25, 0.055, 0.25), dark)
 		"wooden_cog", "softmetal_cog":
@@ -1601,7 +1606,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 			var cell := Vector3i(press.center[0], press.center[1], press.center[2])
 			for member in [[cell, "anvil", "anvil"],
 					[cell + Vector3i(0, 1, 0), "ram_face", "ram"],
-					[cell + Vector3i(0, 3, 0), "sliding_guide", "guide"]]:
+					[cell + Vector3i(0, 3, 0), "sliding_guide", "guided_guide"]]:
 				var id: Variant = by_cell.get(member[0])
 				if boxes.has(id) and boxes[id].component == member[1]:
 					press_roles[id] = member[2]

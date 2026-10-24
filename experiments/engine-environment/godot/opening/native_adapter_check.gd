@@ -2299,9 +2299,7 @@ func _arrival_run() -> void:
 				"The native recognizer reports the current fitted press stage"):
 			return
 	if mode == "arrival-press":
-		opening.distance = original_camera_distance
-		opening._update_camera()
-		if not await _approach(Vector2(4.95, 4.95)):
+		if not await _approach_points([Vector2(6.6, 3.3), Vector2(4.95, 3.3)]):
 			return
 	var ready: Dictionary = opening.model.projection().guided_press_assemblies[0]
 	if mode == "arrival-press" and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -2315,9 +2313,18 @@ func _arrival_run() -> void:
 		opening._update_camera()
 		await RenderingServer.frame_post_draw
 		var ordinary_captured: bool = root.get_texture().get_image().save_png(capture_prefix + "-ready-press.png") == OK
-		var close_captured: bool = await _capture_guided_close(str(ready.parts.ram), capture_prefix + "-ready-close.png")
-		if not _expect(ordinary_captured and close_captured,
-				"Retain the fitted press in the ordinary actor view and a close passive view"):
+		opening.distance = 1.5
+		opening.orbit_yaw += 0.25
+		opening._update_camera()
+		await RenderingServer.frame_post_draw
+		var third_person_captured: bool = root.get_texture().get_image().save_png(capture_prefix + "-ready-third-person.png") == OK
+		if not _expect(ordinary_captured and third_person_captured,
+				"Retain the fitted press in first-person and third-person actor views"):
+			return
+	if mode == "arrival-press":
+		opening.distance = original_camera_distance
+		opening._update_camera()
+		if not await _approach(Vector2(4.95, 4.95)):
 			return
 	if raised and not _expect(ready.center == [12, 4, 16] and ready.work_center == [12, 4, 16],
 			"The raised native press keeps the anvil workface on the same foundation height grid"):

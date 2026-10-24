@@ -6691,6 +6691,13 @@ func _refresh_component_preview() -> void:
 	var collector_angle := 0.0
 	var collector_support_drop := 0.0
 	var visual_center: Vector3 = box.center
+	var preview_press_role := ""
+	if kind == "sliding_guide":
+		for press: Dictionary in state.get("guided_press_assemblies", []):
+			var work_center: Array = press.get("center", [])
+			if work_center.size() == 3 and center == [work_center[0], work_center[1] + 3, work_center[2]]:
+				preview_press_role = "guided_guide"
+				break
 	if not collector_face.is_empty():
 		var toward: Array = collector_face.toward_ore
 		collector_angle = atan2(float(toward[2]), -float(toward[0]))
@@ -6698,12 +6705,12 @@ func _refresh_component_preview() -> void:
 		visual_center.y = center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT \
 			+ (0.10 if kind == "tool_mount" else -0.015)
 		collector_support_drop = visual_center.y - floor_y
-	var preview_key := "%s:%s:%s" % [kind, collector_angle, collector_support_drop]
+	var preview_key := "%s:%s:%s:%s" % [kind, collector_angle, collector_support_drop, preview_press_role]
 	if preview_key != component_preview_pose_key:
 		for child in component_preview.get_children():
 			child.free()
 		transmission_presenter.preview_component(component_preview, kind, box.size,
-			collector_angle, collector_support_drop)
+			collector_angle, collector_support_drop, preview_press_role)
 		component_preview_kind = kind
 		component_preview_pose_key = preview_key
 		component_preview_material = StandardMaterial3D.new()
@@ -6943,7 +6950,8 @@ func _build_world() -> void:
 	selection_ring = _selection_outline()
 	selection_ring.visible = false
 	camera = Camera3D.new()
-	camera.fov = 45
+	# Keep the full guided press in view while aiming from reachable actor distance.
+	camera.fov = 65
 	camera.near = 0.1
 	camera.far = 100
 	add_child(camera)
