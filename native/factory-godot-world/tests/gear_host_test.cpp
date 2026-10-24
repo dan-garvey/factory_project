@@ -324,6 +324,37 @@ void finite_relays_and_restore() {
     create(host, relay("chain_drive", 4, 8, 4, "replace-chain", "x", "z"));
 }
 
+void stacked_vertical_relay_support() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
+          accepted(host.configure_terrain(low_flat_site())),
+          "The stacked relay Host binds the disclosed flat site.");
+    observe(host, 1.65, -1.65, 1);
+    create(host, shaft(0, 4, 0, "lower-inlet", "x"));
+    const auto lower = create(host, relay("vertical_gearbox", 4, 4, 0, "lower-vertical", "z"));
+    const auto upper = create(host, relay("vertical_gearbox", 4, 8, 0, "upper-vertical", "z"));
+    const auto high = create(host, relay("gearbox", 0, 8, 0, "upper-horizontal", "y"));
+    const auto projection = host.projection();
+    const auto& projected = field<O>(projection, "transmission_parts");
+    const auto& support = field<O>(projected.at(upper), "support");
+    const auto& foot = std::get<A>(support.at("foot").storage());
+    check(std::abs(std::get<double>(foot[0].storage()) - 1.65) >= 1.2 - 1e-9,
+          "The elevated bearing uses a lateral post outside the lower relay shell.");
+    const auto& high_support = field<O>(projected.at(high), "support");
+    const auto& high_foot = std::get<A>(high_support.at("foot").storage());
+    check(std::get<double>(high_foot[0].storage()) < -1.0,
+          "The upper horizontal case seats beyond both the lower shaft and adjacent relay: x=" +
+          std::to_string(std::get<double>(high_foot[0].storage())));
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
+          accepted(fresh.configure_terrain(low_flat_site())) &&
+          accepted(fresh.restore_checkpoint(saved)) &&
+          !factory::values::typed_difference(saved, fresh.checkpoint()),
+          "The two finite relays and their derived supports survive a fresh Host restore.");
+    (void)lower;
+}
+
 void relay_shell_terrain() {
     auto raised_corner = low_flat_site();
     const A axis{V(-128.0), V(0.0), V(0.8), V(2.3), V(128.0)};
@@ -1859,6 +1890,11 @@ void building_rotation() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--stacked-relays-only") {
+            stacked_vertical_relay_support();
+            std::cout << "{\"status\":\"pass\",\"evidence\":\"native_stacked_relays\",\"checks\":" << checks << "}\n";
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--building-rotation-only") {
             building_rotation();
             std::cout << "{\"status\":\"pass\",\"evidence\":\"native_building_rotation\",\"checks\":" << checks << "}\n";
@@ -1882,7 +1918,7 @@ int main(int argc, char** argv) {
         if (argc == 1) {
             building_rotation();
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
-            transmission_tile_center(); transmission_above_half_foundation(); half_tile_shaft_bridge(); global_grid(); finite_large_cog(); finite_relays_and_restore(); relay_shell_terrain(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); transmission_above_half_foundation(); half_tile_shaft_bridge(); global_grid(); finite_large_cog(); finite_relays_and_restore(); stacked_vertical_relay_support(); relay_shell_terrain(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

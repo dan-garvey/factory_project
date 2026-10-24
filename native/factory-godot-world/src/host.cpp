@@ -974,7 +974,9 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         // Reversible cold-workshop costs for a real powered receiver route.
         // Every kit remains in the one World inventory and history ledger.
         profile.fabrication_parts = {{{Role::shaft, 0, 2}, {1, 0}},
-            {{Role::belt, 0, 0}, {2, 1}}, {{Role::waterwheel, 0, 0}, {2, 1}}};
+            {{Role::belt, 0, 0}, {2, 1}}, {{Role::waterwheel, 0, 0}, {2, 1}},
+            {{Role::gearbox, 0, 0}, {1, 1}},
+            {{Role::vertical_gearbox, 0, 0}, {1, 1}}};
     }
     if (!arrival)
         profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
@@ -1280,10 +1282,18 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
         // Try the other end of a horizontal axle if its first bearing face is
         // obstructed, for example by the collector's exterior lift.
         const std::size_t lateral = axis == mechanics::Axis::x ? 2 : 0;
-        constexpr std::array offsets{0.0, 0.4, -0.4, 0.8, -0.8};
-        const auto routes = offsets.size() * (axis == mechanics::Axis::y ? 1 : 2);
+        // Stacked cases need posts outside lower shells. A diagonal fallback
+        // can stand beside the river shaft and ore outcrop while its complete
+        // post and arm still pass the same terrain and occupancy checks.
+        constexpr std::array offsets{0.0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6};
+        constexpr std::array diagonals{
+            std::array{-1.6, -1.6}, std::array{-1.6, 1.6},
+            std::array{1.6, -1.6}, std::array{1.6, 1.6}};
+        const auto routes = offsets.size() * (axis == mechanics::Axis::y ? 1 : 2) +
+            (axis == mechanics::Axis::y ? diagonals.size() : 0);
         for (std::size_t route = 0; route < routes; ++route) {
-            const double offset = offsets[route % offsets.size()];
+            const bool diagonal = axis == mechanics::Axis::y && route >= offsets.size();
+            const double offset = diagonal ? diagonals[route - offsets.size()][0] : offsets[route % offsets.size()];
             const double axial = route < offsets.size() ? 0.55 : -0.55;
             auto bearing = at;
             if (axis == mechanics::Axis::x) bearing[0] += axial;
@@ -1292,6 +1302,7 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
             auto foot = bearing;
             if (axis == mechanics::Axis::y) foot[0] += 0.24;
             foot[lateral] += offset;
+            if (diagonal) foot[2] += diagonals[route - offsets.size()][1];
             const auto ground = terrain_range(foot[0], foot[2], 0.17, 0.17);
             if (!ground) continue;
             double seat = ground->second;

@@ -116,6 +116,42 @@ func _issue(action: Dictionary) -> Dictionary:
 	facts.steps.append({"action": action.duplicate(true), "reply": reply.duplicate(true), "native_cut": cut})
 	return reply
 
+func _press_inventory_recipe(key: String, bench_id: String = "") -> bool:
+	var inventory = opening.building_hotbar
+	if opening.object_menu.visible:
+		opening.object_menu.hide()
+	if inventory.catalog.visible:
+		inventory.catalog.hide()
+	if bench_id.is_empty():
+		inventory.open_catalog()
+	else:
+		inventory.open_at_bench(bench_id)
+	if not _expect(inventory.catalog.visible and inventory.recipe_buttons.has(key)
+			and inventory.recipe_buttons[key].visible,
+			"The ordinary inventory exposes recipe " + key):
+		return false
+	inventory.recipe_buttons[key].pressed.emit()
+	inventory.catalog.hide()
+	return true
+
+func _select_inventory_item(tool: String) -> bool:
+	var inventory = opening.building_hotbar
+	if opening.object_menu.visible:
+		opening.object_menu.hide()
+	if inventory.catalog.visible:
+		inventory.catalog.hide()
+	inventory.open_catalog()
+	var button: Button
+	if tool.begins_with("component:"):
+		button = inventory.component_buttons.get(tool.trim_prefix("component:"))
+	else:
+		button = inventory.catalog_buttons.get(tool)
+	if not _expect(button != null and button.visible and not button.disabled,
+			"The ordinary inventory has a carried item for " + tool):
+		return false
+	button.pressed.emit()
+	return true
+
 func _construct(action: Dictionary) -> Dictionary:
 	var reply := _issue(action)
 	if not _expect(reply.get("accepted", false), "The current immersed route admits " + str(action)):
@@ -198,12 +234,20 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		var original_size: Vector2i = root.size
 		root.size = Vector2i(640, 480)
 		await process_frame
+		if inventory.catalog.visible:
+			inventory.catalog.hide()
+		await process_frame
+		inventory.open_catalog()
+		await process_frame
 		inventory._place_catalog()
 		await RenderingServer.frame_post_draw
-		if not _expect(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
-				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
-				and root.get_texture().get_image().save_png(capture_prefix + "-empty-narrow.png") == OK,
-				"The ordinary zero-stock inventory remains usable at a narrow viewport"):
+		var empty_capture: Error = root.get_texture().get_image().save_png(capture_prefix + "-empty-narrow.png")
+		var empty_rect := Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size))
+		if not _expect(inventory.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+				empty_rect) and empty_capture == OK,
+				"The ordinary zero-stock inventory remains usable at a narrow viewport: " +
+				str({"visible": inventory.catalog.visible, "popup": empty_rect, "viewport": root.size,
+					"parent": inventory.get_parent().size, "minimum": inventory.catalog.min_size})):
 			return
 		root.size = original_size
 		await process_frame
@@ -212,11 +256,17 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	var distant: Dictionary = opening.model.projection()
-	panel.craft_button.pressed.emit()
-	if not _expect(opening.model.projection().order == distant.order + 1
+	if not _press_inventory_recipe("component:wooden_frame", str(distant.fabrication_hub.id)):
+		return
+	if not _expect(opening.model.projection().order == distant.order
 			and opening.model.projection().cargo == distant.cargo
-			and "Move beside the selected workshop" in opening.status_label.text,
-			"The physical field position is beyond bench crafting reach"):
+			and "Carry the ingredients" in opening.building_hotbar.focus_description.text,
+			"The remote inventory recipe preserves cargo while its inputs are missing"):
+		return
+	var remote_refusal: Dictionary = _issue({"action": "craft_component",
+		"entity": distant.fabrication_hub.id, "component": "wooden_frame"})
+	if not _expect(not remote_refusal.accepted and remote_refusal.reason == "out_of_reach",
+			"Native bench crafting still refuses a physically distant actor"):
 		return
 	for index in range(3):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
@@ -239,16 +289,25 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		var original_size: Vector2i = root.size
 		root.size = Vector2i(640, 480)
 		await process_frame
+		if inventory.catalog.visible:
+			inventory.catalog.hide()
+		await process_frame
+		inventory.open_catalog()
+		await process_frame
 		inventory._place_catalog()
 		await RenderingServer.frame_post_draw
-		if not _expect(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
-				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
-				and root.get_texture().get_image().save_png(capture_prefix + "-timber-narrow.png") == OK,
-				"The ordinary carried-timber inventory remains usable at a narrow viewport"):
+		var narrow_capture: Error = root.get_texture().get_image().save_png(capture_prefix + "-timber-narrow.png")
+		var narrow_rect := Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size))
+		if not _expect(inventory.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(narrow_rect)
+				and narrow_capture == OK,
+				"The ordinary carried-timber inventory remains usable at a narrow viewport: " +
+				str({"popup": narrow_rect, "viewport": root.size, "minimum": inventory.catalog.min_size})):
 			return
 		root.size = original_size
 		await process_frame
 		inventory._place_catalog()
+	if not inventory.catalog.visible:
+		inventory.open_catalog()
 	inventory.recipe_buttons["component:wooden_frame"].pressed.emit()
 	var shaped: Dictionary = opening.model.projection()
 	if not _expect(shaped.order == gathered.order + 1 and shaped.cargo.P.timber == 0
@@ -486,12 +545,9 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	var id: String = original.fabrication_hub.id
 	var inventory = opening.building_hotbar
 	var pod_anchor: Vector3 = opening.landing_pod_visual.position
-	if not _expect(panel.pod_workshop_button.visible and not panel.pod_workshop_button.disabled
-			and panel.pod_workshop_button.text.is_empty() and panel.pod_workshop_button.icon != null
-			and "Stow pod workshop" in panel.pod_workshop_button.tooltip_text
-			and "shortcut S" in panel.pod_workshop_button.accessibility_name
-			and opening.landing_hub_pick.collision_layer == OpeningGeometry.PICK_LAYER,
-			"The ordinary panel and pick body expose the installed issued workshop"):
+	if not _expect(opening.landing_hub_pick.collision_layer == OpeningGeometry.PICK_LAYER
+			and original.fabrication_hub.installed,
+			"The ordinary pick body exposes the installed issued workshop"):
 		return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
@@ -529,9 +585,8 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 			and carried.fabrication_hub.id == id and carried.fabrication_hub.generation == 1
 			and opening.landing_pod_visual.position == pod_anchor
 			and not opening.landing_hub_visual.visible and opening.landing_hub_pick.collision_layer == 0
-			and opening.landing_crank_visual.visible and panel.bench_choice.item_count == 0
-			and "Place carried pod workshop" in panel.pod_workshop_button.tooltip_text
-			and "shortcut S" in panel.pod_workshop_button.accessibility_name,
+			and opening.landing_crank_visual.visible
+			and not inventory._valid_bench(carried, id),
 			"Stowing moves only the one issued hub into actor custody while pod and crank stay landed"):
 		return
 	var invalid: Dictionary = _issue({"action": "deploy_fabrication_hub", "entity": id,
@@ -569,7 +624,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 			and opening.landing_pod_visual.position == pod_anchor
 			and opening.landing_hub_visual.visible and opening.landing_hub_pick.collision_layer == OpeningGeometry.PICK_LAYER
 			and opening.landing_hub_visual.position.distance_to(Vector3(6.6, 0, 4.95)) < 0.001
-			and panel.bench_choice.item_count == 1 and panel.selected_bench == id,
+			and inventory._valid_bench(installed, id),
 			"Ordinary placement reinstalls the same issued hub away from its still-landed pod"):
 		return
 	opening.camera.global_position = Vector3(9.0, 3.7, 8.6)
@@ -626,7 +681,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	var save: Dictionary = opening._save_worksite()
 	if not _expect(save.get("accepted", false) and save.get("native_preflight", {}).get("accepted", false)
 			and FileAccess.file_exists(opening.save_slot),
-			"Store saves the moved issued hub and physical actor for a fresh-process resume"):
+			"Store saves the moved issued hub and physical actor for a fresh-process resume: " + str(save)):
 		return
 	_record("pass")
 
@@ -639,14 +694,15 @@ func _arrival_pod_workshop_resume_run(panel) -> void:
 			and opening.landing_pod_visual.position.distance_to(Vector3(1.65, 0, 6.6)) < 0.001
 			and opening.landing_hub_visual.position.distance_to(Vector3(6.6, 0, 4.95)) < 0.001
 			and opening.landing_hub_visual.visible and opening.landing_hub_pick.collision_layer == OpeningGeometry.PICK_LAYER
-			and panel.bench_choice.item_count == 1 and panel.selected_bench == id,
+			and opening.building_hotbar._valid_bench(restored, id),
 			"Fresh-process restore preserves one moved hub, finite cargo, pod anchor and selectable pick body"):
 		return
 	opening._select_tool("deconstruct")
 	opening._world_click(Vector2i(4, 3), id)
 	var carried: Dictionary = opening.model.projection()
 	if not _expect(not carried.fabrication_hub.installed and carried.fabrication_hub.holder == "P"
-			and carried.fabrication_hub.id == id and panel.bench_choice.item_count == 0
+			and carried.fabrication_hub.id == id
+			and not opening.building_hotbar._valid_bench(carried, id)
 			and opening.landing_pod_visual.position.distance_to(Vector3(1.65, 0, 6.6)) < 0.001,
 			"The resumed worker can deconstruct the same restored workshop without duplication"):
 		return
@@ -678,7 +734,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -925,8 +981,11 @@ func _resume() -> void:
 func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	var recipes: Dictionary = opening.model.projection().component_recipes
 	opening._open_object_menu_for(str(opening.model.projection().fabrication_hub.id))
-	if not _expect(opening._object_menu_open() and panel.is_visible_in_tree(),
-			"The pod workshop exposes the native component choices in its centered panel"):
+	var inventory = opening.building_hotbar
+	var tile: Button = inventory.recipe_buttons["component:softmetal_shaft"]
+	if not _expect(inventory.catalog.visible and inventory.context_bench == opening.model.projection().fabrication_hub.id
+			and tile.visible and tile.icon != null,
+			"The pod workshop exposes the native component recipes in its shared inventory"):
 		return
 	if not _expect(recipes.wooden_shaft.load_rating == 8
 			and recipes.wooden_cog.load_rating == 8
@@ -934,58 +993,35 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 			and recipes.softmetal_cog.load_rating == 24,
 			"The ordinary workshop receives its drive ratings from the native projection"):
 		return
-	panel.component_choice.select(9)
-	panel._component_selected(9)
-	if not _expect("Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
-			and "Rated for 24 load" in panel.component_choice.tooltip_text
-			and "Need 0 timber + 2 softmetal" in panel.recipe_label.text,
-			"The selected softmetal upgrade shows stronger load and its actual local bill"):
+	tile.grab_focus()
+	if not _expect("rated for 24 load" in tile.tooltip_text
+			and "0 timber + 2 ore" in tile.tooltip_text
+			and "needs 0 timber and 2 ore" in tile.accessibility_name,
+			"The softmetal upgrade recipe shows its native rating and actual bill"):
 		return
 	if not capture_prefix.is_empty():
 		await process_frame
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-drive-ratings.png") == OK,
 				"The native-backed workshop rating is retained in a normal viewport frame"):
 			return
-	var original_choice: String = panel.component_choice.get_item_text(9)
-	var original_place: String = panel.place_button.text
-	var original_route: String = panel.part_place_button.text
-	panel.component_choice.set_item_text(9, "Softmetal shaft  ×999")
-	panel.place_button.text = "Place softmetal shaft"
-	panel.part_place_button.text = "Connect shafts"
 	await process_frame
 	await process_frame
-	var menu_left: float = opening.object_menu.position.x
-	var menu_right: float = menu_left + opening.object_menu.size.x
-	var scroll_rect: Rect2 = opening.arrival_assembly_scroll.get_global_rect()
-	var place_rect: Rect2 = panel.place_button.get_global_rect()
-	# Embedded popup child rects are local to the popup window, while the popup
-	# position is in the root viewport. Compare them in the same space.
-	var scroll_left: float = menu_left + scroll_rect.position.x
-	var scroll_right: float = menu_left + scroll_rect.end.x
-	var place_right: float = menu_left + place_rect.end.x
-	facts["workshop_layout"] = {"menu_left": menu_left, "menu_right": menu_right,
-		"scroll_left": scroll_left, "scroll_right": scroll_right,
-		"place_right": place_right, "viewport_width": root.size.x,
-		"horizontal_scroll": opening.arrival_assembly_scroll.get_h_scroll_bar().visible}
+	var popup_rect := Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size))
+	var recipe_scroll: ScrollContainer = inventory.recipe_scroll
+	facts["workshop_layout"] = {"popup": popup_rect, "viewport": root.size,
+		"horizontal_scroll": recipe_scroll.get_h_scroll_bar().visible}
 	if not capture_prefix.is_empty():
 		await RenderingServer.frame_post_draw
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-long-choice.png") == OK,
-				"The long component choice is retained in the centered workshop"):
+				"The native recipe grid is retained in the centered workshop"):
 			return
-	if not _expect(menu_left >= 0 and menu_right <= root.size.x
-			and scroll_left >= menu_left and scroll_right <= menu_right
-			and place_right <= scroll_right
-			and not opening.arrival_assembly_scroll.get_h_scroll_bar().visible,
-			"Long component actions remain horizontally reachable inside the centered workshop: "
+	if not _expect(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(popup_rect)
+			and not recipe_scroll.get_h_scroll_bar().visible,
+			"The native recipe grid remains horizontally reachable inside the centered inventory: "
 			+ str(facts.workshop_layout)):
 		return
-	panel.component_choice.set_item_text(9, original_choice)
-	panel.place_button.text = original_place
-	panel.part_place_button.text = original_route
-	opening.object_menu.hide()
+	inventory.catalog.hide()
 	await process_frame
-	panel.component_choice.select(0)
-	panel._component_selected(0)
 	# Zero-cut entries are explicit clear-aisle waypoints, not resource actions.
 	for source in [
 		{"point": Vector2(6.0, 3.45), "id": "tree-east-south", "cuts": 8},
@@ -1008,14 +1044,13 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 			and gathered.hand_sources["tree-north"].remaining == 3,
 			"Three finite trees supply twenty-one real component inputs"):
 		return
-	panel.component_choice.select(1)
-	panel._component_selected(1)
 	for count in range(21):
-		if not _expect(not panel.craft_button.disabled,
-				"The pod workshop keeps the native shaft recipe selectable while stock is available"):
+		if not _expect(opening.building_hotbar.recipe_buttons["component:wooden_shaft"].visible,
+				"The pod workshop keeps the native shaft recipe discoverable while stock is available"):
 			return
 		var before: Dictionary = opening.model.projection()
-		panel.craft_button.pressed.emit()
+		if not _press_inventory_recipe("component:wooden_shaft", str(before.fabrication_hub.id)):
+			return
 		var after: Dictionary = opening.model.projection()
 		if not _expect(after.order == before.order + 1 and after.cargo.P.timber == before.cargo.P.timber - 1
 				and after.cargo.P.components.get("wooden_shaft", 0) == count + 1,
@@ -1029,16 +1064,22 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 			and crafted.order == gathered.order + 21,
 			"Twenty-one carried shafts consume exactly twenty-one finite timber without a placement detour"):
 		return
+	await process_frame
+	if opening.building_hotbar.catalog.visible:
+		opening.building_hotbar.catalog.hide()
 	opening.building_hotbar.open_catalog()
 	await process_frame
-	var tile: Button = opening.building_hotbar.component_buttons.wooden_shaft
+	tile = opening.building_hotbar.component_buttons.wooden_shaft
 	if not _expect(opening.building_hotbar.catalog.visible and tile.icon != null
 			and opening.building_hotbar.component_counts.wooden_shaft.text == "21"
 			and "21 carried" in tile.tooltip_text
 			and "21 carried" in tile.accessibility_name,
-			"The shared build and inventory window shows twenty-one shafts as an icon, count, and hover description"):
+			"The shared build and inventory window shows twenty-one shafts as an icon, count, and hover description: " +
+			str({"open": opening.building_hotbar.catalog.visible, "icon": tile.icon != null,
+				"count": opening.building_hotbar.component_counts.wooden_shaft.text,
+				"tooltip": tile.tooltip_text, "focus": tile.accessibility_name})):
 		return
-	var inventory_scroll: ScrollContainer = opening.building_hotbar.component_grid.get_parent().get_parent()
+	var inventory_scroll: ScrollContainer = opening.building_hotbar.inventory_scroll
 	inventory_scroll.ensure_control_visible(tile)
 	await process_frame
 	if not _expect(inventory_scroll.get_global_rect().encloses(tile.get_global_rect()),
@@ -1088,7 +1129,7 @@ func _arrival_capacity_resume_run() -> void:
 func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> void:
 	# This uses the ordinary arrival scene, its physical actor, workshop buttons
 	# and the native terrain. Commands still pass through the one scene Model.
-	var ore_for_press := 0 if finish else 8
+	var ore_for_press := 0 if finish else (11 if mode == "arrival-powered-press-site" else 8)
 	for source in [
 		{"point": Vector2(6.0, 3.45), "id": "tree-east-south", "cuts": 8},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
@@ -1110,15 +1151,11 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 			"Two finite trees and the outcrop supply the collector route and later press stock"):
 		return
 	for kind in ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]:
-		var index := -1
-		for choice in panel.COMPONENTS.size():
-			if panel.COMPONENTS[choice][0] == kind:
-				index = choice
-		if not _expect(index >= 0, "The native collector component is listed in the ordinary workshop"):
+		if not _expect(opening.building_hotbar.recipe_buttons.has("component:" + kind),
+				"The native collector component is listed in the ordinary inventory recipes"):
 			return
-		panel.component_choice.select(index)
-		panel._component_selected(index)
-		panel.craft_button.pressed.emit()
+		if not _press_inventory_recipe("component:" + kind, str(opening.model.projection().fabrication_hub.id)):
+			return
 		if not _expect(int(opening.model.projection().cargo.P.components.get(kind, 0)) == 1,
 				"The ordinary workshop makes one finite collector component"):
 			return
@@ -1130,10 +1167,9 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 				index = choice
 		if not _expect(index >= 0, "The native transmission recipe is listed in the ordinary workshop"):
 			return
-		panel.part_choice.select(index)
-		panel.part_choice.item_selected.emit(index)
 		var before: Dictionary = opening.model.projection()
-		panel.part_craft_button.pressed.emit()
+		if not _press_inventory_recipe("part:%d" % index, str(before.fabrication_hub.id)):
+			return
 		var after: Dictionary = opening.model.projection()
 		if not _expect(after.order == before.order + 1 and after.part_kits.P[route_part] == before.part_kits.P[route_part] + 1,
 				"The ordinary workshop turns carried stock into one exact native route kit"):
@@ -1152,9 +1188,8 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	for choice in opening.model.projection().part_recipes.size():
 		if opening.model.projection().part_recipes[choice].kind == "wheel":
 			wheel_recipe = choice
-	panel.part_choice.select(wheel_recipe)
-	panel.part_choice.item_selected.emit(wheel_recipe)
-	panel.part_place_button.pressed.emit()
+	if not _select_inventory_item("wheel"):
+		return
 	if not _expect(opening.mode == "wheel", "The ordinary workshop arms its crafted waterwheel tool"):
 		return
 	var wheel: Dictionary = _construct({"action": "place", "kind": "wheel", "cell": [-2, 0], "axis": "x", "level": 4})
@@ -1164,9 +1199,8 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	for choice in opening.model.projection().part_recipes.size():
 		if opening.model.projection().part_recipes[choice].kind == "shaft":
 			shaft_recipe = choice
-	panel.part_choice.select(shaft_recipe)
-	panel.part_choice.item_selected.emit(shaft_recipe)
-	panel.part_place_button.pressed.emit()
+	if not _select_inventory_item("drive"):
+		return
 	if not _expect(opening.mode == "drive", "The ordinary workshop arms its crafted shaft tool"):
 		return
 	var inlet := ""
@@ -1188,9 +1222,8 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	for choice in opening.model.projection().part_recipes.size():
 		if opening.model.projection().part_recipes[choice].kind == "belt":
 			belt_recipe = choice
-	panel.part_choice.select(belt_recipe)
-	panel.part_choice.item_selected.emit(belt_recipe)
-	panel.part_place_button.pressed.emit()
+	if not _select_inventory_item("belt"):
+		return
 	if not _expect(opening.mode == "belt", "The ordinary workshop arms its crafted belt tool"):
 		return
 	var span: Dictionary = _construct({"action": "place_belt_span", "from": inlet, "to": far})
@@ -1213,8 +1246,8 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	var built: Dictionary = opening.model.projection()
 	if not _expect(built.collector_assemblies.any(func(item: Variant) -> bool:
 		return item is Dictionary and item.get("status") == "ready")
-			and panel.route_status_label.text.contains("outward"),
-			"The fitted north receiver meets a powered outward belt mouth in the ordinary panel"):
+			and panel._receiver_route_status(built).contains("outward"),
+			"The fitted north receiver meets a powered outward belt mouth in native inspection"):
 		return
 	var drive := ""
 	for id in built.placed_components:
@@ -1643,30 +1676,38 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 		for cut in range(source.cuts):
 			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
 				return
-	if not _expect(opening.model.projection().cargo.P.timber == 10
-			and opening.model.projection().cargo.P.raw == 8,
+	if mode == "arrival-powered-press-site":
+		if not await _approach_points([Vector2(4.95, 3.3), Vector2(6.0, -1.65)]):
+			return
+		for cut in range(5):
+			if _construct({"action": "harvest_source", "target": "tree-east-upstream"}).is_empty():
+				return
+		if not await _approach_points([Vector2(4.95, 3.3), Vector2(4.95, 4.95)]):
+			return
+	if not _expect(opening.model.projection().cargo.P.timber ==
+			(15 if mode == "arrival-powered-press-site" else 10)
+			and opening.model.projection().cargo.P.raw ==
+				(11 if mode == "arrival-powered-press-site" else 8),
 			"The remaining finite trees and ore supply the guided press and output route"):
 		return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "softmetal_cog", "receiver_tray"]:
-		var selected := -1
-		for choice in range(panel.COMPONENTS.size()):
-			if panel.COMPONENTS[choice][0] == kind:
-				selected = choice
-		if not _expect(selected >= 0, "The ordinary workshop lists the finite guided press component"):
+		if not _expect(opening.building_hotbar.recipe_buttons.has("component:" + kind),
+				"The ordinary inventory lists the finite guided press component"):
 			return
-		panel.component_choice.select(selected)
-		panel._component_selected(selected)
 		var before: Dictionary = opening.model.projection()
-		panel.craft_button.pressed.emit()
+		if not _press_inventory_recipe("component:" + kind, str(before.fabrication_hub.id)):
+			return
 		var after: Dictionary = opening.model.projection()
 		if not _expect(after.order == before.order + 1
 				and int(after.cargo.P.components.get(kind, 0)) == int(before.cargo.P.components.get(kind, 0)) + 1,
 				"The ordinary workshop crafts one finite guided press component"):
 			return
-	if not _expect(opening.model.projection().cargo.P.timber == 6
-			and opening.model.projection().cargo.P.raw == 2,
+	if not _expect(opening.model.projection().cargo.P.timber ==
+			(11 if mode == "arrival-powered-press-site" else 6)
+			and opening.model.projection().cargo.P.raw ==
+				(5 if mode == "arrival-powered-press-site" else 2),
 			"The metal cog preserves the exact timber bill for an output route"):
 		return
 	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 3.3),
@@ -1728,6 +1769,30 @@ func _arrival_belt_fed_press_run(panel) -> void:
 		return
 	await _finish_belt_fed_press_run(panel)
 
+func _arrival_powered_press_site_run(panel) -> void:
+	facts.route = "collector_belt_powered_press_site"
+	await _arrival_press_site_run(panel, false)
+	if written:
+		return
+	var fed := false
+	for tick in range(32):
+		opening.model.advance()
+		opening._refresh()
+		if opening.model.projection().dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.get("center") == [0, 4, -8]
+				and drop.get("raw", 0) == 1)):
+			fed = true
+			break
+	if not _expect(fed and opening.model.projection().cargo.P.raw == 5,
+			"The real belt stages one blank while the worker retains three relay inputs"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts.powered_site_save = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store preserves the pre-power belt work and the worker’s finite relay stock"):
+		return
+	_record("pass")
+
 func _arrival_belt_fed_press_resume_run(panel) -> void:
 	facts["route"] = "collector_belt_hand_press_resume"
 	var restored: Dictionary = opening.model.projection()
@@ -1787,6 +1852,244 @@ func _finish_belt_fed_press_run(panel) -> void:
 	facts["first_plate"] = opening.model.projection()
 	_record("pass")
 
+func _arrival_powered_press_resume_run(panel) -> void:
+	deadline = Time.get_ticks_msec() + 240000
+	facts.evidence = "ordinary_collector_belt_powered_press_continuation"
+	var start: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and start.guided_press_assemblies.size() == 1
+			and start.guided_press_assemblies[0].status == "ready"
+			and start.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [0, 4, -8]
+					and drop.get("raw", 0) == 1))
+			and start.actors.P.ready and start.actors.Q.ready,
+			"A fresh native worksite retains the real belt blank before powering its press"):
+		return
+	var press_shaft: String = str(start.guided_press_assemblies[0].parts.shaft)
+	if not _expect(start.motion[press_shaft].state == "unpowered"
+			and start.cargo.P.timber == 11 and start.cargo.P.raw == 5,
+			"The press has no gifted power relays or extra metal after its first setup"):
+		return
+	if not await _approach_points([Vector2(4.95, -1.2), Vector2(4.95, 3.3),
+			Vector2(3.3, 4.95)]):
+		return
+	for kind in ["vertical_gearbox", "vertical_gearbox", "gearbox",
+			"shaft", "shaft", "shaft", "shaft", "shaft", "shaft", "belt"]:
+		var choice := -1
+		var recipes: Array = opening.model.projection().part_recipes
+		for index in range(recipes.size()):
+			if recipes[index].kind == kind:
+				choice = index
+		if not _expect(choice >= 0, "The ordinary workshop lists a finite height-transfer part"):
+			return
+		if not _press_inventory_recipe("part:%d" % choice,
+				str(opening.model.projection().fabrication_hub.id)):
+			return
+	if not _expect(opening.model.projection().part_kits.P.vertical_gearbox == 2
+			and opening.model.projection().part_kits.P.gearbox == 1
+			and opening.model.projection().part_kits.P.shaft == 6
+			and opening.model.projection().part_kits.P.belt == 1
+			and opening.model.projection().cargo.P.raw == 1,
+			"The press and collector branch spend only harvested, carried workshop stock"):
+		return
+	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, 0.0),
+			Vector2(1.65, -1.2)]):
+		return
+	if _construct({"action": "place_relay", "kind": "vertical_gearbox",
+			"center": [4, 4, 0], "axis": "z"}).is_empty():
+		return
+	for relay in [
+		{"kind": "vertical_gearbox", "center": [4, 8, 0], "axis": "z"},
+		{"kind": "gearbox", "center": [0, 8, 0], "axis": "y"},
+	]:
+		if _construct({"action": "place_relay", "kind": relay.kind,
+				"center": relay.center, "axis": relay.axis}).is_empty():
+			return
+	if _construct({"action": "place_shaft", "center": [0, 8, -4],
+			"axis": "z", "half_span": 2}).is_empty():
+		return
+	if not await _approach_points([Vector2(3.3, -1.2)]):
+		return
+	var branch_ids: Array[String] = []
+	for center in [[8, 4, 0], [12, 4, 0], [12, 4, 4], [8, 4, 4], [4, 4, 4]]:
+		var placed: Dictionary = _construct({"action": "place_shaft", "center": center,
+			"axis": "x", "half_span": 2})
+		if placed.is_empty():
+			return
+		branch_ids.append(str(placed.entity))
+	if _construct({"action": "place_belt_span", "from": branch_ids[1],
+			"to": branch_ids[2]}).is_empty():
+		return
+	var powered: Dictionary = opening.model.projection()
+	facts.powered_motion = powered.motion.get(press_shaft, {})
+	var collector_shaft: String = str(powered.collector_assemblies[4].parts.shaft)
+	if not _expect(powered.motion.has(press_shaft)
+			and powered.motion[press_shaft].state == "rotating"
+			and not powered.motion[press_shaft].overloaded
+			and powered.motion.has(collector_shaft)
+			and powered.motion[collector_shaft].state == "rotating"
+			and powered.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The finite river drive powers the press and collector through actual supported branches"):
+		return
+	var formed := false
+	for tick in range(128):
+		opening.model.advance()
+		var current: Dictionary = opening.model.projection()
+		if current.dropped_material.any(func(drop: Variant) -> bool:
+			return drop is Dictionary and drop.get("products", 0) == 1):
+			formed = true
+			facts.powered_ticks = tick + 1
+			break
+	opening._refresh()
+	var final: Dictionary = opening.model.projection()
+	if not _expect(formed and final.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
+			and final.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("offcuts", 0) == 1
+					and drop.get("center") == [1, 4, -8])),
+			"Native ticks form the original belt-fed plate and discharge its offcut without hand turns"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts.powered_save = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store retains the powered press and its first automatic copper output"):
+		return
+	_record("pass")
+
+func _arrival_powered_press_blocked_resume_run() -> void:
+	deadline = Time.get_ticks_msec() + 240000
+	facts.evidence = "ordinary_powered_press_blocked_output"
+	var start: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and start.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [0, 4, -9]
+					and drop.get("products", 0) == 1))
+			and start.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [1, 4, -8]
+					and drop.get("offcuts", 0) == 1))
+			and start.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"A fresh scene restores one automatic plate, its offcut and conserved finite stock"):
+		return
+	var press_shaft: String = str(start.guided_press_assemblies[0].parts.shaft)
+	if not _expect(start.motion[press_shaft].state == "rotating"
+			and not start.motion[press_shaft].overloaded,
+			"The original waterwheel still powers the loaded press after fresh restore"):
+		return
+	var blocked := false
+	var trace: Array = []
+	for tick in range(256):
+		var current: Dictionary = opening.model.advance()
+		if tick % 16 == 15:
+			trace.append({"tick": tick + 1, "drops": current.dropped_material.duplicate(true),
+				"stock": current.material_mass.duplicate(true)})
+		blocked = current.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.get("center") == [0, 4, -8]
+				and drop.get("work_lots", []).size() == 1
+				and drop.work_lots[0].get("remaining", -1) == 0))
+		if blocked:
+			facts.blocked_ticks = tick + 1
+			break
+	opening._refresh()
+	facts.blocked_trace = trace
+	if blocked:
+		for extra in range(8):
+			opening.model.advance()
+	var retained: Dictionary = opening.model.projection()
+	if not _expect(blocked and retained.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
+			and retained.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [0, 4, -8]
+					and drop.get("work_lots", []).size() == 1
+					and drop.work_lots[0].get("remaining", -1) == 0))
+			and retained.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [0, 4, -9]
+					and drop.get("products", 0) == 1))
+			and retained.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [1, 4, -8]
+					and drop.get("offcuts", 0) == 1)),
+			"The next native work lot waits ready behind the occupied exit without duplicating output"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts.blocked_save = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store preserves the blocked ready work, first plate and first offcut"):
+		return
+	_record("pass")
+
+func _arrival_powered_press_release_resume_run(panel) -> void:
+	deadline = Time.get_ticks_msec() + 240000
+	facts.evidence = "ordinary_powered_press_output_recovery"
+	var start: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and start.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [0, 4, -8]
+					and drop.get("work_lots", []).size() == 1
+					and drop.work_lots[0].get("remaining", -1) == 0))
+			and start.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [0, 4, -9]
+					and drop.get("products", 0) == 1))
+			and start.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [1, 4, -8]
+					and drop.get("offcuts", 0) == 1))
+			and start.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The original ready work, occupied plate exit and offcut tray survive another fresh load"):
+		return
+	if not await _approach_points([Vector2(3.3, -1.2), Vector2(1.65, -1.2)]):
+		return
+	var anvil: String = str(start.guided_press_assemblies[0].anvil)
+	opening._open_object_menu_for(anvil)
+	if not _expect(opening.object_menu.visible and panel.press_section.visible
+			and not panel.pickup_button.disabled,
+			"The ordinary selected press offers the first plate at its actual exit"):
+		return
+	panel.pickup_button.pressed.emit()
+	var cleared: Dictionary = opening.model.projection()
+	if not _expect(cleared.cargo.P.products == 1
+			and not cleared.dropped_material.any(func(drop: Variant) -> bool:
+				return drop is Dictionary and drop.get("center") == [0, 4, -9])
+			and cleared.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The worker removes only the original plate and clears its blocked exit"):
+		return
+	var released := false
+	for tick in range(32):
+		var current: Dictionary = opening.model.advance()
+		released = current.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.get("center") == [0, 4, -9]
+				and drop.get("products", 0) == 1))
+		if released:
+			facts.release_ticks = tick + 1
+			break
+	opening._refresh()
+	var second: Dictionary = opening.model.projection()
+	if not _expect(released and second.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
+			and second.cargo.P.products == 1
+			and second.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [1, 4, -8]
+					and drop.get("offcuts", 0) == 2))
+			and not second.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.get("center") == [0, 4, -8]
+					and drop.get("work_lots", []).size() > 0)),
+			"Native ticks release the retained second plate and preserve both copper offcuts"):
+		return
+	opening._open_object_menu_for(anvil)
+	if not _expect(not panel.pickup_button.disabled,
+			"The ordinary press offers the released second plate for collection"):
+		return
+	panel.pickup_button.pressed.emit()
+	var final: Dictionary = opening.model.projection()
+	if not _expect(final.cargo.P.products == 2
+		and final.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.get("center") == [1, 4, -8]
+				and drop.get("offcuts", 0) == 2))
+			and final.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
+			and final.material_mass.plates == 2 and final.material_mass.offcut_units == 2,
+			"The worker collects two distinct automatic plates while both copper offcuts remain conserved in the tray"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts.final_save = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store validates both finished plates and retained offcuts after the blocked-output recovery"):
+		return
+	_record("pass")
+
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
 func _arrival_raised_press_resume_run(panel) -> void:
 	var restored: Dictionary = opening.model.projection()
@@ -1829,18 +2132,18 @@ func _arrival_raised_press_resume_run(panel) -> void:
 
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
-	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-craft-capacity"]:
+	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-craft-capacity"]:
 		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume"]:
+	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -1914,6 +2217,18 @@ func _arrival_run() -> void:
 		return
 	if mode == "arrival-belt-fed-press-resume":
 		await _arrival_belt_fed_press_resume_run(panel)
+		return
+	if mode == "arrival-powered-press-site":
+		await _arrival_powered_press_site_run(panel)
+		return
+	if mode == "arrival-powered-press-resume":
+		await _arrival_powered_press_resume_run(panel)
+		return
+	if mode == "arrival-powered-press-blocked-resume":
+		await _arrival_powered_press_blocked_resume_run()
+		return
+	if mode == "arrival-powered-press-release-resume":
+		await _arrival_powered_press_release_resume_run(panel)
 		return
 	if mode == "arrival-raised-press-resume":
 		await _arrival_raised_press_resume_run(panel)
@@ -2008,20 +2323,27 @@ func _arrival_run() -> void:
 		return
 	var raised: bool = mode == "arrival-raised-press"
 	opening._open_object_menu_for(str(pod_state.fabrication_hub.id))
-	if not _expect(opening._object_menu_open() and panel.is_visible_in_tree()
-			and not panel.craft_button.disabled and "3 timber" in panel.recipe_label.text,
-			"Opening the pod workshop exposes the current carried recipe and craft action"):
+	var inventory = opening.building_hotbar
+	if not _expect(inventory.catalog.visible and inventory.context_bench == pod_state.fabrication_hub.id
+			and inventory.recipe_buttons["component:wooden_frame"].visible
+			and "3 timber" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
+			"Opening the pod workshop exposes current native recipes in the inventory"):
 		return
 	var empty_before: Dictionary = opening.model.projection()
-	panel.craft_button.pressed.emit()
+	inventory.recipe_buttons["component:wooden_frame"].pressed.emit()
 	var empty_after: Dictionary = opening.model.projection()
-	if not _expect(empty_after.order == empty_before.order + 1
+	if not _expect(empty_after.order == empty_before.order
 			and empty_after.cargo == empty_before.cargo
 			and empty_after.hand_sources == empty_before.hand_sources
-			and "Gather the timber or softmetal" in opening.status_label.text,
-			"The nearby hub records one missing-input refusal without changing carried or source stock"):
+			and "Carry the ingredients" in inventory.focus_description.text,
+			"The nearby recipe explains missing ingredients without changing custody"):
 		return
-	opening.object_menu.hide()
+	var empty_refusal: Dictionary = _issue({"action": "craft_component",
+		"entity": pod_state.fabrication_hub.id, "component": "wooden_frame"})
+	if not _expect(not empty_refusal.accepted and opening.model.projection().cargo == empty_before.cargo,
+			"Native admission independently refuses missing component inputs"):
+		return
+	inventory.catalog.hide()
 	await process_frame
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
@@ -2040,7 +2362,8 @@ func _arrival_run() -> void:
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 			return
 	var distant_before: Dictionary = opening.model.projection()
-	panel.craft_button.pressed.emit()
+	if not _press_inventory_recipe("component:wooden_frame", str(distant_before.fabrication_hub.id)):
+		return
 	var distant_after: Dictionary = opening.model.projection()
 	if not _expect(distant_after.order == distant_before.order + 1
 			and distant_after.cargo == distant_before.cargo
@@ -2052,31 +2375,26 @@ func _arrival_run() -> void:
 		return
 	var initial: Dictionary = opening.model.projection()
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
-			and initial.placed_components.is_empty() and initial.component_recipes.size() == 12,
-			"Two finite trees and the ore deposit supply both chapter bills without gifted machines"):
+			and initial.placed_components.is_empty() and initial.component_recipes.size() == 14
+			and initial.component_recipes.wooden_slide.timber == 3
+			and initial.component_recipes.softmetal_slide.softmetal == 4,
+			"Two finite trees and the ore deposit supply the original route while native slides remain finite options"):
 		return
 	var part_list := ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"]
 	var collector_list := ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]
 	for kind: String in part_list + collector_list:
-		var index := -1
-		for choice in range(panel.COMPONENTS.size()):
-			if panel.COMPONENTS[choice][0] == kind:
-				index = choice
-		if not _expect(index >= 0, "Every collector and press part is available in the ordinary picker"):
+		if not _expect(inventory.recipe_buttons.has("component:" + kind),
+				"Every collector and press part is available in the inventory recipes"):
 			return
-		panel.component_choice.select(index)
-		panel._component_selected(index)
 		var bill: Dictionary = opening.model.projection().component_recipes[kind]
-		var bill_text := "%d timber" % bill.timber
-		if int(bill.softmetal) > 0:
-			bill_text += " + %d softmetal" % bill.softmetal
-		if not _expect(not panel.craft_button.disabled
-				and ("Need " + bill_text) in panel.recipe_label.text,
-				"The ordinary picker shows the selected native hub recipe"):
+		var bill_text := "%d timber + %d ore" % [bill.timber, bill.softmetal]
+		if not _expect(bill_text in inventory.recipe_buttons["component:" + kind].tooltip_text,
+				"The ordinary inventory shows the native hub recipe bill"):
 			return
 		var before: int = opening.model.projection().order
 		var owned_before: int = opening.model.projection().cargo.P.components.get(kind, 0)
-		panel.craft_button.pressed.emit()
+		if not _press_inventory_recipe("component:" + kind, str(opening.model.projection().fabrication_hub.id)):
+			return
 		if not _expect(opening.model.projection().order == before + 1
 				and opening.model.projection().cargo.P.components.get(kind, 0) == owned_before + 1,
 				"The panel crafts one native component with exact finite cargo"):
@@ -2088,7 +2406,8 @@ func _arrival_run() -> void:
 		return
 	if raised:
 		var before_floor: Dictionary = opening.model.projection()
-		panel.foundation_craft_button.pressed.emit()
+		if not _press_inventory_recipe("foundation", str(before_floor.fabrication_hub.id)):
+			return
 		var floor_kit: Dictionary = opening.model.projection()
 		if not _expect(floor_kit.order == before_floor.order + 1
 				and floor_kit.cargo.P.timber == 2
@@ -2113,15 +2432,8 @@ func _arrival_run() -> void:
 	var original_camera_distance: float = opening.distance
 	for index in range(part_list.size()):
 		var kind: String = part_list[index]
-		if not panel.craft_section.visible:
-			panel.craft_tab.pressed.emit()
-		var choice := -1
-		for item in range(panel.COMPONENTS.size()):
-			if panel.COMPONENTS[item][0] == kind:
-				choice = item
-		panel.component_choice.select(choice)
-		panel._component_selected(choice)
-		panel.place_button.pressed.emit()
+		if not _select_inventory_item("component:" + kind):
+			return
 		var requested_center := [3 * OpeningGeometry.HEIGHT_DENOMINATOR + maxi(index - 2, 0),
 			[0, 1, 3, 4, 4][index] + (OpeningGeometry.HEIGHT_DENOMINATOR if raised else 0),
 			4 * OpeningGeometry.HEIGHT_DENOMINATOR]
@@ -2235,8 +2547,9 @@ func _arrival_run() -> void:
 	if raised and not _expect(ready.center == [12, 4, 16] and ready.work_center == [12, 4, 16],
 			"The raised native press keeps the anvil workface on the same foundation height grid"):
 		return
-	panel.press_tab.pressed.emit()
-	if not _expect(panel.press_section.visible and panel.press_status.text.begins_with("Press ready")
+	opening._open_object_menu_for(str(ready.anvil))
+	if not _expect(opening.object_menu.visible and panel.press_section.is_visible_in_tree()
+			and panel.press_status.text.begins_with("Press ready")
 			and panel.route_choice.get_item_count() > 0,
 			"The selected press exposes its live feed routes in the ordinary panel"):
 		return
@@ -2467,17 +2780,13 @@ func _arrival_broad_pad_run(panel) -> void:
 	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, 4.95)]):
 		return
 	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"]:
-		var choice := -1
-		for index in range(panel.COMPONENTS.size()):
-			if panel.COMPONENTS[index][0] == kind:
-				choice = index
-		if not _expect(choice >= 0, "The ordinary workshop lists the placed broad-pad part"):
+		if not _expect(opening.building_hotbar.recipe_buttons.has("component:" + kind),
+				"The ordinary inventory lists the placed broad-pad part"):
 			return
-		panel.component_choice.select(choice)
-		panel._component_selected(choice)
 		for copy in range(4):
 			var before: Dictionary = opening.model.projection()
-			panel.craft_button.pressed.emit()
+			if not _press_inventory_recipe("component:" + kind, str(before.fabrication_hub.id)):
+				return
 			var after: Dictionary = opening.model.projection()
 			if not _expect(after.order == before.order + 1
 					and int(after.cargo.P.components.get(kind, 0)) ==
@@ -2574,10 +2883,9 @@ func _arrival_broad_drive_run(panel) -> void:
 				choice = index
 		if not _expect(choice >= 0, "The workshop exposes the exact finite drive kit"):
 			return
-		panel.part_choice.select(choice)
-		panel.part_choice.item_selected.emit(choice)
 		var before: Dictionary = opening.model.projection()
-		panel.part_craft_button.pressed.emit()
+		if not _press_inventory_recipe("part:%d" % choice, str(before.fabrication_hub.id)):
+			return
 		var after: Dictionary = opening.model.projection()
 		if not _expect(after.order == before.order + 1
 				and int(after.part_kits.P.get(kind, 0)) == int(before.part_kits.P.get(kind, 0)) + 1,
@@ -2743,16 +3051,12 @@ func _arrival_broad_cut_resume_run(panel) -> void:
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 3.3),
 			Vector2(3.3, 4.95)]):
 		return
-	var choice := -1
-	for index in range(panel.COMPONENTS.size()):
-		if panel.COMPONENTS[index][0] == "cutting_edge":
-			choice = index
-	if not _expect(choice >= 0, "The ordinary workshop lists the interchangeable cutting face"):
+	if not _expect(opening.building_hotbar.recipe_buttons.has("component:cutting_edge"),
+			"The ordinary inventory lists the interchangeable cutting face"):
 		return
-	panel.component_choice.select(choice)
-	panel._component_selected(choice)
 	for edge in range(4):
-		panel.craft_button.pressed.emit()
+		if not _press_inventory_recipe("component:cutting_edge", str(opening.model.projection().fabrication_hub.id)):
+			return
 	if not _expect(opening.model.projection().cargo.P.components.get("cutting_edge", 0) == 4
 			and opening.model.projection().cargo.P.sheets == 1,
 			"Four separately crafted blades accompany the same carried sheet"):

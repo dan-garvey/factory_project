@@ -331,10 +331,6 @@ class ArrivalAssemblyControls:
 	const TURN_REPEAT_SECONDS := 0.33
 
 	var selected_component := "wooden_frame"
-	var selected_bench := ""
-	var _focused_bench := ""
-	var _bench_ids: Array[String] = []
-	var selected_part := 0
 	var _host: WeakRef
 	var _snapshot := {}
 	var _actor := "P"
@@ -345,24 +341,6 @@ class ArrivalAssemblyControls:
 	var _held_work_id := 0
 	var _held_work_ids: Array[int] = []
 	var _last_anvil := ""
-	var _press_page := false
-	var _page_open := false
-	var _context_page := false
-	var component_choice: OptionButton
-	var bench_choice: OptionButton
-	var pod_workshop_button: Button
-	var craft_button: Button
-	var foundation_craft_button: Button
-	var foundation_craft_row: HBoxContainer
-	var foundation_craft_label: Label
-	var field_craft_button: Button
-	var part_choice: OptionButton
-	var part_cost_label: Label
-	var part_craft_button: Button
-	var part_place_button: Button
-	var route_status_label: Label
-	var recipe_label: Label
-	var place_button: Button
 	var reclaim_button: Button
 	var reclaim_row: HBoxContainer
 	var crank_button: Button
@@ -380,10 +358,8 @@ class ArrivalAssemblyControls:
 	var turn_hold_source := ""
 	var pickup_button: Button
 	var recover_work_button: Button
-	var craft_section: VBoxContainer
+	var collector_section: VBoxContainer
 	var press_section: VBoxContainer
-	var craft_tab: Button
-	var press_tab: Button
 
 	func _ready() -> void:
 		get_window().focus_exited.connect(stop_turn_hold)
@@ -394,12 +370,6 @@ class ArrivalAssemblyControls:
 		var column := VBoxContainer.new()
 		column.add_theme_constant_override("separation", 5)
 		add_child(column)
-		var tabs := HBoxContainer.new()
-		column.add_child(tabs)
-		craft_tab = host._button(tabs, "Craft parts", _toggle_page.bind(false))
-		press_tab = host._button(tabs, "Press work", _toggle_page.bind(true))
-		craft_tab.toggle_mode = true
-		press_tab.toggle_mode = true
 		reclaim_row = HBoxContainer.new()
 		reclaim_row.alignment = BoxContainer.ALIGNMENT_CENTER
 		column.add_child(reclaim_row)
@@ -408,70 +378,13 @@ class ArrivalAssemblyControls:
 		_style_workshop_icon(reclaim_button, "workshop-reclaim")
 		reclaim_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		reclaim_row.visible = false
-		craft_section = VBoxContainer.new()
-		column.add_child(craft_section)
-		host._label(craft_section, "FIELD WORKSHOP", 13, Color("f4bf75"))
-		component_choice = OptionButton.new()
-		component_choice.name = "ComponentChoice"
-		for item in COMPONENTS:
-			component_choice.add_item(item[1])
-		component_choice.select(0)
-		component_choice.item_selected.connect(_component_selected)
-		craft_section.add_child(component_choice)
-		bench_choice = OptionButton.new()
-		bench_choice.name = "FabricationBenchChoice"
-		bench_choice.item_selected.connect(_bench_selected)
-		craft_section.add_child(bench_choice)
-		pod_workshop_button = host._button(craft_section, "", _pod_workshop)
-		_style_workshop_icon(pod_workshop_button, "workshop-pod")
-		pod_workshop_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
-		recipe_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		var component_actions := VBoxContainer.new()
-		craft_section.add_child(component_actions)
-		var craft_row := HBoxContainer.new()
-		craft_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		component_actions.add_child(craft_row)
-		craft_button = host._button(craft_row, "", _craft)
-		_style_workshop_icon(craft_button, "workshop-craft")
-		field_craft_button = host._button(craft_row, "", _field_craft)
-		_style_workshop_icon(field_craft_button, "workshop-shape")
-		place_button = host._button(craft_row, "", _place)
-		_style_workshop_icon(place_button, "workshop-place")
-		foundation_craft_row = HBoxContainer.new()
-		foundation_craft_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		component_actions.add_child(foundation_craft_row)
-		foundation_craft_button = host._button(foundation_craft_row, "", _craft_foundation)
-		_style_workshop_icon(foundation_craft_button, "foundation")
-		foundation_craft_label = host._label(foundation_craft_row, "", 11, Color("bfd1cc"))
-		foundation_craft_label.custom_minimum_size.x = 76
-		foundation_craft_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		foundation_craft_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
-		part_choice = OptionButton.new()
-		part_choice.name = "TransmissionRecipe"
-		part_choice.item_selected.connect(func(index: int) -> void:
-			selected_part = index
-			var current = _host_view()
-			if current != null:
-				refresh(current.state, current.client, current.selected, current._can_use_object_actions()))
-		craft_section.add_child(part_choice)
-		part_cost_label = host._label(craft_section, "", 12, Color("bfd1cc"))
-		part_cost_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		var part_actions := HBoxContainer.new()
-		part_actions.alignment = BoxContainer.ALIGNMENT_CENTER
-		craft_section.add_child(part_actions)
-		part_craft_button = host._button(part_actions, "", _craft_part)
-		_style_workshop_icon(part_craft_button, "workshop-craft")
-		part_place_button = host._button(part_actions, "", _place_part)
-		_style_workshop_icon(part_place_button, "workshop-place")
-		route_status_label = host._label(craft_section, "", 12, Color("bfd1cc"))
-		route_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		collector_status = host._label(craft_section, "", 12, Color("bfd1cc"))
+		collector_section = VBoxContainer.new()
+		column.add_child(collector_section)
+		collector_status = host._label(collector_section, "", 12, Color("bfd1cc"))
 		collector_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var collector_actions := HBoxContainer.new()
 		collector_actions.alignment = BoxContainer.ALIGNMENT_CENTER
-		craft_section.add_child(collector_actions)
+		collector_section.add_child(collector_actions)
 		collector_crank_button = host._button(collector_actions, "", _crank)
 		_style_workshop_icon(collector_crank_button, "workshop-crank")
 		collector_crank_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -532,7 +445,8 @@ class ArrivalAssemblyControls:
 		_style_workshop_icon(recover_work_button, "press-recover")
 		crank_button = host._button(output_actions, "", _crank)
 		_style_workshop_icon(crank_button, "workshop-crank")
-		_update_page()
+		collector_section.visible = false
+		press_section.visible = false
 		visible = false
 
 	func _style_workshop_icon(button: Button, icon_name: String) -> void:
@@ -545,47 +459,28 @@ class ArrivalAssemblyControls:
 		return selected_component
 
 	func select_component_name(component_name: String) -> bool:
-		for index in COMPONENTS.size():
-			if COMPONENTS[index][0] == component_name:
-				component_choice.select(index)
-				_component_selected(index)
+		for item in COMPONENTS:
+			if item[0] == component_name:
+				selected_component = component_name
+				var host = _host_view()
+				if host != null:
+					host._update_cursor()
 				return true
 		return false
 
 	func press_anvil_for(selected: String) -> String:
 		return str(_selected_press(_snapshot, selected).get("anvil", ""))
 
-	func _show_page(press: bool) -> void:
-		_press_page = press
-		_page_open = true
-		_context_page = true
-		_update_page()
-
-	func _toggle_page(press: bool) -> void:
-		_page_open = not _page_open or _press_page != press
-		_press_page = press
-		_context_page = false
-		_update_page()
-
-	func _update_page() -> void:
-		craft_section.visible = _page_open and not _press_page
-		press_section.visible = _page_open and _press_page
-		craft_tab.button_pressed = craft_section.visible
-		press_tab.button_pressed = press_section.visible
+	func _update_context_size() -> void:
 		var scroller := get_parent() as ScrollContainer
 		if scroller != null:
-			scroller.custom_minimum_size.y = (280 if _press_page else 390) if _page_open else 40
+			scroller.custom_minimum_size.y = 280 if press_section.visible else 150 if collector_section.visible else 40
 
 	func open_context() -> void:
-		if _bench_ids.has(_selected) or (not _selected_collector(_snapshot, _selected).is_empty()
-				and _press.get("status") != "ready"):
-			_show_page(false)
-		elif not _anvil.is_empty():
-			_show_page(true)
-		elif _context_page:
-			_context_page = false
-			_page_open = false
-			_update_page()
+		var collector := _selected_collector(_snapshot, _selected)
+		collector_section.visible = not collector.is_empty() and _press.get("status") != "ready"
+		press_section.visible = not collector_section.visible and not _anvil.is_empty()
+		_update_context_size()
 
 	func _bearing(point: Array, center: Array) -> String:
 		if point.size() != 3 or center.size() != 3:
@@ -604,128 +499,11 @@ class ArrivalAssemblyControls:
 		if not visible:
 			return
 		var cargo: Dictionary = snapshot.get("cargo", {}).get(actor, {})
-		var components: Dictionary = cargo.get("components", {})
-		var recipes: Dictionary = snapshot.get("component_recipes", {})
-		var cost: Dictionary = recipes.get(selected_component, {})
-		var benches: Array[Dictionary] = []
-		var pod: Dictionary = snapshot.get("fabrication_hub", {})
-		if pod.get("installed", true) and not pod.is_empty():
-			benches.append({"id": str(pod.id), "label": "Pod workshop"})
-		for bench: Dictionary in snapshot.get("fabrication_benches", []):
-			if bench.has("id") and bench.get("center") is Array:
-				var center: Array = bench.center
-				if center.size() == 3:
-					benches.append({"id": str(bench.id), "label": "Wooden workbench  (%d, %d)" % [center[0], center[2]]})
-		if selected_bench.is_empty() or not benches.any(func(bench: Dictionary) -> bool: return bench.id == selected_bench):
-			selected_bench = str(benches[0].id) if not benches.is_empty() else ""
-		if selected != _focused_bench:
-			_focused_bench = selected
-			if benches.any(func(bench: Dictionary) -> bool: return bench.id == selected):
-				selected_bench = selected
-		bench_choice.clear()
-		_bench_ids.clear()
-		for bench: Dictionary in benches:
-			bench_choice.add_item(bench.label)
-			_bench_ids.append(bench.id)
-			if bench.id == selected_bench:
-				bench_choice.select(bench_choice.item_count - 1)
-		bench_choice.disabled = not ready or benches.is_empty()
-		pod_workshop_button.visible = not pod.is_empty()
-		pod_workshop_button.disabled = not ready or (not pod.get("installed", false) and pod.get("holder") != actor)
-		var pod_action := "Stow pod workshop" if pod.get("installed", false) else \
-			"Place carried pod workshop" if pod.get("holder") == actor else "Pod workshop carried by another worker"
-		pod_workshop_button.tooltip_text = "%s · S" % pod_action
-		pod_workshop_button.accessibility_name = "%s, shortcut S" % pod_action
-		var material_cost := "%d timber" % int(cost.get("timber", 0))
-		var material_carried := "%d timber" % int(cargo.get("timber", 0))
-		if int(cost.get("softmetal", 0)) > 0:
-			material_cost += " + %d softmetal" % int(cost.get("softmetal", 0))
-			material_carried += " + %d softmetal" % int(cargo.get("raw", 0))
-		recipe_label.text = "Need %s · Carry %s" % [material_cost, material_carried]
-		var selected_rating: int = int(cost.get("load_rating", 0))
-		component_choice.tooltip_text = "Rated for %d load. The weakest shaft or cog limits a connected drive; overload stalls without damage." % selected_rating \
-			if selected_rating > 0 else ""
-		if selected_rating > 0:
-			var wood_rating: int = int(recipes.get("wooden_shaft", {}).get("load_rating", 0))
-			var metal_rating: int = int(recipes.get("softmetal_shaft", {}).get("load_rating", 0))
-			if wood_rating > 0 and metal_rating > 0:
-				recipe_label.text += "\nDrive limits: wood %d · softmetal %d" % [wood_rating, metal_rating]
-			else:
-				recipe_label.text += "\nDrive limit: %d load" % selected_rating
-		for index in COMPONENTS.size():
-			var item: Array = COMPONENTS[index]
-			component_choice.set_item_text(index, "%s  ×%d" % [item[1], components.get(item[0], 0)])
-		# Let the hub report missing input, full output and distance using its
-		# confirmed result. The bill above stays visible before the attempt.
-		craft_button.disabled = not ready or selected_bench.is_empty() or cost.is_empty()
-		var chosen_name: String = COMPONENTS[component_choice.selected][1]
-		craft_button.tooltip_text = "Craft %s at the selected workshop · need %s · carry %s · C" % [
-			chosen_name, material_cost, material_carried]
-		craft_button.accessibility_name = "Craft %s at the selected workshop, shortcut C" % chosen_name
-		var foundation_recipe: Dictionary = snapshot.get("foundation_recipe", {})
-		var foundation_cost: int = int(foundation_recipe.get("timber", 0))
-		var carried_timber: int = int(cargo.get("timber", 0))
-		var floor_parts: int = int(snapshot.get("part_kits", {}).get(actor, {}).get("foundation", 0))
-		foundation_craft_button.visible = foundation_cost > 0
-		foundation_craft_row.visible = foundation_craft_button.visible
-		foundation_craft_label.text = "Foundation\n%d timber" % foundation_cost
-		foundation_craft_button.disabled = not ready or selected_bench.is_empty() \
-			or foundation_cost <= 0 or carried_timber < foundation_cost
-		foundation_craft_button.tooltip_text = "Foundation: %d timber. Carry %d; have %d floors." % [
-			foundation_cost, carried_timber, floor_parts]
-		foundation_craft_button.accessibility_name = "Craft one foundation for %d timber at the selected workshop" % foundation_cost
-		field_craft_button.visible = not cost.is_empty() and int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
-		field_craft_button.disabled = not ready or not field_craft_button.visible
-		field_craft_button.tooltip_text = "Shape %s with the multitool · need %s · carry %s · V" % [
-			chosen_name, material_cost, material_carried]
-		field_craft_button.accessibility_name = "Shape %s with the multitool, shortcut V" % chosen_name
-		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
-		place_button.tooltip_text = "Place %s · %d carried · P" % [
-			chosen_name, int(components.get(selected_component, 0))]
-		place_button.accessibility_name = "Place %s, shortcut P" % chosen_name
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
 		reclaim_row.visible = reclaim_button.visible
 		reclaim_button.disabled = not ready or not reclaim_button.visible
 		reclaim_button.tooltip_text = "%s · Delete" % ("Reclaim selected placed part" if ready else "Wait for the character")
 		reclaim_button.accessibility_name = "Reclaim selected placed part, shortcut Delete"
-		var part_recipes: Array = snapshot.get("part_recipes", [])
-		selected_part = clampi(selected_part, 0, maxi(0, part_recipes.size() - 1))
-		part_choice.clear()
-		var kit_specs: Array = snapshot.get("part_specifications", {}).get(actor, [])
-		var selected_count := 0
-		for recipe_index in part_recipes.size():
-			var recipe: Dictionary = part_recipes[recipe_index]
-			var count := 0
-			for spec in kit_specs:
-				if spec is Dictionary and spec.get("kind") == recipe.get("kind") and spec.get("teeth") == recipe.get("teeth") and spec.get("half_span") == recipe.get("half_span"):
-					count = int(spec.get("count", 0))
-			if recipe_index == selected_part:
-				selected_count = count
-			var title: String = {"shaft": "Shaft tile", "belt": "Belt span", "wheel": "Waterwheel"}.get(recipe.get("kind", ""), "Part")
-			part_choice.add_item("%s  ×%d" % [title, count])
-		if part_recipes.is_empty():
-			part_cost_label.text = "No powered-route recipes at this workshop."
-			part_craft_button.disabled = true
-			part_place_button.disabled = true
-			part_craft_button.tooltip_text = "No powered-route recipe available."
-			part_place_button.tooltip_text = "No powered-route kit available."
-			part_craft_button.accessibility_name = "Make selected powered-route kit, shortcut M"
-			part_place_button.accessibility_name = "Place selected powered-route kit, shortcut K"
-		else:
-			part_choice.select(selected_part)
-			var recipe: Dictionary = part_recipes[selected_part]
-			var part_name: String = {"shaft": "shaft tile", "belt": "belt span", "wheel": "waterwheel"}.get(recipe.get("kind", ""), "part")
-			part_cost_label.text = "Needs %d timber + %d softmetal\nMake beside the selected workshop" % [recipe.get("timber", 0), recipe.get("softmetal", 0)]
-			part_craft_button.disabled = not ready or selected_bench.is_empty()
-			part_place_button.disabled = not ready or selected_count < 1
-			part_craft_button.tooltip_text = "Make %s · need %d timber + %d softmetal · carry %d timber + %d softmetal · M" % [
-				part_name, int(recipe.get("timber", 0)), int(recipe.get("softmetal", 0)),
-				int(cargo.get("timber", 0)), int(cargo.get("raw", 0))]
-			part_craft_button.accessibility_name = "Make %s at the selected workshop, shortcut M" % part_name
-			var place_action: String = ("Connect shafts with %s" if recipe.get("kind") == "belt" else "Place %s") % part_name
-			part_place_button.tooltip_text = "%s · %d carried · K" % [place_action, selected_count]
-			part_place_button.accessibility_name = "%s, shortcut K" % place_action
-		route_status_label.text = _receiver_route_status(snapshot)
 		var crank: Dictionary = snapshot.get("hand_crank", {})
 		var collector: Dictionary = _selected_collector(snapshot, selected)
 		var collector_parts: Dictionary = collector.get("parts", {})
@@ -740,6 +518,8 @@ class ArrivalAssemblyControls:
 			collector_status.text = "Collector receiver holds an ore blank. Pick it up before another cut." if receiver_full else \
 				"Collector ready. Turn its fitted shaft to cut one ore blank." if collector_state == "ready" else \
 				"Collector: %s" % COLLECTOR_NEXT.get(collector_state, "Choose a clear ore-deposit frame.")
+			if collector_state == "ready":
+				collector_status.text += "\n" + _receiver_route_status(snapshot)
 			var crank_action := "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
 			collector_crank_button.tooltip_text = "%s · T" % crank_action
 			collector_crank_button.accessibility_name = "%s, shortcut T" % crank_action
@@ -960,70 +740,6 @@ class ArrivalAssemblyControls:
 
 	func _host_view():
 		return _host.get_ref() if _host != null else null
-
-	func _component_selected(index: int) -> void:
-		selected_component = str(COMPONENTS[index][0])
-		var host = _host_view()
-		if host != null:
-			refresh(host.state, host.client, host.selected, host._can_use_object_actions())
-			host._update_cursor()
-
-	func _bench_selected(index: int) -> void:
-		if index >= 0 and index < _bench_ids.size():
-			selected_bench = _bench_ids[index]
-
-	func _pod_workshop() -> void:
-		var host = _host_view()
-		var pod: Dictionary = _snapshot.get("fabrication_hub", {})
-		if host == null or pod.is_empty():
-			return
-		if pod.get("installed", false):
-			host.issue({"action": "stow_fabrication_hub", "entity": pod.id})
-		elif pod.get("holder") == _actor:
-			host._select_tool("pod_workshop")
-
-	func _craft() -> void:
-		var host = _host_view()
-		if host == null:
-			return
-		if not selected_bench.is_empty():
-			host.issue({"action": "craft_component", "entity": selected_bench, "component": selected_component})
-
-	func _craft_foundation() -> void:
-		var host = _host_view()
-		if host != null and foundation_craft_button.visible and not foundation_craft_button.disabled:
-			host.issue({"action": "craft_foundation", "entity": selected_bench})
-
-	func _field_craft() -> void:
-		var host = _host_view()
-		if host != null and field_craft_button.visible:
-			host.issue({"action": "field_craft", "component": selected_component})
-
-	func _craft_part() -> void:
-		var host = _host_view()
-		var recipes: Array = _snapshot.get("part_recipes", [])
-		if host == null or selected_part < 0 or selected_part >= recipes.size():
-			return
-		if selected_bench.is_empty():
-			return
-		var recipe: Dictionary = recipes[selected_part]
-		host.issue({"action": "craft_part", "entity": selected_bench,
-			"role": "waterwheel" if recipe.get("kind") == "wheel" else recipe.get("kind"),
-			"half_span": recipe.get("half_span", 0)})
-
-	func _place_part() -> void:
-		var host = _host_view()
-		var recipes: Array = _snapshot.get("part_recipes", [])
-		if host == null or selected_part < 0 or selected_part >= recipes.size():
-			return
-		var tool: String = {"wheel": "wheel", "shaft": "drive", "belt": "belt"}.get(recipes[selected_part].get("kind", ""), "")
-		if not tool.is_empty():
-			host._select_tool(tool)
-
-	func _place() -> void:
-		var host = _host_view()
-		if host != null:
-			host._select_tool("component")
 
 	func _reclaim() -> void:
 		var host = _host_view()
