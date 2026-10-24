@@ -363,6 +363,7 @@ class ArrivalAssemblyControls:
 	var recipe_label: Label
 	var place_button: Button
 	var reclaim_button: Button
+	var reclaim_row: HBoxContainer
 	var crank_button: Button
 	var collector_crank_button: Button
 	var collector_cut_button: Button
@@ -393,6 +394,14 @@ class ArrivalAssemblyControls:
 		press_tab = host._button(tabs, "Press work", _toggle_page.bind(true))
 		craft_tab.toggle_mode = true
 		press_tab.toggle_mode = true
+		reclaim_row = HBoxContainer.new()
+		reclaim_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		column.add_child(reclaim_row)
+		host._label(reclaim_row, "RECLAIM PART", 11, Color("f4bf75"))
+		reclaim_button = host._button(reclaim_row, "", _reclaim)
+		_style_workshop_icon(reclaim_button, "workshop-reclaim")
+		reclaim_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		reclaim_row.visible = false
 		craft_section = VBoxContainer.new()
 		column.add_child(craft_section)
 		host._label(craft_section, "FIELD WORKSHOP", 13, Color("f4bf75"))
@@ -432,9 +441,6 @@ class ArrivalAssemblyControls:
 		foundation_craft_label.custom_minimum_size.x = 76
 		foundation_craft_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		foundation_craft_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		reclaim_button = host._button(craft_row, "", _reclaim)
-		_style_workshop_icon(reclaim_button, "workshop-reclaim")
-		reclaim_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
 		part_choice = OptionButton.new()
 		part_choice.name = "TransmissionRecipe"
@@ -672,9 +678,10 @@ class ArrivalAssemblyControls:
 			chosen_name, int(components.get(selected_component, 0))]
 		place_button.accessibility_name = "Place %s, shortcut P" % chosen_name
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
+		reclaim_row.visible = reclaim_button.visible
 		reclaim_button.disabled = not ready or not reclaim_button.visible
-		reclaim_button.tooltip_text = "Reclaim selected placed part"
-		reclaim_button.accessibility_name = "Reclaim selected placed part"
+		reclaim_button.tooltip_text = "%s · Delete" % ("Reclaim selected placed part" if ready else "Wait for the character")
+		reclaim_button.accessibility_name = "Reclaim selected placed part, shortcut Delete"
 		var part_recipes: Array = snapshot.get("part_recipes", [])
 		selected_part = clampi(selected_part, 0, maxi(0, part_recipes.size() - 1))
 		part_choice.clear()

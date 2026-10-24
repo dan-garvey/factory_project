@@ -332,21 +332,26 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 	opening._refresh_ui()
 	if not _expect(panel.reclaim_button.visible and not panel.reclaim_button.disabled
 			and panel.reclaim_button.text.is_empty() and panel.reclaim_button.icon != null
-			and panel.reclaim_button.tooltip_text == "Reclaim selected placed part"
-			and panel.reclaim_button.accessibility_name == "Reclaim selected placed part",
+			and panel.reclaim_button.tooltip_text == "Reclaim selected placed part · Delete"
+			and panel.reclaim_button.accessibility_name == "Reclaim selected placed part, shortcut Delete",
 			"The selected built bench offers a focused reclaim icon"):
 		return
+	opening._open_object_menu_for(id)
+	if not _expect(opening.object_menu.visible and panel.reclaim_button.is_visible_in_tree()
+			and not opening.remove_button.visible,
+			"The selected bench shows one reclaim action in the ordinary E menu"):
+		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-		opening._open_object_menu_for(id)
-		if not _expect(opening.object_menu.visible and panel.reclaim_button.is_visible_in_tree()
-				and not opening.remove_button.visible,
-				"The selected bench shows one reclaim action in the ordinary E menu"):
-			return
 		await RenderingServer.frame_post_draw
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-reclaim-menu.png") == OK,
 				"The selected bench reclaim icon is retained in the ordinary E menu"):
 			return
-	panel.reclaim_button.pressed.emit()
+	var reclaim_key := InputEventKey.new()
+	reclaim_key.keycode = KEY_DELETE
+	reclaim_key.pressed = true
+	opening._input(reclaim_key)
+	reclaim_key.pressed = false
+	opening._input(reclaim_key)
 	if opening.object_menu.visible:
 		opening.object_menu.hide()
 		await process_frame
@@ -1110,7 +1115,19 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 			and panel.reclaim_button.text.is_empty() and panel.reclaim_button.icon != null,
 			"The selected placed shaft offers an ordinary reclaim control"):
 		return
-	panel.reclaim_button.pressed.emit()
+	opening._open_object_menu_for(first_id)
+	if not _expect(opening.object_menu.visible and opening.object_menu_operations.visible
+			and panel.reclaim_button.is_visible_in_tree() and not opening.remove_button.visible,
+			"An incomplete placed shaft has one reachable reclaim icon in the ordinary E menu"):
+		return
+	var reclaim_key := InputEventKey.new()
+	reclaim_key.keycode = KEY_DELETE
+	reclaim_key.pressed = true
+	opening._input(reclaim_key)
+	reclaim_key.pressed = false
+	opening._input(reclaim_key)
+	opening.object_menu.hide()
+	await process_frame
 	var reclaim_refused: Dictionary = opening.model.projection()
 	if not _expect(reclaim_refused.order == recovered.order + 1
 			and reclaim_refused.cargo == recovered.cargo

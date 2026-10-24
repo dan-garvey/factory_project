@@ -1897,8 +1897,9 @@ func _workshop_pages() -> void:
 		view._open_pointed_machine()
 		verify(view.object_menu.visible and panel.craft_section.is_visible_in_tree()
 			and panel.selected_bench == "field-bench" and not panel.bench_choice.visible
-			and not panel.pod_workshop_button.visible and not panel.reclaim_button.visible,
-			"The built workbench shows its own craft actions without unrelated pod or duplicate removal controls.")
+			and not panel.pod_workshop_button.visible and panel.reclaim_button.is_visible_in_tree()
+			and not view.remove_button.visible,
+			"The built workbench shows its craft actions and one reclaim icon without unrelated pod controls.")
 		view.object_menu.hide()
 		await process_frame
 		view.pointed = "press-anvil"
@@ -1932,7 +1933,9 @@ func _workshop_pages() -> void:
 		view.issued.clear()
 		panel.refresh(view.state, view.client, view.selected, false)
 		verify(panel.press_section.is_visible_in_tree() and panel.feed_button.disabled
-			and panel.feed_button.tooltip_text.contains("Wait for the character"),
+			and panel.feed_button.tooltip_text.contains("Wait for the character")
+			and panel.reclaim_button.disabled
+			and panel.reclaim_button.tooltip_text.contains("Wait for the character"),
 			"An unready actor cannot feed the press even while its panel is open.")
 		panel.refresh(view.state, view.client, view.selected, true)
 		view.object_menu.hide()
@@ -1946,6 +1949,17 @@ func _workshop_pages() -> void:
 			and view.object_menu_operations_label.text == "PRESS WORK"
 			and panel.press_section.is_visible_in_tree() and panel.feed_button.is_visible_in_tree(),
 			"Ordinary E on a guided ram exposes the same press actions as its anvil.")
+		verify(panel.reclaim_button.is_visible_in_tree() and not view.remove_button.visible
+			and "Delete" in panel.reclaim_button.tooltip_text
+			and "shortcut Delete" in panel.reclaim_button.accessibility_name,
+			"The guided ram exposes one described placed-part reclaim icon on its press page.")
+		var reclaim_key := InputEventKey.new()
+		reclaim_key.keycode = KEY_DELETE
+		reclaim_key.pressed = true
+		view._input(reclaim_key)
+		verify(view.issued == [{"action": "reclaim_component", "entity": "press-ram"}],
+			"Delete reaches the same native reclaim payload when the old Remove button is hidden.")
+		view.issued.clear()
 		root.size = Vector2i(640, 480)
 		view._fit_object_menu(Vector2i(640, 480))
 		await process_frame
@@ -1956,8 +1970,10 @@ func _workshop_pages() -> void:
 			"Both grouped press action rows fit inside the narrow object panel.")
 		if not image_prefix.is_empty() and not shared and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-guided-ram-menu-narrow.png") == OK,
-				"Retain the narrow passive press action panel.")
+			var narrow_frame: Image = root.get_texture().get_image().get_region(Rect2i(0, 0, 640, 480))
+			verify(narrow_frame.get_size() == Vector2i(640, 480)
+				and narrow_frame.save_png(image_prefix + "-guided-ram-menu-narrow.png") == OK,
+				"Retain the press panel fitted to a 640 by 480 view as a passive frame crop.")
 		root.size = Vector2i(1280, 800)
 		view._fit_object_menu(Vector2i(1280, 800))
 		await process_frame
