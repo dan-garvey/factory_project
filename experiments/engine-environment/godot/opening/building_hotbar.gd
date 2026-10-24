@@ -13,21 +13,40 @@ const COMPONENT_PREFIX := "component:"
 const ARRIVAL_SLOTS: Array[String] = ["component:wooden_frame", "foundation", "component:wooden_shaft",
 	"component:tool_mount", "component:receiver_tray", "component:cutting_edge", "belt", "wheel"]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
+const MATERIALS := {
+	"timber": ["Timber", "timber.svg"], "raw": ["Ore blank", "ore.svg"],
+	"products": ["Plate", "plate.svg"], "offcuts": ["Offcut", "offcut.svg"],
+	"sheets": ["Broad sheet", "sheet.svg"], "work_lots": ["Workpiece", "press-feed.svg"],
+	"hand_crank": ["Hand crank", "workshop-crank.svg"],
+	"fabrication_hub": ["Pod workshop", "workshop-pod.svg"]}
+const COMPONENT_ICONS := {
+	"wooden_frame": "foundation.svg", "wooden_shaft": "drive.svg",
+	"wooden_cog": "gear.svg", "receiver_tray": "collector.svg",
+	"tool_mount": "workshop-place.svg", "sliding_guide": "vertical_gearbox.svg",
+	"cutting_edge": "workshop-cut.svg", "anvil": "processor.svg",
+	"ram_face": "press-feed.svg", "softmetal_shaft": "drive.svg",
+	"softmetal_cog": "gear.svg", "wooden_workbench": "workshop-craft.svg"}
 var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []
 var slot_tags: Array[Label] = []
 var slot_counts: Array[Label] = []
 var catalog_buttons: Dictionary = {}
+var catalog_counts: Dictionary = {}
 var catalog_button: Button
 var catalog: PopupPanel
 var destination: OptionButton
+var material_grid: GridContainer
+var material_buttons: Dictionary = {}
+var material_counts: Dictionary = {}
 var component_row: HBoxContainer
 var component_choice: OptionButton
 var component_assign_button: Button
 var component_buttons: Dictionary = {}
+var component_counts: Dictionary = {}
 var component_grid: GridContainer
 var parts_label: Label
+var focus_description: Label
 var selected_slot := 0
 var _arrival_active := false
 var _component_labels: Dictionary = {}
@@ -47,9 +66,12 @@ func configure(host, ui: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 5)
 	add_child(row)
-	catalog_button = host._button(row, "Build  B", open_catalog)
-	catalog_button.custom_minimum_size = Vector2(72, 54)
-	catalog_button.add_theme_font_size_override("font_size", 13)
+	catalog_button = host._button(row, "", open_catalog)
+	catalog_button.icon = COMPONENT_ICON
+	catalog_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	catalog_button.custom_minimum_size = Vector2(54, 54)
+	catalog_button.tooltip_text = "Build and inventory · B"
+	catalog_button.accessibility_name = "Build and inventory, shortcut B"
 	_style_slot(catalog_button)
 	for index in range(slots.size()):
 		var button: Button = host._button(row, "", select_slot.bind(index))
@@ -106,39 +128,74 @@ func configure(host, ui: Control) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 10)
 	margin.add_child(column)
-	parts_label = host._label(column, "BUILDING CATALOG", 18)
-	host._label(column, "1–8 slot · click a part · A assigns selected", 14)
+	parts_label = host._label(column, "BUILD / INVENTORY", 18)
+	focus_description = host._label(column, " ", 12)
 	destination = OptionButton.new()
+	destination.tooltip_text = "Choose a hotbar slot for the selected build item"
+	destination.accessibility_name = "Hotbar destination slot"
 	column.add_child(destination)
 	for index in range(slots.size()):
 		destination.add_item("")
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(500, 160)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
+	var contents := VBoxContainer.new()
+	contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	contents.add_theme_constant_override("separation", 7)
+	scroll.add_child(contents)
+	host._label(contents, "CARRIED MATERIAL", 13)
+	material_grid = GridContainer.new()
+	material_grid.columns = 4
+	material_grid.add_theme_constant_override("h_separation", 6)
+	material_grid.add_theme_constant_override("v_separation", 6)
+	contents.add_child(material_grid)
+	for kind: String in MATERIALS:
+		var tile := Button.new()
+		material_grid.add_child(tile)
+		_style_inventory_tile(tile, load("res://opening/assets/build-icons/" + MATERIALS[kind][1]))
+		material_buttons[kind] = tile
+		material_counts[kind] = _count_badge(tile)
+		tile.focus_entered.connect(_describe_focus.bind(tile))
+	host._label(contents, "BUILD KITS", 13)
 	var grid := GridContainer.new()
-	grid.columns = 2
-	column.add_child(grid)
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	contents.add_child(grid)
 	for tool: String in TOOLS:
-		var button: Button = host._button(grid, TOOLS[tool], assign.bind(tool))
-		button.custom_minimum_size = Vector2(246, 54)
-		button.icon = load("res://opening/assets/build-icons/" + tool + ".svg")
-		button.expand_icon = true
-		button.add_theme_constant_override("icon_max_width", 36)
+		var button: Button = host._button(grid, "", assign.bind(tool))
+		_style_inventory_tile(button, load("res://opening/assets/build-icons/" + tool + ".svg"))
 		catalog_buttons[tool] = button
-	host._label(column, "FABRICATED PARTS", 15)
+		catalog_counts[tool] = _count_badge(button)
+		button.focus_entered.connect(_describe_focus.bind(button))
+	host._label(contents, "COMPONENTS", 13)
 	component_grid = GridContainer.new()
-	component_grid.columns = 3
+	component_grid.columns = 4
 	component_grid.add_theme_constant_override("h_separation", 6)
 	component_grid.add_theme_constant_override("v_separation", 6)
-	column.add_child(component_grid)
+	contents.add_child(component_grid)
 	component_row = HBoxContainer.new()
 	column.add_child(component_row)
 	component_choice = OptionButton.new()
 	component_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	component_choice.item_selected.connect(func(_index: int) -> void: refresh())
 	component_row.add_child(component_choice)
-	component_assign_button = host._button(component_row, "Assign part  [A]", assign_component)
+	component_assign_button = host._button(component_row, "", assign_component)
+	component_assign_button.icon = load("res://opening/assets/build-icons/workshop-place.svg")
+	component_assign_button.tooltip_text = "Assign selected component · A"
+	component_assign_button.accessibility_name = "Assign selected component, shortcut A"
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
-	host._button(actions, "Clear slot  [Delete]", clear_slot)
-	host._button(actions, "Close [Esc]", catalog.hide)
+	var clear: Button = host._button(actions, "", clear_slot)
+	clear.icon = load("res://opening/assets/build-icons/workshop-reclaim.svg")
+	clear.tooltip_text = "Clear selected slot · Delete"
+	clear.accessibility_name = "Clear selected slot, shortcut Delete"
+	var close: Button = host._button(actions, "", catalog.hide)
+	close.icon = load("res://opening/assets/menu-icons/close.svg")
+	close.tooltip_text = "Close build and inventory · Esc"
+	close.accessibility_name = "Close build and inventory, shortcut Escape"
 	ui.resized.connect(_fit)
 	minimum_size_changed.connect(func(): _fit.call_deferred())
 	resized.connect(host._queue_footer_fit)
@@ -158,6 +215,29 @@ func _style_slot(button: Button) -> void:
 		style.set_corner_radius_all(5)
 		button.add_theme_stylebox_override(state_name, style)
 	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+func _style_inventory_tile(button: Button, texture: Texture2D) -> void:
+	button.custom_minimum_size = Vector2(108, 66)
+	button.icon = texture
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	button.expand_icon = true
+	button.add_theme_constant_override("icon_max_width", 40)
+	button.focus_mode = Control.FOCUS_ALL
+	_style_slot(button)
+
+func _count_badge(button: Button) -> Label:
+	var badge := Label.new()
+	badge.position = Vector2(76, 44)
+	badge.size = Vector2(28, 18)
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	badge.add_theme_font_size_override("font_size", 13)
+	badge.add_theme_color_override("font_color", Color("f6e5c5"))
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(badge)
+	return badge
+
+func _describe_focus(button: Button) -> void:
+	focus_description.text = button.tooltip_text
 
 func _input(event: InputEvent) -> void:
 	if not catalog.visible or not event is InputEventKey or not event.pressed or event.echo:
@@ -191,10 +271,8 @@ func _place_catalog() -> void:
 	if host == null or not catalog.visible:
 		return
 	var extent: Vector2 = get_parent().size
-	var y := int((extent.y - catalog.size.y) / 2.0)
-	if host.status_footer != null:
-		y = mini(y, int(host.status_footer.position.y) - catalog.size.y - 12)
-	catalog.position = Vector2i(int((extent.x - catalog.size.x) / 2.0), maxi(18, y))
+	catalog.position = Vector2i(maxi(0, int((extent.x - catalog.size.x) / 2.0)),
+		maxi(0, int((extent.y - catalog.size.y) / 2.0)))
 
 func _view():
 	return _host.get_ref() if _host != null else null
@@ -205,6 +283,14 @@ func _count(tool: String, parts: Dictionary) -> int:
 		return maxi(0, int(host.state.get("cargo", {}).get(host.client, {}).get("components", {}).get(
 			tool.trim_prefix(COMPONENT_PREFIX), 0))) if host != null else 0
 	return maxi(0, int(parts.get("shaft" if tool == "drive" else tool, 0)))
+
+func _material_count(kind: String, host) -> int:
+	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
+	if kind == "work_lots":
+		return cargo.get("work_lots", []).size()
+	if kind == "hand_crank" or kind == "fabrication_hub":
+		return int(host.state.get(kind, {}).get("holder", "") == host.client)
+	return maxi(0, int(cargo.get(kind, 0)))
 
 func _tool_label(tool: String) -> String:
 	return str(_component_labels.get(tool.trim_prefix(COMPONENT_PREFIX), "Component")) \
@@ -234,10 +320,12 @@ func _sync_arrival(host) -> void:
 			_component_names.append(component)
 			_component_labels[component] = str(item[1])
 			component_choice.add_item(str(item[1]))
-			var button: Button = host._button(component_grid, str(item[1]),
+			var button: Button = host._button(component_grid, "",
 				_assign_to_slot.bind(COMPONENT_PREFIX + component))
-			button.custom_minimum_size = Vector2(164, 38)
+			_style_inventory_tile(button, load("res://opening/assets/build-icons/" + COMPONENT_ICONS.get(component, "component.svg")))
 			component_buttons[component] = button
+			component_counts[component] = _count_badge(button)
+			button.focus_entered.connect(_describe_focus.bind(button))
 	component_row.visible = arrival
 	component_grid.visible = arrival
 
@@ -249,6 +337,12 @@ func refresh(snapshot_ready: bool = true) -> void:
 	var parts: Dictionary = host._display_parts()
 	var scope := "shared" if host._parts_are_shared() else "carried"
 	var usable: bool = snapshot_ready and host._can_choose_tool()
+	for kind: String in MATERIALS:
+		var amount := _material_count(kind, host) if snapshot_ready else 0
+		var label: String = MATERIALS[kind][0]
+		material_counts[kind].text = str(amount)
+		material_buttons[kind].tooltip_text = "%s · %d carried" % [label, amount]
+		material_buttons[kind].accessibility_name = "%s, %d carried" % [label, amount]
 	catalog_button.disabled = host.explanation_open
 	if host.explanation_open:
 		catalog.hide()
@@ -277,7 +371,10 @@ func refresh(snapshot_ready: bool = true) -> void:
 	for tool: String in catalog_buttons:
 		var button: Button = catalog_buttons[tool]
 		var amount := _count(tool, parts)
-		button.text = "%s  [%s]\n%d %s" % [TOOLS[tool], TOOL_KEYS[tool], amount, scope]
+		button.text = ""
+		catalog_counts[tool].text = str(amount)
+		button.tooltip_text = "%s · %d %s · %s" % [TOOLS[tool], amount, scope, TOOL_KEYS[tool]]
+		button.accessibility_name = "%s, %d %s, shortcut %s" % [TOOLS[tool], amount, scope, TOOL_KEYS[tool]]
 		button.disabled = not usable or amount < 1 or not _offered(tool, host)
 		button.visible = _offered(tool, host) and (not _arrival_active or amount > 0 or host.mode == tool)
 	if _arrival_active:
@@ -287,9 +384,11 @@ func refresh(snapshot_ready: bool = true) -> void:
 			component_choice.set_item_text(index, "%s  ×%d" % [_component_labels[component],
 				count])
 			var part_button: Button = component_buttons[component]
-			part_button.text = "%s  %d" % [_component_labels[component], count]
+			part_button.text = ""
+			component_counts[component].text = str(count)
 			part_button.disabled = not usable or count < 1
-			part_button.tooltip_text = "Assign %s to slot %d and place it" % [_component_labels[component], destination.selected + 1]
+			part_button.tooltip_text = "%s · %d carried · assign to slot %d" % [_component_labels[component], count, destination.selected + 1]
+			part_button.accessibility_name = "%s, %d carried, assign to slot %d" % [_component_labels[component], count, destination.selected + 1]
 		component_assign_button.disabled = not usable or component_choice.selected < 0 or \
 			_count(COMPONENT_PREFIX + _component_names[component_choice.selected], parts) < 1
 
@@ -307,7 +406,9 @@ func open_catalog(index: int = -1) -> void:
 		if _component_names.has(selected_component):
 			component_choice.select(_component_names.find(selected_component))
 			refresh()
-	catalog.popup_centered(Vector2i(560, 500 if _arrival_active else 470))
+	var viewport_size: Vector2 = get_parent().size
+	catalog.popup_centered(Vector2i(mini(540, int(viewport_size.x) - 16),
+		mini(520, int(viewport_size.y) - 16)))
 	destination.grab_focus()
 	host._refresh_guided_tools()
 	_place_catalog.call_deferred()

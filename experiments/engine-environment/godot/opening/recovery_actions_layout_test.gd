@@ -25,7 +25,7 @@ func _ignore() -> void:
 	pass
 
 func _bounds(view) -> Dictionary:
-	var panel: Control = view.power_label.get_parent().get_parent()
+	var panel: Control = view.inspector.get_parent()
 	var footer: Control = view.status_label.get_parent().get_parent()
 	var right: Rect2 = panel.get_global_rect()
 	var bottom: Rect2 = footer.get_global_rect()
@@ -52,7 +52,9 @@ func _collector_control(view: LayoutView) -> bool:
 		"dropped_material": []}
 	panel.refresh(snapshot, "P", "shaft", true)
 	var ready: bool = panel.collector_cut_button.visible and not panel.collector_cut_button.disabled \
-		and panel.collector_crank_button.visible and panel.crank_button.text == "Return crank to pod"
+		and panel.collector_crank_button.visible \
+		and panel.collector_crank_button.tooltip_text == "Return crank to pod · T" \
+		and panel.collector_crank_button.accessibility_name == "Return crank to pod, shortcut T"
 	panel.collector_cut_button.pressed.emit()
 	var exact: bool = view.submitted == [{"action": "turn_hand_crank", "entity": "shaft"}]
 	view.submitted.clear()
@@ -80,7 +82,6 @@ func _run() -> void:
 	view.session = SessionStub.new()
 	view.connect_on_ready = false
 	view.client = "P"
-	view.show_details = true
 	view.selected = "press"
 	view.mode = "inspect"
 	root.add_child(view)
@@ -110,7 +111,7 @@ func _run() -> void:
 	var baseline: Dictionary = _bounds(view)
 	view.state.options.native = true
 	view._refresh_ui()
-	var panel: Control = view.power_label.get_parent().get_parent()
+	var panel: Control = view.inspector.get_parent()
 	panel.size.y = 490
 	await _settle()
 	var recovery: Dictionary = _bounds(view)

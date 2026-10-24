@@ -1100,17 +1100,28 @@ func _ui_shortcuts() -> void:
 		event.keycode = KEY_D
 		event.ctrl_pressed = true
 		view._input(event)
-		verify(not view.show_details, "Ctrl+D leaves the unobstructed game view unchanged.")
+		verify(not view.pause_menu.visible and not view.stock_label.is_visible_in_tree(),
+			"Ctrl+D leaves the unobstructed game view unchanged.")
 		view._open_pointed_machine()
 		view._input(event)
-		verify(view.object_menu.visible and view.show_details and view.stock_label.is_visible_in_tree(),
-			"Ctrl+D reveals worksite details inside an opened object panel.")
-		view._input(event)
-		verify(not view.show_details and not view.stock_label.visible, "Ctrl+D folds the worksite details again.")
+		verify(view.object_menu.visible and view.inspector.is_visible_in_tree()
+			and not view.stock_label.is_visible_in_tree(),
+			"The selected-object panel keeps its inspection without a worksite submenu.")
 		event.ctrl_pressed = false
 		event.keycode = KEY_ESCAPE
 		view._input(event)
-		verify(not view.object_menu.visible, "Escape closes the object panel before construction shortcuts resume.")
+		verify(not view.object_menu.visible, "Escape closes the object panel before opening the worksite menu.")
+		view._unhandled_input(event)
+		verify(view.pause_menu.visible, "Escape opens the worksite menu after closing an object panel.")
+		verify(view.stock_label.is_visible_in_tree(), "The Escape menu displays worksite stock.")
+		verify(view.pause_resume_button.has_focus(), "The Escape menu focuses Resume.")
+		verify(view.save_button.get_parent() == view.load_button.get_parent(),
+			"Save and Reopen share the Escape menu action grid.")
+		verify(view.save_button.accessibility_name == "Save worksite, shortcut F5"
+			and view.load_button.accessibility_name == "Reopen save, shortcut F9",
+			"The icon actions announce their keyboard shortcuts at focus.")
+		view._input(event)
+		verify(not view.pause_menu.visible, "Escape resumes from the worksite menu.")
 		event.alt_pressed = true
 		event.keycode = KEY_4
 		view._input(event)
@@ -1531,8 +1542,8 @@ func _hotbar() -> void:
 			bar.open_catalog(0)
 			await settle_widgets()
 			verify(viewport.encloses(Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size))), "The complete catalog fits the supported viewport.")
-			verify(bar.catalog.position.y + bar.catalog.size.y <= view.status_footer.position.y - 11.5,
-				"The catalog leaves status text readable below its own surface.")
+			verify(bar.catalog.size.y <= dimensions.y - 16,
+				"The inventory window fits vertically and scrolls its item grid.")
 			bar.catalog.hide()
 		bar.open_catalog(0)
 		root.size = Vector2i(1280, 800)
@@ -1581,8 +1592,39 @@ func _arrival_hotbar() -> void:
 		"anvil": 1, "ram_face": 1}
 	view._refresh_ui()
 	verify(not bar.component_buttons.anvil.disabled and not bar.component_buttons.ram_face.disabled
-		and "1" in bar.component_buttons.anvil.text,
-		"The direct component choices show available carried press parts and their counts.")
+		and bar.component_counts.anvil.text == "1"
+		and "Anvil" in bar.component_buttons.anvil.tooltip_text,
+		"The component icon shows its authoritative count and accessible name.")
+	view.state.cargo.P.timber = 5
+	view.state.cargo.P.raw = 3
+	view.state.cargo.P.products = 1
+	view.state.cargo.P.work_lots = [{"id": 7}]
+	view.state.hand_crank = {"holder": "P"}
+	view._refresh_ui()
+	verify(bar.material_counts.timber.text == "5" and bar.material_counts.raw.text == "3"
+		and bar.material_counts.products.text == "1" and bar.material_counts.work_lots.text == "1"
+		and bar.material_counts.hand_crank.text == "1"
+		and "5 carried" in bar.material_buttons.timber.accessibility_name,
+		"Carried material icons read the active actor's confirmed cargo and hand tools.")
+	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
+		and view.goal_label.text.contains("FIRST ORDER"),
+		"The objective keeps order progress while the inventory window owns carried counts.")
+	bar.open_catalog(7)
+	bar.material_buttons.timber.grab_focus()
+	await settle_widgets()
+	verify("Timber · 5 carried" in bar.focus_description.text,
+		"Keyboard focus exposes the same item and count as pointer hover.")
+	bar.catalog.hide()
+	view.state.cargo.P.timber = 2
+	view.state.cargo.P.raw = 0
+	view.state.cargo.P.components.anvil = 0
+	view.state.hand_crank.holder = "pod"
+	view._refresh_ui()
+	verify(bar.material_counts.timber.text == "2" and bar.material_counts.raw.text == "0"
+		and bar.material_counts.hand_crank.text == "0" and bar.component_counts.anvil.text == "0",
+		"Crafting, placement and return refresh icon counts from the next confirmed projection.")
+	view.state.cargo.P.components.anvil = 1
+	view._refresh_ui()
 	verify(not bar.buttons[0].disabled and bar.slot_counts[0].text == "2",
 		"A confirmed fabricated frame enables its quick slot with the active actor's count.")
 	bar.select_slot(0)
@@ -1615,10 +1657,24 @@ func _arrival_hotbar() -> void:
 	verify(bar.slots[6] == "component:ram_face" and view.mode == "component"
 		and view.arrival_assembly_controls.selected_name() == "ram_face" and view.issued.is_empty(),
 		"One direct catalog action assigns and selects the ram face for placement.")
+	root.size = Vector2i(640, 480)
+	await settle_widgets()
+	bar.open_catalog(6)
+	await settle_widgets()
+	verify(bar.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size)))
+		and bar.catalog.size.y <= 464,
+		"The combined inventory stays inside the narrow viewport with a scrollable item grid.")
+	bar.catalog.hide()
 	view.client = "Q"
 	view._refresh_ui()
 	verify(bar.slot_counts[0].text == "1" and bar.slot_counts[7].text == "0" and bar.buttons[7].disabled,
 		"Switching actor changes component availability without borrowing the previous actor's cargo.")
+	verify(bar.material_counts.timber.text == "0" and bar.component_counts.anvil.text == "0",
+		"A new actor or restored projection cannot retain another actor's inventory counts.")
+	view.state.cargo.Q.timber = 4
+	view._refresh_ui()
+	verify(bar.material_counts.timber.text == "4", "A restored actor projection refreshes the inventory icon count.")
 	view.client = "P"
 	bar.select_slot(7)
 	view.state.cargo.P.components.softmetal_cog = 0
@@ -1654,7 +1710,10 @@ func _render_arrival_hotbar() -> void:
 	view.state.hand_sources = {}
 	view.state.part_kits.P = {"foundation": 15}
 	view.state.cargo = {"P": {"components": {"wooden_frame": 2, "wooden_shaft": 1,
-		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "softmetal_cog": 1}}}
+		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "softmetal_cog": 1},
+		"timber": 7, "raw": 3, "products": 1, "offcuts": 2, "sheets": 1,
+		"work_lots": [{"id": 7}]}}
+	view.state.hand_crank = {"holder": "P"}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	view.state.component_recipes = {}
 	view.state.component_capacity = 20
@@ -1674,6 +1733,17 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK,
 		"Retain the rendered arrival component catalog.")
+	root.size = Vector2i(640, 480)
+	bar.catalog.hide()
+	await settle_widgets()
+	bar.open_catalog(7)
+	await settle_widgets()
+	verify(bar.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size))),
+		"The rendered inventory fits the narrow viewport.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-narrow-catalog.png") == OK,
+		"Retain the rendered narrow inventory window.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,
@@ -2557,10 +2627,10 @@ func _object_menu_check() -> void:
 		and view.object_menu.size.x >= 740 and view.object_menu.size.y >= 420
 		and not view._can_control_character() and view._actor_ready_for_actions(),
 		"The large panel fits the viewport, holds movement, and leaves object actions available.")
-	verify(view.object_menu_scrim.visible and view.worksite_details_section.visible == false
+	verify(view.object_menu_scrim.visible and not view.stock_label.is_visible_in_tree()
 		and not view.object_workshop_route.visible
 		and view.arrival_assembly_controls.component_choice.is_visible_in_tree(),
-		"The object panel shades the worksite, shows its craft controls, and begins with global details collapsed.")
+		"The object panel shades the worksite and shows craft controls without generic worksite status.")
 	for viewport_size in [Vector2i(800, 600), Vector2i(640, 480)]:
 		view._fit_object_menu(viewport_size)
 		await process_frame
@@ -2575,8 +2645,9 @@ func _object_menu_check() -> void:
 	key.keycode = KEY_D
 	key.ctrl_pressed = true
 	view._input(key)
-	verify(view.worksite_details_section.visible and view.stock_label.is_visible_in_tree(),
-		"Ctrl+D reveals the worksite details inside the open object panel.")
+	verify(view.object_menu.visible and view.inspector.is_visible_in_tree()
+		and not view.stock_label.is_visible_in_tree(),
+		"Ctrl+D cannot open generic worksite details in the object panel.")
 	key.ctrl_pressed = false
 	verify(view.issued.is_empty(), "Opening the workbench remains a read-only view action.")
 	key.keycode = KEY_C
