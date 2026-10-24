@@ -2448,6 +2448,16 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
             const auto geometry = historical_layout->inspect_broad_shear(*origin);
             if (!geometry.shear || geometry.shear->anvils.front() != *entity) return false;
+            const auto later_drive = drive_commands.upper_bound(*result_revision);
+            const auto earlier_drive = later_drive == drive_commands.begin() ?
+                drive_commands.end() : std::prev(later_drive);
+            if ((earlier_drive != drive_commands.end() && !earlier_drive->second) ||
+                (drive_commands.empty() && !snapshot.state.topology.drive_enabled)) return false;
+            const auto* power = enabled_power_at(*result_revision);
+            if (!power) return false;
+            const auto driven = BroadPressDriveIndex(*power).inspect(*geometry.shear);
+            if (driven.status != BroadPressDriveStatus::ready || !driven.stroke_rate ||
+                driven.stroke_rate->numerator <= 0) return false;
             const auto staged = broad_work.find(*origin);
             if (staged == broad_work.end() || staged->second.sheets.size() != 1 ||
                 staged->second.sheets.front().id != *sheet_id ||
