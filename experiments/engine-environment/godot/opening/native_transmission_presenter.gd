@@ -113,6 +113,16 @@ func _sync_motion(snapshot: Dictionary) -> void:
 			if typeof(id) != TYPE_STRING or not part is Dictionary or typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
 				continue
 			current[id] = part.generation
+	var placed: Variant = snapshot.get("placed_components", {})
+	if placed is Dictionary:
+		for id: Variant in placed:
+			var part: Variant = placed[id]
+			if typeof(id) != TYPE_STRING or not part is Dictionary or \
+					part.get("component") not in ["wooden_shaft", "softmetal_shaft",
+						"wooden_cog", "softmetal_cog"] or \
+					typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
+				continue
+			current[id] = part.generation
 	for id: Variant in _visual_angles.keys():
 		if not current.has(id) or current[id] != _generations.get(id):
 			_visual_angles.erase(id)
@@ -152,6 +162,12 @@ func visual_rotation(id: String) -> float:
 
 func _apply_angles(update_gears := true) -> void:
 	for child: Node3D in _moving_anchors:
+		if child.has_meta("component_rotor_base"):
+			var component_id: String = str(child.get_meta("entity"))
+			var base: Basis = child.get_meta("component_rotor_base")
+			child.basis = base * Basis(Vector3.UP,
+				visual_angle(component_id) * float(child.get_meta("component_axis_sign")))
+			continue
 		if child.has_meta("belt_shaft"):
 			var loop := child.get_node_or_null("BeltLoop") as MeshInstance3D
 			if loop != null and loop.material_override is StandardMaterial3D:
@@ -210,6 +226,12 @@ func advance_visual_motion(delta: float) -> void:
 			var parts: Variant = snapshot.get(group)
 			if parts is Dictionary:
 				identity_count += parts.size()
+		var placed: Variant = snapshot.get("placed_components")
+		if placed is Dictionary:
+			for component: Variant in placed.values():
+				if component is Dictionary and component.get("component") in [
+						"wooden_shaft", "softmetal_shaft", "wooden_cog", "softmetal_cog"]:
+					identity_count += 1
 	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") \
 			or (not native_motion and identity_count != _generations.size()):
 		_sync_motion(snapshot)
@@ -1250,11 +1272,17 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var rotor := Node3D.new()
 			rotor.name = "PlacedDriveCog"
 			rotor.basis = Basis(across, direction, across.cross(direction))
+			rotor.set_meta("entity", anchor.get_meta("component_entity"))
+			rotor.set_meta("component_rotor_base", rotor.basis)
+			rotor.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
+			_moving_anchors.append(rotor)
 			anchor.add_child(rotor)
 			var finish: Material = timber if kind == "wooden_cog" else worked
 			_support_cylinder(rotor, "CogRim", 0.095, 0.05, finish)
 			var hub_length: float = occupied_size.dot(direction.abs()) if press_role == "drive_cog" else 0.105
 			_support_cylinder(rotor, "CogHub", 0.05, hub_length, dark)
+			_support_box(rotor, "CogIndexMark", Vector3(0.065, 0.028, 0),
+				Vector3(0.025, 0.008, 0.025), dark)
 			for index in range(12):
 				var angle := TAU * float(index) / 12.0
 				_support_box(rotor, "CogTooth%02d" % index, Vector3.ZERO,
@@ -1327,7 +1355,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					rivet.position = Vector3(x, 0.141, z)
 		"wooden_shaft", "softmetal_shaft":
 			var fitted := drive_direction.length_squared() > 0.5
-			var collector_fitting := fitted and press_role != "shaft"
+			var collector_fitting := fitted and press_role not in ["shaft", "guided_shaft"]
 			if collector_fitting:
 				var along_x := absf(drive_direction.x) > 0.5
 				var carriage_size := Vector3(occupied_size.x, 0.075, 0.19) if along_x \
@@ -1341,6 +1369,11 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 						else Vector3(0.028, 0.035, occupied_size.z)
 					_support_box(anchor, "CarriageRail%d" % anchor.get_child_count(),
 						runner_position, runner_size, dark, true)
+			elif press_role == "guided_shaft":
+				# The early guide and drive can float. A compact bearing stays
+				# inside this placed shaft's own occupied box, with no false frame.
+				_support_box(anchor, "GuidedBearingSeat", Vector3(0, -0.07, 0),
+					Vector3(0.25, 0.055, 0.25), dark)
 			else:
 				_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07, 0),
 					Vector3(0.35, 0.07, 0.35), dark, worked)
@@ -1351,11 +1384,17 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
 			var across := reference.cross(direction).normalized()
 			rod.basis = Basis(across, direction, across.cross(direction))
+			rod.set_meta("entity", anchor.get_meta("component_entity"))
+			rod.set_meta("component_rotor_base", rod.basis)
+			rod.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
+			_moving_anchors.append(rod)
 			rod.position.y = 0.0 if fitted else 0.035
 			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted else 0.14
 			Assets.shaft(rod, shaft_length, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
 			var core := rod.get_node("Shaft") as MeshInstance3D
 			core.material_override = timber if kind == "wooden_shaft" else worked
+			_support_box(rod, "ShaftIndexMark", Vector3(0.057, 0, 0),
+				Vector3(0.016, 0.035, 0.024), dark)
 			if fitted:
 				if collector_fitting:
 					# A collector shaft reaches the frame from its own native box.
@@ -1529,6 +1568,39 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 				toward_shaft.y = 0.0
 				if toward_shaft.length_squared() > 0.01:
 					drives[cog_id] = toward_shaft.normalized()
+	var guided: Variant = snapshot.get("guided_press_assemblies", [])
+	if guided is Array:
+		for press: Variant in guided:
+			if not press is Dictionary or not press.get("center") is Array or press.center.size() != 3:
+				continue
+			var cell := Vector3i(press.center[0], press.center[1], press.center[2])
+			for member in [[cell, "anvil", "anvil"],
+					[cell + Vector3i(0, 1, 0), "ram_face", "ram"],
+					[cell + Vector3i(0, 3, 0), "sliding_guide", "guide"]]:
+				var id: Variant = by_cell.get(member[0])
+				if boxes.has(id) and boxes[id].component == member[1]:
+					press_roles[id] = member[2]
+			if press.get("status") != "ready" or not press.get("parts") is Dictionary:
+				continue
+			var fitted: Dictionary = press.parts
+			var shaft_id: Variant = fitted.get("shaft")
+			var cog_id: Variant = fitted.get("drive_cog")
+			var guide_id: Variant = fitted.get("guide")
+			if boxes.has(shaft_id) and boxes.has(guide_id) \
+					and boxes[shaft_id].component.ends_with("_shaft") \
+					and boxes[guide_id].component == "sliding_guide":
+				var toward_guide: Vector3 = boxes[guide_id].center - boxes[shaft_id].center
+				toward_guide.y = 0.0
+				if toward_guide.length_squared() > 0.01:
+					drives[shaft_id] = toward_guide.normalized()
+					press_roles[shaft_id] = "guided_shaft"
+			if boxes.has(cog_id) and boxes.has(shaft_id) \
+					and boxes[cog_id].component.ends_with("_cog"):
+				var toward_shaft: Vector3 = boxes[shaft_id].center - boxes[cog_id].center
+				toward_shaft.y = 0.0
+				if toward_shaft.length_squared() > 0.01:
+					drives[cog_id] = toward_shaft.normalized()
+					press_roles[cog_id] = "drive_cog"
 	for id: String in boxes:
 		# Supplied hardware shares the collision table, but its ordinary scene
 		# already owns the pod and workshop artwork.
@@ -1662,7 +1734,8 @@ func refresh() -> void:
 			fixed_spans[id] = [span.get("generation"), span.get("from"), span.get("to")] if span is Dictionary else span
 	var next_key := [snapshot.get("context"), parts, motions, fixed_spans,
 		snapshot.get("engagements", []), snapshot.get("dropped_material", []),
-		component_result.boxes, snapshot.get("collector_assemblies", []), snapshot.get("press_assemblies", [])]
+		component_result.boxes, snapshot.get("collector_assemblies", []),
+		snapshot.get("press_assemblies", []), snapshot.get("guided_press_assemblies", [])]
 	if next_key == _view_key:
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null
