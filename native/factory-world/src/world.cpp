@@ -30,11 +30,6 @@ mechanics::Point landing_hub_center(const mechanics::Point& pod_center) {
     return {pod_center[0] + 4, pod_center[1], pod_center[2]};
 }
 
-mechanics::Point landing_freight_center(const mechanics::Point& pod_center) {
-    // Five whole tiles east of the deck center, beyond its unfolding footprint.
-    return {pod_center[0] + 20, pod_center[1], pod_center[2]};
-}
-
 namespace {
 using Integer = authority::Integer;
 using Object = authority::Object;
@@ -166,9 +161,6 @@ bool shape(const Object& intent, const std::string& action) {
         field<std::string>(intent, "target") && field<Integer>(intent, "generation");
     if (action == "field_craft") return keys(intent, {"component"}) &&
         field<std::string>(intent, "component");
-    if (action == "deliver_first_plate" || action == "deliver_repeat_plate")
-        return keys(intent, {"target", "generation"}) &&
-        field<std::string>(intent, "target") && field<Integer>(intent, "generation");
     if (action == "craft_part") return keys(intent, {"target", "generation", "role", "half_span"}) &&
         field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
         field<std::string>(intent, "role") && field<Integer>(intent, "half_span");
@@ -800,20 +792,6 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             *count <= profile.material.component_capacity && targets.front() == *actor_position &&
             result.size() == 20;
     }
-    if (action == "deliver_first_plate" || action == "deliver_repeat_plate") {
-        const auto* target = field<std::string>(record.intent, "target");
-        const auto* generation = field<Integer>(record.intent, "generation");
-        const auto* entity = field<std::string>(result, "entity");
-        const auto* actual_generation = field<Integer>(result, "generation");
-        const auto* shipped = field<Integer>(result, "shipped_products");
-        return profile.landing_pod_center && target && *target == "first-freight-beacon" &&
-            generation && *generation == 1 && entity && *entity == *target &&
-            actual_generation && *actual_generation == 1 && shipped &&
-            (action == "deliver_first_plate" ? *shipped == 1 :
-                *shipped >= 2 && *shipped <= completed_freight_target) &&
-            targets.front() == anchor(profile, landing_freight_center(*profile.landing_pod_center)) &&
-            result.size() == 17;
-    }
     if (action == "craft_part") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* requested_generation = field<Integer>(record.intent, "generation");
@@ -1168,7 +1146,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::set<materials::WorkId> broad_refed_ids;
     Integer harvested_ore = 0;
     Integer cranked_ore = 0;
-    Integer shipped_plates = 0;
+    std::set<std::string> workshop_completed_actors;
     Integer fabricated_foundations = 0;
     std::map<std::pair<std::string, materials::Component>, Integer> crafted_components;
     stationary::Kit fabricated_parts;
@@ -1721,6 +1699,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (!historical_facts(profile, record, *actor, *action, placed_components, historical_hub)) {
             return false;
         }
+        if (profile.landing_pod_center &&
+            (*action == "collect" || *action == "recover" ||
+             *action == "recover_belt_slot" || *action == "pickup_material")) {
+            const auto* acquired = field<Integer>(record.result, "moved_products");
+            if (acquired && *acquired > 0) workshop_completed_actors.insert(*actor);
+        }
         const auto prior_cut = historical_cuts.find(*actor);
         if (prior_cut != historical_cuts.end() && *action != "finish_harvest" &&
             *action != "cancel_harvest") return false;
@@ -1771,13 +1755,6 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 if (!add(harvested_ore, 1) ||
                     (profile.landing_pod_center && !add(carried_raw[*actor], 1))) return false;
             } else if (!add(harvested_timber[id], 1) || !add(carried_timber[*actor], 1)) return false;
-        }
-        if (*action == "deliver_first_plate" || *action == "deliver_repeat_plate") {
-            if ((*action == "deliver_first_plate" ? shipped_plates != 0 :
-                    shipped_plates < 1 || shipped_plates >= completed_freight_target) ||
-                !add(shipped_plates, 1)) return false;
-            const auto* shipped = field<Integer>(record.result, "shipped_products");
-            if (!shipped || *shipped != shipped_plates) return false;
         }
         if (*action == "craft_component" || *action == "field_craft") {
             const auto component = materials::component_from_name(*field<std::string>(record.intent, "component"));
@@ -2909,8 +2886,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (claimed < 1 || claimed != waiting + received_count + exported_count) return false;
     }
     Integer live_products = 0;
-    if (!add(live_products, snapshot.state.material.stock.output) ||
-        !add(live_products, snapshot.state.material.shipped_products)) return false;
+    if (!add(live_products, snapshot.state.material.stock.output)) return false;
     const auto count_cargo = [&](const materials::Cargo& cargo) {
         if (!add(live_products, cargo.products)) return false;
         for (const auto& work : cargo.work_lots)
@@ -2960,7 +2936,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
         cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)
         return false;
-    if (shipped_plates != snapshot.state.material.shipped_products) return false;
+    if (workshop_completed_actors != snapshot.state.workshop_completed_actors) return false;
     if (profile.landing_pod_center && (!snapshot.state.hand_crank ||
         snapshot.state.hand_crank->holder != crank_holder)) return false;
     if (placed_components.size() != snapshot.state.placed_components.size()) return false;
@@ -3330,7 +3306,7 @@ materials::MachinePower machine_power(const Profile& profile, const State& state
 
 static bool tick_preserves_history_bound_fields(const State& prior, const State& candidate) {
     // The historical replay owns construction, actor inventory, fabrication
-    // and shipment facts. A native tick may move material and WorkLots, but
+    // and first-workshop completion facts. A native tick may move material and WorkLots, but
     // must never rewrite one of those command-bound facts behind the log.
     return candidate.topology == prior.topology &&
         candidate.kits == prior.kits &&
@@ -3340,12 +3316,11 @@ static bool tick_preserves_history_bound_fields(const State& prior, const State&
         candidate.foundation_kits == prior.foundation_kits &&
         candidate.landing_pod == prior.landing_pod &&
         candidate.fabrication_hub == prior.fabrication_hub &&
-        candidate.freight_beacon == prior.freight_beacon &&
+        candidate.workshop_completed_actors == prior.workshop_completed_actors &&
         candidate.hand_crank == prior.hand_crank &&
         candidate.placed_components == prior.placed_components &&
         candidate.material.cargo == prior.material.cargo &&
         candidate.material.timber_remaining == prior.material.timber_remaining &&
-        candidate.material.shipped_products == prior.material.shipped_products &&
         candidate.material.fabricated_timber == prior.material.fabricated_timber &&
         candidate.material.fabricated_raw == prior.material.fabricated_raw &&
         candidate.material.next_work_id >= prior.material.next_work_id;
@@ -3392,7 +3367,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     }
     const auto valid_source = [](const std::string& id, const materials::DropPoint& center) {
         if (!identity(id) || id.starts_with(allocated_prefix) || id == "landing-pod" ||
-        id == "pod-fabrication-hub" || id == "pod-hand-crank" || id == "first-freight-beacon" ||
+        id == "pod-fabrication-hub" || id == "pod-hand-crank" ||
         id.starts_with("pod-floor-")) return false;
         for (const auto coordinate : center)
             if (coordinate < -mechanics::maximum_coordinate ||
@@ -3439,7 +3414,9 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     }
     if (state.landing_pod.has_value() != profile.landing_pod_center.has_value()) return false;
     if (state.fabrication_hub.has_value() != profile.landing_pod_center.has_value()) return false;
-    if (state.freight_beacon.has_value() != profile.landing_pod_center.has_value()) return false;
+    if (!profile.landing_pod_center && !state.workshop_completed_actors.empty()) return false;
+    for (const auto& actor : state.workshop_completed_actors)
+        if (!profile.actors.contains(actor)) return false;
     if (state.hand_crank.has_value() != profile.landing_pod_center.has_value()) return false;
     if (state.landing_pod) {
         const auto& pod = *state.landing_pod;
@@ -3492,17 +3469,6 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
                 if (material_machine(placed.role) && placed.geometry.center == hub.center) return false;
         }
     }
-    if (state.freight_beacon) {
-        const auto& beacon = *state.freight_beacon;
-        const auto issued = state.issued_entities.find(beacon.id);
-        if (beacon.id != "first-freight-beacon" || beacon.generation != 1 ||
-            beacon.center != landing_freight_center(*profile.landing_pod_center) ||
-            issued == state.issued_entities.end() || issued->second != beacon.generation ||
-            part(state.topology, beacon.id) || state.foundations.contains(beacon.id) ||
-            state.placed_components.contains(beacon.id)) return false;
-    }
-    if (state.material.shipped_products < 0 ||
-        state.material.shipped_products > completed_freight_target) return false;
     if (state.hand_crank) {
         const auto& crank = *state.hand_crank;
         const auto issued = state.issued_entities.find(crank.id);
@@ -3713,7 +3679,16 @@ Delivery World::command(const Binding& binding, const Object& intent, const Obse
         return {TransactionError::history, authority::Error::wrong_actor, std::nullopt,
                 owner_->current_revision()};
     return owner_->apply(intent, [&](const Snapshot& snapshot, const Object& request) {
-        return plan(binding, snapshot, request, observe);
+        auto decision = plan(binding, snapshot, request, observe);
+        if (decision.candidate && profile_.landing_pod_center) {
+            const auto carried = decision.candidate->material.cargo.find(binding.actor);
+            const auto before = snapshot.state.material.cargo.find(binding.actor);
+            if (carried != decision.candidate->material.cargo.end() &&
+                before != snapshot.state.material.cargo.end() &&
+                carried->second.products > before->second.products)
+                decision.candidate->workshop_completed_actors.insert(binding.actor);
+        }
+        return decision;
     }, [&](const Snapshot& candidate) {
         // The validated prior and the native planner are the only sources of a
         // command candidate. Owner checks the appended generic history before
@@ -4143,39 +4118,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("spent_timber", Value(cost->timber));
         facts.emplace("spent_raw", Value(cost->ore));
         facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.at(*component)));
-        return accepted(std::move(candidate), *id, std::move(facts));
-    }
-    if (*action == "deliver_first_plate" || *action == "deliver_repeat_plate") {
-        const auto* id = field<std::string>(intent, "target");
-        const auto* generation = field<Integer>(intent, "generation");
-        if (!id || !generation) return refused("invalid_target");
-        if (!state.freight_beacon || *id != state.freight_beacon->id)
-            return refused("unknown_target", *id);
-        if (*generation != state.freight_beacon->generation)
-            return refused("stale_generation", *id);
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready", *id);
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, state.freight_beacon->center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        if (*action == "deliver_first_plate" && state.material.shipped_products != 0)
-            return refused("order_filled", *id, std::move(facts));
-        if (*action == "deliver_repeat_plate" && state.material.shipped_products == 0)
-            return refused("first_order_open", *id, std::move(facts));
-        if (state.material.shipped_products >= completed_freight_target)
-            return refused("order_filled", *id, std::move(facts));
-        const auto carried = state.material.cargo.find(binding.actor);
-        if (carried == state.material.cargo.end() || carried->second.products < 1)
-            return refused("no_plate", *id, std::move(facts));
-        auto candidate = state;
-        --candidate.material.cargo.at(binding.actor).products;
-        ++candidate.material.shipped_products;
-        facts.emplace("generation", Value(*generation));
-        facts.emplace("shipped_products", Value(candidate.material.shipped_products));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "craft_part") {
