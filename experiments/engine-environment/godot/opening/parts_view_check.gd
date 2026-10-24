@@ -2051,6 +2051,22 @@ func _field_craft_widget() -> void:
 		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
 		and "Need 0 timber + 2 softmetal" in panel.recipe_label.text,
 		"The softmetal replacement shows the stronger rating and workshop bill.")
+	view.state.part_recipes = [{"kind": "belt", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0}]
+	view.state.part_specifications = {"P": [{"kind": "belt", "teeth": 0, "half_span": 0, "count": 1}]}
+	panel.refresh(view.state, view.client, view.selected, true)
+	verify(panel.part_craft_button.text.is_empty() and panel.part_place_button.text.is_empty()
+		and panel.part_craft_button.icon != null and panel.part_place_button.icon != null
+		and not panel.part_craft_button.disabled and not panel.part_place_button.disabled
+		and "2 timber + 1 softmetal" in panel.part_craft_button.tooltip_text
+		and "Connect shafts" in panel.part_place_button.tooltip_text
+		and "1 carried" in panel.part_place_button.tooltip_text
+		and "shortcut M" in panel.part_craft_button.accessibility_name
+		and "shortcut K" in panel.part_place_button.accessibility_name,
+		"Powered-route crafting and belt connection use two described icons with projected cost and custody.")
+	view.issued.clear()
+	panel.part_craft_button.pressed.emit()
+	verify(view.issued == [{"action": "craft_part", "entity": "pod-fabrication-hub", "role": "belt", "half_span": 0}],
+		"The powered-route craft icon keeps the native selected-workshop payload.")
 	# Stress the longest craft choice and action with a deliberately large count.
 	# The ordinary scene now fits these controls inside a centered workshop.
 	root.size = Vector2i(1280, 800)
@@ -2059,7 +2075,6 @@ func _field_craft_widget() -> void:
 	panel.component_choice.set_item_text(9, "Softmetal shaft  ×999")
 	panel.place_button.text = "Place softmetal shaft"
 	panel.part_choice.add_item("Waterwheel  ×999")
-	panel.part_place_button.text = "Connect shafts"
 	await process_frame
 	await process_frame
 	verify(not scroll.get_h_scroll_bar().visible,

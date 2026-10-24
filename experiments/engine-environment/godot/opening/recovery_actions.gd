@@ -436,9 +436,12 @@ class ArrivalAssemblyControls:
 		part_cost_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		part_cost_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var part_actions := HBoxContainer.new()
+		part_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		craft_section.add_child(part_actions)
-		part_craft_button = host._button(part_actions, "Make kit  M", _craft_part)
-		part_place_button = host._button(part_actions, "Place kit  K", _place_part)
+		part_craft_button = host._button(part_actions, "", _craft_part)
+		_style_workshop_icon(part_craft_button, "workshop-craft")
+		part_place_button = host._button(part_actions, "", _place_part)
+		_style_workshop_icon(part_place_button, "workshop-place")
 		route_status_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		route_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		collector_status = host._label(craft_section, "", 12, Color("bfd1cc"))
@@ -658,13 +661,24 @@ class ArrivalAssemblyControls:
 			part_cost_label.text = "No powered-route recipes at this workshop."
 			part_craft_button.disabled = true
 			part_place_button.disabled = true
+			part_craft_button.tooltip_text = "No powered-route recipe available."
+			part_place_button.tooltip_text = "No powered-route kit available."
+			part_craft_button.accessibility_name = "Make selected powered-route kit, shortcut M"
+			part_place_button.accessibility_name = "Place selected powered-route kit, shortcut K"
 		else:
 			part_choice.select(selected_part)
 			var recipe: Dictionary = part_recipes[selected_part]
+			var part_name: String = {"shaft": "shaft tile", "belt": "belt span", "wheel": "waterwheel"}.get(recipe.get("kind", ""), "part")
 			part_cost_label.text = "Needs %d timber + %d softmetal\nMake beside the selected workshop" % [recipe.get("timber", 0), recipe.get("softmetal", 0)]
 			part_craft_button.disabled = not ready or selected_bench.is_empty()
 			part_place_button.disabled = not ready or selected_count < 1
-			part_place_button.text = ("Connect shafts" if recipe.get("kind") == "belt" else "Place kit") + "  K"
+			part_craft_button.tooltip_text = "Make %s · need %d timber + %d softmetal · carry %d timber + %d softmetal · M" % [
+				part_name, int(recipe.get("timber", 0)), int(recipe.get("softmetal", 0)),
+				int(cargo.get("timber", 0)), int(cargo.get("raw", 0))]
+			part_craft_button.accessibility_name = "Make %s at the selected workshop, shortcut M" % part_name
+			var place_action: String = ("Connect shafts with %s" if recipe.get("kind") == "belt" else "Place %s") % part_name
+			part_place_button.tooltip_text = "%s · %d carried · K" % [place_action, selected_count]
+			part_place_button.accessibility_name = "%s, shortcut K" % place_action
 		route_status_label.text = _receiver_route_status(snapshot)
 		var crank: Dictionary = snapshot.get("hand_crank", {})
 		var collector: Dictionary = _selected_collector(snapshot, selected)
