@@ -52,12 +52,13 @@ class SharedWidgets:
 class OfflineWorkshopWidgets extends OfflineWidgets:
 	var freight_body: StaticBody3D
 	var accept_shipping := false
+	var accept_press_turn := true
 	func _screen_pick(_screen: Vector2) -> Dictionary:
 		return {"collider": freight_body} if freight_body != null else {}
 	func issue(action: Dictionary) -> Dictionary:
 		if action.get("action", "") == "turn_press_crank":
 			issued.append(action.duplicate(true))
-			return {"accepted": true}
+			return {"accepted": accept_press_turn}
 		if str(action.get("action", "")).begins_with("deliver_"):
 			issued.append(action.duplicate(true))
 			return {"accepted": accept_shipping}
@@ -1972,6 +1973,29 @@ func _workshop_pages() -> void:
 			await create_timer(0.40).timeout
 			verify(view.issued.size() == key_turn_count and panel.turn_hold_source.is_empty(),
 				"T release stops the crank without a trailing request.")
+			view.issued.clear()
+			view.accept_press_turn = false
+			panel.turn_button.button_down.emit()
+			panel.turn_button.pressed.emit()
+			verify(view.issued == [turn_payload] and panel.turn_hold_source.is_empty()
+				and panel.turn_repeat_timer.is_stopped(),
+				"A refused first pointer turn cancels its hold immediately.")
+			await create_timer(0.40).timeout
+			verify(view.issued == [turn_payload],
+				"A refused pointer turn never sends a second native request.")
+			panel.turn_button.button_up.emit()
+			view.issued.clear()
+			turn_key.pressed = true
+			view._input(turn_key)
+			verify(view.issued == [turn_payload] and panel.turn_hold_source.is_empty()
+				and panel.turn_repeat_timer.is_stopped(),
+				"A refused first T turn cancels its hold immediately.")
+			await create_timer(0.40).timeout
+			verify(view.issued == [turn_payload],
+				"A refused T turn never sends a second native request.")
+			turn_key.pressed = false
+			view._input(turn_key)
+			view.accept_press_turn = true
 			view.issued.clear()
 			panel.turn_button.button_down.emit()
 			panel.turn_button.pressed.emit()

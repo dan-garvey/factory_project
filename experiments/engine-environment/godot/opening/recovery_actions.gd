@@ -1085,15 +1085,17 @@ class ArrivalAssemblyControls:
 		if host != null and not route.is_empty() and parts.has("shaft"):
 			var outcome: Dictionary = host.issue({"action": "turn_press_crank", "entity": _anvil,
 				"drive": parts.shaft, "exit": route.exit})
-			return outcome.get("accepted", false)
+			if outcome.get("accepted", false):
+				return true
+		stop_turn_hold()
 		return false
 
 	func press_turn_key() -> bool:
 		if not turn_button.is_visible_in_tree() or turn_button.disabled:
 			return false
 		if turn_hold_source.is_empty():
-			turn_button.pressed.emit()
 			_start_turn_hold("key")
+			turn_button.pressed.emit()
 		return true
 
 	func _start_turn_hold(source: String) -> void:
