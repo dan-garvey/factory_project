@@ -187,9 +187,9 @@ void collector_readiness_tracks_real_parts() {
           "Q cannot turn P's held crank.");
     const auto extracted = host.command("P", turn);
     check(get<bool>(extracted, "accepted") &&
-          get<I>(extracted, "source_remaining") == 14 &&
+          get<I>(extracted, "source_remaining") == 4094 &&
           get<I>(extracted, "receiver_raw") == 1 &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4094,
           "One physical crank turn cuts exactly one finite ore blank into the receiver.");
     const auto after_turn = host.checkpoint();
     check(get<bool>(host.command("P", turn), "duplicate") &&
@@ -200,7 +200,7 @@ void collector_readiness_tracks_real_parts() {
     const auto full = host.command("P", full_turn);
     check(!get<bool>(full, "accepted") &&
           get<std::string>(full, "reason") == "receiver_full" &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4094,
           "The full receiver stops extraction before another ore debit.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
@@ -210,7 +210,7 @@ void collector_readiness_tracks_real_parts() {
           get<bool>(restored.configure_terrain(source_contact_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           get<std::string>(ground_inspection(restored), "status") == "ready" &&
-          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 14,
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4094,
           "A fresh Host derives the same collector and conserved source after restore.");
     Host obstructed;
     check(get<bool>(obstructed.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
@@ -264,7 +264,7 @@ void collector_readiness_tracks_real_parts() {
     auto second_turn = request("second-layout-turn", "turn_hand_crank");
     second_turn.emplace("entity", V(side_shaft));
     check(get<bool>(restored.command("P", second_turn), "accepted") &&
-          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 13,
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4093,
           "The mirrored layout extracts from the same finite source.");
     check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 8), "accepted"),
           "The actor returns to the last piece of nearby timber.");
@@ -286,7 +286,7 @@ void collector_readiness_tracks_real_parts() {
     const auto ambiguous = restored.command("P", ambiguous_turn);
     check(!get<bool>(ambiguous, "accepted") &&
           get<std::string>(ambiguous, "reason") == "ambiguous_assembly" &&
-          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 13,
+          get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4093,
           "An ambiguous assembly refuses a turn without spending ore.");
     auto remove_extra = request("remove-extra-shaft", "reclaim_component");
     remove_extra.emplace("entity", V(extra_shaft));

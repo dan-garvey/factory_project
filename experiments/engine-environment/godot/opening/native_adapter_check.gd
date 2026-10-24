@@ -1901,7 +1901,9 @@ func _arrival_run() -> void:
 		if opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor() \
 				and not opening.startup_save_pending:
 			break
-	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor(),
+	if not _expect(opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor()
+			and (mode != "arrival-reveal-skip" or (opening.model.projection().stock.source == 4096
+				and opening.model.projection().source_deposit.initial_units == 4096)),
 			"The physical actor reaches the scene floor"):
 		return
 	if mode == "supplied-hardware":

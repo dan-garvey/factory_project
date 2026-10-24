@@ -97,7 +97,7 @@ anvil, ram, guide, shaft and cog, their work and drive centers, and the four
 open feed routes. The same actor-bound feed and hand-crank requests accept its
 anvil identity; the ordinary scene still consumes the framed projection.
 The arrival profile additionally exposes `hand_sources`: three named
-eight-piece timber sites and one sixteen-unit ore deposit. `harvest_source`
+eight-piece timber sites and one 4,096-unit ore deposit. `harvest_source`
 accepts a target identity only after the bound physical actor is ready and
 within reach. It credits timber or raw ore in the same native actor cargo,
 with the ore debit shared by the collector. Source balances and carried timber

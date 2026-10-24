@@ -152,7 +152,7 @@ void shared_harvest() {
     const auto initial = host.projection();
     const auto sources = get<O>(initial, "hand_sources");
     check(sources.size() == 5 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
-          get<I>(sources.at("opening-softmetal"), "remaining") == 16,
+          get<I>(sources.at("opening-softmetal"), "remaining") == 4096,
           "Four finite trees and one shared ore reserve are visible to both actors.");
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
@@ -193,7 +193,7 @@ void shared_harvest() {
     check(get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(1.65)}, 2), "accepted"),
           "Q can reach the ore side of the site with a new physical observation.");
     check(get<bool>(complete_cut(host, "Q", cut("Q", "ore-first", "opening-softmetal")), "accepted") &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 15 &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4095 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1,
           "Manual ore mining debits the same source that feeds a future collector.");
     const auto bench = get<O>(host.projection(), "fabrication_hub");

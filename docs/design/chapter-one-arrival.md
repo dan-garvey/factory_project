@@ -81,11 +81,14 @@ foundations; avoid a visual-only floor or a second mutable pod model.
 
 This is a deliberately small, **reversible balance fixture**. It proves a
 path from accessible world stock to both machines without gifting either
-complete machine. One tree yields eight usable timber pieces; an initial ore
-deposit exposes sixteen softmetal blanks. At least three accessible trees give
-layout and mistake margin. A different final yield is fine if the same
-dependency and recovery proof is redone. Softmetal is a fictional workable
-material for early cold forming; its geology and final name remain open.
+complete machine. One tree yields eight usable timber pieces; the original
+balance fixture used sixteen softmetal blanks. At least three accessible trees
+give layout and mistake margin. The playable native arrival now uses a finite
+4,096-unit ore reserve; the sixteen-blank figure below remains a small
+bootstrap cost fixture, not its current source capacity. A different final yield
+is fine if the same dependency and recovery proof is redone. Softmetal is a
+fictional workable material for early cold forming; its geology and final name
+remain open.
 
 | Component | Local fabrication input | Uses in the first arrangements |
 | --- | --- | --- |

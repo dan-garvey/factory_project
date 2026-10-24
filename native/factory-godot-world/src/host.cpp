@@ -913,7 +913,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     // Reversible opening content, with enough buffer to recover finite ore in
     // batches. All reserve and carried quantities remain in this one World.
     profile.material = {1, 32, 2};
-    profile.initial_units = arrival ? 16 : mineral_site::opening_reserve;
+    profile.initial_units = mineral_site::opening_reserve;
     profile.meters_per_grid_unit = pitch / 4.0;
     profile.anchor_offset = {0, anchor_height, 0};
     profile.wheel_radius = wheel_radius;

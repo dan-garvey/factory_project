@@ -119,7 +119,7 @@ void broad_projection() {
           get<A>(broad.front(), "work_centers").size() == 4 &&
           get<A>(V(get<O>(broad.front(), "parts")), "shafts").size() == 4,
         "Host projects one real four-pad area but refuses readiness without four live drives.");
-    check(get<I>(V(get<O>(state, "material_mass")), "accounted_mass") == 64 &&
+    check(get<I>(V(get<O>(state, "material_mass")), "accounted_mass") == 4096 * 4 &&
           get<I>(V(get<O>(state, "cargo").at("P")), "raw") == 0,
         "Constructing the broad area keeps every finite copper unit in custody.");
     auto stage = request("broad-no-sheet-stage", "place_sheet");

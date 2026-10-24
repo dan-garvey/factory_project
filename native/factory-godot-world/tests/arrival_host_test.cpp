@@ -53,6 +53,12 @@ void arrival_projection_and_restore() {
               V(A{V(I{6}), V(I{0}), V(I{4})})),
           "One empty freight beacon has a native identity five tiles beyond the pod center.");
     const auto trees = get<O>(view, "hand_sources");
+    const auto ore = trees.at("opening-softmetal");
+    const auto deposit = get<O>(view, "source_deposit");
+    check(get<I>(view, "initial_feed") == 4096 && get<I>(V(deposit), "initial_units") == 4096 &&
+          get<I>(V(get<O>(view, "stock")), "source") == 4096 &&
+          get<I>(ore, "initial") == 4096 && get<I>(ore, "remaining") == 4096,
+          "The ordinary fresh arrival exposes one finite 4096-unit source through every native projection.");
     const auto south = get<A>(trees.at("tree-east-south"), "position");
     const auto north = get<A>(trees.at("tree-east-north"), "position");
     const auto upstream = get<A>(trees.at("tree-east-upstream"), "position");

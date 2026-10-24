@@ -130,8 +130,8 @@ void pickup_offcut(Host& host, I x, I y, I z, const char* request_id) {
 
 void conserved_copper(const Host& host) {
     const auto mass = get<O>(host.projection(), "material_mass");
-    check(get<I>(V(mass), "accounted_mass") == 64 &&
-          get<I>(V(mass), "initial_mass") == 64,
+    check(get<I>(V(mass), "accounted_mass") == 4096 * 4 &&
+          get<I>(V(mass), "initial_mass") == 4096 * 4,
           "Every projected arrival holder accounts for the finite copper reserve.");
 }
 
