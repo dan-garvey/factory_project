@@ -372,14 +372,29 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	opening._open_object_menu_for(id)
-	if not _expect(opening.object_menu.visible and panel.pod_workshop_button.is_visible_in_tree(),
-			"E exposes the portable-workshop custody icon in the ordinary object menu"):
+	await process_frame
+	if not _expect(opening.object_menu.visible and panel.pod_workshop_button.is_visible_in_tree()
+			and opening.object_menu_close.text.is_empty() and opening.object_menu_close.icon != null
+			and opening.object_menu_close.tooltip_text == "Close object menu · Esc"
+			and opening.object_menu_close.accessibility_name == "Close object menu, shortcut Escape"
+			and opening.object_menu.get_viewport().gui_get_focus_owner() == opening.object_menu_close,
+			"E exposes the portable-workshop custody icon and focused close control"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-pod-workshop-menu.png") == OK,
 				"The ordinary pod workshop icon is retained in a rendered menu frame"):
 			return
+	var before_close: Dictionary = opening.model.projection()
+	opening.object_menu_close.pressed.emit()
+	await process_frame
+	var after_close: Dictionary = opening.model.projection()
+	if not _expect(not opening.object_menu.visible and after_close.order == before_close.order
+			and after_close.fabrication_hub == before_close.fabrication_hub
+			and after_close.cargo == before_close.cargo,
+			"The focused close control leaves native custody untouched"):
+		return
+	opening._open_object_menu_for(id)
 	var stow_key := InputEventKey.new()
 	stow_key.keycode = KEY_S
 	stow_key.pressed = true
