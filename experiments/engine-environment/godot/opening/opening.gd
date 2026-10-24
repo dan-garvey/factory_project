@@ -5636,7 +5636,9 @@ func _input(event: InputEvent) -> void:
 				object_menu.hide()
 				used = true
 			elif event.keycode == KEY_DELETE:
-				used = _activate_button(remove_button)
+				used = _activate_button(arrival_assembly_controls.reclaim_button) \
+					if arrival_assembly_controls != null and state.get("placed_components", {}).has(selected) \
+					else _activate_button(remove_button)
 			elif event.ctrl_pressed and event.keycode == KEY_D:
 				used = _activate_button(details_button)
 			elif event.ctrl_pressed and event.keycode == KEY_R:
@@ -10249,6 +10251,8 @@ func _object_supports_operations(target: String) -> bool:
 	if state.get("entities", {}).get(target, {}).get("kind", "") in ["collector", "processor"]:
 		return true
 	if state.get("placed_components", {}).get(target, {}).get("component", "") == "wooden_workbench":
+		return true
+	if state.get("placed_components", {}).has(target):
 		return true
 	for row: Variant in state.get("fabrication_benches", []):
 		if row is Dictionary and row.get("id", "") == target:
