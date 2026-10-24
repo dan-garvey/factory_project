@@ -2357,6 +2357,11 @@ func _object_menu_check() -> void:
 	verify(view.object_menu.visible and view.object_menu_title.text.to_lower() == "wooden workbench"
 		and view.object_menu_operations.visible and view.arrival_assembly_controls.craft_section.visible,
 		"E opens the actual workbench controls in a centered object panel.")
+	verify(view.object_menu_close.text.is_empty() and view.object_menu_close.icon != null
+		and view.object_menu_close.tooltip_text == "Close object menu · Esc"
+		and view.object_menu_close.accessibility_name == "Close object menu, shortcut Escape"
+		and view.object_menu_close.has_focus(),
+		"The close icon has a focus description and receives focus when E opens the menu.")
 	verify(view.object_menu.position.x > 100 and view.object_menu.position.y > 40
 		and view.object_menu.size.x >= 740 and view.object_menu.size.y >= 420
 		and not view._can_control_character() and view._actor_ready_for_actions(),
@@ -2371,7 +2376,8 @@ func _object_menu_check() -> void:
 		var panel_rect := Rect2(view.object_menu.position, view.object_menu.size)
 		verify(panel_rect.position.x >= 0.0 and panel_rect.position.y >= 0.0
 			and panel_rect.end.x <= viewport_size.x and panel_rect.end.y <= viewport_size.y
-			and absf(panel_rect.get_center().x - viewport_size.x / 2.0) <= 2.0,
+			and absf(panel_rect.get_center().x - viewport_size.x / 2.0) <= 2.0
+			and view.object_menu_close.is_visible_in_tree() and view.object_menu_close.size.x >= 40.0,
 			"The open object panel fits a simulated resized viewport.")
 	view._fit_object_menu(Vector2i(1280, 800))
 	await process_frame

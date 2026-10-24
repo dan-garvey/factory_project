@@ -10059,8 +10059,12 @@ func _build_object_menu(root: Control, detail_panel: PanelContainer) -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(spacer)
-	object_menu_close = _button(header, "Close  Esc", object_menu.hide)
-	object_menu_close.custom_minimum_size = Vector2(105, 32)
+	object_menu_close = _button(header, "", object_menu.hide)
+	object_menu_close.icon = load("res://opening/assets/menu-icons/close.svg")
+	object_menu_close.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	object_menu_close.custom_minimum_size = Vector2(40, 32)
+	object_menu_close.tooltip_text = "Close object menu · Esc"
+	object_menu_close.accessibility_name = "Close object menu, shortcut Escape"
 	shell.add_child(HSeparator.new())
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 20)
