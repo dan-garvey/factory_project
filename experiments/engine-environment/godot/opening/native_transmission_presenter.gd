@@ -1299,7 +1299,9 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					Vector3(0.018, rail_height - 0.045, 0.008), dark)
 			_support_box(anchor, "SlideCrown", Vector3(0, half_height - 0.048, 0),
 				Vector3(0.39, 0.075, 0.34), finish, true)
-			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.027, 0.39, dark)
+			# Its native half-span is one quarter-pitch on each side of the
+			# center. The rod protrudes past the body box to meet a routed shaft.
+			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.027, 2.0 * UNIT, dark)
 			shaft.position = Vector3(0, half_height * 0.5, 0)
 			shaft.rotation.z = PI * 0.5
 			for x in [-0.172, 0.172]:

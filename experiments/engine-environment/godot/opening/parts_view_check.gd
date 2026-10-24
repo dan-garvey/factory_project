@@ -2839,6 +2839,9 @@ func _slide_view_check() -> void:
 		verify(anchor.has_node("SlideRail") and anchor.has_node("SlideCrown")
 			and anchor.has_node("IntegralInputShaft") and anchor.has_node("SlideCarriage"),
 			"Each slide has fixed rails, an exposed input and a separate carriage.")
+		verify(is_equal_approx((anchor.get_node("IntegralInputShaft").mesh as CylinderMesh).height,
+			Geometry.PITCH * 0.5),
+			"The visible input rod reaches the native one-quarter-pitch shaft ports.")
 		var carriage := anchor.get_node("SlideCarriage") as Node3D
 		verify(carriage.position.y - 0.103 > -0.4125 and carriage.position.y + 0.07 < 0.4125,
 			"The native phase keeps the carriage inside the admitted swept height.")

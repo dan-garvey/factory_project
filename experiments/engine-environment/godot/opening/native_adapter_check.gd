@@ -734,7 +734,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-slide", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -2130,6 +2130,119 @@ func _arrival_raised_press_resume_run(panel) -> void:
 		return
 	_record("pass")
 
+func _arrival_slide_run(panel, capture_prefix: String) -> void:
+	if not await _approach(Vector2(6.0, 3.45)):
+		return
+	for index in range(6):
+		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+			return
+	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return
+	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		return
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
+		return
+	var inventory = opening.building_hotbar
+	if not _expect(inventory.recipe_buttons.has("component:wooden_slide"),
+			"The ordinary inventory exposes the native wooden slide recipe"):
+		return
+	if not _press_inventory_recipe("component:wooden_slide", str(opening.model.projection().fabrication_hub.id)):
+		return
+	for kind in ["wheel", "shaft"]:
+		var recipe := -1
+		for index in opening.model.projection().part_recipes.size():
+			if opening.model.projection().part_recipes[index].kind == kind:
+				recipe = index
+		if not _expect(recipe >= 0, "The workshop offers a finite external drive part"):
+			return
+		if not _press_inventory_recipe("part:%d" % recipe,
+				str(opening.model.projection().fabrication_hub.id)):
+			return
+	if not _expect(opening.model.projection().cargo.P.timber == 0
+			and opening.model.projection().cargo.P.raw == 0
+			and opening.model.projection().cargo.P.components.get("wooden_slide", 0) == 1
+			and opening.model.projection().part_kits.P.wheel == 1
+			and opening.model.projection().part_kits.P.shaft == 1,
+			"Six finite timber units and one ore blank become one slide, wheel and shaft"):
+		return
+	if not await _approach_points([Vector2(3.3, 3.3), Vector2(0.0, 1.3)]):
+		return
+	if not _select_inventory_item("wheel"):
+		return
+	if _construct({"action": "place", "kind": "wheel", "cell": [-2, 1],
+			"axis": "x", "level": 4}).is_empty():
+		return
+	if not _select_inventory_item("drive"):
+		return
+	if _construct({"action": "place_shaft", "center": [-4, 4, 4],
+			"axis": "x", "half_span": 2}).is_empty():
+		return
+	if not _select_inventory_item("component:wooden_slide"):
+		return
+	if not _expect(opening.mode == "component" and panel.selected_name() == "wooden_slide",
+			"The slide icon selects the actual component placement mode"):
+		return
+	var placed := _construct({"action": "place_component", "component": "wooden_slide",
+		"center": [-1, 4, 4]})
+	if placed.is_empty():
+		return
+	var id: String = placed.entity
+	var idle: Dictionary = opening.model.projection()
+	if not _expect(idle.placed_components[id].component == "wooden_slide"
+			and idle.cargo.P.components.get("wooden_slide", 0) == 0
+			and idle.slide_phases[id].subticks == 0
+			and idle.motion[id].state == "rotating",
+			"One fixed native slide consumes its carried body and joins the external drive"):
+		return
+	var anchor: Node3D
+	for child: Node in opening.transmission_presenter.get_children():
+		if child.get_meta("component_entity", "") == id:
+			anchor = child as Node3D
+	if not _expect(anchor != null and anchor.has_node("IntegralInputShaft")
+			and anchor.has_node("SlideCarriage") and
+			is_equal_approx(anchor.get_node("SlideCarriage").position.y, 0.075),
+			"The ordinary presenter shows the native port and resting carriage"):
+		return
+	opening.model.advance()
+	opening._refresh()
+	var powered: Dictionary = opening.model.projection()
+	if not _expect(powered.slide_phases[id].subticks > 0
+			and powered.slide_phases[id].subticks < powered.slide_phases[id].cycle_subticks,
+			"The external waterwheel advances the unloaded slide's exact native phase"):
+		return
+	anchor = null
+	for child: Node in opening.transmission_presenter.get_children():
+		if child.get_meta("component_entity", "") == id:
+			anchor = child as Node3D
+	if not _expect(anchor != null and anchor.get_node("SlideCarriage").position.y < 0.075,
+			"The installed carriage follows the projected native phase"):
+		return
+	# Auto-advance consumes the native tick delta after its first complete view.
+	# The presenter must receive each later carriage phase, not retain the first.
+	opening.model._view_projection_borrowed()
+	var first_delta: Dictionary = opening.model._advance_borrowed()
+	opening._refresh_from_projection(first_delta)
+	var second_delta: Dictionary = opening.model._advance_borrowed()
+	opening._refresh_from_projection(second_delta)
+	var exact_phase: Dictionary = opening.model.projection().slide_phases[id]
+	if not _expect(first_delta.slide_phases[id].subticks != powered.slide_phases[id].subticks
+			and second_delta.slide_phases[id].subticks != first_delta.slide_phases[id].subticks
+			and second_delta.slide_phases[id] == exact_phase
+			and opening.state.slide_phases[id] == exact_phase,
+			"Successive native tick deltas keep the powered carriage current in the ordinary scene"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_guided_close(id, capture_prefix + "-slide.png"),
+				"A passive ordinary scene capture retains the driven slide"):
+			return
+	opening.configure_save_slot(destination + ".worksite")
+	var saved: Dictionary = opening._save_worksite()
+	if not _expect(saved.accepted and saved.native_preflight.accepted
+			and FileAccess.file_exists(opening.save_slot),
+			"The native checkpoint retains a physically crafted and externally driven slide: " + str(saved)):
+		return
+	_record("pass")
+
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-craft-capacity"]:
@@ -2138,7 +2251,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-slide", "supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -2197,6 +2310,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-slide":
+		await _arrival_slide_run(panel, capture_prefix)
+		return
 	if mode == "arrival-broad-pad":
 		await _arrival_broad_pad_run(panel)
 		return

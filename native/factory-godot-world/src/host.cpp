@@ -925,6 +925,16 @@ Object outward(const world::Delivery& delivery, const world::Snapshot& snapshot)
             {"reachable", Value(field<std::string>(output, "reason") && *field<std::string>(output, "reason") != "out_of_reach")}}));
     return output;
 }
+
+Object slide_phase_projection(const world::State& state) {
+    Object phases;
+    for (const auto& [id, phase] : state.slide_phases)
+        phases.emplace(id, Value(Object{{"subticks", Value(phase.subticks)},
+            {"remainder", Value(phase.remainder)},
+            {"denominator", Value(phase.denominator)},
+            {"cycle_subticks", Value(world::slide_cycle_subticks)}}));
+    return phases;
+}
 }  // namespace
 
 Value Host::initialize(const std::string& context, const std::vector<std::string>& actors) {
@@ -2494,6 +2504,7 @@ Object Host::tick_fields(const world::Snapshot& snapshot) const {
         {"manual_cuts", Value(std::move(manual_cuts))},
         {"cargo", Value(std::move(cargo))},
         {"belt_spans", Value(std::move(belt_spans))}, {"line_belt_raw", Value(belt_raw_units)},
+        {"slide_phases", Value(slide_phase_projection(state))},
         {"dropped_material", Value(std::move(dropped_material))},
         {"stock", Value(std::move(stock_fields))},
         {"remaining", Value(state.material.processing ? state.material.processing->remaining_ticks : 0)}};
@@ -2778,13 +2789,7 @@ Value Host::projection() const {
                     Value(component.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
         }
         projection.emplace("placed_components", Value(std::move(placed)));
-        Object slide_phases;
-        for (const auto& [id, phase] : state.slide_phases)
-            slide_phases.emplace(id, Value(Object{{"subticks", Value(phase.subticks)},
-                {"remainder", Value(phase.remainder)},
-                {"denominator", Value(phase.denominator)},
-                {"cycle_subticks", Value(world::slide_cycle_subticks)}}));
-        projection.emplace("slide_phases", Value(std::move(slide_phases)));
+        projection.emplace("slide_phases", Value(slide_phase_projection(state)));
         std::vector<assembly::Part> parts;
         parts.reserve(state.placed_components.size());
         for (const auto& [id, component] : state.placed_components)
