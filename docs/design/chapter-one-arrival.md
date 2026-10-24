@@ -1,6 +1,8 @@
 # Chapter one: arrival and the first workshop
 
-Status: user-directed chapter direction, revised 2026-10-23. The landing pod, manual
+Status: user-directed chapter direction, revised 2026-10-24. The powered-slide,
+interchangeable-working-head and passive-workbed boundary below is the approved
+plan of record. The landing pod, manual
 harvesting, locally made components, modular collector and modular press replace
 the old complete-machine opening as the target experience. Names, quantities and
 recipes here are reversible prototype choices until tested in a running game.
@@ -77,13 +79,14 @@ foundations; avoid a visual-only floor or a second mutable pod model.
 
 ## Bootstrap materials and component bill
 
-This is a deliberately small, **reversible balance fixture**. It proves a
-path from accessible world stock to both machines without gifting either
-complete machine. One tree yields eight usable timber pieces; the original
+These are **reversible balance inputs** for a finite bootstrap. The approved
+powered-slide recipe needs a new complete budget and ordinary construction
+proof; the old separate-guide bill does not establish it. One tree yields
+eight usable timber pieces; the original
 balance fixture used sixteen softmetal blanks. At least three accessible trees
 give layout and mistake margin. The playable native arrival now uses a finite
-4,096-unit ore reserve; the sixteen-blank figure below remains a small
-bootstrap cost fixture, not its current source capacity. A different final yield
+4,096-unit ore reserve; the old sixteen-blank fixture is not its current source
+capacity. A different final yield
 is fine if the same dependency and recovery proof is redone. Softmetal is a
 fictional workable material for early cold forming; its geology and final name
 remain open.
@@ -91,42 +94,39 @@ remain open.
 | Component | Local fabrication input | Uses in the first arrangements |
 | --- | --- | --- |
 | Wooden frame | 3 timber | A load-bearing base for the collector. |
-| Wooden shaft | 1 timber | Geometric drive from crank or later waterwheel. |
+| Wooden shaft | 1 timber | External routing from crank or waterwheel; also the embodied shaft cost in a wooden driven component. |
 | Wooden cog | 2 timber | Change rotation direction or drive ratio within its stress rating. |
 | Receiver tray | 2 timber | Catches a cut blank; full capacity pauses extraction. |
 | Tool mount | 1 timber | Supports the collector head at a chosen height and orientation. |
-| Sliding guide | 1 timber | Constrains the press ram beneath its drive. |
-| Cutting edge | 1 softmetal blank | Fitted to the collector's tool mount. |
-| Anvil | 2 softmetal blanks | The press work support. |
-| Ram face | 2 softmetal blanks | Fitted to the press head's moving guide. |
+| Powered slide | Mechanism/body cost plus one same-material shaft; total to be tuned | Complete rotary input, linear motion mechanism, rails and moving carriage. |
+| Cutting edge | 1 softmetal blank, subject to width/material tuning | Interchangeable cutting head for a compatible slide or cutter mount. |
+| Anvil/workbed | 2 softmetal blanks | Passive support for forming or cutting work. |
+| Flat working face | 2 softmetal blanks, subject to area/material tuning | Interchangeable pressing head carried by the slide. |
 | Extra foundation | 2 timber | Extends a floor or access step on the shared world grid. |
 
-An illustrative collector uses one frame, tool mount, cutting edge, receiver
-and wooden shaft: **7 timber and 1 blank**. An illustrative press uses a
-sliding guide, anvil, ram face, wooden shaft and cog: **4 timber and 4 blanks**.
-Both consume **11 timber and 5 blanks** to build, leaving five timber after
-harvesting two trees and eleven blanks at the original deposit;
-the current one-blank-to-one-plate runtime fixture consumes one more blank for its
-first product. The copper mass model below replaces that product rule; this part
-bill remains a separate, revisable bootstrap fixture. A third tree is available for an
-alternate route, support, chute or rebuild. A detachable crank is reusable
-between these arrangements. This arithmetic is a starting fixture, not a
-promise that every geometry or belt route can fit inside two trees.
+The first forming arrangement uses a powered slide, a flat working face and
+an anvil/workbed, with a detachable crank or an external power route. The input
+shaft is charged once in the slide recipe and remains part of that component
+through carrying, placement and reclaim; reclaim must not mint a second shaft.
+Any rotary-driven collector/tool component follows the same shaft-cost rule.
+Loose shafts and cogs are additional routing or gearing choices, not compulsory
+local parts used only to satisfy a machine recognizer. Numerical body/mechanism
+costs and complete collector-plus-forming bills must be checked against actual
+reachable timber and ore before claiming the new bootstrap works.
 
 The current landing carries fifteen spare foundation parts after its nine-panel
 pod deck. Three more foundations cost six timber from the same finite trees.
-One bounded expanded bill uses eleven timber and five blanks for the illustrative
-collector and press above, six timber for those three floors, and four timber
-plus two blanks for one belt and one waterwheel: **21 of 24 timber and seven of
-sixteen blanks**, before stock for forming. An upper/lower arrangement can spend
-four elevated floor panels, four access steps and three routing panels; an
+Budget six timber for those three floors and, at current provisional prices,
+four timber plus two blanks for one belt and one waterwheel, in addition to the
+chosen powered-slide, head, workbed and collector costs. An upper/lower arrangement
+can spend four elevated floor panels, four access steps and three routing panels; an
 alternative staggered ground arrangement can spend twelve panels. Both fit
 within the fifteen supplied spares, while three locally crafted panels extend
 either arrangement without a hidden refill. These counts are a material budget,
 not a proof that a particular physical route has been built or played.
 
-The collector's frame and mount, and the separate guide, head, shaft and
-receiver remain separate world items.
+The collector's frame and mount, the powered slide, working head, workbed,
+external transmission and receivers retain their own world identities.
 They have placement faces and physical clearance; a recipe creates a component,
 not an instant collector or press. The first plate can be made from a blank
 cut by hand. The collector reduces manual mining thereafter. Dismantling
@@ -145,6 +145,49 @@ can handle early material; powered belts and future fiber/strip stock need their
 own conserved recipes before this prototype's free belt kit is retired. No
 single finite tree or deposit is silently made infinite to rescue the fixture.
 
+## Plan of record: powered slides and working heads
+
+The user approved this boundary on 2026-10-24. It replaces the fixed local
+guide/ram-body/shaft/cog recipe; it is not a claim that the current runtime
+already supplies a reusable motion component.
+
+| Component | Function and choices |
+| --- | --- |
+| Powered slide | Contains the same-material input shaft, rotary-to-linear mechanism, rails and carriage. Supplies travel axis, stroke, swept clearance and force capacity. Local bearings and cams are not extra assembly chores. |
+| Working head | Attaches to the carriage and supplies contact shape, area and tool material. A flat pressing face and a cutting edge are the first required interchangeable uses. |
+| Anvil/workbed | Supports work for pressing or cutting. It has no rotary input and does not require a press to be assembled above it. |
+
+The same motion component must be usable for both pressing and cutting. It can
+cycle unloaded, without a head, workbed or recognized processing recipe, when
+the travel is clear. Stock changes only through actual compatible tool contact,
+support, sufficient force/work and available output custody. Larger working
+areas increase real load and clearance demand; a stronger head cannot bypass a
+weak slide or transmission. Workpiece area and motion stroke are distinct choices.
+
+Keep a simple fixed cycle initially. A pusher or more expressive motion is a
+later extension. Structural anchoring remains deferred for the early slide/head;
+the workpiece still needs support. All construction sizes and positions use
+the shared world grid and height denominator.
+
+A component has the same chosen shape, dimensions and physical envelope in its
+preview, alone and connected. Its carriage moves inside the declared sweep under
+native power; recognizing a nearby machine never grows rails or extra structure.
+Any explicit size or stroke setting is visible before placement and obeys native
+clearance. Component inspection describes ports, working area, motion and actual
+local refusals. An isolated anvil does not show a missing-part press checklist.
+Optional examples teach possible arrangements while preserving other uses.
+
+Implementation acceptance requires the same slide driving both head types,
+unloaded cycling, different valid layouts, finite crafting/reclaim, blocked-work
+recovery and save/shared continuation in ordinary controls. Inspect preview,
+standalone and operating views. Existing fixed-offset press/shear tests remain
+evidence for their original implementation, not proof of this reusable contract.
+Exact numerical recipes, dimensions and force ratings remain tunable.
+
+The implementation is tracked in `factory-yau.1.10.24`, with stable geometry in
+`factory-yau.1.10.8.15` and component inspection in `factory-yau.6.41.54`. All are
+owned by the Chapter 1 subtree `factory-yau.1.10`.
+
 ## Machinery is an arrangement
 
 The collector needs a frame that supports a cutting head at the deposit face,
@@ -155,11 +198,11 @@ driven by the detachable crank can share the same finite deposit and output
 port that a later waterwheel route uses. A full tray or belt output stops the
 next cut without debiting ore.
 
-The early press needs an anvil under a guided ram face, a drive/cam
-arrangement that moves the ram, and room to insert and remove work. Its ram
-and guide may stand in empty space above the anvil; neither a structural frame
-nor a mounting point is required at this production stage. General anchoring
-remains a later design question. A manually placed blank can become a plate
+The early pressing arrangement brings a flat working head on a powered slide
+into contact with stock supported by an anvil/workbed, with room to insert and
+remove work. The slide and head may stand in empty space above the workbed;
+neither a structural frame nor a mounting point is required at this stage.
+A manually placed blank can become a plate
 before belt feed is built. Different working heights, shaft routes, feed faces
 and gravity paths are valid when contact and clearance conditions hold. The
 same native custody owner retains partial work, input and output through a stall, edit,
@@ -184,12 +227,14 @@ solutions. It should not require hidden construction order.
 
 The user-directed next engineering step keeps the hand-tended **1 × 1 press**
 valid for the first plate and adds a **2 × 2 forming area** assembled from
-repeated, independently placed anvil and ram parts. Both use the common world
-grid and one thickness. The four cells form one supported stroke for one broad
+repeated, independently placed workbed and working-face parts. Both use the
+common world grid and one thickness. The four cells form one supported stroke for one broad
 workpiece, rather than four adjacent independent presses. Matching contact
-faces, a guided stroke, contiguous workpiece support, clearance and a capable
-drive make an arrangement ready. An enlarged recipe or gifted large machine
-does not substitute for those facts.
+faces, powered-slide travel, contiguous workpiece support, clearance and a capable
+drive determine whether forming can occur. The working area does not mandate
+one complete actuator or shaft/cog pair per tile; actual drive capacity and
+physical coupling determine the required motion components. An enlarged recipe
+or gifted large machine does not substitute for those facts.
 No technology lock prevents a player who has enough parts from trying the
 larger layout early.
 
