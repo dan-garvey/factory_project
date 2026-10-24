@@ -17,17 +17,18 @@ stationary chapter or authorize a new game mechanic by itself.
 Search all open **and closed** Beads and this registry before starting. Each
 game study records the version/modpack/expansion and scope actually covered;
 a closed study is reusable evidence, not a request to repeat it. This table
-indexes the owned queue; live status and findings are in Beads. The listed note
-paths are planned until their reviewed files land.
+indexes the owned queue; live status and findings are in Beads. Existing note
+paths are linked below. Studies without an existing note use this catalogue;
+do not create their formerly planned Markdown files.
 
-| Study | Bead | Continuing owner | Per-game note path |
+| Study | Bead | Continuing owner | Existing research destination |
 | --- | --- | --- | --- |
 | Factorio: base 2.0 stationary source study | `factory-yau.8.1` | Playability | [games/factorio.md](games/factorio.md) |
 | Satisfactory: partial source study | `factory-yau.8.2` | Playability | [games/satisfactory.md](games/satisfactory.md) |
-| Create + Above and Beyond + CABIN | `factory-yau.8.3` | Chapter | `games/create-packs.md` |
+| Create + Above and Beyond + CABIN | `factory-yau.8.3` | Chapter | This catalogue |
 | Opus Magnum: partial source study | `factory-yau.8.4` | Ops | [games/opus-magnum.md](games/opus-magnum.md) |
 | SpaceChem: partial dated source study | `factory-yau.8.5` | Ops | [games/spacechem.md](games/spacechem.md) |
-| Infinifactory | `factory-yau.8.6` | Chapter | `games/infinifactory.md` |
+| Infinifactory | `factory-yau.8.6` | Chapter | This catalogue |
 | shapez 2: spatial/logistics source survey | `factory-yau.8.7` | Recovery | [games/shapez-2.md](games/shapez-2.md) |
 | Dyson Sphere Program: dated source survey | `factory-yau.8.8` | Platform | [games/dyson-sphere-program.md](games/dyson-sphere-program.md) |
 | shapez 2: partial programmable-changeover source study | `factory-yau.8.9` | Recovery | [games/shapez-2-changeovers.md](games/shapez-2-changeovers.md) |
@@ -68,9 +69,9 @@ scope gets a linked follow-up rather than silently duplicating a closed study.
 
 ## How a study proceeds
 
-1. Claim an unoccupied game/coverage Bead and coordinate the per-game file in
-   a separate canonical-Beads-linked worktree. Search related closed studies and
-   pattern cards; record what is genuinely new.
+1. Claim an unoccupied game/coverage Bead and coordinate the existing note or
+   catalogue section in a separate canonical-Beads-linked worktree. Search related
+   closed studies and pattern cards; record what is genuinely new.
 2. Declare version, expansion/modpack, systems and progression range covered,
    evidence access and known gaps. Use the [study template](STUDY_TEMPLATE.md).
    A partial study stays open; do not mark the whole game thoroughly studied
@@ -89,7 +90,7 @@ scope gets a linked follow-up rather than silently duplicating a closed study.
    game's actual rule from a proposed translation. Identify trivial shortcuts,
    compulsory upkeep, arbitrary waiting and ways the puzzle could destroy useful
    logistical meaning.
-6. Publish the checked note and catalogue changes through the
+6. Publish the checked existing note or catalogue changes through the
    [author-owned workflow](../../CONTRIBUTING.md#integration-and-history).
    Request independent post-merge scrutiny of sources and adaptation reasoning.
    Preserve disagreements, rejected ideas and limits, and reuse relevant completed
@@ -97,14 +98,15 @@ scope gets a linked follow-up rather than silently duplicating a closed study.
 7. Close the per-game leaf only when its declared scope is thoroughly covered,
    useful patterns and gaps are recorded, independent review is complete and
    catalogue integration is recorded. Record scope, version/date, accepted
-   note revision and reviewer in Beads. The recurring parent stays
+   note or catalogue revision and reviewer in Beads. The recurring parent stays
    open and has an owned next target or useful synthesis/adaptation task.
 
-Separate per-game paths permit parallel work without several writers owning the
-same catalogue file. Coordinate concurrent registry edits directly in the owning
-Beads; do not wait for an index edit to do already-scoped research. Cross-link
-duplicate patterns instead of rewriting them for every game. Game-note authors
-and peers can discover and claim their next bounded study autonomously.
+Existing per-game paths permit parallel work without several writers owning the
+same catalogue file. For a new game or coverage area, add a section to an existing
+research document and coordinate concurrent edits in the owning Beads. Do not
+wait for an index edit to do already-scoped research. Cross-link duplicate
+patterns instead of rewriting them for every game. Study authors and peers can
+discover and claim their next bounded study autonomously.
 
 ## Pattern cards: minimum useful content
 
