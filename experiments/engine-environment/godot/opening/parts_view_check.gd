@@ -1661,6 +1661,23 @@ func _arrival_hotbar() -> void:
 		and view.issued[3] == {"action": "craft_part", "entity": "pod-fabrication-hub", "role": "shaft", "half_span": 2}
 		and view.state.cargo.P.components.wooden_frame == 2,
 		"E on a workshop exposes component, foundation and part icons without fixture-owned stock changes.")
+	var context_key := InputEventKey.new()
+	context_key.keycode = KEY_S
+	context_key.pressed = true
+	bar._input(context_key)
+	verify(view.issued.size() == 5 and view.issued[4] == {
+		"action": "stow_fabrication_hub", "entity": "pod-fabrication-hub"},
+		"The bench inventory retains the pod stow action on its visible S shortcut.")
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": false, "holder": "P"}
+	bar.catalog.hide()
+	bar.open_catalog()
+	context_key.keycode = KEY_P
+	bar._input(context_key)
+	verify(view.mode == "pod_workshop" and not bar.catalog.visible
+		and bar.material_counts.fabrication_hub.text == "1",
+		"A carried pod tile and its P shortcut select placement from the same inventory.")
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
+	view._select_tool("inspect")
 	view.issued.clear()
 	bar.catalog.hide()
 	view.state.cargo.P.timber = 2

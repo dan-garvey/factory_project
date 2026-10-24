@@ -195,6 +195,19 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-empty.png") == OK,
 				"Retain the ordinary zero-stock inventory view"):
 			return
+		var original_size: Vector2i = root.size
+		root.size = Vector2i(640, 480)
+		await process_frame
+		inventory._place_catalog()
+		await RenderingServer.frame_post_draw
+		if not _expect(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
+				and root.get_texture().get_image().save_png(capture_prefix + "-empty-narrow.png") == OK,
+				"The ordinary zero-stock inventory remains usable at a narrow viewport"):
+			return
+		root.size = original_size
+		await process_frame
+		inventory._place_catalog()
 	inventory.catalog.hide()
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
@@ -223,6 +236,19 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-timber.png") == OK,
 				"Retain the ordinary finite-timber inventory view"):
 			return
+		var original_size: Vector2i = root.size
+		root.size = Vector2i(640, 480)
+		await process_frame
+		inventory._place_catalog()
+		await RenderingServer.frame_post_draw
+		if not _expect(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
+				and root.get_texture().get_image().save_png(capture_prefix + "-timber-narrow.png") == OK,
+				"The ordinary carried-timber inventory remains usable at a narrow viewport"):
+			return
+		root.size = original_size
+		await process_frame
+		inventory._place_catalog()
 	inventory.recipe_buttons["component:wooden_frame"].pressed.emit()
 	var shaped: Dictionary = opening.model.projection()
 	if not _expect(shaped.order == gathered.order + 1 and shaped.cargo.P.timber == 0
@@ -276,6 +302,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 	_record("pass")
 
 func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
+	var inventory = opening.building_hotbar
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	for index in range(2):
@@ -285,26 +312,26 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 		return
 	var before: Dictionary = opening.model.projection()
 	opening._open_object_menu_for(before.fabrication_hub.id)
-	if not _expect(opening.object_menu.visible and panel.foundation_craft_button.is_visible_in_tree()
+	if not _expect(inventory.catalog.visible and inventory.context_bench == before.fabrication_hub.id
 			and before.cargo.P.timber == 2 and before.foundation_recipe.timber == 2
-			and panel.foundation_craft_button.visible and not panel.foundation_craft_button.disabled
-			and "2 timber" in panel.foundation_craft_button.tooltip_text,
-			"The ordinary workshop exposes its native floor recipe beside the gathered timber"):
+			and "2 timber" in inventory.recipe_buttons.foundation.tooltip_text
+			and "Craft here" in inventory.recipe_buttons.foundation.tooltip_text,
+			"The E-opened inventory exposes its native floor recipe beside gathered timber"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-foundation-craft.png") == OK,
 				"The ordinary workshop floor control is retained in a rendered frame"):
 			return
-	panel.foundation_craft_button.pressed.emit()
+	inventory.recipe_buttons.foundation.pressed.emit()
 	var crafted: Dictionary = opening.model.projection()
 	if not _expect(crafted.order == before.order + 1 and crafted.cargo.P.timber == 0
 			and crafted.part_kits.P.foundation == before.part_kits.P.foundation + 1
 			and crafted.hand_sources["tree-east-south"].remaining == 6
-			and panel.foundation_craft_button.disabled,
-			"The icon converts two finite timber into one native foundation and then disables"):
+			and "Carry the ingredients" in inventory.recipe_buttons.foundation.tooltip_text,
+			"The recipe icon converts two finite timber into one native foundation and updates availability"):
 		return
-	opening.object_menu.hide()
+	inventory.catalog.hide()
 	if not await _approach(Vector2(9.0, 6.0)):
 		return
 	var placed: Dictionary = _construct({"action": "place_foundation", "cell": [5, 2], "level": 2})
@@ -339,38 +366,44 @@ func _arrival_foundation_craft_resume_run(panel) -> void:
 	if not _expect(opening.last_load_result.get("accepted", false)
 			and state.cargo.P.timber == 0 and state.hand_sources["tree-east-south"].remaining == 6
 			and state.part_kits.P.foundation == 16 and state.foundations.size() == 9
-			and panel.foundation_craft_button.visible and panel.foundation_craft_button.disabled
+			and "Carry the ingredients" in opening.building_hotbar.recipe_buttons.foundation.tooltip_text
 			and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted,
 			"Fresh process restores the spent timber, reclaimed crafted floor and unavailable workshop control: "
 			+ str({"load": opening.last_load_result, "timber": state.cargo.P.timber,
 				"remaining": state.hand_sources["tree-east-south"].remaining,
 				"floors": state.part_kits.P.foundation, "placed": state.foundations.size(),
-				"control": [panel.foundation_craft_button.visible, panel.foundation_craft_button.disabled]})):
+				"recipe": opening.building_hotbar.recipe_buttons.foundation.tooltip_text})):
 		return
 	_record("pass")
 
 func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
-	var bench_choice: int = panel.COMPONENTS.size() - 1
-	if not _expect(panel.COMPONENTS[bench_choice][0] == "wooden_workbench"
-			and panel.bench_choice.item_count == 1,
-			"The ordinary menu lists the finite workbench recipe and original pod workshop"):
+	var inventory = opening.building_hotbar
+	inventory.open_catalog()
+	if not _expect(inventory.recipe_buttons.has("component:wooden_workbench")
+			and "4 timber" in inventory.recipe_buttons["component:wooden_workbench"].tooltip_text,
+			"The ordinary inventory lists a finite wooden-workbench recipe"):
 		return
-	panel.component_choice.select(bench_choice)
-	panel._component_selected(bench_choice)
+	inventory.catalog.hide()
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	for index in range(4):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
 	var cut: Dictionary = opening.model.projection()
-	panel.field_craft_button.pressed.emit()
+	inventory.open_catalog()
+	inventory.recipe_buttons["component:wooden_workbench"].pressed.emit()
 	var shaped: Dictionary = opening.model.projection()
 	if not _expect(shaped.order == cut.order + 1 and shaped.cargo.P.timber == 0
 			and shaped.cargo.P.components.get("wooden_workbench", 0) == 1
 			and shaped.hand_sources["tree-east-south"].remaining == 4,
 			"Four real timber cuts become one carried workbench through the field tool"):
 		return
-	opening._select_tool("component")
+	inventory.material_buttons.timber.grab_focus()
+	if not _expect(inventory.component_buttons.wooden_workbench.visible
+			and inventory.component_counts.wooden_workbench.text == "1",
+			"The newly shaped bench appears as one carried component tile"):
+		return
+	inventory.component_buttons.wooden_workbench.pressed.emit()
 	var tile := Vector2i(4, 3)
 	if not _expect(opening._component_place_center(tile, "") == [16, 0, 12],
 			"The workbench uses a whole tile on the common construction grid"):
@@ -393,21 +426,20 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 		return
 	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 		return
-	panel.bench_choice.select(1)
-	panel._bench_selected(1)
-	var edge_index := 6
-	panel.component_choice.select(edge_index)
-	panel._component_selected(edge_index)
+	opening._open_object_menu_for(id)
 	var remote: Dictionary = opening.model.projection()
-	panel.craft_button.pressed.emit()
+	inventory.recipe_buttons["component:cutting_edge"].pressed.emit()
 	var refused: Dictionary = opening.model.projection()
 	if not _expect(refused.order == remote.order + 1 and refused.cargo == remote.cargo
-			and panel.selected_bench == id and "selected workshop" in opening.status_label.text,
-			"Selecting the placed bench does not spend distant ore or craft remotely"):
+			and inventory.context_bench == id and "selected workshop" in opening.status_label.text,
+			"E on a distant placed bench does not spend ore or craft remotely"):
 		return
+	inventory.catalog.hide()
 	if not await _approach(Vector2(6.0, 4.95)):
 		return
-	panel.craft_button.pressed.emit()
+	opening._open_object_menu_for(id)
+	inventory.recipe_buttons["component:cutting_edge"].pressed.emit()
+	inventory.catalog.hide()
 	var crafted: Dictionary = opening.model.projection()
 	if not _expect(crafted.order == refused.order + 1 and crafted.cargo.P.raw == 0
 			and crafted.cargo.P.components.get("cutting_edge", 0) == 1
@@ -425,18 +457,11 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 		if not _expect(image != null and image.save_png(capture_prefix + "-workbench.png") == OK,
 				"The confirmed workbench presentation frame is retained"):
 			return
-	opening.selected = id
-	opening._refresh_ui()
-	if not _expect(panel.reclaim_button.visible and not panel.reclaim_button.disabled
-			and panel.reclaim_button.text.is_empty() and panel.reclaim_button.icon != null
-			and panel.reclaim_button.tooltip_text == "Reclaim selected placed part · Delete"
-			and panel.reclaim_button.accessibility_name == "Reclaim selected placed part, shortcut Delete",
-			"The selected built bench offers a focused reclaim icon"):
-		return
 	opening._open_object_menu_for(id)
-	if not _expect(opening.object_menu.visible and panel.reclaim_button.is_visible_in_tree()
-			and not opening.remove_button.visible,
-			"The selected bench shows one reclaim action in the ordinary E menu"):
+	if not _expect(inventory.catalog.visible and inventory.context_action.visible
+			and not inventory.context_action.disabled
+			and "Reclaim wooden workbench" in inventory.context_action.tooltip_text,
+			"The placed bench offers a reclaim icon beside its recipes in the E-opened inventory"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
@@ -444,14 +469,10 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 				"The selected bench reclaim icon is retained in the ordinary E menu"):
 			return
 	var reclaim_key := InputEventKey.new()
-	reclaim_key.keycode = KEY_DELETE
+	reclaim_key.keycode = KEY_R
 	reclaim_key.pressed = true
-	opening._input(reclaim_key)
-	reclaim_key.pressed = false
-	opening._input(reclaim_key)
-	if opening.object_menu.visible:
-		opening.object_menu.hide()
-		await process_frame
+	inventory._input(reclaim_key)
+	inventory.catalog.hide()
 	var reclaimed: Dictionary = opening.model.projection()
 	if not _expect(reclaimed.fabrication_benches.is_empty()
 			and reclaimed.cargo.P.components.get("wooden_workbench", 0) == 1
@@ -463,6 +484,7 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	var original: Dictionary = opening.model.projection()
 	var id: String = original.fabrication_hub.id
+	var inventory = opening.building_hotbar
 	var pod_anchor: Vector3 = opening.landing_pod_visual.position
 	if not _expect(panel.pod_workshop_button.visible and not panel.pod_workshop_button.disabled
 			and panel.pod_workshop_button.text.is_empty() and panel.pod_workshop_button.icon != null
@@ -475,12 +497,11 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		return
 	opening._open_object_menu_for(id)
 	await process_frame
-	if not _expect(opening.object_menu.visible and panel.pod_workshop_button.is_visible_in_tree()
-			and opening.object_menu_close.text.is_empty() and opening.object_menu_close.icon != null
-			and opening.object_menu_close.tooltip_text == "Close object menu · Esc"
-			and opening.object_menu_close.accessibility_name == "Close object menu, shortcut Escape"
-			and opening.object_menu.get_viewport().gui_get_focus_owner() == opening.object_menu_close,
-			"E exposes the portable-workshop custody icon and focused close control"):
+	if not _expect(inventory.catalog.visible and inventory.context_bench == id
+			and inventory.context_action.visible and not inventory.context_action.disabled
+			and "Stow pod workshop" in inventory.context_action.tooltip_text
+			and not opening.object_menu.visible,
+			"E exposes the bench recipes and pod custody icon in one inventory window"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
@@ -488,10 +509,10 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 				"The ordinary pod workshop icon is retained in a rendered menu frame"):
 			return
 	var before_close: Dictionary = opening.model.projection()
-	opening.object_menu_close.pressed.emit()
+	inventory.catalog.hide()
 	await process_frame
 	var after_close: Dictionary = opening.model.projection()
-	if not _expect(not opening.object_menu.visible and after_close.order == before_close.order
+	if not _expect(not inventory.catalog.visible and after_close.order == before_close.order
 			and after_close.fabrication_hub == before_close.fabrication_hub
 			and after_close.cargo == before_close.cargo,
 			"The focused close control leaves native custody untouched"):
@@ -500,10 +521,8 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	var stow_key := InputEventKey.new()
 	stow_key.keycode = KEY_S
 	stow_key.pressed = true
-	opening._input(stow_key)
-	stow_key.pressed = false
-	opening._input(stow_key)
-	opening.object_menu.hide()
+	inventory._input(stow_key)
+	inventory.catalog.hide()
 	await process_frame
 	var carried: Dictionary = opening.model.projection()
 	if not _expect(not carried.fabrication_hub.installed and carried.fabrication_hub.holder == "P"
@@ -522,7 +541,13 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 			and not opening.landing_hub_visual.visible,
 			"An off-grid redeploy refusal preserves held identity and keeps the world body absent"):
 		return
-	panel.pod_workshop_button.pressed.emit()
+	inventory.open_catalog()
+	if not _expect(inventory.material_buttons.fabrication_hub.visible
+			and inventory.material_counts.fabrication_hub.text == "1"
+			and "select placement" in inventory.material_buttons.fabrication_hub.tooltip_text,
+			"A stowed pod appears as one directly placeable carried inventory item"):
+		return
+	inventory.material_buttons.fabrication_hub.pressed.emit()
 	if not _expect(opening.mode == "pod_workshop", "The menu opens the full-tile pod placement tool"):
 		return
 	var tile := Vector2i(4, 3)
@@ -561,10 +586,10 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		return
 	opening.distance = 0.0
 	opening._open_pointed_machine()
-	if not _expect(opening.selected == id and opening.object_menu.visible
-			and opening.object_menu_title.text == "Pod workshop"
+	if not _expect(opening.selected == id and inventory.catalog.visible
+			and inventory.context_bench == id and inventory.parts_label.text == "BENCH / INVENTORY"
 			and "Grid center" in opening.inspector.text,
-			"E opens the relocated hub with its workshop title and current grid center"):
+			"E opens the relocated hub's shared bench inventory and current grid center"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening.distance = 14.0
@@ -578,7 +603,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 				"The moved issued workshop and stationary pod frame are retained"):
 			return
 		opening.set_process(true)
-	opening.object_menu.hide()
+	inventory.catalog.hide()
 	await process_frame
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
@@ -586,10 +611,13 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		return
 	if not await _approach(Vector2(5.4, 4.95)):
 		return
-	var edge_index := 6
-	panel.component_choice.select(edge_index)
-	panel._component_selected(edge_index)
-	panel.craft_button.pressed.emit()
+	opening._open_object_menu_for(id)
+	if not _expect(inventory.catalog.visible and inventory.context_bench == id
+			and "Craft here" in inventory.recipe_buttons["component:cutting_edge"].tooltip_text,
+			"The relocated pod exposes its metal recipe in the same E-opened grid"):
+		return
+	inventory.recipe_buttons["component:cutting_edge"].pressed.emit()
+	inventory.catalog.hide()
 	var crafted: Dictionary = opening.model.projection()
 	if not _expect(crafted.cargo.P.raw == 0 and crafted.cargo.P.components.get("cutting_edge", 0) == 1
 			and crafted.fabrication_hub.center == [4, 0, 3] and crafted.fabrication_hub.installed,

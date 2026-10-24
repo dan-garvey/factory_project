@@ -52,6 +52,7 @@ var inventory_scroll: ScrollContainer
 var catalog_columns: BoxContainer
 var slot_targets: Array[Button] = []
 var context_label: Label
+var context_action: Button
 var context_bench := ""
 var target_slot := 0
 var parts_label: Label
@@ -162,6 +163,7 @@ func configure(host, ui: Control) -> void:
 		material_buttons[kind] = tile
 		material_counts[kind] = _count_badge(tile)
 		tile.focus_entered.connect(_describe_focus.bind(tile))
+	material_buttons.fabrication_hub.pressed.connect(_select_hub_tool)
 	for tool: String in TOOLS:
 		var button: Button = host._button(material_grid, "", assign.bind(tool))
 		_style_inventory_tile(button, load("res://opening/assets/build-icons/" + tool + ".svg"))
@@ -216,8 +218,14 @@ func configure(host, ui: Control) -> void:
 		slot_targets.append(target)
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
+	context_action = host._button(actions, "", _use_context_action)
+	context_action.icon = load("res://opening/assets/build-icons/workshop-reclaim.svg")
+	context_action.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	context_action.custom_minimum_size = Vector2(46, 39)
+	context_action.focus_entered.connect(_describe_focus.bind(context_action))
+	context_action.visible = false
 	var clear: Button = host._button(actions, "", clear_slot)
-	clear.icon = load("res://opening/assets/build-icons/workshop-reclaim.svg")
+	clear.icon = load("res://opening/assets/build-icons/slot-clear.svg")
 	clear.tooltip_text = "Clear target slot · Delete"
 	clear.accessibility_name = "Clear target slot, shortcut Delete"
 	var close: Button = host._button(actions, "", catalog.hide)
@@ -278,6 +286,12 @@ func _input(event: InputEvent) -> void:
 		clear_slot()
 	elif event.keycode == KEY_ESCAPE:
 		catalog.hide()
+	elif event.keycode == KEY_S and context_action.visible and context_bench == str(_view().state.get("fabrication_hub", {}).get("id", "")):
+		_use_context_action()
+	elif event.keycode == KEY_R and context_action.visible and context_bench != str(_view().state.get("fabrication_hub", {}).get("id", "")):
+		_use_context_action()
+	elif event.keycode == KEY_P and _arrival_active and _material_count("fabrication_hub", _view()) > 0:
+		_select_hub_tool()
 	elif CATALOG_KEYS.has(event.keycode):
 		assign(CATALOG_KEYS[event.keycode])
 	else:
@@ -410,9 +424,15 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 		"Carry the ingredients" if not affordable else \
 		"Open a fabrication bench with E" if not field_allowed and not at_bench else \
 		"Wait for the character"
+	var craftable := reason == "Craft here"
 	tile.visible = true
 	tile.disabled = not ready
-	tile.modulate = Color.WHITE if reason == "Craft here" else Color(0.68, 0.75, 0.76)
+	tile.modulate = Color.WHITE if craftable else Color(0.42, 0.47, 0.50) if not affordable else \
+		Color(0.65, 0.70, 0.72)
+	for state_name in ["normal", "hover"]:
+		var surface := tile.get_theme_stylebox(state_name, "Button") as StyleBoxFlat
+		surface.border_color = Color("e7b875")
+		surface.border_width_bottom = 2 if craftable else 0
 	tile.tooltip_text = "%s · %d timber + %d ore · %s%s · %s" % [
 		label, timber, ore, station, rating_detail, reason]
 	tile.accessibility_name = "%s recipe, needs %d timber and %d ore, %s%s, %s" % [
@@ -426,6 +446,16 @@ func _refresh_recipes(host, ready: bool) -> void:
 		return
 	if not _valid_bench(host.state, context_bench):
 		context_bench = ""
+	context_action.visible = not context_bench.is_empty()
+	context_action.disabled = not ready
+	if context_action.visible:
+		var hub_id: String = str(host.state.get("fabrication_hub", {}).get("id", ""))
+		var hub := context_bench == hub_id
+		context_action.icon = load("res://opening/assets/build-icons/workshop-pod.svg") if hub else \
+			load("res://opening/assets/build-icons/workshop-reclaim.svg")
+		context_action.tooltip_text = "Stow pod workshop · S" if hub else "Reclaim wooden workbench · R"
+		context_action.accessibility_name = "Stow pod workshop, shortcut S" if hub else \
+			"Reclaim wooden workbench, shortcut R"
 	parts_label.text = "BENCH / INVENTORY" if not context_bench.is_empty() else "BUILD / INVENTORY"
 	context_label.text = "Fabrication bench · choose a recipe" if not context_bench.is_empty() else \
 		"Field recipes can be made anywhere · E opens a bench"
@@ -491,6 +521,23 @@ func _craft_recipe(key: String) -> void:
 	host.issue(action)
 	refresh()
 
+func _use_context_action() -> void:
+	var host = _view()
+	if host == null or context_action.disabled or not _valid_bench(host.state, context_bench):
+		return
+	var hub_id: String = str(host.state.get("fabrication_hub", {}).get("id", ""))
+	host.issue({"action": "stow_fabrication_hub", "entity": context_bench} if context_bench == hub_id else
+		{"action": "reclaim_component", "entity": context_bench})
+	refresh()
+
+func _select_hub_tool() -> void:
+	var host = _view()
+	if host == null or not _arrival_active or not host._can_choose_tool() or \
+			_material_count("fabrication_hub", host) < 1:
+		return
+	catalog.hide()
+	host._select_tool("pod_workshop")
+
 func refresh(snapshot_ready: bool = true) -> void:
 	var host = _view()
 	if host == null:
@@ -505,6 +552,9 @@ func refresh(snapshot_ready: bool = true) -> void:
 		material_counts[kind].text = str(amount)
 		material_buttons[kind].tooltip_text = "%s · %d carried" % [label, amount]
 		material_buttons[kind].accessibility_name = "%s, %d carried" % [label, amount]
+		if kind == "fabrication_hub" and amount > 0:
+			material_buttons[kind].tooltip_text += " · select placement · P"
+			material_buttons[kind].accessibility_name += ", select placement, shortcut P"
 		material_buttons[kind].visible = amount > 0 if _arrival_active else true
 	catalog_button.disabled = host.explanation_open
 	if host.explanation_open:
