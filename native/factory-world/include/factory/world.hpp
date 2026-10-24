@@ -172,6 +172,8 @@ struct State {
         bool operator==(const ManualCut&) const = default;
     };
     std::map<std::string, ManualCut> manual_cuts;
+    // Shared native test setting. Changing it cancels pending manual strokes.
+    bool developer_conveniences{};
     // A finished modular press item retains its work identity while waiting at
     // its outlet. Once it enters a belt, the exported identity remains as a
     // checkpoint witness; material quantities still belong only to Cargo.

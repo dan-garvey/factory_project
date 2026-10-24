@@ -486,6 +486,12 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "harvest_source")
         return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
             field<std::string>(*wire, "target") && same("target", "target");
+    if (*action == "fast_harvest_source")
+        return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
+            field<std::string>(*wire, "target") && same("target", "target");
+    if (*action == "set_developer_conveniences")
+        return *original_action == *action && keys(*wire, {"enabled"}) &&
+            field<bool>(*wire, "enabled") && same("enabled", "enabled");
     if (*action == "finish_harvest" || *action == "cancel_harvest")
         return *original_action == *action && keys(*wire, {});
     if (*action == "craft_component")
@@ -1580,9 +1586,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 return overlap(volume, component_bounds(profile_, entry.second.kind, entry.second.center));
             });
     };
-    if (*action == "harvest_source") {
+    if (*action == "set_developer_conveniences") {
+        if (!keys(wire, {"enabled"}) || !field<bool>(wire, "enabled")) return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
+        normalized.emplace("enabled", wire.at("enabled"));
+    } else if (*action == "harvest_source") {
         if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
-        normalized.at("action") = Value("harvest_source");
+        normalized.at("action") = Value(snapshot.state.developer_conveniences ?
+            "fast_harvest_source" : "harvest_source");
         normalized.emplace("target", wire.at("target"));
     } else if (*action == "finish_harvest" || *action == "cancel_harvest") {
         if (!keys(wire, {})) return refuse("invalid_command");
@@ -2637,7 +2648,8 @@ Value Host::projection() const {
             {"maximum_depth", Value(mineral_site::extraction_depth_steps * height_step)}})},
         {"powered", Value(local.collector || local.belt || local.processor)},
         {"power_enabled", Value(state.topology.drive_enabled)},
-        {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)}, {"foundations", Value(true)}})},
+        {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)},
+            {"foundations", Value(true)}, {"developer_conveniences", Value(state.developer_conveniences)}})},
         {"adapter_profile", Value(Object{{"pitch", Value(pitch)}, {"anchor_height", Value(anchor_height)},
             {"height_denominator", Value(height_denominator)}, {"height_step", Value(height_step)},
             {"foundation_depth", Value(foundation_depth)},

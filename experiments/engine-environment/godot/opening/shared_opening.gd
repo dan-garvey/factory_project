@@ -236,7 +236,8 @@ func issue(action: Dictionary) -> Dictionary:
 		if receipt.get("queued", false):
 			assert(not receipt.accepted)
 			pending_actions[receipt.request] = {"action": action.duplicate(true), "outcome": {}}
-			_message("Action sent. Waiting for the server's decision…")
+			if action.get("action") != "set_developer_conveniences":
+				_message("Action sent. Waiting for the server's decision…")
 		else:
 			_message("Action could not be sent: %s." % str(receipt.get("reason", "session unavailable")), true)
 		_refresh_ui()
@@ -272,7 +273,8 @@ func _settle_pending() -> void:
 				selected = result.entity
 			elif item.action.action in ["remove", "remove_belt_span"] and selected == result.entity:
 				selected = ""
-			if item.action.action != "harvest_source" or state.get("manual_cuts", {}).has(client):
+			if item.action.action != "set_developer_conveniences" and \
+				(item.action.action != "harvest_source" or state.get("manual_cuts", {}).has(client)):
 				_message(_harvest_result_text(result) if item.action.action == "harvest_source" else {"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 				"craft_component": "Component crafted from carried material.", "field_craft": "Wooden component shaped with your multitool.",
 				"craft_part": "Transmission kit made from carried timber and softmetal.",

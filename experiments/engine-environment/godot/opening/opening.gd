@@ -4646,6 +4646,7 @@ var wheel_rotor: Node3D
 var machine_body_context := ""
 var machine_press_poses: Dictionary = {}
 var status_label: Label
+var developer_mode_label: Label
 var fps_label: Label
 var fps_elapsed := 0.0
 var status_footer: Control
@@ -5276,7 +5277,8 @@ func issue(action: Dictionary) -> Dictionary:
 		elif action.action in ["remove", "remove_belt_span"] and selected == action.get("entity", ""):
 			selected = ""
 		_construction_feedback(intent, outcome)
-		_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
+		if action.action != "set_developer_conveniences":
+			_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
 			"craft_component": "Component crafted from carried material.",
 			"field_craft": "Wooden component shaped with your multitool.",
 			"craft_part": "Transmission kit made from carried timber and softmetal.",
@@ -5634,6 +5636,12 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventKey and event.pressed and not event.echo \
 				and event.keycode in [KEY_SPACE, KEY_ESCAPE]:
 			_finish_arrival_reveal(true)
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.keycode == KEY_F3:
+		if event.pressed and not event.echo and _can_control_character():
+			issue({"action": "set_developer_conveniences", "enabled":
+				not state.get("options", {}).get("developer_conveniences", false)})
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.keycode == KEY_ALT and not event.pressed \
@@ -9145,6 +9153,13 @@ func _refresh_ui() -> void:
 	if actor_label != null:
 		actor_label.visible = not legacy_fixture
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
+	if developer_mode_label != null:
+		var fast_enabled: bool = state.get("options", {}).get("developer_conveniences", false)
+		developer_mode_label.add_theme_color_override("font_color",
+			Color("edb95d") if fast_enabled else Color("64777a"))
+		developer_mode_label.tooltip_text = "Developer conveniences %s. F3 toggles fast manual harvesting." % (
+			"enabled" if fast_enabled else "disabled")
+		developer_mode_label.accessibility_name = developer_mode_label.tooltip_text
 	for tool in ["flow"]:
 		var button: Button = tool_buttons[tool]
 		button.disabled = explanation_open
@@ -10538,6 +10553,9 @@ func _build_interface() -> void:
 	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H guide", 11, Color("bfd1cc"))
+	if not legacy_fixture:
+		developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
+		developer_mode_label.focus_mode = Control.FOCUS_ALL
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:
