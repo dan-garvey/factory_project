@@ -520,9 +520,11 @@ class ArrivalAssemblyControls:
 				"Collector: %s" % COLLECTOR_NEXT.get(collector_state, "Choose a clear ore-deposit frame.")
 			if collector_state == "ready":
 				collector_status.text += "\n" + _receiver_route_status(snapshot)
-			var crank_action := "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
-			collector_crank_button.tooltip_text = "%s · T" % crank_action
-			collector_crank_button.accessibility_name = "%s, shortcut T" % crank_action
+			var crank_holder: String = str(crank.get("holder", ""))
+			var crank_action := "Return crank to pod" if crank_holder == actor else \
+				"Take pod crank" if crank_holder == "pod" else "Crank held by another worker"
+			collector_crank_button.tooltip_text = "%s · T" % crank_action if crank_holder in [actor, "pod"] else crank_action
+			collector_crank_button.accessibility_name = "%s, shortcut T" % crank_action if crank_holder in [actor, "pod"] else crank_action
 			collector_crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
 			collector_cut_button.disabled = not ready or collector_state != "ready" or receiver_full \
 				or crank.get("holder") != actor or not collector_parts.has("shaft")
@@ -532,16 +534,19 @@ class ArrivalAssemblyControls:
 			elif receiver_full:
 				cut_hint = "Clear the receiver"
 			elif crank.get("holder") != actor:
-				cut_hint = "Carry the pod crank"
+				cut_hint = "Take the crank from the pod" if crank.get("holder") == "pod" else "Crank held by another worker"
 			elif collector_state != "ready":
 				cut_hint = COLLECTOR_NEXT.get(collector_state, "Complete the collector")
 			collector_cut_button.tooltip_text = "%s · X" % cut_hint
-			collector_cut_button.accessibility_name = "Cut one ore blank at the selected collector, shortcut X"
+			collector_cut_button.accessibility_name = "Crank held by another worker" if ready and \
+				crank.get("holder") not in [actor, "pod"] else "Cut one ore blank at the selected collector, shortcut X"
 		crank_button.visible = not crank.is_empty()
 		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
-		var press_crank_action := "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
-		crank_button.tooltip_text = "%s · C" % press_crank_action
-		crank_button.accessibility_name = "%s, shortcut C" % press_crank_action
+		var press_crank_holder: String = str(crank.get("holder", ""))
+		var press_crank_action := "Return crank to pod" if press_crank_holder == actor else \
+			"Take pod crank" if press_crank_holder == "pod" else "Crank held by another worker"
+		crank_button.tooltip_text = "%s · C" % press_crank_action if press_crank_holder in [actor, "pod"] else press_crank_action
+		crank_button.accessibility_name = "%s, shortcut C" % press_crank_action if press_crank_holder in [actor, "pod"] else press_crank_action
 		_press = _selected_press(snapshot, selected)
 		_anvil = str(_press.get("anvil", ""))
 		var selected_kind: String = str(snapshot.get("placed_components", {}).get(selected, {}).get("component", ""))
@@ -632,12 +637,13 @@ class ArrivalAssemblyControls:
 		if changed_target or turn_button.disabled or not turn_button.visible:
 			stop_turn_hold()
 		turn_button.tooltip_text = "%s · T" % (operate_cause if not can_operate else \
-			"Take the pod crank" if crank.get("holder") != actor else \
+			("Take the crank from the pod" if crank.get("holder") == "pod" else "Crank held by another worker") if crank.get("holder") != actor else \
 			"Feed or reinsert work beneath the ram" if _work_drop().is_empty() else \
 			"Pick up the copper offcut beneath the ram" if int(_work_drop().get("offcuts", 0)) > 0 else \
 			"Exit holds a plate; turn until blocked, then pick it up" if not _exit_drop().is_empty() else \
 			"Hold T or the icon to turn the crank; release to stop")
-		turn_button.accessibility_name = "Hold to turn the guided press crank, shortcut T"
+		turn_button.accessibility_name = "Crank held by another worker" if ready and can_operate and \
+			crank.get("holder") not in [actor, "pod"] else "Hold to turn the guided press crank, shortcut T"
 		pickup_button.visible = not _anvil.is_empty()
 		pickup_button.disabled = not ready or _exit_drop().is_empty()
 		pickup_button.tooltip_text = "%s · P" % ("Wait for the character" if not ready else \

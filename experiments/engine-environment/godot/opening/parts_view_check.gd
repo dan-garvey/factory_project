@@ -2298,6 +2298,19 @@ func _workshop_pages() -> void:
 			and panel.recover_work_button.tooltip_text.contains("U")
 			and panel.crank_button.tooltip_text.contains("C"),
 			"Press action tooltips retain their keyboard routes.")
+		view.state.hand_crank.holder = "P" if shared else "Q"
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(panel.crank_button.disabled and panel.crank_button.tooltip_text == "Crank held by another worker"
+			and panel.crank_button.accessibility_name == "Crank held by another worker"
+			and "another worker" in panel.turn_button.tooltip_text
+			and panel.turn_button.accessibility_name == "Crank held by another worker",
+			"A foreign-held crank cannot be offered as a pod pickup at the press.")
+		view.state.hand_crank.holder = "pod"
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(not panel.crank_button.disabled and "Take pod crank" in panel.crank_button.tooltip_text,
+			"The pod-held crank retains its available pickup cue at the press.")
+		view.state.hand_crank.holder = view.client
+		panel.refresh(view.state, view.client, view.selected, true)
 		panel.feed_button.pressed.emit()
 		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
 			"The pointer feed icon sends the selected anvil and route to the native adapter.")
@@ -2460,6 +2473,21 @@ func _workshop_pages() -> void:
 			and "shortcut T" in panel.collector_crank_button.accessibility_name
 			and "shortcut X" in panel.collector_cut_button.accessibility_name,
 			"Collector crank custody and cutting appear as described, focused icons.")
+		view.state.hand_crank.holder = "P" if shared else "Q"
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(panel.collector_crank_button.disabled
+			and panel.collector_crank_button.tooltip_text == "Crank held by another worker"
+			and panel.collector_crank_button.accessibility_name == "Crank held by another worker"
+			and "another worker" in panel.collector_cut_button.tooltip_text
+			and panel.collector_cut_button.accessibility_name == "Crank held by another worker",
+			"A foreign-held crank cannot be offered as a pod pickup at the collector.")
+		view.state.hand_crank.holder = "pod"
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(not panel.collector_crank_button.disabled
+			and "Take pod crank" in panel.collector_crank_button.tooltip_text,
+			"The pod-held crank retains its available pickup cue at the collector.")
+		view.state.hand_crank.holder = view.client
+		panel.refresh(view.state, view.client, view.selected, true)
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-collector.png") == OK,
