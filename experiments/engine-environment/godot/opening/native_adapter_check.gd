@@ -344,20 +344,39 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	var id: String = original.fabrication_hub.id
 	var pod_anchor: Vector3 = opening.landing_pod_visual.position
 	if not _expect(panel.pod_workshop_button.visible and not panel.pod_workshop_button.disabled
-			and panel.pod_workshop_button.text == "Stow pod workshop"
+			and panel.pod_workshop_button.text.is_empty() and panel.pod_workshop_button.icon != null
+			and "Stow pod workshop" in panel.pod_workshop_button.tooltip_text
+			and "shortcut S" in panel.pod_workshop_button.accessibility_name
 			and opening.landing_hub_pick.collision_layer == OpeningGeometry.PICK_LAYER,
 			"The ordinary panel and pick body expose the installed issued workshop"):
 		return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
-	panel.pod_workshop_button.pressed.emit()
+	opening._open_object_menu_for(id)
+	if not _expect(opening.object_menu.visible and panel.pod_workshop_button.is_visible_in_tree(),
+			"E exposes the portable-workshop custody icon in the ordinary object menu"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-pod-workshop-menu.png") == OK,
+				"The ordinary pod workshop icon is retained in a rendered menu frame"):
+			return
+	var stow_key := InputEventKey.new()
+	stow_key.keycode = KEY_S
+	stow_key.pressed = true
+	opening._input(stow_key)
+	stow_key.pressed = false
+	opening._input(stow_key)
+	opening.object_menu.hide()
+	await process_frame
 	var carried: Dictionary = opening.model.projection()
 	if not _expect(not carried.fabrication_hub.installed and carried.fabrication_hub.holder == "P"
 			and carried.fabrication_hub.id == id and carried.fabrication_hub.generation == 1
 			and opening.landing_pod_visual.position == pod_anchor
 			and not opening.landing_hub_visual.visible and opening.landing_hub_pick.collision_layer == 0
 			and opening.landing_crank_visual.visible and panel.bench_choice.item_count == 0
-			and panel.pod_workshop_button.text == "Place carried pod workshop",
+			and "Place carried pod workshop" in panel.pod_workshop_button.tooltip_text
+			and "shortcut S" in panel.pod_workshop_button.accessibility_name,
 			"Stowing moves only the one issued hub into actor custody while pod and crank stay landed"):
 		return
 	var invalid: Dictionary = _issue({"action": "deploy_fabrication_hub", "entity": id,
@@ -406,8 +425,10 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		return
 	opening.distance = 0.0
 	opening._open_pointed_machine()
-	if not _expect(opening.selected == id and "Pod workshop" in opening.inspector.text,
-			"E opens the relocated hub and identifies it as a workshop"):
+	if not _expect(opening.selected == id and opening.object_menu.visible
+			and opening.object_menu_title.text == "Pod workshop"
+			and "Grid center" in opening.inspector.text,
+			"E opens the relocated hub with its workshop title and current grid center"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening.distance = 14.0
@@ -421,11 +442,13 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 				"The moved issued workshop and stationary pod frame are retained"):
 			return
 		opening.set_process(true)
+	opening.object_menu.hide()
+	await process_frame
 	if not await _approach(Vector2(0.0, 1.65)):
 		return
 	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 		return
-	if not await _approach(Vector2(6.0, 4.95)):
+	if not await _approach(Vector2(5.4, 4.95)):
 		return
 	var edge_index := 6
 	panel.component_choice.select(edge_index)

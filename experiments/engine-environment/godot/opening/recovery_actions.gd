@@ -352,6 +352,7 @@ class ArrivalAssemblyControls:
 	var pod_workshop_button: Button
 	var craft_button: Button
 	var foundation_craft_button: Button
+	var foundation_craft_row: HBoxContainer
 	var foundation_craft_label: Label
 	var field_craft_button: Button
 	var part_choice: OptionButton
@@ -406,7 +407,9 @@ class ArrivalAssemblyControls:
 		bench_choice.name = "FabricationBenchChoice"
 		bench_choice.item_selected.connect(_bench_selected)
 		craft_section.add_child(bench_choice)
-		pod_workshop_button = host._button(craft_section, "Stow pod workshop", _pod_workshop)
+		pod_workshop_button = host._button(craft_section, "", _pod_workshop)
+		_style_workshop_icon(pod_workshop_button, "workshop-pod")
+		pod_workshop_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		recipe_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var component_actions := VBoxContainer.new()
@@ -416,16 +419,19 @@ class ArrivalAssemblyControls:
 		component_actions.add_child(craft_row)
 		craft_button = host._button(craft_row, "", _craft)
 		_style_workshop_icon(craft_button, "workshop-craft")
-		foundation_craft_button = host._button(craft_row, "", _craft_foundation)
-		_style_workshop_icon(foundation_craft_button, "foundation")
-		foundation_craft_label = host._label(craft_row, "", 11, Color("bfd1cc"))
-		foundation_craft_label.custom_minimum_size.x = 76
-		foundation_craft_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		foundation_craft_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		field_craft_button = host._button(craft_row, "", _field_craft)
 		_style_workshop_icon(field_craft_button, "workshop-shape")
 		place_button = host._button(craft_row, "", _place)
 		_style_workshop_icon(place_button, "workshop-place")
+		foundation_craft_row = HBoxContainer.new()
+		foundation_craft_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		component_actions.add_child(foundation_craft_row)
+		foundation_craft_button = host._button(foundation_craft_row, "", _craft_foundation)
+		_style_workshop_icon(foundation_craft_button, "foundation")
+		foundation_craft_label = host._label(foundation_craft_row, "", 11, Color("bfd1cc"))
+		foundation_craft_label.custom_minimum_size.x = 76
+		foundation_craft_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		foundation_craft_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
 		part_choice = OptionButton.new()
@@ -596,9 +602,10 @@ class ArrivalAssemblyControls:
 		bench_choice.disabled = not ready or benches.is_empty()
 		pod_workshop_button.visible = not pod.is_empty()
 		pod_workshop_button.disabled = not ready or (not pod.get("installed", false) and pod.get("holder") != actor)
-		pod_workshop_button.text = "Stow pod workshop" if pod.get("installed", false) else \
+		var pod_action := "Stow pod workshop" if pod.get("installed", false) else \
 			"Place carried pod workshop" if pod.get("holder") == actor else "Pod workshop carried by another worker"
-		pod_workshop_button.text += "  S"
+		pod_workshop_button.tooltip_text = "%s · S" % pod_action
+		pod_workshop_button.accessibility_name = "%s, shortcut S" % pod_action
 		var total_parts := 0
 		for amount in components.values():
 			total_parts += int(amount)
@@ -634,7 +641,7 @@ class ArrivalAssemblyControls:
 		var carried_timber: int = int(cargo.get("timber", 0))
 		var floor_parts: int = int(snapshot.get("part_kits", {}).get(actor, {}).get("foundation", 0))
 		foundation_craft_button.visible = foundation_cost > 0
-		foundation_craft_label.visible = foundation_craft_button.visible
+		foundation_craft_row.visible = foundation_craft_button.visible
 		foundation_craft_label.text = "Foundation\n%d timber" % foundation_cost
 		foundation_craft_button.disabled = not ready or selected_bench.is_empty() \
 			or foundation_cost <= 0 or carried_timber < foundation_cost

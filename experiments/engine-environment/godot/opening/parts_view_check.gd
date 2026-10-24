@@ -1855,10 +1855,11 @@ func _workshop_pages() -> void:
 			and panel.field_craft_button.is_visible_in_tree() and panel.craft_button.is_visible_in_tree()
 			and not view.save_button.is_visible_in_tree() and not view.load_button.is_visible_in_tree(),
 			"Ordinary E shows pod crafting directly in its centered panel.")
-		verify(panel.foundation_craft_button.is_visible_in_tree()
+		verify(panel.foundation_craft_row.is_visible_in_tree()
+			and panel.foundation_craft_button.is_visible_in_tree()
 			and panel.foundation_craft_label.is_visible_in_tree()
 			and panel.foundation_craft_label.text == "Foundation\n2 timber",
-			"The foundation icon has its own visible name and projected cost beside the selected component recipe.")
+			"The separate foundation action keeps its native name and cost visible beside the icon.")
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-foundation-label.png") == OK,
@@ -1871,7 +1872,7 @@ func _workshop_pages() -> void:
 		verify(icon_rect.end.x <= label_rect.position.x + 1.0
 			and label_rect.end.x <= operations_rect.end.x + 1.0
 			and label_rect.end.y <= operations_rect.end.y + 1.0,
-			"The foundation icon and bill remain adjacent inside a narrow workshop panel.")
+			"The foundation icon and cost fit together inside a narrow workshop panel.")
 		view._fit_object_menu(Vector2i(1280, 800))
 		view._input(escape)
 		verify(not view.object_menu.visible and not view.pause_menu.visible,
