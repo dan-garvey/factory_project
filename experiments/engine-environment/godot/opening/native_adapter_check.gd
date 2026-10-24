@@ -598,7 +598,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-press-site", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-press-site", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -1099,7 +1099,8 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 			and scroll_left >= menu_left and scroll_right <= menu_right
 			and place_right <= scroll_right
 			and not opening.arrival_assembly_scroll.get_h_scroll_bar().visible,
-			"Long component actions remain horizontally reachable inside the centered workshop"):
+			"Long component actions remain horizontally reachable inside the centered workshop: "
+			+ str(facts.workshop_layout)):
 		return
 	panel.component_choice.set_item_text(9, original_choice)
 	panel.place_button.text = original_place
@@ -1123,12 +1124,16 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 				return
 	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 4.95), Vector2(3.3, 4.95)]):
 		return
-	if not _expect(opening.model.projection().cargo.P.timber == 21,
-			"Three finite trees put twenty component inputs and one spare within the hand-carry limit"):
+	var gathered: Dictionary = opening.model.projection()
+	if not _expect(gathered.cargo.P.timber == 21
+			and gathered.hand_sources["tree-east-south"].remaining == 0
+			and gathered.hand_sources["tree-east-north"].remaining == 0
+			and gathered.hand_sources["tree-north"].remaining == 3,
+			"Three finite trees supply twenty-one real component inputs"):
 		return
 	panel.component_choice.select(1)
 	panel._component_selected(1)
-	for count in range(20):
+	for count in range(21):
 		if not _expect(not panel.craft_button.disabled,
 				"The pod workshop keeps the native shaft recipe selectable while stock is available"):
 			return
@@ -1139,78 +1144,67 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 				and after.cargo.P.components.get("wooden_shaft", 0) == count + 1,
 				"Each selected recipe converts exactly one carried timber into one wooden shaft"):
 			return
-	var full_before: Dictionary = opening.model.projection()
-	if not _expect("20 / 20 parts carried" in panel.recipe_label.text and not panel.craft_button.disabled
-			and full_before.cargo.P.timber == 1,
-			"The ordinary panel shows a full component bag while one recipe input remains"):
+	var crafted: Dictionary = opening.model.projection()
+	if not _expect(crafted.cargo.P.timber == 0
+			and crafted.cargo.P.components.get("wooden_shaft", 0) == 21
+			and crafted.hand_sources == gathered.hand_sources
+			and crafted.placed_components.is_empty()
+			and crafted.order == gathered.order + 21,
+			"Twenty-one carried shafts consume exactly twenty-one finite timber without a placement detour"):
 		return
-	panel.craft_button.pressed.emit()
-	var full_after: Dictionary = opening.model.projection()
-	if not _expect(full_after.order == full_before.order + 1 and full_after.cargo == full_before.cargo
-			and full_after.hand_sources == full_before.hand_sources
-			and "component bag is full" in opening.status_label.text,
-			"The native full-output refusal keeps the last timber and offers a clear placement remedy"):
-		return
-	panel.place_button.pressed.emit()
-	var before_placement: Dictionary = opening.model.projection()
-	opening._world_click(Vector2i(3, 4))
-	var placed: Dictionary = opening.model.projection()
-	if not _expect(placed.order == before_placement.order + 1
-			and placed.placed_components.size() == 1
-			and placed.cargo.P.components.get("wooden_shaft", 0) == 19
-			and placed.cargo.P.timber == 1,
-			"The ordinary placement control frees one component slot without changing the held timber"):
-		return
-	panel.craft_button.pressed.emit()
-	var recovered: Dictionary = opening.model.projection()
-	if not _expect(recovered.order == placed.order + 1 and recovered.cargo.P.timber == 0
-			and recovered.cargo.P.components.get("wooden_shaft", 0) == 20
-			and recovered.placed_components == placed.placed_components,
-			"The same hub recipe succeeds after an actual component is placed"):
-		return
-	var first_id: String = str(recovered.placed_components.keys()[0])
-	opening.selected = first_id
-	opening._refresh_ui()
-	if not _expect(panel.reclaim_button.visible and not panel.reclaim_button.disabled
-			and panel.reclaim_button.text.is_empty() and panel.reclaim_button.icon != null,
-			"The selected placed shaft offers an ordinary reclaim control"):
-		return
-	opening._open_object_menu_for(first_id)
-	if not _expect(opening.object_menu.visible and opening.object_menu_operations.visible
-			and panel.reclaim_button.is_visible_in_tree() and not opening.remove_button.visible,
-			"An incomplete placed shaft has one reachable reclaim icon in the ordinary E menu"):
-		return
-	var reclaim_key := InputEventKey.new()
-	reclaim_key.keycode = KEY_DELETE
-	reclaim_key.pressed = true
-	opening._input(reclaim_key)
-	reclaim_key.pressed = false
-	opening._input(reclaim_key)
-	opening.object_menu.hide()
+	opening.building_hotbar.open_catalog()
 	await process_frame
-	var reclaim_refused: Dictionary = opening.model.projection()
-	if not _expect(reclaim_refused.order == recovered.order + 1
-			and reclaim_refused.cargo == recovered.cargo
-			and reclaim_refused.placed_components == recovered.placed_components
-			and "Place another carried part" in opening.status_label.text,
-			"Reclaiming into a full component bag refuses without duplicating or losing the shaft"):
+	var tile: Button = opening.building_hotbar.component_buttons.wooden_shaft
+	if not _expect(opening.building_hotbar.catalog.visible and tile.icon != null
+			and opening.building_hotbar.component_counts.wooden_shaft.text == "21"
+			and "21 carried" in tile.tooltip_text
+			and "21 carried" in tile.accessibility_name,
+			"The shared build and inventory window shows twenty-one shafts as an icon, count, and hover description"):
 		return
-	panel.place_button.pressed.emit()
-	opening._world_click(Vector2i(3, 5))
-	var room_made: Dictionary = opening.model.projection()
-	if not _expect(room_made.order == reclaim_refused.order + 1
-			and room_made.cargo.P.components.get("wooden_shaft", 0) == 19
-			and room_made.placed_components.size() == 2,
-			"Placing a second real shaft frees one carried slot for the selected reclaim"):
+	var inventory_scroll: ScrollContainer = opening.building_hotbar.component_grid.get_parent().get_parent()
+	inventory_scroll.ensure_control_visible(tile)
+	await process_frame
+	if not _expect(inventory_scroll.get_global_rect().encloses(tile.get_global_rect()),
+			"The twenty-one shaft icon and count can be brought fully into the visible inventory scroll area"):
 		return
-	opening.selected = first_id
-	opening._refresh_ui()
-	panel.reclaim_button.pressed.emit()
-	var reclaimed: Dictionary = opening.model.projection()
-	if not _expect(reclaimed.order == room_made.order + 1
-			and reclaimed.cargo.P.components.get("wooden_shaft", 0) == 20
-			and reclaimed.placed_components.size() == 1 and not reclaimed.placed_components.has(first_id),
-			"The same shaft returns to carried custody after room is made, leaving one placed identity"):
+	if not capture_prefix.is_empty():
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-carried-shafts.png") == OK,
+				"The normal build and inventory window is retained after crafting"):
+			return
+	opening.building_hotbar.catalog.hide()
+	var saved: Dictionary = opening._save_worksite()
+	facts["save_result"] = saved
+	facts["save_slot"] = opening.save_slot
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false)
+			and FileAccess.file_exists(opening.save_slot)
+			and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted,
+			"Store retains the twenty-one carried components and depleted tree stocks in a valid checkpoint"):
+		return
+	_record("pass")
+
+func _arrival_capacity_resume_run() -> void:
+	var state: Dictionary = opening.model.projection()
+	while not opening.preview_prefetch_complete and Time.get_ticks_msec() < deadline:
+		await process_frame
+	if not _expect(opening.preview_prefetch_complete,
+			"The reopened scene finishes its normal preview requests before fixture teardown"):
+		return
+	opening.building_hotbar.open_catalog()
+	await process_frame
+	var tile: Button = opening.building_hotbar.component_buttons.wooden_shaft
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and state.cargo.P.timber == 0
+			and state.cargo.P.components.get("wooden_shaft", 0) == 21
+			and state.hand_sources["tree-east-south"].remaining == 0
+			and state.hand_sources["tree-east-north"].remaining == 0
+			and state.hand_sources["tree-north"].remaining == 3
+			and state.placed_components.is_empty()
+			and opening.building_hotbar.catalog.visible and tile.icon != null
+			and opening.building_hotbar.component_counts.wooden_shaft.text == "21"
+			and "21 carried" in tile.tooltip_text
+			and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted,
+			"A fresh ordinary scene restores every finite source and all twenty-one carried shaft icons"):
 		return
 	_record("pass")
 
@@ -1876,13 +1870,13 @@ func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode == "arrival-repeat-delivery":
 		deadline = Time.get_ticks_msec() + 240000
-	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-delivery"]:
+	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-delivery", "arrival-craft-capacity"]:
 		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -1947,6 +1941,9 @@ func _arrival_run() -> void:
 		return
 	if mode == "arrival-foundation-craft-resume":
 		await _arrival_foundation_craft_resume_run(panel)
+		return
+	if mode == "arrival-craft-capacity-resume":
+		await _arrival_capacity_resume_run()
 		return
 	if mode == "arrival-repeat-delivery-q-resume":
 		while Time.get_ticks_msec() < deadline and not opening.model.projection().actors.Q.ready:
