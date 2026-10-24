@@ -642,16 +642,12 @@ class ArrivalAssemblyControls:
 			"Place carried pod workshop" if pod.get("holder") == actor else "Pod workshop carried by another worker"
 		pod_workshop_button.tooltip_text = "%s · S" % pod_action
 		pod_workshop_button.accessibility_name = "%s, shortcut S" % pod_action
-		var total_parts := 0
-		for amount in components.values():
-			total_parts += int(amount)
 		var material_cost := "%d timber" % int(cost.get("timber", 0))
 		var material_carried := "%d timber" % int(cargo.get("timber", 0))
 		if int(cost.get("softmetal", 0)) > 0:
 			material_cost += " + %d softmetal" % int(cost.get("softmetal", 0))
 			material_carried += " + %d softmetal" % int(cargo.get("raw", 0))
-		recipe_label.text = "Need %s · Carry %s\n%d / %d parts carried" % [
-			material_cost, material_carried, total_parts, snapshot.get("component_capacity", 0)]
+		recipe_label.text = "Need %s · Carry %s" % [material_cost, material_carried]
 		var selected_rating: int = int(cost.get("load_rating", 0))
 		component_choice.tooltip_text = "Rated for %d load. The weakest shaft or cog limits a connected drive; overload stalls without damage." % selected_rating \
 			if selected_rating > 0 else ""

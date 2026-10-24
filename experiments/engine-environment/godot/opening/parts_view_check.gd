@@ -2322,8 +2322,9 @@ func _field_craft_widget() -> void:
 	panel._component_selected(1)
 	verify("Rated for 8 load" in panel.component_choice.tooltip_text
 		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
-		and "Need 1 timber" in panel.recipe_label.text,
-		"A wooden shaft shows the projected quality ramp beside its unchanged timber cost.")
+		and "Need 1 timber" in panel.recipe_label.text
+		and not "parts carried" in panel.recipe_label.text,
+		"A wooden shaft shows its recipe and stock without advertising a player carry limit.")
 	panel.component_choice.select(9)
 	panel._component_selected(9)
 	verify("Rated for 24 load" in panel.component_choice.tooltip_text

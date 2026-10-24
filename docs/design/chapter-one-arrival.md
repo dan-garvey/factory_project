@@ -63,7 +63,9 @@ assembly sequence the only way to progress.
 Multitool cutting reduces a specific tree or deposit's finite stock and creates
 carried items at that actor. Sawing timber and cutting a softmetal blank take
 time and show contact/collection feedback. Refused range, wrong target,
-full inventory and repeated command cannot duplicate or erase material. A tree
+source depletion and repeated command cannot duplicate or erase material. The
+opening actor can carry its finite material supply without a small hidden bag
+limit; a future weight system requires its own design decision. A tree
 and ore outcrop remain visibly depleted after save and rejoin. The multitool
 also reclaims construction components; occupied machines require recovery of
 their actual retained work before an edit that would delete it.

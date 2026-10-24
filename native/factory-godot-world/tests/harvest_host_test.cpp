@@ -90,6 +90,38 @@ void field_wood_uses_physical_actor_and_one_ledger() {
           "The existing pod bench still crafts from the remaining carried timber after restore.");
 }
 
+void opening_actor_carries_finite_site_across_restore() {
+    Host host;
+    check(get<bool>(host.initialize_arrival("harvest-site", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
+          "The opening actor starts with finite native sources.");
+    int epoch = 0;
+    int cuts = 0;
+    for (const char* source : {"tree-east-south", "tree-east-north", "tree-north", "tree-east-upstream"}) {
+        const auto source_view = get<O>(host.projection(), "hand_sources").at(source);
+        const auto position = get<A>(source_view, "position");
+        check(get<bool>(host.publish_actor("P", {position[0], V(1.0), position[2]}, ++epoch), "accepted"),
+              "The actor reaches each distinct finite tree.");
+        while (get<I>(get<O>(host.projection(), "hand_sources").at(source), "remaining") > 0) {
+            const auto request = "carry-cut-" + std::to_string(++cuts);
+            const auto result = host.command("P", cut("P", request.c_str(), source));
+            if (!get<bool>(result, "accepted"))
+                throw std::runtime_error(std::string("Harvest refused at ") + source + " after " +
+                    std::to_string(cuts) + " cuts: " + get<std::string>(result, "reason"));
+        }
+    }
+    check(cuts > 24 && get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == cuts &&
+          get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
+          "The actor carries more than the former bag limit without minting or losing timber.");
+    Host reopened;
+    check(get<bool>(reopened.initialize_arrival("harvest-site", {"P"}), "accepted") &&
+          get<bool>(reopened.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(reopened.restore_checkpoint(host.checkpoint()), "accepted") &&
+          !factory::values::typed_difference(host.checkpoint(), reopened.checkpoint()) &&
+          get<I>(get<O>(reopened.projection(), "cargo").at("P"), "timber") == cuts,
+          "Save and rejoin retain all carried timber and depleted source stock.");
+}
+
 void shared_harvest() {
     Host host;
     check(get<bool>(host.initialize_arrival("harvest-site", {"P", "Q"}), "accepted") &&
@@ -97,9 +129,9 @@ void shared_harvest() {
           "The trusted arrival site initializes one native source roster.");
     const auto initial = host.projection();
     const auto sources = get<O>(initial, "hand_sources");
-    check(sources.size() == 4 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
+    check(sources.size() == 5 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
           get<I>(sources.at("opening-softmetal"), "remaining") == 16,
-          "Three finite trees and one shared ore reserve are visible to both actors.");
+          "Four finite trees and one shared ore reserve are visible to both actors.");
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "P walks to the clear east timber site while Q remains on the deployed deck.");
@@ -325,6 +357,7 @@ int main() {
     try {
         shared_harvest();
         field_wood_uses_physical_actor_and_one_ledger();
+        opening_actor_carries_finite_site_across_restore();
         placed_bench_preserves_two_actor_custody();
         std::cout << "harvest_host_test: " << checks << " checks passed\n";
         return 0;
