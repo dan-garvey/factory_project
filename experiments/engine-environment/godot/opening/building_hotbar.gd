@@ -34,17 +34,26 @@ var catalog_buttons: Dictionary = {}
 var catalog_counts: Dictionary = {}
 var catalog_button: Button
 var catalog: PopupPanel
-var destination: OptionButton
+var catalog_margin: MarginContainer
 var material_grid: GridContainer
 var material_buttons: Dictionary = {}
 var material_counts: Dictionary = {}
-var component_row: HBoxContainer
-var component_choice: OptionButton
-var component_assign_button: Button
 var component_buttons: Dictionary = {}
 var component_counts: Dictionary = {}
 var component_textures: Dictionary = {}
 var component_grid: GridContainer
+var inventory_empty: Array[Control] = []
+var recipe_grid: GridContainer
+var recipe_buttons: Dictionary = {}
+var recipe_costs: Dictionary = {}
+var recipe_side: VBoxContainer
+var recipe_scroll: ScrollContainer
+var inventory_scroll: ScrollContainer
+var catalog_columns: BoxContainer
+var slot_targets: Array[Button] = []
+var context_label: Label
+var context_bench := ""
+var target_slot := 0
 var parts_label: Label
 var focus_description: Label
 var selected_slot := 0
@@ -116,6 +125,7 @@ func configure(host, ui: Control) -> void:
 	catalog.theme.set_stylebox("panel", "PopupPanel", menu_surface)
 	add_child(catalog)
 	var margin := MarginContainer.new()
+	catalog_margin = margin
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 16)
 	catalog.add_child(margin)
@@ -124,28 +134,27 @@ func configure(host, ui: Control) -> void:
 	margin.add_child(column)
 	parts_label = host._label(column, "BUILD / INVENTORY", 18)
 	focus_description = host._label(column, " ", 12)
-	destination = OptionButton.new()
-	destination.tooltip_text = "Choose a hotbar slot for the selected build item"
-	destination.accessibility_name = "Hotbar destination slot"
-	column.add_child(destination)
-	for index in range(slots.size()):
-		destination.add_item("")
-	var scroll := ScrollContainer.new()
-	scroll.name = "InventoryItems"
-	scroll.custom_minimum_size = Vector2(500, 160)
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(scroll)
-	var contents := VBoxContainer.new()
-	contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	contents.add_theme_constant_override("separation", 7)
-	scroll.add_child(contents)
-	host._label(contents, "CARRIED MATERIAL", 13)
+	context_label = host._label(column, "Carried items and craftable recipes", 12)
+	catalog_columns = BoxContainer.new()
+	catalog_columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	catalog_columns.add_theme_constant_override("separation", 12)
+	column.add_child(catalog_columns)
+	var inventory_side := VBoxContainer.new()
+	inventory_side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inventory_side.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	catalog_columns.add_child(inventory_side)
+	host._label(inventory_side, "CARRIED", 13)
+	inventory_scroll = ScrollContainer.new()
+	inventory_scroll.name = "InventoryItems"
+	inventory_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inventory_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	inventory_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	inventory_side.add_child(inventory_scroll)
 	material_grid = GridContainer.new()
 	material_grid.columns = 4
 	material_grid.add_theme_constant_override("h_separation", 6)
 	material_grid.add_theme_constant_override("v_separation", 6)
-	contents.add_child(material_grid)
+	inventory_scroll.add_child(material_grid)
 	for kind: String in MATERIALS:
 		var tile := Button.new()
 		material_grid.add_child(tile)
@@ -153,40 +162,64 @@ func configure(host, ui: Control) -> void:
 		material_buttons[kind] = tile
 		material_counts[kind] = _count_badge(tile)
 		tile.focus_entered.connect(_describe_focus.bind(tile))
-	host._label(contents, "BUILD KITS", 13)
-	var grid := GridContainer.new()
-	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", 6)
-	grid.add_theme_constant_override("v_separation", 6)
-	contents.add_child(grid)
 	for tool: String in TOOLS:
-		var button: Button = host._button(grid, "", assign.bind(tool))
+		var button: Button = host._button(material_grid, "", assign.bind(tool))
 		_style_inventory_tile(button, load("res://opening/assets/build-icons/" + tool + ".svg"))
 		catalog_buttons[tool] = button
 		catalog_counts[tool] = _count_badge(button)
 		button.focus_entered.connect(_describe_focus.bind(button))
-	host._label(contents, "COMPONENTS", 13)
-	component_grid = GridContainer.new()
-	component_grid.columns = 4
-	component_grid.add_theme_constant_override("h_separation", 6)
-	component_grid.add_theme_constant_override("v_separation", 6)
-	contents.add_child(component_grid)
-	component_row = HBoxContainer.new()
-	column.add_child(component_row)
-	component_choice = OptionButton.new()
-	component_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	component_choice.item_selected.connect(func(_index: int) -> void: refresh())
-	component_row.add_child(component_choice)
-	component_assign_button = host._button(component_row, "", assign_component)
-	component_assign_button.icon = load("res://opening/assets/build-icons/workshop-place.svg")
-	component_assign_button.tooltip_text = "Assign selected component · A"
-	component_assign_button.accessibility_name = "Assign selected component, shortcut A"
+	component_grid = material_grid
+	for index in 8:
+		var empty := Panel.new()
+		empty.custom_minimum_size = Vector2(78, 66)
+		var empty_style := StyleBoxFlat.new()
+		empty_style.bg_color = Color(0.08, 0.13, 0.15, 0.55)
+		empty_style.set_corner_radius_all(5)
+		empty.add_theme_stylebox_override("panel", empty_style)
+		material_grid.add_child(empty)
+		inventory_empty.append(empty)
+	recipe_side = VBoxContainer.new()
+	recipe_side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	recipe_side.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	catalog_columns.add_child(recipe_side)
+	host._label(recipe_side, "CRAFT / BUILD", 13)
+	host._label(recipe_side, "T timber · O ore · choose an icon to craft", 11)
+	recipe_scroll = ScrollContainer.new()
+	recipe_scroll.name = "CraftRecipes"
+	recipe_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	recipe_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	recipe_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	recipe_side.add_child(recipe_scroll)
+	recipe_grid = GridContainer.new()
+	recipe_grid.columns = 4
+	recipe_grid.add_theme_constant_override("h_separation", 6)
+	recipe_grid.add_theme_constant_override("v_separation", 6)
+	recipe_scroll.add_child(recipe_grid)
+	host._label(column, "HOTBAR TARGET · choose 1–8, then choose a carried part", 11)
+	var targets := HBoxContainer.new()
+	targets.add_theme_constant_override("separation", 4)
+	column.add_child(targets)
+	for index in slots.size():
+		var target: Button = host._button(targets, "", _select_target.bind(index))
+		target.custom_minimum_size = Vector2(42, 39)
+		_style_slot(target)
+		target.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		target.expand_icon = true
+		target.add_theme_constant_override("icon_max_width", 25)
+		var target_key := Label.new()
+		target_key.text = str(index + 1)
+		target_key.position = Vector2(3, 2)
+		target_key.add_theme_font_size_override("font_size", 10)
+		target_key.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		target.add_child(target_key)
+		target.focus_entered.connect(_describe_focus.bind(target))
+		slot_targets.append(target)
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
 	var clear: Button = host._button(actions, "", clear_slot)
 	clear.icon = load("res://opening/assets/build-icons/workshop-reclaim.svg")
-	clear.tooltip_text = "Clear selected slot · Delete"
-	clear.accessibility_name = "Clear selected slot, shortcut Delete"
+	clear.tooltip_text = "Clear target slot · Delete"
+	clear.accessibility_name = "Clear target slot, shortcut Delete"
 	var close: Button = host._button(actions, "", catalog.hide)
 	close.icon = load("res://opening/assets/menu-icons/close.svg")
 	close.tooltip_text = "Close build and inventory · Esc"
@@ -212,18 +245,18 @@ func _style_slot(button: Button) -> void:
 	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 func _style_inventory_tile(button: Button, texture: Texture2D) -> void:
-	button.custom_minimum_size = Vector2(108, 66)
+	button.custom_minimum_size = Vector2(78, 66)
 	button.icon = texture
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	button.expand_icon = true
-	button.add_theme_constant_override("icon_max_width", 40)
+	button.add_theme_constant_override("icon_max_width", 36)
 	button.focus_mode = Control.FOCUS_ALL
 	_style_slot(button)
 
 func _count_badge(button: Button) -> Label:
 	var badge := Label.new()
-	badge.position = Vector2(76, 44)
-	badge.size = Vector2(28, 18)
+	badge.position = Vector2(48, 44)
+	badge.size = Vector2(26, 18)
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	badge.add_theme_font_size_override("font_size", 13)
 	badge.add_theme_color_override("font_color", Color("f6e5c5"))
@@ -240,15 +273,13 @@ func _input(event: InputEvent) -> void:
 	if event.ctrl_pressed or event.alt_pressed:
 		return
 	if event.keycode >= KEY_1 and event.keycode <= KEY_8:
-		destination.select(event.keycode - KEY_1)
+		_select_target(event.keycode - KEY_1)
 	elif event.keycode == KEY_DELETE:
 		clear_slot()
 	elif event.keycode == KEY_ESCAPE:
 		catalog.hide()
 	elif CATALOG_KEYS.has(event.keycode):
 		assign(CATALOG_KEYS[event.keycode])
-	elif event.keycode == KEY_A and _arrival_active:
-		assign_component()
 	else:
 		return
 	get_viewport().set_input_as_handled()
@@ -266,13 +297,24 @@ func _place_catalog() -> void:
 	if host == null or not catalog.visible:
 		return
 	var extent: Vector2 = get_parent().size
+	_configure_catalog_layout(extent)
 	catalog.size = _catalog_dimensions(extent)
 	catalog.position = Vector2i(maxi(0, int((extent.x - catalog.size.x) / 2.0)),
 		maxi(0, int((extent.y - catalog.size.y) / 2.0)))
 
+func _configure_catalog_layout(extent: Vector2) -> void:
+	var narrow := extent.x <= 720.0
+	catalog_columns.vertical = narrow
+	context_label.visible = not narrow
+	var scroll_height := 78 if narrow else 275
+	inventory_scroll.custom_minimum_size = Vector2(0, scroll_height)
+	recipe_scroll.custom_minimum_size = Vector2(0, scroll_height)
+	for side in ["left", "right", "top", "bottom"]:
+		catalog_margin.add_theme_constant_override("margin_" + side, 8 if narrow else 16)
+
 func _catalog_dimensions(extent: Vector2) -> Vector2i:
-	var width := int(extent.x) if extent.x <= 720.0 else mini(540, int(extent.x) - 16)
-	return Vector2i(width, mini(520, int(extent.y) - 16))
+	var width := int(extent.x) if extent.x <= 720.0 else mini(800, int(extent.x) - 16)
+	return Vector2i(width, mini(620, int(extent.y) - 16))
 
 func _view():
 	return _host.get_ref() if _host != null else null
@@ -313,15 +355,141 @@ func _sync_arrival(host) -> void:
 			var component: String = str(item[0])
 			_component_names.append(component)
 			_component_labels[component] = str(item[1])
-			component_choice.add_item(str(item[1]))
 			var button: Button = host._button(component_grid, "",
 				_assign_to_slot.bind(COMPONENT_PREFIX + component))
 			_style_inventory_tile(button, component_textures[component])
 			component_buttons[component] = button
 			component_counts[component] = _count_badge(button)
 			button.focus_entered.connect(_describe_focus.bind(button))
-	component_row.visible = arrival
-	component_grid.visible = arrival
+	for component: String in component_buttons:
+		component_buttons[component].visible = arrival
+	recipe_side.visible = arrival
+
+func _valid_bench(snapshot: Dictionary, bench_id: String) -> bool:
+	if bench_id.is_empty():
+		return false
+	var pod: Dictionary = snapshot.get("fabrication_hub", {})
+	if pod.get("installed", false) and pod.get("id", "") == bench_id:
+		return true
+	for bench: Variant in snapshot.get("fabrication_benches", []):
+		if bench is Dictionary and bench.get("id", "") == bench_id:
+			return true
+	return false
+
+func _recipe_tile(key: String, icon: Texture2D) -> Button:
+	if recipe_buttons.has(key):
+		return recipe_buttons[key]
+	var host = _view()
+	var tile: Button = host._button(recipe_grid, "", _craft_recipe.bind(key))
+	_style_inventory_tile(tile, icon)
+	tile.focus_entered.connect(_describe_focus.bind(tile))
+	var cost := Label.new()
+	cost.position = Vector2(4, 44)
+	cost.size = Vector2(70, 18)
+	cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cost.add_theme_font_size_override("font_size", 11)
+	cost.add_theme_color_override("font_color", Color("f6e5c5"))
+	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_child(cost)
+	recipe_buttons[key] = tile
+	recipe_costs[key] = cost
+	return tile
+
+func _recipe_state(host, key: String, label: String, cost: Dictionary,
+		icon: Texture2D, field_allowed: bool, ready: bool) -> void:
+	var tile := _recipe_tile(key, icon)
+	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
+	var timber := int(cost.get("timber", 0))
+	var ore := int(cost.get("softmetal", 0))
+	var affordable := int(cargo.get("timber", 0)) >= timber and int(cargo.get("raw", 0)) >= ore
+	var at_bench := _valid_bench(host.state, context_bench)
+	var station := "Field or bench" if field_allowed else "Bench"
+	var rating := int(cost.get("load_rating", 0))
+	var rating_detail := " · rated for %d load" % rating if rating > 0 else ""
+	var reason := "Craft here" if ready and affordable and (field_allowed or at_bench) else \
+		"Carry the ingredients" if not affordable else \
+		"Open a fabrication bench with E" if not field_allowed and not at_bench else \
+		"Wait for the character"
+	tile.visible = true
+	tile.disabled = not ready
+	tile.modulate = Color.WHITE if reason == "Craft here" else Color(0.68, 0.75, 0.76)
+	tile.tooltip_text = "%s · %d timber + %d ore · %s%s · %s" % [
+		label, timber, ore, station, rating_detail, reason]
+	tile.accessibility_name = "%s recipe, needs %d timber and %d ore, %s%s, %s" % [
+		label, timber, ore, station, rating_detail, reason]
+	recipe_costs[key].text = "%dT · %dO" % [timber, ore]
+
+func _refresh_recipes(host, ready: bool) -> void:
+	for tile: Button in recipe_buttons.values():
+		tile.visible = false
+	if not _arrival_active:
+		return
+	if not _valid_bench(host.state, context_bench):
+		context_bench = ""
+	parts_label.text = "BENCH / INVENTORY" if not context_bench.is_empty() else "BUILD / INVENTORY"
+	context_label.text = "Fabrication bench · choose a recipe" if not context_bench.is_empty() else \
+		"Field recipes can be made anywhere · E opens a bench"
+	var recipes: Dictionary = host.state.get("component_recipes", {})
+	for component: String in _component_names:
+		var cost: Dictionary = recipes.get(component, {})
+		if cost.is_empty():
+			continue
+		var field_allowed := int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
+		_recipe_state(host, COMPONENT_PREFIX + component, _component_labels[component], cost,
+			component_textures[component], field_allowed, ready)
+	var foundation: Dictionary = host.state.get("foundation_recipe", {})
+	if not foundation.is_empty():
+		_recipe_state(host, "foundation", "Foundation", foundation,
+			catalog_buttons.foundation.icon, false, ready)
+	var parts: Array = host.state.get("part_recipes", [])
+	for index in parts.size():
+		var recipe: Dictionary = parts[index]
+		var kind: String = str(recipe.get("kind", ""))
+		var icon_name: String = {"shaft": "drive", "belt": "belt", "wheel": "wheel"}.get(kind, "component")
+		var label: String = {"shaft": "Shaft tile", "belt": "Belt span", "wheel": "Waterwheel"}.get(kind, "Part")
+		if int(recipe.get("half_span", 0)) > 0:
+			label += " · half-span %d" % int(recipe.half_span)
+		if int(recipe.get("teeth", 0)) > 0:
+			label += " · %d teeth" % int(recipe.teeth)
+		_recipe_state(host, "part:%d" % index, label, recipe,
+			load("res://opening/assets/build-icons/%s.svg" % icon_name), false, ready)
+
+func _craft_recipe(key: String) -> void:
+	var host = _view()
+	if host == null or not _arrival_active or not host._can_choose_tool():
+		return
+	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
+	var cost: Dictionary = {}
+	var action: Dictionary = {}
+	if key.begins_with(COMPONENT_PREFIX):
+		var component := key.trim_prefix(COMPONENT_PREFIX)
+		cost = host.state.get("component_recipes", {}).get(component, {})
+		if not context_bench.is_empty() and _valid_bench(host.state, context_bench):
+			action = {"action": "craft_component", "entity": context_bench, "component": component}
+		elif int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0:
+			action = {"action": "field_craft", "component": component}
+	elif key == "foundation":
+		cost = host.state.get("foundation_recipe", {})
+		if _valid_bench(host.state, context_bench):
+			action = {"action": "craft_foundation", "entity": context_bench}
+	elif key.begins_with("part:"):
+		var index := int(key.trim_prefix("part:"))
+		var recipes: Array = host.state.get("part_recipes", [])
+		if index >= 0 and index < recipes.size():
+			cost = recipes[index]
+			if _valid_bench(host.state, context_bench):
+				action = {"action": "craft_part", "entity": context_bench,
+					"role": "waterwheel" if cost.get("kind") == "wheel" else cost.get("kind"),
+					"half_span": cost.get("half_span", 0)}
+	if cost.is_empty() or action.is_empty():
+		focus_description.text = "Open a fabrication bench with E for this recipe."
+		return
+	if int(cargo.get("timber", 0)) < int(cost.get("timber", 0)) or \
+			int(cargo.get("raw", 0)) < int(cost.get("softmetal", 0)):
+		focus_description.text = "Carry the ingredients shown on the recipe."
+		return
+	host.issue(action)
+	refresh()
 
 func refresh(snapshot_ready: bool = true) -> void:
 	var host = _view()
@@ -337,6 +505,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 		material_counts[kind].text = str(amount)
 		material_buttons[kind].tooltip_text = "%s · %d carried" % [label, amount]
 		material_buttons[kind].accessibility_name = "%s, %d carried" % [label, amount]
+		material_buttons[kind].visible = amount > 0 if _arrival_active else true
 	catalog_button.disabled = host.explanation_open
 	if host.explanation_open:
 		catalog.hide()
@@ -361,7 +530,12 @@ func refresh(snapshot_ready: bool = true) -> void:
 		buttons[index].accessibility_name = "%s, %d %s, slot %d" % [label, amount, scope, index + 1] if not tool.is_empty() else "Assign slot %d, shortcut B opens inventory" % (index + 1)
 		buttons[index].disabled = host.explanation_open or (not tool.is_empty() and (not usable or amount < 1 or not offered))
 		buttons[index].button_pressed = selected_slot == index and active == tool
-		destination.set_item_text(index, "%d · %s" % [index + 1, label])
+		var target := slot_targets[index]
+		target.icon = slot_icons[index].texture
+		target.tooltip_text = "Hotbar %d: %s · %d %s. Choose this slot, then a carried item." % [
+			index + 1, label, amount, scope]
+		target.accessibility_name = "Hotbar slot %d, %s, %d %s" % [index + 1, label, amount, scope]
+		target.add_theme_color_override("font_color", Color("f6e5c5") if index == target_slot else Color("a5bab9"))
 	for tool: String in catalog_buttons:
 		var button: Button = catalog_buttons[tool]
 		var amount := _count(tool, parts)
@@ -370,21 +544,26 @@ func refresh(snapshot_ready: bool = true) -> void:
 		button.tooltip_text = "%s · %d %s · %s" % [TOOLS[tool], amount, scope, TOOL_KEYS[tool]]
 		button.accessibility_name = "%s, %d %s, shortcut %s" % [TOOLS[tool], amount, scope, TOOL_KEYS[tool]]
 		button.disabled = not usable or amount < 1 or not _offered(tool, host)
-		button.visible = _offered(tool, host) and (not _arrival_active or amount > 0 or host.mode == tool)
+		button.visible = _offered(tool, host) and (not _arrival_active or amount > 0)
 	if _arrival_active:
-		for index in range(_component_names.size()):
-			var component: String = _component_names[index]
+		for component: String in _component_names:
 			var count := _count(COMPONENT_PREFIX + component, parts)
-			component_choice.set_item_text(index, "%s  ×%d" % [_component_labels[component],
-				count])
 			var part_button: Button = component_buttons[component]
 			part_button.text = ""
 			component_counts[component].text = str(count)
 			part_button.disabled = not usable or count < 1
-			part_button.tooltip_text = "%s · %d carried · assign to slot %d" % [_component_labels[component], count, destination.selected + 1]
-			part_button.accessibility_name = "%s, %d carried, assign to slot %d" % [_component_labels[component], count, destination.selected + 1]
-		component_assign_button.disabled = not usable or component_choice.selected < 0 or \
-			_count(COMPONENT_PREFIX + _component_names[component_choice.selected], parts) < 1
+			part_button.visible = count > 0
+			part_button.tooltip_text = "%s · %d carried · assign to hotbar %d" % [
+				_component_labels[component], count, target_slot + 1]
+			part_button.accessibility_name = "%s, %d carried, assign to hotbar %d" % [
+				_component_labels[component], count, target_slot + 1]
+	var shown := 0
+	for tile in material_grid.get_children():
+		if tile is Button and tile.visible:
+			shown += 1
+	for index in inventory_empty.size():
+		inventory_empty[index].visible = index < maxi(0, 8 - shown)
+	_refresh_recipes(host, usable)
 
 func open_catalog(index: int = -1) -> void:
 	var host = _view()
@@ -393,18 +572,34 @@ func open_catalog(index: int = -1) -> void:
 	if catalog.visible and index < 0:
 		catalog.hide()
 		return
+	context_bench = ""
 	refresh()
-	destination.select(index if index >= 0 and index < slots.size() else maxi(0, selected_slot))
-	if _arrival_active and host.arrival_assembly_controls != null:
-		var selected_component: String = host.arrival_assembly_controls.selected_name()
-		if _component_names.has(selected_component):
-			component_choice.select(_component_names.find(selected_component))
-			refresh()
+	_select_target(index if index >= 0 and index < slots.size() else maxi(0, selected_slot))
 	var viewport_size: Vector2 = get_parent().size
+	_configure_catalog_layout(viewport_size)
 	catalog.popup_centered(_catalog_dimensions(viewport_size))
-	destination.grab_focus()
+	slot_targets[target_slot].grab_focus()
 	host._refresh_guided_tools()
 	_place_catalog.call_deferred()
+
+func open_at_bench(bench_id: String) -> void:
+	var host = _view()
+	if host == null or not _valid_bench(host.state, bench_id):
+		return
+	context_bench = bench_id
+	refresh()
+	host._release_character_controls()
+	var viewport_size: Vector2 = get_parent().size
+	_configure_catalog_layout(viewport_size)
+	catalog.popup_centered(_catalog_dimensions(viewport_size))
+	slot_targets[target_slot].grab_focus()
+	_place_catalog.call_deferred()
+
+func _select_target(index: int) -> void:
+	if index < 0 or index >= slots.size():
+		return
+	target_slot = index
+	refresh()
 
 func _slot_input(event: InputEvent, index: int) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
@@ -416,13 +611,8 @@ func assign(tool: String) -> void:
 		return
 	_assign_to_slot(tool)
 
-func assign_component() -> void:
-	if not _arrival_active or component_assign_button.disabled or component_choice.selected < 0:
-		return
-	_assign_to_slot(COMPONENT_PREFIX + _component_names[component_choice.selected])
-
 func _assign_to_slot(tool: String) -> void:
-	var index := destination.selected
+	var index := target_slot
 	slots[index] = tool
 	catalog.hide()
 	select_slot(index)
@@ -431,7 +621,7 @@ func clear_slot() -> void:
 	var host = _view()
 	if host == null or host.explanation_open:
 		return
-	var index := destination.selected
+	var index := target_slot
 	slots[index] = ""
 	catalog.hide()
 	if selected_slot == index:

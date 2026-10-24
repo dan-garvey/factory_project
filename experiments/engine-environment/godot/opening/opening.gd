@@ -6340,6 +6340,12 @@ func _open_pointed_machine() -> void:
 func _open_object_menu_for(target: String) -> void:
 	if not _contains_target(state, target):
 		return
+	if building_hotbar != null and building_hotbar._valid_bench(state, target):
+		_select_tool("inspect")
+		selected = target
+		_refresh_ui()
+		building_hotbar.open_at_bench(target)
+		return
 	_select_tool("inspect")
 	selected = target
 	_refresh_ui()
@@ -6347,7 +6353,7 @@ func _open_object_menu_for(target: String) -> void:
 		arrival_assembly_controls.open_context()
 	object_menu_target = target
 	object_menu_title.text = _object_name(target)
-	object_menu_operations_label.text = "CRAFT PARTS"
+	object_menu_operations_label.text = "PART ACTIONS"
 	if _is_guided_press_part(target):
 		object_menu_operations_label.text = "PRESS WORK"
 	for row: Variant in state.get("collector_assemblies", []):
@@ -9178,9 +9184,9 @@ func _refresh_ui() -> void:
 		arrival_assembly_scroll.visible = arrival_assembly_controls.visible
 		if object_workshop_route != null:
 			var collector_context := _is_collector_frame(object_menu_target)
-			object_workshop_craft_column.visible = not collector_context
+			object_workshop_craft_column.visible = false
 			object_workshop_collector.visible = collector_context
-			object_workshop_route.visible = not collector_context and not state.get("part_recipes", []).is_empty()
+			object_workshop_route.visible = false
 		if object_menu_operations != null:
 			object_menu_operations.visible = _object_menu_open() and _object_supports_operations(object_menu_target) \
 				and arrival_assembly_scroll.visible

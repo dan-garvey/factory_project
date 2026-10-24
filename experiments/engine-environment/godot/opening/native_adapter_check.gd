@@ -181,10 +181,21 @@ func _approach_points(points: Array[Vector2], actor: String = "P") -> bool:
 			return false
 	return true
 
-func _arrival_field_craft_run(panel) -> void:
-	if not _expect(panel.visible and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
-			"The ordinary arrival panel exposes the wooden multitool recipe"):
+func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
+	var inventory = opening.building_hotbar
+	inventory.open_catalog()
+	if not _expect(inventory.catalog.visible
+			and inventory.recipe_buttons.has("component:wooden_frame")
+			and "3 timber" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text
+			and "Carry the ingredients" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
+			"Fresh arrival exposes the wooden recipe and its missing carried ingredients"):
 		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-empty.png") == OK,
+				"Retain the ordinary zero-stock inventory view"):
+			return
+	inventory.catalog.hide()
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	var distant: Dictionary = opening.model.projection()
@@ -201,7 +212,18 @@ func _arrival_field_craft_run(panel) -> void:
 	if not _expect(gathered.cargo.P.timber == 3 and gathered.hand_sources["tree-east-south"].remaining == 5,
 			"Three finite cuts reach the same physically present field actor"):
 		return
-	panel.field_craft_button.pressed.emit()
+	inventory.open_catalog()
+	if not _expect(inventory.material_counts.timber.text == "3"
+			and inventory.material_buttons.timber.visible
+			and "Craft here" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
+			"Finite cuts refresh the carried stack and available recipe in one inventory"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-timber.png") == OK,
+				"Retain the ordinary finite-timber inventory view"):
+			return
+	inventory.recipe_buttons["component:wooden_frame"].pressed.emit()
 	var shaped: Dictionary = opening.model.projection()
 	if not _expect(shaped.order == gathered.order + 1 and shaped.cargo.P.timber == 0
 			and shaped.cargo.P.components.get("wooden_frame", 0) == 1
@@ -215,12 +237,41 @@ func _arrival_field_craft_run(panel) -> void:
 			and "a workshop" in opening.status_label.text,
 			"The field tool refuses metal while preserving the shaped frame"):
 		return
+	inventory.catalog.hide()
+	if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+		return
+	if not await _approach(Vector2(3.3, 4.95)):
+		return
+	var bench_ready: Dictionary = opening.model.projection()
+	opening._open_object_menu_for(str(opening.model.projection().fabrication_hub.id))
+	await process_frame
+	if not _expect(inventory.catalog.visible and inventory.context_bench == "pod-fabrication-hub"
+			and not opening.object_menu.visible
+			and "Craft here" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text,
+			"E on the installed pod opens the same recipe grid with bench crafting available"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-bench.png") == OK,
+				"Retain the ordinary E-opened bench inventory view"):
+			return
+	inventory.recipe_buttons["component:wooden_shaft"].pressed.emit()
+	var bench_shaped: Dictionary = opening.model.projection()
+	if not _expect(bench_shaped.order == bench_ready.order + 1
+			and bench_shaped.cargo.P.timber == 0
+			and bench_shaped.cargo.P.components.get("wooden_shaft", 0) == 1
+			and bench_shaped.cargo.P.components.get("wooden_frame", 0) == 1,
+			"The E-opened recipe icon sends a reachable native bench craft with finite custody: " +
+			str({"order": bench_shaped.order, "expected": bench_ready.order + 1,
+				"cargo": bench_shaped.cargo.P, "status": opening.status_label.text})):
+		return
+	inventory.catalog.hide()
 	var saved: Dictionary = opening._save_worksite()
 	facts["save_result"] = saved
 	facts["save_slot"] = opening.save_slot
 	if not _expect(saved.accepted and saved.native_preflight.accepted
 			and FileAccess.file_exists(opening.save_slot),
-			"Store saves the field-shaped component and source depletion from the real actor"):
+			"Store saves field and bench components with finite source depletion: " + str(saved)):
 		return
 	_record("pass")
 
@@ -1929,7 +1980,7 @@ func _arrival_run() -> void:
 				return
 			opening._toggle_manager_log()
 	if mode == "arrival-field-craft":
-		await _arrival_field_craft_run(panel)
+		await _arrival_field_craft_run(panel, capture_prefix)
 		return
 	if mode == "arrival-foundation-craft":
 		await _arrival_foundation_craft_run(panel, capture_prefix)
