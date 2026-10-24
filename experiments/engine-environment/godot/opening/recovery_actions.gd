@@ -353,6 +353,7 @@ class ArrivalAssemblyControls:
 	var bench_choice: OptionButton
 	var pod_workshop_button: Button
 	var craft_button: Button
+	var foundation_craft_button: Button
 	var field_craft_button: Button
 	var part_choice: OptionButton
 	var part_cost_label: Label
@@ -411,7 +412,15 @@ class ArrivalAssemblyControls:
 		recipe_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var component_actions := VBoxContainer.new()
 		craft_section.add_child(component_actions)
-		craft_button = host._button(component_actions, "Craft at bench  C", _craft)
+		var craft_row := HBoxContainer.new()
+		component_actions.add_child(craft_row)
+		craft_button = host._button(craft_row, "Craft at bench  C", _craft)
+		craft_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		foundation_craft_button = host._button(craft_row, "", _craft_foundation)
+		foundation_craft_button.icon = load("res://opening/assets/build-icons/foundation.svg")
+		foundation_craft_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		foundation_craft_button.custom_minimum_size = Vector2(44, 37)
+		foundation_craft_button.focus_mode = Control.FOCUS_ALL
 		place_button = host._button(component_actions, "Place", _place)
 		field_craft_button = host._button(craft_section, "Shape wood · multitool  V", _field_craft)
 		field_craft_button.tooltip_text = "Shape the selected wooden component from carried timber."
@@ -600,6 +609,16 @@ class ArrivalAssemblyControls:
 		# Let the hub report missing input, full output and distance using its
 		# confirmed result. The bill above stays visible before the attempt.
 		craft_button.disabled = not ready or selected_bench.is_empty() or cost.is_empty()
+		var foundation_recipe: Dictionary = snapshot.get("foundation_recipe", {})
+		var foundation_cost: int = int(foundation_recipe.get("timber", 0))
+		var carried_timber: int = int(cargo.get("timber", 0))
+		var floor_parts: int = int(snapshot.get("part_kits", {}).get(actor, {}).get("foundation", 0))
+		foundation_craft_button.visible = foundation_cost > 0
+		foundation_craft_button.disabled = not ready or selected_bench.is_empty() \
+			or foundation_cost <= 0 or carried_timber < foundation_cost
+		foundation_craft_button.tooltip_text = "Foundation: %d timber. Carry %d; have %d floors." % [
+			foundation_cost, carried_timber, floor_parts]
+		foundation_craft_button.accessibility_name = "Craft one foundation for %d timber at the selected workshop" % foundation_cost
 		field_craft_button.visible = not cost.is_empty() and int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
 		field_craft_button.disabled = not ready or not field_craft_button.visible
 		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
@@ -843,6 +862,11 @@ class ArrivalAssemblyControls:
 			return
 		if not selected_bench.is_empty():
 			host.issue({"action": "craft_component", "entity": selected_bench, "component": selected_component})
+
+	func _craft_foundation() -> void:
+		var host = _host_view()
+		if host != null and foundation_craft_button.visible and not foundation_craft_button.disabled:
+			host.issue({"action": "craft_foundation", "entity": selected_bench})
 
 	func _field_craft() -> void:
 		var host = _host_view()

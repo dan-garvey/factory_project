@@ -1980,6 +1980,8 @@ func _field_craft_widget() -> void:
 		"softmetal_shaft": {"timber": 0, "softmetal": 2, "load_rating": 24},
 		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24}}
 	view.state.component_capacity = 20
+	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
+	view.state.part_kits.P.foundation = 0
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	view.state.placed_components = {}
 	root.add_child(view)
@@ -1989,6 +1991,22 @@ func _field_craft_widget() -> void:
 	var panel = view.arrival_assembly_controls
 	panel.refresh(view.state, view.client, view.selected, true)
 	panel.craft_tab.pressed.emit()
+	verify(panel.foundation_craft_button.visible and not panel.foundation_craft_button.disabled
+		and panel.foundation_craft_button.icon != null
+		and "2 timber" in panel.foundation_craft_button.tooltip_text
+		and "Craft one foundation" in panel.foundation_craft_button.accessibility_name,
+		"The ordinary workshop exposes a focused foundation icon with the native timber bill.")
+	panel.foundation_craft_button.pressed.emit()
+	verify(view.issued == [{"action": "craft_foundation", "entity": "pod-fabrication-hub"}],
+		"The ordinary icon submits one actor-bound foundation craft at the selected workshop.")
+	view.issued.clear()
+	view.state.cargo.P.timber = 1
+	panel.refresh(view.state, view.client, view.selected, true)
+	panel.foundation_craft_button.pressed.emit()
+	verify(panel.foundation_craft_button.disabled and view.issued.is_empty(),
+		"Missing native timber disables the icon and cannot send a craft command.")
+	view.state.cargo.P.timber = 3
+	panel.refresh(view.state, view.client, view.selected, true)
 	verify(panel != null and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
 		"An arriving actor carrying timber sees the multitool shape action for a wooden frame.")
 	panel.field_craft_button.pressed.emit()
@@ -2062,8 +2080,9 @@ func _field_craft_widget() -> void:
 	shared_panel._component_selected(9)
 	verify("Drive limits: wood 8 · softmetal 24" in shared_panel.recipe_label.text
 		and "Rated for 24 load" in shared_panel.component_choice.tooltip_text
+		and shared_panel.foundation_craft_button.disabled
 		and shared.issued.is_empty(),
-		"The shared workshop reads the confirmed rating without sending a craft command.")
+		"The shared workshop reads its own carried timber and drive rating without sending a craft command.")
 	shared.free()
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
