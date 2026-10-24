@@ -2698,7 +2698,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 snapshot.state.placed_components.end(), [&](const auto& entry) {
                     return entry.second.kind == materials::Component::receiver_tray &&
                         entry.second.center == point;
-                }) || !press_products.contains(point)) return false;
+                }) || (!press_products.contains(point) &&
+                    !snapshot.state.belt_press_products.contains(point))) return false;
         for (const auto id : ids)
             if (id <= 0 || id >= snapshot.state.material.next_work_id ||
                 !witnessed_products.insert(id).second || !add(witness_count, 1)) return false;

@@ -33,7 +33,7 @@ O request(const std::string& actor, const std::string& id, const char* action) {
 
 struct Site { w::Profile profile; w::State state; };
 
-Site site() {
+Site site(bool plate_receiver) {
     Site result;
     auto& [profile, state] = result;
     profile.material = {1, 1, 2};
@@ -43,7 +43,7 @@ Site site() {
     profile.material.hand_carry_capacity = 64;
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
     profile.material.timber_sites = {{"tree", {{12, 0, 12}, 8}},
-                                     {"tree-branch", {{12, 0, 24}, 4}}};
+                                     {"tree-branch", {{12, 0, 24}, plate_receiver ? 6 : 4}}};
     profile.initial_units = 10;
     profile.actors = {"P", "Q"};
     profile.foundation_parts = 24;
@@ -53,13 +53,13 @@ Site site() {
     profile.anchor_offset = {0, 0.825, 0};
     profile.build_reach = 100;
     profile.waterwheel_rate = {1, 1};
-    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 3},
-                            {{s::Role::shaft, 0, 2}, 6},
-                            {{s::Role::belt, 0, 0}, 2}};
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, plate_receiver ? 2 : 3},
+                            {{s::Role::shaft, 0, 2}, plate_receiver ? 3 : 6},
+                            {{s::Role::belt, 0, 0}, plate_receiver ? 1 : 2}};
     state.material.initial_units = 10;
     state.material.stock.source = 10;
     state.material.cargo = {{"P", {}}, {"Q", {}}};
-    state.material.timber_remaining = {{"tree", 8}, {"tree-branch", 4}};
+    state.material.timber_remaining = {{"tree", 8}, {"tree-branch", plate_receiver ? 6 : 4}};
     state.kits = {{"P", {}}, {"Q", {}}};
     state.foundation_kits = {{"P", 15}, {"Q", 0}};
     state.topology.drive_enabled = true;
@@ -70,24 +70,30 @@ Site site() {
     };
     part("press-wheel", g::Kind::hub, {4, 4, 0}, g::Axis::x, s::Role::waterwheel);
     part("feed-wheel", g::Kind::hub, {20, 0, -8}, g::Axis::z, s::Role::waterwheel);
-    part("output-wheel", g::Kind::hub, {-20, 0, -8}, g::Axis::z, s::Role::waterwheel);
+    if (!plate_receiver)
+        part("output-wheel", g::Kind::hub, {-20, 0, -8}, g::Axis::z, s::Role::waterwheel);
     for (const auto& [id, center] :
          {std::pair{"feed-drive", g::Point{20, 0, -4}},
           std::pair{"feed-outside", g::Point{20, 0, 0}},
-          std::pair{"feed-mouth", g::Point{4, 0, 0}},
-          std::pair{"output-drive", g::Point{-20, 0, -4}},
-          std::pair{"output-outside", g::Point{-20, 0, 0}},
-          std::pair{"output-mouth", g::Point{-4, 0, 0}}})
+          std::pair{"feed-mouth", g::Point{4, 0, 0}}})
         part(id, g::Kind::shaft, center, g::Axis::z, s::Role::shaft, 2);
+    if (!plate_receiver)
+        for (const auto& [id, center] :
+             {std::pair{"output-drive", g::Point{-20, 0, -4}},
+              std::pair{"output-outside", g::Point{-20, 0, 0}},
+              std::pair{"output-mouth", g::Point{-4, 0, 0}}})
+            part(id, g::Kind::shaft, center, g::Axis::z, s::Role::shaft, 2);
     state.topology.sources = {{"press-wheel", profile.waterwheel_rate},
-                              {"feed-wheel", profile.waterwheel_rate},
-                              {"output-wheel", profile.waterwheel_rate}};
-    state.topology.belt_spans = {{{"input-belt", "feed-outside", "feed-mouth"}, 1},
-                                 {{"output-belt", "output-mouth", "output-outside"}, 1}};
+                              {"feed-wheel", profile.waterwheel_rate}};
+    if (!plate_receiver) state.topology.sources.push_back({"output-wheel", profile.waterwheel_rate});
+    state.topology.belt_spans = {{{"input-belt", "feed-outside", "feed-mouth"}, 1}};
+    if (!plate_receiver)
+        state.topology.belt_spans.push_back({{"output-belt", "output-mouth", "output-outside"}, 1});
     state.material.belt_lanes.emplace("input-belt", m::BeltLane{{{}, {}, {}, {}, {}}, 0});
-    state.material.belt_lanes.emplace("output-belt", m::BeltLane{{{}, {}, {}, {}, {}}, 0});
+    if (!plate_receiver)
+        state.material.belt_lanes.emplace("output-belt", m::BeltLane{{{}, {}, {}, {}, {}}, 0});
     state.issued_entities.emplace("input-belt", 1);
-    state.issued_entities.emplace("output-belt", 1);
+    if (!plate_receiver) state.issued_entities.emplace("output-belt", 1);
     state.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub",
         w::landing_hub_center(*profile.landing_pod_center), 1};
@@ -130,8 +136,8 @@ struct Runner {
     }
 };
 
-void run_line() {
-    const auto source = site();
+void run_line(bool plate_receiver) {
+    const auto source = site(plate_receiver);
     Runner run(source);
     run.p = {4.95, 1, 9.9};
     for (int index = 0; index < 5; ++index) {
@@ -153,7 +159,7 @@ void run_line() {
         craft.emplace("component", V(kind));
         run.accept("P", craft);
     }
-    for (int index = 0; index < 2; ++index) {
+    for (int index = 0; index < (plate_receiver ? 4 : 2); ++index) {
         auto cut = request("P", "branch-" + std::to_string(index), "harvest_source");
         cut.emplace("target", V("tree-branch"));
         run.p = {4.95, 1, 9.9};
@@ -165,6 +171,13 @@ void run_line() {
     craft.emplace("generation", V(I{1}));
     craft.emplace("component", V("receiver_tray"));
     run.accept("P", craft);
+    if (plate_receiver) {
+        auto plate_tray = request("P", "craft-plate-tray", "craft_component");
+        plate_tray.emplace("target", V("pod-fabrication-hub"));
+        plate_tray.emplace("generation", V(I{1}));
+        plate_tray.emplace("component", V("receiver_tray"));
+        run.accept("P", plate_tray);
+    }
     run.p = {2, 1, 0};
     for (const auto& [kind, center] :
          {std::pair{"anvil", g::Point{0, 0, 0}},
@@ -176,6 +189,12 @@ void run_line() {
         auto place = request("P", std::string("place-") + kind, "place_component");
         place.emplace("component", V(kind));
         place.emplace("center", V(point(center[0], center[1], center[2])));
+        run.accept("P", place);
+    }
+    if (plate_receiver) {
+        auto place = request("P", "place-plate-tray", "place_component");
+        place.emplace("component", V("receiver_tray"));
+        place.emplace("center", V(point(-1, 0, 0)));
         run.accept("P", place);
     }
     check(w::World::restore("press-offcut-line", source.profile, run.world->snapshot()) != nullptr,
@@ -193,10 +212,23 @@ void run_line() {
     const auto loaded = run.world->snapshot();
     check(w::World::restore("press-offcut-line", source.profile, loaded) != nullptr,
           "Four finite blanks on the physical input belt restore before the unattended run.");
+    bool one_plate_checked = false;
     for (int tick = 0; tick < 40; ++tick) {
         check(run.world->tick().error == w::TransactionError::none,
               "The connected three-drive line advances under native power.");
         const auto current = run.world->snapshot();
+        if (plate_receiver && !one_plate_checked &&
+            current.state.press_output_at_receiver.contains({-1, 0, 0})) {
+            const auto& ids = current.state.press_output_at_receiver.at({-1, 0, 0});
+            check(ids.size() == 1 && current.state.belt_press_products.contains({-1, 0, 0}) &&
+                  current.state.belt_press_products.at({-1, 0, 0}).contains(*ids.begin()) &&
+                  current.state.material.dropped_material.at({-1, 0, 0}) == m::Cargo{0, 1, {}},
+                  "The first belt-fed plate sits in its real fitted receiver.");
+            check(std::holds_alternative<V>(w::encode_checkpoint(source.profile, current)) &&
+                  w::World::restore("press-offcut-line", source.profile, current) != nullptr,
+                  "A lone belt-fed plate in a receiver can save before the next turn.");
+            one_plate_checked = true;
+        }
         const auto tray = current.state.material.dropped_material.find({0, 0, 1});
         if (tray != current.state.material.dropped_material.end() && tray->second.offcuts == 4)
             break;
@@ -215,6 +247,17 @@ void run_line() {
         return plates;
     };
     const auto four = run.world->snapshot();
+    check(!plate_receiver || one_plate_checked,
+          "The fitted plate receiver retained the first belt-fed product.");
+    if (plate_receiver) {
+        check(four.state.material.dropped_material.at({-1, 0, 0}).products == 4 &&
+              four.state.press_output_at_receiver.at({-1, 0, 0}).size() == 4 &&
+              four.state.material.dropped_material.at({0, 0, 1}).offcuts == 4 &&
+              std::holds_alternative<V>(w::encode_checkpoint(source.profile, four)) &&
+              w::World::restore("press-offcut-line", source.profile, four) != nullptr,
+              "Four belt-fed plates and offcuts keep separate finite trays across a checkpoint.");
+        return;
+    }
     check(count_plates(four.state.material) == 4 &&
           four.state.material.dropped_material.at({0, 0, 1}).offcuts == 4 &&
           !four.state.material.dropped_material.contains({0, 0, 0}) &&
@@ -288,7 +331,8 @@ void run_line() {
 
 int main() {
     try {
-        run_line();
+        run_line(false);
+        run_line(true);
         std::cout << "press_offcut_line_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
