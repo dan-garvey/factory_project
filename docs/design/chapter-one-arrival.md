@@ -163,6 +163,13 @@ same native custody owner retains partial work, input and output through a stall
 save or rejoin. A recipe restriction cannot replace the physical reason an
 arrangement succeeds or fails.
 
+The current small-press prototype accepts one fitted receiver tray in either
+side cell perpendicular to the drive shaft. A powered stroke puts its one-unit
+offcut there while the plate exits along the drive axis. The tray holds four
+offcuts; a full or incompatible tray holds the next ready work until cleared.
+Hand-cranked strokes retain manual offcut pickup at the anvil. This is an early
+discharge choice, not the proposed sizing grate or a general gravity rule.
+
 At minimum, the playable chapter should demonstrate two meaningfully different
 arrangements for each machine, such as opposite-side drive or alternate feed
 height. Present one legible example in staged Help, then let the player alter
