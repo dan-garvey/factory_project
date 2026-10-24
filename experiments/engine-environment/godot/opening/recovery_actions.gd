@@ -352,6 +352,7 @@ class ArrivalAssemblyControls:
 	var pod_workshop_button: Button
 	var craft_button: Button
 	var foundation_craft_button: Button
+	var foundation_craft_label: Label
 	var field_craft_button: Button
 	var part_choice: OptionButton
 	var part_cost_label: Label
@@ -419,6 +420,10 @@ class ArrivalAssemblyControls:
 		foundation_craft_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		foundation_craft_button.custom_minimum_size = Vector2(44, 37)
 		foundation_craft_button.focus_mode = Control.FOCUS_ALL
+		foundation_craft_label = host._label(craft_row, "", 11, Color("bfd1cc"))
+		foundation_craft_label.custom_minimum_size.x = 76
+		foundation_craft_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		foundation_craft_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		place_button = host._button(component_actions, "Place", _place)
 		field_craft_button = host._button(craft_section, "Shape wood · multitool  V", _field_craft)
 		field_craft_button.tooltip_text = "Shape the selected wooden component from carried timber."
@@ -612,6 +617,8 @@ class ArrivalAssemblyControls:
 		var carried_timber: int = int(cargo.get("timber", 0))
 		var floor_parts: int = int(snapshot.get("part_kits", {}).get(actor, {}).get("foundation", 0))
 		foundation_craft_button.visible = foundation_cost > 0
+		foundation_craft_label.visible = foundation_craft_button.visible
+		foundation_craft_label.text = "Foundation\n%d timber" % foundation_cost
 		foundation_craft_button.disabled = not ready or selected_bench.is_empty() \
 			or foundation_cost <= 0 or carried_timber < foundation_cost
 		foundation_craft_button.tooltip_text = "Foundation: %d timber. Carry %d; have %d floors." % [

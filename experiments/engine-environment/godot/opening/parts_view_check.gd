@@ -1801,6 +1801,7 @@ func _workshop_pages() -> void:
 		view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
 			"Q": {"raw": 1, "timber": 3, "components": {}}}
 		view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0}}
+		view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
 		view.state.component_capacity = 20
 		view.state.freight_beacon = {"id": "first-freight-beacon", "order_complete": false}
 		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
@@ -1854,6 +1855,24 @@ func _workshop_pages() -> void:
 			and panel.field_craft_button.is_visible_in_tree() and panel.craft_button.is_visible_in_tree()
 			and not view.save_button.is_visible_in_tree() and not view.load_button.is_visible_in_tree(),
 			"Ordinary E shows pod crafting directly in its centered panel.")
+		verify(panel.foundation_craft_button.is_visible_in_tree()
+			and panel.foundation_craft_label.is_visible_in_tree()
+			and panel.foundation_craft_label.text == "Foundation\n2 timber",
+			"The foundation icon has its own visible name and projected cost beside the selected component recipe.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-foundation-label.png") == OK,
+				"Retain the visible foundation label in the ordinary workshop panel.")
+		view._fit_object_menu(Vector2i(640, 480))
+		await process_frame
+		var icon_rect: Rect2 = panel.foundation_craft_button.get_global_rect()
+		var label_rect: Rect2 = panel.foundation_craft_label.get_global_rect()
+		var operations_rect: Rect2 = view.object_menu_operations.get_global_rect()
+		verify(icon_rect.end.x <= label_rect.position.x + 1.0
+			and label_rect.end.x <= operations_rect.end.x + 1.0
+			and label_rect.end.y <= operations_rect.end.y + 1.0,
+			"The foundation icon and bill remain adjacent inside a narrow workshop panel.")
+		view._fit_object_menu(Vector2i(1280, 800))
 		view._input(escape)
 		verify(not view.object_menu.visible and not view.pause_menu.visible,
 			"Escape closes an object panel without opening the worksite menu underneath it.")
@@ -2008,6 +2027,8 @@ func _field_craft_widget() -> void:
 	panel.craft_tab.pressed.emit()
 	verify(panel.foundation_craft_button.visible and not panel.foundation_craft_button.disabled
 		and panel.foundation_craft_button.icon != null
+		and panel.foundation_craft_label.visible
+		and panel.foundation_craft_label.text == "Foundation\n2 timber"
 		and "2 timber" in panel.foundation_craft_button.tooltip_text
 		and "Craft one foundation" in panel.foundation_craft_button.accessibility_name,
 		"The ordinary workshop exposes a focused foundation icon with the native timber bill.")
