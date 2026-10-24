@@ -55,6 +55,9 @@ class OfflineWorkshopWidgets extends OfflineWidgets:
 	func _screen_pick(_screen: Vector2) -> Dictionary:
 		return {"collider": freight_body} if freight_body != null else {}
 	func issue(action: Dictionary) -> Dictionary:
+		if action.get("action", "") == "turn_press_crank":
+			issued.append(action.duplicate(true))
+			return {"accepted": true}
 		if str(action.get("action", "")).begins_with("deliver_"):
 			issued.append(action.duplicate(true))
 			return {"accepted": accept_shipping}
@@ -1931,6 +1934,57 @@ func _workshop_pages() -> void:
 		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
 			"F in the press panel uses its visible feed button and existing request payload.")
 		view.issued.clear()
+		if not shared:
+			view.state.dropped_material = [{"center": [8, 0, 8], "work_id": 1}]
+			panel.refresh(view.state, view.client, view.selected, true)
+			var turn_payload := {"action": "turn_press_crank", "entity": "press-anvil",
+				"drive": "press-shaft", "exit": [7, 0, 8]}
+			verify(not panel.turn_button.disabled and "Hold T" in panel.turn_button.tooltip_text,
+				"Retained work enables the described held crank action.")
+			panel.turn_button.button_down.emit()
+			panel.turn_button.pressed.emit()
+			await create_timer(0.40).timeout
+			verify(view.issued.size() >= 2 and view.issued.all(func(action: Variant) -> bool:
+				return action == turn_payload),
+				"Holding the pointer sends repeated exact native turn requests after one immediate turn.")
+			panel.turn_button.button_up.emit()
+			var pointer_turn_count: int = view.issued.size()
+			await create_timer(0.40).timeout
+			verify(view.issued.size() == pointer_turn_count and panel.turn_hold_source.is_empty(),
+				"Pointer release stops the crank without a trailing request.")
+			view.issued.clear()
+			var turn_key := InputEventKey.new()
+			turn_key.keycode = KEY_T
+			turn_key.pressed = true
+			view._input(turn_key)
+			turn_key.echo = true
+			view._input(turn_key)
+			verify(view.issued == [turn_payload],
+				"T starts with one exact turn and ignores keyboard auto-repeat.")
+			await create_timer(0.40).timeout
+			verify(view.issued.size() >= 2 and view.issued.all(func(action: Variant) -> bool:
+				return action == turn_payload),
+				"Holding T advances retained work through the same native payload.")
+			turn_key.echo = false
+			turn_key.pressed = false
+			view._input(turn_key)
+			var key_turn_count: int = view.issued.size()
+			await create_timer(0.40).timeout
+			verify(view.issued.size() == key_turn_count and panel.turn_hold_source.is_empty(),
+				"T release stops the crank without a trailing request.")
+			view.issued.clear()
+			panel.turn_button.button_down.emit()
+			panel.turn_button.pressed.emit()
+			panel.turn_button.focus_exited.emit()
+			verify(panel.turn_hold_source.is_empty() and panel.turn_repeat_timer.is_stopped(),
+				"Leaving the turn control cancels a pointer hold.")
+			view.issued.clear()
+			view.state.dropped_material = [{"center": [8, 0, 8], "offcuts": 1}]
+			panel.refresh(view.state, view.client, view.selected, true)
+			verify(panel.turn_button.disabled and "Pick up the copper offcut" in panel.turn_button.tooltip_text,
+				"A retained offcut blocks held turns until it is recovered.")
+			view.state.erase("dropped_material")
+			panel.refresh(view.state, view.client, view.selected, true)
 		panel.refresh(view.state, view.client, view.selected, false)
 		verify(panel.press_section.is_visible_in_tree() and panel.feed_button.disabled
 			and panel.feed_button.tooltip_text.contains("Wait for the character")
@@ -1981,8 +2035,18 @@ func _workshop_pages() -> void:
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-guided-ram-menu.png") == OK,
 				"Retain the passive guided ram action panel.")
+		if not shared:
+			view.state.dropped_material = [{"center": [8, 0, 8], "work_id": 2}]
+			panel.refresh(view.state, view.client, view.selected, true)
+			panel.turn_button.button_down.emit()
+			panel.turn_button.pressed.emit()
 		view.object_menu.hide()
 		await process_frame
+		if not shared:
+			verify(panel.turn_hold_source.is_empty() and panel.turn_repeat_timer.is_stopped(),
+				"Closing the object menu cancels a held crank before another request.")
+			view.issued.clear()
+			view.state.erase("dropped_material")
 		panel.press_tab.pressed.emit()
 		view._refresh_ui()
 		verify(panel.press_section.visible and not panel.press_section.is_visible_in_tree(),

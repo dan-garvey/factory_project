@@ -2218,25 +2218,68 @@ func _arrival_run() -> void:
 			"The panel moves one carried blank into retained press work"):
 		return
 	var ready_die_y: float = _guided_die_y(str(ready.parts.ram)) if raised else NAN
-	for turn in range(3):
-		if not _expect(not panel.turn_button.disabled, "A retained workpiece enables the selected drive"):
+	if mode == "arrival-press":
+		opening._open_object_menu_for(str(ready.anvil))
+		if not _expect(opening.object_menu.visible and panel.turn_button.is_visible_in_tree()
+				and not panel.turn_button.disabled,
+				"The physical worker can hold the crank in the ordinary press E menu"):
 			return
+		var before_hold_order: int = opening.model.projection().order
+		panel.turn_button.button_down.emit()
 		panel.turn_button.pressed.emit()
-		if raised:
-			var die_y: float = _guided_die_y(str(ready.parts.ram))
-			if not _expect(is_finite(ready_die_y) and is_finite(die_y)
-					and (die_y < ready_die_y - 0.01 if turn == 1 else absf(die_y - ready_die_y) < 0.001),
-					"The raised die follows confirmed hand-turn work and returns after forming: %s" %
-					str({"turn": turn, "rest": ready_die_y, "current": die_y,
-						"work": opening.model.projection().dropped_material})):
+		var first_turn: Dictionary = opening.model.projection()
+		if not _expect(first_turn.order == before_hold_order + 1
+				and not first_turn.dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
+				and first_turn.material_mass.accounted_mass == 64,
+				"The first held input advances one authoritative turn and retains partial copper work"):
+			return
+		if not _expect("0 / 2 steps" in panel.press_status.text,
+				"The press panel shows projected held-turn progress: %s" % panel.press_status.text):
+			return
+		var progress_deadline: int = Time.get_ticks_msec() + 1500
+		while Time.get_ticks_msec() < progress_deadline and opening.model.projection().order < before_hold_order + 2:
+			await process_frame
+		if not _expect(opening.model.projection().order == before_hold_order + 2
+				and "1 / 2 steps" in panel.press_status.text,
+				"The held action exposes the next native stroke step before completion: %s" % panel.press_status.text):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-held-work.png") == OK,
+					"The in-progress held crank and retained work are visible in passive scene pixels"):
 				return
-			if turn == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-				for frame in range(3):
-					await process_frame
-					await RenderingServer.frame_post_draw
-				if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-raised-held.png") == OK,
-						"The retained billet is captured at the actor-built raised press"):
+		var hold_deadline: int = Time.get_ticks_msec() + 2500
+		while Time.get_ticks_msec() < hold_deadline and not opening.model.projection().dropped_material.any(
+				func(drop: Variant) -> bool: return drop.products == 1):
+			await process_frame
+		panel.turn_button.button_up.emit()
+		var after_hold_order: int = opening.model.projection().order
+		await create_timer(0.40).timeout
+		if not _expect(after_hold_order == before_hold_order + 3
+				and opening.model.projection().order == after_hold_order
+				and panel.turn_hold_source.is_empty(),
+				"One held pointer gesture advances exactly three native turns and stops on release"):
+			return
+	else:
+		for turn in range(3):
+			if not _expect(not panel.turn_button.disabled, "A retained workpiece enables the selected drive"):
+				return
+			panel.turn_button.pressed.emit()
+			if raised:
+				var die_y: float = _guided_die_y(str(ready.parts.ram))
+				if not _expect(is_finite(ready_die_y) and is_finite(die_y)
+						and (die_y < ready_die_y - 0.01 if turn == 1 else absf(die_y - ready_die_y) < 0.001),
+						"The raised die follows confirmed hand-turn work and returns after forming: %s" %
+						str({"turn": turn, "rest": ready_die_y, "current": die_y,
+							"work": opening.model.projection().dropped_material})):
 					return
+				if turn == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+					for frame in range(3):
+						await process_frame
+						await RenderingServer.frame_post_draw
+					if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-raised-held.png") == OK,
+							"The retained billet is captured at the actor-built raised press"):
+						return
 	var after: Dictionary = opening.model.projection()
 	if not _expect(after.dropped_material.size() == 2
 			and after.dropped_material.any(func(drop: Variant) -> bool:

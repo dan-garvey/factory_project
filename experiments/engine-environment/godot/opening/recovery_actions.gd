@@ -328,6 +328,7 @@ class ArrivalAssemblyControls:
 		"missing_shaft": "Fit a shaft beside the receiver or behind the frame.",
 		"ambiguous": "Remove the extra fitting so this collector has one shaft and receiver.",
 	}
+	const TURN_REPEAT_SECONDS := 0.33
 
 	var selected_component := "wooden_frame"
 	var selected_bench := ""
@@ -375,12 +376,17 @@ class ArrivalAssemblyControls:
 	var compact_button: Button
 	var refeed_work_button: Button
 	var turn_button: Button
+	var turn_repeat_timer: Timer
+	var turn_hold_source := ""
 	var pickup_button: Button
 	var recover_work_button: Button
 	var craft_section: VBoxContainer
 	var press_section: VBoxContainer
 	var craft_tab: Button
 	var press_tab: Button
+
+	func _ready() -> void:
+		get_window().focus_exited.connect(stop_turn_hold)
 
 	func configure(host) -> void:
 		_host = weakref(host)
@@ -496,6 +502,15 @@ class ArrivalAssemblyControls:
 		_style_workshop_icon(refeed_work_button, "press-refeed")
 		turn_button = host._button(press_actions, "", _turn)
 		_style_workshop_icon(turn_button, "press-turn")
+		turn_button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+		turn_button.button_down.connect(_start_turn_hold.bind("pointer"))
+		turn_button.button_up.connect(stop_turn_hold.bind("pointer"))
+		turn_button.focus_exited.connect(stop_turn_hold)
+		turn_repeat_timer = Timer.new()
+		turn_repeat_timer.wait_time = TURN_REPEAT_SECONDS
+		turn_repeat_timer.one_shot = true
+		turn_repeat_timer.timeout.connect(_repeat_turn)
+		add_child(turn_repeat_timer)
 		compact_button = host._button(press_actions, "", _compact_offcuts)
 		compact_button.icon = load("res://opening/assets/menu-icons/compact-offcuts.svg")
 		compact_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -573,6 +588,7 @@ class ArrivalAssemblyControls:
 			_update_page()
 
 	func close_for_shipment() -> void:
+		stop_turn_hold()
 		_context_page = false
 		_page_open = false
 		_update_page()
@@ -795,6 +811,15 @@ class ArrivalAssemblyControls:
 				advice = "Pick up the copper offcut beneath the ram before feeding again." if int(work.get("offcuts", 0)) > 0 \
 					else "Exit holds a plate; pick it up, then turn again." if int(exit_drop.get("products", 0)) > 0 \
 					else "Turn the crank to advance retained work."
+				var work_lots: Array = work.get("work_lots", [])
+				if int(work.get("offcuts", 0)) == 0 and not work_lots.is_empty() and work_lots[0] is Dictionary:
+					var cycle: int = int(work_lots[0].get("cycle_ticks", 0))
+					var remaining: int = int(work_lots[0].get("remaining", 0))
+					if cycle > 0 and remaining > 0 and remaining <= cycle:
+						if exit_drop.is_empty():
+							advice = "Work stroke: %d / %d steps. Hold T or the turn icon." % [cycle - remaining, cycle]
+						else:
+							advice = "Exit holds a plate; stroke %d / %d steps. Pick it up before the final step." % [cycle - remaining, cycle]
 			press_status.text = "Press ready · %d clear feed routes. %s" % [routes.size(), advice]
 		else:
 			press_status.text = "Press: %s. %s" % [status.replace("_", " "), PRESS_NEXT.get(status,
@@ -823,12 +848,17 @@ class ArrivalAssemblyControls:
 			"Reinsert the selected held work")
 		refeed_work_button.accessibility_name = "Reinsert selected held work, shortcut R"
 		turn_button.visible = not _anvil.is_empty()
-		turn_button.disabled = not can_operate or crank.get("holder") != actor or _work_drop().is_empty()
+		turn_button.disabled = not can_operate or crank.get("holder") != actor or _work_drop().is_empty() \
+			or int(_work_drop().get("offcuts", 0)) > 0
+		if changed_target or turn_button.disabled or not turn_button.visible:
+			stop_turn_hold()
 		turn_button.tooltip_text = "%s · T" % (operate_cause if not can_operate else \
 			"Take the pod crank" if crank.get("holder") != actor else \
 			"Feed or reinsert work beneath the ram" if _work_drop().is_empty() else \
-			"Turn the held crank once")
-		turn_button.accessibility_name = "Turn the guided press crank once, shortcut T"
+			"Pick up the copper offcut beneath the ram" if int(_work_drop().get("offcuts", 0)) > 0 else \
+			"Exit holds a plate; turn until blocked, then pick it up" if not _exit_drop().is_empty() else \
+			"Hold T or the icon to turn the crank; release to stop")
+		turn_button.accessibility_name = "Hold to turn the guided press crank, shortcut T"
 		pickup_button.visible = not _anvil.is_empty()
 		pickup_button.disabled = not ready or _exit_drop().is_empty()
 		pickup_button.tooltip_text = "%s · P" % ("Wait for the character" if not ready else \
@@ -1048,13 +1078,46 @@ class ArrivalAssemblyControls:
 			host.issue({"action": "refeed_press_work", "entity": _anvil,
 				"entry": route.entry, "work_id": _held_work_id})
 
-	func _turn() -> void:
+	func _turn() -> bool:
 		var host = _host_view()
 		var route := _route()
 		var parts: Dictionary = _press.get("parts", {})
 		if host != null and not route.is_empty() and parts.has("shaft"):
-			host.issue({"action": "turn_press_crank", "entity": _anvil,
+			var outcome: Dictionary = host.issue({"action": "turn_press_crank", "entity": _anvil,
 				"drive": parts.shaft, "exit": route.exit})
+			return outcome.get("accepted", false)
+		return false
+
+	func press_turn_key() -> bool:
+		if not turn_button.is_visible_in_tree() or turn_button.disabled:
+			return false
+		if turn_hold_source.is_empty():
+			turn_button.pressed.emit()
+			_start_turn_hold("key")
+		return true
+
+	func _start_turn_hold(source: String) -> void:
+		if not turn_hold_source.is_empty() or not turn_button.is_visible_in_tree() or turn_button.disabled:
+			return
+		turn_hold_source = source
+		turn_repeat_timer.start()
+
+	func stop_turn_hold(source: String = "") -> void:
+		if not source.is_empty() and turn_hold_source != source:
+			return
+		turn_hold_source = ""
+		if turn_repeat_timer != null:
+			turn_repeat_timer.stop()
+
+	func _repeat_turn() -> void:
+		if turn_hold_source.is_empty() or not turn_button.is_visible_in_tree() or turn_button.disabled:
+			stop_turn_hold()
+			return
+		if not _turn():
+			stop_turn_hold()
+			return
+		if not turn_hold_source.is_empty() and turn_button.is_visible_in_tree() and not turn_button.disabled:
+			turn_repeat_timer.start()
 
 	func _pickup_at(drop: Dictionary) -> void:
 		var host = _host_view()
