@@ -2084,7 +2084,7 @@ func _workshop_pages() -> void:
 		view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0}}
 		view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
 		view.state.component_capacity = 20
-		view.state.freight_beacon = {"id": "first-freight-beacon", "order_complete": false}
+		view.state.workshop_completed_actors = []
 		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 		view.state.fabrication_benches = [{"id": "field-bench", "center": [4, 0, 4]}]
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
@@ -2296,7 +2296,7 @@ func _workshop_pages() -> void:
 		view.object_menu.hide()
 		await process_frame
 		verify(view.selected.is_empty() and not view.object_menu.visible,
-			"Leaving the press panel releases its selected target before freight interaction.")
+			"Leaving the press panel releases its selected target for another interaction.")
 		view.pointed = "press-ram"
 		view._open_pointed_machine()
 		verify(view.object_menu.visible and view.object_menu_target == "press-ram"

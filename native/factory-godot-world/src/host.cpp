@@ -505,9 +505,6 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "deploy_fabrication_hub" && keys(*wire, {"entity", "center"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "center") &&
             same("entity", "target") && same("center", "center");
-    if (*action == "deliver_first_plate" || *action == "deliver_repeat_plate")
-        return *original_action == *action && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "craft_part")
         return *original_action == "craft_part" && keys(*wire, {"entity", "role", "half_span"}) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "role") &&
@@ -844,7 +841,7 @@ Value material_mass_value(const materials::State& state, const materials::Config
     Integer stock_chunks = state.stock.source + state.stock.collector +
         state.stock.belt + state.stock.input;
     Integer work_chunks = state.processing ? state.processing->recipe.input_units_per_product : 0;
-    Integer plates = state.stock.output + state.shipped_products;
+    Integer plates = state.stock.output;
     Integer offcuts = state.stock.offcuts;
     Integer sheets = 0;
     Integer embodied_chunks = state.fabricated_raw;
@@ -985,8 +982,6 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         seed.issued_entities.emplace("landing-pod", 1);
         seed.fabrication_hub = world::FabricationHub{"pod-fabrication-hub", world::landing_hub_center(center), 1};
         seed.issued_entities.emplace(seed.fabrication_hub->id, 1);
-        seed.freight_beacon = world::FreightBeacon{"first-freight-beacon", world::landing_freight_center(center), 1};
-        seed.issued_entities.emplace(seed.freight_beacon->id, 1);
         seed.hand_crank = world::HandCrank{"pod-hand-crank", 1, std::nullopt};
         seed.issued_entities.emplace(seed.hand_crank->id, 1);
         const auto deck = world::landing_deck_centers(center);
@@ -1592,14 +1587,6 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     } else if (*action == "finish_harvest" || *action == "cancel_harvest") {
         if (!keys(wire, {})) return refuse("invalid_command");
         normalized.at("action") = Value(*action);
-    } else if (*action == "deliver_first_plate" || *action == "deliver_repeat_plate") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
-            return refuse("invalid_command");
-        normalized.at("action") = Value(*action);
-        normalized.emplace("target", wire.at("entity"));
-        normalized.emplace("generation", Value(snapshot.state.freight_beacon &&
-            snapshot.state.freight_beacon->id == *field<std::string>(wire, "entity") ?
-            snapshot.state.freight_beacon->generation : Integer{0}));
     } else if (*action == "craft_foundation") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -2734,19 +2721,10 @@ Value Host::projection() const {
         projection.emplace("foundation_recipe", Value(Object{{"timber", Value(world::foundation_timber_cost)},
             {"softmetal", Value(Integer{0})}}));
         projection.emplace("component_capacity", Value(profile_.material.component_capacity));
-        const auto& beacon = *state.freight_beacon;
-        projection.emplace("freight_beacon", Value(Object{{"id", Value(beacon.id)},
-            {"generation", Value(beacon.generation)},
-            {"center", Value(Array{Value(beacon.center[0] / height_denominator),
-                Value(beacon.center[1]), Value(beacon.center[2] / height_denominator)})},
-            {"position", Value(Array{Value(beacon.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
-                Value(beacon.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
-                Value(beacon.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})},
-            {"shipped_products", Value(state.material.shipped_products)},
-            {"order_complete", Value(state.material.shipped_products >= 1)},
-            {"repeat_order_shipped", Value(std::max<Integer>(0, state.material.shipped_products - 1))},
-            {"repeat_order_target", Value(world::repeat_order_target)},
-            {"repeat_order_complete", Value(state.material.shipped_products == world::completed_freight_target)}}));
+        Array completed;
+        for (const auto& actor : state.workshop_completed_actors)
+            completed.emplace_back(actor);
+        projection.emplace("workshop_completed_actors", Value(std::move(completed)));
         const auto& crank = *state.hand_crank;
         projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
             {"generation", Value(crank.generation)},

@@ -313,7 +313,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"remaining_ticks", Value(cut.remaining_ticks)},
                 {"interrupted_revision", Value(cut.interrupted_revision)}}));
         Value output(Object{
-            {"schema", Value(Integer{15})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{16})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -346,10 +346,10 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"center", Value(Array{Value(hub.center[0]), Value(hub.center[1]), Value(hub.center[2])})},
                 {"generation", Value(hub.generation)},
                 {"holder", hub.holder ? Value(*hub.holder) : Value(nullptr)}}));
-            const auto& beacon = *snapshot.state.freight_beacon;
-            state.emplace("freight_beacon", Value(Object{{"id", Value(beacon.id)},
-                {"center", Value(Array{Value(beacon.center[0]), Value(beacon.center[1]), Value(beacon.center[2])})},
-                {"generation", Value(beacon.generation)}}));
+            Array completed;
+            for (const auto& actor : snapshot.state.workshop_completed_actors)
+                completed.emplace_back(actor);
+            state.emplace("workshop_completed_actors", Value(std::move(completed)));
             const auto& crank = *snapshot.state.hand_crank;
             state.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
                 {"generation", Value(crank.generation)},
@@ -436,7 +436,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 15) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 16) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -446,7 +446,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts"});
@@ -482,14 +482,11 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                  scalar<Integer>(hub_center[1], "$.state.fabrication_hub.center"),
                  scalar<Integer>(hub_center[2], "$.state.fabrication_hub.center")},
                 integer(hub, "generation", "$.state.fabrication_hub"), std::move(hub_holder)};
-            const auto& beacon = fields(state.at("freight_beacon"), "$.state.freight_beacon", {"id", "center", "generation"});
-            const auto& beacon_center = array(beacon.at("center"), "$.state.freight_beacon.center", 3);
-            if (beacon_center.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.freight_beacon.center");
-            candidate.state.freight_beacon = FreightBeacon{scalar<std::string>(beacon.at("id"), "$.state.freight_beacon.id"),
-                {scalar<Integer>(beacon_center[0], "$.state.freight_beacon.center"),
-                 scalar<Integer>(beacon_center[1], "$.state.freight_beacon.center"),
-                 scalar<Integer>(beacon_center[2], "$.state.freight_beacon.center")},
-                integer(beacon, "generation", "$.state.freight_beacon")};
+            for (const auto& actor : array(state.at("workshop_completed_actors"),
+                     "$.state.workshop_completed_actors", profile.actors.size()))
+                if (!candidate.state.workshop_completed_actors.insert(
+                        scalar<std::string>(actor, "$.state.workshop_completed_actors")).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.workshop_completed_actors");
             const auto& crank = fields(state.at("hand_crank"), "$.state.hand_crank",
                 {"id", "generation", "holder"});
             std::optional<std::string> holder;

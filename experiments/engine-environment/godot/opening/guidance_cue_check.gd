@@ -320,6 +320,7 @@ func check_inventory_goal_view() -> void:
 	shared._refresh_ui()
 	view.state = view.state.duplicate(true)
 	view.state.cargo.P.products = 1
+	view.state.workshop_completed_actors = ["P"]
 	view._refresh_ui()
 	shared.state = view.state.duplicate(true)
 	shared._refresh_ui()
@@ -336,6 +337,12 @@ func check_inventory_goal_view() -> void:
 	view._refresh_ui()
 	verify(view.workshop_completion_cue_count == 1,
 		"Refresh does not replay the completion sound.")
+	view.state.cargo.P.products = 0
+	view._refresh_ui()
+	verify("FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
+		and view.manager_log_completion_entry.visible
+		and view.workshop_completion_cue_count == 1,
+		"Using the carried plate later does not erase the completed workshop.")
 	var reopened := FooterView.new()
 	reopened.model = source
 	reopened.client = "P"
@@ -349,6 +356,8 @@ func check_inventory_goal_view() -> void:
 		"A reopened projection shows completion without replaying the acquisition sound.")
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--inventory-goal-screenshot="):
+			shared.arrival_gameplay_canvas.visible = false
+			reopened.arrival_gameplay_canvas.visible = false
 			for _frame in range(12):
 				await process_frame
 			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--inventory-goal-screenshot=")) == OK,

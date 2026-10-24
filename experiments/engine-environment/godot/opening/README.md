@@ -17,11 +17,10 @@ authority's provisional four-world-unit sphere. Move closer after a refusal
 and deliberately retry. A wheel in flowing water drives connected parts automatically.
 Read-only pointer summaries and object details, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
-In the new arrival, the first Meridian order instead asks for one actual
-formed plate at the east SHIP marker. Carry the plate to its ground pointer and
-press **E** while pointing at the marker. The native receipt removes exactly one
-plate from actor cargo, persists through save/rejoin and leaves the workshop
-open for more construction. The four-plate confirmation above describes the
+In the new arrival, the first workshop completes when the actor collects one
+formed plate in inventory. The plate stays in physical custody and can be used
+later without erasing the completed goal. Each actor's milestone persists through
+save/rejoin while the workshop remains open for construction. The four-plate confirmation above describes the
 older complete-machine fixture, not an arrival objective.
 Point at a workshop, collector or press and use **E** to open a centered object
 panel. The workshop's craft and route sections share that panel. **Esc** closes

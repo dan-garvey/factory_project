@@ -71,10 +71,8 @@ Site site() {
     state.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub",
         w::landing_hub_center(*profile.landing_pod_center), 1};
-    state.freight_beacon = w::FreightBeacon{"first-freight-beacon",
-        w::landing_freight_center(*profile.landing_pod_center), 1};
     state.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
-    state.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1}, {"first-freight-beacon", 1},
+    state.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1},
         {"pod-hand-crank", 1}, {"press-wheel", 1}};
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {
@@ -1173,25 +1171,18 @@ void actor_feed_is_physical_custody() {
         }
     check(!w::World::restore("press-feed", source.profile, forged_finish),
           "An unrelated accepted command cannot impersonate an automatic press tick in a saved pickup.");
-    Runner freight(source);
-    freight.world = w::World::restore("press-feed", source.profile, run.world->snapshot());
-    check(freight.world != nullptr, "The formed plate has a valid native shipment starting state.");
-    freight.p = {9.9, 1, 6.6};
-    auto repeat_order = request("P", "early-repeat-shipment", "deliver_repeat_plate");
-    repeat_order.emplace("target", V("first-freight-beacon"));
-    repeat_order.emplace("generation", V(I{1}));
-    freight.refuses("P", repeat_order, "first_order_open");
-    check(freight.world->snapshot().state.material.cargo.at("P").products == 1,
-          "An early follow-up request leaves the physically carried plate untouched.");
-    auto first_order = repeat_order;
-    first_order.at("request") = V("ship-first-native-plate");
-    first_order.at("action") = V("deliver_first_plate");
-    check(std::get<I>(freight.accept("P", first_order).at("shipped_products").storage()) == 1 &&
-          freight.world->snapshot().state.material.cargo.at("P").products == 0 &&
-          w::World::restore("press-feed", source.profile, freight.world->snapshot()) != nullptr,
-          "The direct World route ships one real plate and restores its first-order receipt.");
-    repeat_order.at("request") = V("empty-native-repeat");
-    freight.refuses("P", repeat_order, "no_plate");
+    const auto acquired = run.world->snapshot();
+    check(acquired.state.workshop_completed_actors == std::set<std::string>{"P"} &&
+          w::World::restore("press-feed", source.profile, acquired) != nullptr,
+          "P's first physically collected plate completes only P's saved workshop goal.");
+    auto forged_goal = acquired;
+    forged_goal.state.workshop_completed_actors.clear();
+    check(!w::World::restore("press-feed", source.profile, forged_goal),
+          "A checkpoint cannot erase the witnessed carried-plate completion.");
+    auto retired_delivery = request("P", "retired-delivery", "deliver_first_plate");
+    retired_delivery.emplace("target", V("first-freight-beacon"));
+    retired_delivery.emplace("generation", V(I{1}));
+    run.refuses("P", retired_delivery, "invalid_command");
     auto retake_crank = take;
     retake_crank.at("request") = V("retake-press-crank");
     run.p = {1.65, 1, 6.6};

@@ -9230,7 +9230,7 @@ func _catalog_open() -> bool:
 func _refresh_manager_log() -> void:
 	if manager_log_current == null or goal_label == null:
 		return
-	var complete: bool = int(state.get("cargo", {}).get(client, {}).get("products", 0)) > 0
+	var complete: bool = state.get("workshop_completed_actors", []).has(client)
 	manager_log_completion_entry.visible = complete
 	manager_log_projects.visible = complete
 	var viewport_height := get_viewport().get_visible_rect().size.y
@@ -9330,7 +9330,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	var inventory := int(state.get("inventories", {}).get(client, 0))
 	goal_progress.value = clampi(inventory, 0, 4)
 	goal_progress.visible = not arrival
-	var workshop_complete: bool = arrival and int(state.get("cargo", {}).get(client, {}).get("products", 0)) > 0
+	var workshop_complete: bool = arrival and state.get("workshop_completed_actors", []).has(client)
 	objective_heading.text = ("FIRST WORKSHOP  /  COMPLETE" if workshop_complete else "FIRST WORKSHOP  /  01") \
 		if arrival else "FIRST SHIFT  /  01"
 	if arrival:
