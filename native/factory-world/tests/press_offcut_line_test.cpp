@@ -117,7 +117,7 @@ struct Runner {
     a::Point q{0.8, 1, 0.8};
     explicit Runner(const Site& source)
         : world(w::World::create("press-offcut-line", source.profile, source.state)) {
-        check(world != nullptr, "The finite three-drive site initializes without gifted press parts.");
+    check(world != nullptr, "The finite powered site initializes without gifted press parts.");
     }
     O accept(const std::string& actor, const O& intent) {
         const w::ObserveActor observe = [this](const std::string& selected) -> std::optional<a::ActorCut> {
@@ -136,7 +136,7 @@ struct Runner {
     }
 };
 
-void run_line(bool plate_receiver) {
+void run_line(bool plate_receiver, bool preassembly_raw = false) {
     const auto source = site(plate_receiver);
     Runner run(source);
     run.p = {4.95, 1, 9.9};
@@ -150,6 +150,54 @@ void run_line(bool plate_receiver) {
         auto cut = request("P", "ore-" + std::to_string(index), "harvest_source");
         cut.emplace("target", V("ore"));
         run.accept("P", cut);
+    }
+    if (preassembly_raw) {
+        auto early = request("P", "early-belt-blank", "load_belt_slot");
+        early.emplace("target", V("input-belt"));
+        early.emplace("generation", V(I{1}));
+        early.emplace("slot", V(I{0}));
+        early.emplace("item", V("raw"));
+        early.emplace("work_id", V(I{0}));
+        run.accept("P", early);
+        for (int tick = 0; tick < 24 &&
+                !run.world->snapshot().state.material.dropped_material.contains({0, 0, 0}); ++tick)
+            check(run.world->tick().error == w::TransactionError::none,
+                  "The powered input belt advances its first blank before press assembly.");
+        const auto landed = run.world->snapshot();
+        check(landed.state.material.dropped_material.at({0, 0, 0}) == m::Cargo{1, 0, {}} &&
+              landed.state.belt_press_work.at({0, 0, 0}) == 0 &&
+              std::holds_alternative<V>(w::encode_checkpoint(source.profile, landed)) &&
+              w::World::restore("press-offcut-line", source.profile, landed) != nullptr,
+              "One belt-discharged raw blank keeps its physical origin before the press exists.");
+        Runner recovered(source);
+        recovered.world = w::World::restore("press-offcut-line", source.profile, landed);
+        auto pickup = request("P", "recover-early-blank", "pickup_material");
+        pickup.emplace("center", V(point(0, 0, 0)));
+        pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+        recovered.accept("P", pickup);
+        const auto recovered_state = recovered.world->snapshot();
+        check(!recovered_state.state.belt_press_work.contains({0, 0, 0}) &&
+              std::holds_alternative<V>(w::encode_checkpoint(source.profile, recovered_state)),
+              "Picking up the waiting blank clears its belt-to-press claim.");
+        Runner stacked(source);
+        stacked.world = w::World::restore("press-offcut-line", source.profile, landed);
+        auto second = early;
+        second.at("request") = V("stack-early-blank");
+        stacked.accept("P", second);
+        for (int tick = 0; tick < 24 &&
+                stacked.world->snapshot().state.material.dropped_material.at({0, 0, 0}).raw_units < 2; ++tick)
+            check(stacked.world->tick().error == w::TransactionError::none,
+                  "A second belt blank reaches the preassembly ground pile.");
+        const auto stacked_state = stacked.world->snapshot();
+        check(stacked_state.state.material.dropped_material.at({0, 0, 0}).raw_units == 2 &&
+              !stacked_state.state.belt_press_work.contains({0, 0, 0}) &&
+              std::holds_alternative<V>(w::encode_checkpoint(source.profile, stacked_state)),
+              "A stacked raw pile cannot retain a one-blank press claim.");
+        auto forged_stack = stacked_state;
+        forged_stack.state.belt_press_work[{0, 0, 0}] = 0;
+        check(!w::validate(source.profile, forged_stack),
+              "A stacked drop refuses a forged one-blank press claim.");
     }
     run.p = {1.65, 1, 6.6};
     for (const char* kind : {"anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"}) {
@@ -199,7 +247,7 @@ void run_line(bool plate_receiver) {
     }
     check(w::World::restore("press-offcut-line", source.profile, run.world->snapshot()) != nullptr,
           "The actual fitted press, inlet, outlet and tray restore before work begins.");
-    for (int slot = 0; slot < 4; ++slot) {
+    for (int slot = preassembly_raw ? 1 : 0; slot < 4; ++slot) {
         run.p = {1.65 + (20 - 4 * slot) * 0.4125, 1, 0};
         auto load = request("P", "load-raw-" + std::to_string(slot), "load_belt_slot");
         load.emplace("target", V("input-belt"));
@@ -215,18 +263,26 @@ void run_line(bool plate_receiver) {
     bool one_plate_checked = false;
     for (int tick = 0; tick < 40; ++tick) {
         check(run.world->tick().error == w::TransactionError::none,
-              "The connected three-drive line advances under native power.");
+              "The connected press line advances under native power.");
         const auto current = run.world->snapshot();
         if (plate_receiver && !one_plate_checked &&
             current.state.press_output_at_receiver.contains({-1, 0, 0})) {
             const auto& ids = current.state.press_output_at_receiver.at({-1, 0, 0});
             check(ids.size() == 1 && current.state.belt_press_products.contains({-1, 0, 0}) &&
                   current.state.belt_press_products.at({-1, 0, 0}).contains(*ids.begin()) &&
+                  (!preassembly_raw || *ids.begin() == 1) &&
                   current.state.material.dropped_material.at({-1, 0, 0}) == m::Cargo{0, 1, {}},
                   "The first belt-fed plate sits in its real fitted receiver.");
             check(std::holds_alternative<V>(w::encode_checkpoint(source.profile, current)) &&
                   w::World::restore("press-offcut-line", source.profile, current) != nullptr,
                   "A lone belt-fed plate in a receiver can save before the next turn.");
+            if (preassembly_raw) {
+                auto forged = current;
+                forged.state.belt_press_products[{0, 0, 1}].insert(*ids.begin());
+                check(!w::validate(source.profile, forged) &&
+                      w::World::restore("press-offcut-line", source.profile, forged) == nullptr,
+                      "The early blank cannot claim a second plate at the offcut outlet.");
+            }
             one_plate_checked = true;
         }
         const auto tray = current.state.material.dropped_material.find({0, 0, 1});
@@ -333,6 +389,7 @@ int main() {
     try {
         run_line(false);
         run_line(true);
+        run_line(true, true);
         std::cout << "press_offcut_line_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
