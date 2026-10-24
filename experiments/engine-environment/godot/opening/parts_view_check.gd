@@ -1954,10 +1954,26 @@ func _workshop_pages() -> void:
 			and panel.collector_cut_button.is_visible_in_tree()
 			and not view.object_workshop_craft_column.visible,
 			"Ordinary E on a collector shows its cutting controls without unrelated crafting.")
+		verify(panel.collector_crank_button.text.is_empty() and panel.collector_cut_button.text.is_empty()
+			and panel.collector_crank_button.icon != null and panel.collector_cut_button.icon != null
+			and "Return crank" in panel.collector_crank_button.tooltip_text
+			and "Cut one ore blank" in panel.collector_cut_button.tooltip_text
+			and "shortcut T" in panel.collector_crank_button.accessibility_name
+			and "shortcut X" in panel.collector_cut_button.accessibility_name,
+			"Collector crank custody and cutting appear as described, focused icons.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-collector.png") == OK,
+				"Retain the ordinary collector menu with its two icon controls.")
 		action_key.keycode = KEY_X
 		view._input(action_key)
 		verify(view.issued == [{"action": "turn_hand_crank", "entity": "collector-shaft"}],
 			"X in the collector panel uses its visible cut button and existing request payload.")
+		view.issued.clear()
+		action_key.keycode = KEY_T
+		view._input(action_key)
+		verify(view.issued == [{"action": "return_hand_crank", "entity": "pod-hand-crank"}],
+			"T in the collector panel retains the exact crank-custody command.")
 		view.issued.clear()
 		verify(view.state == before and view.issued.is_empty() and view.model == null,
 			"Workshop disclosure changes only local presentation, with no request or native state mutation.")

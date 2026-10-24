@@ -447,9 +447,14 @@ class ArrivalAssemblyControls:
 		collector_status = host._label(craft_section, "", 12, Color("bfd1cc"))
 		collector_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var collector_actions := HBoxContainer.new()
+		collector_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		craft_section.add_child(collector_actions)
-		collector_crank_button = host._button(collector_actions, "Take pod crank", _crank)
-		collector_cut_button = host._button(collector_actions, "Cut ore deposit  X", _cut_collector)
+		collector_crank_button = host._button(collector_actions, "", _crank)
+		_style_workshop_icon(collector_crank_button, "workshop-crank")
+		collector_crank_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		collector_cut_button = host._button(collector_actions, "", _cut_collector)
+		_style_workshop_icon(collector_cut_button, "workshop-cut")
+		collector_cut_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		press_section = VBoxContainer.new()
 		column.add_child(press_section)
 		press_status = host._label(press_section, "Select a frame with E", 13, Color("bfd1cc"))
@@ -694,10 +699,23 @@ class ArrivalAssemblyControls:
 			collector_status.text = "Collector receiver holds an ore blank. Pick it up before another cut." if receiver_full else \
 				"Collector ready. Turn its fitted shaft to cut one ore blank." if collector_state == "ready" else \
 				"Collector: %s" % COLLECTOR_NEXT.get(collector_state, "Choose a clear ore-deposit frame.")
-			collector_crank_button.text = ("Return crank to pod" if crank.get("holder") == actor else "Take pod crank") + "  T"
+			var crank_action := "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
+			collector_crank_button.tooltip_text = "%s · T" % crank_action
+			collector_crank_button.accessibility_name = "%s, shortcut T" % crank_action
 			collector_crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
 			collector_cut_button.disabled = not ready or collector_state != "ready" or receiver_full \
 				or crank.get("holder") != actor or not collector_parts.has("shaft")
+			var cut_hint := "Cut one ore blank"
+			if not ready:
+				cut_hint = "Wait for the character"
+			elif receiver_full:
+				cut_hint = "Clear the receiver"
+			elif crank.get("holder") != actor:
+				cut_hint = "Carry the pod crank"
+			elif collector_state != "ready":
+				cut_hint = COLLECTOR_NEXT.get(collector_state, "Complete the collector")
+			collector_cut_button.tooltip_text = "%s · X" % cut_hint
+			collector_cut_button.accessibility_name = "Cut one ore blank at the selected collector, shortcut X"
 		crank_button.visible = not crank.is_empty()
 		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
 		crank_button.text = ("Return crank to pod" if crank.get("holder") == actor else "Take pod crank") + "  C"
