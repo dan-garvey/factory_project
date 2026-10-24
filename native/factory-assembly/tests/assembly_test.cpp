@@ -233,6 +233,14 @@ void guided_press_without_structure() {
           with_tray.press->offcut_receiver == g::Point{0, 0, 1} &&
           with_tray.press->open_feeds.size() == 2,
           "One side tray catches the shear outlet while the opposite feed remains open.");
+    placed.push_back(part("plate-tray", m::Component::receiver_tray, {-1, 0, 0}));
+    const auto with_plate_tray = a::inspect_guided_press(placed, ground);
+    check(with_plate_tray.status == a::PressStatus::ready && with_plate_tray.press &&
+          with_plate_tray.press->plate_receiver == g::Point{-1, 0, 0} &&
+          with_plate_tray.press->offcut_receiver == g::Point{0, 0, 1} &&
+          with_plate_tray.press->open_feeds.size() == 1,
+          "Only the opposite-drive receiver is a plate exit; the side tray retains offcuts.");
+    placed.pop_back();
     placed.push_back(part("second-offcut-tray", m::Component::receiver_tray, {0, 0, -1}));
     const auto ambiguous_trays = a::inspect_guided_press(placed, ground);
     check(ambiguous_trays.status == a::PressStatus::ready && ambiguous_trays.press &&
