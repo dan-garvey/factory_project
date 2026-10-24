@@ -111,6 +111,37 @@ void exact_bill_and_refusals() {
         "An unknown serialized component identity is refused.");
 }
 
+void integral_slide_custody() {
+    const auto facts = config();
+    const m::Path path{};
+    auto state = seed();
+    check(m::component_cost(m::Component::wooden_slide) == m::ComponentCost{3, 0} &&
+          m::component_cost(m::Component::softmetal_slide) == m::ComponentCost{0, 4},
+          "Each slide bill includes its own same-material shaft once.");
+    for (int i = 0; i < 3; ++i)
+        check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none,
+              "A real finite tree supplies the wooden slide.");
+    for (int i = 0; i < 4; ++i)
+        check(m::harvest_source(state, facts, path, "Q", "ore") == m::Error::none,
+              "The finite ore source supplies the metal slide.");
+    check(m::craft_component(state, facts, path, "P", m::Component::wooden_slide) == m::Error::none &&
+          m::craft_component(state, facts, path, "Q", m::Component::softmetal_slide) == m::Error::none &&
+          state.cargo.at("P").components.at(m::Component::wooden_slide) == 1 &&
+          state.cargo.at("Q").components.at(m::Component::softmetal_slide) == 1 &&
+          state.cargo.at("P").timber == 0 && state.cargo.at("Q").raw_units == 0 &&
+          m::validate(state, facts, path) == m::Error::none,
+          "Crafting transfers exact finite stock into one actor-owned slide each.");
+    const auto encoded = m::encode_material_state(state, facts, path, {"P", "Q"});
+    check(std::holds_alternative<V>(encoded), "Both integral slide bills encode in material custody.");
+    const auto decoded = m::decode_material_state(std::get<V>(encoded), facts, path, {"P", "Q"});
+    check(std::holds_alternative<m::State>(decoded) && std::get<m::State>(decoded) == state,
+          "Both slide identities and their exact embodied material survive checkpoint restore.");
+    auto forged = state;
+    ++forged.cargo.at("P").components.at(m::Component::wooden_slide);
+    check(m::validate(forged, facts, path) == m::Error::invalid_state,
+          "A copied slide cannot appear without its native input cost.");
+}
+
 void component_capacity() {
     auto facts = config();
     facts.component_capacity = 2;
@@ -132,6 +163,7 @@ void component_capacity() {
 int main() {
     try {
         exact_bill_and_refusals();
+        integral_slide_custody();
         component_capacity();
         std::cout << "component_craft_test: " << checks << " checks passed\n";
         return 0;

@@ -109,12 +109,33 @@ void collector_and_press_share_one_frame() {
           "One issued frame supports both fittings, and an issued ID cannot collide with its projected press hub.");
 }
 
+void unloaded_slide_shaft_is_native_drive_part() {
+    w::Profile profile;
+    w::State state;
+    state.topology.drive_enabled = true;
+    state.topology.parts = {
+        {{"wheel", m::Kind::hub, {-1, 4, 0}, m::Axis::x, 0, 0}, 1, s::Role::waterwheel}};
+    state.topology.sources = {{"wheel", {1, 1}}};
+    add(state, "slide", mat::Component::wooden_slide, {0, 4, 0});
+    const auto driven = w::drive_power(profile, state);
+    check(driven.mechanical.accepted() && driven.mechanical.motion.contains("slide") &&
+          driven.mechanical.motion.at("slide").state == m::MotionState::rotating &&
+          driven.load.at("slide").capacity == 8 && driven.load.at("slide").impact == 4,
+          "One placed slide supplies its own rated shaft to an external drive.");
+    state.topology.drive_enabled = false;
+    const auto stopped = w::drive_power(profile, state);
+    check(stopped.mechanical.accepted() && stopped.mechanical.motion.at("slide").state !=
+          m::MotionState::rotating,
+          "Removing power stops the same unloaded slide without removing a part.");
+}
+
 }  // namespace
 
 int main() {
     try {
         mixed_material_bottleneck_and_isolation();
         collector_and_press_share_one_frame();
+        unloaded_slide_shaft_is_native_drive_part();
         std::cout << "material_strength_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

@@ -290,6 +290,12 @@ Bounds component_bounds(const world::Profile& profile,
             // The guide meets the ram below and the unchanged tool-mount box
             // above. All three use the one construction height denominator.
             return vertical(at[1] - height_step * 0.5, at[1] + height_step - 0.08);
+        case materials::Component::wooden_slide:
+        case materials::Component::softmetal_slide:
+            // Its fixed rails and moving carriage live inside this volume.
+            // The lower face is the admitted stroke limit even when unloaded.
+            return {{at[0], at[1] - height_step * 0.5, at[2]},
+                {0.21, height_step, 0.21}};
         case materials::Component::cutting_edge:
             return {{at[0], at[1] - 0.015, at[2]}, {0.21, 0.12, 0.18}};
         case materials::Component::receiver_tray:
@@ -2714,7 +2720,8 @@ Value Host::projection() const {
                 materials::Component::tool_mount, materials::Component::sliding_guide,
                 materials::Component::cutting_edge, materials::Component::anvil,
                 materials::Component::ram_face, materials::Component::softmetal_shaft,
-                materials::Component::softmetal_cog, materials::Component::wooden_workbench}) {
+                materials::Component::softmetal_cog, materials::Component::wooden_workbench,
+                materials::Component::wooden_slide, materials::Component::softmetal_slide}) {
             const auto cost = materials::component_cost(kind);
             if (cost) {
                 Object recipe{{"timber", Value(cost->timber)}, {"softmetal", Value(cost->ore)}};
