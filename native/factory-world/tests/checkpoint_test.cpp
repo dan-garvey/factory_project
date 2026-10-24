@@ -375,6 +375,8 @@ void belt_span_checkpoint() {
     check(fast_world && fast_world->tick().error == w::TransactionError::none &&
               fast_world->snapshot().state.material.dropped_material.at({-4, 0, 0}) == m::Cargo{1, 0, {}},
           "A fast shaft carries the blank off the open end in one tick.");
+    check(fast_world->snapshot().state.belt_press_work.empty(),
+          "An ordinary open-end belt discharge has no press custody claim.");
     const auto fast_encoded = w::encode_checkpoint(fast_profile, fast_world->snapshot());
     check(std::holds_alternative<V>(fast_encoded), "A high-speed belt checkpoint encodes.");
     const auto fast_decoded = w::decode_checkpoint(fast_profile, "fast-world", std::get<V>(fast_encoded));
