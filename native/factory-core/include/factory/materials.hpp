@@ -186,9 +186,6 @@ struct Stock {
 struct State {
     Quantity initial_units{};
     Stock stock;
-    // Finished plates physically transferred to an off-site order. They
-    // remain in the conserved ore budget after leaving actor cargo.
-    Quantity shipped_products{};
     // One canonical Cargo for each admitted actor. Projection compatibility maps
     // are derived elsewhere; they cannot be another mutable inventory.
     std::map<std::string, Cargo> cargo;

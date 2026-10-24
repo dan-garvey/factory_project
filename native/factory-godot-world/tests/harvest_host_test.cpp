@@ -26,6 +26,65 @@ O cut(const char* client, const char* request, const char* target) {
         {"action", V("harvest_source")}, {"target", V(target)}};
 }
 
+O conveniences(const char* client, const char* request, bool enabled) {
+    return {{"context", V("fast-site")}, {"client", V(client)}, {"request", V(request)},
+        {"action", V("set_developer_conveniences")}, {"enabled", V(enabled)}};
+}
+
+O fast_site_cut(const char* client, const char* request, const char* target) {
+    return {{"context", V("fast-site")}, {"client", V(client)}, {"request", V(request)},
+        {"action", V("harvest_source")}, {"target", V(target)}};
+}
+
+void shared_fast_setting_and_restore() {
+    Host host;
+    check(get<bool>(host.initialize_arrival("fast-site", {"P", "Q"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(-1.2375), V(1.0), V(0.0)}, 1), "accepted") &&
+          !get<bool>(V(get<O>(host.projection(), "options")), "developer_conveniences"),
+          "Both actors begin in the same timed native arrival session.");
+    check(get<bool>(host.command("P", fast_site_cut("P", "ordinary-start", "tree-east-south")), "accepted") &&
+          get<O>(host.projection(), "manual_cuts").contains("P"),
+          "Normal Host harvesting starts the timed cut before F3 mode is enabled.");
+    check(get<bool>(host.command("Q", conveniences("Q", "enable-fast", true)), "accepted") &&
+          get<bool>(V(get<O>(host.projection(), "options")), "developer_conveniences") &&
+          get<O>(host.projection(), "manual_cuts").empty() &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 8,
+          "The one shared setting cancels P's unfinished cut without transferring timber.");
+    const auto first = host.command("P", fast_site_cut("P", "fast-tree", "tree-east-south"));
+    check(get<bool>(first, "accepted") && get<O>(host.projection(), "manual_cuts").empty() &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1 &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 7,
+          "The normal client wire receives one immediate native timber transfer while mode is on.");
+    check(get<bool>(host.command("P", fast_site_cut("P", "fast-tree", "tree-east-south")), "duplicate") &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1,
+          "An exact Host retry cannot duplicate fast timber.");
+    check(get<bool>(host.command("Q", fast_site_cut("Q", "fast-ore", "opening-softmetal")), "accepted") &&
+          get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1 &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") ==
+              get<I>(V(get<O>(host.projection(), "source_deposit")), "initial_units") - 1,
+          "Q's immediate ore cut spends the same finite native reserve.");
+    const auto saved = host.checkpoint();
+    check(get<bool>(host.validate_checkpoint(saved), "accepted"),
+          "The shared fast setting and mixed native harvest history validate before save.");
+    Host restored;
+    check(get<bool>(restored.initialize_arrival("fast-site", {"P", "Q"}), "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          get<bool>(V(get<O>(restored.projection(), "options")), "developer_conveniences"),
+          "Fresh Host restore exposes the same authoritative fast setting to both actors.");
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 2), "accepted") &&
+          get<bool>(restored.publish_actor("Q", {V(-1.2375), V(1.0), V(0.0)}, 2), "accepted") &&
+          get<bool>(restored.command("Q", conveniences("Q", "disable-fast", false)), "accepted") &&
+          !get<bool>(V(get<O>(restored.projection(), "options")), "developer_conveniences"),
+          "Either actor can turn the restored shared setting off.");
+    check(get<bool>(restored.command("P", fast_site_cut("P", "ordinary-again", "tree-east-south")), "accepted") &&
+          get<O>(restored.projection(), "manual_cuts").contains("P") &&
+          get<I>(get<O>(restored.projection(), "hand_sources").at("tree-east-south"), "remaining") == 7,
+          "Turning the setting off restores ordinary timed harvesting without early payout.");
+}
+
 O craft(const char* client, const char* request, const char* component) {
     return {{"context", V("harvest-site")}, {"client", V(client)}, {"request", V(request)},
         {"action", V("craft_component")}, {"entity", V("pod-fabrication-hub")},
@@ -476,6 +535,7 @@ void cut_interrupts_on_actor_sample_before_next_tick() {
 
 int main() {
     try {
+        shared_fast_setting_and_restore();
         cutter_reach_is_shorter_than_build_reach();
         shared_harvest();
         field_wood_uses_physical_actor_and_one_ledger();

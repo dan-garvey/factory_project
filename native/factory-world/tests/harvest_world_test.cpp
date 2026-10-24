@@ -54,6 +54,90 @@ O cancel(const char* actor, const char* client, const char* request) {
         {"actor", V(actor)}, {"action", V("cancel_harvest")}};
 }
 
+O conveniences(const char* actor, const char* client, const char* request, bool enabled) {
+    return {{"context", V("harvest-world")}, {"client", V(client)}, {"request", V(request)},
+        {"actor", V(actor)}, {"action", V("set_developer_conveniences")},
+        {"enabled", V(enabled)}};
+}
+
+void fast_harvest_is_shared_and_finite() {
+    auto [profile, state] = seed();
+    auto world = w::World::create("harvest-world", profile, state);
+    check(world && !world->snapshot().state.developer_conveniences,
+          "Fresh native worlds start with developer conveniences off.");
+    const w::ObserveActor near = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, actor == "P" ? a::Point{1.65, 1, 6.6} : a::Point{-1.2375, 1, 0},
+            3, true, 4};
+    };
+    auto fast_tree = command("P", "P-client", "fast-tree", "tree-a");
+    fast_tree.at("action") = V("fast_harvest_source");
+    auto fast_off = fast_tree;
+    fast_off.at("request") = V("fast-off");
+    const auto off = world->command({"P", "P-client"}, fast_off, near);
+    check(off.completed() && !std::get<bool>(off.result->at("accepted").storage()) &&
+          world->snapshot().state.material.timber_remaining.at("tree-a") == 8,
+          "The native fast command cannot spend stock while the setting is off.");
+    const auto started = world->command({"P", "P-client"},
+        command("P", "P-client", "normal-start", "tree-a"), near);
+    check(started.completed() && std::get<bool>(started.result->at("accepted").storage()) &&
+          world->snapshot().state.manual_cuts.contains("P"),
+          "The normal timed cut starts before the shared mode changes.");
+    const auto enabled = world->command({"Q", "Q-client"},
+        conveniences("Q", "Q-client", "enable", true), near);
+    check(enabled.completed() && std::get<bool>(enabled.result->at("accepted").storage()) &&
+          world->snapshot().state.developer_conveniences && world->snapshot().state.manual_cuts.empty() &&
+          world->snapshot().state.material.timber_remaining.at("tree-a") == 8,
+          "Changing the shared setting cancels an unfinished cut without payout.");
+    check(w::validate(profile, world->snapshot()), "The toggled history validates.");
+    const auto first = world->command({"P", "P-client"}, fast_tree, near);
+    check(first.completed() && std::get<bool>(first.result->at("accepted").storage()) &&
+          world->snapshot().state.material.timber_remaining.at("tree-a") == 7 &&
+          world->snapshot().state.material.cargo.at("P").timber == 1 &&
+          world->snapshot().state.manual_cuts.empty(),
+          "One native fast timber command transfers exactly one finite unit without world ticks.");
+    check(w::validate(profile, world->snapshot()), "The fast timber history validates.");
+    const auto after_first = world->snapshot();
+    const auto duplicate = world->command({"P", "P-client"}, fast_tree, {});
+    check(duplicate.completed() && std::get<bool>(duplicate.result->at("duplicate").storage()) &&
+          world->snapshot().state == after_first.state,
+          "Retrying a fast command cannot duplicate its material payout.");
+    auto fast_ore = command("Q", "Q-client", "fast-ore", "ore");
+    fast_ore.at("action") = V("fast_harvest_source");
+    const auto ore = world->command({"Q", "Q-client"}, fast_ore, near);
+    check(ore.completed() && std::get<bool>(ore.result->at("accepted").storage()) &&
+          world->snapshot().state.material.stock.source == 15 &&
+          world->snapshot().state.material.cargo.at("Q").raw_units == 1,
+          "Q's native fast ore command spends the same finite source and gives Q custody.");
+    const w::ObserveActor far = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {20, 1, 20}, 4, true, 4};
+    };
+    auto remote = command("P", "P-client", "remote-fast", "tree-a");
+    remote.at("action") = V("fast_harvest_source");
+    const auto denied = world->command({"P", "P-client"}, remote, far);
+    check(denied.completed() && !std::get<bool>(denied.result->at("accepted").storage()) &&
+          world->snapshot().state.material.timber_remaining.at("tree-a") == 7,
+          "Fast harvest still requires the actor to stand at the source.");
+    check(w::validate(profile, world->snapshot()),
+          "The enabled fast history validates before checkpoint encoding.");
+    const auto saved = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(saved) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(profile, "harvest-world", std::get<V>(saved))),
+          "The enabled setting, cancelled cut and fast custody survive typed native replay.");
+    const auto disabled = world->command({"P", "P-client"},
+        conveniences("P", "P-client", "disable", false), near);
+    check(disabled.completed() && std::get<bool>(disabled.result->at("accepted").storage()) &&
+          !world->snapshot().state.developer_conveniences,
+          "The shared developer setting turns off through native authority.");
+    const auto normal = world->command({"P", "P-client"},
+        command("P", "P-client", "normal-again", "tree-a"), near);
+    check(normal.completed() && std::get<bool>(normal.result->at("accepted").storage()) &&
+          world->snapshot().state.manual_cuts.contains("P") &&
+          world->snapshot().state.material.timber_remaining.at("tree-a") == 7,
+          "Turning the setting off restores the ordinary delayed cut.");
+    check(w::validate(profile, world->snapshot()),
+          "Native history still proves both fast and timed material transitions.");
+}
+
 void harvest_and_restore() {
     auto [profile, state] = seed();
     auto world = w::World::create("harvest-world", profile, state);
@@ -216,6 +300,7 @@ void interrupted_cut_and_shared_source() {
 
 int main() {
     try {
+        fast_harvest_is_shared_and_finite();
         harvest_and_restore();
         interrupted_cut_and_shared_source();
         std::cout << "harvest_world_test: " << checks << " checks passed\n";

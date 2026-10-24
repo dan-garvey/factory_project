@@ -1089,7 +1089,7 @@ func _ui_shortcuts() -> void:
 		event.pressed = true
 		event.keycode = KEY_8
 		bar._input(event)
-		verify(bar.destination.selected == 7, "Number keys choose a catalog destination without changing the world.")
+		verify(bar.target_slot == 7, "Number keys choose a hotbar target without changing the world.")
 		event.keycode = KEY_H
 		bar._input(event)
 		verify(bar.slots[7] == "gearbox" and view.mode == "gearbox" and not bar.catalog.visible,
@@ -1455,8 +1455,8 @@ func _hotbar() -> void:
 			"A missing active connector cannot fall back to single-cell belt placement.")
 		bar.select_slot(2)
 		bar.open_catalog(7)
-		verify(bar.catalog.visible and bar.destination.item_count == 8 and bar.destination.selected == 7,
-			"The catalog exposes a concrete destination slot.")
+		verify(bar.catalog.visible and bar.slot_targets.size() == 8 and bar.target_slot == 7,
+			"The inventory exposes eight numbered hotbar targets.")
 		verify(not view._can_control_character() and not bar.catalog_buttons.processor.disabled,
 			"The modal catalog holds movement while keeping part assignment available.")
 		bar.catalog_buttons.processor.pressed.emit()
@@ -1470,7 +1470,7 @@ func _hotbar() -> void:
 		bar.clear_slot()
 		verify(bar.slots[7].is_empty() and view.mode == "inspect", "Clearing the active slot returns to inspection.")
 		bar.select_slot(7)
-		verify(bar.catalog.visible and bar.destination.selected == 7, "An empty slot opens its assignment catalog.")
+		verify(bar.catalog.visible and bar.target_slot == 7, "An empty slot opens its assignment inventory.")
 		bar.catalog.hide()
 		bar.select_slot(5)
 		verify(view.mode == "gear" and view.transmission_controls.active_tool == "gear", "Cog slots reuse the native transmission selector.")
@@ -1487,7 +1487,7 @@ func _hotbar() -> void:
 		bar.select_slot(0)
 		verify(bar.buttons[0].disabled and bar.slot_counts[0].text == "0" and view.mode == "inspect",
 			"An exhausted kit disables the slot without borrowing the compatibility stock alias.")
-		bar.destination.select(7)
+		bar._select_target(7)
 		bar.catalog_buttons.collector.pressed.emit()
 		verify(bar.slots[7].is_empty() and view.mode == "inspect", "An unavailable catalog item cannot activate or fill a slot.")
 		view.client = "Q"
@@ -1566,7 +1566,16 @@ func _arrival_hotbar() -> void:
 	view.state.hand_sources = {}
 	view.state.cargo = {"P": {"components": {}}, "Q": {"components": {"wooden_frame": 1}}}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
-	view.state.component_recipes = {}
+	view.state.component_recipes = {
+		"wooden_frame": {"timber": 3, "softmetal": 0},
+		"wooden_shaft": {"timber": 1, "softmetal": 0, "load_rating": 8},
+		"tool_mount": {"timber": 1, "softmetal": 0},
+		"cutting_edge": {"timber": 0, "softmetal": 1},
+		"anvil": {"timber": 0, "softmetal": 2},
+		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24}}
+	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
+	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "softmetal": 0,
+		"teeth": 0, "half_span": 2}]
 	view.state.component_capacity = 20
 	view.state.placed_components = {}
 	root.add_child(view)
@@ -1599,13 +1608,13 @@ func _arrival_hotbar() -> void:
 			face_labels.append(child.text)
 	verify(face_labels == ["1", "0"], "Only the slot number and stock count remain on an item face.")
 	verify(not bar.catalog_buttons.collector.visible and not bar.catalog_buttons.processor.visible
-		and bar.component_row.visible and bar.component_choice.item_count == view.arrival_assembly_controls.COMPONENTS.size(),
-		"The arrival catalog hides historical machines and offers every fabricated component.")
+		and bar.recipe_side.visible and bar.component_buttons.size() == view.arrival_assembly_controls.COMPONENTS.size(),
+		"The arrival inventory hides historical machines and has icons for every fabricated component.")
 	verify(bar.component_buttons.has("anvil") and bar.component_buttons.has("ram_face")
 		and bar.component_buttons.anvil.disabled and bar.component_buttons.ram_face.disabled,
 		"The catalog names anvil and ram face directly and disables parts absent from carried cargo.")
 	verify(bar.buttons[0].disabled and bar.slot_counts[0].text == "0"
-		and bar.component_assign_button.disabled,
+		and not bar.component_buttons.wooden_frame.visible,
 		"A part absent from the active actor's native cargo cannot be selected or assigned.")
 	var initial: Dictionary = view.state.duplicate(true)
 	view.state.cargo.P.components = {"wooden_frame": 2, "softmetal_cog": 1,
@@ -1634,6 +1643,42 @@ func _arrival_hotbar() -> void:
 	await settle_widgets()
 	verify("Timber · 5 carried" in bar.focus_description.text,
 		"Keyboard focus exposes the same item and count as pointer hover.")
+	verify(bar.recipe_buttons.has("component:wooden_frame")
+		and "3 timber" in bar.recipe_buttons["component:wooden_frame"].tooltip_text
+		and "Open a fabrication bench" in bar.recipe_buttons["component:cutting_edge"].tooltip_text,
+		"The shared recipe grid shows field cost and names a bench for metal components.")
+	bar.recipe_buttons["component:wooden_frame"].pressed.emit()
+	verify(view.issued.size() == 1 and view.issued[0] == {
+		"action": "field_craft", "component": "wooden_frame"},
+		"The field recipe icon sends the exact native shaping command.")
+	bar.open_at_bench("pod-fabrication-hub")
+	bar.recipe_buttons["component:cutting_edge"].pressed.emit()
+	bar.recipe_buttons.foundation.pressed.emit()
+	bar.recipe_buttons["part:0"].pressed.emit()
+	verify(view.issued.size() == 4
+		and view.issued[1] == {"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"}
+		and view.issued[2] == {"action": "craft_foundation", "entity": "pod-fabrication-hub"}
+		and view.issued[3] == {"action": "craft_part", "entity": "pod-fabrication-hub", "role": "shaft", "half_span": 2}
+		and view.state.cargo.P.components.wooden_frame == 2,
+		"E on a workshop exposes component, foundation and part icons without fixture-owned stock changes.")
+	var context_key := InputEventKey.new()
+	context_key.keycode = KEY_S
+	context_key.pressed = true
+	bar._input(context_key)
+	verify(view.issued.size() == 5 and view.issued[4] == {
+		"action": "stow_fabrication_hub", "entity": "pod-fabrication-hub"},
+		"The bench inventory retains the pod stow action on its visible S shortcut.")
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": false, "holder": "P"}
+	bar.catalog.hide()
+	bar.open_catalog()
+	context_key.keycode = KEY_P
+	bar._input(context_key)
+	verify(view.mode == "pod_workshop" and not bar.catalog.visible
+		and bar.material_counts.fabrication_hub.text == "1",
+		"A carried pod tile and its P shortcut select placement from the same inventory.")
+	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
+	view._select_tool("inspect")
+	view.issued.clear()
 	bar.catalog.hide()
 	view.state.cargo.P.timber = 2
 	view.state.cargo.P.raw = 0
@@ -1641,7 +1686,8 @@ func _arrival_hotbar() -> void:
 	view.state.hand_crank.holder = "pod"
 	view._refresh_ui()
 	verify(bar.material_counts.timber.text == "2" and bar.material_counts.raw.text == "0"
-		and bar.material_counts.hand_crank.text == "0" and bar.component_counts.anvil.text == "0",
+		and bar.material_counts.hand_crank.text == "0" and bar.component_counts.anvil.text == "0"
+		and not bar.material_buttons.raw.visible and not bar.component_buttons.anvil.visible,
 		"Crafting, placement and return refresh icon counts from the next confirmed projection.")
 	view.state.cargo.P.components.anvil = 1
 	view._refresh_ui()
@@ -1660,15 +1706,12 @@ func _arrival_hotbar() -> void:
 	var cog_index: int = bar._component_names.find("softmetal_cog")
 	verify(cog_index >= 0 and bar.catalog.visible, "The catalog includes the stronger metal cog.")
 	if cog_index >= 0:
-		bar.component_choice.select(cog_index)
-		bar.refresh()
-		verify(not bar.component_assign_button.disabled
-			and "×1" in bar.component_choice.get_item_text(cog_index),
-			"The catalog reads the carried metal cog from native component cargo.")
-		bar.assign_component()
+		verify(not bar.component_buttons.softmetal_cog.disabled
+			and bar.component_counts.softmetal_cog.text == "1",
+			"The inventory reads the carried metal cog from native component cargo.")
+		bar.component_buttons.softmetal_cog.pressed.emit()
 		verify(bar.slots[7] == "component:softmetal_cog" and view.mode == "component"
 			and view.arrival_assembly_controls.selected_name() == "softmetal_cog"
-			and view.arrival_assembly_controls.component_choice.selected == cog_index
 			and bar.slot_icons[7].texture == bar.component_buttons.softmetal_cog.icon
 			and view.issued.is_empty(),
 			"Catalog assignment selects the exact component in the existing workshop and placement path.")
@@ -1735,7 +1778,16 @@ func _render_arrival_hotbar() -> void:
 		"work_lots": [{"id": 7}]}}
 	view.state.hand_crank = {"holder": "P"}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
-	view.state.component_recipes = {}
+	view.state.component_recipes = {
+		"wooden_frame": {"timber": 3, "softmetal": 0},
+		"wooden_shaft": {"timber": 1, "softmetal": 0, "load_rating": 8},
+		"tool_mount": {"timber": 1, "softmetal": 0},
+		"cutting_edge": {"timber": 0, "softmetal": 1},
+		"anvil": {"timber": 0, "softmetal": 2},
+		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24}}
+	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
+	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "softmetal": 0,
+		"teeth": 0, "half_span": 2}]
 	view.state.component_capacity = 20
 	view.state.placed_components = {}
 	root.add_child(view)
@@ -1753,12 +1805,32 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK,
 		"Retain the rendered arrival component catalog.")
+	verify(bar.recipe_buttons.has("component:wooden_frame") and
+		bar.recipe_buttons.has("component:anvil") and bar.recipe_buttons.has("part:0"),
+		"The item inventory presents field and bench recipes beside carried stock.")
+	var stocked_cargo: Dictionary = view.state.cargo.P.duplicate(true)
+	view.state.cargo.P = {"components": {}}
+	view.state.hand_crank.holder = "pod"
+	view.state.part_kits.P = {}
+	view._refresh_ui()
+	await settle_widgets()
+	verify(not bar.material_buttons.timber.visible and not bar.component_buttons.wooden_frame.visible
+		and bar.recipe_buttons["component:wooden_frame"].visible,
+		"Empty carried stock leaves neutral cells while recipes remain discoverable.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-empty.png") == OK,
+		"Retain the empty-inventory recipe catalog.")
+	view.state.cargo.P = stocked_cargo
+	view.state.hand_crank.holder = "P"
+	view.state.part_kits.P = {"foundation": 15}
+	view._refresh_ui()
 	var inventory_scroll: ScrollContainer = bar.catalog.find_child("InventoryItems", true, false)
 	await settle_widgets()
 	inventory_scroll.scroll_vertical = int(inventory_scroll.get_v_scroll_bar().max_value)
 	await settle_widgets()
-	verify(inventory_scroll.scroll_vertical > 0,
-		"The component inventory is reachable by scrolling.")
+	verify(bar.component_buttons.wooden_frame.visible and bar.component_buttons.softmetal_cog.visible
+		and inventory_scroll.get_v_scroll_bar() != null,
+		"The restored cargo and scrollable inventory show named component icons.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-components.png") == OK,
 		"Retain the visible component icon grid after scrolling.")
@@ -2012,7 +2084,7 @@ func _workshop_pages() -> void:
 		view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0}}
 		view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
 		view.state.component_capacity = 20
-		view.state.freight_beacon = {"id": "first-freight-beacon", "order_complete": false}
+		view.state.workshop_completed_actors = []
 		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 		view.state.fabrication_benches = [{"id": "field-bench", "center": [4, 0, 4]}]
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
@@ -2224,7 +2296,7 @@ func _workshop_pages() -> void:
 		view.object_menu.hide()
 		await process_frame
 		verify(view.selected.is_empty() and not view.object_menu.visible,
-			"Leaving the press panel releases its selected target before freight interaction.")
+			"Leaving the press panel releases its selected target for another interaction.")
 		view.pointed = "press-ram"
 		view._open_pointed_machine()
 		verify(view.object_menu.visible and view.object_menu_target == "press-ram"

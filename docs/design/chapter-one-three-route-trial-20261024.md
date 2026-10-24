@@ -37,8 +37,11 @@ The other witnessed modes are `arrival-press`, `arrival-belt-fed-press`,
 The powered stages build the finite press site, fabricate and connect two
 vertical relays plus a horizontal relay and collector branch, load the first
 automatic output, retain a blocked second work lot, then collect both plates
-after fresh loads. The route uses one native World and ordinary physical actor
-controls. The result files and first failures are retained under the task
+after fresh loads. The route uses one native World and a physical actor for
+movement and reach. Its scripted craft steps still emit legacy workshop panel
+actions after the shared inventory replaced the visible workshop menu; they
+do not establish a complete current player input route. The result files and
+first failures are retained under the task
 evidence linked from `factory-yau.1.10.16.7.2` and
 `factory-yau.1.10.10.22.6`.
 
@@ -56,4 +59,8 @@ broad feed, blade exchange and cutting
 commands are script-driven through the ordinary scene's native command path;
 they are not yet discoverable normal player controls. Fixed-pattern assembly
 and a provisional drive are not the planned reusable powered-slide interface.
-Rendered inspection, network continuation and human play remain separate.
+The current-main hand-press witness also stops at its old workshop-menu
+assertion after the inventory change. Its earlier finite production result
+remains valid at that revision, while the current inventory interaction needs
+a fresh ordinary consumer. Rendered inspection, network continuation and
+human play remain separate.

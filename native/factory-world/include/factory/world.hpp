@@ -88,13 +88,6 @@ struct FabricationHub {
     bool operator==(const FabricationHub&) const = default;
 };
 
-struct FreightBeacon {
-    std::string id;
-    mechanics::Point center{};
-    authority::Integer generation{};
-    bool operator==(const FreightBeacon&) const = default;
-};
-
 struct HandCrank {
     std::string id;
     authority::Integer generation{};
@@ -138,10 +131,6 @@ struct PressOffcutDelivery {
 };
 
 [[nodiscard]] mechanics::Point landing_hub_center(const mechanics::Point& pod_center);
-[[nodiscard]] mechanics::Point landing_freight_center(const mechanics::Point& pod_center);
-// Reversible first-shift order sizes; shipped_products is cumulative physical custody.
-inline constexpr authority::Integer repeat_order_target = 3;
-inline constexpr authority::Integer completed_freight_target = 1 + repeat_order_target;
 
 // Provisional first-chapter ratings for placed drive components. The same
 // values bound native motion and are projected with workshop recipes.
@@ -168,7 +157,9 @@ struct State {
     std::map<std::string, authority::Integer> foundation_kits;
     std::optional<LandingPod> landing_pod;
     std::optional<FabricationHub> fabrication_hub;
-    std::optional<FreightBeacon> freight_beacon;
+    // Acquiring a formed plate completes the local actor's first workshop once.
+    // Later inventory use cannot erase this witnessed chapter milestone.
+    std::set<std::string> workshop_completed_actors;
     std::optional<HandCrank> hand_crank;
     std::map<std::string, PlacedComponent> placed_components;
     struct ManualCut {
@@ -181,6 +172,8 @@ struct State {
         bool operator==(const ManualCut&) const = default;
     };
     std::map<std::string, ManualCut> manual_cuts;
+    // Shared native test setting. Changing it cancels pending manual strokes.
+    bool developer_conveniences{};
     // A finished modular press item retains its work identity while waiting at
     // its outlet. Once it enters a belt, the exported identity remains as a
     // checkpoint witness; material quantities still belong only to Cargo.

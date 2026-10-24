@@ -751,167 +751,36 @@ void placed_press_projection() {
     pickup_product(raised_restored, 7, 5, 0, "pickup-raised-product");
     check(get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 2,
           "The elevated arrangement forms and retrieves a second product from finite ore.");
-    auto delivery = request("first-plate-delivery", "deliver_first_plate");
-    delivery.emplace("entity", V("first-freight-beacon"));
-    const auto distant = raised_restored.command("P", delivery);
-    check(!get<bool>(distant, "accepted") && get<std::string>(distant, "reason") == "out_of_reach" &&
-          get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 2,
-          "The camera or a remote workcell cannot deliver a plate from outside actor reach.");
-    check(get<bool>(raised_restored.publish_actor("Q", {V(9.9), V(1.0), V(6.6)}, 101), "accepted"),
-          "A second actor can approach the one world-space beacon.");
-    auto q_delivery = delivery;
-    q_delivery.at("client") = V("Q");
-    q_delivery.at("request") = V("empty-hand-delivery");
-    const auto empty = raised_restored.command("Q", q_delivery);
-    check(!get<bool>(empty, "accepted") && get<std::string>(empty, "reason") == "no_plate" &&
-          !get<bool>(V(get<O>(raised_restored.projection(), "freight_beacon")), "order_complete"),
-          "The nearby teammate cannot ship another actor's plate or complete the order empty handed.");
-    check(get<bool>(raised_restored.publish_actor("P", {V(9.9), V(1.0), V(6.6)}, 102), "accepted"),
-          "The plate holder reaches the freight receiver physically.");
-    auto repeat_delivery = request("repeat-before-first", "deliver_repeat_plate");
-    repeat_delivery.emplace("entity", V("first-freight-beacon"));
-    const auto premature = raised_restored.command("P", repeat_delivery);
-    check(!get<bool>(premature, "accepted") &&
-          get<std::string>(premature, "reason") == "first_order_open" &&
-          get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 2,
-          "The later commission cannot consume a plate before the first shipment.");
-    auto successful = delivery;
-    successful.at("request") = V("ship-carried-plate");
-    const auto sent = accepted(raised_restored, successful);
-    check(get<I>(sent, "shipped_products") == 1 &&
-          get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 1 &&
-          get<bool>(V(get<O>(raised_restored.projection(), "freight_beacon")), "order_complete"),
-          "Exactly one actually formed plate leaves P's cargo and completes the finite order.");
-    const auto shipped_checkpoint = raised_restored.checkpoint();
-    auto forged = get<O>(shipped_checkpoint, "world");
-    auto forged_state = get<O>(V(forged), "state");
-    auto forged_material = get<O>(V(forged_state), "material");
-    forged_material.at("shipped_products") = V(I{0});
-    forged_state.at("material") = V(std::move(forged_material));
-    forged.at("state") = V(std::move(forged_state));
-    auto forged_host = std::get<O>(shipped_checkpoint.storage());
-    forged_host.at("world") = V(std::move(forged));
+    const auto workshop = raised_restored.projection();
+    const auto completed = get<A>(workshop, "workshop_completed_actors");
+    check(completed.size() == 1 && std::get<std::string>(completed.front().storage()) == "P" &&
+          get<I>(get<O>(workshop, "cargo").at("P"), "products") == 2 &&
+          get<I>(get<O>(workshop, "cargo").at("Q"), "products") == 0 &&
+          !std::get<O>(workshop.storage()).contains("freight_beacon"),
+          "P's collected plates complete only P's workshop without a shipment entity or debit.");
+    const auto completed_saved = raised_restored.checkpoint();
+    auto forged_world = get<O>(completed_saved, "world");
+    auto forged_state = get<O>(V(forged_world), "state");
+    forged_state.at("workshop_completed_actors") = V(A{});
+    forged_world.at("state") = V(std::move(forged_state));
+    auto forged_host = std::get<O>(completed_saved.storage());
+    forged_host.at("world") = V(std::move(forged_world));
     check(!get<bool>(raised_restored.validate_checkpoint(V(std::move(forged_host))), "accepted"),
-          "A checkpoint cannot erase the shipment receipt while the delivered plate has left cargo.");
-    check(get<bool>(raised_restored.command("P", successful), "duplicate") &&
-          !factory::values::typed_difference(shipped_checkpoint, raised_restored.checkpoint()),
-          "A repeated delivery request returns its cached receipt without another debit.");
-    auto second = delivery;
-    second.at("request") = V("ship-again");
-    const auto full = raised_restored.command("P", second);
-    check(!get<bool>(full, "accepted") && get<std::string>(full, "reason") == "order_filled" &&
-          get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 1,
-          "A fresh request cannot spend the other plate after the first order is filled.");
-    Host freight_restored;
-    check(get<bool>(freight_restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
-          get<bool>(freight_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
-          "The fresh freight Host initializes its trusted site.");
-    const auto freight_restore_result = freight_restored.restore_checkpoint(shipped_checkpoint);
-    if (!get<bool>(freight_restore_result, "accepted"))
-        throw std::runtime_error("Freight restore refused: " + get<std::string>(freight_restore_result, "reason"));
-    check(
-          get<bool>(V(get<O>(freight_restored.projection(), "freight_beacon")), "order_complete") &&
-          get<I>(get<O>(freight_restored.projection(), "cargo").at("P"), "products") == 1,
-          "A fresh shared Host and late join retain the same receipt and remaining product.");
-    check(get<bool>(freight_restored.command("P", successful), "duplicate") &&
-          !factory::values::typed_difference(shipped_checkpoint, freight_restored.checkpoint()),
-          "The original successful request remains retry safe after checkpoint restore.");
-    check(get<bool>(freight_restored.publish_actor("P", {V(9.9), V(1.0), V(6.6)}, 103), "accepted"),
-          "The restored actor can approach the follow-up receiver.");
-    repeat_delivery.at("request") = V("ship-repeat-two");
-    const auto second_sent = accepted(freight_restored, repeat_delivery);
-    const auto second_beacon = get<O>(freight_restored.projection(), "freight_beacon");
-    check(get<I>(second_sent, "shipped_products") == 2 &&
-          get<I>(V(second_beacon), "repeat_order_shipped") == 1 &&
-          get<I>(V(second_beacon), "repeat_order_target") == 3 &&
-          get<bool>(V(second_beacon), "order_complete") &&
-          !get<bool>(V(second_beacon), "repeat_order_complete") &&
-          get<I>(get<O>(freight_restored.projection(), "cargo").at("P"), "products") == 0,
-          "The second physical plate starts a separate three-plate commission.");
-    const auto repeat_checkpoint = freight_restored.checkpoint();
-    check(get<bool>(freight_restored.command("P", repeat_delivery), "duplicate") &&
-          !factory::values::typed_difference(repeat_checkpoint, freight_restored.checkpoint()),
-          "A retried repeat shipment keeps the same one-plate debit.");
-    auto forged_repeat = get<O>(repeat_checkpoint, "world");
-    auto forged_repeat_state = get<O>(V(forged_repeat), "state");
-    auto forged_repeat_material = get<O>(V(forged_repeat_state), "material");
-    forged_repeat_material.at("shipped_products") = V(I{3});
-    forged_repeat_state.at("material") = V(std::move(forged_repeat_material));
-    forged_repeat.at("state") = V(std::move(forged_repeat_state));
-    auto forged_repeat_host = std::get<O>(repeat_checkpoint.storage());
-    forged_repeat_host.at("world") = V(std::move(forged_repeat));
-    check(!get<bool>(freight_restored.validate_checkpoint(V(std::move(forged_repeat_host))), "accepted"),
-          "The checkpoint cannot invent an extra follow-up shipment without its receipt.");
-    Host repeat_restored;
-    check(get<bool>(repeat_restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
-          get<bool>(repeat_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(repeat_restored.restore_checkpoint(repeat_checkpoint), "accepted") &&
-          get<I>(V(get<O>(repeat_restored.projection(), "freight_beacon")), "repeat_order_shipped") == 1,
-          "A fresh Host projects the same follow-up receipt to a late joining actor.");
-    check(get<bool>(repeat_restored.publish_actor("Q", {V(9.9), V(1.0), V(6.6)}, 104), "accepted"),
-          "A second actor approaches the shared follow-up receiver.");
-    auto q_repeat = repeat_delivery;
-    q_repeat.at("client") = V("Q");
-    q_repeat.at("request") = V("empty-repeat-from-q");
-    const auto q_empty = repeat_restored.command("Q", q_repeat);
-    check(!get<bool>(q_empty, "accepted") && get<std::string>(q_empty, "reason") == "no_plate" &&
-          get<I>(V(get<O>(repeat_restored.projection(), "freight_beacon")), "repeat_order_shipped") == 1,
-          "A nearby teammate cannot ship a plate from another actor's empty cargo.");
-    check(get<bool>(repeat_restored.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 105), "accepted"),
-          "The worker returns to the finite ore deposit for two more blanks.");
-    for (int index = 0; index < 2; ++index) {
-        auto cut = request("repeat-ore-" + std::to_string(index), "harvest_source");
-        cut.emplace("target", V("opening-softmetal"));
-        accepted(repeat_restored, cut);
-    }
-    check(get<bool>(repeat_restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 106), "accepted"),
-          "The worker reaches the same reconfigurable raised press.");
-    pickup_offcut(repeat_restored, 8, 5, 0, "repeat-recover-prior-offcut");
-    for (int index = 0; index < 2; ++index) {
-        const auto suffix = std::to_string(index);
-        accepted(repeat_restored, feed("repeat-feed-" + suffix, raised_frame, 9, 5, 0));
-        accepted(repeat_restored, turn("repeat-start-" + suffix, raised_frame, raised_shaft, 7, 5, 0));
-        accepted(repeat_restored, turn("repeat-advance-" + suffix, raised_frame, raised_shaft, 7, 5, 0));
-        accepted(repeat_restored, turn("repeat-finish-" + suffix, raised_frame, raised_shaft, 7, 5, 0));
-        pickup_product(repeat_restored, 7, 5, 0, ("repeat-pickup-" + suffix).c_str());
-        pickup_offcut(repeat_restored, 8, 5, 0, ("repeat-offcut-" + suffix).c_str());
-    }
-    conserved_copper(repeat_restored);
-    check(get<I>(get<O>(repeat_restored.projection(), "cargo").at("P"), "products") == 2 &&
-          get<I>(V(get<O>(repeat_restored.projection(), "freight_beacon")), "repeat_order_shipped") == 1,
-          "Two further products are formed from actual local ore without changing the order receipt.");
-    auto remote_repeat = repeat_delivery;
-    remote_repeat.at("request") = V("remote-repeat");
-    const auto remote = repeat_restored.command("P", remote_repeat);
-    check(!get<bool>(remote, "accepted") && get<std::string>(remote, "reason") == "out_of_reach" &&
-          get<I>(get<O>(repeat_restored.projection(), "cargo").at("P"), "products") == 2,
-          "Remote delivery cannot spend the two new plates.");
-    check(get<bool>(repeat_restored.publish_actor("P", {V(9.9), V(1.0), V(6.6)}, 107), "accepted"),
-          "The worker carries both plates to the real freight beacon.");
-    repeat_delivery.at("request") = V("ship-repeat-three");
-    check(get<I>(accepted(repeat_restored, repeat_delivery), "shipped_products") == 3,
-          "The third plate increments the physical shipment count once.");
-    repeat_delivery.at("request") = V("ship-repeat-four");
-    const auto fourth_sent = accepted(repeat_restored, repeat_delivery);
-    const auto completed_beacon = get<O>(repeat_restored.projection(), "freight_beacon");
-    check(get<I>(fourth_sent, "shipped_products") == 4 &&
-          get<I>(V(completed_beacon), "repeat_order_shipped") == 3 &&
-          get<bool>(V(completed_beacon), "repeat_order_complete") &&
-          get<I>(get<O>(repeat_restored.projection(), "cargo").at("P"), "products") == 0,
-          "The finite second commission closes after three further conserved plates.");
-    const auto completed_repeat = repeat_restored.checkpoint();
+          "A checkpoint cannot erase P's witnessed first plate pickup.");
     Host completed_restored;
     check(get<bool>(completed_restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(completed_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(completed_restored.restore_checkpoint(completed_repeat), "accepted") &&
-          get<bool>(V(get<O>(completed_restored.projection(), "freight_beacon")), "repeat_order_complete"),
-          "A fresh Host and late observer see the fully shipped second commission.");
-    repeat_delivery.at("request") = V("ship-repeat-five");
-    const auto overfill = repeat_restored.command("P", repeat_delivery);
-    check(!get<bool>(overfill, "accepted") && get<std::string>(overfill, "reason") == "order_filled" &&
-          get<I>(V(get<O>(repeat_restored.projection(), "freight_beacon")), "shipped_products") == 4 &&
-          get<I>(get<O>(repeat_restored.projection(), "cargo").at("P"), "products") == 0,
-          "A fifth fresh shipment refuses without changing the completed finite order.");
+          get<bool>(completed_restored.restore_checkpoint(completed_saved), "accepted") &&
+          !factory::values::typed_difference(completed_saved, completed_restored.checkpoint()) &&
+          get<A>(completed_restored.projection(), "workshop_completed_actors").size() == 1,
+          "A fresh Host preserves P's local workshop completion and both carried plates.");
+    auto retired_delivery = request("retired-first-delivery", "deliver_first_plate");
+    retired_delivery.emplace("entity", V("first-freight-beacon"));
+    const auto rejected = completed_restored.command("P", retired_delivery);
+    check(!get<bool>(rejected, "accepted") &&
+          get<std::string>(rejected, "reason") == "unsupported_action" &&
+          get<I>(get<O>(completed_restored.projection(), "cargo").at("P"), "products") == 2,
+          "The retired shipment command cannot remove either plate from inventory.");
 }
 
 void belt_fed_press_projection() {
@@ -1073,6 +942,31 @@ void belt_fed_press_projection() {
                   V(A{V(I{-1}), V(I{5}), V(I{0})})) && get<I>(drop, "products") == 1;
           }) && get<bool>(fresh.validate_checkpoint(fresh.checkpoint()), "accepted"),
           "The restored belt-fed blank becomes one physical plate through the normal press crank.");
+    pickup_product(fresh, -1, 5, 0, "inlet-host-first-plate-pickup");
+    check(get<I>(get<O>(fresh.projection(), "cargo").at("P"), "products") == 1 &&
+          get<A>(fresh.projection(), "workshop_completed_actors").size() == 1,
+          "The actor first completes the workshop by collecting the formed plate.");
+    check(get<bool>(fresh.publish_actor("P", {V(2.475), V(1.0), V(0.0)}, ++epoch), "accepted"),
+          "The plate holder reaches the now-empty inlet belt slot.");
+    auto load_plate = load;
+    load_plate.at("request") = V("inlet-host-use-collected-plate");
+    load_plate.at("item") = V("product");
+    accepted(fresh, load_plate);
+    const auto after_use = fresh.projection();
+    check(get<I>(get<O>(after_use, "cargo").at("P"), "products") == 0 &&
+          get<A>(after_use, "workshop_completed_actors").size() == 1 &&
+          std::get<std::string>(get<A>(after_use, "workshop_completed_actors").front().storage()) == "P" &&
+          get<I>(get<O>(after_use, "cargo").at("Q"), "products") == 0,
+          "Using the only plate on a belt does not erase P's completed workshop or credit Q.");
+    conserved_copper(fresh);
+    const auto used_saved = fresh.checkpoint();
+    Host used_restored;
+    check(get<bool>(used_restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(used_restored.configure_terrain(site), "accepted") &&
+          get<bool>(used_restored.restore_checkpoint(used_saved), "accepted") &&
+          get<A>(used_restored.projection(), "workshop_completed_actors").size() == 1 &&
+          get<I>(get<O>(used_restored.projection(), "cargo").at("P"), "products") == 0,
+          "P's completed goal survives a fresh Host restore after the plate leaves inventory.");
 }
 } // namespace
 

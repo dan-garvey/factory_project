@@ -181,10 +181,34 @@ func _approach_points(points: Array[Vector2], actor: String = "P") -> bool:
 			return false
 	return true
 
-func _arrival_field_craft_run(panel) -> void:
-	if not _expect(panel.visible and panel.field_craft_button.visible and not panel.field_craft_button.disabled,
-			"The ordinary arrival panel exposes the wooden multitool recipe"):
+func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
+	var inventory = opening.building_hotbar
+	inventory.open_catalog()
+	if not _expect(inventory.catalog.visible
+			and inventory.recipe_buttons.has("component:wooden_frame")
+			and "3 timber" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text
+			and "Carry the ingredients" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
+			"Fresh arrival exposes the wooden recipe and its missing carried ingredients"):
 		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-empty.png") == OK,
+				"Retain the ordinary zero-stock inventory view"):
+			return
+		var original_size: Vector2i = root.size
+		root.size = Vector2i(640, 480)
+		await process_frame
+		inventory._place_catalog()
+		await RenderingServer.frame_post_draw
+		if not _expect(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
+				and root.get_texture().get_image().save_png(capture_prefix + "-empty-narrow.png") == OK,
+				"The ordinary zero-stock inventory remains usable at a narrow viewport"):
+			return
+		root.size = original_size
+		await process_frame
+		inventory._place_catalog()
+	inventory.catalog.hide()
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	var distant: Dictionary = opening.model.projection()
@@ -201,7 +225,31 @@ func _arrival_field_craft_run(panel) -> void:
 	if not _expect(gathered.cargo.P.timber == 3 and gathered.hand_sources["tree-east-south"].remaining == 5,
 			"Three finite cuts reach the same physically present field actor"):
 		return
-	panel.field_craft_button.pressed.emit()
+	inventory.open_catalog()
+	if not _expect(inventory.material_counts.timber.text == "3"
+			and inventory.material_buttons.timber.visible
+			and "Craft here" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
+			"Finite cuts refresh the carried stack and available recipe in one inventory"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-timber.png") == OK,
+				"Retain the ordinary finite-timber inventory view"):
+			return
+		var original_size: Vector2i = root.size
+		root.size = Vector2i(640, 480)
+		await process_frame
+		inventory._place_catalog()
+		await RenderingServer.frame_post_draw
+		if not _expect(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
+				and root.get_texture().get_image().save_png(capture_prefix + "-timber-narrow.png") == OK,
+				"The ordinary carried-timber inventory remains usable at a narrow viewport"):
+			return
+		root.size = original_size
+		await process_frame
+		inventory._place_catalog()
+	inventory.recipe_buttons["component:wooden_frame"].pressed.emit()
 	var shaped: Dictionary = opening.model.projection()
 	if not _expect(shaped.order == gathered.order + 1 and shaped.cargo.P.timber == 0
 			and shaped.cargo.P.components.get("wooden_frame", 0) == 1
@@ -215,16 +263,46 @@ func _arrival_field_craft_run(panel) -> void:
 			and "a workshop" in opening.status_label.text,
 			"The field tool refuses metal while preserving the shaped frame"):
 		return
+	inventory.catalog.hide()
+	if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+		return
+	if not await _approach(Vector2(3.3, 4.95)):
+		return
+	var bench_ready: Dictionary = opening.model.projection()
+	opening._open_object_menu_for(str(opening.model.projection().fabrication_hub.id))
+	await process_frame
+	if not _expect(inventory.catalog.visible and inventory.context_bench == "pod-fabrication-hub"
+			and not opening.object_menu.visible
+			and "Craft here" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text,
+			"E on the installed pod opens the same recipe grid with bench crafting available"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-bench.png") == OK,
+				"Retain the ordinary E-opened bench inventory view"):
+			return
+	inventory.recipe_buttons["component:wooden_shaft"].pressed.emit()
+	var bench_shaped: Dictionary = opening.model.projection()
+	if not _expect(bench_shaped.order == bench_ready.order + 1
+			and bench_shaped.cargo.P.timber == 0
+			and bench_shaped.cargo.P.components.get("wooden_shaft", 0) == 1
+			and bench_shaped.cargo.P.components.get("wooden_frame", 0) == 1,
+			"The E-opened recipe icon sends a reachable native bench craft with finite custody: " +
+			str({"order": bench_shaped.order, "expected": bench_ready.order + 1,
+				"cargo": bench_shaped.cargo.P, "status": opening.status_label.text})):
+		return
+	inventory.catalog.hide()
 	var saved: Dictionary = opening._save_worksite()
 	facts["save_result"] = saved
 	facts["save_slot"] = opening.save_slot
 	if not _expect(saved.accepted and saved.native_preflight.accepted
 			and FileAccess.file_exists(opening.save_slot),
-			"Store saves the field-shaped component and source depletion from the real actor"):
+			"Store saves field and bench components with finite source depletion: " + str(saved)):
 		return
 	_record("pass")
 
 func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
+	var inventory = opening.building_hotbar
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	for index in range(2):
@@ -234,26 +312,26 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 		return
 	var before: Dictionary = opening.model.projection()
 	opening._open_object_menu_for(before.fabrication_hub.id)
-	if not _expect(opening.object_menu.visible and panel.foundation_craft_button.is_visible_in_tree()
+	if not _expect(inventory.catalog.visible and inventory.context_bench == before.fabrication_hub.id
 			and before.cargo.P.timber == 2 and before.foundation_recipe.timber == 2
-			and panel.foundation_craft_button.visible and not panel.foundation_craft_button.disabled
-			and "2 timber" in panel.foundation_craft_button.tooltip_text,
-			"The ordinary workshop exposes its native floor recipe beside the gathered timber"):
+			and "2 timber" in inventory.recipe_buttons.foundation.tooltip_text
+			and "Craft here" in inventory.recipe_buttons.foundation.tooltip_text,
+			"The E-opened inventory exposes its native floor recipe beside gathered timber"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-foundation-craft.png") == OK,
 				"The ordinary workshop floor control is retained in a rendered frame"):
 			return
-	panel.foundation_craft_button.pressed.emit()
+	inventory.recipe_buttons.foundation.pressed.emit()
 	var crafted: Dictionary = opening.model.projection()
 	if not _expect(crafted.order == before.order + 1 and crafted.cargo.P.timber == 0
 			and crafted.part_kits.P.foundation == before.part_kits.P.foundation + 1
 			and crafted.hand_sources["tree-east-south"].remaining == 6
-			and panel.foundation_craft_button.disabled,
-			"The icon converts two finite timber into one native foundation and then disables"):
+			and "Carry the ingredients" in inventory.recipe_buttons.foundation.tooltip_text,
+			"The recipe icon converts two finite timber into one native foundation and updates availability"):
 		return
-	opening.object_menu.hide()
+	inventory.catalog.hide()
 	if not await _approach(Vector2(9.0, 6.0)):
 		return
 	var placed: Dictionary = _construct({"action": "place_foundation", "cell": [5, 2], "level": 2})
@@ -288,38 +366,44 @@ func _arrival_foundation_craft_resume_run(panel) -> void:
 	if not _expect(opening.last_load_result.get("accepted", false)
 			and state.cargo.P.timber == 0 and state.hand_sources["tree-east-south"].remaining == 6
 			and state.part_kits.P.foundation == 16 and state.foundations.size() == 9
-			and panel.foundation_craft_button.visible and panel.foundation_craft_button.disabled
+			and "Carry the ingredients" in opening.building_hotbar.recipe_buttons.foundation.tooltip_text
 			and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted,
 			"Fresh process restores the spent timber, reclaimed crafted floor and unavailable workshop control: "
 			+ str({"load": opening.last_load_result, "timber": state.cargo.P.timber,
 				"remaining": state.hand_sources["tree-east-south"].remaining,
 				"floors": state.part_kits.P.foundation, "placed": state.foundations.size(),
-				"control": [panel.foundation_craft_button.visible, panel.foundation_craft_button.disabled]})):
+				"recipe": opening.building_hotbar.recipe_buttons.foundation.tooltip_text})):
 		return
 	_record("pass")
 
 func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
-	var bench_choice: int = panel.COMPONENTS.size() - 1
-	if not _expect(panel.COMPONENTS[bench_choice][0] == "wooden_workbench"
-			and panel.bench_choice.item_count == 1,
-			"The ordinary menu lists the finite workbench recipe and original pod workshop"):
+	var inventory = opening.building_hotbar
+	inventory.open_catalog()
+	if not _expect(inventory.recipe_buttons.has("component:wooden_workbench")
+			and "4 timber" in inventory.recipe_buttons["component:wooden_workbench"].tooltip_text,
+			"The ordinary inventory lists a finite wooden-workbench recipe"):
 		return
-	panel.component_choice.select(bench_choice)
-	panel._component_selected(bench_choice)
+	inventory.catalog.hide()
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	for index in range(4):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
 	var cut: Dictionary = opening.model.projection()
-	panel.field_craft_button.pressed.emit()
+	inventory.open_catalog()
+	inventory.recipe_buttons["component:wooden_workbench"].pressed.emit()
 	var shaped: Dictionary = opening.model.projection()
 	if not _expect(shaped.order == cut.order + 1 and shaped.cargo.P.timber == 0
 			and shaped.cargo.P.components.get("wooden_workbench", 0) == 1
 			and shaped.hand_sources["tree-east-south"].remaining == 4,
 			"Four real timber cuts become one carried workbench through the field tool"):
 		return
-	opening._select_tool("component")
+	inventory.material_buttons.timber.grab_focus()
+	if not _expect(inventory.component_buttons.wooden_workbench.visible
+			and inventory.component_counts.wooden_workbench.text == "1",
+			"The newly shaped bench appears as one carried component tile"):
+		return
+	inventory.component_buttons.wooden_workbench.pressed.emit()
 	var tile := Vector2i(4, 3)
 	if not _expect(opening._component_place_center(tile, "") == [16, 0, 12],
 			"The workbench uses a whole tile on the common construction grid"):
@@ -342,21 +426,20 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 		return
 	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 		return
-	panel.bench_choice.select(1)
-	panel._bench_selected(1)
-	var edge_index := 6
-	panel.component_choice.select(edge_index)
-	panel._component_selected(edge_index)
+	opening._open_object_menu_for(id)
 	var remote: Dictionary = opening.model.projection()
-	panel.craft_button.pressed.emit()
+	inventory.recipe_buttons["component:cutting_edge"].pressed.emit()
 	var refused: Dictionary = opening.model.projection()
 	if not _expect(refused.order == remote.order + 1 and refused.cargo == remote.cargo
-			and panel.selected_bench == id and "selected workshop" in opening.status_label.text,
-			"Selecting the placed bench does not spend distant ore or craft remotely"):
+			and inventory.context_bench == id and "selected workshop" in opening.status_label.text,
+			"E on a distant placed bench does not spend ore or craft remotely"):
 		return
+	inventory.catalog.hide()
 	if not await _approach(Vector2(6.0, 4.95)):
 		return
-	panel.craft_button.pressed.emit()
+	opening._open_object_menu_for(id)
+	inventory.recipe_buttons["component:cutting_edge"].pressed.emit()
+	inventory.catalog.hide()
 	var crafted: Dictionary = opening.model.projection()
 	if not _expect(crafted.order == refused.order + 1 and crafted.cargo.P.raw == 0
 			and crafted.cargo.P.components.get("cutting_edge", 0) == 1
@@ -374,18 +457,11 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 		if not _expect(image != null and image.save_png(capture_prefix + "-workbench.png") == OK,
 				"The confirmed workbench presentation frame is retained"):
 			return
-	opening.selected = id
-	opening._refresh_ui()
-	if not _expect(panel.reclaim_button.visible and not panel.reclaim_button.disabled
-			and panel.reclaim_button.text.is_empty() and panel.reclaim_button.icon != null
-			and panel.reclaim_button.tooltip_text == "Reclaim selected placed part · Delete"
-			and panel.reclaim_button.accessibility_name == "Reclaim selected placed part, shortcut Delete",
-			"The selected built bench offers a focused reclaim icon"):
-		return
 	opening._open_object_menu_for(id)
-	if not _expect(opening.object_menu.visible and panel.reclaim_button.is_visible_in_tree()
-			and not opening.remove_button.visible,
-			"The selected bench shows one reclaim action in the ordinary E menu"):
+	if not _expect(inventory.catalog.visible and inventory.context_action.visible
+			and not inventory.context_action.disabled
+			and "Reclaim wooden workbench" in inventory.context_action.tooltip_text,
+			"The placed bench offers a reclaim icon beside its recipes in the E-opened inventory"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
@@ -393,14 +469,10 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 				"The selected bench reclaim icon is retained in the ordinary E menu"):
 			return
 	var reclaim_key := InputEventKey.new()
-	reclaim_key.keycode = KEY_DELETE
+	reclaim_key.keycode = KEY_R
 	reclaim_key.pressed = true
-	opening._input(reclaim_key)
-	reclaim_key.pressed = false
-	opening._input(reclaim_key)
-	if opening.object_menu.visible:
-		opening.object_menu.hide()
-		await process_frame
+	inventory._input(reclaim_key)
+	inventory.catalog.hide()
 	var reclaimed: Dictionary = opening.model.projection()
 	if not _expect(reclaimed.fabrication_benches.is_empty()
 			and reclaimed.cargo.P.components.get("wooden_workbench", 0) == 1
@@ -412,6 +484,7 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	var original: Dictionary = opening.model.projection()
 	var id: String = original.fabrication_hub.id
+	var inventory = opening.building_hotbar
 	var pod_anchor: Vector3 = opening.landing_pod_visual.position
 	if not _expect(panel.pod_workshop_button.visible and not panel.pod_workshop_button.disabled
 			and panel.pod_workshop_button.text.is_empty() and panel.pod_workshop_button.icon != null
@@ -424,12 +497,11 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		return
 	opening._open_object_menu_for(id)
 	await process_frame
-	if not _expect(opening.object_menu.visible and panel.pod_workshop_button.is_visible_in_tree()
-			and opening.object_menu_close.text.is_empty() and opening.object_menu_close.icon != null
-			and opening.object_menu_close.tooltip_text == "Close object menu · Esc"
-			and opening.object_menu_close.accessibility_name == "Close object menu, shortcut Escape"
-			and opening.object_menu.get_viewport().gui_get_focus_owner() == opening.object_menu_close,
-			"E exposes the portable-workshop custody icon and focused close control"):
+	if not _expect(inventory.catalog.visible and inventory.context_bench == id
+			and inventory.context_action.visible and not inventory.context_action.disabled
+			and "Stow pod workshop" in inventory.context_action.tooltip_text
+			and not opening.object_menu.visible,
+			"E exposes the bench recipes and pod custody icon in one inventory window"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
@@ -437,10 +509,10 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 				"The ordinary pod workshop icon is retained in a rendered menu frame"):
 			return
 	var before_close: Dictionary = opening.model.projection()
-	opening.object_menu_close.pressed.emit()
+	inventory.catalog.hide()
 	await process_frame
 	var after_close: Dictionary = opening.model.projection()
-	if not _expect(not opening.object_menu.visible and after_close.order == before_close.order
+	if not _expect(not inventory.catalog.visible and after_close.order == before_close.order
 			and after_close.fabrication_hub == before_close.fabrication_hub
 			and after_close.cargo == before_close.cargo,
 			"The focused close control leaves native custody untouched"):
@@ -449,10 +521,8 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	var stow_key := InputEventKey.new()
 	stow_key.keycode = KEY_S
 	stow_key.pressed = true
-	opening._input(stow_key)
-	stow_key.pressed = false
-	opening._input(stow_key)
-	opening.object_menu.hide()
+	inventory._input(stow_key)
+	inventory.catalog.hide()
 	await process_frame
 	var carried: Dictionary = opening.model.projection()
 	if not _expect(not carried.fabrication_hub.installed and carried.fabrication_hub.holder == "P"
@@ -471,7 +541,13 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 			and not opening.landing_hub_visual.visible,
 			"An off-grid redeploy refusal preserves held identity and keeps the world body absent"):
 		return
-	panel.pod_workshop_button.pressed.emit()
+	inventory.open_catalog()
+	if not _expect(inventory.material_buttons.fabrication_hub.visible
+			and inventory.material_counts.fabrication_hub.text == "1"
+			and "select placement" in inventory.material_buttons.fabrication_hub.tooltip_text,
+			"A stowed pod appears as one directly placeable carried inventory item"):
+		return
+	inventory.material_buttons.fabrication_hub.pressed.emit()
 	if not _expect(opening.mode == "pod_workshop", "The menu opens the full-tile pod placement tool"):
 		return
 	var tile := Vector2i(4, 3)
@@ -510,10 +586,10 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		return
 	opening.distance = 0.0
 	opening._open_pointed_machine()
-	if not _expect(opening.selected == id and opening.object_menu.visible
-			and opening.object_menu_title.text == "Pod workshop"
+	if not _expect(opening.selected == id and inventory.catalog.visible
+			and inventory.context_bench == id and inventory.parts_label.text == "BENCH / INVENTORY"
 			and "Grid center" in opening.inspector.text,
-			"E opens the relocated hub with its workshop title and current grid center"):
+			"E opens the relocated hub's shared bench inventory and current grid center"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening.distance = 14.0
@@ -527,7 +603,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 				"The moved issued workshop and stationary pod frame are retained"):
 			return
 		opening.set_process(true)
-	opening.object_menu.hide()
+	inventory.catalog.hide()
 	await process_frame
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
@@ -535,10 +611,13 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		return
 	if not await _approach(Vector2(5.4, 4.95)):
 		return
-	var edge_index := 6
-	panel.component_choice.select(edge_index)
-	panel._component_selected(edge_index)
-	panel.craft_button.pressed.emit()
+	opening._open_object_menu_for(id)
+	if not _expect(inventory.catalog.visible and inventory.context_bench == id
+			and "Craft here" in inventory.recipe_buttons["component:cutting_edge"].tooltip_text,
+			"The relocated pod exposes its metal recipe in the same E-opened grid"):
+		return
+	inventory.recipe_buttons["component:cutting_edge"].pressed.emit()
+	inventory.catalog.hide()
 	var crafted: Dictionary = opening.model.projection()
 	if not _expect(crafted.cargo.P.raw == 0 and crafted.cargo.P.components.get("cutting_edge", 0) == 1
 			and crafted.fabrication_hub.center == [4, 0, 3] and crafted.fabrication_hub.installed,
@@ -599,7 +678,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -694,157 +773,6 @@ func _walk_to(target: Vector2, jump: bool = false, actor: String = "P") -> bool:
 	var stopped_at: Vector3 = opening.actor_world.bodies[actor].global_position
 	facts["failed_walk"] = {"actor": actor, "target": target, "stopped_at": stopped_at}
 	return _expect(false, "The bounded native walk must reach %s; stopped at %s" % [target, stopped_at])
-
-func _deliver_first_arrival_plate(held_work: Dictionary, _capture_prefix: String) -> bool:
-	# Keep the native shipment custody regression as an internal fixture. The
-	# playable first-workshop objective now completes at local inventory pickup.
-	var beacon: Dictionary = opening.model.projection().freight_beacon
-	var distant: Dictionary = _issue({"action": "deliver_first_plate", "entity": beacon.id})
-	if not _expect(not distant.get("accepted", false) and distant.get("reason") == "out_of_reach"
-			and opening.model.projection().cargo.P.products == 1,
-			"The archived native delivery path still refuses a remote cargo debit"):
-		return false
-	if not await _approach_points([Vector2(4.95, 4.95), Vector2(6.6, 4.95),
-			Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
-		return false
-	var first_request: String = str(opening.request_namespace) + str(opening.request_sequence + 1)
-	var before: Dictionary = opening.model.projection()
-	var receipt: Dictionary = _issue({"action": "deliver_first_plate", "entity": beacon.id})
-	var shipped: Dictionary = opening.model.projection()
-	if not _expect(receipt.get("accepted", false) and shipped.order == before.order + 1
-			and shipped.cargo.P.products == 0 and shipped.freight_beacon.shipped_products == 1
-			and shipped.dropped_material == held_work.dropped_material
-			and shipped.guided_press_assemblies == held_work.guided_press_assemblies
-			and "FORM A PLATE · KEEP IT" in opening.goal_label.text
-			and not opening.manager_log_completion_entry.visible,
-			"Internal delivery debits one plate without satisfying the inventory goal"):
-		return false
-	var before_retry: Dictionary = opening.model.checkpoint()
-	var retry: Dictionary = opening.model.command({"context": shipped.context, "client": "P",
-		"request": first_request, "action": "deliver_first_plate", "entity": beacon.id})
-	if not _expect(retry.get("accepted", false) and retry.get("duplicate", false)
-			and opening.model.checkpoint() == before_retry,
-			"Retrying the archived request cannot debit a second plate"):
-		return false
-	facts["delivery"] = {"request": first_request, "receipt": retry, "beacon": shipped.freight_beacon}
-	return await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95), Vector2(4.95, 4.95)])
-
-func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
-	var beacon: Dictionary = opening.model.projection().freight_beacon
-	if not _expect(beacon.order_complete and beacon.repeat_order_shipped == 0
-			and opening.model.projection().cargo.P.products == 1,
-			"The first saved receipt exposes an open repeat order and one real carried plate"):
-		return false
-	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
-		return false
-	for index in range(2):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
-			return false
-	# The deployed pod workshop now has a real collider at (3.3, 6.6).
-	# Work from its clear front aisle, still within native press reach.
-	if not await _approach(Vector2(4.95, 4.95)):
-		return false
-	for index in range(2):
-		if not _expect(not panel.feed_button.disabled, "The ordinary press can accept another finite blank"):
-			return false
-		panel.feed_button.pressed.emit()
-		for turn in range(3):
-			if not _expect(not panel.turn_button.disabled, "The player can advance the retained work with the crank"):
-				return false
-			panel.turn_button.pressed.emit()
-		if not _expect(not panel.pickup_button.disabled, "The next formed plate can be picked up physically"):
-			return false
-		panel.pickup_button.pressed.emit()
-		if not _expect(not panel.recover_work_button.disabled
-				and panel.recover_work_button.tooltip_text.contains("offcut"),
-				"The next press stroke retains a separate recoverable copper trimming"):
-			return false
-		panel.recover_work_button.pressed.emit()
-	if not _expect(opening.model.projection().cargo.P.products == 3
-			and opening.model.projection().cargo.P.offcuts == 4
-			and opening.model.projection().cargo.P.raw == 0
-			and opening.model.projection().dropped_material.is_empty()
-			and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-			"Two more local blanks become plates beside the retained second plate without gifted stock"):
-		return false
-	var press_anvil: String = str(opening.model.projection().guided_press_assemblies[0].anvil)
-	if opening._object_menu_open() and opening.object_menu_target != press_anvil:
-		opening.object_menu.hide()
-		await process_frame
-	if not opening._object_menu_open():
-		opening._open_object_menu_for(press_anvil)
-	if not _expect(opening._object_menu_open() and opening.object_menu_target == press_anvil
-			and opening.object_menu_operations.visible
-			and panel.compact_button.is_visible_in_tree() and not panel.compact_button.disabled
-			and panel.compact_button.icon != null
-			and panel.compact_button.focus_mode == Control.FOCUS_ALL
-			and panel.compact_button.accessibility_name.contains("offcuts")
-			and panel.compact_button.tooltip_text.contains("[4/4]"),
-			"Four recovered offcuts expose a visible, focusable press compaction control"):
-		return false
-	if not capture_prefix.is_empty():
-		await process_frame
-		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-recycle-control.png") == OK,
-				"The selected press and its offcut control are retained as passive scene pixels"):
-			return false
-	panel.compact_button.pressed.emit()
-	var recycled: Dictionary = opening.model.projection()
-	if not _expect(recycled.cargo.P.offcuts == 0 and recycled.cargo.P.products == 3
-			and recycled.dropped_material.size() == 1
-			and recycled.dropped_material[0].raw == 1
-			and recycled.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
-			and panel.compact_button.disabled,
-			"The ordinary press compacts four carried offcuts into one recoverable full-mass blank"):
-		return false
-	opening.object_menu_close.pressed.emit()
-	if not _expect(not opening._object_menu_open(),
-			"Closing the inspected press returns ordinary E control for the repeat shipment"):
-		return false
-	if not capture_prefix.is_empty():
-		var prior_focus: Vector3 = opening.focus
-		var prior_distance: float = opening.distance
-		var prior_pitch: float = opening.orbit_pitch
-		opening.focus = TransmissionPresenter.world_center(recycled.dropped_material[0].center) + Vector3.UP * 0.45
-		opening.distance = 3.5
-		opening.orbit_pitch = 0.45
-		opening._update_camera()
-		await process_frame
-		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-recycled-blank.png") == OK,
-				"The recycled blank and press controls are retained as passive scene pixels"):
-			return false
-		opening.focus = prior_focus
-		opening.distance = prior_distance
-		opening.orbit_pitch = prior_pitch
-		opening._update_camera()
-	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 8.25), Vector2(9.9, 8.25)]):
-		return false
-	for index in range(3):
-		var before: Dictionary = opening.model.projection()
-		var receipt: Dictionary = _issue({"action": "deliver_repeat_plate", "entity": beacon.id})
-		var after: Dictionary = opening.model.projection()
-		if not _expect(receipt.get("accepted", false) and after.order == before.order + 1
-				and after.cargo.P.products == 2 - index
-				and after.freight_beacon.shipped_products == 2 + index
-				and after.freight_beacon.repeat_order_shipped == 1 + index
-				and after.freight_beacon.repeat_order_target == 3
-				and after.freight_beacon.repeat_order_complete == (index == 2),
-			"The internal regression action debits one carried plate at a time"):
-			return false
-	var full: Dictionary = _issue({"action": "deliver_repeat_plate", "entity": beacon.id})
-	if not _expect(not full.get("accepted", false) and full.get("reason") == "order_filled"
-			and opening.model.projection().cargo.P.products == 0
-			and opening.model.projection().freight_beacon.shipped_products == 4
-			and "FORM A PLATE · KEEP IT" in opening.goal_label.text,
-			"A fifth shipment refuses after the repeat order closes without changing material custody"):
-		return false
-	if not capture_prefix.is_empty():
-		await process_frame
-		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-inventory-goal-after-internal-transfer.png") == OK,
-				"The ordinary viewport has no shipment cue after the internal transfer"):
-			return false
-	facts["repeat_delivery"] = {"beacon": opening.model.projection().freight_beacon,
-		"actor": opening.actor_world.diagnostics("P").sample}
-	return true
 
 func _foundations() -> void:
 	# A new automated construction case, not a replay of produce/resume, a
@@ -2175,26 +2103,24 @@ func _arrival_raised_press_resume_run(panel) -> void:
 
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
-	if mode == "arrival-repeat-delivery":
-		deadline = Time.get_ticks_msec() + 240000
-	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-delivery", "arrival-craft-capacity"]:
+	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-craft-capacity"]:
 		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume"]:
+	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
 		facts["actor_roster"] = ["P", "Q"]
 		opening.set_script(load("res://opening/opening.gd"))
-		opening.model = NativeModel.new("arrival-delivery-" + Crypto.new().generate_random_bytes(16).hex_encode(), ["P", "Q"], true)
+		opening.model = NativeModel.new("arrival-dual-actor-" + Crypto.new().generate_random_bytes(16).hex_encode(), ["P", "Q"], true)
 	opening.auto_advance = mode == "arrival-reveal"
 	opening.arrival_reveal_probe = mode == "arrival-reveal-skip" \
 		or (mode == "arrival-resume" and "--arrival-reveal-probe" in OS.get_cmdline_user_args())
@@ -2284,37 +2210,8 @@ func _arrival_run() -> void:
 	if mode == "arrival-craft-capacity-resume":
 		await _arrival_capacity_resume_run()
 		return
-	if mode == "arrival-repeat-delivery-q-resume":
-		while Time.get_ticks_msec() < deadline and not opening.model.projection().actors.Q.ready:
-			await physics_frame
-			await process_frame
-		var q_saved: Dictionary = opening.model.projection()
-		if not _expect(opening.last_load_result.get("accepted", false)
-				and q_saved.actors.Q.ready and opening.actor_world.bodies.Q.is_on_floor()
-				and q_saved.cargo.Q.raw == 1 and q_saved.cargo.P.raw == 0
-				and q_saved.cargo.P.offcuts == 0 and q_saved.dropped_material.is_empty()
-				and q_saved.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
-				and q_saved.freight_beacon.repeat_order_complete
-				and q_saved.hand_crank.holder == "pod" and opening.landing_crank_visual.visible
-				and opening.model.validate_checkpoint(opening.model.checkpoint()).get("accepted", false),
-				"A third process restores Q's physically recovered blank and P's next command without mass drift"):
-			return
-		_record("pass")
-		return
-	if mode == "arrival-repeat-delivery":
-		if not _expect(not opening.manager_log_completion_entry.visible
-				and opening.get_node_or_null("ShipmentMarker") == null,
-			"The ordinary opening waits for local inventory and has no shipment marker"):
-			return
-		if not capture_prefix.is_empty():
-			opening.manager_log_button.pressed.emit()
-			await process_frame
-			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-first-log.png") == OK,
-				"The first-order Work log is retained in the normal viewport"):
-				return
-			opening._toggle_manager_log()
 	if mode == "arrival-field-craft":
-		await _arrival_field_craft_run(panel)
+		await _arrival_field_craft_run(panel, capture_prefix)
 		return
 	if mode == "arrival-foundation-craft":
 		await _arrival_foundation_craft_run(panel, capture_prefix)
@@ -2334,7 +2231,7 @@ func _arrival_run() -> void:
 	if mode == "arrival-craft-capacity":
 		await _arrival_capacity_run(panel, capture_prefix)
 		return
-	if not capture_prefix.is_empty() and mode in ["arrival-press", "arrival-delivery", "arrival-repeat-delivery"]:
+	if not capture_prefix.is_empty() and mode == "arrival-press":
 		await process_frame
 		var landfall: Image = root.get_texture().get_image()
 		if not _expect(landfall != null and landfall.save_png(capture_prefix + "-landfall.png") == OK,
@@ -2347,21 +2244,14 @@ func _arrival_run() -> void:
 				"The foundation shortcut selects placement and shows options only with its valid ghost"):
 			return
 		opening._select_tool("inspect")
-	if mode in ["arrival-resume", "arrival-delivery-resume", "arrival-repeat-delivery-resume"]:
+	if mode == "arrival-resume":
 		var restored: Dictionary = opening.model.projection()
-		var repeat_complete: bool = mode == "arrival-repeat-delivery-resume"
-		var first_delivered: bool = mode in ["arrival-delivery-resume", "arrival-repeat-delivery-resume"]
 		if not _expect(opening.last_load_result.get("accepted", false)
 				and opening.arrival_reveal_audio == null
-				and restored.cargo.P.products == (0 if repeat_complete else 1 if first_delivered else 2)
-				and restored.cargo.P.offcuts == (0 if repeat_complete else 2)
-				and (restored.dropped_material.size() == 1 and restored.dropped_material[0].raw == 1
-					if repeat_complete else true)
+				and restored.cargo.P.products == 2 and restored.cargo.P.offcuts == 2
+				and restored.workshop_completed_actors.has("P")
+				and not restored.has("freight_beacon")
 				and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
-				and restored.freight_beacon.order_complete == first_delivered
-				and restored.freight_beacon.shipped_products == (4 if repeat_complete else 1 if first_delivered else 0)
-				and restored.freight_beacon.repeat_order_shipped == (3 if repeat_complete else 0)
-				and restored.freight_beacon.repeat_order_complete == repeat_complete
 				and restored.placed_components.size() == 5
 				and restored.cargo.P.components.get("wooden_frame", 0) == 1
 				and restored.cargo.P.components.get("receiver_tray", 0) == 1
@@ -2371,66 +2261,32 @@ func _arrival_run() -> void:
 				and restored.guided_press_assemblies.size() == 1 and restored.guided_press_assemblies[0].status == "ready"
 				and restored.hand_crank.holder == "P" and panel.visible
 				and opening.landing_pod_visual != null and not opening.landing_crank_visual.visible
-				and not opening.arrival_reveal_active,
-				"A fresh process reopens the press, finite cargo and one held crank"):
-			return
-		if first_delivered and not _expect(restored.actors.has("Q")
-				and opening.actor_world.bodies.has("Q")
-				and opening.manager_log_completion_entry.visible == (restored.cargo.P.products > 0)
-				and opening.get_node_or_null("ShipmentMarker") == null,
-			"The saved inventory goal reflects only P's actual carried plate"):
+				and not opening.arrival_reveal_active
+				and opening.manager_log_completion_entry.visible,
+				"A fresh process reopens the finite press and P's saved inventory milestone"):
 			return
 		opening.manager_log_button.pressed.emit()
 		if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
 				and not opening.manager_log_current.text.is_empty()
 				and opening.model.projection() == restored,
-				"The saved site reopens with the same replayable briefing and a current native-backed cue"):
+				"The saved site reopens with a native-backed completed work cue"):
 			return
-		if repeat_complete and not capture_prefix.is_empty():
+		if not capture_prefix.is_empty():
 			await process_frame
 			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-resume-log.png") == OK,
-				"The Store-restored Work log is retained in the normal viewport"):
+					"The Store-restored Work log is retained in the normal viewport"):
 				return
 		var before_log_close: Dictionary = opening.model.projection()
 		opening._toggle_manager_log()
 		if not _expect(not opening.manager_log_open and opening._can_control_character()
 				and opening.model.projection() == before_log_close,
-				"A resumed worker can return from the log without replaying arrival or changing stock"):
+				"A resumed worker returns from the log without changing stock"):
 			return
-		if repeat_complete:
-			if not await _approach_points([Vector2(1.65, 3.3), Vector2(4.95, 3.3),
-					Vector2(4.95, 4.95)], "Q"):
-				return
-			var before_q: Dictionary = opening.model.projection()
-			var recycled_drop: Dictionary = before_q.dropped_material[0]
-			var expected_drop: Dictionary = recycled_drop.duplicate(true)
-			expected_drop.erase("center")
-			var q_reply: Dictionary = opening.model.command_as("Q", {"action": "pickup_material",
-				"context": before_q.context, "client": "Q", "request": "saved-recycled-blank-q",
-				"center": recycled_drop.center, "expected": expected_drop})
-			opening.actor_world.sync_topology()
-			opening._refresh_from_projection(opening.model.projection())
-			var after_q: Dictionary = opening.model.projection()
-			if not _expect(q_reply.get("accepted", false) and after_q.cargo.Q.raw == 1
-					and after_q.cargo.P == before_q.cargo.P and after_q.dropped_material.is_empty()
-					and after_q.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-					"Physical Q recovers the Store-restored blank without changing P's cargo or copper mass"):
-				return
-			if not await _approach_points([Vector2(6.6, 8.25), Vector2(6.6, 4.95),
-					Vector2(1.65, 4.95)]):
-				return
 		panel.crank_button.pressed.emit()
 		if not _expect(opening.model.projection().hand_crank.holder == "pod"
 				and opening.landing_crank_visual.visible,
 				"The resumed ordinary panel can make a new native command"):
 			return
-		if repeat_complete:
-			var saved_after_q: Dictionary = opening._save_worksite()
-			if not _expect(saved_after_q.get("accepted", false)
-					and saved_after_q.get("native_preflight", {}).get("accepted", false)
-					and FileAccess.file_exists(opening.save_slot),
-					"Store validates and saves the second actor's physical recovery and P's next command"):
-				return
 		_record("pass")
 		return
 	if not _expect(panel != null and not opening._object_menu_open(),
@@ -2820,18 +2676,6 @@ func _arrival_run() -> void:
 			and opening.manager_log_completion_entry.visible,
 		"Physical pickup completes the workshop while the second workpiece stays in place"):
 		return
-	if mode in ["arrival-delivery", "arrival-repeat-delivery"]:
-		var held_work: Dictionary = opening.model.projection()
-		if not await _deliver_first_arrival_plate(held_work, capture_prefix):
-			return
-		opening.distance = 0.0
-		opening.orbit_yaw = PI
-		opening.orbit_pitch = 0.18
-		opening._update_camera()
-		opening._open_pointed_machine()
-		if not _expect(not opening.selected.is_empty() and panel.press_section.visible,
-				"Returning from freight opens the press again through the ordinary E ray"):
-			return
 	panel.turn_button.pressed.emit()
 	if not _expect(opening.model.projection().dropped_material.size() == 2
 			and opening.model.projection().dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
@@ -2844,13 +2688,11 @@ func _arrival_run() -> void:
 			"The second plate pickup leaves its separate copper offcut beneath the ram"):
 		return
 	panel.recover_work_button.pressed.emit()
-	if not _expect(opening.model.projection().cargo.P.products == (1 if mode in ["arrival-delivery", "arrival-repeat-delivery"] else 2)
+	if not _expect(opening.model.projection().cargo.P.products == 2
 			and opening.model.projection().cargo.P.offcuts == 2
 			and opening.model.projection().dropped_material.is_empty()
 			and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 			"Both plates and both copper offcuts enter finite carried custody through ordinary controls"):
-		return
-	if mode == "arrival-repeat-delivery" and not await _deliver_repeat_arrival_plates(panel, capture_prefix):
 		return
 	facts["press_anvil"] = ready.anvil
 	facts["final_parts"] = opening.model.projection().placed_components

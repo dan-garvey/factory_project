@@ -4646,6 +4646,7 @@ var wheel_rotor: Node3D
 var machine_body_context := ""
 var machine_press_poses: Dictionary = {}
 var status_label: Label
+var developer_mode_label: Label
 var fps_label: Label
 var fps_elapsed := 0.0
 var status_footer: Control
@@ -5276,7 +5277,8 @@ func issue(action: Dictionary) -> Dictionary:
 		elif action.action in ["remove", "remove_belt_span"] and selected == action.get("entity", ""):
 			selected = ""
 		_construction_feedback(intent, outcome)
-		_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
+		if action.action != "set_developer_conveniences":
+			_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
 			"craft_component": "Component crafted from carried material.",
 			"field_craft": "Wooden component shaped with your multitool.",
 			"craft_part": "Transmission kit made from carried timber and softmetal.",
@@ -5634,6 +5636,12 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventKey and event.pressed and not event.echo \
 				and event.keycode in [KEY_SPACE, KEY_ESCAPE]:
 			_finish_arrival_reveal(true)
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.keycode == KEY_F3:
+		if event.pressed and not event.echo and _can_control_character():
+			issue({"action": "set_developer_conveniences", "enabled":
+				not state.get("options", {}).get("developer_conveniences", false)})
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.keycode == KEY_ALT and not event.pressed \
@@ -6355,6 +6363,12 @@ func _open_pointed_machine() -> void:
 func _open_object_menu_for(target: String) -> void:
 	if not _contains_target(state, target):
 		return
+	if building_hotbar != null and building_hotbar._valid_bench(state, target):
+		_select_tool("inspect")
+		selected = target
+		_refresh_ui()
+		building_hotbar.open_at_bench(target)
+		return
 	_select_tool("inspect")
 	selected = target
 	_refresh_ui()
@@ -6362,7 +6376,7 @@ func _open_object_menu_for(target: String) -> void:
 		arrival_assembly_controls.open_context()
 	object_menu_target = target
 	object_menu_title.text = _object_name(target)
-	object_menu_operations_label.text = "CRAFT PARTS"
+	object_menu_operations_label.text = "PART ACTIONS"
 	if _is_guided_press_part(target):
 		object_menu_operations_label.text = "PRESS WORK"
 	for row: Variant in state.get("collector_assemblies", []):
@@ -9139,6 +9153,13 @@ func _refresh_ui() -> void:
 	if actor_label != null:
 		actor_label.visible = not legacy_fixture
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
+	if developer_mode_label != null:
+		var fast_enabled: bool = state.get("options", {}).get("developer_conveniences", false)
+		developer_mode_label.add_theme_color_override("font_color",
+			Color("edb95d") if fast_enabled else Color("64777a"))
+		developer_mode_label.tooltip_text = "Developer conveniences %s. F3 toggles fast manual harvesting." % (
+			"enabled" if fast_enabled else "disabled")
+		developer_mode_label.accessibility_name = developer_mode_label.tooltip_text
 	for tool in ["flow"]:
 		var button: Button = tool_buttons[tool]
 		button.disabled = explanation_open
@@ -9205,9 +9226,9 @@ func _refresh_ui() -> void:
 		arrival_assembly_scroll.visible = arrival_assembly_controls.visible
 		if object_workshop_route != null:
 			var collector_context := _is_collector_frame(object_menu_target)
-			object_workshop_craft_column.visible = not collector_context
+			object_workshop_craft_column.visible = false
 			object_workshop_collector.visible = collector_context
-			object_workshop_route.visible = not collector_context and not state.get("part_recipes", []).is_empty()
+			object_workshop_route.visible = false
 		if object_menu_operations != null:
 			object_menu_operations.visible = _object_menu_open() and _object_supports_operations(object_menu_target) \
 				and arrival_assembly_scroll.visible
@@ -9224,7 +9245,7 @@ func _catalog_open() -> bool:
 func _refresh_manager_log() -> void:
 	if manager_log_current == null or goal_label == null:
 		return
-	var complete: bool = int(state.get("cargo", {}).get(client, {}).get("products", 0)) > 0
+	var complete: bool = state.get("workshop_completed_actors", []).has(client)
 	manager_log_completion_entry.visible = complete
 	manager_log_projects.visible = complete
 	var viewport_height := get_viewport().get_visible_rect().size.y
@@ -9324,7 +9345,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	var inventory := int(state.get("inventories", {}).get(client, 0))
 	goal_progress.value = clampi(inventory, 0, 4)
 	goal_progress.visible = not arrival
-	var workshop_complete: bool = arrival and int(state.get("cargo", {}).get(client, {}).get("products", 0)) > 0
+	var workshop_complete: bool = arrival and state.get("workshop_completed_actors", []).has(client)
 	objective_heading.text = ("FIRST WORKSHOP  /  COMPLETE" if workshop_complete else "FIRST WORKSHOP  /  01") \
 		if arrival else "FIRST SHIFT  /  01"
 	if arrival:
@@ -10532,6 +10553,9 @@ func _build_interface() -> void:
 	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H guide", 11, Color("bfd1cc"))
+	if not legacy_fixture:
+		developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
+		developer_mode_label.focus_mode = Control.FOCUS_ALL
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:
