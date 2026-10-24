@@ -113,6 +113,16 @@ func _sync_motion(snapshot: Dictionary) -> void:
 			if typeof(id) != TYPE_STRING or not part is Dictionary or typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
 				continue
 			current[id] = part.generation
+	var placed: Variant = snapshot.get("placed_components", {})
+	if placed is Dictionary:
+		for id: Variant in placed:
+			var part: Variant = placed[id]
+			if typeof(id) != TYPE_STRING or not part is Dictionary or \
+					part.get("component") not in ["wooden_shaft", "softmetal_shaft",
+						"wooden_cog", "softmetal_cog"] or \
+					typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
+				continue
+			current[id] = part.generation
 	for id: Variant in _visual_angles.keys():
 		if not current.has(id) or current[id] != _generations.get(id):
 			_visual_angles.erase(id)
@@ -152,6 +162,12 @@ func visual_rotation(id: String) -> float:
 
 func _apply_angles(update_gears := true) -> void:
 	for child: Node3D in _moving_anchors:
+		if child.has_meta("component_rotor_base"):
+			var component_id: String = str(child.get_meta("entity"))
+			var base: Basis = child.get_meta("component_rotor_base")
+			child.basis = base * Basis(Vector3.UP,
+				visual_angle(component_id) * float(child.get_meta("component_axis_sign")))
+			continue
 		if child.has_meta("belt_shaft"):
 			var loop := child.get_node_or_null("BeltLoop") as MeshInstance3D
 			if loop != null and loop.material_override is StandardMaterial3D:
@@ -210,6 +226,12 @@ func advance_visual_motion(delta: float) -> void:
 			var parts: Variant = snapshot.get(group)
 			if parts is Dictionary:
 				identity_count += parts.size()
+		var placed: Variant = snapshot.get("placed_components")
+		if placed is Dictionary:
+			for component: Variant in placed.values():
+				if component is Dictionary and component.get("component") in [
+						"wooden_shaft", "softmetal_shaft", "wooden_cog", "softmetal_cog"]:
+					identity_count += 1
 	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") \
 			or (not native_motion and identity_count != _generations.size()):
 		_sync_motion(snapshot)
@@ -1250,11 +1272,17 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var rotor := Node3D.new()
 			rotor.name = "PlacedDriveCog"
 			rotor.basis = Basis(across, direction, across.cross(direction))
+			rotor.set_meta("entity", anchor.get_meta("component_entity"))
+			rotor.set_meta("component_rotor_base", rotor.basis)
+			rotor.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
+			_moving_anchors.append(rotor)
 			anchor.add_child(rotor)
 			var finish: Material = timber if kind == "wooden_cog" else worked
 			_support_cylinder(rotor, "CogRim", 0.095, 0.05, finish)
 			var hub_length: float = occupied_size.dot(direction.abs()) if press_role == "drive_cog" else 0.105
 			_support_cylinder(rotor, "CogHub", 0.05, hub_length, dark)
+			_support_box(rotor, "CogIndexMark", Vector3(0.065, 0.028, 0),
+				Vector3(0.025, 0.008, 0.025), dark)
 			for index in range(12):
 				var angle := TAU * float(index) / 12.0
 				_support_box(rotor, "CogTooth%02d" % index, Vector3.ZERO,
@@ -1356,11 +1384,17 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
 			var across := reference.cross(direction).normalized()
 			rod.basis = Basis(across, direction, across.cross(direction))
+			rod.set_meta("entity", anchor.get_meta("component_entity"))
+			rod.set_meta("component_rotor_base", rod.basis)
+			rod.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
+			_moving_anchors.append(rod)
 			rod.position.y = 0.0 if fitted else 0.035
 			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted else 0.14
 			Assets.shaft(rod, shaft_length, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
 			var core := rod.get_node("Shaft") as MeshInstance3D
 			core.material_override = timber if kind == "wooden_shaft" else worked
+			_support_box(rod, "ShaftIndexMark", Vector3(0.057, 0, 0),
+				Vector3(0.016, 0.035, 0.024), dark)
 			if fitted:
 				if collector_fitting:
 					# A collector shaft reaches the frame from its own native box.

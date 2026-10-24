@@ -916,7 +916,9 @@ func _press_component_view() -> void:
 func _guided_press_component_view() -> void:
 	var state := {"context": "guided-press-component-view", "revision": 1,
 		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
-		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
+		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {
+			"shaft": {"state": "rotating", "numerator": 1, "denominator": 1},
+			"cog": {"state": "rotating", "numerator": 1, "denominator": 1}},
 		"collector_assemblies": [], "press_assemblies": [], "placed_components": {
 			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.718125, 0.0], [0.14, 0.230625, 0.14]),
 			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 1.19625, 0.0], [0.14, 0.2475, 0.14]),
@@ -957,6 +959,67 @@ func _guided_press_component_view() -> void:
 			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
 			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
 				"Each frame-free fitting stays inside its own native occupied volume.")
+	var shaft_mark: MeshInstance3D = shaft.get_node("ShaftIndexMark")
+	var cog_mark: MeshInstance3D = cog.get_node("CogIndexMark")
+	var shaft_before: Vector3 = shaft_mark.global_position - shaft.global_position
+	var cog_before: Vector3 = cog_mark.global_position - cog.global_position
+	view.advance_visual_motion(0.02)
+	var shaft_after: Vector3 = shaft_mark.global_position - shaft.global_position
+	var cog_after: Vector3 = cog_mark.global_position - cog.global_position
+	var east_winding: float = shaft_before.cross(shaft_after).dot(Vector3.RIGHT)
+	verify(absf(east_winding) > 0.0001 and absf(cog_before.cross(cog_after).dot(Vector3.RIGHT)) > 0.0001
+		and anchors.shaft.position == parsed.boxes.shaft.center
+		and anchors.cog.position == parsed.boxes.cog.center,
+		"Confirmed signed motion turns both placed rotors while their pick anchors stay fixed.")
+	state.motion.shaft = {"state": "stalled", "numerator": 0, "denominator": 1}
+	state.motion.cog = {"state": "stalled", "numerator": 0, "denominator": 1}
+	state.revision = 2
+	host.state = state
+	view.refresh()
+	var stopped := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			stopped[node.get_meta("component_entity")] = node
+	var held_shaft: Node3D = stopped.shaft.get_node("LooseDriveShaft")
+	var held_mark: MeshInstance3D = held_shaft.get_node("ShaftIndexMark")
+	var held_position: Vector3 = held_mark.global_position
+	view.advance_visual_motion(0.02)
+	verify(held_mark.global_position.distance_to(held_position) < 0.00001,
+		"A stalled native rate freezes the placed shaft at its last confirmed phase.")
+	state.motion.shaft = {"state": "rotating", "numerator": 1, "denominator": 1}
+	state.motion.cog = {"state": "rotating", "numerator": 1, "denominator": 1}
+	state.revision = 3
+	host.state = state
+	view.refresh()
+	var resumed := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			resumed[node.get_meta("component_entity")] = node
+	var resumed_shaft: Node3D = resumed.shaft.get_node("LooseDriveShaft")
+	var resumed_mark: MeshInstance3D = resumed_shaft.get_node("ShaftIndexMark")
+	verify(resumed_mark.global_position.distance_to(held_position) < 0.00001,
+		"A resumed native rate starts at the retained visual phase.")
+	view.advance_visual_motion(0.02)
+	verify(resumed_mark.global_position.distance_to(held_position) > 0.0001,
+		"The reconnected placed shaft moves only after native motion resumes.")
+	state.placed_components.shaft.center = [-1, 4, 0]
+	state.placed_components.shaft.occupied.center = [-0.4125, 2.475, 0.0]
+	state.placed_components.cog.center = [-2, 4, 0]
+	state.placed_components.cog.occupied.center = [-0.825, 2.475, 0.0]
+	state.revision = 4
+	host.state = state
+	view.refresh()
+	var mirrored := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			mirrored[node.get_meta("component_entity")] = node
+	var west_shaft: Node3D = mirrored.shaft.get_node("LooseDriveShaft")
+	var west_mark: MeshInstance3D = west_shaft.get_node("ShaftIndexMark")
+	var west_before: Vector3 = west_mark.global_position - west_shaft.global_position
+	view.advance_visual_motion(0.02)
+	var west_after: Vector3 = west_mark.global_position - west_shaft.global_position
+	verify(east_winding * west_before.cross(west_after).dot(Vector3.RIGHT) > 0.0,
+		"Mirrored fittings preserve the signed native world-axis winding.")
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--capture="):
 			root.size = Vector2i(1280, 800)
@@ -988,7 +1051,8 @@ func _guided_press_component_view() -> void:
 			world_environment.free()
 	state.guided_press_assemblies[0] = {"anvil": "anvil", "center": [0, 0, 0], "status": "missing_cog"}
 	state.placed_components.erase("cog")
-	state.revision = 2
+	state.motion.clear()
+	state.revision = 5
 	host.state = state
 	view.refresh()
 	var partial := {}
