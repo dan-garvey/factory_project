@@ -5525,15 +5525,17 @@ Advance World::tick(const ObserveActor& observe) noexcept {
                             dropped.products += delivered.products;
                             dropped.work_lots.insert(dropped.work_lots.end(), delivered.work_lots.begin(), delivered.work_lots.end());
                         }
-                        // A lone raw blank retains its belt custody even when
-                        // the press is assembled after the belt discharges.
-                        // A later pickup clears this claim; a mixed or stacked
-                        // drop cannot masquerade as one press input.
-                        if (dropped == materials::Cargo{1, 0, {}}) {
-                            candidate.belt_press_work.try_emplace(receiver_point, materials::WorkId{0});
-                        } else if (const auto claim = candidate.belt_press_work.find(receiver_point);
-                                   claim != candidate.belt_press_work.end() && claim->second == 0) {
-                            candidate.belt_press_work.erase(claim);
+                        // Only the arrival press profile records belt work in
+                        // its checkpoint. Generic open-end belts keep an
+                        // ordinary ground drop without a press custody claim.
+                        // A later pickup or stacked drop clears a real claim.
+                        if (profile_.landing_pod_center && copper_profile(profile_.material)) {
+                            if (dropped == materials::Cargo{1, 0, {}}) {
+                                candidate.belt_press_work.try_emplace(receiver_point, materials::WorkId{0});
+                            } else if (const auto claim = candidate.belt_press_work.find(receiver_point);
+                                       claim != candidate.belt_press_work.end() && claim->second == 0) {
+                                candidate.belt_press_work.erase(claim);
+                            }
                         }
                     }
                 }
