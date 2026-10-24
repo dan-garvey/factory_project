@@ -316,11 +316,9 @@ class ArrivalAssemblyControls:
 		["softmetal_cog", "Softmetal cog"], ["wooden_workbench", "Wooden workbench"],
 	]
 	const PRESS_NEXT := {
-		"missing_anvil": "Fit an anvil one height step above the frame.",
 		"missing_ram": "Fit a ram face above the anvil.",
 		"missing_guide": "Fit a sliding guide above the ram.",
-		"missing_mount": "Fit a tool mount above the guide.",
-		"missing_shaft": "Fit a shaft beside the mount at the same height.",
+		"missing_shaft": "Fit a shaft beside the guide at the working height.",
 		"missing_cog": "Fit a cog beyond the shaft at the same height.",
 	}
 	const COLLECTOR_NEXT := {
@@ -341,11 +339,11 @@ class ArrivalAssemblyControls:
 	var _actor := "P"
 	var _selected := ""
 	var _press := {}
-	var _frame := ""
+	var _anvil := ""
 	var _route_index := 0
 	var _held_work_id := 0
 	var _held_work_ids: Array[int] = []
-	var _last_frame := ""
+	var _last_anvil := ""
 	var _press_page := false
 	var _page_open := false
 	var _context_page := false
@@ -470,7 +468,7 @@ class ArrivalAssemblyControls:
 		collector_cut_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		press_section = VBoxContainer.new()
 		column.add_child(press_section)
-		press_status = host._label(press_section, "Select a frame with E", 13, Color("bfd1cc"))
+		press_status = host._label(press_section, "Select an anvil with E", 13, Color("bfd1cc"))
 		press_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
@@ -521,8 +519,8 @@ class ArrivalAssemblyControls:
 				return true
 		return false
 
-	func press_frame_for(selected: String) -> String:
-		return str(_selected_press(_snapshot, selected).get("frame", ""))
+	func press_anvil_for(selected: String) -> String:
+		return str(_selected_press(_snapshot, selected).get("anvil", ""))
 
 	func _show_page(press: bool) -> void:
 		_press_page = press
@@ -549,7 +547,7 @@ class ArrivalAssemblyControls:
 		if _bench_ids.has(_selected) or (not _selected_collector(_snapshot, _selected).is_empty()
 				and _press.get("status") != "ready"):
 			_show_page(false)
-		elif not _frame.is_empty():
+		elif not _anvil.is_empty():
 			_show_page(true)
 		elif _context_page:
 			_context_page = false
@@ -738,10 +736,10 @@ class ArrivalAssemblyControls:
 		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
 		crank_button.text = ("Return crank to pod" if crank.get("holder") == actor else "Take pod crank") + "  C"
 		_press = _selected_press(snapshot, selected)
-		_frame = str(_press.get("frame", ""))
-		if _frame != _last_frame:
+		_anvil = str(_press.get("anvil", ""))
+		if _anvil != _last_anvil:
 			_route_index = 0
-			_last_frame = _frame
+			_last_anvil = _anvil
 		var routes: Array = _press.get("open_feeds", [])
 		route_choice.clear()
 		var work_center := _work_center()
@@ -763,8 +761,8 @@ class ArrivalAssemblyControls:
 			_held_work_id = _held_work_ids[0] if not _held_work_ids.is_empty() else 0
 		if _held_work_id > 0:
 			held_work_choice.select(_held_work_ids.find(_held_work_id))
-		if _frame.is_empty():
-			press_status.text = "Press: place a frame, then point at it and press E.\nStack anvil → ram → guide → mount; fit a shaft and cog beside the mount."
+		if _anvil.is_empty():
+			press_status.text = "Place an anvil, then point at it and press E.\nFit the ram and guide above it; connect a shaft and cog beside the guide."
 		elif status == "ready":
 			var work := _work_drop()
 			var exit_drop := _exit_drop()
@@ -779,24 +777,24 @@ class ArrivalAssemblyControls:
 			press_status.text = "Press ready · %d clear feed routes. %s" % [routes.size(), advice]
 		else:
 			press_status.text = "Press: %s. %s" % [status.replace("_", " "), PRESS_NEXT.get(status,
-				"Clear its fitting space or choose another frame.")]
+				"Clear its fitting space or choose another anvil.")]
 		route_choice.visible = not routes.is_empty()
 		var can_operate := ready and status == "ready" and not routes.is_empty()
-		feed_button.visible = not _frame.is_empty()
+		feed_button.visible = not _anvil.is_empty()
 		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1 or not _work_drop().is_empty()
-		compact_button.visible = not _frame.is_empty() and int(cargo.get("offcuts", 0)) > 0
+		compact_button.visible = not _anvil.is_empty() and int(cargo.get("offcuts", 0)) > 0
 		compact_button.disabled = not can_operate or int(cargo.get("offcuts", 0)) < 4 \
 			or crank.get("holder") != actor or not _work_drop().is_empty() \
 			or not _press.get("parts", {}).has("shaft")
 		compact_button.tooltip_text = "Compact four carried copper offcuts into one stock blank at this press. Hold the crank and clear the work face. [%d/4]  B" % mini(4, int(cargo.get("offcuts", 0)))
-		held_work_choice.visible = not _frame.is_empty() and not _held_work_ids.is_empty()
+		held_work_choice.visible = not _anvil.is_empty() and not _held_work_ids.is_empty()
 		refeed_work_button.visible = held_work_choice.visible
 		refeed_work_button.disabled = not can_operate or not _work_drop().is_empty()
-		turn_button.visible = not _frame.is_empty()
+		turn_button.visible = not _anvil.is_empty()
 		turn_button.disabled = not can_operate or crank.get("holder") != actor or _work_drop().is_empty()
-		pickup_button.visible = not _frame.is_empty()
+		pickup_button.visible = not _anvil.is_empty()
 		pickup_button.disabled = not ready or _exit_drop().is_empty()
-		recover_work_button.visible = not _frame.is_empty()
+		recover_work_button.visible = not _anvil.is_empty()
 		recover_work_button.disabled = not ready or _work_drop().is_empty()
 		recover_work_button.text = "Pick up copper offcut  U" if int(_work_drop().get("offcuts", 0)) > 0 else "Recover held work  U"
 		if changed_target:
@@ -853,11 +851,11 @@ class ArrivalAssemblyControls:
 		return "Fit a collector receiver tray before connecting its belt mouth."
 
 	func _selected_press(snapshot: Dictionary, selected: String) -> Dictionary:
-		for value in snapshot.get("press_assemblies", []):
+		for value in snapshot.get("guided_press_assemblies", []):
 			if not value is Dictionary:
 				continue
 			var parts: Dictionary = value.get("parts", {})
-			if value.get("frame") == selected or parts.values().has(selected):
+			if value.get("anvil") == selected or parts.values().has(selected):
 				return value
 		return {}
 
@@ -880,8 +878,8 @@ class ArrivalAssemblyControls:
 	func _work_center() -> Array:
 		if _press.has("work_center"):
 			return _press.work_center
-		var frame_center: Array = _press.get("center", [])
-		return [frame_center[0], frame_center[1] + 1, frame_center[2]] if frame_center.size() == 3 else []
+		var anvil_center: Array = _press.get("center", [])
+		return anvil_center if anvil_center.size() == 3 else []
 
 	func _drop_at(center: Array) -> Dictionary:
 		for value in _snapshot.get("dropped_material", []):
@@ -988,22 +986,22 @@ class ArrivalAssemblyControls:
 	func _feed() -> void:
 		var host = _host_view()
 		var route := _route()
-		if host != null and not route.is_empty() and not _frame.is_empty():
-			host.issue({"action": "feed_press", "entity": _frame, "entry": route.entry})
+		if host != null and not route.is_empty() and not _anvil.is_empty():
+			host.issue({"action": "feed_press", "entity": _anvil, "entry": route.entry})
 
 	func _compact_offcuts() -> void:
 		var host = _host_view()
 		var route := _route()
 		var parts: Dictionary = _press.get("parts", {})
-		if host != null and not route.is_empty() and not _frame.is_empty() and parts.has("shaft"):
-			host.issue({"action": "compact_offcuts", "entity": _frame,
+		if host != null and not route.is_empty() and not _anvil.is_empty() and parts.has("shaft"):
+			host.issue({"action": "compact_offcuts", "entity": _anvil,
 				"entry": route.entry, "drive": parts.shaft})
 
 	func _refeed_work() -> void:
 		var host = _host_view()
 		var route := _route()
-		if host != null and not route.is_empty() and not _frame.is_empty() and _held_work_id > 0:
-			host.issue({"action": "refeed_press_work", "entity": _frame,
+		if host != null and not route.is_empty() and not _anvil.is_empty() and _held_work_id > 0:
+			host.issue({"action": "refeed_press_work", "entity": _anvil,
 				"entry": route.entry, "work_id": _held_work_id})
 
 	func _turn() -> void:
@@ -1011,7 +1009,7 @@ class ArrivalAssemblyControls:
 		var route := _route()
 		var parts: Dictionary = _press.get("parts", {})
 		if host != null and not route.is_empty() and parts.has("shaft"):
-			host.issue({"action": "turn_press_crank", "entity": _frame,
+			host.issue({"action": "turn_press_crank", "entity": _anvil,
 				"drive": parts.shaft, "exit": route.exit})
 
 	func _pickup_at(drop: Dictionary) -> void:

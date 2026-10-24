@@ -668,7 +668,7 @@ func _deliver_first_arrival_plate(held_work: Dictionary, capture_prefix: String)
 			and opening.freight_beacon_visual.get_node("ShipmentLabel").visible
 			and "REPEAT ORDER" in opening.goal_label.text
 			and shipped.dropped_material == held_work.dropped_material
-			and shipped.press_assemblies == held_work.press_assemblies,
+			and shipped.guided_press_assemblies == held_work.guided_press_assemblies,
 			"E ships exactly the first carried plate while the second press work stays retained"):
 		return false
 	if not _expect(opening.manager_log_repeat_entry.visible
@@ -744,13 +744,13 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 			and opening.model.projection().material_mass.accounted_mass == 64,
 			"Two more local blanks become plates beside the retained second plate without gifted stock"):
 		return false
-	var press_frame: String = str(opening.model.projection().press_assemblies[0].frame)
-	if opening._object_menu_open() and opening.object_menu_target != press_frame:
+	var press_anvil: String = str(opening.model.projection().guided_press_assemblies[0].anvil)
+	if opening._object_menu_open() and opening.object_menu_target != press_anvil:
 		opening.object_menu.hide()
 		await process_frame
 	if not opening._object_menu_open():
-		opening._open_object_menu_for(press_frame)
-	if not _expect(opening._object_menu_open() and opening.object_menu_target == press_frame
+		opening._open_object_menu_for(press_anvil)
+	if not _expect(opening._object_menu_open() and opening.object_menu_target == press_anvil
 			and opening.object_menu_operations.visible
 			and panel.compact_button.is_visible_in_tree() and not panel.compact_button.disabled
 			and panel.compact_button.icon != null
@@ -1818,13 +1818,13 @@ func _arrival_run() -> void:
 				and restored.freight_beacon.shipped_products == (4 if repeat_complete else 1 if first_delivered else 0)
 				and restored.freight_beacon.repeat_order_shipped == (3 if repeat_complete else 0)
 				and restored.freight_beacon.repeat_order_complete == repeat_complete
-				and restored.placed_components.size() == 7
+				and restored.placed_components.size() == 5
 				and restored.cargo.P.components.get("wooden_frame", 0) == 1
 				and restored.cargo.P.components.get("receiver_tray", 0) == 1
 				and restored.cargo.P.components.get("cutting_edge", 0) == 1
 				and restored.cargo.P.components.get("tool_mount", 0) == 1
 				and restored.cargo.P.components.get("wooden_shaft", 0) == 1
-				and restored.press_assemblies.size() == 1 and restored.press_assemblies[0].status == "ready"
+				and restored.guided_press_assemblies.size() == 1 and restored.guided_press_assemblies[0].status == "ready"
 				and restored.hand_crank.holder == "P" and panel.visible
 				and opening.landing_pod_visual != null and not opening.landing_crank_visual.visible
 				and not opening.arrival_reveal_active,
@@ -1945,8 +1945,7 @@ func _arrival_run() -> void:
 			and initial.placed_components.is_empty() and initial.component_recipes.size() == 12,
 			"Two finite trees and the ore deposit supply both chapter bills without gifted machines"):
 		return
-	var part_list := ["wooden_frame", "anvil", "ram_face", "sliding_guide",
-		"tool_mount", "wooden_shaft", "wooden_cog"]
+	var part_list := ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"]
 	var collector_list := ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]
 	for kind: String in part_list + collector_list:
 		var index := -1
@@ -1972,14 +1971,14 @@ func _arrival_run() -> void:
 				and opening.model.projection().cargo.P.components.get(kind, 0) == owned_before + 1,
 				"The panel crafts one native component with exact finite cargo"):
 			return
-	if not _expect(opening.model.projection().cargo.P.timber == 0
+	if not _expect(opening.model.projection().cargo.P.timber == 4
 			and opening.model.projection().cargo.P.raw == 2
-			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 12,
-			"Both chapter bills consume fifteen timber and five ore blanks, retaining two press inputs"):
+			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 10,
+			"The frame-free press and collector bills use eleven timber and five ore blanks, retaining two press inputs"):
 		return
 	opening._select_tool("component")
-	var expected_status := ["missing_anvil", "missing_ram", "missing_guide",
-		"missing_mount", "missing_shaft", "missing_cog", "ready"]
+	var expected_status := ["missing_ram", "missing_guide", "missing_shaft",
+		"missing_cog", "ready"]
 	for index in range(part_list.size()):
 		var kind: String = part_list[index]
 		if not panel.craft_section.visible:
@@ -1991,10 +1990,8 @@ func _arrival_run() -> void:
 		panel.component_choice.select(choice)
 		panel._component_selected(choice)
 		panel.place_button.pressed.emit()
-		var level: int = mini(index, 4)
-		var offset: int = maxi(index - 4, 0)
-		var requested_center := [3 * OpeningGeometry.HEIGHT_DENOMINATOR + offset,
-			level, 4 * OpeningGeometry.HEIGHT_DENOMINATOR]
+		var requested_center := [3 * OpeningGeometry.HEIGHT_DENOMINATOR + maxi(index - 2, 0),
+			[0, 1, 3, 4, 4][index], 4 * OpeningGeometry.HEIGHT_DENOMINATOR]
 		opening.component_nudge_active = true
 		opening.component_nudge_center = requested_center.duplicate()
 		var before: int = opening.model.projection().order
@@ -2006,11 +2003,11 @@ func _arrival_run() -> void:
 				"The ordinary click submits the locked %s point at %s: %s" % [kind,
 					str(requested_center), opening.status_label.text]):
 			return
-		if not _expect(projection.press_assemblies.size() == 1
-				and projection.press_assemblies[0].status == expected_status[index],
+		if not _expect(projection.guided_press_assemblies.size() == 1
+				and projection.guided_press_assemblies[0].status == expected_status[index],
 				"The native recognizer reports the current fitted press stage"):
 			return
-	var ready: Dictionary = opening.model.projection().press_assemblies[0]
+	var ready: Dictionary = opening.model.projection().guided_press_assemblies[0]
 	panel.press_tab.pressed.emit()
 	if not _expect(panel.press_section.visible and panel.press_status.text.begins_with("Press ready")
 			and panel.route_choice.get_item_count() > 0,
@@ -2107,7 +2104,7 @@ func _arrival_run() -> void:
 		return
 	if mode == "arrival-repeat-delivery" and not await _deliver_repeat_arrival_plates(panel, capture_prefix):
 		return
-	facts["press_frame"] = ready.frame
+	facts["press_anvil"] = ready.anvil
 	facts["final_parts"] = opening.model.projection().placed_components
 	facts["panel_status"] = panel.press_status.text
 	var save: Dictionary = opening._save_worksite()

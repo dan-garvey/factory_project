@@ -218,7 +218,7 @@ class ComponentPlacementChoice extends Node:
 	var kind := "anvil"
 	func selected_name() -> String:
 		return kind
-	func press_frame_for(_selected: String) -> String:
+	func press_anvil_for(_selected: String) -> String:
 		return ""
 
 class ComponentPlacementView extends "res://opening/opening.gd":
@@ -1807,10 +1807,12 @@ func _workshop_pages() -> void:
 		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 		view.state.fabrication_benches = [{"id": "field-bench", "center": [4, 0, 4]}]
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
-			"press-frame": {"component": "wooden_frame", "center": [8, 0, 8]},
+			"press-anvil": {"component": "anvil", "center": [8, 0, 8]},
+			"press-ram": {"component": "ram_face", "center": [8, 1, 8]},
 			"collector-frame": {"component": "wooden_frame", "center": [0, 0, 0]}}
-		view.state.press_assemblies = [{"frame": "press-frame", "center": [8, 0, 8], "status": "ready",
-			"parts": {"shaft": "press-shaft"}, "open_feeds": [{"entry": [9, 1, 8], "exit": [7, 1, 8]}]}]
+		view.state.guided_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
+			"work_center": [8, 0, 8], "status": "ready", "parts": {"ram": "press-ram", "shaft": "press-shaft"},
+			"open_feeds": [{"entry": [9, 0, 8], "exit": [7, 0, 8]}]}]
 		view.state.collector_assemblies = [{"status": "ready", "center": [0, 0, 0],
 			"parts": {"frame": "collector-frame", "shaft": "collector-shaft"}}]
 		view.state.hand_crank = {"id": "pod-hand-crank", "holder": view.client}
@@ -1854,8 +1856,14 @@ func _workshop_pages() -> void:
 			and not view.save_button.is_visible_in_tree() and not view.load_button.is_visible_in_tree(),
 			"Ordinary E shows pod crafting directly in its centered panel.")
 		verify(panel.foundation_craft_row.is_visible_in_tree()
+			and panel.foundation_craft_button.is_visible_in_tree()
+			and panel.foundation_craft_label.is_visible_in_tree()
 			and panel.foundation_craft_label.text == "Foundation\n2 timber",
-			"The separate foundation action keeps its native recipe visible beside its icon.")
+			"The separate foundation action keeps its native name and cost visible beside the icon.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-foundation-label.png") == OK,
+				"Retain the visible foundation label in the ordinary workshop panel.")
 		view._fit_object_menu(Vector2i(640, 480))
 		await process_frame
 		var icon_rect: Rect2 = panel.foundation_craft_button.get_global_rect()
@@ -1891,7 +1899,7 @@ func _workshop_pages() -> void:
 			"The built workbench shows its own craft actions without unrelated pod or duplicate removal controls.")
 		view.object_menu.hide()
 		await process_frame
-		view.pointed = "press-frame"
+		view.pointed = "press-anvil"
 		view._open_pointed_machine()
 		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree() and not panel.craft_section.visible
 			and panel.feed_button.is_visible_in_tree() and not panel.feed_button.disabled,
@@ -1900,7 +1908,7 @@ func _workshop_pages() -> void:
 		action_key.pressed = true
 		action_key.keycode = KEY_F
 		view._input(action_key)
-		verify(view.issued == [{"action": "feed_press", "entity": "press-frame", "entry": [9, 1, 8]}],
+		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
 			"F in the press panel uses its visible feed button and existing request payload.")
 		view.issued.clear()
 		panel.refresh(view.state, view.client, view.selected, false)
@@ -1911,6 +1919,19 @@ func _workshop_pages() -> void:
 		await process_frame
 		verify(view.selected.is_empty() and not view.object_menu.visible,
 			"Leaving the press panel releases its selected target before freight interaction.")
+		view.pointed = "press-ram"
+		view._open_pointed_machine()
+		verify(view.object_menu.visible and view.object_menu_target == "press-ram"
+			and view.object_menu_operations.is_visible_in_tree()
+			and view.object_menu_operations_label.text == "PRESS WORK"
+			and panel.press_section.is_visible_in_tree() and panel.feed_button.is_visible_in_tree(),
+			"Ordinary E on a guided ram exposes the same press actions as its anvil.")
+		if not image_prefix.is_empty() and not shared and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-guided-ram-menu.png") == OK,
+				"Retain the passive guided ram action panel.")
+		view.object_menu.hide()
+		await process_frame
 		panel.press_tab.pressed.emit()
 		view._refresh_ui()
 		verify(panel.press_section.visible and not panel.press_section.is_visible_in_tree(),
@@ -2241,7 +2262,7 @@ func _object_menu_snapshot() -> Dictionary:
 		"component_recipes": {"wooden_frame": {"timber": 3, "softmetal": 0},
 			"wooden_shaft": {"timber": 2, "softmetal": 0}},
 		"component_capacity": 20, "part_recipes": [], "part_specifications": {"P": []},
-		"press_assemblies": [], "collector_assemblies": [], "dropped_material": [],
+		"guided_press_assemblies": [], "collector_assemblies": [], "dropped_material": [],
 		"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
 		"remaining": 0, "powered": false, "power_enabled": false, "motion": {},
 		"links": [], "drive_links": [], "opening_engineering": {}}

@@ -950,6 +950,17 @@ func _guided_press_component_view() -> void:
 		"The confirmed anvil, ram and guide render with a floating shaft bearing and no frame crown.")
 	verify(shaft != null and cog != null and shaft.basis.y.x < -0.99 and cog.basis.y.x < -0.99,
 		"The guided shaft and cog point toward the confirmed anvil work column.")
+	var preview_anchor := Node3D.new()
+	root.add_child(preview_anchor)
+	view.preview_component(preview_anchor, "wooden_shaft", Vector3(0.41, 0.24, 0.41))
+	view.preview_component(preview_anchor, "wooden_cog", Vector3(0.41, 0.28, 0.41))
+	var preview_shaft: Node3D = preview_anchor.get_node_or_null("LooseDriveShaft")
+	var preview_cog: Node3D = preview_anchor.get_node_or_null("PlacedDriveCog")
+	verify(preview_shaft != null and preview_cog != null
+		and not preview_shaft.has_meta("component_rotor_base")
+		and not preview_cog.has_meta("component_rotor_base"),
+		"Unplaced shaft and cog previews have no confirmed motion identity.")
+	preview_anchor.free()
 	for id: String in parsed.boxes:
 		var spec: Dictionary = parsed.boxes[id]
 		verify(anchors[id].position == spec.center,
