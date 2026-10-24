@@ -187,6 +187,14 @@ struct State {
     std::map<mechanics::Point, std::set<materials::WorkId>> press_output_at_receiver;
     std::map<mechanics::Point, std::set<materials::WorkId>> press_output_exported;
     std::map<materials::WorkId, PressProgressWitness> press_progress;
+    struct ShearProgress {
+        mechanics::Point origin{};
+        authority::Integer strokes{};
+        bool operator==(const ShearProgress&) const = default;
+    };
+    // An identified sheet keeps its completed cutting strokes through a
+    // temporary loss of power. Four strokes consume it into four plate cells.
+    std::map<materials::WorkId, ShearProgress> shear_progress;
     // One native tick receipt per automatically sheared offcut delivered to a
     // placed tray. Material quantity remains solely in material.dropped_material.
     std::map<materials::WorkId, PressOffcutDelivery> press_offcut_deliveries;
@@ -245,6 +253,7 @@ class BroadPressDriveIndex {
 public:
     explicit BroadPressDriveIndex(const DrivePower& power);
     [[nodiscard]] BroadPressDriveInspection inspect(const assembly::BroadPress& press) const;
+    [[nodiscard]] BroadPressDriveInspection inspect(const assembly::BroadShear& shear) const;
 private:
     const DrivePower& power_;
     std::map<std::string, std::size_t> component_by_part_;
