@@ -9188,7 +9188,10 @@ func _refresh_ui() -> void:
 			arrival_assembly_controls.bench_choice.visible = not selected_hub and not selected_bench
 			arrival_assembly_controls.pod_workshop_button.visible = selected_hub and arrival_assembly_controls.pod_workshop_button.visible
 			arrival_assembly_controls.field_craft_button.visible = selected_hub and arrival_assembly_controls.field_craft_button.visible
-			arrival_assembly_controls.reclaim_button.visible = false
+			var selected_placed: bool = state.get("placed_components", {}).has(selected)
+			arrival_assembly_controls.reclaim_button.visible = selected_placed
+			if selected_placed:
+				remove_button.visible = false
 		arrival_assembly_scroll.visible = arrival_assembly_controls.visible
 		if object_workshop_route != null:
 			var collector_context := _is_collector_frame(object_menu_target)

@@ -434,7 +434,9 @@ class ArrivalAssemblyControls:
 		foundation_craft_label.custom_minimum_size.x = 76
 		foundation_craft_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		foundation_craft_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
+		reclaim_button = host._button(craft_row, "", _reclaim)
+		_style_workshop_icon(reclaim_button, "workshop-reclaim")
+		reclaim_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
 		part_choice = OptionButton.new()
 		part_choice.name = "TransmissionRecipe"
@@ -661,6 +663,8 @@ class ArrivalAssemblyControls:
 		place_button.accessibility_name = "Place %s, shortcut P" % chosen_name
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
 		reclaim_button.disabled = not ready or not reclaim_button.visible
+		reclaim_button.tooltip_text = "Reclaim selected placed part"
+		reclaim_button.accessibility_name = "Reclaim selected placed part"
 		var part_recipes: Array = snapshot.get("part_recipes", [])
 		selected_part = clampi(selected_part, 0, maxi(0, part_recipes.size() - 1))
 		part_choice.clear()
