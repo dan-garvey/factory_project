@@ -6336,9 +6336,8 @@ func _open_object_menu_for(target: String) -> void:
 	object_menu_target = target
 	object_menu_title.text = _object_name(target)
 	object_menu_operations_label.text = "CRAFT PARTS"
-	for row: Variant in state.get("guided_press_assemblies", []):
-		if row is Dictionary and row.get("anvil", "") == target:
-			object_menu_operations_label.text = "PRESS WORK"
+	if _is_guided_press_part(target):
+		object_menu_operations_label.text = "PRESS WORK"
 	for row: Variant in state.get("collector_assemblies", []):
 		if row is Dictionary and row.get("parts", {}).get("frame", "") == target:
 			object_menu_operations_label.text = "COLLECTOR"
@@ -10244,10 +10243,18 @@ func _object_supports_operations(target: String) -> bool:
 	for row: Variant in state.get("fabrication_benches", []):
 		if row is Dictionary and row.get("id", "") == target:
 			return true
+	return _is_guided_press_part(target) or _is_collector_frame(target)
+
+func _is_guided_press_part(target: String) -> bool:
+	if target.is_empty():
+		return false
 	for row: Variant in state.get("guided_press_assemblies", []):
-		if row is Dictionary and row.get("anvil", "") == target:
+		if not row is Dictionary:
+			continue
+		var parts: Variant = row.get("parts", {})
+		if row.get("anvil", "") == target or (parts is Dictionary and parts.values().has(target)):
 			return true
-	return _is_collector_frame(target)
+	return false
 
 func _is_collector_frame(target: String) -> bool:
 	if target.is_empty():

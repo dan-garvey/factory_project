@@ -1807,9 +1807,10 @@ func _workshop_pages() -> void:
 		view.state.fabrication_benches = [{"id": "field-bench", "center": [4, 0, 4]}]
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
 			"press-anvil": {"component": "anvil", "center": [8, 0, 8]},
+			"press-ram": {"component": "ram_face", "center": [8, 1, 8]},
 			"collector-frame": {"component": "wooden_frame", "center": [0, 0, 0]}}
 		view.state.guided_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
-			"work_center": [8, 0, 8], "status": "ready", "parts": {"shaft": "press-shaft"},
+			"work_center": [8, 0, 8], "status": "ready", "parts": {"ram": "press-ram", "shaft": "press-shaft"},
 			"open_feeds": [{"entry": [9, 0, 8], "exit": [7, 0, 8]}]}]
 		view.state.collector_assemblies = [{"status": "ready", "center": [0, 0, 0],
 			"parts": {"frame": "collector-frame", "shaft": "collector-shaft"}}]
@@ -1898,6 +1899,19 @@ func _workshop_pages() -> void:
 		await process_frame
 		verify(view.selected.is_empty() and not view.object_menu.visible,
 			"Leaving the press panel releases its selected target before freight interaction.")
+		view.pointed = "press-ram"
+		view._open_pointed_machine()
+		verify(view.object_menu.visible and view.object_menu_target == "press-ram"
+			and view.object_menu_operations.is_visible_in_tree()
+			and view.object_menu_operations_label.text == "PRESS WORK"
+			and panel.press_section.is_visible_in_tree() and panel.feed_button.is_visible_in_tree(),
+			"Ordinary E on a guided ram exposes the same press actions as its anvil.")
+		if not image_prefix.is_empty() and not shared and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-guided-ram-menu.png") == OK,
+				"Retain the passive guided ram action panel.")
+		view.object_menu.hide()
+		await process_frame
 		panel.press_tab.pressed.emit()
 		view._refresh_ui()
 		verify(panel.press_section.visible and not panel.press_section.is_visible_in_tree(),
