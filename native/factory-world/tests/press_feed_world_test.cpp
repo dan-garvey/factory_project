@@ -2687,6 +2687,14 @@ void powered_broad_sheet_custody() {
     shear.at("request") = V("sheet-shear-finish");
     const auto finish = run.accept("P", shear);
     const auto four = factory::world::Snapshot(run.world->snapshot());
+    auto forged_unpowered_cut = four;
+    forged_unpowered_cut.state.topology.drive_enabled = false;
+    for (auto& record : forged_unpowered_cut.history.records)
+        if (record.intent.contains("request") &&
+            std::get<std::string>(record.intent.at("request").storage()) == "sheet-shear-restart")
+            record.intent.at("enabled") = V(false);
+    check(!w::World::restore("press-feed", source.profile, forged_unpowered_cut),
+        "A saved cutting stroke cannot claim production while the drive was stopped.");
     check(std::get<I>(finish.at("formed_products").storage()) == 4 &&
           four.state.shear_progress.at(sheet_id).strokes == 4 &&
           !four.state.material.dropped_material.at({24, 0, 0}).sheets.size() &&
