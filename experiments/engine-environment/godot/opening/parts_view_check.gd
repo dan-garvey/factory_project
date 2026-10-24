@@ -35,6 +35,9 @@ class SharedWidgets:
 	var issued: Array = []
 	var pointed := ""
 	var hand_pointed := ""
+	var crank_pointed := false
+	func _pointed_pod_crank(_screen: Vector2) -> Dictionary:
+		return state.get("hand_crank", {}) if crank_pointed else {}
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
 		return {"accepted": false, "reason": "fixture_only"}
@@ -2741,6 +2744,9 @@ class ObjectMenuWidgets:
 	var hit := {}
 	var source_id := ""
 	var issued: Array = []
+	var crank_pointed := false
+	func _pointed_pod_crank(_screen: Vector2) -> Dictionary:
+		return state.get("hand_crank", {}) if crank_pointed else {}
 	func _ready() -> void:
 		set_process(false)
 	func _screen_pick(_screen: Vector2) -> Dictionary:
@@ -2789,6 +2795,24 @@ func _object_menu_check() -> void:
 	root.add_child(view)
 	view._build_interface()
 	view._refresh_ui()
+	view.state.hand_crank = {"id": "pod-hand-crank", "holder": "Q"}
+	view.crank_pointed = true
+	verify(view._pointed_summary_data(Vector2.ZERO).detail == "Held by Q",
+		"The pointed pod tray reports the other worker's confirmed crank custody.")
+	view._interact_pointed()
+	verify(view.issued.is_empty(), "E on a foreign-held crank sends no false pickup request.")
+	view.state.hand_crank.holder = "pod"
+	view._interact_pointed()
+	verify(view.issued == [{"action": "take_hand_crank", "entity": "pod-hand-crank"}],
+		"E on the pod-held crank still sends the native take request.")
+	view.issued.clear()
+	view.state.hand_crank.holder = "P"
+	view._interact_pointed()
+	verify(view.issued == [{"action": "return_hand_crank", "entity": "pod-hand-crank"}],
+		"E on this actor's crank still sends the native return request.")
+	view.issued.clear()
+	view.crank_pointed = false
+	view.state.erase("hand_crank")
 	var picker := StaticBody3D.new()
 	picker.set_meta("component_entity", "bench")
 	view.add_child(picker)
@@ -2922,6 +2946,22 @@ func _object_menu_check() -> void:
 	root.add_child(shared)
 	shared._build_interface()
 	shared._refresh_ui()
+	shared.state.hand_crank = {"id": "pod-hand-crank", "holder": "Q"}
+	shared.crank_pointed = true
+	shared._interact_pointed()
+	verify(shared.issued.is_empty(), "Shared E on a foreign-held crank sends no false pickup request.")
+	shared.state.hand_crank.holder = "pod"
+	shared._interact_pointed()
+	verify(shared.issued == [{"action": "take_hand_crank", "entity": "pod-hand-crank"}],
+		"Shared E still sends the native take request for a pod-held crank.")
+	shared.issued.clear()
+	shared.state.hand_crank.holder = "P"
+	shared._interact_pointed()
+	verify(shared.issued == [{"action": "return_hand_crank", "entity": "pod-hand-crank"}],
+		"Shared E still sends the native return request for this actor's crank.")
+	shared.issued.clear()
+	shared.crank_pointed = false
+	shared.state.erase("hand_crank")
 	shared._open_pointed_machine()
 	await process_frame
 	verify(shared.building_hotbar.catalog.visible
