@@ -20,16 +20,15 @@ const MATERIALS := {
 	"hand_crank": ["Hand crank", "workshop-crank.svg"],
 	"fabrication_hub": ["Pod workshop", "workshop-pod.svg"]}
 const COMPONENT_ICONS := {
-	"wooden_frame": "foundation.svg", "wooden_shaft": "drive.svg",
-	"wooden_cog": "gear.svg", "receiver_tray": "collector.svg",
-	"tool_mount": "workshop-place.svg", "sliding_guide": "vertical_gearbox.svg",
-	"cutting_edge": "workshop-cut.svg", "anvil": "processor.svg",
-	"ram_face": "press-feed.svg", "softmetal_shaft": "drive.svg",
-	"softmetal_cog": "gear.svg", "wooden_workbench": "workshop-craft.svg"}
+	"wooden_frame": "wooden_frame.svg", "wooden_shaft": "wooden_shaft.svg",
+	"wooden_cog": "wooden_cog.svg", "receiver_tray": "receiver_tray.svg",
+	"tool_mount": "tool_mount.svg", "sliding_guide": "sliding_guide.svg",
+	"cutting_edge": "cutting_edge.svg", "anvil": "anvil.svg",
+	"ram_face": "ram_face.svg", "softmetal_shaft": "softmetal_shaft.svg",
+	"softmetal_cog": "softmetal_cog.svg", "wooden_workbench": "wooden_workbench.svg"}
 var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []
-var slot_tags: Array[Label] = []
 var slot_counts: Array[Label] = []
 var catalog_buttons: Dictionary = {}
 var catalog_counts: Dictionary = {}
@@ -44,6 +43,7 @@ var component_choice: OptionButton
 var component_assign_button: Button
 var component_buttons: Dictionary = {}
 var component_counts: Dictionary = {}
+var component_textures: Dictionary = {}
 var component_grid: GridContainer
 var parts_label: Label
 var focus_description: Label
@@ -55,6 +55,8 @@ var _host: WeakRef
 
 func configure(host, ui: Control) -> void:
 	_host = weakref(host)
+	for component: String in COMPONENT_ICONS:
+		component_textures[component] = load("res://opening/assets/build-icons/" + COMPONENT_ICONS[component])
 	name = "BuildingHotbar"
 	ui.get_viewport().gui_embed_subwindows = true
 	var surface := StyleBoxFlat.new()
@@ -87,14 +89,6 @@ func configure(host, ui: Control) -> void:
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		button.add_child(icon)
 		slot_icons.append(icon)
-		var tag := Label.new()
-		tag.position = Vector2(5, 35)
-		tag.size = Vector2(22, 15)
-		tag.add_theme_font_size_override("font_size", 9)
-		tag.add_theme_color_override("font_color", Color("e7b875"))
-		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		button.add_child(tag)
-		slot_tags.append(tag)
 		var key := Label.new()
 		key.text = str(index + 1)
 		key.position = Vector2(5, 2)
@@ -137,6 +131,7 @@ func configure(host, ui: Control) -> void:
 	for index in range(slots.size()):
 		destination.add_item("")
 	var scroll := ScrollContainer.new()
+	scroll.name = "InventoryItems"
 	scroll.custom_minimum_size = Vector2(500, 160)
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -296,12 +291,6 @@ func _tool_label(tool: String) -> String:
 	return str(_component_labels.get(tool.trim_prefix(COMPONENT_PREFIX), "Component")) \
 		if tool.begins_with(COMPONENT_PREFIX) else str(TOOLS.get(tool, "Empty"))
 
-func _component_tag(tool: String) -> String:
-	if not tool.begins_with(COMPONENT_PREFIX):
-		return ""
-	var words: PackedStringArray = _tool_label(tool).split(" ")
-	return (words[0].left(1) + words[1].left(1)).to_upper() if words.size() > 1 else words[0].left(2).to_upper()
-
 func _offered(tool: String, host) -> bool:
 	return not (_arrival_active and tool in ["collector", "processor"]) \
 		and not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
@@ -322,7 +311,7 @@ func _sync_arrival(host) -> void:
 			component_choice.add_item(str(item[1]))
 			var button: Button = host._button(component_grid, "",
 				_assign_to_slot.bind(COMPONENT_PREFIX + component))
-			_style_inventory_tile(button, load("res://opening/assets/build-icons/" + COMPONENT_ICONS.get(component, "component.svg")))
+			_style_inventory_tile(button, component_textures[component])
 			component_buttons[component] = button
 			component_counts[component] = _count_badge(button)
 			button.focus_entered.connect(_describe_focus.bind(button))
@@ -359,12 +348,12 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var amount := _count(tool, parts)
 		var offered: bool = _offered(tool, host)
 		buttons[index].visible = true
-		slot_icons[index].texture = COMPONENT_ICON if tool.begins_with(COMPONENT_PREFIX) else \
+		slot_icons[index].texture = component_textures[tool.trim_prefix(COMPONENT_PREFIX)] if tool.begins_with(COMPONENT_PREFIX) else \
 			catalog_buttons[tool].icon if not tool.is_empty() else null
 		slot_icons[index].visible = not tool.is_empty()
-		slot_tags[index].text = _component_tag(tool)
 		slot_counts[index].text = str(amount) if not tool.is_empty() else "+"
 		buttons[index].tooltip_text = "%s · %d %s · slot %d" % [label, amount, scope, index + 1] if not tool.is_empty() else "Assign slot %d · B opens catalog" % (index + 1)
+		buttons[index].accessibility_name = "%s, %d %s, slot %d" % [label, amount, scope, index + 1] if not tool.is_empty() else "Assign slot %d, shortcut B opens inventory" % (index + 1)
 		buttons[index].disabled = host.explanation_open or (not tool.is_empty() and (not usable or amount < 1 or not offered))
 		buttons[index].button_pressed = selected_slot == index and active == tool
 		destination.set_item_text(index, "%d · %s" % [index + 1, label])
