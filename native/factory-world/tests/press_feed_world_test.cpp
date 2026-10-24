@@ -2200,9 +2200,9 @@ void belt_feeds_a_guided_press(bool copper) {
 
 void powered_broad_sheet_custody() {
     auto source = site();
-    source.profile.initial_units = 48;
-    source.state.material.initial_units = 48;
-    source.state.material.stock.source = 48;
+    source.profile.initial_units = 80;
+    source.state.material.initial_units = 80;
+    source.state.material.stock.source = 80;
     source.profile.material.hand_carry_capacity = 40;
     source.profile.material.raw_mass = 4;
     source.profile.material.plate_mass = 3;
@@ -2212,6 +2212,8 @@ void powered_broad_sheet_custody() {
     source.state.topology.sources = {{"press-wheel", source.profile.waterwheel_rate}};
     source.profile.finite_parts[{s::Role::shaft, 0, 2}] = 1;
     source.state.kits.at("P")[{s::Role::shaft, 0, 2}] = 1;
+    source.profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 2;
+    source.state.kits.at("P")[{s::Role::waterwheel, 0, 0}] = 1;
     Runner run(source);
     run.p = {5.8, 1, 0.8};
     auto cross = request("P", "sheet-place-cross-shaft", "place");
@@ -2558,6 +2560,165 @@ void powered_broad_sheet_custody() {
           !restaged.state.material.dropped_material.contains({24, 0, 0}) &&
           codec_restore(source.profile, restaged, "P's recovered staged sheet restores."),
         "P can recover the same sheet from the second support without duplication.");
+    auto stage_again = request("P", "sheet-shear-stage", "place_sheet");
+    stage_again.emplace("center", V(point(24, 0, 0)));
+    stage_again.emplace("sheet_id", V(sheet_id));
+    run.accept("P", stage_again);
+    auto shear = request("P", "sheet-shear-missing-blades", "stroke_broad_shear");
+    shear.emplace("target", V(support));
+    shear.emplace("generation", V(support_generation));
+    shear.emplace("sheet_id", V(sheet_id));
+    run.refuses("P", shear, "incomplete_shear");
+    run.p = {0, 1, 1.65};
+    for (int index = 0; index < 28; ++index) {
+        auto harvest = request("P", "shear-ore-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("ore"));
+        run.accept("P", harvest);
+    }
+    run.p = {4.95, 1, 4.95};
+    for (int index = 0; index < 4; ++index) {
+        auto harvest = request("P", "shear-tree-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("tree"));
+        run.accept("P", harvest);
+    }
+    run.p = {1.65, 1, 6.6};
+    for (const auto* kind : {"cutting_edge", "sliding_guide", "softmetal_shaft",
+                             "softmetal_cog"})
+        for (int index = 0; index < 4; ++index) {
+            auto craft = request("P", std::string("shear-craft-") + kind + std::to_string(index),
+                "craft_component");
+            craft.emplace("target", V("pod-fabrication-hub"));
+            craft.emplace("generation", V(I{1}));
+            craft.emplace("component", V(kind));
+            run.accept("P", craft);
+        }
+    auto wheel = request("P", "shear-wheel", "place");
+    wheel.emplace("role", V("waterwheel"));
+    wheel.emplace("center", V(point(24, 4, -4)));
+    wheel.emplace("axis", V("z"));
+    wheel.emplace("teeth", V(I{0}));
+    wheel.emplace("half_span", V(I{0}));
+    run.p = {9.9, 1, -0.8};
+    run.accept("P", wheel);
+    for (int index = 0; index < 4; ++index) {
+        const I x = 24 + (index % 2) * 4;
+        const I z = (index / 2) * 4;
+        const I outward = index / 2 == 0 ? -1 : 1;
+        const std::pair<const char*, g::Point> parts[] = {
+            {"cutting_edge", {x, 1, z}}, {"sliding_guide", {x, 3, z}},
+            {"softmetal_shaft", {x, 4, z + outward}},
+            {"softmetal_cog", {x, 4, z + outward * 2}}};
+        run.p = {static_cast<double>(x) * 0.4125, 1,
+            static_cast<double>(z) * 0.4125};
+        for (const auto& [kind, center] : parts) {
+            auto place = request("P", std::string("shear-place-") + kind +
+                std::to_string(index), "place_component");
+            place.emplace("component", V(kind));
+            place.emplace("center", V(point(center[0], center[1], center[2])));
+            run.accept("P", place);
+        }
+    }
+    const auto placed = run.world->snapshot();
+    std::vector<factory::assembly::Part> shear_parts;
+    for (const auto& [id, item] : placed.state.placed_components)
+        shear_parts.push_back({id, item.kind, item.center, item.generation});
+    const auto head = factory::assembly::inspect_broad_shear(shear_parts, {24, 0, 0});
+    if (!head.shear) throw std::runtime_error("The separate cutting head status is " +
+        std::to_string(static_cast<int>(head.status)) + ".");
+    ++checks;
+    const auto shear_drive = w::BroadPressDriveIndex(w::drive_power(source.profile,
+        placed.state)).inspect(*head.shear);
+    if (shear_drive.status != w::BroadPressDriveStatus::ready)
+        throw std::runtime_error("The separate cutting drive status is " +
+            std::to_string(static_cast<int>(shear_drive.status)) + ".");
+    ++checks;
+    run.p = {10.7, 1, 0.8};
+    for (int stroke = 1; stroke <= 3; ++stroke) {
+        shear.at("request") = V("sheet-shear-stroke-" + std::to_string(stroke));
+        const auto result = run.accept("P", shear);
+        check(std::get<I>(result.at("shear_strokes").storage()) == stroke &&
+              run.world->snapshot().state.material.dropped_material.at(
+                  {24, 0, 0}).sheets.front().id == sheet_id &&
+              codec_restore(source.profile, run.world->snapshot(),
+                  "A partial cutting stroke restores with the sheet."),
+            "Each partial powered stroke keeps the one accessible sheet identity.");
+        if (stroke == 2) {
+            const auto components = run.world->snapshot().state.placed_components;
+            const auto blade = std::find_if(components.begin(), components.end(),
+                [](const auto& entry) {
+                    return entry.second.kind == m::Component::cutting_edge &&
+                        entry.second.center == g::Point{28, 1, 4};
+                });
+            check(blade != components.end(), "The fourth blade has a placed identity.");
+            auto remove = request("P", "sheet-shear-remove-blade", "reclaim_component");
+            remove.emplace("target", V(blade->first));
+            remove.emplace("generation", V(blade->second.generation));
+            run.p = {11.55, 1, 1.65};
+            run.accept("P", remove);
+            shear.at("request") = V("sheet-shear-three-blades");
+            run.refuses("P", shear, "incomplete_shear");
+            check(run.world->snapshot().state.shear_progress.at(sheet_id).strokes == 2 &&
+                  codec_restore(source.profile, run.world->snapshot(),
+                      "A removed blade preserves the saved partial cut."),
+                "An interrupted three-blade width cannot finish the sheet.");
+            auto replace = request("P", "sheet-shear-replace-blade", "place_component");
+            replace.emplace("component", V("cutting_edge"));
+            replace.emplace("center", V(point(28, 1, 4)));
+            run.accept("P", replace);
+            run.p = {10.7, 1, 0.8};
+        }
+    }
+    auto stop_shear = request("P", "sheet-shear-stop", "set_drive");
+    stop_shear.emplace("target", V("press-wheel"));
+    stop_shear.emplace("generation", V(I{1}));
+    stop_shear.emplace("enabled", V(false));
+    run.p = {3.3, 1, 0};
+    run.accept("P", stop_shear);
+    run.p = {10.7, 1, 0.8};
+    shear.at("request") = V("sheet-shear-unpowered");
+    run.refuses("P", shear, "shear_unpowered");
+    check(run.world->snapshot().state.shear_progress.at(sheet_id).strokes == 3,
+        "Lost power leaves the three accepted cutting strokes intact.");
+    stop_shear.at("request") = V("sheet-shear-restart");
+    stop_shear.at("enabled") = V(true);
+    run.p = {3.3, 1, 0};
+    run.accept("P", stop_shear);
+    run.p = {10.7, 1, 0.8};
+    shear.at("request") = V("sheet-shear-finish");
+    const auto finish = run.accept("P", shear);
+    const auto four = factory::world::Snapshot(run.world->snapshot());
+    check(std::get<I>(finish.at("formed_products").storage()) == 4 &&
+          four.state.shear_progress.at(sheet_id).strokes == 4 &&
+          !four.state.material.dropped_material.at({24, 0, 0}).sheets.size() &&
+          std::all_of(head.shear->work_centers.begin(), head.shear->work_centers.end(),
+              [&](const auto& point) {
+                  return four.state.material.dropped_material.at(point).products == 1;
+              }) &&
+          codec_restore(source.profile, four, "Four separate plates restore after cutting."),
+        "One twelve-mass sheet becomes exactly four ordinary three-mass plates.");
+    const auto replay = run.send("P", shear);
+    auto replay_expected = finish;
+    replay_expected.at("duplicate") = V(true);
+    check(replay.completed() && replay.result &&
+          !factory::values::typed_difference(V(*replay.result), V(replay_expected)) &&
+          run.world->snapshot().state == four.state &&
+          run.world->snapshot().revision == four.revision,
+        "The same authenticated request returns its cached result without another cut.");
+    shear.at("request") = V("sheet-shear-duplicate");
+    run.refuses("P", shear, "unavailable_input");
+    auto forged_strokes = four;
+    forged_strokes.state.shear_progress.at(sheet_id).strokes = 3;
+    check(!w::World::restore("press-feed", source.profile, forged_strokes),
+        "A saved cutting witness cannot erase the fourth accepted stroke.");
+    auto plate = request("P", "sheet-shear-pickup", "pickup_material");
+    plate.emplace("center", V(point(24, 0, 0)));
+    plate.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+        {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+    run.accept("P", plate);
+    check(run.world->snapshot().state.material.cargo.at("P").products == 1 &&
+          codec_restore(source.profile, run.world->snapshot(),
+              "One ordinary shear plate pickup restores with its source history."),
+        "A cut plate becomes ordinary actor cargo without moving the other three.");
 }
 } // namespace
 

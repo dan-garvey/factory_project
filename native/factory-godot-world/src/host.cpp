@@ -97,6 +97,21 @@ const char* broad_geometry_status_name(assembly::BroadPressStatus status) {
     return "invalid_input";
 }
 
+const char* broad_shear_status_name(assembly::BroadShearStatus status) {
+    switch (status) {
+        case assembly::BroadShearStatus::ready: return "ready";
+        case assembly::BroadShearStatus::invalid_input: return "invalid_input";
+        case assembly::BroadShearStatus::missing_anvil: return "missing_anvil";
+        case assembly::BroadShearStatus::missing_blade: return "missing_blade";
+        case assembly::BroadShearStatus::missing_guide: return "missing_guide";
+        case assembly::BroadShearStatus::blocked_stroke: return "blocked_stroke";
+        case assembly::BroadShearStatus::missing_shaft: return "missing_shaft";
+        case assembly::BroadShearStatus::missing_cog: return "missing_cog";
+        case assembly::BroadShearStatus::ambiguous: return "ambiguous";
+    }
+    return "invalid_input";
+}
+
 const char* broad_drive_status_name(world::BroadPressDriveStatus status) {
     switch (status) {
         case world::BroadPressDriveStatus::ready: return "ready";
@@ -462,6 +477,12 @@ bool historical_wire(const authority::Record& record) {
             keys(*wire, {"center", "sheet_id"}) &&
             field<Array>(*wire, "center") && field<Integer>(*wire, "sheet_id") &&
             same("center", "center") && same("sheet_id", "sheet_id");
+    if (*action == "stroke_broad_shear")
+        return *original_action == "stroke_broad_shear" &&
+            keys(*wire, {"entity", "sheet_id"}) &&
+            field<std::string>(*wire, "entity") &&
+            field<Integer>(*wire, "sheet_id") &&
+            same("entity", "target") && same("sheet_id", "sheet_id");
     if (*action == "harvest_source")
         return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
             field<std::string>(*wire, "target") && same("target", "target");
@@ -1802,6 +1823,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.at("action") = Value("place_sheet");
         normalized.emplace("center", wire.at("center"));
         normalized.emplace("sheet_id", wire.at("sheet_id"));
+    } else if (*action == "stroke_broad_shear") {
+        if (!keys(wire, {"entity", "sheet_id"}) ||
+            !field<std::string>(wire, "entity") || !field<Integer>(wire, "sheet_id"))
+            return refuse("invalid_command");
+        normalized.at("action") = Value("stroke_broad_shear");
+        normalized.emplace("target", wire.at("entity"));
+        normalized.emplace("sheet_id", wire.at("sheet_id"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
     } else if (*action == "place_foundation" || *action == "place_foundations") {
         const bool area = *action == "place_foundations";
         if (!(area ? keys(wire, {"cell", "end_cell", "level"}) : keys(wire, {"cell", "level"})))
@@ -2843,7 +2874,7 @@ Value Host::projection() const {
             guided_presses.emplace_back(std::move(entry));
         }
         projection.emplace("guided_press_assemblies", Value(std::move(guided_presses)));
-        Array broad_presses;
+        Array broad_presses, broad_shears;
         std::set<mechanics::Point> anvil_centers;
         for (const auto& part : parts)
             if (part.kind == materials::Component::anvil) anvil_centers.insert(part.center);
@@ -2890,9 +2921,35 @@ Value Host::projection() const {
                             Value(drive.stroke_rate->denominator)}));
                 }
                 broad_presses.emplace_back(std::move(entry));
+                const auto cutting = broad_layout.inspect_broad_shear(origin);
+                Object shear_entry{{"origin", grid_value(origin)},
+                    {"geometry_status", Value(broad_shear_status_name(cutting.status))},
+                    {"status", Value(broad_shear_status_name(cutting.status))}};
+                if (cutting.shear) {
+                    const auto& shear = *cutting.shear;
+                    const auto drive = broad_drives.inspect(shear);
+                    shear_entry["status"] = Value(broad_drive_status_name(drive.status));
+                    shear_entry.emplace("parts", Value(Object{
+                        {"anvils", ids_value(shear.anvils)},
+                        {"blades", ids_value(shear.blades)},
+                        {"guides", ids_value(shear.guides)},
+                        {"shafts", ids_value(shear.shafts)},
+                        {"drive_cogs", ids_value(shear.drive_cogs)}}));
+                    const auto staged = state.material.dropped_material.find(origin);
+                    if (staged != state.material.dropped_material.end() &&
+                        staged->second.sheets.size() == 1) {
+                        const auto sheet_id = staged->second.sheets.front().id;
+                        shear_entry.emplace("sheet_id", Value(sheet_id));
+                        const auto progress = state.shear_progress.find(sheet_id);
+                        shear_entry.emplace("strokes", Value(progress == state.shear_progress.end() ?
+                            Integer{0} : progress->second.strokes));
+                    }
+                }
+                broad_shears.emplace_back(std::move(shear_entry));
             }
         }
         projection.emplace("broad_press_assemblies", Value(std::move(broad_presses)));
+        projection.emplace("broad_shear_assemblies", Value(std::move(broad_shears)));
     }
     projection.merge(tick_fields(snapshot));
     return Value(std::move(projection));

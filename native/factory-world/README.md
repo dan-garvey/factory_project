@@ -158,7 +158,7 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 14 and retains pending manual cut identity,
+The logical checkpoint uses schema 15 and retains pending manual cut identity,
 remaining trusted ticks, and interruption state alongside the single identified freight
 beacon, its first shipment and three later conserved shipments in the same
 material ledger, the pod workshop's installed or held
@@ -173,6 +173,17 @@ receipt. Restore reverses later layout edits when checking automatic tick
 witnesses used by manual press receipts; a later wheel toggle or construction
 edit does not lend an unrelated tick to the press. Schema 12 is
 refused rather than migrated because its removal history lacks these shapes.
+
+A separate four-anvil cutting station accepts four placed cutting edges,
+guides and connected shaft/cog pairs. `stroke_broad_shear` names the first
+anvil and the staged sheet identity. Each accepted powered stroke is recorded
+against that sheet; losing power or removing a blade leaves the sheet and its
+partial progress accessible. The fourth stroke exchanges one twelve-mass sheet
+for four separate ordinary three-mass plates on the four anvil cells. An
+occupied output cell refuses the stroke without changing either quantity or
+progress. The logical checkpoint stores the sheet's origin and stroke count,
+and restore checks both against the authenticated command history. Earlier
+logical checkpoint schemas are not migrated to this prototype schema.
 For a modular press, the checkpoint also retains the work identities waiting at
 its exit or already exported to a belt. Those witnesses do not own material;
 the single material ledger continues to hold every plate and belt slot.

@@ -670,8 +670,9 @@ Error shear_sheet(State& state, const Config& config, const Path& path,
                   WorkId sheet_id, const DropPoint& origin) {
     const auto valid = validate(state, config, path);
     if (valid != Error::none) return valid;
-    if (config.sheet_mass == 0 || config.sheet_mass != 4 * config.plate_mass ||
-        config.plate_mass <= 0) return Error::unavailable_recipe;
+    if (config.plate_mass <= 0 || config.sheet_mass <= 0 ||
+        config.sheet_mass % 4 != 0 || config.sheet_mass / 4 != config.plate_mass)
+        return Error::unavailable_recipe;
     if (sheet_id <= 0 || origin[0] > maximum_drop_coordinate - 4 ||
         origin[2] > maximum_drop_coordinate - 4 || origin[0] % 4 || origin[2] % 4)
         return Error::invalid_state;

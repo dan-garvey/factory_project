@@ -153,6 +153,10 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "pickup_material") return keys(intent, {"center", "expected"}) && field<Object>(intent, "expected");
     if (action == "place_sheet") return keys(intent, {"center", "sheet_id"}) &&
         field<Value::Array>(intent, "center") && field<Integer>(intent, "sheet_id");
+    if (action == "stroke_broad_shear")
+        return keys(intent, {"target", "generation", "sheet_id"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+            field<Integer>(intent, "sheet_id");
     if (action == "harvest_source") return keys(intent, {"target"}) && field<std::string>(intent, "target");
     if (action == "finish_harvest" || action == "cancel_harvest") return keys(intent, {});
     if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
@@ -589,7 +593,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != profile.build_reach ||
         !position || !points || !distances ||
         (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
-         (broad_pickup || action == "place_sheet" || action == "feed_broad_press" ||
+         (broad_pickup || action == "place_sheet" || action == "stroke_broad_shear" ||
+             action == "feed_broad_press" ||
              action == "refeed_broad_press_work") ? points->size() != 4 :
          points->size() != (((two_endpoints(action) && action != "place_selected_belt_span") ||
              action == "compact_offcuts") ? 2 : 1)) ||
@@ -717,6 +722,24 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             *rotation < 4 && entity && entity->empty() && generation &&
             *generation == 0 && targets == broad_reach_targets(profile, *origin) &&
             result.size() == 18;
+    }
+    if (action == "stroke_broad_shear") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* requested_sheet = field<Integer>(record.intent, "sheet_id");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        const auto* sheet = field<Integer>(result, "sheet_id");
+        const auto* strokes = field<Integer>(result, "shear_strokes");
+        const auto* products = field<Integer>(result, "formed_products");
+        const auto* work = field<Value::Array>(result, "work_center");
+        const auto origin = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
+        return target && entity && *target == *entity && requested_generation && generation &&
+            *requested_generation == *generation && *generation > 0 &&
+            requested_sheet && sheet && *requested_sheet == *sheet && *sheet > 0 &&
+            strokes && *strokes >= 1 && *strokes <= 4 && products &&
+            *products == (*strokes == 4 ? 4 : 0) && origin &&
+            targets == broad_reach_targets(profile, *origin) && result.size() == 20;
     }
     if (action == "harvest_source" || action == "finish_harvest") {
         const auto* id = action == "harvest_source" ?
@@ -1134,6 +1157,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::map<std::string, Integer> carried_offcuts;
     std::map<std::string, std::map<materials::WorkId, Value>> carried_work;
     std::map<mechanics::Point, materials::Cargo> broad_work;
+    std::map<materials::WorkId, State::ShearProgress> shear_progress;
+    std::map<mechanics::Point, Integer> shear_products;
     std::map<std::string, std::vector<materials::Sheet>> carried_sheets;
     std::set<materials::WorkId> broad_ids;
     std::map<materials::WorkId, std::vector<PressAutoTransition>> broad_transitions;
@@ -2164,6 +2189,17 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (*action == "pickup_material") {
             const auto point = grid_point(record.intent, materials::maximum_drop_coordinate);
             if (!point) return false;
+            if (const auto sheared = shear_products.find(*point);
+                sheared != shear_products.end()) {
+                const auto* raw = field<Integer>(record.result, "moved_raw");
+                const auto* products = field<Integer>(record.result, "moved_products");
+                const auto* work = field<Value::Array>(record.result, "moved_work");
+                const auto* sheets = field<Integer>(record.result, "moved_sheets");
+                if (!raw || *raw != 0 || !products || *products != 1 ||
+                    !work || !work->empty() || !sheets || *sheets != 0 ||
+                    press_products.contains(*point)) return false;
+                shear_products.erase(sheared);
+            }
             if (const auto broad = broad_work.find(*point); broad != broad_work.end()) {
                 const auto* expected = field<Object>(record.intent, "expected");
                 const auto* moved = field<Value::Array>(record.result, "moved_work");
@@ -2389,6 +2425,45 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (!broad_work.emplace(*origin, std::move(staged)).second) return false;
             carried_sheets[*actor].erase(sheet);
         }
+        if (*action == "stroke_broad_shear") {
+            const auto* sheet_id = field<Integer>(record.intent, "sheet_id");
+            const auto* strokes = field<Integer>(record.result, "shear_strokes");
+            const auto* work = field<Value::Array>(record.result, "work_center");
+            const auto origin = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
+            const auto target = placed_components.find(*entity);
+            if (!sheet_id || !strokes || !origin || target == placed_components.end() ||
+                target->second.first != materials::Component::anvil ||
+                target->second.second != *origin) return false;
+            if (!historical_layout) {
+                historical_parts.clear();
+                for (const auto& [part_id, component] : placed_components) {
+                    const auto issued = snapshot.state.issued_entities.find(part_id);
+                    if (issued == snapshot.state.issued_entities.end()) return false;
+                    historical_parts.push_back({part_id, component.first, component.second,
+                        issued->second});
+                }
+                historical_layout.emplace(historical_parts);
+            }
+            const auto geometry = historical_layout->inspect_broad_shear(*origin);
+            if (!geometry.shear || geometry.shear->anvils.front() != *entity) return false;
+            const auto staged = broad_work.find(*origin);
+            if (staged == broad_work.end() || staged->second.sheets.size() != 1 ||
+                staged->second.sheets.front().id != *sheet_id ||
+                !broad_ids.contains(*sheet_id)) return false;
+            auto& progress = shear_progress[*sheet_id];
+            if (progress.strokes != 0 && progress.origin != *origin) return false;
+            progress.origin = *origin;
+            if (*strokes != progress.strokes + 1 || *strokes > 4) return false;
+            progress.strokes = *strokes;
+            if (*strokes == 4) {
+                for (const auto& cell : geometry.shear->work_centers)
+                    if (shear_products.contains(cell) || press_products.contains(cell))
+                        return false;
+                for (const auto& cell : geometry.shear->work_centers)
+                    shear_products.emplace(cell, 1);
+                broad_work.erase(staged);
+            }
+        }
         if (*action == "pickup_material" || *action == "recover" ||
             *action == "recover_belt_slot") {
             const auto* moved_work = field<Value::Array>(record.result, "moved_work");
@@ -2604,6 +2679,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             witness->second.manual_seen || witness->second.automatic_remaining_ticks != broad_reductions[id] ||
             witness->second.automatic_transitions != broad_transitions[id] ||
             witness->second.refeed_seen != broad_refed_ids.contains(id)) return false;
+    }
+    if (shear_progress != snapshot.state.shear_progress) return false;
+    for (const auto& [point, count] : shear_products) {
+        const auto found = snapshot.state.material.dropped_material.find(point);
+        if (count != 1 || found == snapshot.state.material.dropped_material.end() ||
+            found->second != materials::Cargo{0, 1, {}}) return false;
     }
     for (const auto& [point, cargo] : broad_work) {
         const auto found = snapshot.state.material.dropped_material.find(point);
@@ -3099,6 +3180,30 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         ratings.emplace(found.drive_cog, material_rating(found.cog_material));
         impacts.emplace(found.anvil, 8);
     }
+    // A cutting edge is a different contact from a forming ram. Project its
+    // four real anvil/shaft/cog stacks into the same native drive graph.
+    for (const auto& item : placed) {
+        if (item.kind != materials::Component::anvil) continue;
+        const auto inspected = layout.inspect_broad_shear(item.center);
+        if (!inspected.shear) continue;
+        const auto& shear = *inspected.shear;
+        for (std::size_t index = 0; index < shear.anvils.size(); ++index) {
+            const auto axis = horizontal_axis(shear.shaft_centers[index],
+                shear.cog_centers[index]);
+            const mechanics::Point hub{shear.work_centers[index][0],
+                shear.shaft_centers[index][1], shear.work_centers[index][2]};
+            append({shear.anvils[index], mechanics::Kind::hub, hub, axis, 0, 0});
+            append({shear.shafts[index], mechanics::Kind::shaft,
+                shear.shaft_centers[index], axis, 0, 1});
+            append({shear.drive_cogs[index], mechanics::Kind::gear,
+                shear.cog_centers[index], axis, 2, 0});
+            ratings.emplace(shear.shafts[index],
+                material_rating(shear.shaft_materials[index]));
+            ratings.emplace(shear.drive_cogs[index],
+                material_rating(shear.cog_materials[index]));
+            impacts.emplace(shear.anvils[index], 8);
+        }
+    }
     if (parts.size() > mechanics::maximum_parts) {
         mechanics::Result result;
         result.error = mechanics::Error::too_many_parts;
@@ -3190,6 +3295,13 @@ BroadPressDriveInspection BroadPressDriveIndex::inspect(const assembly::BroadPre
         common_component = component->second;
     }
     return {BroadPressDriveStatus::ready, common_rate, pad_winding};
+}
+
+BroadPressDriveInspection BroadPressDriveIndex::inspect(const assembly::BroadShear& shear) const {
+    return inspect(assembly::BroadPress{shear.origin, shear.work_centers,
+        shear.anvils, shear.blades, shear.guides, shear.shafts, shear.drive_cogs,
+        shear.shaft_centers, shear.cog_centers, shear.shaft_materials,
+        shear.cog_materials});
 }
 
 materials::MachinePower machine_power(const stationary::Topology& topology) {
@@ -3387,7 +3499,13 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             state.placed_components.contains(crank.id)) return false;
     }
     if (!profile.landing_pod_center &&
-        (!state.placed_components.empty() || !state.press_progress.empty())) return false;
+        (!state.placed_components.empty() || !state.press_progress.empty() ||
+         !state.shear_progress.empty())) return false;
+    if (state.shear_progress.size() > materials::maximum_live_work_lots) return false;
+    for (const auto& [id, progress] : state.shear_progress)
+        if (id <= 0 || id >= state.material.next_work_id || progress.strokes < 1 ||
+            progress.strokes > 4 || progress.origin[0] % 4 != 0 ||
+            progress.origin[2] % 4 != 0) return false;
     if (state.placed_components.size() > maximum_issued_entities) return false;
     std::map<materials::Component, Integer> component_totals;
     std::set<mechanics::Point> component_centers;
@@ -3803,6 +3921,75 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("sheet_id", Value(*id));
         facts.emplace("rotation", Value(rotation));
         return accepted(std::move(candidate), "", std::move(facts));
+    }
+    if (*action == "stroke_broad_shear") {
+        if (!profile_.landing_pod_center || !copper_profile(profile_.material) ||
+            profile_.material.plate_mass <= 0 || profile_.material.sheet_mass <= 0 ||
+            profile_.material.sheet_mass % 4 != 0 ||
+            profile_.material.sheet_mass / 4 != profile_.material.plate_mass)
+            return refused("unavailable_recipe");
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        const auto* sheet_id = field<Integer>(intent, "sheet_id");
+        if (!id || !generation || !sheet_id || *sheet_id <= 0)
+            return refused("invalid_target");
+        const auto found = state.placed_components.find(*id);
+        if (found == state.placed_components.end()) return refused("unknown_target", *id);
+        if (found->second.generation != *generation)
+            return refused("stale_generation", *id);
+        if (found->second.kind != materials::Component::anvil)
+            return refused("not_shear_anvil", *id);
+        const auto parts = assembly_parts(state);
+        const auto geometry = assembly::Layout(parts).inspect_broad_shear(found->second.center);
+        if (!geometry.shear || geometry.shear->anvils.front() != *id)
+            return refused("incomplete_shear", *id);
+        const auto& shear = *geometry.shear;
+        const auto staged = state.material.dropped_material.find(shear.origin);
+        if (staged == state.material.dropped_material.end() ||
+            staged->second.raw_units != 0 || staged->second.products != 0 ||
+            staged->second.offcuts != 0 || staged->second.timber != 0 ||
+            !staged->second.components.empty() || !staged->second.work_lots.empty() ||
+            staged->second.sheets.size() != 1 ||
+            staged->second.sheets.front().id != *sheet_id)
+            return refused("unavailable_input", *id);
+        const auto previous = state.shear_progress.find(*sheet_id);
+        if (previous != state.shear_progress.end() &&
+            (previous->second.origin != shear.origin || previous->second.strokes >= 4))
+            return refused("incompatible_sheet", *id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            broad_reach_targets(profile_, shear.origin));
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        const auto driven = BroadPressDriveIndex(drive_power(profile_, state)).inspect(shear);
+        if (driven.status != BroadPressDriveStatus::ready || !driven.stroke_rate ||
+            driven.stroke_rate->numerator <= 0)
+            return refused("shear_unpowered", *id, std::move(facts));
+        if (std::any_of(shear.work_centers.begin() + 1, shear.work_centers.end(),
+                [&](const auto& cell) {
+                    return state.material.dropped_material.contains(cell);
+                })) return refused("output_full", *id, std::move(facts));
+        auto candidate = state;
+        auto& progress = candidate.shear_progress[*sheet_id];
+        progress.origin = shear.origin;
+        ++progress.strokes;
+        if (progress.strokes == 4) {
+            const auto error = materials::shear_sheet(candidate.material, profile_.material,
+                material_path(candidate.topology), *sheet_id, shear.origin);
+            if (error != materials::Error::none)
+                return refused(materials::error_name(error), *id, std::move(facts));
+        }
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("sheet_id", Value(*sheet_id));
+        facts.emplace("work_center", Value(Value::Array{Value(shear.origin[0]),
+            Value(shear.origin[1]), Value(shear.origin[2])}));
+        facts.emplace("shear_strokes", Value(progress.strokes));
+        facts.emplace("formed_products", Value(progress.strokes == 4 ? Integer{4} : Integer{0}));
+        return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "harvest_source") {
         const auto* id = field<std::string>(intent, "target");

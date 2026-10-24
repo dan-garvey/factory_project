@@ -310,7 +310,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"remaining_ticks", Value(cut.remaining_ticks)},
                 {"interrupted_revision", Value(cut.interrupted_revision)}}));
         Value output(Object{
-            {"schema", Value(Integer{14})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{15})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -400,6 +400,13 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"automatic_transitions", Value(std::move(transitions))}});
             }
             state.emplace("press_progress", Value(std::move(progress)));
+            Array shears;
+            for (const auto& [id, witness] : snapshot.state.shear_progress)
+                shears.emplace_back(Object{{"sheet_id", Value(id)},
+                    {"origin", Value(Array{Value(witness.origin[0]),
+                        Value(witness.origin[1]), Value(witness.origin[2])})},
+                    {"strokes", Value(witness.strokes)}});
+            state.emplace("shear_progress", Value(std::move(shears)));
             Array offcut_deliveries;
             for (const auto& [id, delivery] : snapshot.state.press_offcut_deliveries)
                 offcut_deliveries.emplace_back(Object{{"work_id", Value(id)},
@@ -426,7 +433,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 14) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 15) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -436,7 +443,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts"});
@@ -562,6 +569,17 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                 }
                 if (!candidate.state.press_progress.emplace(id, std::move(witness)).second)
                     refuse(CheckpointReason::invalid_world, "$.state.press_progress");
+            }
+            for (const auto& value : array(state.at("shear_progress"),
+                    "$.state.shear_progress", materials::maximum_live_work_lots)) {
+                const auto& entry = fields(value, "$.state.shear_progress",
+                    {"sheet_id", "origin", "strokes"});
+                if (!candidate.state.shear_progress.emplace(
+                        integer(entry, "sheet_id", "$.state.shear_progress"),
+                        State::ShearProgress{
+                            read_point(entry.at("origin"), "$.state.shear_progress.origin"),
+                            integer(entry, "strokes", "$.state.shear_progress")}).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.shear_progress");
             }
             for (const auto& value : array(state.at("press_offcut_deliveries"),
                     "$.state.press_offcut_deliveries", 4096)) {

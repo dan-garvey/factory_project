@@ -119,6 +119,17 @@ void broad_projection() {
           get<A>(broad.front(), "work_centers").size() == 4 &&
           get<A>(V(get<O>(broad.front(), "parts")), "shafts").size() == 4,
         "Host projects one real four-pad area but refuses readiness without four live drives.");
+    const auto shear = get<A>(state, "broad_shear_assemblies");
+    check(shear.size() == 1 &&
+          get<std::string>(shear.front(), "geometry_status") == "missing_blade",
+        "The Host distinguishes a forming ram from a sheet-cutting blade.");
+    auto cut = request("broad-wrong-head-cut", "stroke_broad_shear");
+    cut.emplace("entity", get<A>(V(get<O>(broad.front(), "parts")), "anvils").front());
+    cut.emplace("sheet_id", V(I{1}));
+    const auto cut_refusal = host.command("P", cut);
+    check(!get<bool>(cut_refusal, "accepted") &&
+          get<std::string>(cut_refusal, "reason") == "incomplete_shear",
+        "A valid Host cutting wire cannot treat four forming rams as blades.");
     check(get<I>(V(get<O>(state, "material_mass")), "accounted_mass") == 4096 * 4 &&
           get<I>(V(get<O>(state, "cargo").at("P")), "raw") == 0,
         "Constructing the broad area keeps every finite copper unit in custody.");

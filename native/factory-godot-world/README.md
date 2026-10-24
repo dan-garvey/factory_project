@@ -213,9 +213,10 @@ very close to the body even when the exact rotated boxes do not overlap.
 Vertical and sideways spans transmit rotation without carrying cargo or actors.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
-logical World checkpoint has schema 14, including timed manual cuts, workshop custody and placement,
+logical World checkpoint has schema 15, including timed manual cuts, workshop custody and placement,
 the first freight beacon and its finite first and repeat orders, building facings, the trusted interaction offset and
-identified belt spans, modular press output witnesses and belt-fed work claims.
+identified belt spans, modular press output witnesses, belt-fed work claims and
+identified partial broad-sheet cutting strokes.
 Manual press receipts carry the prior work item, and productive tick records
 bind automatic progress to its work identity, revision and press work point
 during restore. These mutable records check save consistency; they do not
