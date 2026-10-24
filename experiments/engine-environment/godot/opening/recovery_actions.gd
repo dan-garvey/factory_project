@@ -354,6 +354,8 @@ class ArrivalAssemblyControls:
 	var pod_workshop_button: Button
 	var craft_button: Button
 	var foundation_craft_button: Button
+	var foundation_craft_row: HBoxContainer
+	var foundation_craft_label: Label
 	var field_craft_button: Button
 	var part_choice: OptionButton
 	var part_cost_label: Label
@@ -417,12 +419,19 @@ class ArrivalAssemblyControls:
 		component_actions.add_child(craft_row)
 		craft_button = host._button(craft_row, "", _craft)
 		_style_workshop_icon(craft_button, "workshop-craft")
-		foundation_craft_button = host._button(craft_row, "", _craft_foundation)
-		_style_workshop_icon(foundation_craft_button, "foundation")
 		field_craft_button = host._button(craft_row, "", _field_craft)
 		_style_workshop_icon(field_craft_button, "workshop-shape")
 		place_button = host._button(craft_row, "", _place)
 		_style_workshop_icon(place_button, "workshop-place")
+		foundation_craft_row = HBoxContainer.new()
+		foundation_craft_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		component_actions.add_child(foundation_craft_row)
+		foundation_craft_button = host._button(foundation_craft_row, "", _craft_foundation)
+		_style_workshop_icon(foundation_craft_button, "foundation")
+		foundation_craft_label = host._label(foundation_craft_row, "", 11, Color("bfd1cc"))
+		foundation_craft_label.custom_minimum_size.x = 76
+		foundation_craft_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		foundation_craft_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
 		part_choice = OptionButton.new()
@@ -631,6 +640,8 @@ class ArrivalAssemblyControls:
 		var carried_timber: int = int(cargo.get("timber", 0))
 		var floor_parts: int = int(snapshot.get("part_kits", {}).get(actor, {}).get("foundation", 0))
 		foundation_craft_button.visible = foundation_cost > 0
+		foundation_craft_row.visible = foundation_craft_button.visible
+		foundation_craft_label.text = "Foundation\n%d timber" % foundation_cost
 		foundation_craft_button.disabled = not ready or selected_bench.is_empty() \
 			or foundation_cost <= 0 or carried_timber < foundation_cost
 		foundation_craft_button.tooltip_text = "Foundation: %d timber. Carry %d; have %d floors." % [
