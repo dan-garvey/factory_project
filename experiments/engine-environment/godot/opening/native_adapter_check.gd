@@ -714,7 +714,7 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 			return false
 		panel.pickup_button.pressed.emit()
 		if not _expect(not panel.recover_work_button.disabled
-				and panel.recover_work_button.text.contains("offcut"),
+				and panel.recover_work_button.tooltip_text.contains("offcut"),
 				"The next press stroke retains a separate recoverable copper trimming"):
 			return false
 		panel.recover_work_button.pressed.emit()
@@ -2023,7 +2023,7 @@ func _arrival_run() -> void:
 	if not _expect(not panel.pickup_button.disabled, "The formed plate is offered for physical pickup"):
 		return
 	if not _expect(not panel.recover_work_button.disabled
-			and panel.recover_work_button.text.contains("offcut")
+			and panel.recover_work_button.tooltip_text.contains("offcut")
 			and panel.feed_button.disabled,
 			"The next feed waits for the visible copper offcut to be recovered"):
 		return

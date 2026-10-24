@@ -1864,6 +1864,7 @@ func _workshop_pages() -> void:
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-foundation-label.png") == OK,
 				"Retain the visible foundation label in the ordinary workshop panel.")
+		root.size = Vector2i(640, 480)
 		view._fit_object_menu(Vector2i(640, 480))
 		await process_frame
 		var icon_rect: Rect2 = panel.foundation_craft_button.get_global_rect()
@@ -1873,6 +1874,7 @@ func _workshop_pages() -> void:
 			and label_rect.end.x <= operations_rect.end.x + 1.0
 			and label_rect.end.y <= operations_rect.end.y + 1.0,
 			"The foundation icon and cost fit together inside a narrow workshop panel.")
+		root.size = Vector2i(1280, 800)
 		view._fit_object_menu(Vector2i(1280, 800))
 		view._input(escape)
 		verify(not view.object_menu.visible and not view.pause_menu.visible,
@@ -1904,6 +1906,23 @@ func _workshop_pages() -> void:
 		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree() and not panel.craft_section.visible
 			and panel.feed_button.is_visible_in_tree() and not panel.feed_button.disabled,
 			"Ordinary E on a confirmed press exposes its existing feed controls.")
+		var press_icons := [panel.feed_button, panel.refeed_work_button, panel.turn_button,
+			panel.compact_button, panel.pickup_button, panel.recover_work_button, panel.crank_button]
+		var icons_described := true
+		for button: Button in press_icons:
+			icons_described = icons_described and button.text.is_empty() and button.icon != null \
+				and not button.tooltip_text.is_empty() and not button.accessibility_name.is_empty() \
+				and button.focus_mode == Control.FOCUS_ALL
+		verify(icons_described, "Press actions use focusable icons with an action description and shortcut.")
+		verify(panel.feed_button.tooltip_text.contains("F") and panel.turn_button.tooltip_text.contains("T")
+			and panel.pickup_button.tooltip_text.contains("P")
+			and panel.recover_work_button.tooltip_text.contains("U")
+			and panel.crank_button.tooltip_text.contains("C"),
+			"Press action tooltips retain their keyboard routes.")
+		panel.feed_button.pressed.emit()
+		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
+			"The pointer feed icon sends the selected anvil and route to the native adapter.")
+		view.issued.clear()
 		var action_key := InputEventKey.new()
 		action_key.pressed = true
 		action_key.keycode = KEY_F
@@ -1912,7 +1931,8 @@ func _workshop_pages() -> void:
 			"F in the press panel uses its visible feed button and existing request payload.")
 		view.issued.clear()
 		panel.refresh(view.state, view.client, view.selected, false)
-		verify(panel.press_section.is_visible_in_tree() and panel.feed_button.disabled,
+		verify(panel.press_section.is_visible_in_tree() and panel.feed_button.disabled
+			and panel.feed_button.tooltip_text.contains("Wait for the character"),
 			"An unready actor cannot feed the press even while its panel is open.")
 		panel.refresh(view.state, view.client, view.selected, true)
 		view.object_menu.hide()
@@ -1926,6 +1946,21 @@ func _workshop_pages() -> void:
 			and view.object_menu_operations_label.text == "PRESS WORK"
 			and panel.press_section.is_visible_in_tree() and panel.feed_button.is_visible_in_tree(),
 			"Ordinary E on a guided ram exposes the same press actions as its anvil.")
+		root.size = Vector2i(640, 480)
+		view._fit_object_menu(Vector2i(640, 480))
+		await process_frame
+		var narrow_actions: Rect2 = view.object_menu_operations.get_global_rect()
+		verify(panel.feed_button.get_global_rect().position.x >= narrow_actions.position.x
+			and panel.compact_button.get_global_rect().end.x <= narrow_actions.end.x
+			and panel.crank_button.get_global_rect().end.x <= narrow_actions.end.x,
+			"Both grouped press action rows fit inside the narrow object panel.")
+		if not image_prefix.is_empty() and not shared and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-guided-ram-menu-narrow.png") == OK,
+				"Retain the narrow passive press action panel.")
+		root.size = Vector2i(1280, 800)
+		view._fit_object_menu(Vector2i(1280, 800))
+		await process_frame
 		if not image_prefix.is_empty() and not shared and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-guided-ram-menu.png") == OK,

@@ -472,10 +472,22 @@ class ArrivalAssemblyControls:
 		route_choice.name = "PressRoute"
 		route_choice.item_selected.connect(func(index: int) -> void: _route_index = index)
 		press_section.add_child(route_choice)
+		held_work_choice = OptionButton.new()
+		held_work_choice.name = "HeldPressWorkChoice"
+		held_work_choice.item_selected.connect(func(index: int) -> void:
+			if index >= 0 and index < _held_work_ids.size():
+				_held_work_id = _held_work_ids[index])
+		press_section.add_child(held_work_choice)
+		host._label(press_section, "FEED & STROKE", 11, Color("f4bf75"))
 		var press_actions := HBoxContainer.new()
+		press_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		press_section.add_child(press_actions)
-		feed_button = host._button(press_actions, "Feed blank  F", _feed)
-		turn_button = host._button(press_actions, "Turn crank  T", _turn)
+		feed_button = host._button(press_actions, "", _feed)
+		_style_workshop_icon(feed_button, "press-feed")
+		refeed_work_button = host._button(press_actions, "", _refeed_work)
+		_style_workshop_icon(refeed_work_button, "press-refeed")
+		turn_button = host._button(press_actions, "", _turn)
+		_style_workshop_icon(turn_button, "press-turn")
 		compact_button = host._button(press_actions, "", _compact_offcuts)
 		compact_button.icon = load("res://opening/assets/menu-icons/compact-offcuts.svg")
 		compact_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -487,16 +499,16 @@ class ArrivalAssemblyControls:
 		compact_key.keycode = KEY_B
 		compact_shortcut.events = [compact_key]
 		compact_button.shortcut = compact_shortcut
-		held_work_choice = OptionButton.new()
-		held_work_choice.name = "HeldPressWorkChoice"
-		held_work_choice.item_selected.connect(func(index: int) -> void:
-			if index >= 0 and index < _held_work_ids.size():
-				_held_work_id = _held_work_ids[index])
-		press_section.add_child(held_work_choice)
-		refeed_work_button = host._button(press_section, "Reinsert held work  R", _refeed_work)
-		pickup_button = host._button(press_section, "Pick up exit product  P", _pickup_exit)
-		recover_work_button = host._button(press_section, "Recover held work  U", _recover_work)
-		crank_button = host._button(press_section, "Take pod crank", _crank)
+		host._label(press_section, "OUTPUT & RECOVERY", 11, Color("f4bf75"))
+		var output_actions := HBoxContainer.new()
+		output_actions.alignment = BoxContainer.ALIGNMENT_CENTER
+		press_section.add_child(output_actions)
+		pickup_button = host._button(output_actions, "", _pickup_exit)
+		_style_workshop_icon(pickup_button, "press-pickup")
+		recover_work_button = host._button(output_actions, "", _recover_work)
+		_style_workshop_icon(recover_work_button, "press-recover")
+		crank_button = host._button(output_actions, "", _crank)
+		_style_workshop_icon(crank_button, "workshop-crank")
 		_update_page()
 		visible = false
 
@@ -730,7 +742,9 @@ class ArrivalAssemblyControls:
 			collector_cut_button.accessibility_name = "Cut one ore blank at the selected collector, shortcut X"
 		crank_button.visible = not crank.is_empty()
 		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
-		crank_button.text = ("Return crank to pod" if crank.get("holder") == actor else "Take pod crank") + "  C"
+		var press_crank_action := "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
+		crank_button.tooltip_text = "%s · C" % press_crank_action
+		crank_button.accessibility_name = "%s, shortcut C" % press_crank_action
 		_press = _selected_press(snapshot, selected)
 		_anvil = str(_press.get("anvil", ""))
 		if _anvil != _last_anvil:
@@ -778,21 +792,44 @@ class ArrivalAssemblyControls:
 		var can_operate := ready and status == "ready" and not routes.is_empty()
 		feed_button.visible = not _anvil.is_empty()
 		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1 or not _work_drop().is_empty()
+		var operate_cause := "Wait for the character" if not ready else "Complete the guided press and choose a clear feed route"
+		feed_button.tooltip_text = "%s · F" % (operate_cause if not can_operate else \
+			"Carry an ore blank" if int(cargo.get("raw", 0)) < 1 else \
+			"Clear the work face beneath the ram" if not _work_drop().is_empty() else \
+			"Feed one carried ore blank")
+		feed_button.accessibility_name = "Feed one carried ore blank, shortcut F"
 		compact_button.visible = not _anvil.is_empty() and int(cargo.get("offcuts", 0)) > 0
 		compact_button.disabled = not can_operate or int(cargo.get("offcuts", 0)) < 4 \
 			or crank.get("holder") != actor or not _work_drop().is_empty() \
 			or not _press.get("parts", {}).has("shaft")
 		compact_button.tooltip_text = "Compact four carried copper offcuts into one stock blank at this press. Hold the crank and clear the work face. [%d/4]  B" % mini(4, int(cargo.get("offcuts", 0)))
+		compact_button.accessibility_name = "Compact four carried copper offcuts into one blank, shortcut B"
 		held_work_choice.visible = not _anvil.is_empty() and not _held_work_ids.is_empty()
 		refeed_work_button.visible = held_work_choice.visible
 		refeed_work_button.disabled = not can_operate or not _work_drop().is_empty()
+		refeed_work_button.tooltip_text = "%s · R" % (operate_cause if not can_operate else \
+			"Clear the work face beneath the ram" if not _work_drop().is_empty() else \
+			"Reinsert the selected held work")
+		refeed_work_button.accessibility_name = "Reinsert selected held work, shortcut R"
 		turn_button.visible = not _anvil.is_empty()
 		turn_button.disabled = not can_operate or crank.get("holder") != actor or _work_drop().is_empty()
+		turn_button.tooltip_text = "%s · T" % (operate_cause if not can_operate else \
+			"Take the pod crank" if crank.get("holder") != actor else \
+			"Feed or reinsert work beneath the ram" if _work_drop().is_empty() else \
+			"Turn the held crank once")
+		turn_button.accessibility_name = "Turn the guided press crank once, shortcut T"
 		pickup_button.visible = not _anvil.is_empty()
 		pickup_button.disabled = not ready or _exit_drop().is_empty()
+		pickup_button.tooltip_text = "%s · P" % ("Wait for the character" if not ready else \
+			"No formed plate at the selected exit" if _exit_drop().is_empty() else \
+			"Pick up the formed plate at the selected exit")
+		pickup_button.accessibility_name = "Pick up formed plate from the selected exit, shortcut P"
 		recover_work_button.visible = not _anvil.is_empty()
 		recover_work_button.disabled = not ready or _work_drop().is_empty()
-		recover_work_button.text = "Pick up copper offcut  U" if int(_work_drop().get("offcuts", 0)) > 0 else "Recover held work  U"
+		var recover_action := "Pick up the copper offcut beneath the ram" if int(_work_drop().get("offcuts", 0)) > 0 else \
+			"Recover material beneath the ram" if not _work_drop().is_empty() else "No material beneath the ram to recover"
+		recover_work_button.tooltip_text = "%s · U" % ("Wait for the character" if not ready else recover_action)
+		recover_work_button.accessibility_name = "%s, shortcut U" % recover_action
 		if changed_target:
 			open_context()
 
