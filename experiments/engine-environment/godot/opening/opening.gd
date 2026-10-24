@@ -5630,6 +5630,11 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if _object_menu_open():
+		if event is InputEventKey and event.keycode == KEY_T and not event.pressed \
+				and arrival_assembly_controls != null:
+			arrival_assembly_controls.stop_turn_hold("key")
+			get_viewport().set_input_as_handled()
+			return
 		if event is InputEventKey and event.pressed and not event.echo:
 			var used := false
 			if event.keycode in [KEY_ESCAPE, KEY_E]:
@@ -5659,7 +5664,7 @@ func _input(event: InputEvent) -> void:
 					KEY_C: used = _activate_button(actions.craft_button) or _activate_button(actions.crank_button)
 					KEY_P: used = _activate_button(actions.place_button) or _activate_button(actions.pickup_button)
 					KEY_F: used = _activate_button(actions.feed_button)
-					KEY_T: used = _activate_button(actions.turn_button) or _activate_button(actions.collector_crank_button)
+					KEY_T: used = actions.press_turn_key() or _activate_button(actions.collector_crank_button)
 					KEY_X: used = _activate_button(actions.collector_cut_button)
 					KEY_R: used = _activate_button(actions.refeed_work_button)
 					KEY_U: used = _activate_button(actions.recover_work_button)
@@ -10223,6 +10228,8 @@ func _style_pause_action(button: Button, icon_name: String, action_name: String,
 	caption.add_theme_font_size_override("font_size", 11)
 
 func _on_object_menu_closed() -> void:
+	if arrival_assembly_controls != null:
+		arrival_assembly_controls.stop_turn_hold()
 	object_menu_scrim.visible = false
 	object_menu_target = ""
 	selected = ""
