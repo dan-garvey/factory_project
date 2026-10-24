@@ -53,6 +53,7 @@ var inventory_scroll: ScrollContainer
 var catalog_columns: BoxContainer
 var slot_targets: Array[Button] = []
 var context_label: Label
+var carried_label: Label
 var context_action: Button
 var context_bench := ""
 var target_slot := 0
@@ -145,7 +146,7 @@ func configure(host, ui: Control) -> void:
 	inventory_side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	inventory_side.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	catalog_columns.add_child(inventory_side)
-	host._label(inventory_side, "CARRIED", 13)
+	carried_label = host._label(inventory_side, "CARRIED", 13)
 	inventory_scroll = ScrollContainer.new()
 	inventory_scroll.name = "InventoryItems"
 	inventory_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -459,6 +460,11 @@ func _refresh_recipes(host, ready: bool) -> void:
 		context_action.accessibility_name = "Stow pod workshop, shortcut S" if hub else \
 			"Reclaim wooden workbench, shortcut R"
 	parts_label.text = "BENCH / INVENTORY" if not context_bench.is_empty() else "BUILD / INVENTORY"
+	var crank: Dictionary = host.state.get("hand_crank", {})
+	var holder: String = str(crank.get("holder", ""))
+	carried_label.text = "CARRIED · CRANK WITH YOU" if holder == host.client else \
+		"CARRIED · CRANK AT POD TRAY" if holder == "pod" else \
+		"CARRIED · CRANK WITH OTHER WORKER" if not crank.is_empty() else "CARRIED"
 	context_label.text = "Fabrication bench · choose a recipe" if not context_bench.is_empty() else \
 		"Field recipes can be made anywhere · E opens a bench"
 	var recipes: Dictionary = host.state.get("component_recipes", {})

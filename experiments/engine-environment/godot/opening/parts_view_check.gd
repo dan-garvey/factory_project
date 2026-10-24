@@ -1641,6 +1641,8 @@ func _arrival_hotbar() -> void:
 		and bar.material_counts.hand_crank.text == "1"
 		and "5 carried" in bar.material_buttons.timber.accessibility_name,
 		"Carried material icons read the active actor's confirmed cargo and hand tools.")
+	verify(bar.carried_label.text == "CARRIED · CRANK WITH YOU" and bar.material_buttons.hand_crank.visible,
+		"The inventory identifies the issued crank when this actor carries it.")
 	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
 		and view.goal_label.text.contains("PLATE IN INVENTORY"),
 		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_label.text)
@@ -1695,6 +1697,16 @@ func _arrival_hotbar() -> void:
 		and bar.material_counts.hand_crank.text == "0" and bar.component_counts.anvil.text == "0"
 		and not bar.material_buttons.raw.visible and not bar.component_buttons.anvil.visible,
 		"Crafting, placement and return refresh icon counts from the next confirmed projection.")
+	verify(bar.carried_label.text == "CARRIED · CRANK AT POD TRAY"
+		and not bar.material_buttons.hand_crank.visible,
+		"The inventory locates the issued crank without showing it as carried stock.")
+	view.state.hand_crank.holder = "Q"
+	view._refresh_ui()
+	verify(bar.carried_label.text == "CARRIED · CRANK WITH OTHER WORKER"
+		and not bar.material_buttons.hand_crank.visible,
+		"The inventory shows foreign crank custody without inventing another carried item.")
+	view.state.hand_crank.holder = "pod"
+	view._refresh_ui()
 	view.state.cargo.P.components.anvil = 1
 	view._refresh_ui()
 	verify(not bar.buttons[0].disabled and bar.slot_counts[0].text == "2",
@@ -1856,10 +1868,12 @@ func _render_arrival_hotbar() -> void:
 	view.state.hand_crank.holder = "pod"
 	view.state.part_kits.P = {}
 	view._refresh_ui()
+	bar.open_catalog(7)
 	await settle_widgets()
-	verify(not bar.material_buttons.timber.visible and not bar.component_buttons.wooden_frame.visible
+	verify(bar.catalog.visible and bar.carried_label.text == "CARRIED · CRANK AT POD TRAY"
+		and not bar.material_buttons.timber.visible and not bar.component_buttons.wooden_frame.visible
 		and bar.recipe_buttons["component:wooden_frame"].visible,
-		"Empty carried stock leaves neutral cells while recipes remain discoverable.")
+		"Empty carried stock shows the pod crank location while recipes remain discoverable.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-empty.png") == OK,
 		"Retain the empty-inventory recipe catalog.")
@@ -2201,6 +2215,20 @@ func _workshop_pages() -> void:
 		view._refresh_ui()
 		var panel = view.arrival_assembly_controls
 		var inventory = view.building_hotbar
+		verify(inventory.carried_label.text == "CARRIED · CRANK WITH YOU",
+			"The local and shared inventory read this actor's confirmed crank custody.")
+		view.state.hand_crank.holder = "P" if shared else "Q"
+		inventory.refresh()
+		verify(inventory.carried_label.text == "CARRIED · CRANK WITH OTHER WORKER"
+			and not inventory.material_buttons.hand_crank.visible,
+			"The local and shared inventory locate a foreign-held crank outside carried stock.")
+		view.state.hand_crank.holder = "pod"
+		inventory.refresh()
+		verify(inventory.carried_label.text == "CARRIED · CRANK AT POD TRAY"
+			and not inventory.material_buttons.hand_crank.visible,
+			"The local and shared inventory locate a pod-held crank outside carried stock.")
+		view.state.hand_crank.holder = view.client
+		inventory.refresh()
 		await process_frame
 		await process_frame
 		verify(not view.object_menu.visible and not panel.is_visible_in_tree()
