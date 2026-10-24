@@ -475,8 +475,33 @@ func _refresh_recipes(host, ready: bool) -> void:
 	for index in parts.size():
 		var recipe: Dictionary = parts[index]
 		var kind: String = str(recipe.get("kind", ""))
-		var icon_name: String = {"shaft": "drive", "belt": "belt", "wheel": "wheel"}.get(kind, "component")
-		var label: String = {"shaft": "Shaft tile", "belt": "Belt span", "wheel": "Waterwheel"}.get(kind, "Part")
+		var icon_name := ""
+		var label := ""
+		match kind:
+			"shaft":
+				icon_name = "drive"
+				label = "Shaft tile"
+			"gear":
+				icon_name = "gear"
+				label = "Cogwheel"
+			"belt":
+				icon_name = "belt"
+				label = "Belt span"
+			"wheel":
+				icon_name = "wheel"
+				label = "Waterwheel"
+			"gearbox":
+				icon_name = "gearbox"
+				label = "Horizontal gearbox"
+			"vertical_gearbox":
+				icon_name = "vertical_gearbox"
+				label = "Vertical gearbox"
+			"chain_drive":
+				icon_name = "chain_drive"
+				label = "Chain drive"
+			_:
+				push_error("Unmapped native part recipe: " + kind)
+				continue
 		if int(recipe.get("half_span", 0)) > 0:
 			label += " · half-span %d" % int(recipe.half_span)
 		if int(recipe.get("teeth", 0)) > 0:
