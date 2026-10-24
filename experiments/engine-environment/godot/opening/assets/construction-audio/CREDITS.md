@@ -8,6 +8,7 @@ the set as impact/foley audio; its physical recording technique is unverified.
 Factory layers selected metal, wood and soft impacts into designed belt,
 assembly, coupling and release feedback. These cues approximate mechanical
 attachment and removal; they do not identify a particular real fastener or alloy.
+The short assembly impact also acknowledges a confirmed manual press turn.
 The belt combines a soft body impact with a quieter metal latch 35 milliseconds
 later. The full layer recipe, including filenames, delays and gains, is defined by
 `IMPACT_RECIPE` in [construction_audio_check.gd](../../construction_audio_check.gd).

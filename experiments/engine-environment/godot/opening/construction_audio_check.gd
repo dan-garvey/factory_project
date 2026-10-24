@@ -210,6 +210,7 @@ func check_modular_cues() -> void:
 		"place_foundation": "assembly", "place_foundations": "assembly",
 		"place_component": "assembly", "deploy_fabrication_hub": "assembly",
 		"craft_component": "assembly", "field_craft": "assembly", "craft_part": "assembly",
+		"turn_press_crank": "assembly",
 		"place_gear": "coupling", "place_shaft": "coupling", "place_relay": "coupling",
 		"shaft_between": "coupling", "remove_belt_span": "release",
 		"remove_shaft_between": "release", "remove_foundation": "release",
@@ -240,6 +241,21 @@ func check_actual_hooks() -> void:
 	offline.issue(native_belt)
 	verify(offline.construction_audio != null and offline.construction_audio.heard.size() == 1,
 		"A cached duplicate is silent through the actual offline path.")
+	authority.duplicate = false
+	authority.accepts = false
+	var press_turn := {"action": "turn_press_crank", "entity": "press-anvil"}
+	offline.issue(press_turn)
+	verify(offline.construction_audio.heard.size() == 1,
+		"A refused hand turn stays silent in the ordinary offline path.")
+	authority.accepts = true
+	offline.issue(press_turn)
+	verify(offline.construction_audio.heard.size() == 2
+		and offline.construction_audio.stream == Audio.make_stream("assembly"),
+		"One confirmed hand turn plays the short existing impact cue.")
+	authority.duplicate = true
+	offline.issue(press_turn)
+	verify(offline.construction_audio.heard.size() == 2,
+		"A replayed hand turn cannot repeat the work cue.")
 	offline.free()
 	var shared := SharedFixture.new()
 	root.add_child(shared)

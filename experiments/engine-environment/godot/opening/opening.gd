@@ -4200,6 +4200,8 @@ class ConstructionAudio:
 			"place_foundation", "place_foundations", "place_component", "deploy_fabrication_hub", \
 			"craft_component", "field_craft", "craft_part":
 				return "assembly"
+			"turn_press_crank":
+				return "assembly"
 			"place_gear", "place_shaft", "place_relay", "shaft_between", "connect_drive", "connect":
 				return "coupling"
 			"remove", "remove_belt_span", "remove_shaft_between", "remove_foundation", \
