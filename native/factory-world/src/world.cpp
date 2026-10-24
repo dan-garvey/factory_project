@@ -2678,13 +2678,18 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     }
     std::set<materials::WorkId> witnessed_products;
     Integer witness_count = 0;
+    const auto belt_product_at = [&](const mechanics::Point& point, materials::WorkId id) {
+        const auto found = snapshot.state.belt_press_products.find(point);
+        return found != snapshot.state.belt_press_products.end() && found->second.contains(id);
+    };
     for (const auto& [point, id] : snapshot.state.press_output_at_exit) {
         const auto item = snapshot.state.material.dropped_material.find(point);
         if (item == snapshot.state.material.dropped_material.end() ||
             item->second != materials::Cargo{0, 1, {}} ||
             (!press_products.contains(point) &&
-             (!snapshot.state.belt_press_products.contains(point) ||
-              !snapshot.state.belt_press_products.at(point).contains(id))) || id <= 0 ||
+             !belt_product_at(point, id)) ||
+            (snapshot.state.belt_press_work_ids.contains(id) && !belt_product_at(point, id)) ||
+            id <= 0 ||
             id >= snapshot.state.material.next_work_id || !witnessed_products.insert(id).second ||
             !add(witness_count, 1)) return false;
     }
@@ -2702,6 +2707,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     !snapshot.state.belt_press_products.contains(point))) return false;
         for (const auto id : ids)
             if (id <= 0 || id >= snapshot.state.material.next_work_id ||
+                (snapshot.state.belt_press_work_ids.contains(id) && !belt_product_at(point, id)) ||
+                (!snapshot.state.belt_press_work_ids.contains(id) && !press_products.contains(point)) ||
                 !witnessed_products.insert(id).second || !add(witness_count, 1)) return false;
     }
     for (const auto& [point, ids] : snapshot.state.press_output_exported) {
@@ -2712,6 +2719,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
              !snapshot.state.belt_press_products.contains(point))) return false;
         for (const auto id : ids)
             if (id <= 0 || id >= snapshot.state.material.next_work_id ||
+                (snapshot.state.belt_press_work_ids.contains(id) && !belt_product_at(point, id)) ||
+                (!snapshot.state.belt_press_work_ids.contains(id) && !press_products.contains(point)) ||
                 !witnessed_products.insert(id).second || !add(witness_count, 1)) return false;
     }
     for (const auto& [point, ids] : snapshot.state.belt_press_products) {
