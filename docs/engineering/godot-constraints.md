@@ -832,8 +832,12 @@ and offsets for those panels and central anchors for Help. The pinned
 [Control API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/Control.xml)
 defines parent/viewport anchors; the
 [Window API](https://raw.githubusercontent.com/godotengine/godot/4.7.2-stable/doc/classes/Window.xml)
-separates native window size from content scaling. The opening's 1280×800 minimum
-is a revisable adapter policy, while larger windows remain resizable. The private
+separates native window size from content scaling. The opening's 640×480 minimum
+is a revisable adapter policy. A passive 640×480 opening capture confirms that
+the Escape worksite menu fits with status and four actions visible. That probe
+used a copied project with a read-only startup observer after preview warmup
+and arrival reveal, without desktop input; it does not establish the usability
+of every HUD and build control at that size. The private
 [original layout observer](https://github.com/dan-garvey/factory_project/blob/d83716d7bc786201b48895154c8b7b91e8287111/experiments/engine-environment/godot/opening/layout_observer.gd)
 records actual viewport bounds, edge margins, rendered text, button signals and
 ordinary input across size changes and maximize/restore. Its pending-view fixture
