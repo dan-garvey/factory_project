@@ -1292,7 +1292,8 @@ func _arrival_belt_controls(middle: String, span: String) -> bool:
 	opening._select_tool("inspect")
 	var selected_sequence: int = opening.request_sequence
 	opening._world_click(Vector2i(0, -1), span)
-	if not _expect(opening.selected == span and opening.request_sequence == selected_sequence,
+	if not _expect(opening.selected == span and opening.request_sequence == selected_sequence
+			and opening.inspector.text.begins_with("Mechanical belt\n"),
 			"The confirmed belt opens its inspector without submitting an authority request"):
 		return false
 	if not await _approach(Vector2(0.4, 2.8)):
