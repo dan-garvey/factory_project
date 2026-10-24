@@ -926,8 +926,10 @@ func _guided_press_component_view() -> void:
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
 			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
 		"guided_press_assemblies": [{"anvil": "anvil", "center": [0, 0, 0], "status": "ready",
+			"work_center": [0, 0, 0],
 			"parts": {"anvil": "anvil", "ram": "ram", "guide": "guide",
 				"shaft": "shaft", "drive_cog": "cog"}}]}
+	var initial_state: Dictionary = state.duplicate(true)
 	var parsed: Dictionary = Geometry.component_boxes(state)
 	verify(parsed.get("accepted", false) and parsed.boxes.size() == 5,
 		"The frame-free guided press keeps five independent native occupied boxes.")
@@ -1075,6 +1077,41 @@ func _guided_press_component_view() -> void:
 		and partial.shaft.get_node_or_null("GuidedBearingSeat") == null
 		and loose_shaft.basis.y.y > 0.99,
 		"A partial native assembly loses its drive fitting without inventing a ready press.")
+	state = initial_state
+	state.revision = 6
+	host.state = state
+	view.refresh()
+	var rest_ram: Node3D
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "ram":
+			rest_ram = node
+	var rest_y: float = (rest_ram.get_node("MovingDie") as MeshInstance3D).position.y
+	state.dropped_material = [{"center": [0, 0, 0], "raw": 0, "products": 0,
+		"work_lots": [{"id": 1, "cycle_ticks": 3, "remaining": 1}]}]
+	state.revision = 7
+	host.state = state
+	view.refresh()
+	var forming_ram: Node3D
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "ram":
+			forming_ram = node
+	var forming_die: MeshInstance3D = forming_ram.get_node("MovingDie")
+	var forming_slide: MeshInstance3D = forming_ram.get_node("RamSlideNear")
+	var half: float = state.placed_components.ram.occupied.half[1]
+	verify(absf(rest_y - forming_die.position.y - Presenter.GUIDED_RAM_REST_LIFT * 2.0 / 3.0) < 0.001
+		and forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * 0.5 >= -half
+		and forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * 0.5 <= half,
+		"Only confirmed remaining work lowers the guided die and slide inside their occupied box.")
+	state.dropped_material = []
+	state.revision = 8
+	host.state = state
+	view.refresh()
+	var finished_ram: Node3D
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "ram":
+			finished_ram = node
+	verify(absf((finished_ram.get_node("MovingDie") as MeshInstance3D).position.y - rest_y) < 0.001,
+		"Removing the confirmed workpiece returns the guided tool to its raised rest pose.")
 	view.free()
 	await process_frame
 

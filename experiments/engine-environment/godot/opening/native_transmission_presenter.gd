@@ -18,6 +18,7 @@ const CARGO_TICK_SECONDS := 0.45
 const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal tile of surface distance.
 const GEAR_BATCH_THRESHOLD := 4
 const LIVE_GEAR_BATCH_THRESHOLD := 1
+const GUIDED_RAM_REST_LIFT := 0.08
 
 var _host: WeakRef
 var _view_key: Variant = null
@@ -1257,8 +1258,9 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			_support_box(anchor, "RamBody", Vector3(0, bottom + occupied_size.y * 0.5, 0),
 				Vector3(0.125, occupied_size.y - 0.10, 0.125), dark)
 			for z in [-0.105, 0.105]:
-				_support_box(anchor, "RamSlide", Vector3(0, bottom + occupied_size.y * 0.57, z),
-					Vector3(0.20, occupied_size.y * 0.64, 0.028), worked)
+				_support_box(anchor, "RamSlideNear" if z < 0.0 else "RamSlideFar",
+					Vector3(0, bottom + occupied_size.y * 0.55, z),
+					Vector3(0.20, occupied_size.y * 0.50, 0.028), worked)
 		"sliding_guide":
 			for x in [-0.103, 0.103]:
 				_support_box(anchor, "GuideRail", Vector3(x, 0, 0),
@@ -1460,9 +1462,27 @@ func _collector_tool_support(anchor: Node3D, label: String, angle: float,
 		top - 0.025, 0), Vector3(0.045, 0.05, 0.27), worked, true)
 	(anchor.get_node(label + "RearDock") as MeshInstance3D).rotation.y = angle
 
+func _guided_ram_lift(snapshot: Dictionary, press: Dictionary) -> float:
+	var work_center: Variant = press.get("work_center")
+	if not work_center is Array:
+		return GUIDED_RAM_REST_LIFT
+	for drop: Variant in snapshot.get("dropped_material", []):
+		if not drop is Dictionary or drop.get("center") != work_center:
+			continue
+		var lots: Variant = drop.get("work_lots")
+		if not lots is Array or lots.size() != 1 or not lots[0] is Dictionary:
+			continue
+		var lot: Dictionary = lots[0]
+		if lot.has("output_form") or typeof(lot.get("cycle_ticks")) != TYPE_INT \
+				or typeof(lot.get("remaining")) != TYPE_INT or int(lot.cycle_ticks) <= 0:
+			continue
+		return GUIDED_RAM_REST_LIFT * clampf(float(lot.remaining) / float(lot.cycle_ticks), 0.0, 1.0)
+	return GUIDED_RAM_REST_LIFT
+
 func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var drives: Dictionary = {}
 	var press_roles: Dictionary = {}
+	var ram_lifts: Dictionary = {}
 	var collector_facings: Dictionary = {}
 	var collector_floors: Dictionary = {}
 	var collector_receivers: Dictionary = {}
@@ -1585,6 +1605,8 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 			if press.get("status") != "ready" or not press.get("parts") is Dictionary:
 				continue
 			var fitted: Dictionary = press.parts
+			if boxes.has(fitted.get("ram")) and boxes[fitted.ram].component == "ram_face":
+				ram_lifts[str(fitted.ram)] = _guided_ram_lift(snapshot, press)
 			var shaft_id: Variant = fitted.get("shaft")
 			var cog_id: Variant = fitted.get("drive_cog")
 			var guide_id: Variant = fitted.get("guide")
@@ -1635,6 +1657,10 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
 			spec.size, press_roles.get(id, ""), float(collector_facings.get(id, 0.0)),
 			support_drop, collector_receivers.get(id, Vector3.ZERO))
+		if ram_lifts.has(id):
+			for child: Node in anchor.get_children():
+				if child is Node3D and (child.name == "MovingDie" or child.name.begins_with("RamSlide")):
+					(child as Node3D).position.y += float(ram_lifts[id])
 
 func _render_receiver_chutes(snapshot: Dictionary) -> void:
 	# A chute joins only a native ready receiver to a native belt endpoint at

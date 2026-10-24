@@ -119,6 +119,13 @@ func _construct(action: Dictionary) -> Dictionary:
 	var reply := _issue(action)
 	return reply if _expect(reply.get("accepted", false), "The current immersed route admits " + str(action)) else {}
 
+func _guided_die_y(ram_id: String) -> float:
+	for anchor: Node in opening.transmission_presenter.get_children():
+		if anchor.get_meta("component_entity", "") == ram_id:
+			var die: Node3D = anchor.get_node_or_null("MovingDie")
+			return die.position.y if die != null else NAN
+	return NAN
+
 func _approach(target: Vector2, actor: String = "P") -> bool:
 	if not await _walk_to(target, false, actor):
 		return false
@@ -2210,6 +2217,7 @@ func _arrival_run() -> void:
 			and opening.model.projection().dropped_material.size() == 1,
 			"The panel moves one carried blank into retained press work"):
 		return
+	var ready_die_y: float = _guided_die_y(str(ready.parts.ram)) if raised else NAN
 	if mode == "arrival-press":
 		opening._open_object_menu_for(str(ready.anvil))
 		if not _expect(opening.object_menu.visible and panel.turn_button.is_visible_in_tree()
@@ -2257,6 +2265,14 @@ func _arrival_run() -> void:
 			if not _expect(not panel.turn_button.disabled, "A retained workpiece enables the selected drive"):
 				return
 			panel.turn_button.pressed.emit()
+			if raised:
+				var die_y: float = _guided_die_y(str(ready.parts.ram))
+				if not _expect(is_finite(ready_die_y) and is_finite(die_y)
+						and (die_y < ready_die_y - 0.01 if turn == 1 else absf(die_y - ready_die_y) < 0.001),
+						"The raised die follows confirmed hand-turn work and returns after forming: %s" %
+						str({"turn": turn, "rest": ready_die_y, "current": die_y,
+							"work": opening.model.projection().dropped_material})):
+					return
 	var after: Dictionary = opening.model.projection()
 	if not _expect(after.dropped_material.size() == 2
 			and after.dropped_material.any(func(drop: Variant) -> bool:
