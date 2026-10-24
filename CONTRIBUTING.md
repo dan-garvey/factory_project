@@ -187,7 +187,7 @@ are disjoint from your staged paths, an ordinary
 `git switch -c integration/example main` in your owned checkout can carry those
 edits onto current main. Verify the resulting staged delta and preservation of
 the relevant tested inputs, then commit through the installed hook. The authored
-substantive change gets its normal independent review request. If Git refuses the
+commit gets its normal independent review request. If Git refuses the
 switch, preserve the candidate and resolve the overlap; do not force it.
 
 For already committed work, merge the missing local/remote main changes into
@@ -199,12 +199,11 @@ author's branch. A textual merge alone does not establish compatibility.
 For a merge that only combines disjoint changes already covered by review
 requests, whether pending or completed, compare both parents, confirm exact
 preservation of the relevant blobs and test inputs, and link those requests in
-the owning Bead. Do not create a new review request just to confirm that
-preservation. Request independent review of the merge when a conflict was
+the owning Bead. Create the required review request for the authored merge
+commit; its review can focus on the preservation evidence. When a conflict was
 resolved, a shared interface or behavior changes in combination, or a relevant
-tested input differs. Run focused checks for the changed seam. This keeps review
-on behavior and integration risk without adding
-a second review of unchanged source.
+tested input differs, run focused checks and have the merge review examine that
+integration seam.
 
 Only the short canonical-main update and push are serialized. After committing
 and testing in your own linked worktree, use the same shared advisory lock for
