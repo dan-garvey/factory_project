@@ -138,9 +138,11 @@ struct PressOffcutDelivery {
         materials::Component kind) noexcept {
     switch (kind) {
         case materials::Component::wooden_shaft:
-        case materials::Component::wooden_cog: return 8;
+        case materials::Component::wooden_cog:
+        case materials::Component::wooden_slide: return 8;
         case materials::Component::softmetal_shaft:
-        case materials::Component::softmetal_cog: return 24;
+        case materials::Component::softmetal_cog:
+        case materials::Component::softmetal_slide: return 24;
         default: return std::nullopt;
     }
 }

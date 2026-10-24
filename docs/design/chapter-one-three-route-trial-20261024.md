@@ -9,7 +9,7 @@ that a new player can discover or enjoy each route.
 | Route | What changes in the factory | Observed result and cost |
 | --- | --- | --- |
 | Hand-tended small press | Carry ore to a single guided press and turn its unpowered shaft by hand. No belt or collector is needed. | The arrival witness carries two plates and two recovered offcuts after 75 accepted orders. The second plate exceeds the one-plate objective; each small stroke retains its offcut. |
-| Collector, belt and powered small press | Build the collector, a material belt and a separate waterwheel transmission to the elevated guided press. The connected line extracts and forms finite work without hand turns. | The original belt-fed witness established one hand-turned plate. The later powered continuation makes two plates by native ticks across fresh Store loads. A full exit holds the second ready lot without duplicating output; ordinary pickup releases it. The worker collects both plates while two conserved offcuts remain in the separate tray. |
+| Collector, belt and powered small press | Build the collector, a material belt and a separate waterwheel transmission to the elevated guided press. The connected line extracts and forms finite work without hand turns. | The powered continuation carries two plates after 144 accepted orders across fresh Store loads. A full exit holds the second ready lot without duplicating output; ordinary pickup releases it. Two conserved offcuts remain in the separate tray. |
 | Four-cell sheet former and cutter | Harvest and craft twenty individual work-area parts, connect a waterwheel on the working side of the drive, and feed three ore chunks into one broad sheet. Carry the sheet, exchange the forming faces for cutting blades, and make four cuts. | The broad route carries one plate and leaves three accessible plates after 173 accepted orders. It uses one twelve-mass sheet and produces no offcut. The route needs four-cell support, a correctly directed drive, a sheet transfer and blade changes. |
 
 The numbers above are *whole witnessed routes*, not normalized production
@@ -18,6 +18,10 @@ route makes four. The earlier belt-only hand-crank result is a precursor, not
 the completed powered route. Order counts include harvesting, fabrication
 and construction, so they show setup cost as well as operation. The native
 ledger conserves the original 16,384 mass units in all three results. The
+final projections have five placed work parts and no transmission parts for
+the hand route, eleven work parts and twelve transmission parts for the powered
+line, and twenty work parts and four transmission parts for the broad route.
+These counts describe the tested builds, not minimum blueprints. The
 small routes use four mass units per plate and retain one unit as an offcut;
 the broad route converts three four-unit chunks into four three-unit plates.
 The broad route's apparent stock advantage is provisional because the small
@@ -38,10 +42,10 @@ The powered stages build the finite press site, fabricate and connect two
 vertical relays plus a horizontal relay and collector branch, load the first
 automatic output, retain a blocked second work lot, then collect both plates
 after fresh loads. The route uses one native World and a physical actor for
-movement and reach. Its scripted craft steps still emit legacy workshop panel
-actions after the shared inventory replaced the visible workshop menu; they
-do not establish a complete current player input route. The result files and
-first failures are retained under the task
+movement and reach. Its finite parts are crafted through the visible shared
+inventory recipe tiles. Construction positions and native ticks remain
+scripted scene inputs, so the witness does not establish player discovery.
+The result files and first failures are retained under the task
 evidence linked from `factory-yau.1.10.16.7.2` and
 `factory-yau.1.10.10.22.6`.
 
@@ -59,8 +63,9 @@ broad feed, blade exchange and cutting
 commands are script-driven through the ordinary scene's native command path;
 they are not yet discoverable normal player controls. Fixed-pattern assembly
 and a provisional drive are not the planned reusable powered-slide interface.
-The current-main hand-press witness also stops at its old workshop-menu
-assertion after the inventory change. Its earlier finite production result
-remains valid at that revision, while the current inventory interaction needs
-a fresh ordinary consumer. Rendered inspection, network continuation and
-human play remain separate.
+The three routes were rerun against one joined native library and opening
+source after the inventory migration: the hand route passed, the powered line
+passed its four fresh-process stages, and the broad route passed its four
+fresh-process stages. The superseded hand-menu failure is retained with that
+earlier join. Rendered inspection, network continuation and human play remain
+separate.

@@ -36,6 +36,56 @@ O fast_site_cut(const char* client, const char* request, const char* target) {
         {"action", V("harvest_source")}, {"target", V(target)}};
 }
 
+void one_piece_slide_custody() {
+    Host host;
+    check(get<bool>(host.initialize_arrival("slide-body-site", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
+          "One real arrival actor can reach a finite tree for a slide body.");
+    const auto command = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("slide-body-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return host.command("P", wire);
+    };
+    check(get<bool>(command("fast", "set_developer_conveniences", {{"enabled", V(true)}}), "accepted"),
+          "Native test mode shortens only the fixture's three real manual cuts.");
+    for (const char* request : {"tree-1", "tree-2", "tree-3"})
+        check(get<bool>(command(request, "harvest_source", {{"target", V("tree-east-south")}}), "accepted"),
+              "Three finite timber units move into the actor's native cargo.");
+    const auto shaped = command("shape-slide", "field_craft", {{"component", V("wooden_slide")}});
+    check(get<bool>(shaped, "accepted") &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0 &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_slide") == 1,
+          "The slide and its integral shaft are one finite crafted cargo item.");
+    const O place{{"component", V("wooden_slide")},
+        {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}};
+    const auto installed = command("place-slide", "place_component", place);
+    check(get<bool>(installed, "accepted") &&
+          get<O>(host.projection(), "placed_components").contains(get<std::string>(installed, "entity")) &&
+          get<O>(get<O>(host.projection(), "cargo").at("P"), "components").empty(),
+          "The Host places the owned slide once inside its fixed native volume.");
+    const auto slide_id = get<std::string>(installed, "entity");
+    const auto placed = get<O>(host.projection(), "placed_components").at(slide_id);
+    const auto occupied = get<O>(placed, "occupied");
+    const auto half = get<A>(V(occupied), "half");
+    check(get<std::string>(placed, "component") == "wooden_slide" &&
+          std::abs(std::get<double>(half[0].storage()) - 0.21) < 1e-8 &&
+          std::abs(std::get<double>(half[1].storage()) - 0.4125) < 1e-8 &&
+          get<std::string>(V(get<O>(host.projection(), "motion").at(slide_id)), "state") == "unpowered",
+          "The placed slide publishes one fixed collision volume and its actual idle drive state.");
+    const auto saved = host.checkpoint();
+    check(get<bool>(host.validate_checkpoint(saved), "accepted") &&
+          get<bool>(command("place-slide", "place_component", place), "duplicate"),
+          "The placed slide validates and a retried request cannot spend it again.");
+    Host restored;
+    check(get<bool>(restored.initialize_arrival("slide-body-site", {"P"}), "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, restored.checkpoint()),
+          "The exact single-piece slide survives a fresh Host rejoin.");
+}
+
 void shared_fast_setting_and_restore() {
     Host host;
     check(get<bool>(host.initialize_arrival("fast-site", {"P", "Q"}), "accepted") &&
@@ -536,6 +586,7 @@ void cut_interrupts_on_actor_sample_before_next_tick() {
 int main() {
     try {
         shared_fast_setting_and_restore();
+        one_piece_slide_custody();
         cutter_reach_is_shorter_than_build_reach();
         shared_harvest();
         field_wood_uses_physical_actor_and_one_ledger();
