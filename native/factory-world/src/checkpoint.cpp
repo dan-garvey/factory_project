@@ -387,6 +387,14 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"automatic_transitions", Value(std::move(transitions))}});
             }
             state.emplace("press_progress", Value(std::move(progress)));
+            Array offcut_deliveries;
+            for (const auto& [id, delivery] : snapshot.state.press_offcut_deliveries)
+                offcut_deliveries.emplace_back(Object{{"work_id", Value(id)},
+                    {"revision", Value(delivery.revision)},
+                    {"work", Value(Array{Value(delivery.work[0]), Value(delivery.work[1]), Value(delivery.work[2])})},
+                    {"exit", Value(Array{Value(delivery.exit[0]), Value(delivery.exit[1]), Value(delivery.exit[2])})},
+                    {"receiver", Value(Array{Value(delivery.receiver[0]), Value(delivery.receiver[1]), Value(delivery.receiver[2])})}});
+            state.emplace("press_offcut_deliveries", Value(std::move(offcut_deliveries)));
             state.emplace("belt_press_work", Value(std::move(belt_work)));
             state.emplace("belt_press_products", Value(std::move(belt_products)));
             Array belt_work_ids;
@@ -415,7 +423,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported", "press_progress", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "freight_beacon", "hand_crank", "placed_components", "press_output_at_exit", "press_output_exported", "press_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial"});
@@ -516,6 +524,18 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                 }
                 if (!candidate.state.press_progress.emplace(id, std::move(witness)).second)
                     refuse(CheckpointReason::invalid_world, "$.state.press_progress");
+            }
+            for (const auto& value : array(state.at("press_offcut_deliveries"),
+                    "$.state.press_offcut_deliveries", 4096)) {
+                const auto& entry = fields(value, "$.state.press_offcut_deliveries",
+                    {"work_id", "revision", "work", "exit", "receiver"});
+                const auto id = integer(entry, "work_id", "$.state.press_offcut_deliveries");
+                if (!candidate.state.press_offcut_deliveries.emplace(id, PressOffcutDelivery{
+                        integer(entry, "revision", "$.state.press_offcut_deliveries"),
+                        read_point(entry.at("work"), "$.state.press_offcut_deliveries.work"),
+                        read_point(entry.at("exit"), "$.state.press_offcut_deliveries.exit"),
+                        read_point(entry.at("receiver"), "$.state.press_offcut_deliveries.receiver")}).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.press_offcut_deliveries");
             }
             for (const auto& value : array(state.at("belt_press_work"), "$.state.belt_press_work", 4096)) {
                 const auto& entry = fields(value, "$.state.belt_press_work", {"center", "work_id"});

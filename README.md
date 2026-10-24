@@ -13,6 +13,10 @@ stays at the landing site. The powered-route recipes make shaft tiles, belt span
 and a waterwheel from carried stock. Fit a collector receiver beside an outward
 belt inlet, then turn its fitted shaft with the pod crank to cut a blank. The
 wheel powers belt travel.
+For unattended pressing, fit one receiver tray immediately beside the anvil,
+perpendicular to its drive shaft. It holds four offcuts while plates leave on
+the drive axis; emptying a full tray lets the held work continue. Hand-cranked
+strokes still leave their offcut at the anvil for manual pickup.
 The HUD shows carried timber, softmetal and the next local step. This remains
 an unfinished chapter; shared arrival adoption and human play feedback remain open.
 The earlier complete collector, belt, press and four-plate scenarios remain

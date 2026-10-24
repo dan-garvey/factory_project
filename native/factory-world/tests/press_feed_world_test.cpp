@@ -242,17 +242,125 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
     Runner automated(source);
     automated.world = w::World::restore("press-feed", source.profile, fed);
     check(automated.world != nullptr, "The same fed frame-free press restores for powered continuation.");
+    const g::Point offcut_tray = direction[0] ?
+        g::Point{center[0], center[1], center[2] + 1} :
+        g::Point{center[0] + 1, center[1], center[2]};
+    if (center[1] == 0) {
+        for (int index = 0; index < 2; ++index) {
+            auto harvest = request("P", "guided-offcut-timber-" + std::to_string(index),
+                "harvest_source");
+            harvest.emplace("target", V("tree-branch"));
+            automated.accept("P", harvest);
+        }
+        auto craft = request("P", "guided-offcut-craft-tray", "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V("receiver_tray"));
+        automated.accept("P", craft);
+        auto place = request("P", "guided-offcut-place-tray", "place_component");
+        place.emplace("component", V("receiver_tray"));
+        place.emplace("center", V(point(offcut_tray[0], offcut_tray[1], offcut_tray[2])));
+        automated.accept("P", place);
+    }
     for (int index = 0; index < 4; ++index)
         check(automated.world->tick().error == w::TransactionError::none,
               "The connected floating press advances under real signed shaft motion.");
     const auto automatic = automated.world->snapshot();
     const g::Point exit{center[0] - direction[0], center[1], center[2] - direction[2]};
     check(automatic.state.material.dropped_material.at(exit).products == 1 &&
-          automatic.state.material.dropped_material.at(center).offcuts == 1 &&
+          automatic.state.material.dropped_material.at(center[1] == 0 ? offcut_tray : center).offcuts == 1 &&
           w::validate(source.profile, automatic),
-          "Powered frame-free forming conserves one plate and its work-face offcut.");
+          "Powered frame-free forming conserves one plate and its physical offcut destination.");
     codec_restore(source.profile, automatic,
                   "Powered frame-free production and its offcut survive checkpoint reload.");
+    if (center[1] == 0) {
+        auto displaced = automatic;
+        const auto offcuts = displaced.state.material.dropped_material.at(offcut_tray);
+        displaced.state.material.dropped_material.erase(offcut_tray);
+        displaced.state.material.dropped_material.emplace(center, offcuts);
+        check(!w::World::restore("press-feed", source.profile, displaced),
+              "A checkpoint cannot silently return a delivered offcut to the work face.");
+        auto wrong_route = automatic;
+        wrong_route.state.press_offcut_deliveries.begin()->second.receiver = center;
+        check(!w::World::restore("press-feed", source.profile, wrong_route),
+              "A checkpoint cannot retarget the press discharge receipt to another point.");
+        automated.p = {2, 1, 0};
+        const auto collect_plate = [&](int index) {
+            auto pickup = request("P", "guided-auto-plate-" + std::to_string(index),
+                                  "pickup_material");
+            pickup.emplace("center", V(point(exit[0], exit[1], exit[2])));
+            pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+                {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+            automated.accept("P", pickup);
+        };
+        collect_plate(0);
+        for (int index = 1; index < 4; ++index) {
+            automated.p = {0, 1, 1.65};
+            auto harvest = request("P", "guided-auto-ore-" + std::to_string(index),
+                                   "harvest_source");
+            harvest.emplace("target", V("ore"));
+            automated.accept("P", harvest);
+            automated.p = {2, 1, 0};
+            auto next = feed;
+            next.at("request") = V("guided-auto-feed-" + std::to_string(index));
+            automated.accept("P", next);
+            for (int tick = 0; tick < 4; ++tick)
+                check(automated.world->tick().error == w::TransactionError::none,
+                      "The powered press advances another finite raw piece.");
+            const auto cycled = automated.world->snapshot();
+            check(cycled.state.material.dropped_material.at(offcut_tray).offcuts == index + 1 &&
+                  cycled.state.material.dropped_material.at(exit).products == 1 &&
+                  w::validate(source.profile, cycled),
+                  "Each unattended stroke preserves its plate and one offcut in separate places.");
+            collect_plate(index);
+        }
+        const auto four = automated.world->snapshot();
+        check(four.state.material.cargo.at("P").products == 4 &&
+              four.state.material.dropped_material.at(offcut_tray).offcuts == 4,
+              "Four unattended strokes yield four carried plates and a finite tray of four offcuts.");
+        codec_restore(source.profile, four,
+                      "Four products and the full physical offcut tray survive a checkpoint.");
+        automated.p = {0, 1, 1.65};
+        auto harvest = request("P", "guided-auto-ore-full-tray", "harvest_source");
+        harvest.emplace("target", V("ore"));
+        automated.accept("P", harvest);
+        automated.p = {2, 1, 0};
+        auto fifth = feed;
+        fifth.at("request") = V("guided-auto-feed-full-tray");
+        automated.accept("P", fifth);
+        for (int tick = 0; tick < 4; ++tick)
+            check(automated.world->tick().error == w::TransactionError::none,
+                  "The blocked fifth work piece remains governed by native ticks.");
+        const auto blocked = automated.world->snapshot();
+        check(blocked.state.material.dropped_material.at(offcut_tray).offcuts == 4 &&
+              blocked.state.material.dropped_material.at(center).work_lots.size() == 1 &&
+              blocked.state.material.dropped_material.at(center).work_lots.front().remaining_ticks == 0 &&
+              !blocked.state.material.dropped_material.contains(exit) &&
+              w::validate(source.profile, blocked),
+              "A full receiver holds ready work without producing or losing a fifth plate.");
+        codec_restore(source.profile, blocked,
+                      "Full-tray backpressure and ready work survive checkpoint reload.");
+        Runner resumed(source);
+        resumed.world = w::World::restore("press-feed", source.profile, blocked);
+        check(resumed.world != nullptr, "A second actor rejoins the exact blocked World.");
+        auto clear_tray = request("Q", "guided-auto-clear-tray", "pickup_material");
+        clear_tray.emplace("center", V(point(offcut_tray[0], offcut_tray[1], offcut_tray[2])));
+        clear_tray.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{4})}, {"sheets", V(I{0})}}));
+        resumed.accept("Q", clear_tray);
+        check(resumed.world->tick().error == w::TransactionError::none,
+              "Freeing the physical receiver resumes the held fifth stroke.");
+        const auto continued = resumed.world->snapshot();
+        check(continued.state.material.cargo.at("P").products == 4 &&
+              continued.state.material.cargo.at("Q").offcuts == 4 &&
+              continued.state.material.dropped_material.at(exit).products == 1 &&
+              continued.state.material.dropped_material.at(offcut_tray).offcuts == 1 &&
+              !continued.state.material.dropped_material.contains(center) &&
+              w::validate(source.profile, continued),
+              "Shared continuation releases exactly one fifth plate and one new offcut.");
+        codec_restore(source.profile, continued,
+                      "The resumed plate, old offcuts and new offcut restore without duplication.");
+    }
     run.p = {1.65, 1, 6.6};
     auto take = request("P", "guided-take-crank", "take_hand_crank");
     take.emplace("target", V("pod-hand-crank"));

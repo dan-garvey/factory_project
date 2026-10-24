@@ -412,21 +412,20 @@ class ArrivalAssemblyControls:
 		var component_actions := VBoxContainer.new()
 		craft_section.add_child(component_actions)
 		var craft_row := HBoxContainer.new()
+		craft_row.alignment = BoxContainer.ALIGNMENT_CENTER
 		component_actions.add_child(craft_row)
-		craft_button = host._button(craft_row, "Craft at bench  C", _craft)
-		craft_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		craft_button = host._button(craft_row, "", _craft)
+		_style_workshop_icon(craft_button, "workshop-craft")
 		foundation_craft_button = host._button(craft_row, "", _craft_foundation)
-		foundation_craft_button.icon = load("res://opening/assets/build-icons/foundation.svg")
-		foundation_craft_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		foundation_craft_button.custom_minimum_size = Vector2(44, 37)
-		foundation_craft_button.focus_mode = Control.FOCUS_ALL
+		_style_workshop_icon(foundation_craft_button, "foundation")
 		foundation_craft_label = host._label(craft_row, "", 11, Color("bfd1cc"))
 		foundation_craft_label.custom_minimum_size.x = 76
 		foundation_craft_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		foundation_craft_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		place_button = host._button(component_actions, "Place", _place)
-		field_craft_button = host._button(craft_section, "Shape wood · multitool  V", _field_craft)
-		field_craft_button.tooltip_text = "Shape the selected wooden component from carried timber."
+		field_craft_button = host._button(craft_row, "", _field_craft)
+		_style_workshop_icon(field_craft_button, "workshop-shape")
+		place_button = host._button(craft_row, "", _place)
+		_style_workshop_icon(place_button, "workshop-place")
 		reclaim_button = host._button(craft_section, "Reclaim selected part", _reclaim)
 		host._label(craft_section, "POWERED MATERIAL ROUTE", 13, Color("f4bf75"))
 		part_choice = OptionButton.new()
@@ -440,17 +439,25 @@ class ArrivalAssemblyControls:
 		part_cost_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		part_cost_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var part_actions := HBoxContainer.new()
+		part_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		craft_section.add_child(part_actions)
-		part_craft_button = host._button(part_actions, "Make kit  M", _craft_part)
-		part_place_button = host._button(part_actions, "Place kit  K", _place_part)
+		part_craft_button = host._button(part_actions, "", _craft_part)
+		_style_workshop_icon(part_craft_button, "workshop-craft")
+		part_place_button = host._button(part_actions, "", _place_part)
+		_style_workshop_icon(part_place_button, "workshop-place")
 		route_status_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		route_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		collector_status = host._label(craft_section, "", 12, Color("bfd1cc"))
 		collector_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var collector_actions := HBoxContainer.new()
+		collector_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		craft_section.add_child(collector_actions)
-		collector_crank_button = host._button(collector_actions, "Take pod crank", _crank)
-		collector_cut_button = host._button(collector_actions, "Cut ore deposit  X", _cut_collector)
+		collector_crank_button = host._button(collector_actions, "", _crank)
+		_style_workshop_icon(collector_crank_button, "workshop-crank")
+		collector_crank_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		collector_cut_button = host._button(collector_actions, "", _cut_collector)
+		_style_workshop_icon(collector_cut_button, "workshop-cut")
+		collector_cut_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		press_section = VBoxContainer.new()
 		column.add_child(press_section)
 		press_status = host._label(press_section, "Select an anvil with E", 13, Color("bfd1cc"))
@@ -486,6 +493,12 @@ class ArrivalAssemblyControls:
 		crank_button = host._button(press_section, "Take pod crank", _crank)
 		_update_page()
 		visible = false
+
+	func _style_workshop_icon(button: Button, icon_name: String) -> void:
+		button.icon = load("res://opening/assets/build-icons/%s.svg" % icon_name)
+		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		button.custom_minimum_size = Vector2(44, 37)
+		button.focus_mode = Control.FOCUS_ALL
 
 	func selected_name() -> String:
 		return selected_component
@@ -612,6 +625,10 @@ class ArrivalAssemblyControls:
 		# Let the hub report missing input, full output and distance using its
 		# confirmed result. The bill above stays visible before the attempt.
 		craft_button.disabled = not ready or selected_bench.is_empty() or cost.is_empty()
+		var chosen_name: String = COMPONENTS[component_choice.selected][1]
+		craft_button.tooltip_text = "Craft %s at the selected workshop · need %s · carry %s · C" % [
+			chosen_name, material_cost, material_carried]
+		craft_button.accessibility_name = "Craft %s at the selected workshop, shortcut C" % chosen_name
 		var foundation_recipe: Dictionary = snapshot.get("foundation_recipe", {})
 		var foundation_cost: int = int(foundation_recipe.get("timber", 0))
 		var carried_timber: int = int(cargo.get("timber", 0))
@@ -626,8 +643,13 @@ class ArrivalAssemblyControls:
 		foundation_craft_button.accessibility_name = "Craft one foundation for %d timber at the selected workshop" % foundation_cost
 		field_craft_button.visible = not cost.is_empty() and int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
 		field_craft_button.disabled = not ready or not field_craft_button.visible
+		field_craft_button.tooltip_text = "Shape %s with the multitool · need %s · carry %s · V" % [
+			chosen_name, material_cost, material_carried]
+		field_craft_button.accessibility_name = "Shape %s with the multitool, shortcut V" % chosen_name
 		place_button.disabled = not ready or int(components.get(selected_component, 0)) < 1
-		place_button.text = "Place %s  P" % COMPONENTS[component_choice.selected][1]
+		place_button.tooltip_text = "Place %s · %d carried · P" % [
+			chosen_name, int(components.get(selected_component, 0))]
+		place_button.accessibility_name = "Place %s, shortcut P" % chosen_name
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
 		reclaim_button.disabled = not ready or not reclaim_button.visible
 		var part_recipes: Array = snapshot.get("part_recipes", [])
@@ -649,13 +671,24 @@ class ArrivalAssemblyControls:
 			part_cost_label.text = "No powered-route recipes at this workshop."
 			part_craft_button.disabled = true
 			part_place_button.disabled = true
+			part_craft_button.tooltip_text = "No powered-route recipe available."
+			part_place_button.tooltip_text = "No powered-route kit available."
+			part_craft_button.accessibility_name = "Make selected powered-route kit, shortcut M"
+			part_place_button.accessibility_name = "Place selected powered-route kit, shortcut K"
 		else:
 			part_choice.select(selected_part)
 			var recipe: Dictionary = part_recipes[selected_part]
+			var part_name: String = {"shaft": "shaft tile", "belt": "belt span", "wheel": "waterwheel"}.get(recipe.get("kind", ""), "part")
 			part_cost_label.text = "Needs %d timber + %d softmetal\nMake beside the selected workshop" % [recipe.get("timber", 0), recipe.get("softmetal", 0)]
 			part_craft_button.disabled = not ready or selected_bench.is_empty()
 			part_place_button.disabled = not ready or selected_count < 1
-			part_place_button.text = ("Connect shafts" if recipe.get("kind") == "belt" else "Place kit") + "  K"
+			part_craft_button.tooltip_text = "Make %s · need %d timber + %d softmetal · carry %d timber + %d softmetal · M" % [
+				part_name, int(recipe.get("timber", 0)), int(recipe.get("softmetal", 0)),
+				int(cargo.get("timber", 0)), int(cargo.get("raw", 0))]
+			part_craft_button.accessibility_name = "Make %s at the selected workshop, shortcut M" % part_name
+			var place_action: String = ("Connect shafts with %s" if recipe.get("kind") == "belt" else "Place %s") % part_name
+			part_place_button.tooltip_text = "%s · %d carried · K" % [place_action, selected_count]
+			part_place_button.accessibility_name = "%s, shortcut K" % place_action
 		route_status_label.text = _receiver_route_status(snapshot)
 		var crank: Dictionary = snapshot.get("hand_crank", {})
 		var collector: Dictionary = _selected_collector(snapshot, selected)
@@ -671,10 +704,23 @@ class ArrivalAssemblyControls:
 			collector_status.text = "Collector receiver holds an ore blank. Pick it up before another cut." if receiver_full else \
 				"Collector ready. Turn its fitted shaft to cut one ore blank." if collector_state == "ready" else \
 				"Collector: %s" % COLLECTOR_NEXT.get(collector_state, "Choose a clear ore-deposit frame.")
-			collector_crank_button.text = ("Return crank to pod" if crank.get("holder") == actor else "Take pod crank") + "  T"
+			var crank_action := "Return crank to pod" if crank.get("holder") == actor else "Take pod crank"
+			collector_crank_button.tooltip_text = "%s · T" % crank_action
+			collector_crank_button.accessibility_name = "%s, shortcut T" % crank_action
 			collector_crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
 			collector_cut_button.disabled = not ready or collector_state != "ready" or receiver_full \
 				or crank.get("holder") != actor or not collector_parts.has("shaft")
+			var cut_hint := "Cut one ore blank"
+			if not ready:
+				cut_hint = "Wait for the character"
+			elif receiver_full:
+				cut_hint = "Clear the receiver"
+			elif crank.get("holder") != actor:
+				cut_hint = "Carry the pod crank"
+			elif collector_state != "ready":
+				cut_hint = COLLECTOR_NEXT.get(collector_state, "Complete the collector")
+			collector_cut_button.tooltip_text = "%s · X" % cut_hint
+			collector_cut_button.accessibility_name = "Cut one ore blank at the selected collector, shortcut X"
 		crank_button.visible = not crank.is_empty()
 		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
 		crank_button.text = ("Return crank to pod" if crank.get("holder") == actor else "Take pod crank") + "  C"

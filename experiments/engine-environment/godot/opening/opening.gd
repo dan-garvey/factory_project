@@ -5979,6 +5979,9 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			_message("Select the Belt tool and choose two parallel shafts.", true)
 			return
 		if mode == "inspect":
+			if state.get("belt_spans", {}).has(entity_id):
+				selected = entity_id
+				_refresh_ui()
 			return
 	if mode != "foundation" and state.entities.has(entity_id):
 		var actual: Array = state.entities[entity_id].cell

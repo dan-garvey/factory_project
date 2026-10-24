@@ -1988,10 +1988,26 @@ func _workshop_pages() -> void:
 			and panel.collector_cut_button.is_visible_in_tree()
 			and not view.object_workshop_craft_column.visible,
 			"Ordinary E on a collector shows its cutting controls without unrelated crafting.")
+		verify(panel.collector_crank_button.text.is_empty() and panel.collector_cut_button.text.is_empty()
+			and panel.collector_crank_button.icon != null and panel.collector_cut_button.icon != null
+			and "Return crank" in panel.collector_crank_button.tooltip_text
+			and "Cut one ore blank" in panel.collector_cut_button.tooltip_text
+			and "shortcut T" in panel.collector_crank_button.accessibility_name
+			and "shortcut X" in panel.collector_cut_button.accessibility_name,
+			"Collector crank custody and cutting appear as described, focused icons.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-collector.png") == OK,
+				"Retain the ordinary collector menu with its two icon controls.")
 		action_key.keycode = KEY_X
 		view._input(action_key)
 		verify(view.issued == [{"action": "turn_hand_crank", "entity": "collector-shaft"}],
 			"X in the collector panel uses its visible cut button and existing request payload.")
+		view.issued.clear()
+		action_key.keycode = KEY_T
+		view._input(action_key)
+		verify(view.issued == [{"action": "return_hand_crank", "entity": "pod-hand-crank"}],
+			"T in the collector panel retains the exact crank-custody command.")
 		view.issued.clear()
 		verify(view.state == before and view.issued.is_empty() and view.model == null,
 			"Workshop disclosure changes only local presentation, with no request or native state mutation.")
@@ -2025,6 +2041,17 @@ func _field_craft_widget() -> void:
 	var panel = view.arrival_assembly_controls
 	panel.refresh(view.state, view.client, view.selected, true)
 	panel.craft_tab.pressed.emit()
+	verify(panel.craft_button.text.is_empty() and panel.field_craft_button.text.is_empty()
+		and panel.place_button.text.is_empty()
+		and panel.craft_button.icon != null and panel.field_craft_button.icon != null
+		and panel.place_button.icon != null and panel.foundation_craft_button.icon != null
+		and "C" in panel.craft_button.tooltip_text
+		and "V" in panel.field_craft_button.tooltip_text
+		and "P" in panel.place_button.tooltip_text
+		and not panel.craft_button.accessibility_name.is_empty()
+		and not panel.field_craft_button.accessibility_name.is_empty()
+		and not panel.place_button.accessibility_name.is_empty(),
+		"The grouped workshop uses focused, described icons for bench craft, floor, field shape and placement.")
 	verify(panel.foundation_craft_button.visible and not panel.foundation_craft_button.disabled
 		and panel.foundation_craft_button.icon != null
 		and panel.foundation_craft_label.visible
@@ -2076,6 +2103,22 @@ func _field_craft_widget() -> void:
 		and "Drive limits: wood 8 · softmetal 24" in panel.recipe_label.text
 		and "Need 0 timber + 2 softmetal" in panel.recipe_label.text,
 		"The softmetal replacement shows the stronger rating and workshop bill.")
+	view.state.part_recipes = [{"kind": "belt", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0}]
+	view.state.part_specifications = {"P": [{"kind": "belt", "teeth": 0, "half_span": 0, "count": 1}]}
+	panel.refresh(view.state, view.client, view.selected, true)
+	verify(panel.part_craft_button.text.is_empty() and panel.part_place_button.text.is_empty()
+		and panel.part_craft_button.icon != null and panel.part_place_button.icon != null
+		and not panel.part_craft_button.disabled and not panel.part_place_button.disabled
+		and "2 timber + 1 softmetal" in panel.part_craft_button.tooltip_text
+		and "Connect shafts" in panel.part_place_button.tooltip_text
+		and "1 carried" in panel.part_place_button.tooltip_text
+		and "shortcut M" in panel.part_craft_button.accessibility_name
+		and "shortcut K" in panel.part_place_button.accessibility_name,
+		"Powered-route crafting and belt connection use two described icons with projected cost and custody.")
+	view.issued.clear()
+	panel.part_craft_button.pressed.emit()
+	verify(view.issued == [{"action": "craft_part", "entity": "pod-fabrication-hub", "role": "belt", "half_span": 0}],
+		"The powered-route craft icon keeps the native selected-workshop payload.")
 	# Stress the longest craft choice and action with a deliberately large count.
 	# The ordinary scene now fits these controls inside a centered workshop.
 	root.size = Vector2i(1280, 800)
@@ -2084,7 +2127,6 @@ func _field_craft_widget() -> void:
 	panel.component_choice.set_item_text(9, "Softmetal shaft  ×999")
 	panel.place_button.text = "Place softmetal shaft"
 	panel.part_choice.add_item("Waterwheel  ×999")
-	panel.part_place_button.text = "Connect shafts"
 	await process_frame
 	await process_frame
 	verify(not scroll.get_h_scroll_bar().visible,

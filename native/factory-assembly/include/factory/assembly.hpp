@@ -128,6 +128,9 @@ struct GuidedPress {
     materials::Component shaft_material{};
     materials::Component cog_material{};
     std::vector<PressFeed> open_feeds;
+    // One adjacent side tray can catch the sheared offcut. Two trays do not
+    // select an arbitrary destination; World retains work at the face.
+    std::optional<mechanics::Point> offcut_receiver{};
     bool operator==(const GuidedPress&) const = default;
 };
 

@@ -17,6 +17,8 @@ inline constexpr std::size_t maximum_drop_points = 4096;
 inline constexpr std::size_t maximum_belt_lanes = 4096;
 inline constexpr std::size_t maximum_live_work_lots = 4096;
 inline constexpr Quantity maximum_drop_coordinate = 1000004;
+// A fitted tray holds four one-unit copper offcuts before its work face stalls.
+inline constexpr Quantity press_offcut_receiver_capacity = 4;
 inline constexpr Quantity work_subticks_per_tick = 4096;
 inline constexpr Quantity maximum_work_subticks_per_tick = 16 * work_subticks_per_tick;
 
@@ -316,6 +318,9 @@ enum class Error {
 struct PressStep {
     DropPoint work{};
     DropPoint exit{};
+    // World supplies this only for one unambiguous, physically placed tray.
+    // Without a tray the offcut stays at the work point for manual recovery.
+    std::optional<DropPoint> offcut_receiver{};
     Quantity work_subticks{work_subticks_per_tick};
     Quantity work_remainder{};
     Quantity work_remainder_denominator{1};

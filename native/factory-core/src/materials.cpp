@@ -681,20 +681,29 @@ Error step_presses(State& state, const Config& config, const Path& path,
     if (input_error != Error::none) return input_error;
     if (config.input_units_per_product != 1) return Error::unavailable_recipe;
     if (steps.size() > maximum_drop_points) return Error::invalid_path;
-    std::set<DropPoint> work_points, exit_points;
+    std::set<DropPoint> work_points, exit_points, offcut_receivers;
     for (const auto& step : steps) {
         if (step.work == step.exit || step.work_subticks < 0 ||
             step.work_remainder_denominator <= 0 || step.work_remainder < 0 ||
             step.work_remainder >= step.work_remainder_denominator ||
             (step.work_subticks == 0 && step.work_remainder == 0) ||
-            !work_points.insert(step.work).second || !exit_points.insert(step.exit).second)
+            !work_points.insert(step.work).second || !exit_points.insert(step.exit).second ||
+            (step.offcut_receiver &&
+             !offcut_receivers.insert(*step.offcut_receiver).second))
             return Error::invalid_path;
         for (const auto coordinate : step.exit)
             if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
                 return Error::invalid_path;
+        if (step.offcut_receiver)
+            for (const auto coordinate : *step.offcut_receiver)
+                if (coordinate < -maximum_drop_coordinate || coordinate > maximum_drop_coordinate)
+                    return Error::invalid_path;
     }
     for (const auto& step : steps)
         if (work_points.contains(step.exit)) return Error::invalid_path;
+    for (const auto& receiver : offcut_receivers)
+        if (work_points.contains(receiver) || exit_points.contains(receiver))
+            return Error::invalid_path;
     if (steps.empty()) return Error::none;
     auto next = state;
     for (const auto& step : steps) {
@@ -722,12 +731,27 @@ Error step_presses(State& state, const Config& config, const Path& path,
         }
         if (active.work_lots.front().remaining_ticks == 0 &&
             !next.dropped_material.contains(step.exit)) {
-            next.dropped_material.erase(step.work);
             const auto remnant = config.plate_mass == 0 ? 0 : config.raw_mass - config.plate_mass;
+            if (remnant > 0 && step.offcut_receiver) {
+                if (remnant > press_offcut_receiver_capacity) continue;
+                const auto receiver = next.dropped_material.find(*step.offcut_receiver);
+                if (receiver == next.dropped_material.end()) {
+                    // Replacing one work point with a plate and a separate tray
+                    // point needs one additional bounded loose location.
+                    if (next.dropped_material.size() >= maximum_drop_points) continue;
+                } else {
+                    const auto& contents = receiver->second;
+                    if (contents.raw_units != 0 || contents.products != 0 ||
+                        !contents.work_lots.empty() || !contents.sheets.empty() ||
+                        contents.timber != 0 || !contents.components.empty() ||
+                        contents.offcuts > press_offcut_receiver_capacity - remnant)
+                        continue;
+                }
+            }
+            next.dropped_material.erase(step.work);
             if (remnant > 0) {
-                Cargo offcut;
-                offcut.offcuts = remnant;
-                next.dropped_material.emplace(step.work, std::move(offcut));
+                const auto receiver = step.offcut_receiver.value_or(step.work);
+                next.dropped_material[receiver].offcuts += remnant;
             }
             next.dropped_material.emplace(step.exit, Cargo{0, 1, {}});
         }

@@ -227,6 +227,17 @@ void guided_press_without_structure() {
           first.press->guide == "guide" && first.press->shaft == "shaft" &&
           first.press->drive_cog == "cog" && first.press->open_feeds.size() == 4,
           "Five independently placed working parts form a press without a frame or mount.");
+    placed.push_back(part("offcut-tray", m::Component::receiver_tray, {0, 0, 1}));
+    const auto with_tray = a::inspect_guided_press(placed, ground);
+    check(with_tray.status == a::PressStatus::ready && with_tray.press &&
+          with_tray.press->offcut_receiver == g::Point{0, 0, 1} &&
+          with_tray.press->open_feeds.size() == 2,
+          "One side tray catches the shear outlet while the opposite feed remains open.");
+    placed.push_back(part("second-offcut-tray", m::Component::receiver_tray, {0, 0, -1}));
+    const auto ambiguous_trays = a::inspect_guided_press(placed, ground);
+    check(ambiguous_trays.status == a::PressStatus::ready && ambiguous_trays.press &&
+          !ambiguous_trays.press->offcut_receiver,
+          "Two side trays cannot silently select one offcut destination.");
     const g::Point raised{8, 4, 12};
     placed = parts_at(raised, {0, 0, -1});
     placed[3].kind = m::Component::softmetal_shaft;
