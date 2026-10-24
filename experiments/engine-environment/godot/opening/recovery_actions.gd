@@ -407,7 +407,9 @@ class ArrivalAssemblyControls:
 		bench_choice.name = "FabricationBenchChoice"
 		bench_choice.item_selected.connect(_bench_selected)
 		craft_section.add_child(bench_choice)
-		pod_workshop_button = host._button(craft_section, "Stow pod workshop", _pod_workshop)
+		pod_workshop_button = host._button(craft_section, "", _pod_workshop)
+		_style_workshop_icon(pod_workshop_button, "workshop-pod")
+		pod_workshop_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		recipe_label = host._label(craft_section, "", 12, Color("bfd1cc"))
 		recipe_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var component_actions := VBoxContainer.new()
@@ -593,9 +595,10 @@ class ArrivalAssemblyControls:
 		bench_choice.disabled = not ready or benches.is_empty()
 		pod_workshop_button.visible = not pod.is_empty()
 		pod_workshop_button.disabled = not ready or (not pod.get("installed", false) and pod.get("holder") != actor)
-		pod_workshop_button.text = "Stow pod workshop" if pod.get("installed", false) else \
+		var pod_action := "Stow pod workshop" if pod.get("installed", false) else \
 			"Place carried pod workshop" if pod.get("holder") == actor else "Pod workshop carried by another worker"
-		pod_workshop_button.text += "  S"
+		pod_workshop_button.tooltip_text = "%s · S" % pod_action
+		pod_workshop_button.accessibility_name = "%s, shortcut S" % pod_action
 		var total_parts := 0
 		for amount in components.values():
 			total_parts += int(amount)
