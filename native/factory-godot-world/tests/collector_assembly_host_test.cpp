@@ -68,14 +68,14 @@ void collector_readiness_tracks_real_parts() {
           "The experimental arrival binds one native resource and construction authority.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_frame",
           "An empty ore workcell has no collector.");
-    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
           "The actor reaches the nearby timber site outside the pod deck.");
     for (int index = 0; index < 7; ++index) {
         auto wire = request("timber-" + std::to_string(index), "harvest_source");
         wire.emplace("target", V("tree-east-south"));
         check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", wire), "accepted"), "Real timber is harvested for the first collector.");
     }
-    check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 2), "accepted"),
           "The actor moves to the ore deposit.");
     auto ore = request("one-ore", "harvest_source");
     ore.emplace("target", V("opening-softmetal"));
@@ -266,17 +266,19 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(restored.command("P", second_turn), "accepted") &&
           get<I>(get<O>(restored.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4093,
           "The mirrored layout extracts from the same finite source.");
-    check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 8), "accepted"),
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 8), "accepted"),
           "The actor returns to the last piece of nearby timber.");
     auto last_timber = request("last-timber", "harvest_source");
     last_timber.emplace("target", V("tree-east-south"));
     check(get<bool>(factory::godot_world::tests::complete_manual_cut(restored, "P", last_timber), "accepted"),
           "One finite timber piece remains for an alternate drive experiment.");
+    check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 9), "accepted"),
+          "The actor returns to the pod bench with the last timber.");
     auto extra_craft = request("extra-shaft", "craft_component");
     extra_craft.emplace("entity", V("pod-fabrication-hub"));
     extra_craft.emplace("component", V("wooden_shaft"));
     check(get<bool>(restored.command("P", extra_craft), "accepted") &&
-          get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 9), "accepted"),
+          get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 10), "accepted"),
           "The actor shapes and carries one additional shaft back to the assembly.");
     const auto extra_shaft = place(restored, "wooden_shaft", 1, 0, 0, "alternate-shaft");
     check(get<std::string>(ground_inspection(restored), "status") == "ambiguous",

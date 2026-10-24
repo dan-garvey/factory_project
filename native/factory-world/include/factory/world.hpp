@@ -46,6 +46,9 @@ struct Profile {
     double meters_per_grid_unit{1.0};
     authority::Point anchor_offset{};
     double build_reach{4.0};
+    // Zero uses build_reach in generic fixtures. Arrival sets the shorter
+    // physical cutter reach, independently of construction reach.
+    double manual_cut_reach{};
     // Separate construction custody; foundations are not mechanical hubs.
     authority::Integer foundation_parts{};
     // Immutable actor allocation before any construction history. A pod deck

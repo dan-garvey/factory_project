@@ -75,14 +75,14 @@ void broad_projection() {
           get<A>(host.projection(), "broad_press_assemblies").empty(),
         "The finite arrival starts without a gifted broad press.");
     I epoch = 0;
-    pose(host, 0.0, 1.65, ++epoch);
+    pose(host, -0.5, 0.0, ++epoch);
     harvest(host, "opening-softmetal", 16, "broad-ore-");
     pose(host, 1.65, 6.6, ++epoch);
     craft(host, "anvil", 4);
     craft(host, "ram_face", 4);
-    pose(host, 3.3, 4.95, ++epoch);
+    pose(host, 5.8, 3.3, ++epoch);
     harvest(host, "tree-east-south", 8, "broad-wood-south-");
-    pose(host, 3.3, 11.55, ++epoch);
+    pose(host, 5.8, 11.55, ++epoch);
     harvest(host, "tree-east-north", 8, "broad-wood-north-");
     pose(host, 1.65, 6.6, ++epoch);
     craft(host, "sliding_guide", 4);
