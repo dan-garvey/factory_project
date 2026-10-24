@@ -2273,6 +2273,13 @@ func _arrival_run() -> void:
 						str({"turn": turn, "rest": ready_die_y, "current": die_y,
 							"work": opening.model.projection().dropped_material})):
 					return
+				if turn == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+					for frame in range(3):
+						await process_frame
+						await RenderingServer.frame_post_draw
+					if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-raised-held.png") == OK,
+							"The retained billet is captured at the actor-built raised press"):
+						return
 	var after: Dictionary = opening.model.projection()
 	if not _expect(after.dropped_material.size() == 2
 			and after.dropped_material.any(func(drop: Variant) -> bool:
