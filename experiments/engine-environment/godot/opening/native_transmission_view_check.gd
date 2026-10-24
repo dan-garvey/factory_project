@@ -1097,6 +1097,12 @@ func _guided_press_component_view() -> void:
 			forming_ram = node
 	var forming_die: MeshInstance3D = forming_ram.get_node("MovingDie")
 	var forming_slide: MeshInstance3D = forming_ram.get_node("RamSlideNear")
+	var held_billet: Node3D
+	for node: Node in view.get_children():
+		if node.name == "WorkpieceBillet":
+			held_billet = node
+	verify(held_billet != null and held_billet.get_node_or_null("Label3D") == null,
+		"The retained guided billet stays visible without a hovering work count.")
 	var half: float = state.placed_components.ram.occupied.half[1]
 	verify(absf(rest_y - forming_die.position.y - Presenter.GUIDED_RAM_REST_LIFT * 2.0 / 3.0) < 0.001
 		and forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * 0.5 >= -half

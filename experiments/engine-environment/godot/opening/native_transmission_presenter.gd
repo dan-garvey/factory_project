@@ -1802,6 +1802,10 @@ func refresh() -> void:
 	_native_view_revision = native_revision if native_model else null
 	_render_placed_components(snapshot, component_result.boxes)
 	_render_receiver_chutes(snapshot)
+	var guided_work_centers: Array = []
+	for press: Variant in snapshot.get("guided_press_assemblies", []):
+		if press is Dictionary and press.get("status") == "ready" and press.get("work_center") is Array:
+			guided_work_centers.append(press.work_center)
 	var drops: Variant = snapshot.get("dropped_material", [])
 	if drops is Array:
 		for drop: Variant in drops:
@@ -1821,6 +1825,10 @@ func refresh() -> void:
 				visual.position = location
 			else:
 				visual = Items.workpiece_billet(self, location)
+			if drop.raw == 0 and drop.products == 0 and int(drop.get("offcuts", 0)) == 0 \
+					and int(drop.get("sheets", 0)) == 0 and drop.work_lots.size() == 1 \
+					and guided_work_centers.has(drop.center):
+				continue
 			var label := Label3D.new()
 			if drop.raw > 0:
 				label.text = "%d blank" % drop.raw
