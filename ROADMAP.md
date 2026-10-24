@@ -45,6 +45,14 @@ collector/press arrangements and staged AI guidance. Integrated tests and
 rendered inspection precede any human-play claim. Owners should coordinate
 shared World/Host/opening files through the relevant Bead, and can develop
 separate components against an agreed interface without a new approval gate.
+The user-approved component plan is a powered slide with an integral
+same-material input shaft, interchangeable working heads and a passive workbed.
+Chapter 1 must prove reuse for pressing and cutting, stable component geometry
+and component-based inspection. The work belongs under `factory-yau.1.10`,
+including `.24`, `.8.15` and `factory-yau.6.41.54`; the latter retains its older
+identifier but has Chapter 1 as its owning parent. See the
+[plan of record](docs/design/chapter-one-arrival.md#plan-of-record-powered-slides-and-working-heads).
+
 The following diagram preserves the older platform and complete-machine
 evidence path; it is not the target chapter script.
 
