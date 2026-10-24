@@ -123,6 +123,14 @@ struct PressProgressWitness {
     bool operator==(const PressProgressWitness&) const = default;
 };
 
+struct PressOffcutDelivery {
+    authority::Integer revision{};
+    mechanics::Point work{};
+    mechanics::Point exit{};
+    mechanics::Point receiver{};
+    bool operator==(const PressOffcutDelivery&) const = default;
+};
+
 [[nodiscard]] mechanics::Point landing_hub_center(const mechanics::Point& pod_center);
 [[nodiscard]] mechanics::Point landing_freight_center(const mechanics::Point& pod_center);
 // Reversible first-shift order sizes; shipped_products is cumulative physical custody.
@@ -163,6 +171,9 @@ struct State {
     std::map<mechanics::Point, materials::WorkId> press_output_at_exit;
     std::map<mechanics::Point, std::set<materials::WorkId>> press_output_exported;
     std::map<materials::WorkId, PressProgressWitness> press_progress;
+    // One native tick receipt per automatically sheared offcut delivered to a
+    // placed tray. Material quantity remains solely in material.dropped_material.
+    std::map<materials::WorkId, PressOffcutDelivery> press_offcut_deliveries;
     // Belt-fed work remains in the same material State. These identity claims
     // distinguish its eventual product from actor-fed press history on restore.
     // Zero denotes a raw blank that has not yet received a WorkId.

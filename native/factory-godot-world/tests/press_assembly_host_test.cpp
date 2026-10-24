@@ -210,6 +210,45 @@ void guided_press_host_path() {
           !pieces.contains("frame") && !pieces.contains("mount") &&
           get<A>(ready, "open_feeds").size() == 4,
           "The Host names exactly five issued working parts and four open feed directions.");
+    Host with_tray;
+    check(get<bool>(with_tray.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(with_tray.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(with_tray.restore_checkpoint(host.checkpoint()), "accepted"),
+          "A separate Host restores the same ready guided press before fitting its receiver.");
+    check(get<bool>(with_tray.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 5), "accepted"),
+          "The worker reaches the remaining finite timber for a receiver tray.");
+    for (int index = 0; index < 2; ++index) {
+        auto cut = request("guided-tray-wood-" + std::to_string(index), "harvest_source");
+        cut.emplace("target", V("tree-east-south"));
+        accepted(with_tray, cut);
+    }
+    check(get<bool>(with_tray.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 6), "accepted"),
+          "The worker returns to the real workshop with the tray bill.");
+    auto craft_tray = request("guided-craft-offcut-tray", "craft_component");
+    craft_tray.emplace("entity", V("pod-fabrication-hub"));
+    craft_tray.emplace("component", V("receiver_tray"));
+    accepted(with_tray, craft_tray);
+    check(get<bool>(with_tray.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
+          "The worker reaches the side discharge position.");
+    place(with_tray, "receiver_tray", 8, 0, 1, "guided-place-offcut-tray");
+    const auto routed = get<A>(with_tray.projection(), "guided_press_assemblies").front();
+    check(get<std::string>(routed, "status") == "ready" &&
+          !factory::values::typed_difference(V(get<A>(routed, "offcut_receiver")),
+              V(A{V(I{8}), V(I{0}), V(I{1})})) &&
+          get<I>(routed, "offcut_count") == 0 &&
+          get<I>(routed, "offcut_capacity") == 4 &&
+          get<A>(routed, "open_feeds").size() == 2,
+          "Host projects the installed side receiver, finite capacity and remaining feed openings.");
+    Host tray_reopened;
+    const auto tray_saved = with_tray.checkpoint();
+    check(get<bool>(tray_reopened.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(tray_reopened.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(tray_reopened.restore_checkpoint(tray_saved), "accepted") &&
+          !factory::values::typed_difference(tray_saved, tray_reopened.checkpoint()) &&
+          !factory::values::typed_difference(
+              V(get<A>(with_tray.projection(), "guided_press_assemblies")),
+              V(get<A>(tray_reopened.projection(), "guided_press_assemblies"))),
+          "The finite receiver remains projected after a fresh Host restores its placed parts.");
     accepted(host, feed("guided-feed", anvil, 9, 0, 0));
     check(!get<bool>(host.command("P", turn("guided-wrong-drive", anvil, cog, 7, 0, 0)),
               "accepted"), "A nearby cog cannot impersonate the guided press drive shaft.");

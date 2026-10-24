@@ -2708,6 +2708,15 @@ Value Host::projection() const {
                     Value(press.cog_center[1]), Value(press.cog_center[2])}));
                 entry.emplace("shaft_material", Value(materials::component_name(press.shaft_material)));
                 entry.emplace("cog_material", Value(materials::component_name(press.cog_material)));
+                if (press.offcut_receiver) {
+                    const auto& receiver = *press.offcut_receiver;
+                    entry.emplace("offcut_receiver", Value(Array{Value(receiver[0]),
+                        Value(receiver[1]), Value(receiver[2])}));
+                    const auto dropped = state.material.dropped_material.find(receiver);
+                    entry.emplace("offcut_count", Value(dropped == state.material.dropped_material.end() ?
+                        Integer{0} : dropped->second.offcuts));
+                    entry.emplace("offcut_capacity", Value(materials::press_offcut_receiver_capacity));
+                }
                 Array feeds;
                 for (const auto& feed : press.open_feeds)
                     feeds.emplace_back(Object{{"entry", Value(Array{Value(feed.entry[0]),

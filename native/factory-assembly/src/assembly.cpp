@@ -213,6 +213,19 @@ GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
             press.open_feeds.push_back({entry, exit});
     }
     if (press.open_feeds.empty()) return {PressStatus::blocked_feed, std::nullopt};
+    // A side tray is a short physical shear outlet. The drive and plate-exit
+    // axis stays clear; only a unique fitted tray can receive offcuts.
+    const bool drive_on_x = press.shaft_center[0] != center[0];
+    int receivers = 0;
+    for (const Integer side : {-1, 1}) {
+        const Point location{center[0] + (drive_on_x ? 0 : side), center[1],
+                             center[2] + (drive_on_x ? side : 0)};
+        if (at(by_center, location, materials::Component::receiver_tray)) {
+            ++receivers;
+            press.offcut_receiver = location;
+        }
+    }
+    if (receivers != 1) press.offcut_receiver.reset();
     return {PressStatus::ready, std::move(press)};
 }
 
