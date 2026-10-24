@@ -64,11 +64,35 @@ V complete_cut(Host& host, const std::string& actor, const O& wire) {
     return started;
 }
 
+void cutter_reach_is_shorter_than_build_reach() {
+    Host host;
+    check(get<bool>(host.initialize_arrival("harvest-site", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(5.4), V(1.0), V(3.3)}, 1), "accepted"),
+          "The actor is inside construction reach but beyond the held blade's bark contact.");
+    const auto distant = host.command("P", cut("P", "too-far-for-tool", "tree-east-south"));
+    check(!get<bool>(distant, "accepted") && get<std::string>(distant, "reason") == "out_of_reach" &&
+          get<O>(host.projection(), "manual_cuts").empty() &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 8,
+          "Construction reach cannot begin or consume a physical source cut.");
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 2), "accepted") &&
+          get<bool>(host.command("P", cut("P", "near-bark", "tree-east-south")), "accepted"),
+          "The same actor can start one cut from the blade's contact range.");
+    check(get<bool>(host.publish_actor("P", {V(5.4), V(1.0), V(3.3)}, 3), "accepted") &&
+          get<O>(host.projection(), "manual_cuts").empty() &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0,
+          "Moving outside blade reach interrupts the held cut before payout.");
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted") &&
+          get<bool>(complete_cut(host, "P", cut("P", "back-at-bark", "tree-east-south")), "accepted") &&
+          get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
+          "A fresh close cut transfers exactly one timber and retains valid history.");
+}
+
 void field_wood_uses_physical_actor_and_one_ledger() {
     Host host;
     check(get<bool>(host.initialize_arrival("field-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "Two physical actors initialize, with P beyond the pod bench's reach.");
     for (int index = 0; index < 4; ++index) {
@@ -154,7 +178,7 @@ void shared_harvest() {
     check(sources.size() == 5 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
           get<I>(sources.at("opening-softmetal"), "remaining") == 4096,
           "Four finite trees and one shared ore reserve are visible to both actors.");
-    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted") &&
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "P walks to the clear east timber site while Q remains on the deployed deck.");
     const auto p_cut = cut("P", "tree-first", "tree-east-south");
@@ -190,7 +214,7 @@ void shared_harvest() {
     check(!get<bool>(far, "accepted") && get<std::string>(far, "reason") == "out_of_reach" &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "timber") == 0,
           "A second actor cannot cut a tree outside physical reach.");
-    check(get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(1.65)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("Q", {V(-0.5), V(1.0), V(0.0)}, 2), "accepted"),
           "Q can reach the ore side of the site with a new physical observation.");
     check(get<bool>(complete_cut(host, "Q", cut("Q", "ore-first", "opening-softmetal")), "accepted") &&
           get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4095 &&
@@ -200,6 +224,8 @@ void shared_harvest() {
     check(get<std::string>(V(bench), "id") == "pod-fabrication-hub" &&
           get<I>(V(bench), "generation") == 1,
           "One native bench identity is shared by both actors.");
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 2), "accepted"),
+          "P walks from the bark to the pod bench before shaping its timber.");
     const auto first_part = craft("P", "wooden-shaft", "wooden_shaft");
     check(get<bool>(host.command("P", first_part), "accepted") &&
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_shaft") == 1 &&
@@ -218,7 +244,7 @@ void shared_harvest() {
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "cutting_edge") == 1 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 0,
           "Q's own ore becomes one metal cutting edge after physically reaching the hub.");
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(4.8)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(4.8)}, 3), "accepted"),
           "P leaves the remote timber site before installing a part on the deck.");
     const O place{{"context", V("harvest-site")}, {"client", V("P")},
         {"request", V("install-shaft")}, {"action", V("place_component")},
@@ -265,8 +291,8 @@ void placed_bench_preserves_two_actor_custody() {
     Host host;
     check(get<bool>(host.initialize_arrival("bench-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 1), "accepted") &&
-          get<bool>(host.publish_actor("Q", {V(1.65), V(1.0), V(1.65)}, 1), "accepted"),
+          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(-0.5), V(1.0), V(0.0)}, 1), "accepted"),
           "Two actors initialize beside different finite material sources.");
     for (int index = 0; index < 4; ++index) {
         const O cut_wood{{"context", V("bench-site")}, {"client", V("P")},
@@ -326,7 +352,7 @@ void placed_bench_preserves_two_actor_custody() {
               "cutting_edge") == 1 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 0,
           "Q uses the placed bench to cold shape its own ore into one cutting edge.");
-    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 3), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 3), "accepted"),
           "P returns to the timber site while Q's crafted edge remains in Q's cargo.");
     auto fifth_wood = O{{"context", V("bench-site")}, {"client", V("P")},
         {"request", V("bench-fifth-timber")}, {"action", V("harvest_source")},
@@ -338,11 +364,15 @@ void placed_bench_preserves_two_actor_custody() {
         {"entity", V(bench_id)}, {"role", V("shaft")}, {"half_span", V(I{2})}};
     check(get<bool>(host.command("P", craft_shaft), "accepted"),
           "The player-built bench also replaces the pod for finite stationary shaft kits.");
+    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 4), "accepted"),
+          "P returns from the bark to the foundation worksite.");
     const O raised_floor{{"context", V("bench-site")}, {"client", V("P")},
         {"request", V("raised-pod-workshop-floor")}, {"action", V("place_foundation")},
         {"cell", V(A{V(I{6}), V(I{2})})}, {"level", V(I{2})}};
-    check(get<bool>(host.command("P", raised_floor), "accepted"),
-          "P seats a second ordinary foundation at the two-unit height step.");
+    const auto raised = host.command("P", raised_floor);
+    if (!get<bool>(raised, "accepted"))
+        throw std::runtime_error("P cannot seat the second foundation: " +
+            get<std::string>(raised, "reason"));
     const auto saved = host.checkpoint();
     check(get<bool>(host.command("Q", local_craft), "duplicate") &&
           !factory::values::typed_difference(saved, host.checkpoint()),
@@ -378,8 +408,8 @@ void cut_interrupts_on_actor_sample_before_next_tick() {
     Host host;
     check(get<bool>(host.initialize_arrival("sample-cut", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted") &&
-          get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
+          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
           "Both trusted actors can reach the same finite tree.");
     O reserved{{"context", V("sample-cut")}, {"client", V("P")},
         {"request", V("native-cut-finish-P-1")}, {"action", V("harvest_source")},
@@ -403,7 +433,7 @@ void cut_interrupts_on_actor_sample_before_next_tick() {
           get<O>(host.projection(), "manual_cuts").empty() &&
           get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 8,
           "A trusted far sample cancels the cut before another native time tick.");
-    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 3), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 3), "accepted"),
           "Returning to the same tree cannot resume the canceled cut.");
     for (I tick = 0; tick < factory::world::manual_cut_ticks; ++tick)
         check(get<O>(host.advance(), "manual_cuts").empty(),
@@ -429,9 +459,9 @@ void cut_interrupts_on_actor_sample_before_next_tick() {
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),
           "Both actors and the unfinished native cut rejoin from one exact checkpoint.");
-    check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.95)}, 1), "accepted") &&
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<O>(restored.projection(), "manual_cuts").contains("Q") &&
-          get<bool>(restored.publish_actor("Q", {V(3.3), V(1.0), V(4.95)}, 1), "accepted"),
+          get<bool>(restored.publish_actor("Q", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
           "P's earlier rejoin does not cancel Q's unfinished cut.");
     for (I tick = 1; tick < factory::world::manual_cut_ticks; ++tick)
         check(get<O>(restored.advance(), "cargo").contains("Q"),
@@ -446,6 +476,7 @@ void cut_interrupts_on_actor_sample_before_next_tick() {
 
 int main() {
     try {
+        cutter_reach_is_shorter_than_build_reach();
         shared_harvest();
         field_wood_uses_physical_actor_and_one_ledger();
         opening_actor_carries_finite_site_across_restore();

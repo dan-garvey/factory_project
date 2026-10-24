@@ -190,6 +190,8 @@ void schema_and_authority_mutations() {
     refusal(f.profile, edited(f.checkpoint, {"revision"}, V(I{0})), w::CheckpointReason::invalid_history);
     refusal(f.profile, edited(f.checkpoint, {"profile", "recipe_weight"}, V(1.0)), w::CheckpointReason::profile_mismatch);
     refusal(f.profile, edited(f.checkpoint, {"profile", "build_reach"}, V(40.0)), w::CheckpointReason::profile_mismatch);
+    refusal(f.profile, edited(f.checkpoint, {"profile", "manual_cut_reach"}, V(0.9)),
+            w::CheckpointReason::profile_mismatch);
     refusal(f.profile, edited(f.checkpoint, {"history", "context"}, V("other-world")), w::CheckpointReason::invalid_history);
     check(std::get<w::CheckpointRefusal>(w::decode_checkpoint(f.profile, "other-world", f.checkpoint)).reason ==
           w::CheckpointReason::wrong_context, "A valid checkpoint cannot replace another expected context.");

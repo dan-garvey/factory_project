@@ -15,6 +15,7 @@ const RUN_BLEND_START := 1.15
 const RUN_BLEND_END := 2.35
 const STOP_HOLD_SECONDS := 2.0 / 60.0
 const STALE_SAMPLE_SETTLE_SECONDS := 0.15
+const CUT_TICK_SECONDS := 0.45
 const TAKEOFF_DELTA := 0.025
 const DROP_DELTA := 0.075
 const LANDING_SECONDS := 0.32
@@ -48,6 +49,7 @@ var motion: Dictionary = {}
 var native_sample_frames: Dictionary = {}
 var visual_context := ""
 var eye_multitool: Node3D
+var cut_motion: Dictionary = {}
 
 func configure(view) -> void:
 	host = view
@@ -216,10 +218,54 @@ func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
 	multitool_hand_meshes[source] = result
 	return result
 
-func _refresh_multitools() -> void:
+func _cut_contact(view: Node3D, source: Dictionary) -> Vector3:
+	var center: Array = source.position
+	var from_actor := Vector3(center[0] - view.global_position.x, 0.0,
+		center[2] - view.global_position.z).normalized()
+	var bark := 0.10 if source.kind == "tree" else 0.40
+	return Vector3(center[0], center[1] + (0.35 if source.kind == "tree" else -0.40),
+		center[2]) - from_actor * bark
+
+func _pose_cut_arm(body: Node3D, kind: String, reach: float,
+		stroke: float, blend: float) -> void:
+	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	var near := clampf((0.75 - reach) / 0.25, 0.0, 1.0)
+	var yaw := lerpf(0.9, 1.1, near) if kind == "tree" else 1.4
+	var pitch := lerpf(-0.7, 0.0, near) if kind == "tree" else -0.3
+	var bend := lerpf(-0.3, -1.0, near) if kind == "tree" else 0.6
+	var appearance: Node3D = body.get_node("AdultHuman")
+	appearance.position.y = float(body.get_meta("adult_fit_y")) - \
+		(0.159 * blend if kind == "ore_deposit" else 0.0)
+	if kind == "ore_deposit":
+		for side in ["L", "R"]:
+			for pair in [["Thigh", -0.7], ["Calf", 1.26], ["Foot", -0.56]]:
+				var key: String = side + " " + pair[0]
+				var index: int = body.get_meta("rig")[key].index
+				var prior: Quaternion = skeleton.get_bone_pose_rotation(index)
+				_adult_bone_delta(body, key, Quaternion(Vector3.RIGHT, float(pair[1])))
+				skeleton.set_bone_pose_rotation(index,
+					prior.slerp(skeleton.get_bone_pose_rotation(index), blend))
+		var spine_index: int = body.get_meta("rig")["Spine1"].index
+		var prior_spine: Quaternion = skeleton.get_bone_pose_rotation(spine_index)
+		_adult_bone_delta(body, "Spine1", Quaternion(Vector3.RIGHT, 0.25))
+		skeleton.set_bone_pose_rotation(spine_index,
+			prior_spine.slerp(skeleton.get_bone_pose_rotation(spine_index), blend))
+	for key in ["R UpperArm", "R Forearm"]:
+		var index: int = body.get_meta("rig")[key].index
+		var prior: Quaternion = skeleton.get_bone_pose_rotation(index)
+		var target := Quaternion(Vector3.UP, yaw + stroke * 0.07) * \
+			Quaternion(Vector3.RIGHT, pitch + stroke * 0.10) if key == "R UpperArm" else \
+			Quaternion(Vector3.RIGHT, bend - stroke * 0.16)
+		_adult_bone_delta(body, key, target)
+		var working: Quaternion = skeleton.get_bone_pose_rotation(index)
+		skeleton.set_bone_pose_rotation(index, prior.slerp(working, blend))
+	skeleton.force_update_all_bone_transforms()
+
+func _refresh_multitools(delta: float) -> void:
 	var equipped: bool = host.state.get("options", {}).get("native", false) and host.state.has("hand_sources")
 	for actor: String in views:
-		var body: Node3D = views[actor].get_node("BodyView")
+		var view: Node3D = views[actor]
+		var body: Node3D = view.get_node("BodyView")
 		if not equipped and not body.has_meta("multitool_attachment"):
 			continue
 		if not body.has_meta("multitool_attachment") and _attach_multitool(body) == null:
@@ -229,6 +275,36 @@ func _refresh_multitools() -> void:
 		attachment.visible = equipped
 		if equipped:
 			_hold_multitool(body)
+		var cut: Dictionary = host.state.get("manual_cuts", {}).get(actor, {})
+		var source: Dictionary = host.state.get("hand_sources", {}).get(cut.get("target", ""), {})
+		var active: bool = equipped and not cut.is_empty() and \
+			not cut.get("interrupted", false) and source.has("position") and \
+			Geometry.valid_position(source.position) and body.get_meta("sourced_character", false)
+		var motion_state: Dictionary = cut_motion.get(actor, {"blend": 0.0, "elapsed": 0.0,
+			"remaining": -1, "target": "", "kind": "tree", "reach": 0.75})
+		if active:
+			var remaining: int = int(cut.get("remaining_ticks", -1))
+			if motion_state.target != cut.target or motion_state.remaining != remaining:
+				motion_state.elapsed = 0.0
+			motion_state.target = cut.target
+			motion_state.remaining = remaining
+			motion_state.kind = source.kind
+			motion_state.contact = _cut_contact(view, source)
+			motion_state.reach = view.global_position.distance_to(motion_state.contact)
+			motion_state.elapsed = minf(CUT_TICK_SECONDS, float(motion_state.elapsed) + delta)
+			var direction: Vector3 = motion_state.contact - view.global_position
+			body.rotation.y = atan2(direction.x, direction.z)
+		else:
+			motion_state.target = ""
+		motion_state.blend = move_toward(float(motion_state.blend), 1.0 if active else 0.0,
+			maxf(delta, 0.0) * (8.0 if active else 6.0))
+		if float(motion_state.blend) > 0.0:
+			var stroke := sin(TAU * float(motion_state.elapsed) / CUT_TICK_SECONDS) if active else 0.0
+			_pose_cut_arm(body, str(motion_state.kind), float(motion_state.reach), stroke,
+				float(motion_state.blend))
+		elif body.get_meta("sourced_character", false):
+			body.get_node("AdultHuman").position.y = float(body.get_meta("adult_fit_y"))
+		cut_motion[actor] = motion_state
 	var local_ready: bool = host.state.get("actors", {}).get(host.client, {}).get("ready", false)
 	var show_eye: bool = equipped and local_ready and host.distance <= 1.0 and views.has(host.client)
 	if show_eye and eye_multitool == null:
@@ -253,6 +329,15 @@ func _refresh_multitools() -> void:
 		host.camera.add_child(eye_multitool)
 	if eye_multitool != null:
 		eye_multitool.visible = show_eye
+		var eye_state: Dictionary = cut_motion.get(host.client, {})
+		var blend: float = float(eye_state.get("blend", 0.0))
+		var rest := EYE_MULTITOOL_REST
+		var raised := rest
+		if eye_state.get("contact") is Vector3 and host.camera != null:
+			var tip := Vector3(0.0, 0.0, -0.30)
+			raised = host.camera.to_local(eye_state.contact) - eye_multitool.basis * tip
+		var stroke := sin(TAU * float(eye_state.get("elapsed", 0.0)) / CUT_TICK_SECONDS)
+		eye_multitool.position = rest.lerp(raised + Vector3(stroke * 0.035, 0.0, 0.0), blend)
 
 func _worker_box(size: Vector3) -> BoxMesh:
 	var key := ["box", size]
@@ -1111,6 +1196,7 @@ func _prepare_adult_template(asset_root: String = ADULT_ASSETS, second: bool = f
 	var fitted_scale: float = Geometry.CAPSULE_HEIGHT / bounds.size.y
 	appearance.scale = Vector3.ONE * fitted_scale
 	appearance.position.y = -Geometry.CAPSULE_HEIGHT / 2.0 - bounds.position.y * fitted_scale
+	body.set_meta("adult_fit_y", appearance.position.y)
 	body.set_meta("source_rest_bounds", bounds)
 	body.set_meta("source", "Microsoft Rocketbox Male_Adult_05" if second
 		else "Microsoft Rocketbox Female_Adult_04")
@@ -1497,6 +1583,7 @@ func refresh(delta: float = 0.0) -> void:
 		visual_context = context
 		motion.clear()
 		native_sample_frames.clear()
+		cut_motion.clear()
 	var actors: Dictionary = host.state.get("actors", {})
 	for actor in views.keys():
 		if not actors.has(actor):
@@ -1506,6 +1593,7 @@ func refresh(delta: float = 0.0) -> void:
 			views.erase(actor)
 			motion.erase(actor)
 			native_sample_frames.erase(actor)
+			cut_motion.erase(actor)
 	for actor in actors:
 		if not views.has(actor):
 			views[actor] = _new_view(actor)
@@ -1530,7 +1618,7 @@ func refresh(delta: float = 0.0) -> void:
 				sample.get("on_floor") if sample.get("epoch", -1) == native_epoch else null)
 		else:
 			motion.erase(actor)
-	_refresh_multitools()
+	_refresh_multitools(delta)
 	if views.has(host.client) and host.distance <= 1.0:
 		views[host.client].visible = false
 	if not host.explanation_open and actors.has(host.client) and Geometry.valid_position(actors[host.client].get("position")):

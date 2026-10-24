@@ -940,6 +940,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     profile.wheel_radius = wheel_radius;
     profile.wheel_axle_offset = wheel_axle_offset;
     profile.build_reach = reach;
+    if (arrival) profile.manual_cut_reach = 0.85;
     profile.foundation_parts = 24;
     // East of the river and clear of the exposed ore deposit. This is a
     // reversible authored site anchor, expressed in the one quarter-tile grid.
@@ -2390,7 +2391,8 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
             center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2]};
         const auto sampled = observe()(actor);
         auto actor_cut = sampled.value_or(authority::ActorCut{});
-        actor_cut.build_reach = profile_.build_reach;
+        actor_cut.build_reach = profile_.manual_cut_reach > 0 ?
+            profile_.manual_cut_reach : profile_.build_reach;
         const bool lost_reach = !sampled || authority::check_reach(actor, actor_cut,
             {target}).error != authority::Error::none;
         const bool interrupted = cut.interrupted_revision != 0 || lost_reach;

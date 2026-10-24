@@ -102,7 +102,8 @@ stationary::Kit decode_kit(const Value& value, const std::string& path) {
 }
 
 Value profile_value(const Profile& profile) {
-    if (!std::isfinite(profile.meters_per_grid_unit) || !std::isfinite(profile.build_reach))
+    if (!std::isfinite(profile.meters_per_grid_unit) || !std::isfinite(profile.build_reach) ||
+        !std::isfinite(profile.manual_cut_reach))
         refuse(CheckpointReason::profile_mismatch, "$.profile");
     Array actors;
     for (const auto& actor : profile.actors) actors.emplace_back(actor);
@@ -117,6 +118,8 @@ Value profile_value(const Profile& profile) {
         {"meters_per_grid_unit", Value(profile.meters_per_grid_unit)},
         {"anchor_offset", Value(Array{Value(profile.anchor_offset[0]), Value(profile.anchor_offset[1]), Value(profile.anchor_offset[2])})},
         {"build_reach", Value(profile.build_reach)}};
+    if (profile.manual_cut_reach > 0)
+        output.emplace("manual_cut_reach", Value(profile.manual_cut_reach));
     if (profile.foundation_parts > 0) {
         output.emplace("foundation_parts", Value(profile.foundation_parts));
         Object starting_kits;

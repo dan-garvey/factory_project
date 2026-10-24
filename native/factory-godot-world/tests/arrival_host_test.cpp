@@ -240,7 +240,7 @@ void fabricated_transmission_stock_is_finite() {
     const auto empty = host.command("P", craft("empty-shaft", "shaft", 2));
     check(!get<bool>(empty, "accepted") && get<std::string>(empty, "reason") == "unavailable_input",
           "The bench refuses a shaft without real harvested timber.");
-    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 2), "accepted"),
           "The physical actor reaches the first finite tree.");
     for (int index = 0; index < 8; ++index) {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
@@ -249,7 +249,7 @@ void fabricated_transmission_stock_is_finite() {
         check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut), "accepted"),
               "Each route timber input comes from the finite visible tree.");
     }
-    check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(1.65)}, 3), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 3), "accepted"),
           "The actor reaches the finite softmetal outcrop.");
     for (int index = 0; index < 2; ++index) {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
@@ -338,7 +338,7 @@ void crafted_foundation_extends_exhausted_kit() {
     check(!get<bool>(empty, "accepted") && get<std::string>(empty, "reason") == "unavailable_input" &&
           get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 15,
           "The floor recipe refuses missing timber without changing the supplied kit.");
-    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 2), "accepted"),
           "The actor reaches a declared finite tree.");
     for (int index = 0; index < 2; ++index) {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
@@ -364,7 +364,7 @@ void crafted_foundation_extends_exhausted_kit() {
     check(get<bool>(placed, "accepted") &&
           get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 0,
           "An aligned four by four expansion exhausts every original and crafted floor part.");
-    check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 4), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted"),
           "The actor returns to the same finite tree after exhausting the kit.");
     for (int index = 2; index < 4; ++index) {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},

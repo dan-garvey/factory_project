@@ -10,6 +10,12 @@ remains hand-fed. `factory-yau.1.10.16.4` owns broad-item carrier behavior and
 `factory-yau.1.10.16.6` owns the raised gravity route; this note gives them one
 common fit question to answer.
 
+The [powered-slide and working-head plan of record](chapter-one-arrival.md#plan-of-record-powered-slides-and-working-heads)
+owns the motion/tool boundary for these candidates. References to a ram mean a
+flat working face on a reusable powered slide. Pressing and cutting share that
+motion contract; they do not require a separate local shaft/cog recipe. The
+transport channels below guide material and are distinct from powered slides.
+
 ## Shared fit rule
 
 - Use the existing world origin and one construction denominator. One workcell
@@ -181,10 +187,10 @@ Two fixed stroke choices are enough for this comparison:
 | Full | Peak drive force at least 8 units and at least 12 work units in one guided, clear cycle | Depth 0 reaches depth 2. |
 | Shallow | Peak drive force at least 5 units and at least 6 work units in one guided, clear cycle | Depth increases by one, at most to 2. |
 
-Both strokes require the same matching anvil and ram working footprint, contact
-and clearance. The larger sheet uses four supported workcells on the common
-grid; a floating guide needs no structural anchor. Force below 5, insufficient
-work, a missed work face or a blocked discharge completes no pass and changes
+Both strokes require the same matching workbed and working-face footprint,
+contact and powered-slide clearance. The larger sheet uses four supported
+workcells on the common grid; the slide needs no structural anchor. Force below 5,
+insufficient work, a missed work face or a blocked discharge completes no pass and changes
 no forming state. Weak taps cannot accumulate fractions of a pass. The
 illustrative total useful work is at least 12 units on either route; the
 single full stroke buys time with higher peak force.

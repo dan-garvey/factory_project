@@ -338,7 +338,7 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 	if not _expect(opening.actor_world.component_bodies.has(id) and visible_bench,
 			"The placed identity has a physical pick body and a distinct rendered work surface"):
 		return
-	if not await _approach(Vector2(0.0, 1.65)):
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 		return
@@ -529,7 +529,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		opening.set_process(true)
 	opening.object_menu.hide()
 	await process_frame
-	if not await _approach(Vector2(0.0, 1.65)):
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
 		return
@@ -599,7 +599,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-press-site", "arrival-broad-pad", "arrival-broad-drive", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -735,7 +735,7 @@ func _deliver_repeat_arrival_plates(panel, capture_prefix: String) -> bool:
 			and opening.model.projection().cargo.P.products == 1,
 			"The first saved receipt exposes an open repeat order and one real carried plate"):
 		return false
-	if not await _approach(Vector2(0.0, 1.65)):
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return false
 	for index in range(2):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
@@ -1060,11 +1060,11 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	panel._component_selected(0)
 	# Zero-cut entries are explicit clear-aisle waypoints, not resource actions.
 	for source in [
-		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(6.0, 3.45), "id": "tree-east-south", "cuts": 8},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 8},
-		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 5},
+		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 8},
+		{"point": Vector2(0.6, 11.55), "id": "tree-north", "cuts": 5},
 	]:
 		if not await _approach(source.point):
 			return
@@ -1160,14 +1160,15 @@ func _arrival_capacity_resume_run() -> void:
 func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> void:
 	# This uses the ordinary arrival scene, its physical actor, workshop buttons
 	# and the native terrain. Commands still pass through the one scene Model.
+	var ore_for_press := 0 if finish else 8
 	for source in [
-		{"point": Vector2(3.3, 4.95), "id": "tree-east-south", "cuts": 8},
+		{"point": Vector2(6.0, 3.45), "id": "tree-east-south", "cuts": 8},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 6},
+		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 6},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 3.3), "cuts": 0},
-		{"point": Vector2(0.0, 1.65), "id": "opening-softmetal", "cuts": 3},
+		{"point": Vector2(-0.5, 0.0), "id": "opening-softmetal", "cuts": 3 + ore_for_press},
 	]:
 		if not await _approach(source.point):
 			return
@@ -1177,8 +1178,8 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	if not _expect(opening.model.projection().cargo.P.timber == 14
-			and opening.model.projection().cargo.P.raw == 3,
-			"Two finite trees and the outcrop supply the exact collector and powered-route bill"):
+			and opening.model.projection().cargo.P.raw == 3 + ore_for_press,
+			"Two finite trees and the outcrop supply the collector route and later press stock"):
 		return
 	for kind in ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]:
 		var index := -1
@@ -1210,7 +1211,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 				"The ordinary workshop turns carried stock into one exact native route kit"):
 			return
 	if not _expect(opening.model.projection().cargo.P.timber == 0
-			and opening.model.projection().cargo.P.raw == 0,
+			and opening.model.projection().cargo.P.raw == ore_for_press,
 			"The complete collector and three-shaft route spend fourteen timber and three ore"):
 		return
 	panel.crank_button.pressed.emit()
@@ -1691,7 +1692,7 @@ func _supplied_hardware_run() -> void:
 	print("SUPPLIED_HARDWARE_PHYSICS " + JSON.stringify(facts.supplied_hardware))
 	_record("pass")
 
-func _arrival_press_site_run(panel) -> void:
+func _arrival_press_site_run(panel, finish: bool = true) -> void:
 	# Compose the ordinary collector route and the frame-free press in one
 	# finite scene. The separate powered discharge remains a later consumer.
 	await _arrival_belt_run(panel, "", false)
@@ -1704,13 +1705,10 @@ func _arrival_press_site_run(panel) -> void:
 	for source in [
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(3.3, 9.9), "id": "tree-east-north", "cuts": 2},
-		{"point": Vector2(1.65, 11.55), "id": "tree-north", "cuts": 8},
+		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 2},
+		{"point": Vector2(0.6, 11.55), "id": "tree-north", "cuts": 8},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
-		{"point": Vector2(4.95, 3.3), "cuts": 0},
-		{"point": Vector2(4.95, 0.0), "cuts": 0},
-		{"point": Vector2(1.65, 0.0), "id": "opening-softmetal", "cuts": 8},
 	]:
 		if not await _approach(source.point):
 			return
@@ -1721,8 +1719,7 @@ func _arrival_press_site_run(panel) -> void:
 			and opening.model.projection().cargo.P.raw == 8,
 			"The remaining finite trees and ore supply the guided press and output route"):
 		return
-	if not await _approach_points([Vector2(4.95, 0.0), Vector2(4.95, 3.3),
-			Vector2(4.95, 4.95), Vector2(3.3, 4.95)]):
+	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "softmetal_cog", "receiver_tray"]:
 		var selected := -1
@@ -1773,6 +1770,93 @@ func _arrival_press_site_run(panel) -> void:
 	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
 			"Store accepts the same finite collector, elevated guided press and physical side tray"):
 		return
+	if finish:
+		_record("pass")
+
+func _arrival_belt_fed_press_run(panel) -> void:
+	# The collector and belt replace hand carrying the blank. The guided press
+	# still needs hand turns until its own separate drive is connected.
+	facts["route"] = "collector_belt_hand_press"
+	await _arrival_press_site_run(panel, false)
+	if written:
+		return
+	var first_work := false
+	for tick in range(32):
+		var advanced: Dictionary = opening.model.advance()
+		opening._refresh()
+		if advanced.dropped_material.any(func(drop: Variant) -> bool:
+			return drop is Dictionary and drop.get("center") == [0, 4, -8] and (drop.get("raw", 0) == 1 or not drop.get("work_lots", []).is_empty())):
+			first_work = true
+			facts["belt_feed"] = advanced
+			break
+	if not _expect(first_work,
+			"The player-built belt feeds its original finite blank into the guided press"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts["partial_save"] = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false)
+			and opening.model.validate_checkpoint(opening.model.checkpoint()).get("accepted", false),
+			"The physical belt-fed press work saves before forming"):
+		return
+	await _finish_belt_fed_press_run(panel)
+
+func _arrival_belt_fed_press_resume_run(panel) -> void:
+	facts["route"] = "collector_belt_hand_press_resume"
+	var restored: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and restored.guided_press_assemblies.size() == 1
+			and restored.guided_press_assemblies[0].status == "ready"
+			and restored.dropped_material.any(func(drop: Variant) -> bool:
+				return drop is Dictionary and drop.get("center") == [0, 4, -8] and drop.get("raw", 0) == 1)
+			and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
+			and restored.hand_crank.holder == "P"
+			and restored.actors.P.ready and restored.actors.Q.ready
+			and opening.actor_world.bodies.P.is_on_floor()
+			and opening.actor_world.bodies.Q.is_on_floor(),
+			"A fresh scene restores the exact belt-fed press work and both physical actors"):
+		return
+	facts["restored_partial"] = restored
+	await _finish_belt_fed_press_run(panel)
+
+func _finish_belt_fed_press_run(panel) -> void:
+	var press: Dictionary = opening.model.projection().guided_press_assemblies[0]
+	var anvil: String = str(press.anvil)
+	var shaft: String = str(press.parts.shaft)
+	if not _expect(opening.model.projection().motion[shaft].state == "unpowered"
+			and not opening.model.projection().dropped_material.any(func(drop: Variant) -> bool:
+				return drop is Dictionary and drop.get("products", 0) > 0),
+			"The finite belt supplies the press while its separate drive remains unpowered"):
+		return
+	opening._open_object_menu_for(anvil)
+	if not _expect(opening.object_menu.visible and panel.press_section.visible
+			and not panel.turn_button.disabled,
+			"The ordinary inspection menu exposes the crank for belt-fed work"):
+		return
+	for turn in range(3):
+		panel.turn_button.pressed.emit()
+	var formed: Dictionary = opening.model.projection()
+	if not _expect(formed.dropped_material.any(func(drop: Variant) -> bool:
+			return drop is Dictionary and drop.get("products", 0) == 1)
+			and formed.dropped_material.any(func(drop: Variant) -> bool:
+				return drop is Dictionary and drop.get("offcuts", 0) == 1 and drop.get("center") == [0, 4, -8])
+			and formed.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The belt-fed blank forms one plate and retains its separate offcut through three ordinary turns"):
+		return
+	if not _expect(not panel.recover_work_button.disabled,
+			"The ordinary press exposes recovery for the retained copper offcut"):
+		return
+	panel.recover_work_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.offcuts == 1,
+			"Offcut recovery clears the actual workface without inventing stock"):
+		return
+	if not _expect(not panel.pickup_button.disabled,
+			"The first belt-fed plate is available for an ordinary physical pickup"):
+		return
+	panel.pickup_button.pressed.emit()
+	if not _expect(opening.model.projection().cargo.P.products == 1,
+			"The actor carries the belt-fed plate from its exact output point"):
+		return
+	facts["first_plate"] = opening.model.projection()
 	_record("pass")
 
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
@@ -1819,18 +1903,18 @@ func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode == "arrival-repeat-delivery":
 		deadline = Time.get_ticks_msec() + 240000
-	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-broad-pad", "arrival-broad-drive", "arrival-delivery", "arrival-craft-capacity"]:
+	elif mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-delivery", "arrival-craft-capacity"]:
 		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-broad-pad", "arrival-broad-drive", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	if mode in ["arrival-press-site", "arrival-broad-pad", "arrival-broad-drive", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume"]:
+	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -1892,6 +1976,12 @@ func _arrival_run() -> void:
 		return
 	if mode == "arrival-press-site":
 		await _arrival_press_site_run(panel)
+		return
+	if mode == "arrival-belt-fed-press":
+		await _arrival_belt_fed_press_run(panel)
+		return
+	if mode == "arrival-belt-fed-press-resume":
+		await _arrival_belt_fed_press_resume_run(panel)
 		return
 	if mode == "arrival-raised-press-resume":
 		await _arrival_raised_press_resume_run(panel)
@@ -2071,17 +2161,18 @@ func _arrival_run() -> void:
 		return
 	opening.object_menu.hide()
 	await process_frame
-	if not await _approach(Vector2(3.3, 4.95)):
+	if not await _approach(Vector2(6.0, 3.45)):
 		return
 	for index in range(8):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
-	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(3.3, 9.9)]):
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(6.0, 11.55)]):
 		return
 	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
 			return
-	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 3.3), Vector2(0.0, 1.65)]):
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 3.3),
+			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for index in range(7):
 		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
