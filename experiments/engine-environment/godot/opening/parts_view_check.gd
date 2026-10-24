@@ -904,6 +904,20 @@ func _multitool_controls() -> void:
 			and view.building_hotbar.material_counts.timber.text == "3"
 			and view.building_hotbar.material_counts.raw.text == "1",
 			"The arrival objective stays focused on the order while build/inventory shows confirmed cargo.")
+		verify("Craft a part in Build [B]." in view.goal_label.text,
+			"The stocked worker sees the build control without a required press recipe.")
+		view.state.cargo.P.components = {"anvil": 1}
+		view._refresh_ui()
+		verify("Place a carried part [B]." in view.goal_label.text
+			and not view.goal_label.text.contains("ram, guide, shaft and cog"),
+			"A carried anvil does not become a mandatory press blueprint in the local or shared HUD.")
+		view.state.placed_components = {"standalone-anvil": {"component": "anvil", "center": [0, 0, 0]}}
+		view._refresh_ui()
+		verify("Inspect parts [E] or build [B]." in view.goal_label.text
+			and not view.goal_label.text.contains("Fit the press parts"),
+			"A standalone work support retains component-level inspection guidance.")
+		view.state = before.duplicate(true)
+		view._refresh_ui()
 		verify(not view.confirm_button.visible and not view.lesson_button.visible,
 			"Arrival offers neither old objective confirmation nor the completed-machine lesson.")
 		view._toggle_explanation()

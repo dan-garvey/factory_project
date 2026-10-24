@@ -323,6 +323,15 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 			"The field tool refuses metal while preserving the shaped frame"):
 		return
 	inventory.catalog.hide()
+	await process_frame
+	if not _expect(opening.goal_label.text == "FORM A PLATE · KEEP IT\nPlace a carried part [B].",
+			"The ordinary finite crafted part receives a component action cue without a fixed press bill"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-carried-component-hud.png") == OK,
+				"Retain the ordinary crafted-component HUD without an anvil recipe"):
+			return
 	if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 		return
 	if not await _approach(Vector2(3.3, 4.95)):

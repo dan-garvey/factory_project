@@ -9354,17 +9354,17 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if workshop_complete:
 			next_work = "Open Work log [J] for optional projects, or keep building."
 		elif press_ready:
-			next_work = "Use the press panel to feed, turn and collect."
+			next_work = "Open the working press [E] to feed or turn."
 		elif collector_ready and int(state.get("line_belt_raw", 0)) > 0:
-			next_work = "Blank on belt. Recover it, or build a press at the outlet."
+			next_work = "Blank on belt. Inspect its outlet [E] or recover it."
 		elif collector_ready:
-			next_work = "Collector ready. Make route kits at the pod and fit a belt beside its receiver."
+			next_work = "Collector ready. Cut ore or connect a material route."
 		elif not state.get("placed_components", {}).is_empty():
-			next_work = "Fit the press parts; a collector is optional first."
+			next_work = "Inspect parts [E] or build [B]."
 		elif not carried.get("components", {}).is_empty():
-			next_work = "Place an anvil, then fit its ram, guide, shaft and cog."
+			next_work = "Place a carried part [B]."
 		elif int(carried.get("timber", 0)) >= 3:
-			next_work = "Craft press parts at the pod workshop; start with an anvil."
+			next_work = "Craft a part in Build [B]."
 		var order_heading := "FORM A PLATE · KEEP IT"
 		if workshop_complete:
 			order_heading = "PLATE IN INVENTORY"
