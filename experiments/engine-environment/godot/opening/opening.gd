@@ -5962,12 +5962,12 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		if not _component_center_allowed(center):
 			return
 		var component_name: String = arrival_assembly_controls.selected_name()
-		var selected_frame: String = arrival_assembly_controls.press_frame_for(selected)
+		var selected_anvil: String = arrival_assembly_controls.press_anvil_for(selected)
 		var outcome := issue({"action": "place_component",
 			"component": component_name,
 			"center": center})
 		if outcome.accepted:
-			selected = selected_frame if component_name != "wooden_frame" and not selected_frame.is_empty() \
+			selected = selected_anvil if component_name != "anvil" and not selected_anvil.is_empty() \
 				else str(outcome.get("entity", ""))
 		_refresh_ui()
 		return
@@ -6336,8 +6336,8 @@ func _open_object_menu_for(target: String) -> void:
 	object_menu_target = target
 	object_menu_title.text = _object_name(target)
 	object_menu_operations_label.text = "CRAFT PARTS"
-	for row: Variant in state.get("press_assemblies", []):
-		if row is Dictionary and row.get("frame", "") == target:
+	for row: Variant in state.get("guided_press_assemblies", []):
+		if row is Dictionary and row.get("anvil", "") == target:
 			object_menu_operations_label.text = "PRESS WORK"
 	for row: Variant in state.get("collector_assemblies", []):
 		if row is Dictionary and row.get("parts", {}).get("frame", "") == target:
@@ -9307,7 +9307,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		var next_work := "Cut timber or ore with the multitool [E]."
 		var press_ready := false
 		var collector_ready := false
-		for press: Dictionary in state.get("press_assemblies", []):
+		for press: Dictionary in state.get("guided_press_assemblies", []):
 			press_ready = press_ready or press.get("status") == "ready"
 		for collector: Dictionary in state.get("collector_assemblies", []):
 			collector_ready = collector_ready or collector.get("status") == "ready"
@@ -9335,9 +9335,9 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		elif not state.get("placed_components", {}).is_empty():
 			next_work = "Fit the press parts; a collector is optional first."
 		elif not carried.get("components", {}).is_empty():
-			next_work = "Place a frame, then fit a working press."
+			next_work = "Place an anvil, then fit its ram, guide, shaft and cog."
 		elif int(carried.get("timber", 0)) >= 3:
-			next_work = "Craft a frame at the pod field workshop."
+			next_work = "Craft press parts at the pod workshop; start with an anvil."
 		var order_heading := "FIRST ORDER · SHIP ONE PLATE"
 		if repeat_done:
 			order_heading = "REPEAT ORDER · DELIVERED"
@@ -10244,8 +10244,8 @@ func _object_supports_operations(target: String) -> bool:
 	for row: Variant in state.get("fabrication_benches", []):
 		if row is Dictionary and row.get("id", "") == target:
 			return true
-	for row: Variant in state.get("press_assemblies", []):
-		if row is Dictionary and row.get("frame", "") == target:
+	for row: Variant in state.get("guided_press_assemblies", []):
+		if row is Dictionary and row.get("anvil", "") == target:
 			return true
 	return _is_collector_frame(target)
 
