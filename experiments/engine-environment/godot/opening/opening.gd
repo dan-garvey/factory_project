@@ -6488,6 +6488,36 @@ func _component_pointed_center() -> Array:
 	var screen := _pointed_screen_position()
 	return _component_place_center(_screen_cell(screen), _screen_entity(screen), false)
 
+func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
+		normal: Vector3) -> Dictionary:
+	# The press's working offsets are larger than a one-step face snap. Use the
+	# part the player can actually point at to expose its next fitted socket.
+	if normal.y > 0.5:
+		if kind == "ram_face" and pointed_kind == "anvil":
+			return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
+		if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
+			var rise := 3 if pointed_kind == "anvil" else 2
+			return {"center": [center[0], center[1] + rise, center[2]],
+				"label": "Guide over %s" % ("ram" if pointed_kind == "ram_face" else "anvil")}
+	if pointed_kind == "anvil" and kind in ["wooden_shaft", "softmetal_shaft",
+			"wooden_cog", "softmetal_cog"]:
+		var distance := 1 if kind in ["wooden_shaft", "softmetal_shaft"] else 2
+		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
+			return {"center": [center[0] + distance * (1 if normal.x > 0.0 else -1),
+				center[1] + 4, center[2]], "label": "Press drive from anvil"}
+		if absf(normal.z) > 0.5:
+			return {"center": [center[0], center[1] + 4,
+				center[2] + distance * (1 if normal.z > 0.0 else -1)],
+				"label": "Press drive from anvil"}
+	if kind in ["wooden_shaft", "softmetal_shaft"] and pointed_kind == "sliding_guide":
+		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
+			return {"center": [center[0] + (1 if normal.x > 0.0 else -1),
+				center[1] + 1, center[2]], "label": "Drive beside guide"}
+		if absf(normal.z) > 0.5:
+			return {"center": [center[0], center[1] + 1,
+				center[2] + (1 if normal.z > 0.0 else -1)], "label": "Drive beside guide"}
+	return {}
+
 func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true) -> Array:
 	# One quarter-grid step off a confirmed component face builds a stack or
 	# lateral drive. Host still decides support, occupancy, custody and reach.
@@ -6502,6 +6532,10 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 		if not hit.is_empty() and hit.collider.get_meta("component_entity", "") == pointed:
 			var normal: Vector3 = hit.normal
 			var center: Array = placed[pointed].center.duplicate()
+			var kind: String = arrival_assembly_controls.selected_name() if arrival_assembly_controls != null else ""
+			var press_snap := _guided_press_part_snap(kind, str(placed[pointed].component), center, normal)
+			if not press_snap.is_empty():
+				return press_snap.center
 			var axis := 0
 			if absf(normal.y) > absf(normal.x) and absf(normal.y) >= absf(normal.z):
 				axis = 1
@@ -6648,8 +6682,11 @@ func _refresh_component_preview() -> void:
 	elif state.get("placed_components", {}).has(pointed):
 		var pointed_kind: String = str(state.placed_components[pointed].component)
 		var hit := _screen_pick(_pointed_screen_position())
-		component_preview_snap = "Above %s" % pointed_kind.replace("_", " ") if not hit.is_empty() and hit.normal.y > 0.5 \
-			else "Beside %s" % pointed_kind.replace("_", " ")
+		var press_snap := _guided_press_part_snap(kind, pointed_kind,
+			state.placed_components[pointed].center, hit.normal) if not hit.is_empty() else {}
+		component_preview_snap = str(press_snap.label) if not press_snap.is_empty() else \
+			("Above %s" % pointed_kind.replace("_", " ") if not hit.is_empty() and hit.normal.y > 0.5 \
+			else "Beside %s" % pointed_kind.replace("_", " "))
 	else:
 		component_preview_snap = "Floor grid"
 	var collector_face := _component_collector_face(kind, center)
@@ -6695,8 +6732,12 @@ func _component_placement_hint() -> String:
 	var location := "%s · X %d  Y %d  Z %d" % [component_preview_snap, center[0], center[1], center[2]]
 	var action := "Blocked here · move the ghost" if component_preview_blocked else "Click to place"
 	var kind: String = arrival_assembly_controls.selected_name()
-	var stack_hint := "Aim at the wooden frame top" if kind == "anvil" else \
-		"Aim at the anvil top" if kind == "ram_face" else "Point at a part face to snap"
+	var stack_hint := "Aim at a floor or built surface" if kind == "anvil" else \
+		"Aim at the anvil top" if kind == "ram_face" else \
+		"Aim at the anvil or ram top" if kind == "sliding_guide" else \
+		"Press drive: aim at anvil side or guide side" if kind in ["wooden_shaft", "softmetal_shaft"] else \
+		"Press drive: aim at anvil side or shaft end" if kind in ["wooden_cog", "softmetal_cog"] else \
+		"Point at a part face to snap"
 	return "%s\n%s · %s\nAlt + arrows / PgUp / PgDn nudges" % [location, action, stack_hint]
 
 func _screen_pick(screen: Vector2) -> Dictionary:

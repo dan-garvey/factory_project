@@ -316,10 +316,10 @@ class ArrivalAssemblyControls:
 		["softmetal_cog", "Softmetal cog"], ["wooden_workbench", "Wooden workbench"],
 	]
 	const PRESS_NEXT := {
-		"missing_ram": "Fit a ram face above the anvil.",
-		"missing_guide": "Fit a sliding guide above the ram.",
-		"missing_shaft": "Fit a shaft beside the guide at the working height.",
-		"missing_cog": "Fit a cog beyond the shaft at the same height.",
+		"missing_ram": "Point at the anvil top to fit the ram face.",
+		"missing_guide": "Point at the ram top to fit the raised guide.",
+		"missing_shaft": "Point at an anvil or guide side to fit the raised drive shaft.",
+		"missing_cog": "Point at the same anvil side or the shaft end to fit the drive cog.",
 	}
 	const COLLECTOR_NEXT := {
 		"missing_mount": "Fit a tool mount toward the ore deposit.",

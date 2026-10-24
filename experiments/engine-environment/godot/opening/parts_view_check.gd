@@ -227,6 +227,7 @@ class ComponentPlacementChoice extends Node:
 
 class ComponentPlacementView extends "res://opening/opening.gd":
 	var aimed := "frame"
+	var aim_normal := Vector3.UP
 	var pointed_cell := Vector2i.ZERO
 	var hit_body: StaticBody3D
 	var issued: Array = []
@@ -235,7 +236,7 @@ class ComponentPlacementView extends "res://opening/opening.gd":
 	func _screen_cell(_screen: Vector2) -> Vector2i:
 		return pointed_cell
 	func _screen_pick(_screen: Vector2) -> Dictionary:
-		return {"collider": hit_body, "normal": Vector3.UP} if not aimed.is_empty() else {}
+		return {"collider": hit_body, "normal": aim_normal} if not aimed.is_empty() else {}
 	func _screen_entity(_screen: Vector2) -> String:
 		return aimed
 	func _preview_pointer_clear() -> bool:
@@ -316,8 +317,8 @@ func _component_placement_check() -> void:
 		and view.component_preview.has_node("CastPedestal") and not view.component_preview_blocked,
 		"The frame-top anvil ghost uses the placed anvil mesh and is initially clear.")
 	verify(view.component_preview_snap == "Above wooden frame"
-		and "Aim at the wooden frame top" in view._component_placement_hint(),
-		"The placement hint names both the snap target and the selected part's support.")
+		and "Aim at a floor or built surface" in view._component_placement_hint(),
+		"The anvil hint allows a floor or built surface without requiring a press frame.")
 	view._input(_component_key(KEY_ALT, true, true))
 	view._input(_component_key(KEY_RIGHT, true, true))
 	view._input(_component_key(KEY_PAGEUP, true, true))
@@ -374,6 +375,92 @@ func _component_placement_check() -> void:
 	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [0, 2, 0]
 		and view.component_preview.has_node("MovingDie") and not view.component_preview_blocked,
 		"The ram face snaps above the anvil with its placed-part die visible.")
+	view.state.cargo.P.components.sliding_guide = 1
+	choice.kind = "sliding_guide"
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [0, 4, 0]
+		and view.component_preview.visible and not view.component_preview_blocked
+		and view.component_preview_snap == "Guide over anvil"
+		and view.component_preview.has_node("GuideCrown"),
+		"Pointing at the reachable anvil top shows the guide at the native raised socket.")
+	verify("Aim at the anvil or ram top" in view._component_placement_hint(),
+		"The guide hint names the part the player can point at.")
+	view._world_click(Vector2i.ZERO, "anvil")
+	verify(view.issued.back().center == [0, 4, 0],
+		"Click sends the same elevated guide center shown by the ghost.")
+	var ram_box := view._component_candidate_box("ram_face", [0, 2, 0])
+	view.state.placed_components["ram"] = {"component": "ram_face", "center": [0, 2, 0],
+		"generation": 1,
+		"occupied": {"center": [ram_box.center.x, ram_box.center.y, ram_box.center.z],
+			"half": [ram_box.half.x, ram_box.half.y, ram_box.half.z]}}
+	var placed_ram := Node3D.new()
+	placed_ram.position = ram_box.center
+	view.add_child(placed_ram)
+	presenter.preview_component(placed_ram, "ram_face", ram_box.size)
+	view.aimed = "ram"
+	body.set_meta("component_entity", "ram")
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "ram") == [0, 4, 0]
+		and view.component_preview_snap == "Guide over ram"
+		and not view.component_preview_blocked,
+		"Pointing at the fitted ram top finds the same clear guide socket across the stroke gap.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		camera.position = Vector3(1.7, 3.4, 3.8)
+		camera.look_at(Vector3(0, 2.0, 0))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-guide.png") == OK,
+			"Retain the anvil-targeted raised guide ghost in a passive view.")
+		camera.position = Vector3(1.15, 2.05, 2.4)
+		camera.look_at(Vector3(0, 1.15, 0))
+	view.state.placed_components.erase("ram")
+	placed_ram.free()
+	view.aimed = "anvil"
+	body.set_meta("component_entity", "anvil")
+	view.state.cargo.P.components.wooden_shaft = 1
+	choice.kind = "wooden_shaft"
+	view.aim_normal = Vector3.RIGHT
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [1, 5, 0]
+		and view.component_preview.visible and not view.component_preview_blocked
+		and view.component_preview_snap == "Press drive from anvil",
+		"Pointing at an anvil side exposes the elevated neighboring drive shaft.")
+	view._world_click(Vector2i.ZERO, "anvil")
+	verify(view.issued.back().center == [1, 5, 0],
+		"Click uses the shaft's visible anvil-side target rather than the ground datum.")
+	view.state.cargo.P.components.softmetal_cog = 1
+	choice.kind = "softmetal_cog"
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [2, 5, 0]
+		and view.component_preview.visible and not view.component_preview_blocked,
+		"The same reachable anvil side points to the cog beyond the shaft.")
+	view._world_click(Vector2i.ZERO, "anvil")
+	verify(view.issued.back().center == [2, 5, 0],
+		"Cog click agrees with the elevated preview center.")
+	view.aim_normal = Vector3.BACK
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [0, 5, 2]
+		and not view.component_preview_blocked,
+		"The anvil's other open side offers a second horizontal press-drive layout.")
+	view.aim_normal = Vector3.RIGHT
+	view._input(_component_key(KEY_ALT, true, true))
+	view._input(_component_key(KEY_PAGEUP, true, true))
+	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [2, 6, 0],
+		"Manual nudge still overrides the suggested press socket.")
+	view._input(_component_key(KEY_ALT, false))
+	view.aim_normal = Vector3.UP
+	choice.kind = "sliding_guide"
+	var guide_box := view._component_candidate_box("sliding_guide", [0, 4, 0])
+	view.state.placed_components["occupied_guide"] = {"component": "sliding_guide",
+		"center": [0, 4, 0], "generation": 1,
+		"occupied": {"center": [guide_box.center.x, guide_box.center.y, guide_box.center.z],
+			"half": [guide_box.half.x, guide_box.half.y, guide_box.half.z]}}
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and view.component_preview_blocked,
+		"The snapped upper socket remains visibly blocked when another part occupies it.")
+	view.state.placed_components.erase("occupied_guide")
+	choice.kind = "ram_face"
+	view._refresh_component_preview()
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		await process_frame
 		await RenderingServer.frame_post_draw
