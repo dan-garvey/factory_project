@@ -158,7 +158,7 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 16 and retains pending manual cut identity,
+The logical checkpoint uses schema 17 and retains exact powered-slide carriage phase and pending manual cut identity,
 remaining trusted ticks, and interruption state alongside each actor's witnessed
 first collected plate, the pod workshop's installed or held
 custody and relocated center, and collector/press quarter-turn

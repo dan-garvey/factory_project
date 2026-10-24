@@ -313,7 +313,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"remaining_ticks", Value(cut.remaining_ticks)},
                 {"interrupted_revision", Value(cut.interrupted_revision)}}));
         Value output(Object{
-            {"schema", Value(Integer{16})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{17})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -361,6 +361,12 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
                         Value(component.center[2])})}, {"generation", Value(component.generation)}}));
             state.emplace("placed_components", Value(std::move(placed)));
+            Object slide_phases;
+            for (const auto& [id, phase] : snapshot.state.slide_phases)
+                slide_phases.emplace(id, Value(Object{{"subticks", Value(phase.subticks)},
+                    {"remainder", Value(phase.remainder)},
+                    {"denominator", Value(phase.denominator)}}));
+            state.emplace("slide_phases", Value(std::move(slide_phases)));
             Array waiting, receiver_plates, exported, belt_work, belt_products;
             for (const auto& [center, id] : snapshot.state.press_output_at_exit)
                 waiting.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
@@ -437,7 +443,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 16) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        if (integer(root, "schema", "$") != 17) refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -447,7 +453,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "hand_crank", "placed_components", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "hand_crank", "placed_components", "slide_phases", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences"});
@@ -512,6 +518,16 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                      scalar<Integer>(center[1], "$.state.placed_components.center"),
                      scalar<Integer>(center[2], "$.state.placed_components.center")},
                     integer(entry, "generation", "$.state.placed_components")});
+            }
+            const auto& slide_phases = object(state.at("slide_phases"), "$.state.slide_phases");
+            if (slide_phases.size() > placed.size()) refuse(CheckpointReason::limit, "$.state.slide_phases");
+            for (const auto& [id, value] : slide_phases) {
+                const auto& entry = fields(value, "$.state.slide_phases",
+                    {"subticks", "remainder", "denominator"});
+                candidate.state.slide_phases.emplace(id, State::SlidePhase{
+                    integer(entry, "subticks", "$.state.slide_phases"),
+                    integer(entry, "remainder", "$.state.slide_phases"),
+                    integer(entry, "denominator", "$.state.slide_phases")});
             }
             const auto read_point = [&](const Value& value, const std::string& path) {
                 const auto& center = array(value, path, 3);

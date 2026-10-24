@@ -2767,6 +2767,13 @@ Value Host::projection() const {
                     Value(component.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
         }
         projection.emplace("placed_components", Value(std::move(placed)));
+        Object slide_phases;
+        for (const auto& [id, phase] : state.slide_phases)
+            slide_phases.emplace(id, Value(Object{{"subticks", Value(phase.subticks)},
+                {"remainder", Value(phase.remainder)},
+                {"denominator", Value(phase.denominator)},
+                {"cycle_subticks", Value(world::slide_cycle_subticks)}}));
+        projection.emplace("slide_phases", Value(std::move(slide_phases)));
         std::vector<assembly::Part> parts;
         parts.reserve(state.placed_components.size());
         for (const auto& [id, component] : state.placed_components)

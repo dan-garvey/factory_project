@@ -122,6 +122,45 @@ bool add(Integer& total, Integer count) {
     return true;
 }
 
+bool slide_component(materials::Component kind) {
+    return kind == materials::Component::wooden_slide ||
+           kind == materials::Component::softmetal_slide;
+}
+
+bool advance_slide_phase_internal(State::SlidePhase& phase, mechanics::Rate rate) {
+    if (rate.denominator <= 0 || phase.subticks < 0 ||
+        phase.subticks >= slide_cycle_subticks || phase.denominator <= 0 ||
+        phase.remainder < 0 || phase.remainder >= phase.denominator) return false;
+    __extension__ using Wide = __int128;
+    Wide magnitude = rate.numerator;
+    if (magnitude < 0) magnitude = -magnitude;
+    const Wide distance = magnitude * materials::work_subticks_per_tick;
+    const auto divisor = std::gcd(phase.denominator, rate.denominator);
+    const Wide common = static_cast<Wide>(phase.denominator / divisor) * rate.denominator;
+    if (common > std::numeric_limits<Integer>::max()) return false;
+    const Integer denominator = static_cast<Integer>(common);
+    const Wide sign = rate.numerator < 0 ? -1 : 1;
+    const Wide prior = static_cast<Wide>(phase.subticks) * denominator +
+        static_cast<Wide>(phase.remainder) * (denominator / phase.denominator);
+    const Wide cycle = static_cast<Wide>(slide_cycle_subticks) * denominator;
+    Wide travel = 0;
+    Wide step = distance % cycle;
+    auto factor = denominator / rate.denominator;
+    while (factor > 0) {
+        if (factor & 1) travel = (travel + step) % cycle;
+        factor >>= 1;
+        if (factor > 0) step = (step + step) % cycle;
+    }
+    Wide position = (prior + sign * travel) % cycle;
+    if (position < 0) position += cycle;
+    phase.subticks = static_cast<Integer>(position / denominator);
+    const auto remainder = static_cast<Integer>(position % denominator);
+    const auto reduction = std::gcd(remainder, denominator);
+    phase.remainder = remainder / reduction;
+    phase.denominator = denominator / reduction;
+    return true;
+}
+
 bool weighted_add(Integer& total, Integer count, Integer unit) {
     if (count < 0 || unit < 0 || (unit > 0 && count > std::numeric_limits<Integer>::max() / unit))
         return false;
@@ -1641,6 +1680,27 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         }
         return true;
     };
+    std::map<std::string, State::SlidePhase> historical_slide_phases;
+    const auto replay_slide_ticks = [&](Integer first, Integer last) {
+        if (first > last || historical_slide_phases.empty()) return true;
+        const auto later_drive = drive_commands.upper_bound(first);
+        const auto earlier_drive = later_drive == drive_commands.begin() ?
+            drive_commands.end() : std::prev(later_drive);
+        if ((earlier_drive != drive_commands.end() && !earlier_drive->second) ||
+            (drive_commands.empty() && !snapshot.state.topology.drive_enabled)) return true;
+        const auto* power = enabled_power_at(first);
+        if (!power || !power->mechanical.accepted()) return false;
+        for (auto& [id, phase] : historical_slide_phases) {
+            const auto found = power->mechanical.motion.find(id);
+            if (found == power->mechanical.motion.end()) return false;
+            if (found->second.state != mechanics::MotionState::rotating) continue;
+            for (Integer revision = first; revision <= last; ++revision) {
+                if (!advance_slide_phase(phase, found->second.rate)) return false;
+                if (revision == std::numeric_limits<Integer>::max()) break;
+            }
+        }
+        return true;
+    };
     std::optional<std::string> crank_holder;
     struct HistoricalCut { std::string target; Integer start_revision{}; };
     std::map<std::string, HistoricalCut> historical_cuts;
@@ -1655,6 +1715,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const Integer revision_gap = *result_revision - history_revision;
         if (revision_gap < (*accepted_value ? 1 : 0)) return false;
         if (!replay_broad_ticks(history_revision + 1,
+                *result_revision - (*accepted_value ? 1 : 0)) ||
+            !replay_slide_ticks(history_revision + 1,
                 *result_revision - (*accepted_value ? 1 : 0))) return false;
         // World::tick is the only authority advance without a request record.
         // Other accepted commands consume one revision each and cannot prove
@@ -2521,6 +2583,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (*action == "place_component") {
                 if (carried < 1 || !placed_components.emplace(*entity, std::make_pair(*component, *center)).second)
                     return false;
+                if (slide_component(*component) &&
+                    !historical_slide_phases.emplace(*entity, State::SlidePhase{}).second) return false;
                 --carried;
             } else {
                 const auto found = placed_components.find(*entity);
@@ -2533,6 +2597,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                             return std::find(cells.begin(), cells.end(), *center) != cells.end();
                         })) return false;
                 placed_components.erase(found);
+                if (slide_component(*component) && historical_slide_phases.erase(*entity) != 1)
+                    return false;
                 ++carried;
             }
             if (carried != *field<Integer>(record.result, "component_count") ||
@@ -2667,7 +2733,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 std::max<Integer>(0, manual_cut_ticks - elapsed)) return false;
     }
     if (snapshot.revision < history_revision) return false;
-    if (!replay_broad_ticks(history_revision + 1, snapshot.revision)) return false;
+    if (!replay_broad_ticks(history_revision + 1, snapshot.revision) ||
+        !replay_slide_ticks(history_revision + 1, snapshot.revision) ||
+        historical_slide_phases != snapshot.state.slide_phases) return false;
     ticks_seen += snapshot.revision - history_revision;
     if (!apply_deliveries(snapshot.revision, true) ||
         next_delivery != deliveries.size()) return false;
@@ -3015,6 +3083,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     return true;
 }
 }  // namespace
+
+bool advance_slide_phase(State::SlidePhase& phase, mechanics::Rate rate) {
+    return advance_slide_phase_internal(phase, rate);
+}
 
 materials::Path material_path(const stationary::Topology& topology) {
     materials::Path path;
@@ -3521,6 +3593,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             progress.strokes > 4 || progress.origin[0] % 4 != 0 ||
             progress.origin[2] % 4 != 0) return false;
     if (state.placed_components.size() > maximum_issued_entities) return false;
+    if (state.slide_phases.size() > state.placed_components.size()) return false;
     std::map<materials::Component, Integer> component_totals;
     std::set<mechanics::Point> component_centers;
     for (const auto& [id, placed] : state.placed_components) {
@@ -3539,10 +3612,15 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
              (placed.center[1] != 0 &&
               std::none_of(state.foundations.begin(), state.foundations.end(),
                   [&](const auto& entry) { return entry.second.center == placed.center; })))) return false;
+        if (slide_component(placed.kind) != state.slide_phases.contains(id)) return false;
         if (part(state.topology, id) || state.foundations.contains(id) ||
             std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
                 [&](const auto& item) { return item.geometry.center == placed.center; })) return false;
     }
+    for (const auto& [id, phase] : state.slide_phases)
+        if (!state.placed_components.contains(id) || phase.subticks < 0 ||
+            phase.subticks >= slide_cycle_subticks || phase.denominator <= 0 ||
+            phase.remainder < 0 || phase.remainder >= phase.denominator) return false;
     if (component_totals != state.material.placed_components) return false;
     if (state.material.initial_units != profile.initial_units ||
         state.material.cargo.size() != profile.actors.size() || state.kits.size() != profile.actors.size() ||
@@ -4658,6 +4736,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
             candidate.issued_entities.emplace(entity, serial);
             candidate.placed_components.emplace(entity, PlacedComponent{kind, center, serial});
+            if (slide_component(kind)) candidate.slide_phases.emplace(entity, State::SlidePhase{});
             ++candidate.material.placed_components[kind];
         } else {
             Integer carried = 0;
@@ -4681,6 +4760,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             serial = *generation;
             ++cargo[kind];
             candidate.placed_components.erase(entity);
+            if (slide_component(kind)) candidate.slide_phases.erase(entity);
             auto& placed = candidate.material.placed_components.at(kind);
             if (--placed == 0) candidate.material.placed_components.erase(kind);
         }
@@ -5184,6 +5264,14 @@ Advance World::tick(const ObserveActor& observe) noexcept {
         if (!tick_drive_) tick_drive_.emplace(placed.empty() ? drive_power(candidate.topology) :
             drive_power_with_layout(profile_, candidate, placed, layout));
         const auto& drive = *tick_drive_;
+        if (!drive.mechanical.accepted()) throw materials::Error::invalid_path;
+        for (auto& [id, phase] : candidate.slide_phases) {
+            const auto found = drive.mechanical.motion.find(id);
+            if (found == drive.mechanical.motion.end()) throw materials::Error::invalid_path;
+            if (found->second.state == mechanics::MotionState::rotating &&
+                !advance_slide_phase(phase, found->second.rate))
+                throw materials::Error::invalid_state;
+        }
         std::set<mechanics::Point> broad_occupied_cells;
         if (profile_.material.sheet_mass > 0)
             for (const auto& [point, cargo] : candidate.material.dropped_material)
@@ -5769,7 +5857,8 @@ Advance World::tick(const ObserveActor& observe) noexcept {
             }
         }
         if (candidate.material == snapshot.state.material &&
-            candidate.manual_cuts == snapshot.state.manual_cuts) return std::nullopt;
+            candidate.manual_cuts == snapshot.state.manual_cuts &&
+            candidate.slide_phases == snapshot.state.slide_phases) return std::nullopt;
         return candidate;
     }, [&](const Snapshot& candidate) {
         // Tick changes material and work bookkeeping, never topology or placed

@@ -860,6 +860,79 @@ void portable_bench_crafts_with_finite_shared_stock() {
           w::World::restore("portable-bench", profile, world->snapshot()) != nullptr,
           "The half-height player-built bench crafts and restores on the same foundation level.");
 }
+void powered_slide_ticks_and_restores() {
+    auto [profile, state] = seed();
+    profile.material.timber_sites = {{"slide-tree", {{44, 0, 8}, 8}}};
+    profile.material.component_capacity = 2;
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}};
+    profile.waterwheel_rate = {1, 2};
+    state.material.timber_remaining = {{"slide-tree", 8}};
+    state.kits.at("P")[{s::Role::waterwheel, 0, 0}] = 1;
+    state.topology.drive_enabled = true;
+    auto world = w::World::create("powered-slide", profile, state);
+    check(world != nullptr, "A finite wheel kit and tree initialize beside the pod deck.");
+    const auto actor = [](const std::string& name) -> std::optional<a::ActorCut> {
+        return a::ActorCut{name, {44, 0, 8}, 1, true, 10};
+    };
+    const O wheel{{"context", V("powered-slide")}, {"client", V("P-client")},
+        {"request", V("place-wheel")}, {"actor", V("P")}, {"action", V("place")},
+        {"role", V("waterwheel")}, {"axis", V("x")}, {"wheel_tiles", V(I{3})},
+        {"teeth", V(I{0})}, {"half_span", V(I{0})},
+        {"center", V(V::Array{V(I{40}), V(I{4}), V(I{8})})}};
+    check(std::get<bool>(world->command({"P", "P-client"}, wheel, actor).result->at("accepted").storage()),
+          "The actor places the issued wheel before the slide connects.");
+    for (int index = 0; index < 3; ++index) {
+        const O cut{{"context", V("powered-slide")}, {"client", V("P-client")},
+            {"request", V("wood-" + std::to_string(index))}, {"actor", V("P")},
+            {"action", V("harvest_source")}, {"target", V("slide-tree")}};
+        check(w::tests::complete_manual_cut(*world, {"P", "P-client"}, cut, actor).completed(),
+              "The slide body uses three finite tree units.");
+    }
+    const O craft{{"context", V("powered-slide")}, {"client", V("P-client")},
+        {"request", V("slide-body")}, {"actor", V("P")}, {"action", V("field_craft")},
+        {"component", V("wooden_slide")}};
+    check(std::get<bool>(world->command({"P", "P-client"}, craft, actor).result->at("accepted").storage()),
+          "The actor shapes the slide from harvested wood.");
+    const O place{{"context", V("powered-slide")}, {"client", V("P-client")},
+        {"request", V("slide-place")}, {"actor", V("P")}, {"action", V("place_component")},
+        {"component", V("wooden_slide")},
+        {"center", V(V::Array{V(I{41}), V(I{4}), V(I{8})})}};
+    const auto installed = world->command({"P", "P-client"}, place, actor);
+    check(installed.completed() &&
+          std::get<bool>(installed.result->at("accepted").storage()),
+          "The slide connects to the trusted half-rate wheel at an adjacent shaft port.");
+    const auto id = std::get<std::string>(installed.result->at("entity").storage());
+    const auto drive = w::drive_power(profile, world->snapshot().state);
+    check(drive.mechanical.motion.at(id).state == factory::mechanics::MotionState::rotating &&
+          drive.mechanical.motion.at(id).rate == factory::mechanics::Rate{1, 2},
+          "The placed slide receives its actual fractional rate from the nearby wheel.");
+    const auto advance = world->tick(actor);
+    check(advance.error == w::TransactionError::none &&
+          world->snapshot().state.slide_phases.at(id).subticks == 2048,
+          "One trusted powered tick moves the carriage by half a shaft turn.");
+    const auto wheel_id = world->snapshot().state.topology.parts.front().geometry.id;
+    const O stop{{"context", V("powered-slide")}, {"client", V("P-client")},
+        {"request", V("stop-wheel")}, {"actor", V("P")}, {"action", V("set_drive")},
+        {"target", V(wheel_id)}, {"generation", V(I{1})}, {"enabled", V(false)}};
+    check(std::get<bool>(world->command({"P", "P-client"}, stop, actor).result->at("accepted").storage()) &&
+          world->tick(actor).error == w::TransactionError::none &&
+          world->snapshot().state.slide_phases.at(id).subticks == 2048,
+          "Stopping the external wheel freezes the carriage at its last phase.");
+    const auto saved = world->snapshot();
+    const auto encoded = w::encode_checkpoint(profile, saved);
+    check(std::holds_alternative<V>(encoded) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(profile, "powered-slide", std::get<V>(encoded))) &&
+          w::World::restore("powered-slide", profile, saved) != nullptr,
+          "The powered carriage phase and its drive history survive save and restore.");
+    const O reclaim{{"context", V("powered-slide")}, {"client", V("P-client")},
+        {"request", V("reclaim-slide")}, {"actor", V("P")},
+        {"action", V("reclaim_component")}, {"target", V(id)},
+        {"generation", installed.result->at("generation")}};
+    check(std::get<bool>(world->command({"P", "P-client"}, reclaim, actor).result->at("accepted").storage()) &&
+          !world->snapshot().state.slide_phases.contains(id) &&
+          w::World::restore("powered-slide", profile, world->snapshot()) != nullptr,
+          "Reclaiming the slide removes its carriage phase without invalidating history.");
+}
 }  // namespace
 
 int main() {
@@ -873,6 +946,7 @@ int main() {
         reachable_craft_uses_one_hub_and_owned_ingredients();
         placed_components_keep_custody_and_history();
         portable_bench_crafts_with_finite_shared_stock();
+        powered_slide_ticks_and_restores();
         std::cout << "landing_pod_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

@@ -129,6 +129,25 @@ void unloaded_slide_shaft_is_native_drive_part() {
           "Removing power stops the same unloaded slide without removing a part.");
 }
 
+void carriage_phase_tracks_signed_fractional_shaft_travel() {
+    w::State::SlidePhase phase;
+    check(w::advance_slide_phase(phase, {1, 2}) && phase.subticks == 2048 &&
+          phase.remainder == 0 && phase.denominator == 1,
+          "Half a shaft revolution advances one eighth of the four-turn carriage cycle.");
+    check(w::advance_slide_phase(phase, {-1, 3}) && phase.subticks == 682 &&
+          phase.remainder == 2 && phase.denominator == 3,
+          "Reverse fractional shaft travel retains exact phase rather than rounding a tick.");
+    check(w::advance_slide_phase(phase, {1, 3}) && phase.subticks == 2048 &&
+          phase.remainder == 0 && phase.denominator == 1,
+          "Opposite signed travel restores the same exact carriage position.");
+    check(w::advance_slide_phase(phase, {-1, 1}) &&
+          phase.subticks == w::slide_cycle_subticks - 2048,
+          "Reverse travel wraps through the start of the bounded cycle.");
+    const auto before = phase;
+    check(!w::advance_slide_phase(phase, {1, 0}) && phase == before,
+          "An invalid drive denominator cannot mutate the carriage.");
+}
+
 }  // namespace
 
 int main() {
@@ -136,6 +155,7 @@ int main() {
         mixed_material_bottleneck_and_isolation();
         collector_and_press_share_one_frame();
         unloaded_slide_shaft_is_native_drive_part();
+        carriage_phase_tracks_signed_fractional_shaft_travel();
         std::cout << "material_strength_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

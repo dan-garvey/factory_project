@@ -132,6 +132,9 @@ struct PressOffcutDelivery {
 
 [[nodiscard]] mechanics::Point landing_hub_center(const mechanics::Point& pod_center);
 
+inline constexpr authority::Integer slide_cycle_subticks =
+    4 * materials::work_subticks_per_tick;
+
 // Provisional first-chapter ratings for placed drive components. The same
 // values bound native motion and are projected with workshop recipes.
 [[nodiscard]] constexpr std::optional<authority::Integer> placed_drive_load_rating(
@@ -164,6 +167,14 @@ struct State {
     std::set<std::string> workshop_completed_actors;
     std::optional<HandCrank> hand_crank;
     std::map<std::string, PlacedComponent> placed_components;
+    struct SlidePhase {
+        // Four shaft turns make one reciprocal, unloaded carriage cycle.
+        authority::Integer subticks{};
+        authority::Integer remainder{};
+        authority::Integer denominator{1};
+        bool operator==(const SlidePhase&) const = default;
+    };
+    std::map<std::string, SlidePhase> slide_phases;
     struct ManualCut {
         std::string target;
         authority::Integer start_revision{};
@@ -207,6 +218,10 @@ struct State {
 
 using Owner = TransactionOwner<State>;
 using Snapshot = Owner::Snapshot;
+
+// One authority tick of signed shaft travel. Returns false if the exact
+// fractional phase cannot be represented without overflow.
+[[nodiscard]] bool advance_slide_phase(State::SlidePhase& phase, mechanics::Rate rate);
 
 struct Binding {
     // Session authenticates both fields. A client cannot choose another actor

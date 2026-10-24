@@ -213,7 +213,7 @@ very close to the body even when the exact rotated boxes do not overlap.
 Vertical and sideways spans transmit rotation without carrying cargo or actors.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
-logical World checkpoint has schema 16, including timed manual cuts, workshop custody and placement,
+logical World checkpoint has schema 17, including exact powered-slide carriage phase, timed manual cuts, workshop custody and placement,
 each actor's first collected plate milestone, building facings, the trusted interaction offset and
 identified belt spans, modular press output witnesses, belt-fed work claims and
 identified partial broad-sheet cutting strokes.

@@ -74,10 +74,36 @@ void one_piece_slide_custody() {
           std::abs(std::get<double>(half[1].storage()) - 0.4125) < 1e-8 &&
           get<std::string>(V(get<O>(host.projection(), "motion").at(slide_id)), "state") == "unpowered",
           "The placed slide publishes one fixed collision volume and its actual idle drive state.");
+    const auto initial_phase = get<O>(host.projection(), "slide_phases").at(slide_id);
+    check(get<I>(initial_phase, "subticks") == 0 &&
+          get<I>(initial_phase, "remainder") == 0 &&
+          get<I>(initial_phase, "denominator") == 1 &&
+          get<I>(initial_phase, "cycle_subticks") == factory::world::slide_cycle_subticks,
+          "The new slide projects an exact zero carriage phase from native state.");
+    for (int tick = 0; tick < 3; ++tick) {
+        const auto advanced = host.advance();
+        check(get<O>(advanced, "slide_phases").contains(slide_id),
+              "The authority tick retains the placed slide projection.");
+    }
+    check(!factory::values::typed_difference(get<O>(host.projection(), "slide_phases").at(slide_id),
+              initial_phase),
+          "An unloaded slide without input power holds its carriage phase over authority ticks.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted") &&
           get<bool>(command("place-slide", "place_component", place), "duplicate"),
           "The placed slide validates and a retried request cannot spend it again.");
+    auto forged = std::get<O>(saved.storage());
+    auto native = std::get<O>(forged.at("world").storage());
+    auto state = std::get<O>(native.at("state").storage());
+    auto phases = std::get<O>(state.at("slide_phases").storage());
+    auto phase = std::get<O>(phases.at(slide_id).storage());
+    phase.at("subticks") = V(I{1});
+    phases.at(slide_id) = V(std::move(phase));
+    state.at("slide_phases") = V(std::move(phases));
+    native.at("state") = V(std::move(state));
+    forged.at("world") = V(std::move(native));
+    check(!get<bool>(host.validate_checkpoint(V(std::move(forged))), "accepted"),
+          "History validation rejects invented carriage motion on an unpowered slide.");
     Host restored;
     check(get<bool>(restored.initialize_arrival("slide-body-site", {"P"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
