@@ -1857,8 +1857,6 @@ func _finish_belt_fed_press_run(panel) -> void:
 			"The actor carries the belt-fed plate from its exact output point"):
 		return
 	facts["first_plate"] = opening.model.projection()
-	if not await _deliver_first_arrival_plate(facts.first_plate, ""):
-		return
 	_record("pass")
 
 ## Fresh arrival panel consumer with actor motor, finite sources and Store.
