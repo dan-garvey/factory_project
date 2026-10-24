@@ -278,7 +278,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 	inventory.open_catalog()
 	if not _expect(inventory.material_counts.timber.text == "3"
 			and inventory.material_buttons.timber.visible
-			and "Craft here" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
+			and "Shape with multitool" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
 			"Finite cuts refresh the carried stack and available recipe in one inventory"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -341,7 +341,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 	await process_frame
 	if not _expect(inventory.catalog.visible and inventory.context_bench == "pod-fabrication-hub"
 			and not opening.object_menu.visible
-			and "Craft here" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text,
+			and "Craft at selected bench; stand nearby" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text,
 			"E on the installed pod opens the same recipe grid with bench crafting available"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -383,7 +383,7 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 	if not _expect(inventory.catalog.visible and inventory.context_bench == before.fabrication_hub.id
 			and before.cargo.P.timber == 2 and before.foundation_recipe.timber == 2
 			and "2 timber" in inventory.recipe_buttons.foundation.tooltip_text
-			and "Craft here" in inventory.recipe_buttons.foundation.tooltip_text,
+			and "Craft at selected bench; stand nearby" in inventory.recipe_buttons.foundation.tooltip_text,
 			"The E-opened inventory exposes its native floor recipe beside gathered timber"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -677,7 +677,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 		return
 	opening._open_object_menu_for(id)
 	if not _expect(inventory.catalog.visible and inventory.context_bench == id
-			and "Craft here" in inventory.recipe_buttons["component:cutting_edge"].tooltip_text,
+			and "Craft at selected bench; stand nearby" in inventory.recipe_buttons["component:cutting_edge"].tooltip_text,
 			"The relocated pod exposes its metal recipe in the same E-opened grid"):
 		return
 	inventory.recipe_buttons["component:cutting_edge"].pressed.emit()

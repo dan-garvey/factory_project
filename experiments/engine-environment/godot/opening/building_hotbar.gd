@@ -422,11 +422,12 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 	var station := "Field or bench" if field_allowed else "Bench"
 	var rating := int(cost.get("load_rating", 0))
 	var rating_detail := " · rated for %d load" % rating if rating > 0 else ""
-	var reason := "Craft here" if ready and affordable and (field_allowed or at_bench) else \
+	var craftable := ready and affordable and (field_allowed or at_bench)
+	var reason := "Craft at selected bench; stand nearby" if craftable and at_bench else \
+		"Shape with multitool" if craftable else \
 		"Carry the ingredients" if not affordable else \
 		"Open a fabrication bench with E" if not field_allowed and not at_bench else \
 		"Wait for the character"
-	var craftable := reason == "Craft here"
 	tile.visible = true
 	tile.disabled = not ready
 	tile.modulate = Color.WHITE if craftable else Color(0.42, 0.47, 0.50) if not affordable else \
