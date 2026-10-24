@@ -1582,8 +1582,27 @@ func _arrival_hotbar() -> void:
 	var bar = view.building_hotbar
 	verify(bar.slots == bar.ARRIVAL_SLOTS and bar.slots[0] == "component:wooden_frame"
 		and not bar.slots.has("collector") and not bar.slots.has("processor")
-		and bar.slot_tags[0].text == "WF" and bar.slot_tags[3].text == "TM",
+		and bar.slot_icons[0].texture == bar.component_buttons.wooden_frame.icon
+		and bar.slot_icons[3].texture == bar.component_buttons.tool_mount.icon,
 		"Native arrival quick slots begin with modular parts and a foundation, without complete machines.")
+	var component_icon_paths := {}
+	for component: String in bar._component_names:
+		var texture: Texture2D = bar.component_buttons[component].icon
+		verify(texture != null and texture.resource_path.ends_with("/" + component + ".svg"),
+			"Each fabricated component uses its own named item icon in the inventory.")
+		component_icon_paths[texture.resource_path] = true
+	verify(component_icon_paths.size() == bar._component_names.size(),
+		"Different fabricated parts never share one icon resource.")
+	var slot_icon_ids := {}
+	for icon: TextureRect in bar.slot_icons:
+		slot_icon_ids[icon.texture.get_instance_id()] = true
+	verify(slot_icon_ids.size() == 8 and bar.buttons[0].accessibility_name.contains("Wooden frame"),
+		"The opening hotbar distinguishes all eight slots by icon and preserves a focus name.")
+	var face_labels: Array[String] = []
+	for child: Node in bar.buttons[0].get_children():
+		if child is Label:
+			face_labels.append(child.text)
+	verify(face_labels == ["1", "0"], "Only the slot number and stock count remain on an item face.")
 	verify(not bar.catalog_buttons.collector.visible and not bar.catalog_buttons.processor.visible
 		and bar.component_row.visible and bar.component_choice.item_count == view.arrival_assembly_controls.COMPONENTS.size(),
 		"The arrival catalog hides historical machines and offers every fabricated component.")
@@ -1655,7 +1674,7 @@ func _arrival_hotbar() -> void:
 		verify(bar.slots[7] == "component:softmetal_cog" and view.mode == "component"
 			and view.arrival_assembly_controls.selected_name() == "softmetal_cog"
 			and view.arrival_assembly_controls.component_choice.selected == cog_index
-			and bar.slot_tags[7].text == "SC"
+			and bar.slot_icons[7].texture == bar.component_buttons.softmetal_cog.icon
 			and view.issued.is_empty(),
 			"Catalog assignment selects the exact component in the existing workshop and placement path.")
 	bar.open_catalog(6)
@@ -1739,6 +1758,15 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK,
 		"Retain the rendered arrival component catalog.")
+	var inventory_scroll: ScrollContainer = bar.catalog.find_child("InventoryItems", true, false)
+	await settle_widgets()
+	inventory_scroll.scroll_vertical = int(inventory_scroll.get_v_scroll_bar().max_value)
+	await settle_widgets()
+	verify(inventory_scroll.scroll_vertical > 0,
+		"The component inventory is reachable by scrolling.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-components.png") == OK,
+		"Retain the visible component icon grid after scrolling.")
 	root.size = Vector2i(640, 480)
 	bar.catalog.hide()
 	await settle_widgets()
