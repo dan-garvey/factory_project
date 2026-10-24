@@ -4684,7 +4684,6 @@ var object_menu_operations: VBoxContainer
 var object_menu_detail_panel: PanelContainer
 var object_menu_desired_extent := Vector2i(500, 400)
 var object_menu_viewport_size := Vector2i.ZERO
-var worksite_details_section: VBoxContainer
 var object_workshop_craft_column: VBoxContainer
 var object_workshop_collector: VBoxContainer
 var object_workshop_route: VBoxContainer
@@ -4727,10 +4726,8 @@ var wheel_tiles := 3
 var wheel_size_controls: HBoxContainer
 var wheel_size_label: Label
 var state: Dictionary = {}
-var show_details := false
 var consumed_shortcut_keys: Dictionary = {}
 var catalog_button: Button
-var details_button: Button
 var controls_label: Label
 var building_rotation := 0
 var rotation_button: Button
@@ -5666,8 +5663,6 @@ func _input(event: InputEvent) -> void:
 				used = _activate_button(arrival_assembly_controls.reclaim_button) \
 					if arrival_assembly_controls != null and state.get("placed_components", {}).has(selected) \
 					else _activate_button(remove_button)
-			elif event.ctrl_pressed and event.keycode == KEY_D:
-				used = _activate_button(details_button)
 			elif event.ctrl_pressed and event.keycode == KEY_R:
 				used = _activate_button(retrieve_button)
 			elif event.ctrl_pressed and event.keycode == KEY_M:
@@ -5780,7 +5775,6 @@ func _input(event: InputEvent) -> void:
 			handled = true
 		elif event.ctrl_pressed:
 			match event.keycode:
-				KEY_D: handled = _activate_button(details_button) if legacy_fixture else false
 				KEY_ENTER, KEY_KP_ENTER: handled = _activate_button(confirm_button)
 				KEY_R: handled = _activate_button(retrieve_button)
 				KEY_M: handled = _open_action_menu(recovery_actions.action_button if recovery_actions != null else null)
@@ -9106,7 +9100,7 @@ func _native_ui_key() -> Array:
 	return [model.get_instance_id(), state.get("context"), state.get("revision"),
 		state.get("actors", {}).get(client, {}).get("ready", false),
 		selected, mode, explanation_open, startup_save_pending, save_slot_ready, save_slot_owned,
-		goal_confirmed, show_details, building_rotation, foundation_level, wheel_level, wheel_tiles,
+		goal_confirmed, building_rotation, foundation_level, wheel_level, wheel_tiles,
 		transmission_controls.active_tool if transmission_controls != null else "",
 		transmission_controls.selected_axis if transmission_controls != null else ""]
 
@@ -9241,7 +9235,7 @@ func _refresh_ui() -> void:
 	if _object_menu_open() and _contains_target(state, selected):
 		var detail_lines := inspector.text.split("\n")
 		inspector.text = "\n".join(detail_lines.slice(1, detail_lines.size()))
-	elif not show_details:
+	else:
 		var inspection_lines := inspector.text.split("\n")
 		inspector.text = "\n".join(inspection_lines.slice(0, mini(3, inspection_lines.size())))
 	_refresh_guided_tools()
@@ -9279,11 +9273,6 @@ func _refresh_ui() -> void:
 
 func _catalog_open() -> bool:
 	return building_hotbar != null and building_hotbar.catalog.visible
-
-func _toggle_details() -> void:
-	if not explanation_open:
-		show_details = not show_details
-		_refresh_ui()
 
 func _refresh_manager_log() -> void:
 	if manager_log_current == null or goal_label == null:
@@ -9448,27 +9437,20 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
 	lesson_button.visible = not arrival
-	details_button.text = ("Hide worksite  Ctrl+D" if show_details else "Worksite  Ctrl+D") if object_menu != null \
-		else ("Less  ^D" if show_details else "Details  ^D")
-	details_button.disabled = explanation_open
-	for control in [stock_label, power_label]:
-		control.visible = show_details
-	if worksite_details_section != null:
-		worksite_details_section.visible = show_details
-	actor_label.visible = show_details or not state.get("actors", {}).get(client, {}).get("ready", false)
+	actor_label.visible = true
 	controls_label.text = "WASD move · E interact · B build · F remove" if arrival \
 		else "B catalog · 1–8 build · E open · F remove · H guide"
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
-	inspector_title.visible = object_menu == null and (target_selected or show_details or not snapshot_ready or not _can_choose_tool())
-	inspector.visible = target_selected if object_menu != null else target_selected or show_details \
+	inspector_title.visible = object_menu == null and (target_selected or not snapshot_ready or not _can_choose_tool())
+	inspector.visible = target_selected if object_menu != null else target_selected \
 		or not snapshot_ready or not _can_choose_tool()
 	retrieve_button.visible = state.get("entities", {}).get(selected, {}).get("kind") == "processor"
 	remove_button.visible = target_selected
 	inspection_actions.visible = target_selected
 	for divider in inspector.get_parent().get_children():
 		if divider is HSeparator:
-			divider.visible = show_details
+			divider.visible = target_selected
 
 func _placement_ready() -> bool:
 	return _can_control_character()
@@ -9862,14 +9844,14 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 			if part.get("kind", "") in ["collector", "belt", "processor"] and motion.get(id, {}).get("state", "") != "rotating":
 				return {"text": "Use cogs and shafts to bring rotation to each machine. The belt shaft crosses its direction of travel.", "tool": "drive"}
 			if part.get("kind", "") == "belt" and motion.get(id, {}).get("state", "") == "rotating" and int(motion.get(id, {}).get("numerator", 0)) > 0:
-				return {"text": "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation; pick up loose blanks from the worksite menu.", "tool": "drive"}
+				return {"text": "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation.", "tool": "drive"}
 		if span_route.physical and not span_route.powered and not legacy_route:
 			return {"text": "Power the belt shafts, check their direction toward the press, and check branches for diverted blanks.", "tool": "drive"}
 	elif not state.get("powered", false):
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
 	if _native_transmission() and not span_route.cargo and state.get("dropped_material", []).any(func(drop: Variant): return drop is Dictionary and int(drop.get("raw", 0)) > 0) and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
-		return {"text": "Pick up loose blanks from the worksite menu, then insert them into the press.", "tool": "inspect"}
+		return {"text": "Pick up loose blanks nearby, then insert them into the press.", "tool": "inspect"}
 	if not span_route.cargo and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():
 			var cargo: Dictionary = state.get("cargo", {}).get(client, {})
@@ -9931,7 +9913,7 @@ func _refresh_machine_captions() -> void:
 		if caption == null:
 			continue
 		var entity_id: String = anchor.get_meta("machine_entity", "")
-		caption.visible = not explanation_open and (show_details or entity_id == selected \
+		caption.visible = not explanation_open and (entity_id == selected \
 			or entity_id == pending_link)
 
 func _update_cursor() -> void:
@@ -10011,7 +9993,7 @@ func _fit_guided_footer() -> void:
 	# Keep repeated guidance on the objective card instead of a second message panel.
 	var repeated_goal: bool = not status_label.text.is_empty() and goal_label.text.contains(status_label.text)
 	var can_omit_instruction: bool = footer_snapshot_ready and _placement_ready() \
-		and not status_refused and not show_details and not _catalog_open() and not explanation_open
+		and not status_refused and not _catalog_open() and not explanation_open
 	var redundant_intro: bool = can_omit_instruction and (repeated_goal or _native_transmission() \
 		and mode in ["inspect", "collector"] \
 		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
@@ -10167,14 +10149,6 @@ func _build_object_menu(root: Control, detail_panel: PanelContainer) -> void:
 	detail_panel.custom_minimum_size = Vector2(220, 0)
 	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	detail_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	var detail_column := inspector.get_parent() as VBoxContainer
-	details_button.reparent(detail_column)
-	details_button.visible = true
-	worksite_details_section = VBoxContainer.new()
-	detail_column.add_child(worksite_details_section)
-	for control in [actor_label, power_label, stock_label]:
-		control.reparent(worksite_details_section)
-	worksite_details_section.visible = false
 	object_menu_operations = VBoxContainer.new()
 	object_menu_operations.custom_minimum_size.x = 420
 	object_menu_operations.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -10240,7 +10214,7 @@ func _open_pause_menu() -> void:
 		return
 	_release_character_controls()
 	pause_menu_scrim.visible = true
-	pause_menu.popup_centered(Vector2i(350, 290))
+	pause_menu.popup_centered(Vector2i(380, 390))
 	pause_resume_button.grab_focus()
 
 func _build_pause_menu(root: Control) -> void:
@@ -10271,6 +10245,11 @@ func _build_pause_menu(root: Control) -> void:
 	margin.add_child(column)
 	_label(column, "WORKSITE", 18, Color("f1d7a5"))
 	_label(column, "Esc resumes  ·  F5 saves", 11, Color("b9ceca"))
+	var status := VBoxContainer.new()
+	status.add_theme_constant_override("separation", 4)
+	column.add_child(status)
+	for control in [actor_label, power_label, stock_label]:
+		control.reparent(status)
 	var actions := GridContainer.new()
 	actions.columns = 2
 	actions.add_theme_constant_override("h_separation", 14)
@@ -10303,7 +10282,7 @@ func _style_pause_action(button: Button, icon_name: String, action_name: String,
 	button.expand_icon = false
 	button.custom_minimum_size = Vector2(140, 82)
 	button.tooltip_text = "%s  [%s]" % [action_name, shortcut]
-	button.accessibility_name = action_name
+	button.accessibility_name = "%s, shortcut %s" % [action_name, shortcut]
 	var caption := Label.new()
 	caption.text = action_name
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -10319,7 +10298,6 @@ func _on_object_menu_closed() -> void:
 	object_menu_scrim.visible = false
 	object_menu_target = ""
 	selected = ""
-	show_details = false
 	_refresh_ui()
 
 func _object_name(target: String) -> String:
@@ -10414,7 +10392,7 @@ func _refresh_pointed_summary() -> void:
 
 func _build_interface() -> void:
 	# A revisable opening adapter limit, not a fixed window or a game-world rule.
-	get_window().min_size = Vector2i(1280, 800)
+	get_window().min_size = Vector2i(640, 480)
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
 	arrival_gameplay_canvas = canvas
@@ -10546,12 +10524,6 @@ func _build_interface() -> void:
 	tool_buttons.flow.toggle_mode = true
 	if not legacy_fixture:
 		tool_buttons.flow.custom_minimum_size.y = 30
-	var view_options := HBoxContainer.new()
-	build.add_child(view_options)
-	view_options.visible = not legacy_fixture
-	details_button = _button(view_options, "Details  ^D", _toggle_details)
-	details_button.custom_minimum_size.y = 30
-	details_button.tooltip_text = "Show worksite counters and save options."
 	lesson_button = _button(build, "Guide  H", _toggle_explanation)
 	if not legacy_fixture:
 		lesson_button.custom_minimum_size.y = 30
@@ -10559,10 +10531,9 @@ func _build_interface() -> void:
 		var quick_actions := HBoxContainer.new()
 		quick_actions.add_theme_constant_override("separation", 4)
 		build.add_child(quick_actions)
-		for action in [manager_log_button, details_button, lesson_button]:
+		for action in [manager_log_button, lesson_button]:
 			action.get_parent().remove_child(action)
 			quick_actions.add_child(action)
-		view_options.free()
 	var right := _panel(root, Vector2(932, 18), Vector2(255 if not legacy_fixture else 330, 490 if legacy_fixture else 0))
 	if not legacy_fixture:
 		_hud_surface(right, 0.58)
@@ -10577,7 +10548,7 @@ func _build_interface() -> void:
 		# The actor/connection rows identify the physical worksite. Leave room
 		# for a selected press and pending-server advice above the status panel.
 		right.add_theme_constant_override("separation", 6)
-		inspector_title = _label(right, "SELECTED / WORKSITE", 12, Color("f4bf75"))
+		inspector_title = _label(right, "SELECTED", 12, Color("f4bf75"))
 	actor_label = _label(right, "", 11, Color("a3b8b4"))
 	actor_label.visible = not legacy_fixture
 	power_label = _label(right, "", 14, Color("dfbc76"))
@@ -10630,7 +10601,7 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H guide · Ctrl+D details", 11, Color("bfd1cc"))
+	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H guide", 11, Color("bfd1cc"))
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:

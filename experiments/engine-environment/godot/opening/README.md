@@ -25,7 +25,7 @@ open for more construction. The four-plate confirmation above describes the
 older complete-machine fixture, not an arrival objective.
 Point at a workshop, collector or press and use **E** to open a centered object
 panel. The workshop's craft and route sections share that panel. **Esc** closes
-it; **Ctrl+D** reveals worksite counters and save controls inside it.
+it. From the game view, **Esc** opens worksite status, Save and Reopen.
 The detached `--script res://opening/guidance_cue_check.gd -- --camera-zoom-only`
 verifies offline and shared camera transitions without launching a controlled
 game session.
@@ -85,8 +85,8 @@ Inside an E panel, the visible actions use **C** craft or take the press crank,
 **P** place or pick up, **F** feed, **T** turn or take the collector crank,
 **X** cut, **R** reinsert, **U** recover, **V** shape, **S** stow the pod,
 **M** make a kit, and **K** place a kit. Use arrow keys and Enter in selectors.
-**Delete** removes the opened object, **Ctrl+D** expands worksite details, and
-**Esc** closes the panel. Disabled actions stay disabled from the keyboard.
+**Delete** removes the opened object, and **Esc** closes the panel. Disabled
+actions stay disabled from the keyboard.
 
 **Rotate [R]** turns a collector or press by 90 degrees before placement. The
 preview turns its outlet and horizontal drive axle while keeping the collector's

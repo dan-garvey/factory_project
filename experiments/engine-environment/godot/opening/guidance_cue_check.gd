@@ -542,18 +542,18 @@ func check_foundation_inspector() -> void:
 			and view.inspector.is_visible_in_tree() and view.remove_button.is_visible_in_tree()
 			and not view.retrieve_button.visible and not view.object_menu_operations.visible,
 			"E opens only the pointed foundation's details and dismantling action.")
-		view.show_details = true
-		view._refresh_guided_tools()
-		verify(view.worksite_details_section.visible and view.stock_label.is_visible_in_tree(),
-			"Worksite counters are available inside the open object panel.")
+		verify(not view.stock_label.is_visible_in_tree(),
+			"Foundation inspection does not expose generic worksite counters.")
 		view.object_menu.hide()
 		view.selected = ""
-		view.show_details = false
 		view._refresh_guided_tools()
 		await settle_footer()
-		verify(not view.object_menu.visible and view.selected.is_empty()
-			and not view.worksite_details_section.is_visible_in_tree(),
-			"Closing the panel releases its selected target and worksite disclosure.")
+		verify(not view.object_menu.visible and view.selected.is_empty(),
+			"Closing the panel releases its selected target.")
+		view._open_pause_menu()
+		verify(view.pause_menu.visible and view.stock_label.is_visible_in_tree(),
+			"Escape menu owns the generic worksite counters.")
+		view.pause_menu.hide()
 		view.state.actors.P.ready = false
 		verify(not view._can_control_character(), "An unready actor cannot use object interactions.")
 		view.state.actors.P.ready = true
@@ -679,11 +679,11 @@ func check_footer_layout() -> void:
 		and long_bounds.encloses(view.status_label.get_global_rect()) and long_bounds.encloses(view.controls_label.get_global_rect()),
 		"The footer grows upward around a refusal while keeping both rows inside the viewport.")
 	view._message(intro)
-	view.show_details = true
+	view._open_pause_menu()
 	view._refresh_guided_tools()
 	await settle_footer()
-	verify(view.status_label.visible, "Details keeps the explicit introductory status available.")
-	view.show_details = false
+	verify(view.status_label.visible, "The worksite menu keeps the explicit introductory status available.")
+	view.pause_menu.hide()
 	view.building_hotbar.catalog.show()
 	view._refresh_guided_tools()
 	await settle_footer()

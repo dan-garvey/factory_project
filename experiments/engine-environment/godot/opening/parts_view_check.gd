@@ -1085,17 +1085,28 @@ func _ui_shortcuts() -> void:
 		event.keycode = KEY_D
 		event.ctrl_pressed = true
 		view._input(event)
-		verify(not view.show_details, "Ctrl+D leaves the unobstructed game view unchanged.")
+		verify(not view.pause_menu.visible and not view.stock_label.is_visible_in_tree(),
+			"Ctrl+D leaves the unobstructed game view unchanged.")
 		view._open_pointed_machine()
 		view._input(event)
-		verify(view.object_menu.visible and view.show_details and view.stock_label.is_visible_in_tree(),
-			"Ctrl+D reveals worksite details inside an opened object panel.")
-		view._input(event)
-		verify(not view.show_details and not view.stock_label.visible, "Ctrl+D folds the worksite details again.")
+		verify(view.object_menu.visible and view.inspector.is_visible_in_tree()
+			and not view.stock_label.is_visible_in_tree(),
+			"The selected-object panel keeps its inspection without a worksite submenu.")
 		event.ctrl_pressed = false
 		event.keycode = KEY_ESCAPE
 		view._input(event)
-		verify(not view.object_menu.visible, "Escape closes the object panel before construction shortcuts resume.")
+		verify(not view.object_menu.visible, "Escape closes the object panel before opening the worksite menu.")
+		view._unhandled_input(event)
+		verify(view.pause_menu.visible, "Escape opens the worksite menu after closing an object panel.")
+		verify(view.stock_label.is_visible_in_tree(), "The Escape menu displays worksite stock.")
+		verify(view.pause_resume_button.has_focus(), "The Escape menu focuses Resume.")
+		verify(view.save_button.get_parent() == view.load_button.get_parent(),
+			"Save and Reopen share the Escape menu action grid.")
+		verify(view.save_button.accessibility_name == "Save worksite, shortcut F5"
+			and view.load_button.accessibility_name == "Reopen save, shortcut F9",
+			"The icon actions announce their keyboard shortcuts at focus.")
+		view._input(event)
+		verify(not view.pause_menu.visible, "Escape resumes from the worksite menu.")
 		event.alt_pressed = true
 		event.keycode = KEY_4
 		view._input(event)
@@ -2542,10 +2553,10 @@ func _object_menu_check() -> void:
 		and view.object_menu.size.x >= 740 and view.object_menu.size.y >= 420
 		and not view._can_control_character() and view._actor_ready_for_actions(),
 		"The large panel fits the viewport, holds movement, and leaves object actions available.")
-	verify(view.object_menu_scrim.visible and view.worksite_details_section.visible == false
+	verify(view.object_menu_scrim.visible and not view.stock_label.is_visible_in_tree()
 		and not view.object_workshop_route.visible
 		and view.arrival_assembly_controls.component_choice.is_visible_in_tree(),
-		"The object panel shades the worksite, shows its craft controls, and begins with global details collapsed.")
+		"The object panel shades the worksite and shows craft controls without generic worksite status.")
 	for viewport_size in [Vector2i(800, 600), Vector2i(640, 480)]:
 		view._fit_object_menu(viewport_size)
 		await process_frame
@@ -2560,8 +2571,9 @@ func _object_menu_check() -> void:
 	key.keycode = KEY_D
 	key.ctrl_pressed = true
 	view._input(key)
-	verify(view.worksite_details_section.visible and view.stock_label.is_visible_in_tree(),
-		"Ctrl+D reveals the worksite details inside the open object panel.")
+	verify(view.object_menu.visible and view.inspector.is_visible_in_tree()
+		and not view.stock_label.is_visible_in_tree(),
+		"Ctrl+D cannot open generic worksite details in the object panel.")
 	key.ctrl_pressed = false
 	verify(view.issued.is_empty(), "Opening the workbench remains a read-only view action.")
 	key.keycode = KEY_C
