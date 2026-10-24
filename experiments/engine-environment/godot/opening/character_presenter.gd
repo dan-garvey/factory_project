@@ -110,55 +110,6 @@ func _multitool_frame(body: Node3D) -> Transform3D:
 	return Transform3D(Basis(Vector3.DOWN, Vector3.BACK, Vector3.LEFT).scaled(Vector3.ONE / fitted_scale),
 		Vector3(0.085, 0.018, 0.012))
 
-func _badge_quad(builder: SurfaceTool, center: Vector3, height: float,
-		width: float, tint: Color, angle: float = 0.0) -> void:
-	var rotated := Basis(Vector3.UP, angle)
-	var a := center + rotated * Vector3(-height * 0.5, 0.0, -width * 0.5)
-	var b := center + rotated * Vector3(-height * 0.5, 0.0, width * 0.5)
-	var c := center + rotated * Vector3(height * 0.5, 0.0, width * 0.5)
-	var d := center + rotated * Vector3(height * 0.5, 0.0, -width * 0.5)
-	builder.set_color(tint)
-	builder.set_normal(Vector3.UP)
-	for point in [a, b, c, a, c, d]:
-		builder.add_vertex(point)
-
-func _attach_field_badge(body: Node3D, skeleton: Skeleton3D) -> bool:
-	if skeleton.find_bone("Bip01 Spine2") < 0:
-		return false
-	var attachment := BoneAttachment3D.new()
-	attachment.name = "FieldSuitMark"
-	attachment.bone_name = "Bip01 Spine2"
-	skeleton.add_child(attachment)
-	attachment.owner = body
-	attachment.set_meta("presentation_only", true)
-	# On this sourced rig, local X rises, Y faces the jacket front and Z points
-	# toward the actor's left. Keep the mark on the upper torso during gait.
-	var center := Vector3(0.04, 0.132, 0.092)
-	var builder := SurfaceTool.new()
-	builder.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_badge_quad(builder, center, 0.050, 0.080, Color("2a211d"))
-	_badge_quad(builder, center + Vector3(0.0, 0.001, 0.0),
-		0.044, 0.074, Color("6f5946"))
-	# The provisional field-package mark is a small angular M, not a screen
-	# overlay or another material/interaction state.
-	for side in [-1.0, 1.0]:
-		_badge_quad(builder, center + Vector3(0.0, 0.002, side * 0.022),
-			0.027, 0.004, Color("ba9d76"))
-		_badge_quad(builder, center + Vector3(0.003, 0.002, side * 0.009),
-			0.023, 0.004, Color("ba9d76"), side * 0.48)
-	var mark := MeshInstance3D.new()
-	mark.name = "WovenInsignia"
-	mark.mesh = builder.commit()
-	var finish := StandardMaterial3D.new()
-	finish.vertex_color_use_as_albedo = true
-	finish.cull_mode = BaseMaterial3D.CULL_DISABLED
-	finish.roughness = 0.9
-	mark.material_override = finish
-	mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	attachment.add_child(mark)
-	mark.owner = body
-	return true
-
 func _attach_multitool(body: Node3D) -> BoneAttachment3D:
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
 	if skeleton.find_bone("Bip01 R Hand") < 0:
@@ -1157,9 +1108,6 @@ func _prepare_adult_template(asset_root: String = ADULT_ASSETS, second: bool = f
 	var fitted_scale: float = Geometry.CAPSULE_HEIGHT / bounds.size.y
 	appearance.scale = Vector3.ONE * fitted_scale
 	appearance.position.y = -Geometry.CAPSULE_HEIGHT / 2.0 - bounds.position.y * fitted_scale
-	if not second and not _attach_field_badge(body, skeleton):
-		body.free()
-		return false
 	body.set_meta("source_rest_bounds", bounds)
 	body.set_meta("source", "Microsoft Rocketbox Male_Adult_05" if second
 		else "Microsoft Rocketbox Female_Adult_04")

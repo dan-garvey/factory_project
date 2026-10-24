@@ -26,12 +26,6 @@ class FooterView extends Opening:
 	func _process(_delta: float) -> void:
 		pass
 
-class FreightActionView extends FooterView:
-	var requests: Array[Dictionary] = []
-	func issue(action: Dictionary) -> Dictionary:
-		requests.append(action.duplicate(true))
-		return {"accepted": false, "reason": "view_only"}
-
 class SharedFooterView extends SharedOpening:
 	func _ready() -> void:
 		pass
@@ -257,12 +251,6 @@ func settle_footer() -> void:
 	for _frame in range(4):
 		await process_frame
 
-func visible_follow_up(view: Node) -> bool:
-	for entry: Node in view.manager_log_layer.find_children("*", "Label", true, false):
-		if entry.text.begins_with("03  FOLLOW-UP"):
-			return entry.visible
-	return false
-
 func check_shared_manager_log() -> void:
 	var source := NativeModel.new("shared-manager-view-fixture", ["P"], true)
 	verify(source.boot_result.get("accepted", false), "A native arrival projection is available for the detached shared log view.")
@@ -303,97 +291,25 @@ func check_shared_manager_log() -> void:
 	view.free()
 	finish_checks()
 
-func check_freight_beacon_view() -> void:
-	var source := NativeModel.new("freight-view-fixture", ["P", "Q"], true)
-	verify(source.boot_result.get("accepted", false), "The real native arrival supplies a beacon projection.")
+func check_inventory_goal_view() -> void:
+	var source := NativeModel.new("inventory-goal-view-fixture", ["P", "Q"], true)
+	verify(source.boot_result.get("accepted", false),
+		"A native arrival projection supplies the local cargo for the workshop goal.")
 	if not source.boot_result.get("accepted", false):
 		finish_checks()
 		return
-	var view := FreightActionView.new()
+	var view := FooterView.new()
 	view.model = source
 	view.client = "P"
 	view.state = source.projection()
 	root.add_child(view)
 	view._build_world()
 	view._build_interface()
-	view._sync_freight_beacon_visual()
 	view._refresh_ui()
-	verify(not visible_follow_up(view),
-		"The first-order Work log keeps the later commission undisclosed before a receipt.")
-	var beacon: Dictionary = view.state.freight_beacon
-	var marker: Label3D = view.freight_beacon_visual.get_node_or_null("ShipmentLabel")
-	verify(view.freight_beacon_visual != null and view.freight_beacon_visual.name == "ShipmentMarker"
-		and view.freight_beacon_visual.get_meta("freight_beacon") == beacon.id
-		and marker != null and marker.billboard == BaseMaterial3D.BILLBOARD_ENABLED,
-		"The native beacon has a camera-facing shipment label.")
-	var point: Label3D = view.freight_beacon_visual.get_node_or_null("ShipmentPoint")
-	verify(view.freight_beacon_visual.find_children("*", "MeshInstance3D", true, false).is_empty()
-		and point != null and point.visible and point.fixed_size and not point.no_depth_test
-		and point.position.y < 0.15 and marker.fixed_size and not marker.no_depth_test,
-		"The shipment destination has legible depth-tested interface glyphs anchored to the ground without prebuilt machinery.")
-	verify(view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER
-		and view.freight_beacon_visual.collision_mask == 0,
-		"The shipment cue retains the native selection layer and unchanged actor collision.")
-	var position: Array = beacon.position
-	verify(is_equal_approx(view.freight_beacon_visual.position.x, float(position[0]))
-		and is_equal_approx(view.freight_beacon_visual.position.z, float(position[2]))
-		and beacon.center == [6, 0, 4],
-		"The shipment cue retains the native world-space point east of the pod.")
-	for _frame in range(3):
-		await physics_frame
-	# Match the near first-person approach used by the ordinary delivery route.
-	# A centered ray can hit the pick body even when its label falls below the
-	# viewport; the target must advertise itself in that same view.
-	view.camera.position = view.freight_beacon_visual.position + Vector3(-0.05, 1.8, 1.65)
-	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.5, 0))
-	var near_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
-	var label_screen := view.camera.unproject_position(marker.global_position)
-	var view_size := root.get_visible_rect().size
-	verify(not near_hit.is_empty() and near_hit.collider == view.freight_beacon_visual
-		and view._pointed_summary_data(root.get_visible_rect().size / 2.0).get("name") == "SHIP marker"
-		and not view.camera.is_position_behind(marker.global_position)
-		and label_screen.x > view_size.x * 0.1 and label_screen.x < view_size.x * 0.9
-		and label_screen.y > view_size.y * 0.2 and label_screen.y < view_size.y * 0.8,
-		"The ordinary near E ray sees the shipment label within the usable viewport.")
-	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
-	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.3, 0))
-	var hit := view._screen_pick(root.get_visible_rect().size / 2.0)
-	verify(not hit.is_empty() and hit.collider == view.freight_beacon_visual,
-		"A camera ray selects the actual shipment label's pick target.")
-	view.camera.look_at(marker.global_position)
-	var label_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
-	verify(not label_hit.is_empty() and label_hit.collider == view.freight_beacon_visual,
-		"Aiming at the visible label selects its receiver rather than empty space above it.")
-	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.5, 5.0)
-	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 2.5, 0))
-	var high_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
-	verify(high_hit.is_empty() or high_hit.collider != view.freight_beacon_visual,
-		"The shipment cue has no invisible tall selection body.")
-	view.camera.position = view.freight_beacon_visual.position + Vector3(0, 2.0, 5.0)
-	view.camera.look_at(view.freight_beacon_visual.position + Vector3(0, 1.3, 0))
-	view.state.actors.P.ready = true
-	view.distance = 0.0
-	view._open_pointed_machine()
-	verify(view.requests == [{"action": "deliver_first_plate", "entity": beacon.id}],
-		"E on the pointed receiver requests exactly one native delivery and creates no client stock.")
-	view._refresh_ui()
-	for argument: String in OS.get_cmdline_user_args():
-		if argument.begins_with("--freight-screenshot="):
-			for _frame in range(3):
-				await process_frame
-			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--freight-screenshot=")) == OK,
-				"The passive beacon view can be retained for visual inspection.")
-	verify("SHIP ONE PLATE" in view.goal_label.text,
-		"The initial Meridian order asks for a shipment while construction remains open.")
-	view.state = view.state.duplicate(true)
-	view.state.cargo.P.products = 1
-	view._sync_freight_beacon_visual()
-	view._refresh_ui()
-	verify("east SHIP marker" in view.goal_label.text
-		and "freight beacon" not in view.goal_label.text.to_lower(),
-		"A carried product points to the visible east shipment cue.")
-	verify(marker != null and marker.text == "SHIP [E]",
-		"A ready actor with a confirmed carried plate sees the shipping action on the marker.")
+	verify(view.get_node_or_null("ShipmentMarker") == null
+		and "FORM A PLATE · KEEP IT" in view.goal_label.text
+		and not view.manager_log_completion_entry.visible,
+		"Arrival has no freight marker, and the first workshop waits for a carried plate.")
 	var shared := SharedFooterView.new()
 	shared.state = view.state.duplicate(true)
 	shared.client = "Q"
@@ -401,118 +317,43 @@ func check_freight_beacon_view() -> void:
 	root.add_child(shared)
 	shared._build_world()
 	shared._build_interface()
-	shared._sync_freight_beacon_visual()
 	shared._refresh_ui()
-	verify(not visible_follow_up(shared),
-		"A shared actor also sees only the active first order before delivery.")
-	var remote_label: Label3D = shared.freight_beacon_visual.get_node_or_null("ShipmentLabel")
-	verify(remote_label != null and remote_label.text == "FREIGHT"
-		and "FIRST ORDER" in shared.goal_label.text,
-		"The shared marker cannot borrow another actor's carried product.")
-	var original := view.freight_beacon_visual
-	view._sync_freight_beacon_visual()
-	verify(view.freight_beacon_visual == original and view.freight_beacon_visual.get_node_or_null("ShipmentLabel") == marker
-		and view.freight_beacon_visual.get_node_or_null("ShipmentPoint") == point,
-		"Unchanged refresh preserves the marker and label identities.")
-	view.state.freight_beacon.order_complete = true
-	view.state.freight_beacon.shipped_products = 1
-	view.state.cargo.P.products = 0
-	view._sync_freight_beacon_visual()
-	view._refresh_ui()
-	verify(visible_follow_up(view),
-		"The confirmed first receipt reveals the three-plate follow-up in the Work log.")
-	verify("REPEAT ORDER · 0 / 3 PLATES" in view.goal_label.text
-		and marker != null and marker.visible and marker.text == "FREIGHT · 0 / 3"
-		and view.freight_beacon_visual.collision_layer == Opening.Geometry.PICK_LAYER,
-		"The first confirmed receipt opens a selectable three-plate repeat order.")
-	shared.state = view.state.duplicate(true)
-	shared._sync_freight_beacon_visual()
-	shared._refresh_ui()
-	verify(visible_follow_up(shared),
-		"The shared Work log reveals the follow-up from the same confirmed receipt.")
-	verify("REPEAT ORDER · 0 / 3 PLATES" in shared.goal_label.text
-		and remote_label.text == "FREIGHT · 0 / 3" and shared.state.cargo.Q.products == 0,
-		"The shared actor sees confirmed repeat progress without borrowing P's cargo.")
+	view.state = view.state.duplicate(true)
 	view.state.cargo.P.products = 1
-	view._sync_freight_beacon_visual()
-	view._refresh_ui()
-	view._open_pointed_machine()
-	verify(view.requests == [
-		{"action": "deliver_first_plate", "entity": beacon.id},
-		{"action": "deliver_repeat_plate", "entity": beacon.id}],
-		"E on the same receiver requests the native repeat action after the first confirmed receipt.")
-	verify(marker.text == "SHIP [E]" and "Carry the next plate to the east SHIP marker" in view.goal_label.text
-		and "freight beacon" not in view.goal_label.text.to_lower(),
-		"A locally carried repeat plate changes only the local shipping cue.")
-	shared.state = view.state.duplicate(true)
-	shared._sync_freight_beacon_visual()
-	shared._refresh_ui()
-	verify(remote_label.text == "FREIGHT · 0 / 3" and "Carry the next plate" not in shared.goal_label.text,
-		"The shared repeat cue remains independent of P's unshipped plate.")
-	view.state.freight_beacon.repeat_order_shipped = 2
-	view.state.freight_beacon.shipped_products = 3
-	view.state.cargo.P.products = 0
-	view._sync_freight_beacon_visual()
 	view._refresh_ui()
 	shared.state = view.state.duplicate(true)
-	shared._sync_freight_beacon_visual()
 	shared._refresh_ui()
-	verify("REPEAT ORDER · 2 / 3 PLATES" in view.goal_label.text
-		and "REPEAT ORDER · 2 / 3 PLATES" in shared.goal_label.text
-		and marker.text == "FREIGHT · 2 / 3" and remote_label.text == "FREIGHT · 2 / 3",
-		"Both views show the confirmed intermediate receipt without client-created stock.")
-	view.state.freight_beacon.repeat_order_shipped = 3
-	view.state.freight_beacon.repeat_order_complete = true
-	view.state.freight_beacon.shipped_products = 4
-	view._sync_freight_beacon_visual()
+	verify("FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
+		and view.manager_log_completion_entry.visible
+		and view.manager_log_projects.visible
+		and view.workshop_completion_cue_count == 1
+		and "Plate collected" in view.status_label.text,
+		"One native-projected product in the local inventory completes the first workshop.")
+	verify("FORM A PLATE · KEEP IT" in shared.goal_label.text
+		and not shared.manager_log_completion_entry.visible
+		and shared.workshop_completion_cue_count == 0,
+		"Another actor's product does not complete this actor's workshop cue.")
 	view._refresh_ui()
-	shared.state = view.state.duplicate(true)
-	shared._sync_freight_beacon_visual()
-	shared._refresh_ui()
-	verify("REPEAT ORDER · DELIVERED" in view.goal_label.text
-		and "REPEAT ORDER · DELIVERED" in shared.goal_label.text
-		and "FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
-		and view.manager_log_completion_entry.visible and shared.manager_log_completion_entry.visible
-		and view.manager_log_projects.visible and view.manager_log_projects.get_child_count() == 2
-		and (view.manager_log_projects.get_child(0).get_child(0) as TextureRect).texture != null
-		and "First workshop accepted" in view.status_label.text
-		and view.workshop_completion_cue_count == 1 and shared.workshop_completion_cue_count == 1
-		and view.workshop_completion_audio.stream.get_length() > 0.5
-		and marker != null and not marker.visible and not remote_label.visible and not point.visible
-		and not shared.freight_beacon_visual.get_node("ShipmentPoint").visible
-		and view.freight_beacon_visual.collision_layer == 0
-		and shared.freight_beacon_visual.collision_layer == 0,
-		"The fourth confirmed receipt closes both prompts without leaving receiver hardware.")
-	view._refresh_ui()
-	shared._refresh_ui()
-	verify(view.workshop_completion_cue_count == 1 and shared.workshop_completion_cue_count == 1,
-		"Refreshing the completed order does not replay the manager completion chime.")
-	var reopened := FreightActionView.new()
+	verify(view.workshop_completion_cue_count == 1,
+		"Refresh does not replay the completion sound.")
+	var reopened := FooterView.new()
 	reopened.model = source
 	reopened.client = "P"
 	reopened.state = view.state.duplicate(true)
 	root.add_child(reopened)
 	reopened._build_world()
 	reopened._build_interface()
-	reopened._sync_freight_beacon_visual()
 	reopened._refresh_ui()
 	verify(reopened.manager_log_completion_entry.visible
-		and reopened.manager_log_projects.visible
 		and reopened.workshop_completion_cue_count == 0,
-		"A late completed-order view replays projects without claiming a new receipt or chime.")
-	reopened.free()
+		"A reopened projection shows completion without replaying the acquisition sound.")
 	for argument: String in OS.get_cmdline_user_args():
-		if argument.begins_with("--workshop-complete-screenshot="):
-			view.manager_log_button.pressed.emit()
-			await process_frame
-			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--workshop-complete-screenshot=")) == OK,
-				"The completed workshop log can be retained as ordinary passive pixels.")
-			view._toggle_manager_log()
-	for _frame in range(2):
-		await physics_frame
-	var filled_hit := view._screen_pick(root.get_visible_rect().size / 2.0)
-	verify(filled_hit.is_empty() or filled_hit.collider != view.freight_beacon_visual,
-		"A completed shipment leaves no invisible delivery target.")
+		if argument.begins_with("--inventory-goal-screenshot="):
+			for _frame in range(12):
+				await process_frame
+			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--inventory-goal-screenshot=")) == OK,
+				"The completed workshop view can be retained as passive pixels.")
+	reopened.free()
 	shared.free()
 	view.free()
 	finish_checks()
@@ -941,8 +782,8 @@ func run_native_route_report() -> void:
 	finish_checks()
 
 func _initialize() -> void:
-	if OS.get_cmdline_user_args().has("--freight-beacon-only"):
-		call_deferred("check_freight_beacon_view")
+	if OS.get_cmdline_user_args().has("--inventory-goal-only"):
+		call_deferred("check_inventory_goal_view")
 		return
 	if OS.get_cmdline_user_args().has("--manager-controls-only"):
 		call_deferred("check_manager_controls")

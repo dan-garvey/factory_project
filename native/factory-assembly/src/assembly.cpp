@@ -206,12 +206,14 @@ GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
                                     std::nullopt};
     if (candidates.size() > 1) return {PressStatus::ambiguous, std::nullopt};
     auto& press = candidates.front();
+    const Point plate_exit{2 * center[0] - press.shaft_center[0], center[1],
+        2 * center[2] - press.shaft_center[2]};
     for (const auto& direction : directions) {
         const Point entry{center[0] + direction[0], center[1], center[2] + direction[2]};
         const Point exit{center[0] - direction[0], center[1], center[2] - direction[2]};
         if (!by_center.contains(entry) &&
             (!by_center.contains(exit) ||
-             at(by_center, exit, materials::Component::receiver_tray)))
+             (exit == plate_exit && at(by_center, exit, materials::Component::receiver_tray))))
             press.open_feeds.push_back({entry, exit});
     }
     if (press.open_feeds.empty()) return {PressStatus::blocked_feed, std::nullopt};
@@ -228,8 +230,6 @@ GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
         }
     }
     if (receivers != 1) press.offcut_receiver.reset();
-    const Point plate_exit{2 * center[0] - press.shaft_center[0], center[1],
-        2 * center[2] - press.shaft_center[2]};
     if (at(by_center, plate_exit, materials::Component::receiver_tray))
         press.plate_receiver = plate_exit;
     return {PressStatus::ready, std::move(press)};

@@ -587,12 +587,6 @@ class ArrivalAssemblyControls:
 			_page_open = false
 			_update_page()
 
-	func close_for_shipment() -> void:
-		stop_turn_hold()
-		_context_page = false
-		_page_open = false
-		_update_page()
-
 	func _bearing(point: Array, center: Array) -> String:
 		if point.size() != 3 or center.size() != 3:
 			return "unknown"
