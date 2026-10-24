@@ -13,9 +13,12 @@ common fit question to answer.
 ## Shared fit rule
 
 - Use the existing world origin and one construction denominator. One workcell
-  edge is four quarter-grid steps in X, Y or Z; a foundation level is therefore
-  four height steps. Every guide, support, inlet and outlet snaps to that grid.
-  No tool gets a separate height increment. A normal stock piece or plate has
+  pitch is 1.65 m, or four shared grid increments in X, Y or Z. Each increment
+  is 0.4125 m. A foundation is two increments (0.825 m) deep; a full workcell
+  rise is four increments (1.65 m). Foundation depth and workcell rise are
+  different distances on the same grid. Every guide, support, inlet and outlet
+  uses this origin and denominator; no tool gets a separate height increment.
+  A normal stock piece or plate has
   a 1 × 1 horizontal footprint; the proposed broad sheet has a 2 × 2 footprint
   and keeps one item identity until cutting. One thickness is enough here.
 - A straight channel has a cardinal X or Z travel axis, a declared clear width
@@ -59,6 +62,20 @@ keeps elevation, while a gravity slide spends vertical room and requires a
 lower receiver. Both use the same fit and custody rule. A broad gantry carrier
 from `factory-yau.1.10.16.5` can also pass this fit test with its own supported
 deck and motion; the guide design does not implement or replace that carrier.
+
+For a concrete grid fit, call the lower floor surface height level 0. Its
+foundation occupies levels -2 through 0. An independently placed raised floor
+can have its surface at level 4 and occupy levels 2 through 4. A raised press
+and its level inlet share that upper surface; a two-wide slide can leave its
+clear upper outlet at level 4 and meet a supported, two-wide lower landing at
+level 0. Those endpoints differ by four common increments, or two foundation
+depths. The intervening chute, swept sheet and headroom still need geometry
+and support checks; this sketch grants no transfer merely from the height
+difference. A grate on the same raised route can similarly retain broad work
+at level 4 while an aligned offcut tray at level 0 receives only shapes that
+fit its aperture. Its upper path, lower landing and fall volume use the same
+grid coordinates. These are relative surface levels, not new local height
+origins or a requirement to raise every press or grate by a full workcell.
 
 ## Passive sizing grate candidate
 

@@ -178,6 +178,80 @@ func _arrival_field_craft_run(panel) -> void:
 		return
 	_record("pass")
 
+func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
+	if not await _approach(Vector2(6.0, 3.45)):
+		return
+	for index in range(2):
+		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+			return
+	if not await _approach(Vector2(3.3, 4.95)):
+		return
+	var before: Dictionary = opening.model.projection()
+	opening._open_object_menu_for(before.fabrication_hub.id)
+	if not _expect(opening.object_menu.visible and panel.foundation_craft_button.is_visible_in_tree()
+			and before.cargo.P.timber == 2 and before.foundation_recipe.timber == 2
+			and panel.foundation_craft_button.visible and not panel.foundation_craft_button.disabled
+			and "2 timber" in panel.foundation_craft_button.tooltip_text,
+			"The ordinary workshop exposes its native floor recipe beside the gathered timber"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-foundation-craft.png") == OK,
+				"The ordinary workshop floor control is retained in a rendered frame"):
+			return
+	panel.foundation_craft_button.pressed.emit()
+	var crafted: Dictionary = opening.model.projection()
+	if not _expect(crafted.order == before.order + 1 and crafted.cargo.P.timber == 0
+			and crafted.part_kits.P.foundation == before.part_kits.P.foundation + 1
+			and crafted.hand_sources["tree-east-south"].remaining == 6
+			and panel.foundation_craft_button.disabled,
+			"The icon converts two finite timber into one native foundation and then disables"):
+		return
+	opening.object_menu.hide()
+	if not await _approach(Vector2(9.0, 6.0)):
+		return
+	var placed: Dictionary = _construct({"action": "place_foundation", "cell": [5, 2], "level": 2})
+	if placed.is_empty():
+		return
+	var built: Dictionary = opening.model.projection()
+	var floor_id := ""
+	for id: String in built.foundations:
+		if built.foundations[id].cell == [5, 2] and built.foundations[id].level == 2:
+			floor_id = id
+	if not _expect(not floor_id.is_empty() and built.part_kits.P.foundation == before.part_kits.P.foundation,
+			"The crafted floor can enter the ordinary native construction inventory"):
+		return
+	if _construct({"action": "remove", "entity": floor_id}).is_empty():
+		return
+	var reclaimed: Dictionary = opening.model.projection()
+	if not _expect(reclaimed.part_kits.P.foundation == crafted.part_kits.P.foundation
+			and reclaimed.cargo.P.timber == 0 and not reclaimed.foundations.has(floor_id)
+			and reclaimed.foundations.size() == crafted.foundations.size(),
+			"Reclaiming restores exactly the crafted floor without refunding its timber"):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	facts["save_result"] = saved
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false)
+			and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted,
+			"Store preserves the spent source and reclaimed floor in a valid native checkpoint: " + str(saved)):
+		return
+	_record("pass")
+
+func _arrival_foundation_craft_resume_run(panel) -> void:
+	var state: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and state.cargo.P.timber == 0 and state.hand_sources["tree-east-south"].remaining == 6
+			and state.part_kits.P.foundation == 16 and state.foundations.size() == 9
+			and panel.foundation_craft_button.visible and panel.foundation_craft_button.disabled
+			and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted,
+			"Fresh process restores the spent timber, reclaimed crafted floor and unavailable workshop control: "
+			+ str({"load": opening.last_load_result, "timber": state.cargo.P.timber,
+				"remaining": state.hand_sources["tree-east-south"].remaining,
+				"floors": state.part_kits.P.foundation, "placed": state.foundations.size(),
+				"control": [panel.foundation_craft_button.visible, panel.foundation_craft_button.disabled]})):
+		return
+	_record("pass")
+
 func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 	var bench_choice: int = panel.COMPONENTS.size() - 1
 	if not _expect(panel.COMPONENTS[bench_choice][0] == "wooden_workbench"
@@ -417,7 +491,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -1563,7 +1637,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["supplied-hardware", "arrival-press", "arrival-resume", "arrival-delivery", "arrival-delivery-resume", "arrival-repeat-delivery", "arrival-repeat-delivery-resume", "arrival-repeat-delivery-q-resume", "arrival-craft-capacity", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -1620,6 +1694,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-foundation-craft-resume":
+		await _arrival_foundation_craft_resume_run(panel)
+		return
 	if mode == "arrival-repeat-delivery-q-resume":
 		while Time.get_ticks_msec() < deadline and not opening.model.projection().actors.Q.ready:
 			await physics_frame
@@ -1650,6 +1727,9 @@ func _arrival_run() -> void:
 			opening._toggle_manager_log()
 	if mode == "arrival-field-craft":
 		await _arrival_field_craft_run(panel)
+		return
+	if mode == "arrival-foundation-craft":
+		await _arrival_foundation_craft_run(panel, capture_prefix)
 		return
 	if mode == "arrival-portable-workbench":
 		await _arrival_portable_workbench_run(panel, capture_prefix)
