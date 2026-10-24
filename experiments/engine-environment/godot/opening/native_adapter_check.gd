@@ -2007,7 +2007,7 @@ func _arrival_run() -> void:
 			return
 		opening.manager_log_button.pressed.emit()
 		if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
-				and ("east freight beacon" in opening.manager_log_current.text
+				and ("east SHIP marker" in opening.manager_log_current.text
 					if mode == "arrival-resume" else not opening.manager_log_current.text.is_empty())
 				and opening.model.projection() == restored,
 				"The saved site reopens with the same replayable briefing and a current native-backed cue"):

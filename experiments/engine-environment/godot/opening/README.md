@@ -18,8 +18,8 @@ and deliberately retry. A wheel in flowing water drives connected parts automati
 Read-only pointer summaries and object details, Help,
 saving and the non-consuming four-plate confirmation remain available at distance.
 In the new arrival, the first Meridian order instead asks for one actual
-formed plate at the freight beacon east of the pod. Carry the plate beside the
-receiver and point at it with **E**. The native receipt removes exactly one
+formed plate at the east SHIP marker. Carry the plate to its ground pointer and
+press **E** while pointing at the marker. The native receipt removes exactly one
 plate from actor cargo, persists through save/rejoin and leaves the workshop
 open for more construction. The four-plate confirmation above describes the
 older complete-machine fixture, not an arrival objective.

@@ -350,6 +350,7 @@ func check_freight_beacon_view() -> void:
 	var label_screen := view.camera.unproject_position(marker.global_position)
 	var view_size := root.get_visible_rect().size
 	verify(not near_hit.is_empty() and near_hit.collider == view.freight_beacon_visual
+		and view._pointed_summary_data(root.get_visible_rect().size / 2.0).get("name") == "SHIP marker"
 		and not view.camera.is_position_behind(marker.global_position)
 		and label_screen.x > view_size.x * 0.1 and label_screen.x < view_size.x * 0.9
 		and label_screen.y > view_size.y * 0.2 and label_screen.y < view_size.y * 0.8,
@@ -388,8 +389,9 @@ func check_freight_beacon_view() -> void:
 	view.state.cargo.P.products = 1
 	view._sync_freight_beacon_visual()
 	view._refresh_ui()
-	verify("east freight beacon" in view.goal_label.text,
-		"A carried product changes the next cue to a reachable world-space delivery.")
+	verify("east SHIP marker" in view.goal_label.text
+		and "freight beacon" not in view.goal_label.text.to_lower(),
+		"A carried product points to the visible east shipment cue.")
 	verify(marker != null and marker.text == "SHIP [E]",
 		"A ready actor with a confirmed carried plate sees the shipping action on the marker.")
 	var shared := SharedFooterView.new()
@@ -439,7 +441,8 @@ func check_freight_beacon_view() -> void:
 		{"action": "deliver_first_plate", "entity": beacon.id},
 		{"action": "deliver_repeat_plate", "entity": beacon.id}],
 		"E on the same receiver requests the native repeat action after the first confirmed receipt.")
-	verify(marker.text == "SHIP [E]" and "Carry the next plate" in view.goal_label.text,
+	verify(marker.text == "SHIP [E]" and "Carry the next plate to the east SHIP marker" in view.goal_label.text
+		and "freight beacon" not in view.goal_label.text.to_lower(),
 		"A locally carried repeat plate changes only the local shipping cue.")
 	shared.state = view.state.duplicate(true)
 	shared._sync_freight_beacon_visual()

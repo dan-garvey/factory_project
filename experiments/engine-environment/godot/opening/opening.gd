@@ -5331,10 +5331,10 @@ func issue(action: Dictionary) -> Dictionary:
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
 			refusal = "Your component bag is full. Place another carried part before reclaiming."
 		elif action.action in ["deliver_first_plate", "deliver_repeat_plate"]:
-			refusal = {"no_plate": "Carry a formed plate to the freight beacon.",
+			refusal = {"no_plate": "Carry a formed plate to the east SHIP marker.",
 				"first_order_open": "Send the first plate before the follow-up order.",
 				"order_filled": "Meridian has received every plate for this order.",
-				"out_of_reach": "Move beside the freight beacon to deliver the plate."}.get(outcome.get("reason", ""), refusal)
+				"out_of_reach": "Move beside the east SHIP marker to deliver the plate."}.get(outcome.get("reason", ""), refusal)
 		_message(refusal, true)
 	_refresh()
 	return outcome
@@ -9331,13 +9331,13 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if repeat_done:
 			next_work = "Repeat order received. Keep building or improve the line."
 		elif shipped and int(carried.get("products", 0)) > 0:
-			next_work = "Carry the next plate to the east freight beacon; press E."
+			next_work = "Carry the next plate to the east SHIP marker; press E."
 		elif shipped and press_ready:
 			next_work = "Finish another plate at the press. A belt route can automate feed."
 		elif shipped:
 			next_work = "Make another plate. The workshop remains yours to redesign."
 		elif int(carried.get("products", 0)) > 0:
-			next_work = "Carry one plate to the east freight beacon; press E."
+			next_work = "Carry one plate to the east SHIP marker; press E."
 		elif press_ready:
 			next_work = "Use the press panel to feed, turn and collect."
 		elif collector_ready and int(state.get("line_belt_raw", 0)) > 0:
@@ -10291,7 +10291,7 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 	var hit := _screen_pick(screen)
 	if not hit.is_empty() and hit.collider.get_meta("freight_beacon", "") == state.get("freight_beacon", {}).get("id", "") \
 			and not str(hit.collider.get_meta("freight_beacon", "")).is_empty():
-		return {"name": "Freight beacon", "detail": "E  Deliver plate"}
+		return {"name": "SHIP marker", "detail": "E  Deliver plate"}
 	var target: String = str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
 	if _contains_target(state, target):
 		var detail := "E  Open"
