@@ -153,6 +153,8 @@ Changes to the checker, tests or hooks remain subject to independent review unde
 
 Test observable behavior through its actual consumer. A tidy abstraction, successful compilation, screenshot, or demo is evidence only for what it exercises, not for architecture or every execution path. Review ownership/lifetime/contracts as well as outcomes.
 
+When reviewing changes to visible objects or interfaces, consider a screenshot from the resulting build to judge whether the object looks reasonable and intuitive in its intended context. Check proportions, orientation, connections, clearances and interaction cues; compare before and after views when useful. Follow the [playtesting guidance](AGENTS.md#playtesting) for passive captures, revision and view details, and evidence limits.
+
 For a defect, retain the reproducer and add a discriminating regression test where feasible: demonstrate the old failure and the corrected result. Clearly label a new test that passes on both revisions as additional coverage, not regression proof. Prefer a small independent oracle or invariant to a snapshot of the implementation's own output. Control asynchronous boundaries explicitly rather than using sleeps or retries to obtain green results.
 
 Keep ordinary correctness tests repeatable. An unexpected flake blocks integration until understood; preserve diagnostics and assign an owner. A rerun is diagnostic evidence, not a fix. Any temporary quarantine needs an explicit decision, tracked owner, scope, risk, and re-enable condition; it cannot silently turn missing evidence into a pass.

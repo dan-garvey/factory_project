@@ -71,6 +71,12 @@ failed check or ignore a known correctness finding merely because review is
 asynchronous. Track remaining concrete findings in Beads without making review a
 pre-merge approval gate.
 
+For code reviews that affect a visible object or interface, consider inspecting a
+screenshot from the resulting build to check that it looks reasonable and
+intuitive in context. Look at shape, scale, orientation, connections and
+interaction cues. Follow the Playtesting guidance below for capture conditions
+and evidence limits.
+
 Keep concurrent workstreams narrow and non-overlapping. Agree shared interfaces
 directly and coordinate edits to shared files rather than creating competing
 implementations or rewriting another author's branch. Prefer merging current main
