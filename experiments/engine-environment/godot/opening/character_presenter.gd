@@ -291,7 +291,8 @@ func _refresh_multitools() -> void:
 		hand_view.name = "QualifiedRightHand"
 		hand_view.mesh = hand
 		eye_multitool.add_child(hand_view)
-		eye_multitool.position = Vector3(0.27, -0.25, -0.55)
+		# Keep the sourced fingers and grip in view without covering the center aim.
+		eye_multitool.position = Vector3(0.19, -0.10, -0.72)
 		eye_multitool.rotation_degrees = Vector3(18, 20, -8)
 		for part: MeshInstance3D in eye_multitool.find_children("*", "MeshInstance3D", true, false):
 			part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
