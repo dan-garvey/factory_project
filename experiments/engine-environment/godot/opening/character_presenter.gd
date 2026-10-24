@@ -4,6 +4,7 @@ extends Node3D
 const Geometry = preload("res://opening/site_geometry.gd")
 const Surface = preload("res://opening/site_surface.gd")
 const MULTITOOL = preload("res://opening/assets/multitool/multitool.tscn")
+const EYE_MULTITOOL_REST := Vector3(0.27, -0.20, -0.72)
 const ADULT_ASSETS := "res://opening/assets/worker/"
 const SECOND_ADULT_ASSETS := "res://opening/assets/worker-second/"
 const GAIT_CYCLE_DISTANCE := 2.30
@@ -153,7 +154,7 @@ func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
 	if mesh == null:
 		return null
 	var binds: Array[Transform3D] = []
-	var hand_binds: Array[bool] = []
+	var arm_binds: Array[bool] = []
 	for bind in range(mesh.skin.get_bind_count()):
 		var index: int = mesh.skin.get_bind_bone(bind)
 		if index < 0:
@@ -161,7 +162,8 @@ func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
 		if index < 0 or index >= frames.size():
 			return null
 		var label := skeleton.get_bone_name(index)
-		hand_binds.append(label == "Bip01 R Hand" or label.begins_with("Bip01 R Finger"))
+		arm_binds.append(label in ["Bip01 R UpperArm", "Bip01 R Forearm", "Bip01 R Hand"]
+			or label.begins_with("Bip01 R Finger"))
 		binds.append(to_tool * frames[index] * mesh.skin.get_bind_pose(bind))
 	var result := ArrayMesh.new()
 	for surface in range(mesh.mesh.get_surface_count()):
@@ -180,7 +182,7 @@ func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
 		posed.resize(vertices.size())
 		posed_normals.resize(vertices.size())
 		for vertex in range(vertices.size()):
-			var hand_weight := 0.0
+			var arm_weight := 0.0
 			for influence in range(stride):
 				var offset := vertex * stride + influence
 				var weight: float = weights[offset]
@@ -189,9 +191,9 @@ func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
 				var bind: int = bones[offset]
 				posed[vertex] += binds[bind] * vertices[vertex] * weight
 				posed_normals[vertex] += binds[bind].basis * normals[vertex] * weight
-				if hand_binds[bind]:
-					hand_weight += weight
-			selected[vertex] = 1 if hand_weight >= 0.35 else 0
+				if arm_binds[bind]:
+					arm_weight += weight
+			selected[vertex] = 1 if arm_weight >= 0.35 else 0
 		var builder := SurfaceTool.new()
 		builder.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var count := 0
@@ -243,8 +245,9 @@ func _refresh_multitools() -> void:
 		hand_view.mesh = hand
 		eye_multitool.add_child(hand_view)
 		# Keep the sourced fingers and grip in view without covering the center aim.
-		eye_multitool.position = Vector3(0.19, -0.10, -0.72)
+		eye_multitool.position = EYE_MULTITOOL_REST
 		eye_multitool.rotation_degrees = Vector3(18, 20, -8)
+		eye_multitool.scale = Vector3.ONE * 0.78
 		for part: MeshInstance3D in eye_multitool.find_children("*", "MeshInstance3D", true, false):
 			part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		host.camera.add_child(eye_multitool)
