@@ -84,6 +84,19 @@ class ArrivalRevealAudio:
 		ready_stream = _wav(samples)
 		return ready_stream
 
+	static func workshop_chime() -> AudioStreamWAV:
+		var count := roundi(0.72 * SAMPLE_RATE)
+		var samples := PackedByteArray()
+		samples.resize(count * 2)
+		for index in count:
+			var time := float(index) / SAMPLE_RATE
+			var envelope := minf(1.0, time / 0.016) * exp(-time * 4.2) \
+				* minf(1.0, (0.72 - time) / 0.08)
+			var bell := 0.34 * sin(TAU * 523.25 * time) \
+				+ 0.26 * sin(TAU * 659.25 * time) + 0.18 * sin(TAU * 783.99 * time)
+			samples.encode_s16(index * 2, roundi(clampf(envelope * bell, -0.95, 0.95) * 32767.0))
+		return _wav(samples)
+
 
 	func _ready() -> void:
 		for cue in ["descent", "touchdown", "latch_port", "latch_starboard", "hub_ready"]:
@@ -4645,7 +4658,12 @@ var manager_log_layer: CanvasLayer
 var manager_log_panel: PanelContainer
 var manager_log_current: Label
 var manager_log_repeat_entry: Label
+var manager_log_completion_entry: Label
+var manager_log_projects: VBoxContainer
 var manager_log_open := false
+var workshop_completion_observed: Variant = null
+var workshop_completion_audio: AudioStreamPlayer
+var workshop_completion_cue_count := 0
 var lesson_button: Button
 var goal_progress: ProgressBar
 var power_label: Label
@@ -5218,6 +5236,8 @@ func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
 		request_sequence = 0
 		request_namespace = "opening-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
 		goal_confirmed = false
+		# A restored completed order is already known; reopening is not a new receipt.
+		workshop_completion_observed = null
 		_refresh()
 		_message("Worksite loaded. Select a machine to continue.")
 	else:
@@ -9227,16 +9247,36 @@ func _refresh_manager_log() -> void:
 		return
 	var beacon: Dictionary = state.get("freight_beacon", {})
 	var follow_up: bool = beacon.get("order_complete", false)
+	var complete: bool = beacon.get("repeat_order_complete", false)
 	manager_log_repeat_entry.visible = follow_up
 	if follow_up:
 		manager_log_repeat_entry.text = "03  FOLLOW-UP\n%d / %d plates received. A continuous route can free your hands; the layout is yours." % [
 			int(beacon.get("repeat_order_shipped", 0)), int(beacon.get("repeat_order_target", 3))]
-	var half_height := 240.0 if follow_up else 215.0
+	manager_log_completion_entry.visible = complete
+	manager_log_projects.visible = complete
+	var viewport_height := get_viewport().get_visible_rect().size.y
+	var half_height := minf(360.0 if complete else 240.0 if follow_up else 215.0,
+		maxf(180.0, (viewport_height - 32.0) * 0.5))
 	manager_log_panel.offset_top = -half_height
 	manager_log_panel.offset_bottom = half_height
 	var lines := goal_label.text.split("\n")
 	var current := lines[lines.size() - 1] if not lines.is_empty() else "Inspect the worksite."
 	manager_log_current.text = "CURRENT FIELD CUE\n" + current
+
+func _notice_workshop_completion(complete: bool) -> void:
+	var previously_complete: Variant = workshop_completion_observed
+	workshop_completion_observed = complete
+	if previously_complete != false or not complete:
+		return
+	_message("Meridian: First workshop accepted. Your next shift is filed as voluntary. Open the Work log [J].")
+	if workshop_completion_audio == null:
+		workshop_completion_audio = AudioStreamPlayer.new()
+		workshop_completion_audio.name = "WorkshopCompletionChime"
+		workshop_completion_audio.volume_db = -13.0
+		workshop_completion_audio.stream = ArrivalRevealAudio.workshop_chime()
+		add_child(workshop_completion_audio)
+	workshop_completion_audio.play()
+	workshop_completion_cue_count += 1
 
 func _toggle_manager_log() -> void:
 	if legacy_fixture or manager_log_layer == null or arrival_reveal_active or explanation_open or _catalog_open():
@@ -9312,7 +9352,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	goal_progress.value = clampi(inventory, 0, 4)
 	goal_progress.visible = not arrival
 	var arrival_repeat: bool = arrival and state.get("freight_beacon", {}).get("order_complete", false)
-	objective_heading.text = ("FIRST WORKSHOP  /  02" if arrival_repeat else "FIRST WORKSHOP  /  01") \
+	var workshop_complete: bool = arrival_repeat and state.freight_beacon.get("repeat_order_complete", false)
+	objective_heading.text = ("FIRST WORKSHOP  /  COMPLETE" if workshop_complete else "FIRST WORKSHOP  /  02" if arrival_repeat else "FIRST WORKSHOP  /  01") \
 		if arrival else "FIRST SHIFT  /  01"
 	if arrival:
 		var carried: Dictionary = state.get("cargo", {}).get(client, {})
@@ -9326,10 +9367,12 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		var beacon: Dictionary = state.get("freight_beacon", {})
 		var shipped: bool = beacon.get("order_complete", false)
 		var repeat_done: bool = beacon.get("repeat_order_complete", false)
+		if snapshot_ready:
+			_notice_workshop_completion(repeat_done)
 		var repeat_shipped: int = int(beacon.get("repeat_order_shipped", 0))
 		var repeat_target: int = int(beacon.get("repeat_order_target", 3))
 		if repeat_done:
-			next_work = "Repeat order received. Keep building or improve the line."
+			next_work = "First workshop accepted. Open Work log [J] for optional projects, or keep building."
 		elif shipped and int(carried.get("products", 0)) > 0:
 			next_work = "Carry the next plate to the east SHIP marker; press E."
 		elif shipped and press_ready:
@@ -10584,6 +10627,12 @@ func _build_manager_log() -> void:
 	var column := _panel(log_root, Vector2.ZERO, Vector2(550, 480))
 	column.add_theme_constant_override("separation", 8)
 	var panel := column.get_parent() as PanelContainer
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.add_child(scroll)
+	column.reparent(scroll)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	manager_log_panel = panel
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
@@ -10607,6 +10656,31 @@ func _build_manager_log() -> void:
 	manager_log_repeat_entry.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	manager_log_repeat_entry.custom_minimum_size.x = 496.0
 	manager_log_repeat_entry.visible = false
+	manager_log_completion_entry = _label(column,
+		"04  FIRST WORKSHOP COMPLETE\nFour plates received. Corporate has filed your next shift under 'voluntary.'", 15,
+		Color("f1d7a5"))
+	manager_log_completion_entry.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	manager_log_completion_entry.custom_minimum_size.x = 496.0
+	manager_log_completion_entry.visible = false
+	manager_log_projects = VBoxContainer.new()
+	manager_log_projects.add_theme_constant_override("separation", 6)
+	column.add_child(manager_log_projects)
+	for project in [
+		["belt", "Route collector blanks by belt to a powered press."],
+		["gear", "Compare wood and softmetal drive parts under load."]]:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		manager_log_projects.add_child(row)
+		var icon := TextureRect.new()
+		icon.texture = load("res://opening/assets/build-icons/%s.svg" % project[0])
+		icon.custom_minimum_size = Vector2(26, 26)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		row.add_child(icon)
+		var description := _label(row, project[1], 14)
+		description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		description.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	manager_log_projects.visible = false
 	manager_log_current = _label(column, "CURRENT FIELD CUE\nInspect the worksite.", 15, Color("f1d7a5"))
 	manager_log_current.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var close_log := _button(column, "Return to work  [J / Esc]", _toggle_manager_log)
