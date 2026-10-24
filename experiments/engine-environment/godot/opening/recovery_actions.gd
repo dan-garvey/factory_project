@@ -314,6 +314,7 @@ class ArrivalAssemblyControls:
 		["cutting_edge", "Cutting edge"], ["anvil", "Anvil"],
 		["ram_face", "Ram face"], ["softmetal_shaft", "Softmetal shaft"],
 		["softmetal_cog", "Softmetal cog"], ["wooden_workbench", "Wooden workbench"],
+		["wooden_slide", "Wooden slide"], ["softmetal_slide", "Softmetal slide"],
 	]
 	const PRESS_NEXT := {
 		"missing_ram": "Point at the anvil top to fit the ram face.",
