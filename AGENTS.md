@@ -19,9 +19,11 @@
 - Write complete sentences with normal spacing. Keep user updates brief; put
   detailed evidence in its owning record. Correct malformed prose in place,
   preserving actual results and their limits.
-- Do not create Markdown files unless explicitly requested. Shorten or remove
-  obsolete prose instead of appending supersession notices. A local defect
-  normally needs a fix/test and Bead finding, not a new global instruction.
+- Do not create any new Markdown file, including plans, reports or research
+  notes, unless the user explicitly asks for that new file. Put task-specific
+  findings in Beads and reusable guidance in existing documents. Shorten or
+  remove obsolete prose instead of appending supersession notices. A local
+  defect normally needs a fix/test and Bead finding, not a new global instruction.
 - Research belongs in existing per-game Beads under `factory-yau.8`. Search
   completed coverage before repeating a study; close thorough leaves while
   leaving the continuing pipeline open. Research does not adopt mechanics.
@@ -92,10 +94,14 @@ Bead naming the exact commit, implementing agent, scope and checks. Never review
 your own commit or claim your own request. After opening one, claim and complete
 an available other-author review before returning to your task. Fix concrete
 findings in your own checkout, validate and publish them, and request review of
-each fix. A disjoint merge review may reuse original checks after verifying both
-parents' blobs and tested inputs; changed interfaces or conflict resolutions
-need focused integration evidence. Existing relevant review counts; review is
-not a pre-merge approval gate.
+each fix. Scale review effort to the changed risk. For code, tests, requirements
+and process guidance, inspect the relevant contract, affected consumer and
+evidence. For editorial-only prose, check claims, links and consistency. For an
+exact disjoint merge, verify both parents' relevant paths and blobs and unchanged
+test inputs; cite existing reviews and checks instead of repeating them. Changed
+interfaces or conflict resolutions need focused integration evidence. Record a
+concrete verdict and evidence limits. Existing relevant review counts; review
+is not a pre-merge approval gate.
 
 Record the actual landed revision and new results once, close satisfied work,
 flush Beads, and inspect Git status. Remaining implementation and human-play
