@@ -3280,7 +3280,7 @@ func _slide_controls_check() -> void:
 	snapshot.sliding_press_assemblies[0].status = "blocked_feed"
 	snapshot.sliding_press_assemblies[0].open_feeds.clear()
 	panel.refresh(snapshot, "P", "slide", true)
-	verify(panel.press_status.text == "No clear through-feed route. Remove the blocking part [F]."
+	verify(panel.press_status.text == "No clear through-feed route. Close [Esc], press F, then click the blocking part."
 		and panel.feed_button.disabled,
 		"One side obstruction blocks every through-feed route without implying blockers on both sides.")
 	snapshot.sliding_press_assemblies[0].status = "ready"

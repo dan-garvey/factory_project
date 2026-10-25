@@ -697,7 +697,7 @@ class ArrivalAssemblyControls:
 				"%s ready · %d clear feed routes. %s" % [
 					"Slide press" if sliding else "Press", routes.size(), advice]
 		else:
-			press_status.text = "No clear through-feed route. Remove the blocking part [F]." if status == "blocked_feed" else {
+			press_status.text = "No clear through-feed route. Close [Esc], press F, then click the blocking part." if status == "blocked_feed" else {
 				"anvil": "Anvil · work support",
 				"ram_face": "Ram face · contact tool",
 				"sliding_guide": "Guide · guided motion",
