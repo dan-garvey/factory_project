@@ -2729,6 +2729,26 @@ func _field_craft_widget() -> void:
 	await process_frame
 	verify(not inventory.catalog.visible,
 		"Escape closes the inventory, and a later resize does not reopen it.")
+	var close_button: Button
+	for candidate: Node in inventory.catalog.find_children("*", "Button", true, false):
+		if (candidate as Button).tooltip_text.begins_with("Close build and inventory"):
+			close_button = candidate
+	verify(close_button != null, "The inventory close icon remains available.")
+	for close_mode: String in ["escape", "button", "toggle"]:
+		root.size = Vector2i(1280, 800)
+		await process_frame
+		await process_frame
+		inventory.open_catalog()
+		verify(inventory.catalog.visible, "The inventory opens before the resize-close race.")
+		root.size = Vector2i(640, 480)
+		match close_mode:
+			"escape": inventory._input(escape)
+			"button": close_button.pressed.emit()
+			"toggle": inventory.open_catalog()
+		await process_frame
+		await process_frame
+		verify(not inventory.catalog.visible,
+			"A %s dismissal during resize is not reversed by deferred popup recovery." % close_mode)
 	var shared := SharedWidgets.new()
 	shared.session = SessionStub.new()
 	shared.client = "Q"

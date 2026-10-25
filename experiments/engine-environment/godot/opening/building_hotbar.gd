@@ -64,6 +64,9 @@ var _arrival_active := false
 var _component_labels: Dictionary = {}
 var _component_names: Array[String] = []
 var _host: WeakRef
+# Invalidate a deferred resize restore when a later action closes or reopens the catalog.
+var _catalog_session := 0
+var _catalog_resize_pending := false
 
 func configure(host, ui: Control) -> void:
 	_host = weakref(host)
@@ -230,7 +233,7 @@ func configure(host, ui: Control) -> void:
 	clear.icon = load("res://opening/assets/build-icons/slot-clear.svg")
 	clear.tooltip_text = "Clear target slot · Delete"
 	clear.accessibility_name = "Clear target slot, shortcut Delete"
-	var close: Button = host._button(actions, "", catalog.hide)
+	var close: Button = host._button(actions, "", _close_catalog)
 	close.icon = load("res://opening/assets/menu-icons/close.svg")
 	close.tooltip_text = "Close build and inventory · Esc"
 	close.accessibility_name = "Close build and inventory, shortcut Escape"
@@ -278,7 +281,7 @@ func _describe_focus(button: Button) -> void:
 	focus_description.text = button.tooltip_text
 
 func _input(event: InputEvent) -> void:
-	if not catalog.visible or not event is InputEventKey or not event.pressed or event.echo:
+	if (not catalog.visible and not _catalog_resize_pending) or not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.ctrl_pressed or event.alt_pressed:
 		return
@@ -287,7 +290,7 @@ func _input(event: InputEvent) -> void:
 	elif event.keycode == KEY_DELETE:
 		clear_slot()
 	elif event.keycode == KEY_ESCAPE:
-		catalog.hide()
+		_close_catalog()
 	elif event.keycode == KEY_S and context_action.visible and context_bench == str(_view().state.get("fabrication_hub", {}).get("id", "")):
 		_use_context_action()
 	elif event.keycode == KEY_R and context_action.visible and context_bench != str(_view().state.get("fabrication_hub", {}).get("id", "")):
@@ -306,12 +309,19 @@ func _fit() -> void:
 	size = get_combined_minimum_size()
 	position = Vector2((get_parent().size.x - size.x) / 2.0, get_parent().size.y - size.y - 18.0)
 	if catalog != null and catalog.visible:
-		_restore_catalog_after_resize.call_deferred(catalog.gui_get_focus_owner())
+		_catalog_resize_pending = true
+		_restore_catalog_after_resize.call_deferred(catalog.gui_get_focus_owner(), _catalog_session)
 
-func _restore_catalog_after_resize(focused: Control) -> void:
+func _close_catalog() -> void:
+	_catalog_session += 1
+	_catalog_resize_pending = false
+	catalog.hide()
+
+func _restore_catalog_after_resize(focused: Control, session: int) -> void:
 	await get_tree().process_frame
-	if not is_inside_tree() or catalog == null:
+	if not is_inside_tree() or catalog == null or session != _catalog_session:
 		return
+	_catalog_resize_pending = false
 	# Godot hides an embedded PopupPanel when its parent viewport changes size.
 	if not catalog.visible:
 		catalog.popup_centered(_catalog_dimensions(get_parent().size))
@@ -579,7 +589,7 @@ func _select_hub_tool() -> void:
 	if host == null or not _arrival_active or not host._can_choose_tool() or \
 			_material_count("fabrication_hub", host) < 1:
 		return
-	catalog.hide()
+	_close_catalog()
 	host._select_tool("pod_workshop")
 
 func refresh(snapshot_ready: bool = true) -> void:
@@ -602,7 +612,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 		material_buttons[kind].visible = amount > 0 if _arrival_active else true
 	catalog_button.disabled = host.explanation_open
 	if host.explanation_open:
-		catalog.hide()
+		_close_catalog()
 	var active: String = host.mode
 	if active == "component" and host.arrival_assembly_controls != null:
 		active = COMPONENT_PREFIX + host.arrival_assembly_controls.selected_name()
@@ -663,9 +673,11 @@ func open_catalog(index: int = -1) -> void:
 	var host = _view()
 	if host == null or host.explanation_open:
 		return
-	if catalog.visible and index < 0:
-		catalog.hide()
+	if (catalog.visible or _catalog_resize_pending) and index < 0:
+		_close_catalog()
 		return
+	_catalog_session += 1
+	_catalog_resize_pending = false
 	context_bench = ""
 	refresh()
 	_select_target(index if index >= 0 and index < slots.size() else maxi(0, selected_slot))
@@ -680,6 +692,8 @@ func open_at_bench(bench_id: String) -> void:
 	var host = _view()
 	if host == null or not _valid_bench(host.state, bench_id):
 		return
+	_catalog_session += 1
+	_catalog_resize_pending = false
 	context_bench = bench_id
 	refresh()
 	host._release_character_controls()
@@ -708,7 +722,7 @@ func assign(tool: String) -> void:
 func _assign_to_slot(tool: String) -> void:
 	var index := target_slot
 	slots[index] = tool
-	catalog.hide()
+	_close_catalog()
 	select_slot(index)
 
 func clear_slot() -> void:
@@ -717,7 +731,7 @@ func clear_slot() -> void:
 		return
 	var index := target_slot
 	slots[index] = ""
-	catalog.hide()
+	_close_catalog()
 	if selected_slot == index:
 		host._select_tool("inspect")
 	refresh()
