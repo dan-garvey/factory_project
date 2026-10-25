@@ -2758,6 +2758,13 @@ func _workshop_pages() -> void:
 			and panel.reclaim_button.disabled
 			and panel.reclaim_button.tooltip_text.contains("Wait for the character"),
 			"An unready actor cannot feed the press even while its panel is open.")
+		view.issued.clear()
+		var unready_delete := InputEventKey.new()
+		unready_delete.keycode = KEY_DELETE
+		unready_delete.pressed = true
+		view._input(unready_delete)
+		verify(view.issued.is_empty(),
+			"Delete cannot reclaim a selected placed part while its icon is disabled.")
 		panel.refresh(view.state, view.client, view.selected, true)
 		view.object_menu.hide()
 		await process_frame
@@ -2772,8 +2779,18 @@ func _workshop_pages() -> void:
 			"Ordinary E on a guided ram exposes the same press actions as its anvil.")
 		verify(panel.reclaim_button.is_visible_in_tree() and not view.remove_button.visible
 			and "Delete" in panel.reclaim_button.tooltip_text
-			and "shortcut Delete" in panel.reclaim_button.accessibility_name,
-			"The guided ram exposes one described placed-part reclaim icon on its press page.")
+			and "shortcut Delete" in panel.reclaim_button.accessibility_name
+			and panel.reclaim_row.get_parent() == view.inspector.get_parent()
+			and not view.inspector.text.contains("Reclaim with Delete"),
+			"The guided ram keeps one described reclaim icon in its detail column without standing shortcut text.")
+		await process_frame
+		var detail_bounds: Rect2 = view.object_menu_detail_panel.get_global_rect()
+		var reclaim_bounds: Rect2 = panel.reclaim_button.get_global_rect()
+		verify(reclaim_bounds.position.x >= detail_bounds.position.x
+			and reclaim_bounds.end.x <= detail_bounds.end.x
+			and reclaim_bounds.end.y <= detail_bounds.end.y
+			and reclaim_bounds.end.y >= detail_bounds.end.y - 28.0,
+			"The reclaim icon sits at the bottom left of the ordinary component details.")
 		var reclaim_key := InputEventKey.new()
 		reclaim_key.keycode = KEY_DELETE
 		reclaim_key.pressed = true
@@ -2781,14 +2798,25 @@ func _workshop_pages() -> void:
 		verify(view.issued == [{"action": "reclaim_component", "entity": "press-ram"}],
 			"Delete reaches the same native reclaim payload when the old Remove button is hidden.")
 		view.issued.clear()
+		panel.reclaim_button.pressed.emit()
+		verify(view.issued == [{"action": "reclaim_component", "entity": "press-ram"}],
+			"Pressing the relocated icon uses the same native reclaim payload as Delete.")
+		view.issued.clear()
 		root.size = Vector2i(640, 480)
 		view._fit_object_menu(Vector2i(640, 480))
 		await process_frame
 		var narrow_actions: Rect2 = view.object_menu_operations.get_global_rect()
+		var narrow_details: Rect2 = view.object_menu_detail_panel.get_global_rect()
+		var narrow_reclaim: Rect2 = panel.reclaim_button.get_global_rect()
 		verify(panel.feed_button.get_global_rect().position.x >= narrow_actions.position.x
 			and panel.compact_button.get_global_rect().end.x <= narrow_actions.end.x
 			and panel.crank_button.get_global_rect().end.x <= narrow_actions.end.x,
 			"Both grouped press action rows fit inside the narrow object panel.")
+		verify(narrow_reclaim.position.x >= narrow_details.position.x
+			and narrow_reclaim.end.x <= narrow_details.end.x
+			and narrow_reclaim.end.y <= narrow_details.end.y
+			and narrow_reclaim.end.y >= narrow_details.end.y - 28.0,
+			"The reclaim icon remains at the bottom left of the narrow component panel.")
 		if not image_prefix.is_empty() and not shared and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			var narrow_frame: Image = root.get_texture().get_image().get_region(Rect2i(0, 0, 640, 480))

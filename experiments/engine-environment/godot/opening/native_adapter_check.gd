@@ -2479,10 +2479,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	var route: Dictionary = presses[0].open_feeds[0]
 	var feed: Dictionary = {}
 	if mode == "arrival-first-plate":
-		opening._open_object_menu_for(fitted.anvil)
+		opening._open_object_menu_for(fitted.wooden_slide)
 		if not _expect(panel.press_section.is_visible_in_tree()
+				and opening.object_menu_target == fitted.wooden_slide
+				and panel.reclaim_button.is_visible_in_tree()
 				and not panel.feed_button.disabled and panel.route_choice.get_item_count() > 0,
-				"The selected feed icon is available while carrying the last copper blank"):
+				"The slide's E panel keeps reclaim and the feed icon available while carrying the last copper blank"):
 			return
 		panel.feed_button.pressed.emit()
 	else:

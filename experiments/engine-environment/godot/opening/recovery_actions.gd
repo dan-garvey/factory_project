@@ -339,6 +339,7 @@ class ArrivalAssemblyControls:
 	var _last_anvil := ""
 	var reclaim_button: Button
 	var reclaim_row: HBoxContainer
+	var reclaim_spacer: Control
 	var crank_button: Button
 	var collector_crank_button: Button
 	var collector_cut_button: Button
@@ -386,12 +387,11 @@ class ArrivalAssemblyControls:
 		column.add_theme_constant_override("separation", 5)
 		add_child(column)
 		reclaim_row = HBoxContainer.new()
-		reclaim_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		reclaim_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 		column.add_child(reclaim_row)
-		host._label(reclaim_row, "RECLAIM PART", 11, Color("f4bf75"))
 		reclaim_button = host._button(reclaim_row, "", _reclaim)
 		_style_workshop_icon(reclaim_button, "workshop-reclaim")
-		reclaim_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		reclaim_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		reclaim_row.visible = false
 		collector_section = VBoxContainer.new()
 		column.add_child(collector_section)
@@ -544,10 +544,15 @@ class ArrivalAssemblyControls:
 		_selected = selected
 		visible = snapshot.get("options", {}).get("native", false) and snapshot.has("hand_sources")
 		if not visible:
+			reclaim_row.visible = false
+			if reclaim_spacer != null:
+				reclaim_spacer.visible = false
 			return
 		var cargo: Dictionary = snapshot.get("cargo", {}).get(actor, {})
 		reclaim_button.visible = snapshot.get("placed_components", {}).has(selected)
 		reclaim_row.visible = reclaim_button.visible
+		if reclaim_spacer != null:
+			reclaim_spacer.visible = reclaim_row.visible
 		reclaim_button.disabled = not ready or not reclaim_button.visible
 		reclaim_button.tooltip_text = "%s · Delete" % ("Reclaim selected placed part" if ready else "Wait for the character")
 		reclaim_button.accessibility_name = "Reclaim selected placed part, shortcut Delete"
