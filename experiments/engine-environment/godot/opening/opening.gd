@@ -9512,6 +9512,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		var collector_ready := false
 		for press: Dictionary in state.get("guided_press_assemblies", []):
 			press_ready = press_ready or press.get("status") == "ready"
+		for press: Dictionary in state.get("sliding_press_assemblies", []):
+			press_ready = press_ready or press.get("status") == "ready"
 		for collector: Dictionary in state.get("collector_assemblies", []):
 			collector_ready = collector_ready or collector.get("status") == "ready"
 		if snapshot_ready:

@@ -291,6 +291,52 @@ func check_shared_manager_log() -> void:
 	view.free()
 	finish_checks()
 
+func check_slide_manager_cue() -> void:
+	root.size = Vector2i(1280, 800)
+	root.gui_embed_subwindows = true
+	var snapshot := first_target_fixture()
+	snapshot.hand_sources = {}
+	snapshot.cargo = {"P": {"raw": 0, "products": 0, "components": {}}}
+	snapshot.workshop_completed_actors = []
+	snapshot.guided_press_assemblies = []
+	snapshot.sliding_press_assemblies = [{"status": "unpowered"}]
+	var view := FooterView.new()
+	view.client = "P"
+	view.state = snapshot
+	root.add_child(view)
+	view._build_interface()
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	verify(not view.goal_label.text.contains("Open the working press"),
+		"An unpowered slide candidate does not claim that the first press is ready.")
+	view.state.sliding_press_assemblies[0].status = "ready"
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	verify(view.goal_label.text.contains("Open the working press [E] to feed or turn.")
+		and view.manager_log_current.text.ends_with("Open the working press [E] to feed or turn."),
+		"The ordinary first-shift cue and replayable log recognize a ready slide press.")
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--slide-manager-screenshot="):
+			for _frame in range(12):
+				await process_frame
+			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--slide-manager-screenshot=")) == OK,
+				"Retain the ordinary first-shift cue over a ready slide projection.")
+	var shared := SharedFooterView.new()
+	shared.client = "P"
+	shared.session = SessionStub.new()
+	shared.state = view.state.duplicate(true)
+	root.add_child(shared)
+	shared._build_interface()
+	shared._refresh_guided_tools()
+	shared._refresh_manager_log()
+	verify(shared.goal_label.text.contains("Open the working press [E] to feed or turn.")
+		and shared.manager_log_current.text.ends_with("Open the working press [E] to feed or turn."),
+		"The shared worker receives the same ready-slide cue without creating local authority.")
+	shared.session = null
+	shared.free()
+	view.free()
+	finish_checks()
+
 func check_inventory_goal_view() -> void:
 	var source := NativeModel.new("inventory-goal-view-fixture", ["P", "Q"], true)
 	verify(source.boot_result.get("accepted", false),
@@ -791,6 +837,9 @@ func run_native_route_report() -> void:
 	finish_checks()
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--slide-manager-cue-only"):
+		call_deferred("check_slide_manager_cue")
+		return
 	if OS.get_cmdline_user_args().has("--inventory-goal-only"):
 		call_deferred("check_inventory_goal_view")
 		return
