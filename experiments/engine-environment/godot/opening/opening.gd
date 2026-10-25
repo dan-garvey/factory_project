@@ -5716,6 +5716,7 @@ func _input(event: InputEvent) -> void:
 					KEY_C: used = _activate_button(actions.crank_button)
 					KEY_P: used = _activate_button(actions.pickup_button)
 					KEY_F: used = _activate_button(actions.feed_button)
+					KEY_G: used = _activate_button(actions.broad_feed_button)
 					KEY_T: used = actions.press_turn_key() or _activate_button(actions.collector_crank_button)
 					KEY_X: used = _activate_button(actions.shear_button) or _activate_button(actions.collector_cut_button)
 					KEY_R: used = _activate_button(actions.refeed_work_button)

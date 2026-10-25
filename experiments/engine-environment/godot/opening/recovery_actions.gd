@@ -358,6 +358,8 @@ class ArrivalAssemblyControls:
 	var pickup_button: Button
 	var recover_work_button: Button
 	var sheet_button: MenuButton
+	var broad_feed_button: Button
+	var _broad_press := {}
 	var _sheet_offers: Array[Dictionary] = []
 	var _sheet_menu_actor := ""
 	var _sheet_menu_selected := ""
@@ -401,9 +403,11 @@ class ArrivalAssemblyControls:
 		column.add_child(press_section)
 		press_status = host._label(press_section, "Select an anvil with E", 13, Color("bfd1cc"))
 		press_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		var sheet_actions := HBoxContainer.new()
-		sheet_actions.alignment = BoxContainer.ALIGNMENT_CENTER
-		press_section.add_child(sheet_actions)
+		var broad_actions := HBoxContainer.new()
+		broad_actions.alignment = BoxContainer.ALIGNMENT_CENTER
+		press_section.add_child(broad_actions)
+		broad_feed_button = host._button(broad_actions, "", _feed_broad)
+		_style_workshop_icon(broad_feed_button, "broad-feed")
 		sheet_button = MenuButton.new()
 		sheet_button.icon = load("res://opening/assets/build-icons/sheet.svg")
 		sheet_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -411,8 +415,8 @@ class ArrivalAssemblyControls:
 		sheet_button.focus_mode = Control.FOCUS_ALL
 		sheet_button.get_popup().about_to_popup.connect(_open_sheet_menu)
 		sheet_button.get_popup().id_pressed.connect(_choose_sheet)
-		sheet_actions.add_child(sheet_button)
-		shear_button = host._button(sheet_actions, "", _stroke_sheet)
+		broad_actions.add_child(sheet_button)
+		shear_button = host._button(broad_actions, "", _stroke_sheet)
 		_style_workshop_icon(shear_button, "workshop-cut")
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
@@ -572,6 +576,12 @@ class ArrivalAssemblyControls:
 		var selected_kind: String = str(snapshot.get("placed_components", {}).get(selected, {}).get("component", ""))
 		if _anvil.is_empty() and selected_kind == "anvil":
 			_anvil = selected
+		_broad_press = _selected_broad_press(snapshot, selected)
+		broad_feed_button.visible = not _broad_press.is_empty()
+		broad_feed_button.disabled = not ready or int(cargo.get("raw", 0)) < 3
+		broad_feed_button.tooltip_text = ("Feed three carried blanks into this four-anvil press · G" \
+			if int(cargo.get("raw", 0)) >= 3 else "Carry three ore blanks to feed this four-anvil press · G")
+		broad_feed_button.accessibility_name = "Feed three blanks into four-anvil press, shortcut G"
 		_sheet_offers = _sheet_stage_offers(snapshot, actor, selected)
 		sheet_button.visible = not _sheet_offers.is_empty()
 		sheet_button.disabled = not ready
@@ -771,6 +781,28 @@ class ArrivalAssemblyControls:
 				if sheet is Dictionary and typeof(sheet.get("id")) == TYPE_INT and sheet.id > 0:
 					offers.append({"center": origin.duplicate(), "sheet_id": sheet.id})
 		return offers
+
+	func _selected_broad_press(snapshot: Dictionary, selected: String) -> Dictionary:
+		for assembly: Variant in snapshot.get("broad_press_assemblies", []):
+			if not assembly is Dictionary or assembly.get("geometry_status") != "ready":
+				continue
+			var anvils: Variant = assembly.get("parts", {}).get("anvils")
+			if anvils is Array and not anvils.is_empty() and anvils.has(selected):
+				return assembly
+		return {}
+
+	func _feed_broad() -> void:
+		var host = _host_view()
+		if host == null or broad_feed_button.disabled:
+			return
+		var current: Variant = host.get("state")
+		if not current is Dictionary or host.get("selected") != _selected \
+				or host.get("client") != _actor \
+				or int(current.get("cargo", {}).get(_actor, {}).get("raw", 0)) < 3:
+			return
+		var press := _selected_broad_press(current, _selected)
+		if not press.is_empty():
+			host.issue({"action": "feed_broad_press", "entity": str(press.parts.anvils[0])})
 
 	func _selected_shear(snapshot: Dictionary, selected: String) -> Dictionary:
 		for assembly: Variant in snapshot.get("broad_shear_assemblies", []):
