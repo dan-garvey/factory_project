@@ -95,11 +95,12 @@ struct EmptyText {
     void* get() { return storage.data(); }
 };
 
-enum class Method { initialize, initialize_arrival, terrain, command, publish, actor_projection, invalidate, advance, advance_delta, projection, checkpoint, restore, validate };
+enum class Method { initialize, initialize_arrival, initialize_arrival_advanced_fixture, terrain, command, publish, actor_projection, invalidate, advance, advance_delta, projection, checkpoint, restore, validate };
 struct Description { const char* name; Method method; std::uint32_t arguments; };
 std::array methods{
     Description{"initialize", Method::initialize, 2},
     Description{"initialize_arrival", Method::initialize_arrival, 2},
+    Description{"initialize_arrival_advanced_fixture", Method::initialize_arrival_advanced_fixture, 2},
     Description{"command", Method::command, 2},
     Description{"configure_terrain", Method::terrain, 1},
     Description{"publish_actor", Method::publish, 3}, Description{"actor_projection", Method::actor_projection, 1},
@@ -139,21 +140,25 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
     // All authority mutations invalidate the previous exported view. A refusal
     // is allowed to do the same: the next tick simply delivers a full view.
     if (method == Method::initialize || method == Method::initialize_arrival ||
+        method == Method::initialize_arrival_advanced_fixture ||
         method == Method::terrain || method == Method::command || method == Method::publish ||
         method == Method::invalidate || method == Method::restore) instance.last_view.reset();
     switch (method) {
         case Method::terrain: return host.configure_terrain(typed<Object>(args, 0));
         case Method::initialize:
-        case Method::initialize_arrival: {
+        case Method::initialize_arrival:
+        case Method::initialize_arrival_advanced_fixture: {
             std::vector<std::string> actors;
             for (const auto& value : typed<Value::Array>(args, 1)) {
                 const auto* actor = std::get_if<std::string>(&value.storage());
                 if (!actor) throw std::invalid_argument("Wrong actor roster type.");
                 actors.push_back(*actor);
             }
-            return method == Method::initialize_arrival ?
-                host.initialize_arrival(typed<std::string>(args, 0), actors) :
-                host.initialize(typed<std::string>(args, 0), actors);
+            if (method == Method::initialize_arrival)
+                return host.initialize_arrival(typed<std::string>(args, 0), actors);
+            if (method == Method::initialize_arrival_advanced_fixture)
+                return host.initialize_arrival_advanced_fixture(typed<std::string>(args, 0), actors);
+            return host.initialize(typed<std::string>(args, 0), actors);
         }
         case Method::command: return host.command(typed<std::string>(args, 0), typed<Object>(args, 1));
         case Method::publish: return host.publish_actor(typed<std::string>(args, 0), typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));

@@ -22,6 +22,7 @@ var incoming_sha256 := ""
 var loaded_checkpoint: Dictionary = {}
 var legacy_fixture := false
 var native_authority := false
+var advanced_fixture := false
 var actor_roster: Array = ["P", "Q"]
 
 func _initialize() -> void:
@@ -30,6 +31,7 @@ func _initialize() -> void:
 		elif argument == "--frozen-clock": frozen = true
 		elif argument == "--legacy-fixture": legacy_fixture = true
 		elif argument == "--native-world": native_authority = true
+		elif argument == "--advanced-fixture": advanced_fixture = true
 		elif argument.begins_with("--actor-roster="): actor_roster = Array(argument.trim_prefix("--actor-roster=").split(","))
 		elif argument.begins_with("--ready-file="): ready_path = argument.trim_prefix("--ready-file=")
 		elif argument.begins_with("--stop-file="): stop_path = argument.trim_prefix("--stop-file=")
@@ -69,6 +71,9 @@ func _boot() -> void:
 	if native_authority and legacy_fixture:
 		checkpoint_failure("native_world_requires_physical_profile")
 		return
+	if advanced_fixture and not native_authority:
+		checkpoint_failure("advanced_fixture_requires_native_world")
+		return
 	if checkpoint_enabled():
 		var option_error := checkpoint_options_error()
 		if not option_error.is_empty():
@@ -88,7 +93,7 @@ func _boot() -> void:
 	session.outcome_hold_path = outcome_hold
 	container.add_child(session)
 	root.add_child(container)
-	var error: Error = session.serve_loopback(port, frozen, not legacy_fixture, actor_roster, native_authority)
+	var error: Error = session.serve_loopback(port, frozen, not legacy_fixture, actor_roster, native_authority, advanced_fixture)
 	if error != OK:
 		push_error("Loopback bind refused: " + str(error))
 		quit(1)

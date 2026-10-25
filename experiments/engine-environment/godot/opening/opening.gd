@@ -5381,6 +5381,7 @@ func _press_contact_refusal(entity: String) -> String:
 
 func _material_refusal_message(outcome: Dictionary, fallback: String, action_name: String = "") -> String:
 	var advice: String = {
+		"first_plate_required": "Carry your first copper plate to unlock that part.",
 		"unavailable_source": "That source is unavailable or depleted. Choose another tree or ore deposit.",
 		"inventory_full": "Your carried inventory is full. Store or use material before collecting more.",
 		"unaligned_elevation": "Machines and wheels need a whole-tile height. Build a factory floor with Access steps off, or adjust the wheel's drive height.",
@@ -9506,19 +9507,29 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if arrival else "FIRST SHIFT  /  01"
 	if arrival:
 		var carried: Dictionary = state.get("cargo", {}).get(client, {})
-		var next_work := "Cut timber or ore with the multitool [E]."
+		var next_work := "Gather 3 timber and 4 copper blanks with the multitool [E]."
 		var press_ready := false
+		var sliding_press_ready := false
 		var collector_ready := false
 		for press: Dictionary in state.get("guided_press_assemblies", []):
 			press_ready = press_ready or press.get("status") == "ready"
+		for press: Dictionary in state.get("sliding_press_assemblies", []):
+			sliding_press_ready = sliding_press_ready or press.get("status") == "ready"
 		for collector: Dictionary in state.get("collector_assemblies", []):
 			collector_ready = collector_ready or collector.get("status") == "ready"
 		if snapshot_ready:
 			_notice_workshop_completion(workshop_complete)
 		if workshop_complete:
 			next_work = "Open Work log [J] for optional projects, or keep building."
+		elif state.get("first_plate_unlock", false) and sliding_press_ready:
+			next_work = "Open the fitted press [E]. Feed one blank and crank by hand."
 		elif press_ready:
 			next_work = "Open the working press [E] to feed or turn."
+		elif state.get("first_plate_unlock", false) and (
+				not state.get("placed_components", {}).is_empty() or
+				not carried.get("components", {}).is_empty() or
+				int(carried.get("timber", 0)) >= 3 or int(carried.get("raw", 0)) >= 4):
+			next_work = "Craft and place anvil, flat head and wooden slide [B]."
 		elif collector_ready and int(state.get("line_belt_raw", 0)) > 0:
 			next_work = "Blank on belt. Inspect its outlet [E] or recover it."
 		elif collector_ready:

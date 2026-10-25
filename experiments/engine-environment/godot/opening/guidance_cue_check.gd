@@ -267,8 +267,10 @@ func check_shared_manager_log() -> void:
 	view._build_world()
 	view._build_interface()
 	view._refresh_ui()
-	verify("Cut timber or ore" in view.manager_log_current.text,
+	verify("Gather 3 timber and 4 copper blanks" in view.manager_log_current.text,
 		"A confirmed shared arrival shows the live material cue in its replayable manager log.")
+	verify("first copper plate" in view._material_refusal_message({"reason": "first_plate_required"}, "missing advice"),
+		"A shared worker sees the carried-plate prerequisite instead of a native reason code.")
 	view.session.ready = false
 	view._refresh_ui()
 	verify(view.manager_log_current.text.ends_with("Reconnect to continue."),

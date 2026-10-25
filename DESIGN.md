@@ -48,6 +48,13 @@ gantries, moving factories and trains remain intended-game requirements.
   The first objective is **one formed plate in the player's inventory**.
   There is no opening shipment destination. Manual ore acquisition and a
   hand-tended press are viable before collector or belt automation.
+- The experimental first-plate opening starts with an empty hotbar. Only an
+  anvil, flat head and wooden slide are craftable before the actor carries a
+  plate; the slide's integral shaft accepts the issued hand crank. Carrying
+  that plate unlocks the other construction recipes for that actor. The
+  advanced catalog includes external shafts and cogs, waterwheels, belts,
+  collector parts, foundations, receiver trays and broad-work parts. Later
+  introductions remain an open teaching and progression choice.
 - The reusable crank supplies rotation while an actor turns it at an input.
   Its identity and custody persist as it moves between machines. A waterwheel
   in flowing water supplies unattended rotation from local flow speed/direction;

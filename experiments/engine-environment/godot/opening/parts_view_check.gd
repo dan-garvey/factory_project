@@ -1745,6 +1745,8 @@ func _arrival_hotbar() -> void:
 		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
+		"flat_head": {"timber": 0, "copper": 1},
+		"ram_face": {"timber": 0, "copper": 2},
 		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
 		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
 		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
@@ -1752,6 +1754,7 @@ func _arrival_hotbar() -> void:
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
 		"teeth": 0, "half_span": 2}]
 	view.state.component_capacity = 20
+	view.state.first_plate_unlock = true
 	view.state.placed_components = {}
 	root.add_child(view)
 	view.selection_ring = MeshInstance3D.new()
@@ -1759,11 +1762,9 @@ func _arrival_hotbar() -> void:
 	view._build_interface()
 	view._refresh_ui()
 	var bar = view.building_hotbar
-	verify(bar.slots == bar.ARRIVAL_SLOTS and bar.slots[0] == "component:wooden_frame"
-		and not bar.slots.has("collector") and not bar.slots.has("processor")
-		and bar.slot_icons[0].texture == bar.component_buttons.wooden_frame.icon
-		and bar.slot_icons[3].texture == bar.component_buttons.tool_mount.icon,
-		"Native arrival quick slots begin with modular parts and a foundation, without complete machines.")
+	verify(bar.slots == bar.ARRIVAL_SLOTS and bar.slots.all(func(slot: String) -> bool: return slot.is_empty())
+		and bar.slot_icons.all(func(icon: TextureRect) -> bool: return icon.texture == null),
+		"Native arrival begins with eight empty assignable slots.")
 	var component_icon_paths := {}
 	for component: String in bar._component_names:
 		var texture: Texture2D = bar.component_buttons[component].icon
@@ -1772,25 +1773,29 @@ func _arrival_hotbar() -> void:
 		component_icon_paths[texture.resource_path] = true
 	verify(component_icon_paths.size() == bar._component_names.size(),
 		"Different fabricated parts never share one icon resource.")
-	var slot_icon_ids := {}
-	for icon: TextureRect in bar.slot_icons:
-		slot_icon_ids[icon.texture.get_instance_id()] = true
-	verify(slot_icon_ids.size() == 8 and bar.buttons[0].accessibility_name.contains("Wooden frame"),
-		"The opening hotbar distinguishes all eight slots by icon and preserves a focus name.")
+	verify(bar.buttons.size() == 8 and bar.buttons[0].accessibility_name.contains("Assign slot 1"),
+		"Each empty hotbar slot keeps a numbered focus name and assignment path.")
 	var face_labels: Array[String] = []
 	for child: Node in bar.buttons[0].get_children():
 		if child is Label:
 			face_labels.append(child.text)
-	verify(face_labels == ["1", "0"], "Only the slot number and stock count remain on an item face.")
+	verify(face_labels == ["1", "+"], "An empty slot shows its number and assignment cue.")
 	verify(not bar.catalog_buttons.collector.visible and not bar.catalog_buttons.processor.visible
 		and bar.recipe_side.visible and bar.component_buttons.size() == view.arrival_assembly_controls.COMPONENTS.size(),
 		"The arrival inventory hides historical machines and has icons for every fabricated component.")
 	verify(bar.component_buttons.has("anvil") and bar.component_buttons.has("ram_face")
 		and bar.component_buttons.anvil.disabled and bar.component_buttons.ram_face.disabled,
 		"The catalog names anvil and ram face directly and disables parts absent from carried cargo.")
-	verify(bar.buttons[0].disabled and bar.slot_counts[0].text == "0"
+	verify(not bar.buttons[0].disabled and bar.slot_counts[0].text == "+"
 		and not bar.component_buttons.wooden_frame.visible,
-		"A part absent from the active actor's native cargo cannot be selected or assigned.")
+		"An empty slot remains assignable while an unowned part stays absent from the catalog.")
+	verify(bar.recipe_buttons.has("component:anvil")
+		and bar.recipe_buttons.has("component:flat_head")
+		and bar.recipe_buttons.has("component:wooden_slide")
+		and not bar.recipe_buttons.has("component:wooden_cog")
+		and not bar.recipe_buttons.has("component:receiver_tray")
+		and not bar.recipe_buttons.has("foundation"),
+		"Before the first carried plate, the inventory exposes only the three required press recipes.")
 	var initial: Dictionary = view.state.duplicate(true)
 	view.state.cargo.P.components = {"wooden_frame": 2, "copper_cog": 1,
 		"anvil": 1, "ram_face": 1}
@@ -1879,6 +1884,8 @@ func _arrival_hotbar() -> void:
 	view._refresh_ui()
 	view.state.cargo.P.components.anvil = 1
 	view._refresh_ui()
+	bar.open_catalog(0)
+	bar.component_buttons.wooden_frame.pressed.emit()
 	verify(not bar.buttons[0].disabled and bar.slot_counts[0].text == "2",
 		"A confirmed fabricated frame enables its quick slot with the active actor's count.")
 	bar.select_slot(0)
@@ -3099,7 +3106,7 @@ func _buttons() -> void:
 			"Explicit tool selection remains available without minting an intent.")
 		view.state.options.native = false
 		view._refresh_ui()
-		verify(view.tool_buttons.collector.disabled and "0" in view.tool_buttons.collector.text,
+		verify(view.tool_buttons.collector.disabled and "0" in view.tool_buttons.collector.accessibility_name,
 			"An unavailable catalog part stays disabled when the observation profile changes.")
 		view.state.options.native = true
 		view.state.part_kits.erase("Q")

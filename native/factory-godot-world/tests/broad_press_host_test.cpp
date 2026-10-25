@@ -70,7 +70,7 @@ void place(Host& host, const char* kind, I x, I y, I z, int index, I& epoch) {
 
 void broad_projection() {
     Host host;
-    check(get<bool>(host.initialize_arrival("broad-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("broad-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<A>(host.projection(), "broad_press_assemblies").empty(),
         "The finite arrival starts without a gifted broad press.");
@@ -154,7 +154,7 @@ void broad_projection() {
         "Host admits the real broad-feed wire but cannot gift three absent stock chunks.");
     const auto saved = host.checkpoint();
     Host fresh;
-    check(get<bool>(fresh.initialize_arrival("broad-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(fresh.initialize_arrival_advanced_fixture("broad-site", {"P", "Q"}), "accepted") &&
           get<bool>(fresh.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(fresh.restore_checkpoint(saved), "accepted") &&
           get<std::string>(get<A>(fresh.projection(), "broad_press_assemblies").front(),

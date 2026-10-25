@@ -9,13 +9,17 @@ var context: String:
 	get:
 		return str(projection().get("context", ""))
 
-func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], arrival: bool = false):
+func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], arrival: bool = false,
+		advanced_fixture: bool = false):
 	if not ClassDB.class_exists("FactoryNativeWorld"):
 		return
 	native = ClassDB.instantiate("FactoryNativeWorld")
 	if native == null:
 		return
-	boot_result = _invoke("initialize_arrival" if arrival else "initialize", [world_context, actor_ids])
+	var initializer := "initialize"
+	if arrival:
+		initializer = "initialize_arrival_advanced_fixture" if advanced_fixture else "initialize_arrival"
+	boot_result = _invoke(initializer, [world_context, actor_ids])
 	if not boot_result.get("accepted", false):
 		return
 	# Supply the actual emitted terrain to the native placement adapter once.

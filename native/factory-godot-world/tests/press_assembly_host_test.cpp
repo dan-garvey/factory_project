@@ -137,7 +137,7 @@ void conserved_copper(const Host& host) {
 
 void guided_press_host_path() {
     Host host;
-    check(get<bool>(host.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<A>(host.projection(), "guided_press_assemblies").empty(),
           "A fresh arrival has no guided press or gifted frame.");
@@ -188,7 +188,7 @@ void guided_press_host_path() {
     check(!get<bool>(host.command("P", feed("guided-premature-feed", anvil, 9, 0, 0)),
               "accepted"), "An incomplete guided press refuses feed without consuming a blank.");
     Host shaft_first;
-    check(get<bool>(shaft_first.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(shaft_first.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(shaft_first.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(shaft_first.restore_checkpoint(host.checkpoint()), "accepted"),
           "The alternate construction order starts before the press cog is placed.");
@@ -253,7 +253,7 @@ void guided_press_host_path() {
           get<A>(ready, "open_feeds").size() == 4,
           "The Host names exactly five issued working parts and four open feed directions.");
     Host contact;
-    check(get<bool>(contact.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(contact.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(contact.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(contact.restore_checkpoint(host.checkpoint()), "accepted"),
           "The drive contact starts from the ordinary ready press, with no gifted shaft kit.");
@@ -302,7 +302,7 @@ void guided_press_host_path() {
           }) && get<bool>(contact.validate_checkpoint(contact.checkpoint()), "accepted"),
           "The placed one-tile shaft engages the press cog and survives native validation.");
     Host with_tray;
-    check(get<bool>(with_tray.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(with_tray.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(with_tray.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(with_tray.restore_checkpoint(host.checkpoint()), "accepted"),
           "A separate Host restores the same ready guided press before fitting its receiver.");
@@ -332,7 +332,7 @@ void guided_press_host_path() {
           "Host projects the side receiver, finite capacity and two valid feed openings.");
     Host tray_reopened;
     const auto tray_saved = with_tray.checkpoint();
-    check(get<bool>(tray_reopened.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(tray_reopened.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(tray_reopened.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(tray_reopened.restore_checkpoint(tray_saved), "accepted") &&
           !factory::values::typed_difference(tray_saved, tray_reopened.checkpoint()) &&
@@ -356,7 +356,7 @@ void guided_press_host_path() {
     conserved_copper(host);
     const auto saved = host.checkpoint();
     Host restored;
-    check(get<bool>(restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()) &&
@@ -416,7 +416,7 @@ void guided_press_host_path() {
           !factory::values::typed_difference(compacted, restored.checkpoint()),
           "An exact compacting retry does not duplicate the recycled blank.");
     Host fresh;
-    check(get<bool>(fresh.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(fresh.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(fresh.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(fresh.restore_checkpoint(compacted), "accepted") &&
           !factory::values::typed_difference(compacted, fresh.checkpoint()),
@@ -437,7 +437,7 @@ void guided_press_host_path() {
 
 void placed_press_projection() {
     Host host;
-    check(get<bool>(host.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<A>(host.projection(), "press_assemblies").empty(),
           "A fresh arrival has no gifted press assembly.");
@@ -578,7 +578,7 @@ void placed_press_projection() {
           !factory::values::typed_difference(pending, host.checkpoint()),
           "A shared Host retry cannot advance the mirrored press twice.");
     Host resumed_work;
-    check(get<bool>(resumed_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(resumed_work.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(resumed_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(resumed_work.restore_checkpoint(pending), "accepted") &&
           get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 6), "accepted"),
@@ -625,7 +625,7 @@ void placed_press_projection() {
               V(get<A>(resumed_work.projection(), "dropped_material"))),
           "A busy reinserted press cannot consume another carried blank.");
     Host restored_work;
-    check(get<bool>(restored_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored_work.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored_work.restore_checkpoint(reinserted_work), "accepted") &&
           get<bool>(restored_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
@@ -636,7 +636,7 @@ void placed_press_projection() {
     check(get<I>(get<O>(restored_work.projection(), "cargo").at("P"), "products") == 1,
           "The recovered partial WorkLot produces one pickable plate after fresh Host restore.");
     Host final_work;
-    check(get<bool>(final_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(final_work.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(final_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(final_work.restore_checkpoint(restored_work.checkpoint()), "accepted") &&
           get<I>(get<O>(final_work.projection(), "cargo").at("P"), "products") == 1,
@@ -667,12 +667,12 @@ void placed_press_projection() {
         V(A{V(2.64), V(2.45), V(-0.03)}),
         V(A{V(2.66), V(2.50), V(0.03)})})});
     Host obstructed_hub;
-    check(get<bool>(obstructed_hub.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(obstructed_hub.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(obstructed_hub.configure_terrain(hub_obstruction), "accepted") &&
           !get<bool>(obstructed_hub.restore_checkpoint(saved), "accepted"),
           "A solid in the newly occupied cog hub refuses the saved press instead of clipping its axle.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "The fresh Host binds the same arrival site before restore.");
     const auto restored_result = restored.restore_checkpoint(saved);
@@ -688,7 +688,7 @@ void placed_press_projection() {
         V(A{V(3.63), V(1.15), V(-0.08)}),
         V(A{V(3.79), V(1.32), V(0.08)})})});
     Host obstructed;
-    check(get<bool>(obstructed.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(obstructed.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(obstructed.configure_terrain(obstructed_site), "accepted") &&
           get<bool>(obstructed.restore_checkpoint(saved), "accepted"),
           "The saved press can load with a new obstacle limited to one feed mouth.");
@@ -742,7 +742,7 @@ void placed_press_projection() {
           "The elevated press accepts the same conserved feed rule.");
     const auto raised_saved = host.checkpoint();
     Host raised_restored;
-    check(get<bool>(raised_restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(raised_restored.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(raised_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(raised_restored.restore_checkpoint(raised_saved), "accepted") &&
           !factory::values::typed_difference(raised, inspection(raised_restored)) &&
@@ -773,7 +773,7 @@ void placed_press_projection() {
     check(!get<bool>(raised_restored.validate_checkpoint(V(std::move(forged_host))), "accepted"),
           "A checkpoint cannot erase P's witnessed first plate pickup.");
     Host completed_restored;
-    check(get<bool>(completed_restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(completed_restored.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(completed_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(completed_restored.restore_checkpoint(completed_saved), "accepted") &&
           !factory::values::typed_difference(completed_saved, completed_restored.checkpoint()) &&
@@ -799,7 +799,7 @@ void belt_fed_press_projection() {
         {"heights", V(std::move(heights))}, {"obstacles", V(A{})},
         {"water", V(A{V(A{V(I{8}), V(I{-8}), V(I{-20}), V(I{-400}), V(I{200}), V(I{0})})})}};
     Host host;
-    check(get<bool>(host.initialize_arrival("press-site", {"P", "Q"}), "accepted"),
+    check(get<bool>(host.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted"),
           "A detached arrival Host initializes its actual opening roster.");
     const auto configured = host.configure_terrain(site);
     if (!get<bool>(configured, "accepted"))
@@ -926,7 +926,7 @@ void belt_fed_press_projection() {
           "The detached Host projects the real powered belt blank at the raised press work point.");
     const auto saved = host.checkpoint();
     Host fresh;
-    check(get<bool>(fresh.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(fresh.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(fresh.configure_terrain(site), "accepted") &&
           get<bool>(fresh.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, fresh.checkpoint()),
@@ -966,7 +966,7 @@ void belt_fed_press_projection() {
     conserved_copper(fresh);
     const auto used_saved = fresh.checkpoint();
     Host used_restored;
-    check(get<bool>(used_restored.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(used_restored.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(used_restored.configure_terrain(site), "accepted") &&
           get<bool>(used_restored.restore_checkpoint(used_saved), "accepted") &&
           get<A>(used_restored.projection(), "workshop_completed_actors").size() == 1 &&

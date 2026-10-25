@@ -19,6 +19,10 @@ public:
                                           const std::vector<std::string>& actors);
     [[nodiscard]] values::Value initialize_arrival(const std::string& context,
                                                   const std::vector<std::string>& actors);
+    // Isolated subsystem fixtures exercise advanced hardware with the same
+    // finite stock but without the opening's staged content rule.
+    [[nodiscard]] values::Value initialize_arrival_advanced_fixture(const std::string& context,
+                                                  const std::vector<std::string>& actors);
     // Trusted terrain producer, separate from the authenticated command wire.
     // Immutable emitted grid vertices are shared with rendered/native collision.
     [[nodiscard]] values::Value configure_terrain(const values::Value::Object&);
@@ -45,7 +49,7 @@ private:
     [[nodiscard]] bool settle_manual_cuts(const std::optional<std::string>& observed_actor = std::nullopt);
     [[nodiscard]] values::Value initialize_site(const std::string& context,
                                                const std::vector<std::string>& actors,
-                                               bool arrival);
+                                               bool arrival, bool advanced_fixture = false);
     struct Actor {
         authority::Point position{};
         authority::Integer epoch{};

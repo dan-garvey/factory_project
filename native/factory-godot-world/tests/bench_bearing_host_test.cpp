@@ -31,7 +31,7 @@ void bench_requires_ground_bearing() {
         heights.emplace_back(-1.65); heights.emplace_back(-1.65);
     }
     low_site["heights"] = V(heights);
-    check(get<bool>(host.initialize_arrival("low-bench-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("low-bench-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(low_site), "accepted") &&
           get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 1), "accepted"),
           "A local low pocket initializes beside an otherwise level pod and finite stock.");
@@ -89,7 +89,7 @@ void bench_requires_ground_bearing() {
           "An unsupported redeploy leaves the unique pod workshop in P custody.");
 
     Host flat;
-    check(get<bool>(flat.initialize_arrival("low-bench-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(flat.initialize_arrival_advanced_fixture("low-bench-site", {"P", "Q"}), "accepted") &&
           get<bool>(flat.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(flat.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 1), "accepted"),
           "The comparison Host binds the same arrival to level ground.");
@@ -109,7 +109,7 @@ void bench_requires_ground_bearing() {
           "The same wooden bench is valid on level natural ground.");
     const auto saved = flat.checkpoint();
     Host changed_site;
-    check(get<bool>(changed_site.initialize_arrival("low-bench-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(changed_site.initialize_arrival_advanced_fixture("low-bench-site", {"P", "Q"}), "accepted") &&
           get<bool>(changed_site.configure_terrain(low_site), "accepted"),
           "A fresh Host binds the local low pocket before importing the saved bench.");
     const auto before = changed_site.checkpoint();

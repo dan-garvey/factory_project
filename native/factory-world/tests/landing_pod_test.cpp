@@ -933,6 +933,64 @@ void powered_slide_ticks_and_restores() {
           w::World::restore("powered-slide", profile, world->snapshot()) != nullptr,
           "Reclaiming the slide removes its carriage phase without invalidating history.");
 }
+
+void first_plate_gate_admits_only_starter_parts() {
+    auto [profile, state] = seed();
+    profile.first_plate_unlock = true;
+    auto world = w::World::create("first-plate-gate", profile, state);
+    check(world != nullptr, "The staged arrival starts with finite stock and its ordinary pod.");
+    const auto actor = [](const std::string& name) -> std::optional<a::ActorCut> {
+        return a::ActorCut{name, {4, 0, 16}, 1, true, 10};
+    };
+    const auto send = [&](const std::string& who, O intent) {
+        intent.emplace("context", V("first-plate-gate"));
+        intent.emplace("client", V(who + "-client"));
+        intent.emplace("actor", V(who));
+        const auto reply = world->command({who, who + "-client"}, intent, actor);
+        check(reply.completed() && reply.result &&
+              !std::get<bool>(reply.result->at("accepted").storage()),
+              "The empty staged inventory cannot fabricate a part without stock.");
+        return std::get<std::string>(reply.result->at("reason").storage());
+    };
+    I serial = 0;
+    for (const auto* who : {"P", "Q"}) {
+        for (const auto* kind : {"wooden_cog", "receiver_tray", "sliding_guide",
+                                 "ram_face", "wooden_shaft", "wooden_frame", "copper_slide"}) {
+            const O intent{{"request", V("early-component-" + std::to_string(++serial))},
+                {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
+                {"generation", V(I{1})}, {"component", V(kind)}};
+            check(send(who, intent) == "first_plate_required",
+                  "An actor cannot craft advanced components before carrying a plate.");
+        }
+        for (const auto* role : {"shaft", "belt", "waterwheel"}) {
+            const O intent{{"request", V("early-part-" + std::to_string(++serial))},
+                {"action", V("craft_part")}, {"target", V("pod-fabrication-hub")},
+                {"generation", V(I{1})}, {"role", V(role)}, {"half_span", V(I{0})}};
+            check(send(who, intent) == "first_plate_required",
+                  "An actor cannot fabricate external transmission or a mill before a plate.");
+        }
+        const O place{{"request", V("early-placement-" + std::to_string(++serial))},
+            {"action", V("place_component")}, {"component", V("receiver_tray")},
+            {"center", V(V::Array{V(I{8}), V(I{0}), V(I{0})})}};
+        check(send(who, place) == "first_plate_required",
+              "Carried or forged advanced components cannot bypass the placement gate.");
+        const O foundation{{"request", V("early-foundation-" + std::to_string(++serial))},
+            {"action", V("place_foundation")},
+            {"center", V(V::Array{V(I{8}), V(I{0}), V(I{0})})}};
+        check(send(who, foundation) == "first_plate_required",
+              "Issued foundation kits remain locked until their actor's first plate.");
+        for (const auto* kind : {"anvil", "flat_head", "wooden_slide"}) {
+            const O intent{{"request", V("starter-component-" + std::to_string(++serial))},
+                {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
+                {"generation", V(I{1})}, {"component", V(kind)}};
+            check(send(who, intent) != "first_plate_required",
+                  "Anvil, separate flat head and wooden slide remain the three starter recipes.");
+        }
+    }
+    check(world->snapshot().state == state &&
+          w::World::restore("first-plate-gate", profile, world->snapshot()) != nullptr,
+          "All early refusals retain finite stock and restore through the native history.");
+}
 }  // namespace
 
 int main() {
@@ -947,6 +1005,7 @@ int main() {
         placed_components_keep_custody_and_history();
         portable_bench_crafts_with_finite_shared_stock();
         powered_slide_ticks_and_restores();
+        first_plate_gate_admits_only_starter_parts();
         std::cout << "landing_pod_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

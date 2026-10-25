@@ -68,10 +68,10 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(func(): _lost("server_disconnected"))
 	multiplayer.peer_disconnected.connect(_peer_lost)
 
-func serve_loopback(port: int, frozen_clock := false, physical_profile := false, actor_ids: Array = ["P", "Q"], native_authority := false) -> Error:
+func serve_loopback(port: int, frozen_clock := false, physical_profile := false, actor_ids: Array = ["P", "Q"], native_authority := false, advanced_fixture := false) -> Error:
 	if _transport != null or world != null:
 		return ERR_ALREADY_IN_USE
-	if port < 1 or port > 65535 or (native_authority and not physical_profile):
+	if port < 1 or port > 65535 or (native_authority and not physical_profile) or (advanced_fixture and not native_authority):
 		return ERR_INVALID_PARAMETER
 	var next_context := "opening-shared-" + Crypto.new().generate_random_bytes(16).hex_encode()
 	var candidate
@@ -79,7 +79,7 @@ func serve_loopback(port: int, frozen_clock := false, physical_profile := false,
 		var adapter = load("res://opening/native_model.gd")
 		if adapter == null:
 			return ERR_UNAVAILABLE
-		candidate = adapter.new(next_context, actor_ids, true)
+		candidate = adapter.new(next_context, actor_ids, true, advanced_fixture)
 		if not candidate.boot_result.get("accepted", false):
 			return ERR_UNAVAILABLE
 	else:

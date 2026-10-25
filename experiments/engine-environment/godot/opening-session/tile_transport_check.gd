@@ -7,7 +7,7 @@ extends SceneTree
 ## all three exit statuses and PASS markers. Then start server-resume, resume-P
 ## and resume-Q with the same directory and port, after the first server exits.
 ## Require all six processes to pass.
-## The default native arrival route harvests two finite timber units, crafts
+## The explicit advanced fixture route harvests two finite timber units, crafts
 ## two shaft kits at the pod, and builds, restores and reclaims those parts.
 ## Add --chapter-product to build a separate collector and press from finite
 ## chapter materials and carry their first plate through both client views.
@@ -181,7 +181,7 @@ func run_reverse() -> void:
 	var resumed := role.begins_with("resume-") or role == "server-resume"
 	var save_path := directory.path_join("reverse.factory")
 	if role in ["server", "server-resume"]:
-		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start reverse-belt native Session")
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK, "Start reverse-belt native Session")
 		if failed: quit(1); return
 		if resumed:
 			verify(Store.read_into(session.world, save_path).get("accepted", false), "Restore the reverse-belt Store")
@@ -256,7 +256,7 @@ func run_span() -> void:
 	var prefix := "resume-" if resumed else ""
 	var save_path := directory.path_join("span.factory")
 	if role in ["server", "server-resume"]:
-		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start the native span authority")
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK, "Start the native span authority")
 		if failed: quit(1); return
 		var saved_hash := ""
 		if resumed:
@@ -432,7 +432,7 @@ func run_cog_train() -> void:
 	var prefix := "resume-" if resumed else ""
 	var save_path := directory.path_join("cog-train.factory")
 	if role in ["server", "server-resume"]:
-		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start the cog authority")
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK, "Start the cog authority")
 		if failed: quit(1); return
 		var saved_hash := ""
 		if resumed:
@@ -506,7 +506,7 @@ func run_overload() -> void:
 	var prefix := "resume-" if resumed else ""
 	var save_path := directory.path_join("overload.factory")
 	if role in ["server", "server-resume"]:
-		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start the overload authority")
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK, "Start the overload authority")
 		if failed: quit(1); return
 		var saved_hash := ""
 		if resumed:
@@ -617,7 +617,7 @@ func run_fractional_press() -> void:
 	var prefix := "resume-" if resumed else ""
 	var save_path := directory.path_join("fractional-press.factory")
 	if role in ["server", "server-resume"]:
-		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start fractional press authority")
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK, "Start fractional press authority")
 		if failed: quit(1); return
 		if resumed:
 			verify(Store.read_into(session.world, save_path).get("accepted", false), "Restore fractional work and receipt")
@@ -698,7 +698,7 @@ func run_belt_loading() -> void:
 	var prefix := "resume-" if resumed else ""
 	var save_path := directory.path_join("belt-loading.factory")
 	if role in ["server", "server-resume"]:
-		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "Start belt-loading authority")
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK, "Start belt-loading authority")
 		if failed: quit(1); return
 		if resumed:
 			verify(Store.read_into(session.world, save_path).get("accepted", false), "Restore loaded belt and receipt")
@@ -815,7 +815,7 @@ func chapter_request(action: Dictionary, label: String) -> Dictionary:
 	return result
 
 func chapter_server() -> void:
-	verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK,
+	verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK,
 		"The one native arrival Session authority starts")
 	if failed: quit(1); return
 	var save_path := directory.path_join("worksite.factory")
@@ -1248,7 +1248,7 @@ func run() -> void:
 		await run_span()
 		return
 	if role in ["server", "server-resume"]:
-		verify(session.serve_loopback(port, true, true, ["P", "Q"], true) == OK, "The native loopback authority must start")
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK, "The native loopback authority must start")
 		if failed: quit(1); return
 		var save_path := directory.path_join("worksite.factory")
 		var input_hash := ""
@@ -1289,7 +1289,7 @@ func run() -> void:
 		mark("build-ready")
 		if not await until(func(): return FileAccess.file_exists(directory.path_join("clients-done")), "Both clients must finish"): quit(1); return
 		var saved: Dictionary = session.world.checkpoint()
-		var fresh = NativeModel.new(session.context, ["P", "Q"], true)
+		var fresh = NativeModel.new(session.context, ["P", "Q"], true, true)
 		verify(fresh.boot_result.get("accepted", false), "A fresh native Host initializes")
 		verify(fresh.restore_checkpoint(saved).get("accepted", false), "The authority checkpoint restores into a fresh Host")
 		verify(fresh.checkpoint() == saved, "The restored checkpoint preserves geometry, custody, and request history")

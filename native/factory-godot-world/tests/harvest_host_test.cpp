@@ -40,7 +40,7 @@ O fast_site_cut(const char* client, const char* request, const char* target) {
 
 void one_piece_slide_custody() {
     Host host;
-    check(get<bool>(host.initialize_arrival("slide-body-site", {"P"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("slide-body-site", {"P"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
           "One real arrival actor can reach a finite tree for a slide body.");
@@ -120,7 +120,7 @@ void one_piece_slide_custody() {
     check(!get<bool>(host.validate_checkpoint(V(std::move(forged))), "accepted"),
           "History validation rejects invented carriage motion on an unpowered slide.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("slide-body-site", {"P"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("slide-body-site", {"P"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),
@@ -153,7 +153,7 @@ void one_piece_slide_custody() {
           "One accepted crank turn advances the same placed slide's native phase by one shaft revolution.");
     const auto turned_saved = restored.checkpoint();
     Host turned_restored;
-    check(get<bool>(turned_restored.initialize_arrival("slide-body-site", {"P"}), "accepted") &&
+    check(get<bool>(turned_restored.initialize_arrival_advanced_fixture("slide-body-site", {"P"}), "accepted") &&
           get<bool>(turned_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "A fresh Host can reconstruct the same arrival site before manual-turn restore.");
     const auto turn_restore = turned_restored.restore_checkpoint(turned_saved);
@@ -522,11 +522,11 @@ void flat_head_host_custody() {
                   {{"target", V("tree-east-south")}}), "accepted"),
               "Three more finite timber units supply an actual output obstruction.");
     check(get<bool>(resumed("shape-exit-blocker", "field_craft",
-              {{"component", V("wooden_frame")}}), "accepted") &&
+              {{"component", V("wooden_slide")}}), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 15), "accepted"),
-          "The worker brings one crafted frame back to the selected outlet.");
+          "The worker brings one starter slide back to obstruct the selected outlet.");
     const auto blocker = resumed("block-slide-exit", "place_component",
-        {{"component", V("wooden_frame")},
+        {{"component", V("wooden_slide")},
          {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
     if (!get<bool>(blocker, "accepted"))
         throw std::runtime_error("Slide outlet blocker refused: " +
@@ -601,11 +601,31 @@ void flat_head_host_custody() {
           get<I>(get<O>(finished_restored.projection(), "cargo").at("P"), "products") == 0 &&
           get<bool>(finished_restored.validate_checkpoint(finished_restored.checkpoint()), "accepted"),
           "A different actor picks up the saved first plate without duplicating its native identity.");
+    const auto completed = get<A>(finished_restored.projection(), "workshop_completed_actors");
+    const auto attempt_cog = [&](const char* actor, const char* request) {
+        return finished_restored.command(actor, O{{"context", V("flat-head-site")},
+            {"client", V(actor)}, {"request", V(request)}, {"action", V("field_craft")},
+            {"component", V("wooden_cog")}});
+    };
+    const auto still_locked = attempt_cog("P", "first-plate-p-still-locked");
+    const auto newly_unlocked = attempt_cog("Q", "first-plate-q-unlocked");
+    check(completed.size() == 1 && std::get<std::string>(completed.front().storage()) == "Q" &&
+          !get<bool>(still_locked, "accepted") &&
+          get<std::string>(still_locked, "reason") == "first_plate_required" &&
+          get<std::string>(newly_unlocked, "reason") != "first_plate_required",
+          "Only the worker who physically carries the first plate may start advanced crafting.");
+    const auto unlocked_saved = finished_restored.checkpoint();
+    Host unlocked_restored;
+    check(get<bool>(unlocked_restored.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(unlocked_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(unlocked_restored.restore_checkpoint(unlocked_saved), "accepted") &&
+          !factory::values::typed_difference(unlocked_saved, unlocked_restored.checkpoint()),
+          "Fresh replay preserves the actor-specific first-plate unlock and carried plate.");
 }
 
 void shared_fast_setting_and_restore() {
     Host host;
-    check(get<bool>(host.initialize_arrival("fast-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("fast-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(-1.2375), V(1.0), V(0.0)}, 1), "accepted") &&
@@ -636,7 +656,7 @@ void shared_fast_setting_and_restore() {
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "The shared fast setting and mixed native harvest history validate before save.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("fast-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("fast-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           get<bool>(V(get<O>(restored.projection(), "options")), "developer_conveniences"),
@@ -692,7 +712,7 @@ V complete_cut(Host& host, const std::string& actor, const O& wire) {
 
 void cutter_reach_is_shorter_than_build_reach() {
     Host host;
-    check(get<bool>(host.initialize_arrival("harvest-site", {"P"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(host.publish_actor("P", {V(5.4), V(1.0), V(3.3)}, 1), "accepted"),
           "The actor is inside construction reach but beyond the held blade's bark contact.");
@@ -716,7 +736,7 @@ void cutter_reach_is_shorter_than_build_reach() {
 
 void field_wood_uses_physical_actor_and_one_ledger() {
     Host host;
-    check(get<bool>(host.initialize_arrival("field-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("field-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
@@ -750,7 +770,7 @@ void field_wood_uses_physical_actor_and_one_ledger() {
     check(get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
           "Host validates the shaped frame and both actors' conserved cargo.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("field-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("field-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(host.checkpoint()), "accepted") &&
           !factory::values::typed_difference(host.checkpoint(), restored.checkpoint()),
@@ -764,7 +784,7 @@ void field_wood_uses_physical_actor_and_one_ledger() {
 
 void opening_actor_carries_finite_site_across_restore() {
     Host host;
-    check(get<bool>(host.initialize_arrival("harvest-site", {"P"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "The opening actor starts with finite native sources.");
     int epoch = 0;
@@ -786,7 +806,7 @@ void opening_actor_carries_finite_site_across_restore() {
           get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
           "The actor carries more than the former bag limit without minting or losing timber.");
     Host reopened;
-    check(get<bool>(reopened.initialize_arrival("harvest-site", {"P"}), "accepted") &&
+    check(get<bool>(reopened.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
           get<bool>(reopened.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(reopened.restore_checkpoint(host.checkpoint()), "accepted") &&
           !factory::values::typed_difference(host.checkpoint(), reopened.checkpoint()) &&
@@ -796,7 +816,7 @@ void opening_actor_carries_finite_site_across_restore() {
 
 void shared_harvest() {
     Host host;
-    check(get<bool>(host.initialize_arrival("harvest-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "The trusted arrival site initializes one native source roster.");
     const auto initial = host.projection();
@@ -906,7 +926,7 @@ void shared_harvest() {
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "The real Host checkpoint validates tree and ore custody.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("harvest-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("harvest-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),
@@ -915,7 +935,7 @@ void shared_harvest() {
 
 void placed_bench_preserves_two_actor_custody() {
     Host host;
-    check(get<bool>(host.initialize_arrival("bench-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("bench-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(-0.5), V(1.0), V(0.0)}, 1), "accepted"),
@@ -1004,7 +1024,7 @@ void placed_bench_preserves_two_actor_custody() {
           !factory::values::typed_difference(saved, host.checkpoint()),
           "A repeated craft wire does not mint another metal component.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("bench-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("bench-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()) &&
@@ -1032,7 +1052,7 @@ void placed_bench_preserves_two_actor_custody() {
 
 void cut_interrupts_on_actor_sample_before_next_tick() {
     Host host;
-    check(get<bool>(host.initialize_arrival("sample-cut", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("sample-cut", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
@@ -1080,7 +1100,7 @@ void cut_interrupts_on_actor_sample_before_next_tick() {
               "Q's source stays reserved before contact.");
     const auto saved = host.checkpoint();
     Host restored;
-    check(get<bool>(restored.initialize_arrival("sample-cut", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("sample-cut", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),

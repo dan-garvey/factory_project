@@ -383,6 +383,15 @@ bool two_endpoints(const std::string& action) {
         action == "place_belt_span" || action == "place_selected_belt_span";
 }
 
+bool requires_first_plate(const Object& intent, const std::string& action) {
+    if (action == "craft_component" || action == "field_craft" || action == "place_component") {
+        const auto* name = field<std::string>(intent, "component");
+        return !name || (*name != "anvil" && *name != "flat_head" && *name != "wooden_slide");
+    }
+    return action == "craft_foundation" || action == "craft_part" ||
+        action == "shaft_between" || action == "place" || action.starts_with("place_");
+}
+
 Value point_value(const authority::Point& point) {
     return Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])});
 }
@@ -1812,6 +1821,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         // Malformed/refused commands retain their exact original intent too.
         if (!*accepted_value) continue;
         if (!shape(record.intent, *action)) return false;
+        if (profile.first_plate_unlock && !workshop_completed_actors.contains(*actor) &&
+            requires_first_plate(record.intent, *action)) return false;
         if (placement(*action) || *action == "remove" || *action == "set_drive" ||
             *action == "shaft_between" || *action == "remove_shaft_between" ||
             *action == "place_belt_span" || *action == "place_selected_belt_span" ||
@@ -3743,7 +3754,8 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         !std::isfinite(profile.manual_cut_reach) || profile.manual_cut_reach < 0 ||
         profile.manual_cut_reach > profile.build_reach ||
         profile.foundation_parts < 0 || profile.foundation_parts > 256) return false;
-    if (!profile.fabrication_parts.empty() && !profile.landing_pod_center) return false;
+    if ((!profile.fabrication_parts.empty() || profile.first_plate_unlock) &&
+        !profile.landing_pod_center) return false;
     for (const auto& [spec, cost] : profile.fabrication_parts)
         if (!spec_valid(spec) || profile.finite_parts.contains(spec) ||
             (spec.role != Role::waterwheel && spec.role != Role::shaft &&
@@ -4147,6 +4159,10 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto* action = field<std::string>(intent, "action");
     if (!action || !shape(intent, *action)) return refused("invalid_command");
     const auto& state = snapshot.state;
+    if (profile_.first_plate_unlock &&
+        !state.workshop_completed_actors.contains(binding.actor) &&
+        requires_first_plate(intent, *action))
+        return refused("first_plate_required");
     if (*action == "set_developer_conveniences") {
         auto candidate = state;
         candidate.developer_conveniences = *field<bool>(intent, "enabled");

@@ -77,6 +77,19 @@ func _record(status: String, reason: String = "") -> void:
 			playback = null
 			opening.construction_audio.stop()
 			opening.construction_audio.stream = null
+		if opening.workshop_completion_audio != null:
+			var completion_playback: AudioStreamPlayback
+			if opening.workshop_completion_audio.playing:
+				completion_playback = opening.workshop_completion_audio.get_stream_playback()
+			if completion_playback != null:
+				audio_refs.append(weakref(completion_playback))
+			completion_playback = null
+			var completion_stream: AudioStream = opening.workshop_completion_audio.stream
+			if completion_stream != null:
+				audio_refs.append(weakref(completion_stream))
+			completion_stream = null
+			opening.workshop_completion_audio.stop()
+			opening.workshop_completion_audio.stream = null
 		opening.free()
 		opening = null
 	OpeningScene.ConstructionAudio.streams.clear()
@@ -764,7 +777,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-slide", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -1547,7 +1560,7 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 	opening.manager_log_button.pressed.emit()
 	if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
 			and not opening._can_control_character()
-			and "Cut timber or ore" in opening.manager_log_current.text
+			and "Gather 3 timber and 4 copper blanks" in opening.manager_log_current.text
 			and opening.model.projection() == after,
 			"The replayable manager log opens after normal or skipped arrival without changing native work"):
 		return
@@ -1565,6 +1578,23 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 			and after_log.landing_pod == after.landing_pod and after_log.fabrication_hub == after.fabrication_hub,
 			"Closing the work log restores construction and leaves native stock untouched"):
 		return
+	var inventory = opening.building_hotbar
+	inventory.open_catalog()
+	if not _expect(after_log.first_plate_unlock and after_log.workshop_completed_actors.is_empty()
+			and inventory.slots.all(func(slot: String) -> bool: return slot.is_empty())
+			and inventory.recipe_buttons.has("component:anvil")
+			and inventory.recipe_buttons.has("component:flat_head")
+			and inventory.recipe_buttons.has("component:wooden_slide")
+			and not inventory.recipe_buttons.has("component:wooden_cog")
+			and not inventory.recipe_buttons.has("component:receiver_tray")
+			and not inventory.recipe_buttons.has("foundation"),
+			"Fresh native arrival gives the actor empty slots and only the three first-plate recipes"):
+		return
+	if not capture_prefix.is_empty():
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-starter-catalog.png") == OK,
+				"Retain the ordinary starter inventory and empty hotbar in one passive frame"):
+			return
 	_record("pass")
 
 func _supplied_hardware_hits(at: Vector3) -> Array:
@@ -2274,6 +2304,220 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 		return
 	_record("pass")
 
+func _arrival_first_plate_resume_run(capture_prefix: String) -> void:
+	var restored: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and restored.first_plate_unlock and restored.cargo.P.products == 1
+			and restored.workshop_completed_actors.has("P")
+			and restored.placed_components.size() == 3
+			and restored.hand_crank.holder == "P"
+			and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
+			and opening.objective_heading.text.contains("COMPLETE"),
+			"A separate Godot process reopens the first carried plate and completed native milestone"):
+		return
+	var inventory = opening.building_hotbar
+	inventory.open_catalog()
+	if not _expect(inventory.recipe_buttons.has("component:wooden_cog")
+			and inventory.recipe_buttons.has("component:receiver_tray")
+			and inventory.recipe_buttons.has("foundation"),
+			"The restored actor keeps the advanced recipe unlock without default hotbar assignments"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(
+				capture_prefix + "-restored-catalog.png") == OK,
+				"Retain a passive frame of the restored advanced catalog"):
+			return
+	_record("pass")
+
+func _arrival_starter_assembly_run(capture_prefix: String) -> void:
+	var inventory = opening.building_hotbar
+	var start: Dictionary = opening.model.projection()
+	if not _expect(start.first_plate_unlock and start.workshop_completed_actors.is_empty()
+			and inventory.slots.all(func(slot: String) -> bool: return slot.is_empty()),
+			"Fresh native arrival starts with an empty hotbar and a locked first-plate milestone"):
+		return
+	inventory.open_catalog()
+	if not _expect(inventory.recipe_buttons.has("component:anvil")
+			and inventory.recipe_buttons.has("component:flat_head")
+			and inventory.recipe_buttons.has("component:wooden_slide")
+			and not inventory.recipe_buttons.has("component:wooden_cog")
+			and not inventory.recipe_buttons.has("component:receiver_tray"),
+			"The ordinary starter inventory offers only the three required press components"):
+		return
+	inventory.catalog.hide()
+	var early: Dictionary = _issue({"action": "craft_component",
+		"entity": str(start.fabrication_hub.id), "component": "wooden_cog"})
+	if not _expect(not early.get("accepted", false) and early.get("reason") == "first_plate_required"
+			and opening.model.projection().cargo == start.cargo,
+			"A direct cog recipe remains locked without spending the initial finite stock"):
+		return
+	if not await _approach(Vector2(6.0, 3.45)):
+		return
+	for index in range(3):
+		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+			return
+	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return
+	for index in range(4):
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+			return
+	if not await _approach(Vector2(3.3, 4.95)):
+		return
+	for kind in ["anvil", "flat_head", "wooden_slide"]:
+		if not _press_inventory_recipe("component:" + kind, str(start.fabrication_hub.id)):
+			return
+	if not _expect(opening.model.projection().cargo.P.raw == 1
+			and opening.model.projection().cargo.P.timber == 0,
+			"Finite shaping spends two copper for the anvil, one for its separate head and three timber for the slide"):
+		return
+	if not await _approach(Vector2(4.95, 4.95)):
+		return
+	var fitted: Dictionary = {}
+	for part in [{"kind": "anvil", "center": [12, 0, 16]},
+			{"kind": "flat_head", "center": [12, 1, 16]},
+			{"kind": "wooden_slide", "center": [12, 2, 16]}]:
+		if not _select_inventory_item("component:" + part.kind):
+			return
+		var prior: Dictionary = opening.model.projection().placed_components
+		opening.component_nudge_active = true
+		opening.component_nudge_center = part.center.duplicate()
+		opening._world_click(Vector2i(3, 4))
+		opening.component_nudge_active = false
+		opening.component_nudge_center.clear()
+		var after: Dictionary = opening.model.projection().placed_components
+		if not _expect(after.size() == prior.size() + 1 and after.values().any(
+				func(placed: Variant) -> bool: return placed.component == part.kind and placed.center == part.center),
+				"The physical worker places the %s on its shared-grid socket" % part.kind):
+			return
+		for id: String in after:
+			if not prior.has(id):
+				fitted[part.kind] = id
+	var assembled: Dictionary = opening.model.projection()
+	var presses: Array = assembled.get("sliding_press_assemblies", [])
+	if not _expect(presses.size() == 1 and presses[0].status == "ready"
+			and presses[0].parts.anvil == fitted.anvil
+			and presses[0].parts.head == fitted.flat_head
+			and presses[0].parts.slide == fitted.wooden_slide
+			and assembled.workshop_completed_actors.is_empty()
+			and assembled.cargo.P.raw == 1,
+			"An actor-built anvil, separate head and integral slide form one ready native geometry while the plate gate stays locked"):
+		return
+	if not await _approach(Vector2(1.8, 5.4)):
+		return
+	if _construct({"action": "take_hand_crank", "entity": str(assembled.hand_crank.id)}).is_empty():
+		return
+	if not await _approach(Vector2(4.95, 4.95)):
+		return
+	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-first-plate":
+		opening._open_object_menu_for(fitted.anvil)
+		if not _expect(opening.object_menu.visible and panel.press_section.is_visible_in_tree()
+				and panel.slide_port_choice.visible and panel.slide_port_choice.get_item_count() == 2
+				and panel.feed_button.visible and panel.turn_button.visible,
+				"The physical actor opens a ready three-part sliding press with feed and crank controls"):
+			return
+		panel.slide_port_choice.select(1)
+		panel.slide_port_choice.item_selected.emit(1)
+	var prior_phase: Dictionary = opening.model.projection().slide_phases[fitted.wooden_slide]
+	var turn: Dictionary = _issue({"action": "turn_slide_crank", "entity": fitted.wooden_slide,
+		"port": [13, 2, 16]})
+	var cycled: Dictionary = opening.model.projection()
+	if not _expect(turn.get("accepted", false)
+			and cycled.slide_phases[fitted.wooden_slide].subticks > prior_phase.subticks
+			and cycled.hand_crank.holder == "P"
+			and cycled.workshop_completed_actors.is_empty(),
+			"The worker takes the finite pod crank and turns the unchanged placed slide through its integral input"):
+		return
+	var route: Dictionary = presses[0].open_feeds[0]
+	var feed: Dictionary = {}
+	if mode == "arrival-first-plate":
+		opening._open_object_menu_for(fitted.anvil)
+		if not _expect(panel.press_section.is_visible_in_tree()
+				and not panel.feed_button.disabled and panel.route_choice.get_item_count() > 0,
+				"The selected feed icon is available while carrying the last copper blank"):
+			return
+		panel.feed_button.pressed.emit()
+	else:
+		feed = _issue({"action": "feed_press", "entity": fitted.anvil, "entry": route.entry})
+	var loaded: Dictionary = opening.model.projection()
+	if not _expect((mode == "arrival-first-plate" or feed.get("accepted", false))
+			and loaded.cargo.P.raw == 0
+			and loaded.sliding_press_assemblies[0].selected_exit == route.exit
+			and loaded.workshop_completed_actors.is_empty(),
+			"The worker feeds the last finite blank and retains its chosen outlet without unlocking parts"):
+		return
+	if mode == "arrival-first-plate":
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-press-controls.png") == OK,
+					"Retain the live feed and crank controls beside the loaded slide press"):
+				return
+		var formed: Dictionary = {}
+		for turn_index in range(64):
+			var prior_order: int = int(opening.model.projection().order)
+			if not _expect(panel.press_section.is_visible_in_tree()
+					and panel.turn_button.visible and not panel.turn_button.disabled,
+					"The slide crank icon remains available through stroke %d" % turn_index):
+				return
+			panel.turn_button.pressed.emit()
+			if not _expect(int(opening.model.projection().order) == prior_order + 1,
+					"The slide crank icon advances the authoritative worksite once"):
+				return
+			for drop: Dictionary in opening.model.projection().dropped_material:
+				if drop.center == route.exit and int(drop.get("products", 0)) == 1:
+					formed = drop
+					break
+			if not formed.is_empty():
+				break
+		var before_pickup: Dictionary = opening.model.projection()
+		if not _expect(not formed.is_empty()
+				and before_pickup.cargo.P.products == 0
+				and before_pickup.workshop_completed_actors.is_empty()
+				and before_pickup.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+				"Native bottom contact conserves mass and places one formed plate at the chosen exit"):
+			return
+		if not await _approach(Vector2(4.1, 6.0)):
+			return
+		opening._open_object_menu_for(fitted.anvil)
+		if not _expect(panel.pickup_button.visible and not panel.pickup_button.disabled,
+				"The fitted press exposes the formed plate through its pickup icon"):
+			return
+		panel.pickup_button.pressed.emit()
+		var completed: Dictionary = opening.model.projection()
+		if not _expect(completed.cargo.P.products == 1
+				and completed.workshop_completed_actors.has("P")
+				and completed.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
+				and opening.objective_heading.text.contains("COMPLETE"),
+				"The first copper plate in carried inventory completes the native and visible milestone"):
+			return
+		inventory.open_catalog()
+		if not _expect(inventory.recipe_buttons.has("component:wooden_cog")
+				and inventory.recipe_buttons.has("component:receiver_tray")
+				and inventory.recipe_buttons.has("foundation"),
+				"Carrying the formed plate reveals advanced component and foundation recipes"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-unlocked-catalog.png") == OK,
+					"Retain the advanced catalog after native plate pickup in a passive frame"):
+				return
+		inventory.catalog.hide()
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		var frame_name := "-first-plate.png" if mode == "arrival-first-plate" else "-starter-press.png"
+		if not _expect(await _capture_actor_area(capture_prefix + frame_name,
+				Vector3(4.95, 1.1, 6.6)),
+				"Retain the actor-built sliding press in an ordinary passive view"):
+			return
+	opening.configure_save_slot(destination + ".worksite")
+	var saved: Dictionary = opening._save_worksite()
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"The three-part unfinished worksite retains exact finite custody and a valid native checkpoint"):
+		return
+	_record("pass")
+
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-craft-capacity"]:
@@ -2282,18 +2526,26 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-slide", "supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
+	var advanced_fixture := mode not in ["arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-resume", "arrival-reveal", "arrival-reveal-skip"]
 	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
 		facts["actor_roster"] = ["P", "Q"]
 		opening.set_script(load("res://opening/opening.gd"))
-		opening.model = NativeModel.new("arrival-dual-actor-" + Crypto.new().generate_random_bytes(16).hex_encode(), ["P", "Q"], true)
+		opening.model = NativeModel.new("arrival-dual-actor-" + Crypto.new().generate_random_bytes(16).hex_encode(), ["P", "Q"], true, advanced_fixture)
+	elif advanced_fixture:
+		# Legacy subsystem fixtures use finite site stock but begin with the
+		# advanced catalog available. The separate first-plate mode checks the
+		# actual playable arrival and its native milestone gate.
+		facts["evidence"] = "native_advanced_fixture_scene_consumer"
+		opening.set_script(load("res://opening/opening.gd"))
+		opening.model = NativeModel.new("opening-native", ["P"], true, true)
 	opening.auto_advance = mode == "arrival-reveal"
 	opening.arrival_reveal_probe = mode == "arrival-reveal-skip" \
 		or (mode == "arrival-resume" and "--arrival-reveal-probe" in OS.get_cmdline_user_args())
@@ -2341,6 +2593,12 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode in ["arrival-starter-assembly", "arrival-first-plate"]:
+		await _arrival_starter_assembly_run(capture_prefix)
+		return
+	if mode == "arrival-first-plate-resume":
+		await _arrival_first_plate_resume_run(capture_prefix)
+		return
 	if mode == "arrival-slide":
 		await _arrival_slide_run(panel, capture_prefix)
 		return
@@ -2472,9 +2730,10 @@ func _arrival_run() -> void:
 	opening._open_object_menu_for(str(pod_state.fabrication_hub.id))
 	var inventory = opening.building_hotbar
 	if not _expect(inventory.catalog.visible and inventory.context_bench == pod_state.fabrication_hub.id
+			and inventory.recipe_buttons.has("component:wooden_frame")
 			and inventory.recipe_buttons["component:wooden_frame"].visible
 			and "3 timber" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
-			"Opening the pod workshop exposes current native recipes in the inventory"):
+			"Opening the pod workshop exposes the finite advanced-fixture recipes"):
 		return
 	var empty_before: Dictionary = opening.model.projection()
 	inventory.recipe_buttons["component:wooden_frame"].pressed.emit()
@@ -2523,6 +2782,7 @@ func _arrival_run() -> void:
 	var initial: Dictionary = opening.model.projection()
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
 			and initial.placed_components.is_empty() and initial.component_recipes.size() == 15
+			and initial.component_recipes.flat_head.copper == 1
 			and initial.component_recipes.wooden_slide.timber == 3
 			and initial.component_recipes.copper_slide.copper == 4,
 			"Two finite trees and the ore deposit supply the original route while native slides remain finite options"):

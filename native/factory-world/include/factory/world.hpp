@@ -57,6 +57,9 @@ struct Profile {
     // Trusted landing-site center in the same quarter-tile grid as foundations.
     // The unfolded 3 x 3 deck spends nine of foundation_parts at startup.
     std::optional<mechanics::Point> landing_pod_center;
+    // Arrival actors unlock advanced construction after physically carrying a
+    // first plate. Generic mechanics fixtures leave this content rule disabled.
+    bool first_plate_unlock{};
     // Trusted ore-facing workcells. The profile, not a client command,
     // decides which placed assemblies can extract from the finite deposit.
     std::vector<assembly::OreFace> collector_faces;

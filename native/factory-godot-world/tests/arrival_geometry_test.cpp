@@ -67,7 +67,7 @@ void floor_and_custody_geometry() {
 
 void actual_host_projection() {
     factory::godot_world::Host host;
-    const auto initialized = std::get<O>(host.initialize_arrival("supplied-solids", {"P"}).storage());
+    const auto initialized = std::get<O>(host.initialize_arrival_advanced_fixture("supplied-solids", {"P"}).storage());
     check(std::get<bool>(initialized.at("accepted").storage()), "Arrival initializes its native state.");
     const auto view = std::get<O>(host.projection().storage());
     check(view.contains("supplied_hardware_boxes"),
@@ -82,7 +82,7 @@ void construction_and_restore() {
     const auto accepted = [](const V& result) {
         return std::get<bool>(std::get<O>(result.storage()).at("accepted").storage());
     };
-    check(accepted(host.initialize_arrival("supplied-construction", {"P"})), "The native construction fixture initializes.");
+    check(accepted(host.initialize_arrival_advanced_fixture("supplied-construction", {"P"})), "The native construction fixture initializes.");
     check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "Synthetic floor binds.");
     I epoch{};
     const auto pose = [&](double x, double z) {
@@ -130,7 +130,7 @@ void construction_and_restore() {
         {"center", V(A{V(I{0}), V(I{0}), V(I{16})})}})), "The same workshop redeploys on an independent common-grid tile.");
     const auto saved = host.checkpoint();
     Host restored;
-    check(accepted(restored.initialize_arrival("fresh-consumer", {"P"})), "The independent consumer initializes.");
+    check(accepted(restored.initialize_arrival_advanced_fixture("fresh-consumer", {"P"})), "The independent consumer initializes.");
     check(accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())), "The consumer binds the same synthetic site.");
     check(accepted(restored.restore_checkpoint(saved)), "A fresh native owner restores the clear saved actor and relocated workshop.");
     const auto restored_view = std::get<O>(restored.projection().storage());
@@ -141,7 +141,7 @@ void construction_and_restore() {
     obstructed_actors.at("P") = V(A{V(0.0), V(0.9), V(6.6)});
     obstructed.insert_or_assign("actors", V(std::move(obstructed_actors)));
     Host blocked;
-    check(accepted(blocked.initialize_arrival("refusal-consumer", {"P"})), "The refusal consumer starts fresh.");
+    check(accepted(blocked.initialize_arrival_advanced_fixture("refusal-consumer", {"P"})), "The refusal consumer starts fresh.");
     check(accepted(blocked.configure_terrain(factory::godot_world::tests::flat_site())), "The refusal consumer binds terrain.");
     const auto unchanged = blocked.checkpoint();
     const auto refused = blocked.restore_checkpoint(V(obstructed));

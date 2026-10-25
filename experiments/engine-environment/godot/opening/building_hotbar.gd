@@ -10,8 +10,7 @@ const TOOL_KEYS := {"collector": "C", "foundation": "F", "belt": "B",
 	"processor": "P", "wheel": "W", "gear": "G", "drive": "S",
 	"gearbox": "H", "vertical_gearbox": "V", "chain_drive": "N"}
 const COMPONENT_PREFIX := "component:"
-const ARRIVAL_SLOTS: Array[String] = ["component:wooden_frame", "foundation", "component:wooden_shaft",
-	"component:tool_mount", "component:receiver_tray", "component:cutting_edge", "belt", "wheel"]
+const ARRIVAL_SLOTS: Array[String] = ["", "", "", "", "", "", "", ""]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
 const FOOTPRINT_ONE_ICON = preload("res://opening/assets/build-icons/footprint-one.svg")
 const FOOTPRINT_FOUR_ICON = preload("res://opening/assets/build-icons/footprint-four.svg")
@@ -30,7 +29,7 @@ const COMPONENT_ICONS := {
 	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
 	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg",
 	"flat_head": "flat_head.svg"}
-var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
+var slots: Array[String] = ["", "", "", "", "", "", "", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []
 var slot_counts: Array[Label] = []
@@ -360,18 +359,24 @@ func _place_catalog() -> void:
 		maxi(0, int((extent.y - catalog.size.y) / 2.0)))
 
 func _configure_catalog_layout(extent: Vector2) -> void:
-	var narrow := extent.x <= 720.0
-	catalog_columns.vertical = narrow
-	context_label.visible = not narrow
-	var scroll_height := 78 if narrow else 275
+	var compact := extent.x <= 720.0
+	var stacked := extent.x < 600.0
+	var starter := _arrival_active and _view() != null and not _plate_unlocked(_view())
+	catalog_columns.vertical = stacked
+	material_grid.columns = 3 if compact else 4
+	recipe_grid.columns = 3 if compact else 4
+	context_label.visible = not compact or starter
+	var scroll_height := 48 if stacked else 145 if starter and compact else 100 if starter else 125 if compact else 275
 	inventory_scroll.custom_minimum_size = Vector2(0, scroll_height)
 	recipe_scroll.custom_minimum_size = Vector2(0, scroll_height)
 	for side in ["left", "right", "top", "bottom"]:
-		catalog_margin.add_theme_constant_override("margin_" + side, 8 if narrow else 16)
+		catalog_margin.add_theme_constant_override("margin_" + side, 8 if compact else 16)
 
 func _catalog_dimensions(extent: Vector2) -> Vector2i:
 	var width := int(extent.x) if extent.x <= 720.0 else mini(800, int(extent.x) - 16)
-	return Vector2i(width, mini(620, int(extent.y) - 16))
+	var starter := _arrival_active and _view() != null and not _plate_unlocked(_view())
+	var starter_height := 464 if extent.x <= 720.0 else 420
+	return Vector2i(width, mini(starter_height if starter else 620, int(extent.y) - 16))
 
 func _view():
 	return _host.get_ref() if _host != null else null
@@ -396,16 +401,21 @@ func _tool_label(tool: String) -> String:
 		if tool.begins_with(COMPONENT_PREFIX) else str(TOOLS.get(tool, "Empty"))
 
 func _offered(tool: String, host) -> bool:
+	if _arrival_active and not _plate_unlocked(host):
+		return tool in ["component:anvil", "component:flat_head", "component:wooden_slide"]
 	return not (_arrival_active and tool in ["collector", "processor"]) \
 		and not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
 		and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
+
+func _plate_unlocked(host) -> bool:
+	return not _arrival_active or not host.state.get("first_plate_unlock", true) or \
+		host.state.get("workshop_completed_actors", []).has(host.client)
 
 func _sync_arrival(host) -> void:
 	var arrival: bool = host._native_transmission() and host.state.has("hand_sources")
 	if arrival != _arrival_active:
 		_arrival_active = arrival
-		slots = ARRIVAL_SLOTS.duplicate() if arrival else \
-			["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
+		slots = ARRIVAL_SLOTS.duplicate()
 		selected_slot = -1
 	if arrival and _component_names.is_empty() and host.arrival_assembly_controls != null:
 		for item in host.arrival_assembly_controls.COMPONENTS:
@@ -508,8 +518,18 @@ func _refresh_recipes(host, ready: bool) -> void:
 		"CARRIED · CRANK WITH OTHER WORKER" if not crank.is_empty() else "CARRIED"
 	context_label.text = "Fabrication bench · choose a recipe" if not context_bench.is_empty() else \
 		"Field recipes can be made anywhere · E opens a bench"
+	if not _plate_unlocked(host):
+		context_label.text = "First plate: build anvil, flat head and slide. Feed 1 blank, crank, then pick up the plate."
 	var recipes: Dictionary = host.state.get("component_recipes", {})
-	for component: String in _component_names:
+	var recipe_names: Array[String] = []
+	if _plate_unlocked(host):
+		recipe_names.assign(_component_names)
+	else:
+		for starter: String in ["anvil", "flat_head", "wooden_slide"]:
+			recipe_names.append(starter)
+	for component: String in recipe_names:
+		if not _component_labels.has(component):
+			continue
 		var cost: Dictionary = recipes.get(component, {})
 		if cost.is_empty():
 			continue
@@ -517,11 +537,13 @@ func _refresh_recipes(host, ready: bool) -> void:
 		_recipe_state(host, COMPONENT_PREFIX + component, _component_labels[component], cost,
 			component_textures[component], field_allowed, ready)
 	var foundation: Dictionary = host.state.get("foundation_recipe", {})
-	if not foundation.is_empty():
+	if _plate_unlocked(host) and not foundation.is_empty():
 		_recipe_state(host, "foundation", "Foundation", foundation,
 			catalog_buttons.foundation.icon, false, ready)
 	var parts: Array = host.state.get("part_recipes", [])
 	for index in parts.size():
+		if not _plate_unlocked(host):
+			break
 		var recipe: Dictionary = parts[index]
 		var kind: String = str(recipe.get("kind", ""))
 		var icon_name := ""
@@ -561,6 +583,9 @@ func _refresh_recipes(host, ready: bool) -> void:
 func _craft_recipe(key: String) -> void:
 	var host = _view()
 	if host == null or not _arrival_active or not host._can_choose_tool():
+		return
+	if not _plate_unlocked(host) and key not in ["component:anvil", "component:flat_head", "component:wooden_slide"]:
+		focus_description.text = "Carry your first copper plate to unlock this recipe."
 		return
 	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
 	var cost: Dictionary = {}
@@ -687,7 +712,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 			part_button.text = ""
 			component_counts[component].text = str(count)
 			part_button.disabled = not usable or count < 1
-			part_button.visible = count > 0
+			part_button.visible = count > 0 and _offered(COMPONENT_PREFIX + component, host)
 			part_button.tooltip_text = "%s · %d carried · assign to hotbar %d" % [
 				_component_labels[component], count, target_slot + 1]
 			part_button.accessibility_name = "%s, %d carried, assign to hotbar %d" % [

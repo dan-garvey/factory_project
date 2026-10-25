@@ -24,7 +24,7 @@ template<class T> const T& get(const V& value, const char* key) {
 }
 
 void initialized(Host& host) {
-    check(get<bool>(host.initialize_arrival("arrival-site", {"P", "Q"}), "accepted"),
+    check(get<bool>(host.initialize_arrival_advanced_fixture("arrival-site", {"P", "Q"}), "accepted"),
           "The new native opening initializes one pod for a shared roster.");
     check(get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "The normal terrain producer still binds the authored site.");

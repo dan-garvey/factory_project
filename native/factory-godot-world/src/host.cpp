@@ -970,8 +970,13 @@ Value Host::initialize_arrival(const std::string& context, const std::vector<std
     return initialize_site(context, actors, true);
 }
 
+Value Host::initialize_arrival_advanced_fixture(const std::string& context,
+        const std::vector<std::string>& actors) {
+    return initialize_site(context, actors, true, true);
+}
+
 Value Host::initialize_site(const std::string& context, const std::vector<std::string>& actors,
-                            bool arrival) {
+                            bool arrival, bool advanced_fixture) {
     if (owned_) return result(false, "already_initialized");
     if (actors.empty() || actors.size() > 2 || actors.front() != "P") return result(false, "invalid_roster");
     world::Profile profile;
@@ -990,6 +995,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     // reversible authored site anchor, expressed in the one quarter-tile grid.
     if (arrival) {
         profile.landing_pod_center = mechanics::Point{4, 0, 16};
+        profile.first_plate_unlock = !advanced_fixture;
         profile.material.manual_ore = materials::OreSite{"opening-copper", {-3, 0, 0}};
         profile.material.raw_mass = 4;
         profile.material.plate_mass = 3;
@@ -2808,6 +2814,7 @@ Value Host::projection() const {
         for (const auto& actor : state.workshop_completed_actors)
             completed.emplace_back(actor);
         projection.emplace("workshop_completed_actors", Value(std::move(completed)));
+        projection.emplace("first_plate_unlock", Value(profile_.first_plate_unlock));
         const auto& crank = *state.hand_crank;
         projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
             {"generation", Value(crank.generation)},

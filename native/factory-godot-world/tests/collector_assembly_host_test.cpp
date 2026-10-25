@@ -63,7 +63,7 @@ std::string place(Host& host, const char* kind, I x, I y, I z, const char* id) {
 
 void collector_readiness_tracks_real_parts() {
     Host host;
-    check(get<bool>(host.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(host.initialize_arrival_advanced_fixture("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(host.configure_terrain(source_contact_site()), "accepted"),
           "The experimental arrival binds one native resource and construction authority.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_frame",
@@ -208,14 +208,14 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "A complete component layout validates as an ordinary native checkpoint.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(source_contact_site()), "accepted") &&
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           get<std::string>(ground_inspection(restored), "status") == "ready" &&
           get<I>(get<O>(restored.projection(), "hand_sources").at("opening-copper"), "remaining") == 4094,
           "A fresh Host derives the same collector and conserved source after restore.");
     Host obstructed;
-    check(get<bool>(obstructed.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(obstructed.initialize_arrival_advanced_fixture("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(obstructed.configure_terrain(source_contact_site(true)), "accepted"),
           "A distinct obstruction binds to the fresh Host beside the trusted source.");
     const auto obstructed_restore = obstructed.restore_checkpoint(saved);
@@ -224,7 +224,7 @@ void collector_readiness_tracks_real_parts() {
           get<O>(obstructed.projection(), "placed_components").empty(),
           "A second obstacle at the cutter refuses checkpoint import without installing parts.");
     Host foot_obstructed;
-    check(get<bool>(foot_obstructed.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(foot_obstructed.initialize_arrival_advanced_fixture("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(foot_obstructed.configure_terrain(source_contact_site(false, true)), "accepted"),
           "A small independent ground obstacle binds below the saved frame.");
     const auto foot_restore = foot_obstructed.restore_checkpoint(saved);
@@ -319,7 +319,7 @@ void collector_readiness_tracks_real_parts() {
                                      V(A{V(-0.35), V(0.25), V(0.10)})});
     support_site.at("obstacles") = V(std::move(support_obstacles));
     Host blocked_support;
-    check(get<bool>(blocked_support.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(blocked_support.initialize_arrival_advanced_fixture("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(blocked_support.configure_terrain(support_site), "accepted") &&
           get<bool>(blocked_support.restore_checkpoint(prepared_layout), "accepted"),
           "A fresh Host retains the prepared kit beside a distinct low obstruction.");
@@ -333,7 +333,7 @@ void collector_readiness_tracks_real_parts() {
           get<std::string>(blocked_mount_result, "reason") == "site_occupied",
           "A floor-level obstruction refuses the installed mount's visible support volume.");
     Host upper_tools;
-    check(get<bool>(upper_tools.initialize_arrival("assembly-site", {"P", "Q"}), "accepted") &&
+    check(get<bool>(upper_tools.initialize_arrival_advanced_fixture("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(upper_tools.configure_terrain(source_contact_site()), "accepted") &&
           get<bool>(upper_tools.restore_checkpoint(prepared_layout), "accepted"),
           "A fresh Host retains the real crafted kit before a one-step raised cutter layout.");
