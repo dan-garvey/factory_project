@@ -227,7 +227,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
             {"output", Value(stock.output)}};
         if (copper) stock_fields.emplace("offcuts", Value(stock.offcuts));
         Object output{
-            {"schema", Value(Value::Integer{copper ? 14 : resources ? 13 : 7})},
+            {"schema", Value(Value::Integer{copper ? 15 : resources ? 14 : 7})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(std::move(stock_fields))},
             {"cargo", Value(std::move(cargo))},
@@ -260,7 +260,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         const auto& root = resources ? fields(value, "$",
             {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining", "placed_components", "fabricated_timber", "fabricated_raw"}) :
             fields(value, "$", {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != (copper ? 14 : resources ? 13 : 7))
+        if (integer(root.at("schema"), "$.schema") != (copper ? 15 : resources ? 14 : 7))
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = copper ? fields(root.at("stock"), "$.stock",
                 {"source", "collector", "belt", "input", "output", "offcuts"}) :

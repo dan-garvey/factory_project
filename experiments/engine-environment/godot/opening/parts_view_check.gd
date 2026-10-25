@@ -429,8 +429,8 @@ func _component_placement_check() -> void:
 	view._world_click(Vector2i.ZERO, "anvil")
 	verify(view.issued.back().center == [1, 5, 0],
 		"Click uses the shaft's visible anvil-side target rather than the ground datum.")
-	view.state.cargo.P.components.softmetal_cog = 1
-	choice.kind = "softmetal_cog"
+	view.state.cargo.P.components.copper_cog = 1
+	choice.kind = "copper_cog"
 	view._refresh_component_preview()
 	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [2, 5, 0]
 		and view.component_preview.visible and not view.component_preview_blocked,
@@ -900,7 +900,7 @@ func _multitool_controls() -> void:
 		view._refresh_ui()
 		var before: Dictionary = view.state.duplicate(true)
 		verify("FIRST WORKSHOP" in view.objective_heading.text and not view.goal_progress.visible
-			and not view.goal_label.text.contains("3 timber") and not view.goal_label.text.contains("1 softmetal")
+			and not view.goal_label.text.contains("3 timber") and not view.goal_label.text.contains("1 copper")
 			and view.building_hotbar.material_counts.timber.text == "3"
 			and view.building_hotbar.material_counts.raw.text == "1",
 			"The arrival objective stays focused on the order while build/inventory shows confirmed cargo.")
@@ -943,7 +943,7 @@ func _multitool_controls() -> void:
 		verify(view.state == before and view.model == null and view.request_sequence == 0,
 			"Presentation and request selection do not debit local stock or create a Model.")
 		verify(view._harvest_result_text({"moved_timber": 1, "moved_raw": 0}) == "Collected 1 timber."
-			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 1}) == "Collected 1 softmetal blank."
+			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 1}) == "Collected 1 copper blank."
 			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 0}) == "Cutting…",
 			"The start receipt is not mislabeled as collected stock; contact reports actual moved quantities.")
 		verify("depleted" in view._material_refusal_message({"reason": "unavailable_source"}, "fallback")
@@ -1587,16 +1587,16 @@ func _arrival_hotbar() -> void:
 	view.state.cargo = {"P": {"components": {}}, "Q": {"components": {"wooden_frame": 1}}}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	view.state.component_recipes = {
-		"wooden_frame": {"timber": 3, "softmetal": 0},
-		"wooden_shaft": {"timber": 1, "softmetal": 0, "load_rating": 8},
-		"tool_mount": {"timber": 1, "softmetal": 0},
-		"cutting_edge": {"timber": 0, "softmetal": 1},
-		"anvil": {"timber": 0, "softmetal": 2},
-		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24},
-		"wooden_slide": {"timber": 3, "softmetal": 0, "load_rating": 8},
-		"softmetal_slide": {"timber": 0, "softmetal": 4, "load_rating": 24}}
-	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
-	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "softmetal": 0,
+		"wooden_frame": {"timber": 3, "copper": 0},
+		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
+		"tool_mount": {"timber": 1, "copper": 0},
+		"cutting_edge": {"timber": 0, "copper": 1},
+		"anvil": {"timber": 0, "copper": 2},
+		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
+		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
+		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
+	view.state.foundation_recipe = {"timber": 2, "copper": 0}
+	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
 		"teeth": 0, "half_span": 2}]
 	view.state.component_capacity = 20
 	view.state.placed_components = {}
@@ -1639,7 +1639,7 @@ func _arrival_hotbar() -> void:
 		and not bar.component_buttons.wooden_frame.visible,
 		"A part absent from the active actor's native cargo cannot be selected or assigned.")
 	var initial: Dictionary = view.state.duplicate(true)
-	view.state.cargo.P.components = {"wooden_frame": 2, "softmetal_cog": 1,
+	view.state.cargo.P.components = {"wooden_frame": 2, "copper_cog": 1,
 		"anvil": 1, "ram_face": 1}
 	view._refresh_ui()
 	verify(not bar.component_buttons.anvil.disabled and not bar.component_buttons.ram_face.disabled
@@ -1738,16 +1738,16 @@ func _arrival_hotbar() -> void:
 	verify(bar.catalog_buttons.foundation.visible and not bar.catalog_buttons.belt.visible
 		and not bar.catalog_buttons.wheel.visible,
 		"The arrival catalog gives space to carried parts instead of unavailable machine cards.")
-	var cog_index: int = bar._component_names.find("softmetal_cog")
+	var cog_index: int = bar._component_names.find("copper_cog")
 	verify(cog_index >= 0 and bar.catalog.visible, "The catalog includes the stronger metal cog.")
 	if cog_index >= 0:
-		verify(not bar.component_buttons.softmetal_cog.disabled
-			and bar.component_counts.softmetal_cog.text == "1",
+		verify(not bar.component_buttons.copper_cog.disabled
+			and bar.component_counts.copper_cog.text == "1",
 			"The inventory reads the carried metal cog from native component cargo.")
-		bar.component_buttons.softmetal_cog.pressed.emit()
-		verify(bar.slots[7] == "component:softmetal_cog" and view.mode == "component"
-			and view.arrival_assembly_controls.selected_name() == "softmetal_cog"
-			and bar.slot_icons[7].texture == bar.component_buttons.softmetal_cog.icon
+		bar.component_buttons.copper_cog.pressed.emit()
+		verify(bar.slots[7] == "component:copper_cog" and view.mode == "component"
+			and view.arrival_assembly_controls.selected_name() == "copper_cog"
+			and bar.slot_icons[7].texture == bar.component_buttons.copper_cog.icon
 			and view.issued.is_empty(),
 			"Catalog assignment selects the exact component in the existing workshop and placement path.")
 	bar.open_catalog(6)
@@ -1775,18 +1775,18 @@ func _arrival_hotbar() -> void:
 	verify(bar.material_counts.timber.text == "4", "A restored actor projection refreshes the inventory icon count.")
 	view.client = "P"
 	bar.select_slot(7)
-	view.state.cargo.P.components.softmetal_cog = 0
+	view.state.cargo.P.components.copper_cog = 0
 	view._refresh_ui()
 	bar.select_slot(7)
 	verify(bar.buttons[7].disabled and bar.slot_counts[7].text == "0"
-		and view.arrival_assembly_controls.selected_name() == "softmetal_cog"
+		and view.arrival_assembly_controls.selected_name() == "copper_cog"
 		and view.issued.is_empty(),
 		"An exhausted fabricated component cannot create a construction command.")
 	verify(view.state.cargo.P.components.wooden_frame == 2 and initial.cargo.P.components.is_empty()
 		and view.model == null and view.actor_world == null,
 		"Hotbar interaction changes no component custody or simulation state.")
 	view.state.cargo.P.components.wooden_slide = 1
-	view.state.cargo.P.components.softmetal_slide = 1
+	view.state.cargo.P.components.copper_slide = 1
 	view.state.cargo.P.timber = 3
 	view.state.cargo.P.raw = 4
 	view._refresh_ui()
@@ -1798,7 +1798,7 @@ func _arrival_hotbar() -> void:
 	bar.component_buttons.wooden_slide.grab_focus()
 	await settle_widgets()
 	verify(bar.focus_description.text.contains("Wooden slide")
-		and bar.component_buttons.wooden_slide.icon != bar.component_buttons.softmetal_slide.icon
+		and bar.component_buttons.wooden_slide.icon != bar.component_buttons.copper_slide.icon
 		and bar.component_counts.wooden_slide.text == "1",
 		"Each slide has a distinct focused icon with its actual carried count.")
 	bar.component_buttons.wooden_slide.pressed.emit()
@@ -1810,9 +1810,9 @@ func _arrival_hotbar() -> void:
 	verify(view.issued.back() == {"action": "field_craft", "component": "wooden_slide"},
 		"The wooden slide recipe uses the existing finite field craft command.")
 	bar.open_at_bench("pod-fabrication-hub")
-	bar.recipe_buttons["component:softmetal_slide"].pressed.emit()
+	bar.recipe_buttons["component:copper_slide"].pressed.emit()
 	verify(view.issued.back() == {"action": "craft_component", "entity": "pod-fabrication-hub",
-		"component": "softmetal_slide"},
+		"component": "copper_slide"},
 		"The metal slide recipe uses the existing bench and native custody path.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
@@ -1837,23 +1837,23 @@ func _render_arrival_hotbar() -> void:
 	view.state.hand_sources = {}
 	view.state.part_kits.P = {"foundation": 15}
 	view.state.cargo = {"P": {"components": {"wooden_frame": 2, "wooden_shaft": 1,
-		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "softmetal_cog": 1,
-		"wooden_slide": 1, "softmetal_slide": 1},
+		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "copper_cog": 1,
+		"wooden_slide": 1, "copper_slide": 1},
 		"timber": 7, "raw": 3, "products": 1, "offcuts": 2, "sheets": 1,
 		"work_lots": [{"id": 7}]}}
 	view.state.hand_crank = {"holder": "P"}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	view.state.component_recipes = {
-		"wooden_frame": {"timber": 3, "softmetal": 0},
-		"wooden_shaft": {"timber": 1, "softmetal": 0, "load_rating": 8},
-		"tool_mount": {"timber": 1, "softmetal": 0},
-		"cutting_edge": {"timber": 0, "softmetal": 1},
-		"anvil": {"timber": 0, "softmetal": 2},
-		"softmetal_cog": {"timber": 0, "softmetal": 2, "load_rating": 24},
-		"wooden_slide": {"timber": 3, "softmetal": 0, "load_rating": 8},
-		"softmetal_slide": {"timber": 0, "softmetal": 4, "load_rating": 24}}
-	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
-	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "softmetal": 0,
+		"wooden_frame": {"timber": 3, "copper": 0},
+		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
+		"tool_mount": {"timber": 1, "copper": 0},
+		"cutting_edge": {"timber": 0, "copper": 1},
+		"anvil": {"timber": 0, "copper": 2},
+		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
+		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
+		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
+	view.state.foundation_recipe = {"timber": 2, "copper": 0}
+	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
 		"teeth": 0, "half_span": 2}]
 	view.state.component_capacity = 20
 	view.state.placed_components = {}
@@ -1872,7 +1872,7 @@ func _render_arrival_hotbar() -> void:
 		"Retain the rendered arrival component hotbar.")
 	bar.open_catalog(7)
 	var inventory_scroll: ScrollContainer = bar.catalog.find_child("InventoryItems", true, false)
-	inventory_scroll.ensure_control_visible(bar.component_buttons.softmetal_slide)
+	inventory_scroll.ensure_control_visible(bar.component_buttons.copper_slide)
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK,
@@ -1901,7 +1901,7 @@ func _render_arrival_hotbar() -> void:
 	await settle_widgets()
 	inventory_scroll.scroll_vertical = int(inventory_scroll.get_v_scroll_bar().max_value)
 	await settle_widgets()
-	verify(bar.component_buttons.wooden_frame.visible and bar.component_buttons.softmetal_cog.visible
+	verify(bar.component_buttons.wooden_frame.visible and bar.component_buttons.copper_cog.visible
 		and inventory_scroll.get_v_scroll_bar() != null,
 		"The restored cargo and scrollable inventory show named component icons.")
 	await RenderingServer.frame_post_draw
@@ -2086,7 +2086,7 @@ func _shared_component_results() -> void:
 		{"action": "field_craft", "accepted": true, "reason": "", "text": "Wooden component shaped with your multitool."},
 		{"action": "place_component", "accepted": true, "reason": "", "text": "Component placed on the shared grid."},
 		{"action": "reclaim_component", "accepted": true, "reason": "", "text": "Component returned to your carried cargo."},
-		{"action": "craft_component", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber or softmetal shown for this component."},
+		{"action": "craft_component", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber or copper shown for this component."},
 		{"action": "craft_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place a carried part to make room."},
 		{"action": "craft_component", "accepted": false, "reason": "out_of_reach", "text": "Move beside the selected workshop to craft this component."},
 		{"action": "field_craft", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber shown for this component."},
@@ -2204,12 +2204,12 @@ func _workshop_pages() -> void:
 		view.state.stock = {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}
 		view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
 			"Q": {"raw": 1, "timber": 3, "components": {}}}
-		view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0}}
-		view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
+		view.state.component_recipes = {"wooden_frame": {"timber": 3, "copper": 0}}
+		view.state.foundation_recipe = {"timber": 2, "copper": 0}
 		view.state.part_recipes = [
-			{"kind": "gearbox", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
-			{"kind": "vertical_gearbox", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
-			{"kind": "chain_drive", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0}]
+			{"kind": "gearbox", "timber": 2, "copper": 1, "half_span": 0, "teeth": 0},
+			{"kind": "vertical_gearbox", "timber": 2, "copper": 1, "half_span": 0, "teeth": 0},
+			{"kind": "chain_drive", "timber": 2, "copper": 1, "half_span": 0, "teeth": 0}]
 		view.state.component_capacity = 20
 		view.state.workshop_completed_actors = []
 		view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
@@ -2632,11 +2632,11 @@ func _field_craft_widget() -> void:
 	view.state.hand_sources = {}
 	view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
 		"Q": {"raw": 0, "timber": 0, "components": {}}}
-	view.state.component_recipes = {"wooden_frame": {"timber": 3, "softmetal": 0},
-		"cutting_edge": {"timber": 0, "softmetal": 1},
-		"wooden_shaft": {"timber": 1, "softmetal": 0, "load_rating": 8},
-		"softmetal_shaft": {"timber": 0, "softmetal": 2, "load_rating": 24}}
-	view.state.foundation_recipe = {"timber": 2, "softmetal": 0}
+	view.state.component_recipes = {"wooden_frame": {"timber": 3, "copper": 0},
+		"cutting_edge": {"timber": 0, "copper": 1},
+		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
+		"copper_shaft": {"timber": 0, "copper": 2, "load_rating": 24}}
+	view.state.foundation_recipe = {"timber": 2, "copper": 0}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	root.add_child(view)
 	view.selection_ring = MeshInstance3D.new()
@@ -2679,16 +2679,16 @@ func _field_craft_widget() -> void:
 		"Missing timber keeps the foundation recipe visible without sending a command.")
 	view.state.cargo.P.timber = 3
 	view.state.part_recipes = [
-		{"kind": "belt", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
-		{"kind": "gearbox", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
-		{"kind": "vertical_gearbox", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0},
-		{"kind": "chain_drive", "timber": 2, "softmetal": 1, "half_span": 0, "teeth": 0}]
+		{"kind": "belt", "timber": 2, "copper": 1, "half_span": 0, "teeth": 0},
+		{"kind": "gearbox", "timber": 2, "copper": 1, "half_span": 0, "teeth": 0},
+		{"kind": "vertical_gearbox", "timber": 2, "copper": 1, "half_span": 0, "teeth": 0},
+		{"kind": "chain_drive", "timber": 2, "copper": 1, "half_span": 0, "teeth": 0}]
 	view.state.part_specifications = {"P": [{"kind": "belt", "teeth": 0, "half_span": 0, "count": 1}]}
 	inventory.refresh()
 	var belt_recipe: Button = inventory.recipe_buttons["part:0"]
 	verify("2 timber + 1 ore" in belt_recipe.tooltip_text and belt_recipe.icon != null
 		and "rated for 8 load" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text
-		and "rated for 24 load" in inventory.recipe_buttons["component:softmetal_shaft"].tooltip_text,
+		and "rated for 24 load" in inventory.recipe_buttons["component:copper_shaft"].tooltip_text,
 		"The recipe grid shows actual drive bills and load ratings.")
 	belt_recipe.pressed.emit()
 	verify(view.issued == [{"action": "craft_part", "entity": "pod-fabrication-hub", "role": "belt", "half_span": 0}],
@@ -2781,7 +2781,7 @@ func _field_craft_widget() -> void:
 	root.add_child(shared)
 	shared._build_interface()
 	shared.building_hotbar.open_at_bench("pod-fabrication-hub")
-	var shared_recipe: Button = shared.building_hotbar.recipe_buttons["component:softmetal_shaft"]
+	var shared_recipe: Button = shared.building_hotbar.recipe_buttons["component:copper_shaft"]
 	verify("rated for 24 load" in shared_recipe.tooltip_text
 		and "Carry the ingredients" in shared_recipe.tooltip_text and shared.issued.is_empty(),
 		"A shared worker sees its own cargo and native recipe ratings.")
@@ -2885,8 +2885,8 @@ func _object_menu_snapshot() -> Dictionary:
 		"fabrication_hub": {"id": "pod", "installed": true, "center": [4, 0, 0]},
 		"hand_sources": {"tree": {"kind": "tree", "position": [1.0, 1.0, 0.0], "remaining": 8}},
 		"cargo": {"P": {"timber": 4, "raw": 0, "components": {}}},
-		"component_recipes": {"wooden_frame": {"timber": 3, "softmetal": 0},
-			"wooden_shaft": {"timber": 2, "softmetal": 0}},
+		"component_recipes": {"wooden_frame": {"timber": 3, "copper": 0},
+			"wooden_shaft": {"timber": 2, "copper": 0}},
 		"component_capacity": 20, "part_recipes": [], "part_specifications": {"P": []},
 		"guided_press_assemblies": [], "collector_assemblies": [], "dropped_material": [],
 		"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
@@ -2985,8 +2985,8 @@ func _object_menu_check() -> void:
 		"The second recipe crafts at the same selected bench.")
 	view.issued.clear()
 	view.state.part_recipes = [
-		{"kind": "shaft", "teeth": 0, "half_span": 2, "timber": 1, "softmetal": 0},
-		{"kind": "wheel", "teeth": 0, "half_span": 0, "timber": 2, "softmetal": 0}]
+		{"kind": "shaft", "teeth": 0, "half_span": 2, "timber": 1, "copper": 0},
+		{"kind": "wheel", "teeth": 0, "half_span": 0, "timber": 2, "copper": 0}]
 	view._refresh_ui()
 	verify(inventory.recipe_buttons.has("part:1") and inventory.recipe_buttons["part:1"].visible,
 		"A valid transmission recipe appears in the open inventory.")
@@ -3118,7 +3118,7 @@ func _slide_view_check() -> void:
 	var samples := [
 		{"kind": "wooden_slide", "phase": null, "x": -0.7, "name": "Preview"},
 		{"kind": "wooden_slide", "phase": halfway, "x": 0.0, "name": "PlacedWood"},
-		{"kind": "softmetal_slide", "phase": quarter, "x": 0.7, "name": "PlacedMetal"}]
+		{"kind": "copper_slide", "phase": quarter, "x": 0.7, "name": "PlacedMetal"}]
 	for sample: Dictionary in samples:
 		var anchor := Node3D.new()
 		anchor.name = sample.name

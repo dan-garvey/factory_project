@@ -1287,7 +1287,7 @@ void actor_feed_is_physical_custody() {
         run.accept("P", ore);
     }
     run.p = {1.65, 1, 6.6};
-    for (const auto* name : {"softmetal_shaft", "softmetal_cog"}) {
+    for (const auto* name : {"copper_shaft", "copper_cog"}) {
         auto craft = request("P", std::string("craft-upgrade-") + name, "craft_component");
         craft.emplace("target", V("pod-fabrication-hub"));
         craft.emplace("generation", V(I{1}));
@@ -1299,8 +1299,8 @@ void actor_feed_is_physical_custody() {
     remove_cog.emplace("target", V(cog));
     remove_cog.emplace("generation", V(I{7}));
     run.accept("P", remove_cog);
-    for (const auto& [name, center] : {std::pair{"softmetal_shaft", g::Point{9, 4, 0}},
-                                      std::pair{"softmetal_cog", g::Point{10, 4, 0}}}) {
+    for (const auto& [name, center] : {std::pair{"copper_shaft", g::Point{9, 4, 0}},
+                                      std::pair{"copper_cog", g::Point{10, 4, 0}}}) {
         auto place = request("P", std::string("place-upgrade-") + name, "place_component");
         place.emplace("component", V(name));
         place.emplace("center", V(point(center[0], center[1], center[2])));
@@ -1356,8 +1356,8 @@ void two_placed_presses_advance_distinct_powered_work() {
         const I x = index * 8;
         const Part parts[] = {{"wooden_frame", {x, 0, 0}}, {"anvil", {x, 1, 0}},
             {"ram_face", {x, 2, 0}}, {"sliding_guide", {x, 3, 0}},
-            {"tool_mount", {x, 4, 0}}, {"softmetal_shaft", {x + 1, 4, 0}},
-            {"softmetal_cog", {x + 2, 4, 0}}};
+            {"tool_mount", {x, 4, 0}}, {"copper_shaft", {x + 1, 4, 0}},
+            {"copper_cog", {x + 2, 4, 0}}};
         for (const auto& part : parts) {
             const auto tag = std::to_string(index) + "-" + part.name;
             auto craft = request("P", "craft-powered-" + tag, "craft_component");
@@ -1373,7 +1373,7 @@ void two_placed_presses_advance_distinct_powered_work() {
                 frames.push_back(std::get<std::string>(placed.at("entity").storage()));
                 frame_generations.push_back(std::get<I>(placed.at("generation").storage()));
             }
-            if (std::string(part.name) == "softmetal_shaft")
+            if (std::string(part.name) == "copper_shaft")
                 shafts.push_back(std::get<std::string>(placed.at("entity").storage()));
         }
     }
@@ -2232,7 +2232,7 @@ void powered_broad_sheet_custody() {
     }
     run.p = {1.65, 1, 6.6};
     for (const auto* kind : {"anvil", "ram_face", "sliding_guide",
-                             "softmetal_shaft", "softmetal_cog"})
+                             "copper_shaft", "copper_cog"})
         for (int index = 0; index < 4; ++index) {
             auto craft = request("P", std::string("sheet-craft-") + kind + std::to_string(index),
                 "craft_component");
@@ -2251,8 +2251,8 @@ void powered_broad_sheet_custody() {
         const std::pair<const char*, g::Point> parts[] = {
             {"anvil", {x, 0, z}}, {"ram_face", {x, 1, z}},
             {"sliding_guide", {x, 3, z}},
-            {"softmetal_shaft", {x + outward, 4, z}},
-            {"softmetal_cog", {x + outward * 2, 4, z}}};
+            {"copper_shaft", {x + outward, 4, z}},
+            {"copper_cog", {x + outward * 2, 4, z}}};
         for (const auto& [kind, center] : parts) {
             auto place = request("P", std::string("sheet-place-") + kind + std::to_string(index),
                 "place_component");
@@ -2334,7 +2334,7 @@ void powered_broad_sheet_custody() {
     auto reclaim = request("P", "sheet-disconnect", "reclaim_component");
     const auto& live_parts = fed.state.placed_components;
     const auto missing = std::find_if(live_parts.begin(), live_parts.end(), [](const auto& entry) {
-        return entry.second.kind == m::Component::softmetal_cog &&
+        return entry.second.kind == m::Component::copper_cog &&
             entry.second.center == g::Point{10, 4, 0};
     });
     check(missing != live_parts.end(), "The powered broad fixture has a removable pad cog.");
@@ -2573,8 +2573,8 @@ void powered_broad_sheet_custody() {
         run.accept("P", harvest);
     }
     run.p = {1.65, 1, 6.6};
-    for (const auto* kind : {"cutting_edge", "sliding_guide", "softmetal_shaft",
-                             "softmetal_cog"})
+    for (const auto* kind : {"cutting_edge", "sliding_guide", "copper_shaft",
+                             "copper_cog"})
         for (int index = 0; index < 4; ++index) {
             auto craft = request("P", std::string("shear-craft-") + kind + std::to_string(index),
                 "craft_component");
@@ -2597,8 +2597,8 @@ void powered_broad_sheet_custody() {
         const I outward = index / 2 == 0 ? -1 : 1;
         const std::pair<const char*, g::Point> parts[] = {
             {"cutting_edge", {x, 1, z}}, {"sliding_guide", {x, 3, z}},
-            {"softmetal_shaft", {x, 4, z + outward}},
-            {"softmetal_cog", {x, 4, z + outward * 2}}};
+            {"copper_shaft", {x, 4, z + outward}},
+            {"copper_cog", {x, 4, z + outward * 2}}};
         run.p = {static_cast<double>(x) * 0.4125, 1,
             static_cast<double>(z) * 0.4125};
         for (const auto& [kind, center] : parts) {

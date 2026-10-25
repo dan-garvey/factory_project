@@ -120,8 +120,8 @@ func _sync_motion(snapshot: Dictionary) -> void:
 		for id: Variant in placed:
 			var part: Variant = placed[id]
 			if typeof(id) != TYPE_STRING or not part is Dictionary or \
-					part.get("component") not in ["wooden_shaft", "softmetal_shaft",
-						"wooden_cog", "softmetal_cog"] or \
+					part.get("component") not in ["wooden_shaft", "copper_shaft",
+						"wooden_cog", "copper_cog"] or \
 					typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
 				continue
 			current[id] = part.generation
@@ -232,7 +232,7 @@ func advance_visual_motion(delta: float) -> void:
 		if placed is Dictionary:
 			for component: Variant in placed.values():
 				if component is Dictionary and component.get("component") in [
-						"wooden_shaft", "softmetal_shaft", "wooden_cog", "softmetal_cog"]:
+						"wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]:
 					identity_count += 1
 	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") \
 			or (not native_motion and identity_count != _generations.size()):
@@ -1288,7 +1288,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					Vector3(rail_width, occupied_size.y + stroke_reach - 0.012, 0.21), worked)
 			_support_box(anchor, "GuideCrown", Vector3(0, occupied_size.y * 0.5 - 0.035, 0),
 				Vector3(0.25, 0.055, 0.25), dark)
-		"wooden_slide", "softmetal_slide":
+		"wooden_slide", "copper_slide":
 			var finish: Material = timber if kind == "wooden_slide" else worked
 			var half_height := occupied_size.y * 0.5
 			var rail_height := occupied_size.y - 0.09
@@ -1319,7 +1319,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			for x in [-0.115, 0.115]:
 				_support_box(carriage, "CarriageShoe", Vector3(x, 0, -0.118),
 					Vector3(0.035, 0.115, 0.027), worked)
-		"wooden_cog", "softmetal_cog":
+		"wooden_cog", "copper_cog":
 			var direction := drive_direction.normalized() if drive_direction.length_squared() > 0.5 else Vector3.UP
 			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
 			var across := reference.cross(direction).normalized()
@@ -1408,7 +1408,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 						"Near" if z < 0.0 else "Far"]
 					var rivet := _support_cylinder(anchor, name_value, 0.009, 0.007, worked)
 					rivet.position = Vector3(x, 0.141, z)
-		"wooden_shaft", "softmetal_shaft":
+		"wooden_shaft", "copper_shaft":
 			var fitted := drive_direction.length_squared() > 0.5
 			var collector_fitting := fitted and press_role not in ["shaft", "guided_shaft"]
 			if collector_fitting:
@@ -1592,7 +1592,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 						var shaft_ids: Array = []
 						for shaft_cell in [origin - direction, origin + side, origin - side]:
 							var shaft_id: Variant = by_cell.get(shaft_cell)
-							if boxes.has(shaft_id) and boxes[shaft_id].component in ["wooden_shaft", "softmetal_shaft"]:
+							if boxes.has(shaft_id) and boxes[shaft_id].component in ["wooden_shaft", "copper_shaft"]:
 								shaft_ids.append(shaft_id)
 						if shaft_ids.size() == 1:
 							var toward_frame: Vector3 = boxes[frame_id].center - boxes[shaft_ids[0]].center

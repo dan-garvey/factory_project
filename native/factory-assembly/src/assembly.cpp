@@ -28,14 +28,14 @@ const Part* shaft_at(const std::map<Point, const Part*>& by_center, const Point&
     const auto found = by_center.find(center);
     return found != by_center.end() &&
         (found->second->kind == materials::Component::wooden_shaft ||
-         found->second->kind == materials::Component::softmetal_shaft) ? found->second : nullptr;
+         found->second->kind == materials::Component::copper_shaft) ? found->second : nullptr;
 }
 
 const Part* cog_at(const std::map<Point, const Part*>& by_center, const Point& center) {
     const auto found = by_center.find(center);
     return found != by_center.end() &&
         (found->second->kind == materials::Component::wooden_cog ||
-         found->second->kind == materials::Component::softmetal_cog) ? found->second : nullptr;
+         found->second->kind == materials::Component::copper_cog) ? found->second : nullptr;
 }
 
 bool valid_face(const OreFace& face) {

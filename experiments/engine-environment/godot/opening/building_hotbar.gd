@@ -26,9 +26,9 @@ const COMPONENT_ICONS := {
 	"wooden_cog": "wooden_cog.svg", "receiver_tray": "receiver_tray.svg",
 	"tool_mount": "tool_mount.svg", "sliding_guide": "sliding_guide.svg",
 	"cutting_edge": "cutting_edge.svg", "anvil": "anvil.svg",
-	"ram_face": "ram_face.svg", "softmetal_shaft": "softmetal_shaft.svg",
-	"softmetal_cog": "softmetal_cog.svg", "wooden_workbench": "wooden_workbench.svg",
-	"wooden_slide": "wooden_slide.svg", "softmetal_slide": "softmetal_slide.svg"}
+	"ram_face": "ram_face.svg", "copper_shaft": "copper_shaft.svg",
+	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
+	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg"}
 var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []
@@ -456,7 +456,7 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 	var tile := _recipe_tile(key, icon)
 	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
 	var timber := int(cost.get("timber", 0))
-	var ore := int(cost.get("softmetal", 0))
+	var ore := int(cost.get("copper", 0))
 	var affordable := int(cargo.get("timber", 0)) >= timber and int(cargo.get("raw", 0)) >= ore
 	var at_bench := _valid_bench(host.state, context_bench)
 	var station := "Field or bench" if field_allowed else "Bench"
@@ -512,7 +512,7 @@ func _refresh_recipes(host, ready: bool) -> void:
 		var cost: Dictionary = recipes.get(component, {})
 		if cost.is_empty():
 			continue
-		var field_allowed := int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
+		var field_allowed := int(cost.get("timber", 0)) > 0 and int(cost.get("copper", 0)) == 0
 		_recipe_state(host, COMPONENT_PREFIX + component, _component_labels[component], cost,
 			component_textures[component], field_allowed, ready)
 	var foundation: Dictionary = host.state.get("foundation_recipe", {})
@@ -569,7 +569,7 @@ func _craft_recipe(key: String) -> void:
 		cost = host.state.get("component_recipes", {}).get(component, {})
 		if not context_bench.is_empty() and _valid_bench(host.state, context_bench):
 			action = {"action": "craft_component", "entity": context_bench, "component": component}
-		elif int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0:
+		elif int(cost.get("timber", 0)) > 0 and int(cost.get("copper", 0)) == 0:
 			action = {"action": "field_craft", "component": component}
 	elif key == "foundation":
 		cost = host.state.get("foundation_recipe", {})
@@ -588,7 +588,7 @@ func _craft_recipe(key: String) -> void:
 		focus_description.text = "Open a fabrication bench with E for this recipe."
 		return
 	if int(cargo.get("timber", 0)) < int(cost.get("timber", 0)) or \
-			int(cargo.get("raw", 0)) < int(cost.get("softmetal", 0)):
+			int(cargo.get("raw", 0)) < int(cost.get("copper", 0)):
 		focus_description.text = "Carry the ingredients shown on the recipe."
 		return
 	host.issue(action)

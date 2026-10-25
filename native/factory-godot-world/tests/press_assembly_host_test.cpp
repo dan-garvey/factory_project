@@ -152,7 +152,7 @@ void guided_press_host_path() {
           "The actor reaches finite metal stock.");
     for (int index = 0; index < 5; ++index) {
         auto cut = request("guided-ore-" + std::to_string(index), "harvest_source");
-        cut.emplace("target", V("opening-softmetal"));
+        cut.emplace("target", V("opening-copper"));
         accepted(host, cut);
     }
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
@@ -371,7 +371,7 @@ void guided_press_host_path() {
                     5 + index * 2 - 1), "accepted"),
                   "The worker returns to the finite ore deposit for another real blank.");
             auto harvest = request("guided-recycle-ore-" + std::to_string(index), "harvest_source");
-            harvest.emplace("target", V("opening-softmetal"));
+            harvest.emplace("target", V("opening-copper"));
             accepted(restored, harvest);
             check(get<bool>(restored.publish_actor("P", {V(1.0), V(1.0), V(0.0)},
                     5 + index * 2), "accepted"),
@@ -453,7 +453,7 @@ void placed_press_projection() {
           "The actor approaches the ore deposit.");
     for (int index = 0; index < 6; ++index) {
         auto cut = request("ore-" + std::to_string(index), "harvest_source");
-        cut.emplace("target", V("opening-softmetal"));
+        cut.emplace("target", V("opening-copper"));
         accepted(host, cut);
     }
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
@@ -607,7 +607,7 @@ void placed_press_projection() {
     check(get<bool>(resumed_work.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 6), "accepted"),
           "P walks to the ore deposit for a separate busy-feed control blank.");
     auto harvest_busy_blank = request("harvest-busy-control-blank", "harvest_source");
-    harvest_busy_blank.emplace("target", V("opening-softmetal"));
+    harvest_busy_blank.emplace("target", V("opening-copper"));
     accepted(resumed_work, harvest_busy_blank);
     check(get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
           "P returns to the occupied press with one genuinely carried blank.");
@@ -821,7 +821,7 @@ void belt_fed_press_projection() {
     observe(-0.5, 0.0);
     for (int n = 0; n < 7; ++n) {
         auto cut = request("inlet-host-ore-" + std::to_string(n), "harvest_source");
-        cut.emplace("target", V("opening-softmetal"));
+        cut.emplace("target", V("opening-copper"));
         accepted(host, cut);
     }
     observe(1.65, 6.6);

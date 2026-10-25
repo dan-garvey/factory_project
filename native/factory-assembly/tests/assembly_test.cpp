@@ -41,12 +41,12 @@ void west_face_and_alternate_routes() {
           "A cutter, mount, receiver and light shaft form one exact west-facing candidate.");
     placed[3].center = {0, 0, -1};
     placed[4].center = {0, 0, 1};
-    placed[4].kind = m::Component::softmetal_shaft;
+    placed[4].kind = m::Component::copper_shaft;
     const auto mirrored = a::inspect_collector(placed, face);
     check(mirrored.status == a::Status::ready && mirrored.collector &&
           mirrored.collector->receiver_center == g::Point{0, 0, -1} &&
           mirrored.collector->shaft_center == g::Point{0, 0, 1} &&
-          mirrored.collector->shaft_material == m::Component::softmetal_shaft,
+          mirrored.collector->shaft_material == m::Component::copper_shaft,
           "A mirrored receiver and side-fed metal shaft are also accepted.");
     placed.push_back(part("second-tray", m::Component::receiver_tray, {0, 0, 1}));
     check(a::inspect_collector(placed, face).status == a::Status::invalid_input,
@@ -149,15 +149,15 @@ void press_arrangements_and_clearance() {
           "Seven separately placed parts expose one press and four open lower feed directions.");
     const g::Point elevated{8, 4, 12};
     placed = press_parts(elevated, {0, 0, -1});
-    placed[5].kind = m::Component::softmetal_shaft;
-    placed[6].kind = m::Component::softmetal_cog;
+    placed[5].kind = m::Component::copper_shaft;
+    placed[6].kind = m::Component::copper_cog;
     placed.push_back(part("feed-obstacle", m::Component::wooden_shaft, {9, 5, 12}));
     const auto alternate = a::inspect_press(placed, elevated);
     check(alternate.status == a::PressStatus::ready && alternate.press &&
           alternate.press->shaft_center == g::Point{8, 8, 11} &&
           alternate.press->cog_center == g::Point{8, 8, 10} &&
-          alternate.press->shaft_material == m::Component::softmetal_shaft &&
-          alternate.press->cog_material == m::Component::softmetal_cog &&
+          alternate.press->shaft_material == m::Component::copper_shaft &&
+          alternate.press->cog_material == m::Component::copper_cog &&
           alternate.press->open_feeds.size() == 2 &&
           alternate.press->open_feeds.front().entry == g::Point{8, 5, 13},
           "A raised metal drive on another side still admits the clear cross-axis feed pair.");
@@ -248,14 +248,14 @@ void guided_press_without_structure() {
           "Two side trays cannot silently select one offcut destination.");
     const g::Point raised{8, 4, 12};
     placed = parts_at(raised, {0, 0, -1});
-    placed[3].kind = m::Component::softmetal_shaft;
-    placed[4].kind = m::Component::softmetal_cog;
+    placed[3].kind = m::Component::copper_shaft;
+    placed[4].kind = m::Component::copper_cog;
     const a::Layout layout(placed);
     const auto elevated = layout.inspect_guided_press(raised);
     check(elevated.status == a::PressStatus::ready && elevated.press &&
           elevated.press->work_center == raised &&
           elevated.press->shaft_center == g::Point{8, 8, 11} &&
-          elevated.press->cog_material == m::Component::softmetal_cog,
+          elevated.press->cog_material == m::Component::copper_cog,
           "The same anvil-centered rule admits raised, rotated and metal drive geometry.");
     placed.push_back(part("stroke-obstacle", m::Component::receiver_tray, {8, 6, 12}));
     check(a::inspect_guided_press(placed, raised).status == a::PressStatus::blocked_stroke,
@@ -359,14 +359,14 @@ void broad_press_from_repeated_work_faces() {
 
     const g::Point raised{8, 4, 12};
     placed = parts_at(raised, false);
-    placed[18].kind = m::Component::softmetal_shaft;
-    placed[19].kind = m::Component::softmetal_cog;
+    placed[18].kind = m::Component::copper_shaft;
+    placed[19].kind = m::Component::copper_cog;
     const a::Layout layout(placed);
     const auto alternate = layout.inspect_broad_press(raised);
     check(alternate.status == a::BroadPressStatus::ready && alternate.press &&
           alternate.press->shaft_centers[3] == g::Point{12, 8, 17} &&
           alternate.press->cog_centers[3] == g::Point{12, 8, 18} &&
-          alternate.press->shaft_materials[3] == m::Component::softmetal_shaft,
+          alternate.press->shaft_materials[3] == m::Component::copper_shaft,
           "Raised north/south edge drives use the same world grid and accept metal parts.");
     check(a::inspect_broad_press(placed, {9, 4, 12}).status ==
           a::BroadPressStatus::invalid_input,
