@@ -1588,13 +1588,18 @@ provenance.
 
 ## Required follow-through
 
-Godot 4.7.2's embedded `PopupPanel` can close when its root viewport is resized.
-The Chapter 1 inventory probe therefore resizes the viewport before opening
-the popup, then checks `visible` and bounds. Its 640 by 480 presentation uses a
+Godot 4.7.2's embedded `PopupPanel` closes when its root viewport is resized.
+A source-matched graphical Chapter 1 probe observed an open 800 by 620 popup
+become hidden after shrinking the viewport to 640 by 480. The inventory adapter
+now reopens and fits it after the next process frame, preserving focus in the
+popup's own viewport. The probe checks live wide-to-narrow-to-wide resizing,
+visibility, bounds, selected hotbar target and recipe focus; initial-size
+captures alone did not cover this path. Its 640 by 480 presentation uses a
 scrolling icon grid; focus descriptions are mirrored in a visible label because
 the tile's `tooltip_text` alone is a pointer-hover affordance. The isolated
 rendered fixture uses invented cargo, so its screenshots establish layout and
-icon readability, not native custody or player understanding.
+icon readability, not native custody or player understanding. See
+`factory-yau.6.40.3` for the retained failing probe and exact passing revision.
 
 This first source/API/evidence audit leaves actual backend identification,
 far-origin precision, concurrent factory scale, predictive movement and moving-save

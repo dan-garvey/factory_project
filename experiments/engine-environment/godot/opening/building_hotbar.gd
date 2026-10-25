@@ -306,7 +306,18 @@ func _fit() -> void:
 	size = get_combined_minimum_size()
 	position = Vector2((get_parent().size.x - size.x) / 2.0, get_parent().size.y - size.y - 18.0)
 	if catalog != null and catalog.visible:
-		_place_catalog.call_deferred()
+		_restore_catalog_after_resize.call_deferred(catalog.gui_get_focus_owner())
+
+func _restore_catalog_after_resize(focused: Control) -> void:
+	await get_tree().process_frame
+	if not is_inside_tree() or catalog == null:
+		return
+	# Godot hides an embedded PopupPanel when its parent viewport changes size.
+	if not catalog.visible:
+		catalog.popup_centered(_catalog_dimensions(get_parent().size))
+	_place_catalog()
+	if is_instance_valid(focused) and catalog.is_ancestor_of(focused):
+		focused.grab_focus()
 
 func _place_catalog() -> void:
 	var host = _view()

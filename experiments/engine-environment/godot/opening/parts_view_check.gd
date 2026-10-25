@@ -2597,6 +2597,10 @@ func _workshop_pages() -> void:
 	quit(0 if failures == 0 else 1)
 
 func _field_craft_widget() -> void:
+	var capture_prefix := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--inventory-resize-capture-prefix="):
+			capture_prefix = argument.trim_prefix("--inventory-resize-capture-prefix=")
 	var view := OfflineWidgets.new()
 	view.state = fixture()
 	view.state.options.native = true
@@ -2675,14 +2679,56 @@ func _field_craft_widget() -> void:
 		and chain_recipe.icon.resource_path.ends_with("/chain_drive.svg")
 		and gearbox_recipe.accessibility_name != vertical_gearbox_recipe.accessibility_name,
 		"Native relay recipes have distinct visible icons and accessible identities.")
+	frame.grab_focus()
+	var target_before_resize: int = inventory.target_slot
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(inventory.catalog.visible,
+			"The original wide inventory is still open when its passive frame is captured.")
+		verify(root.get_texture().get_image().save_png(capture_prefix + "-wide.png") == OK,
+			"Retain the open inventory before resizing as a passive frame.")
 	root.size = Vector2i(640, 480)
-	inventory._configure_catalog_layout(Vector2i(640, 480))
-	inventory._place_catalog()
 	await process_frame
-	verify(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+	await process_frame
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+	verify(inventory.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
 		Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
-		and not inventory.recipe_scroll.get_h_scroll_bar().visible,
-		"The recipe grid remains reachable without sideways scrolling at a narrow viewport.")
+		and not inventory.recipe_scroll.get_h_scroll_bar().visible
+		and inventory.catalog.gui_get_focus_owner() == frame
+		and inventory.target_slot == target_before_resize,
+		"An open inventory stays visible, reachable and keyboard-focused after narrowing the viewport.")
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		verify(root.get_texture().get_image().save_png(capture_prefix + "-narrow.png") == OK,
+			"Retain the narrowed open inventory as a passive frame.")
+	root.size = Vector2i(1280, 800)
+	await process_frame
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+	await process_frame
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+	verify(inventory.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+		Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
+		and inventory.catalog.gui_get_focus_owner() == frame
+		and inventory.target_slot == target_before_resize,
+		"The same inventory and recipe focus remain available when the viewport grows again.")
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		verify(root.get_texture().get_image().save_png(capture_prefix + "-restored.png") == OK,
+			"Retain the reopened wide inventory as a passive frame.")
+	var escape := InputEventKey.new()
+	escape.keycode = KEY_ESCAPE
+	escape.pressed = true
+	inventory._input(escape)
+	root.size = Vector2i(640, 480)
+	await process_frame
+	await process_frame
+	verify(not inventory.catalog.visible,
+		"Escape closes the inventory, and a later resize does not reopen it.")
 	var shared := SharedWidgets.new()
 	shared.session = SessionStub.new()
 	shared.client = "Q"
