@@ -3249,6 +3249,15 @@ func _slide_controls_check() -> void:
 	verify(panel.turn_button.disabled and panel.route_choice.disabled
 		and panel.press_status.text.contains("Selected outlet blocked"),
 		"A different clear outlet cannot silently replace the route owned by the work.")
+	snapshot.sliding_press_assemblies[0].status = "blocked_feed"
+	snapshot.sliding_press_assemblies[0].open_feeds.clear()
+	panel.refresh(snapshot, "P", "slide", true)
+	verify(panel.press_status.text == "No clear through-feed route. Remove the blocking part [F]."
+		and panel.feed_button.disabled,
+		"One side obstruction blocks every through-feed route without implying blockers on both sides.")
+	snapshot.sliding_press_assemblies[0].status = "ready"
+	snapshot.sliding_press_assemblies[0].open_feeds.append({"entry": [13, 0, 8],
+		"exit": [11, 0, 8]})
 	snapshot.sliding_press_assemblies[0].open_feeds.append({"entry": [11, 0, 8],
 		"exit": [13, 0, 8]})
 	snapshot.dropped_material.clear()

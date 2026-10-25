@@ -2430,9 +2430,22 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and not opening.goal_label.text.contains("Craft and place"),
 				"A physically placed side obstruction produces the native blocked-feed status and recovery cue"):
 			return
+		opening._open_object_menu_for(str(fitted.anvil))
+		if not _expect(opening.object_menu.visible
+				and opening.arrival_assembly_controls.press_status.text ==
+				"No clear through-feed route. Remove the blocking part [F].",
+			"The native blocked route gives the E menu a spatially accurate removal cue"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-blocked-menu.png") == OK,
+				"Retain the blocked native press menu in a passive frame"):
+				return
 		if not _expect(_issue({"action": "reclaim_component", "entity": blocker_id}).get("accepted", false)
 				and opening.model.projection().sliding_press_assemblies[0].status == "ready"
-				and opening.goal_label.text.contains("Open the fitted press [E]"),
+				and opening.goal_label.text.contains("Open the fitted press [E]")
+				and opening.arrival_assembly_controls.press_status.text.contains("ready"),
 				"Reclaiming the obstruction restores the native ready feed route and first-plate cue"):
 			return
 		_record("pass")
