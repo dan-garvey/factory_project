@@ -777,7 +777,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -2359,7 +2359,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			return
 	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	for index in range(4):
+	for index in range(6 if mode == "arrival-blocked-feed-cue" else 4):
 		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	if not await _approach(Vector2(3.3, 4.95)):
@@ -2367,6 +2367,9 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	for kind in ["anvil", "flat_head", "wooden_slide"]:
 		if not _press_inventory_recipe("component:" + kind, str(start.fabrication_hub.id)):
 			return
+	if mode == "arrival-blocked-feed-cue" and not _press_inventory_recipe(
+			"component:anvil", str(start.fabrication_hub.id)):
+		return
 	if not _expect(opening.model.projection().cargo.P.raw == 1
 			and opening.model.projection().cargo.P.timber == 0,
 			"Finite shaping spends two copper for the anvil, one for its separate head and three timber for the slide"):
@@ -2402,6 +2405,37 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			and assembled.workshop_completed_actors.is_empty()
 			and assembled.cargo.P.raw == 1,
 			"An actor-built anvil, separate head and integral slide form one ready native geometry while the plate gate stays locked"):
+		return
+	if mode == "arrival-blocked-feed-cue":
+		if not _select_inventory_item("component:anvil"):
+			return
+		var prior_blocker: Dictionary = opening.model.projection().placed_components
+		opening.component_nudge_active = true
+		opening.component_nudge_center = [11, 0, 16]
+		opening._world_click(Vector2i(3, 4))
+		opening.component_nudge_active = false
+		opening.component_nudge_center.clear()
+		var obstructed: Dictionary = opening.model.projection()
+		var blocker_id := ""
+		for id: String in obstructed.placed_components:
+			if not prior_blocker.has(id):
+				blocker_id = id
+		var blocked_press := false
+		for press: Dictionary in obstructed.sliding_press_assemblies:
+			blocked_press = blocked_press or (press.get("anvil") == fitted.anvil
+				and press.get("status") == "blocked_feed")
+		if not _expect(not blocker_id.is_empty()
+				and blocked_press
+				and opening.goal_label.text.contains("Clear an X-side feed path [F]")
+				and not opening.goal_label.text.contains("Craft and place"),
+				"A physically placed side obstruction produces the native blocked-feed status and recovery cue"):
+			return
+		if not _expect(_issue({"action": "reclaim_component", "entity": blocker_id}).get("accepted", false)
+				and opening.model.projection().sliding_press_assemblies[0].status == "ready"
+				and opening.goal_label.text.contains("Open the fitted press [E]"),
+				"Reclaiming the obstruction restores the native ready feed route and first-plate cue"):
+			return
+		_record("pass")
 		return
 	if not await _approach(Vector2(1.8, 5.4)):
 		return
@@ -2526,12 +2560,12 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	var advanced_fixture := mode not in ["arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-resume", "arrival-reveal", "arrival-reveal-skip"]
+	var advanced_fixture := mode not in ["arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-reveal", "arrival-reveal-skip"]
 	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
@@ -2593,7 +2627,7 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
-	if mode in ["arrival-starter-assembly", "arrival-first-plate"]:
+	if mode in ["arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue"]:
 		await _arrival_starter_assembly_run(capture_prefix)
 		return
 	if mode == "arrival-first-plate-resume":

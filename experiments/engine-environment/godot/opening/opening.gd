@@ -9511,11 +9511,13 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		var next_work := "Gather 3 timber and 4 copper blanks with the multitool [E]."
 		var press_ready := false
 		var sliding_press_ready := false
+		var sliding_feed_blocked := false
 		var collector_ready := false
 		for press: Dictionary in state.get("guided_press_assemblies", []):
 			press_ready = press_ready or press.get("status") == "ready"
 		for press: Dictionary in state.get("sliding_press_assemblies", []):
 			sliding_press_ready = sliding_press_ready or press.get("status") == "ready"
+			sliding_feed_blocked = sliding_feed_blocked or press.get("status") == "blocked_feed"
 			press_ready = press_ready or press.get("status") == "ready"
 		for collector: Dictionary in state.get("collector_assemblies", []):
 			collector_ready = collector_ready or collector.get("status") == "ready"
@@ -9525,6 +9527,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			next_work = "Open Work log [J] for optional projects, or keep building."
 		elif state.get("first_plate_unlock", false) and sliding_press_ready:
 			next_work = "Open the fitted press [E]. Feed one blank and crank by hand."
+		elif state.get("first_plate_unlock", false) and sliding_feed_blocked:
+			next_work = "Clear an X-side feed path [F], then open the press [E]."
 		elif press_ready:
 			next_work = "Open the working press [E] to feed or turn."
 		elif state.get("first_plate_unlock", false) and (

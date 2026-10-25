@@ -334,6 +334,33 @@ func check_slide_manager_cue() -> void:
 	verify(shared.goal_label.text.contains("Open the working press [E] to feed or turn.")
 		and shared.manager_log_current.text.ends_with("Open the working press [E] to feed or turn."),
 		"The shared worker receives the same ready-slide cue without creating local authority.")
+	view.state.first_plate_unlock = true
+	view.state.placed_components = {"anvil": {"component": "anvil", "center": [0, 0, 0]},
+		"head": {"component": "flat_head", "center": [0, 1, 0]},
+		"slide": {"component": "wooden_slide", "center": [0, 2, 0]}}
+	view.state.sliding_press_assemblies[0].status = "blocked_feed"
+	shared.state = view.state.duplicate(true)
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	shared._refresh_guided_tools()
+	shared._refresh_manager_log()
+	verify(view.goal_label.text.contains("Clear an X-side feed path [F]")
+		and not view.goal_label.text.contains("Craft and place")
+		and view.manager_log_current.text.ends_with("Clear an X-side feed path [F], then open the press [E]."),
+		"A fitted first-plate slide with native blocked feed gives the obstruction action, not another recipe.")
+	verify(shared.goal_label.text == view.goal_label.text
+		and shared.manager_log_current.text == view.manager_log_current.text,
+		"The shared worker receives the same blocked-feed action without creating local authority.")
+	view.state.sliding_press_assemblies[0].status = "ready"
+	shared.state.sliding_press_assemblies[0].status = "ready"
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	shared._refresh_guided_tools()
+	shared._refresh_manager_log()
+	verify(view.goal_label.text.contains("Open the fitted press [E]. Feed one blank and crank by hand.")
+		and shared.goal_label.text == view.goal_label.text
+		and shared.manager_log_current.text == view.manager_log_current.text,
+		"Clearing one native feed route restores the first-plate press cue for ordinary and shared workers.")
 	shared.session = null
 	shared.free()
 	view.free()
