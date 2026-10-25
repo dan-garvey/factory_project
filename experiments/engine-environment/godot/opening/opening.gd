@@ -2891,12 +2891,12 @@ class ProductionEnvironment:
 			# The mesh already carries the river palette. Do not multiply
 			# it by a second dark teal tint. Transmission is an art approximation,
 			# not depth-dependent absorption or a second water simulation.
-			water_finish.albedo_color = Color(1.0, 1.0, 1.0, 0.68)
+			water_finish.albedo_color = Color(1.0, 1.0, 1.0, 0.86)
 			water_finish.vertex_color_use_as_albedo = true
 			water_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			water_finish.metallic = 0.0
-			water_finish.metallic_specular = 0.255
-			water_finish.roughness = 0.20
+			water_finish.metallic_specular = 0.16
+			water_finish.roughness = 0.27
 			water_finish.normal_enabled = true
 			water_finish.normal_texture = _ripple_normals(338453, 0.016)
 			water_finish.normal_scale = 0.42
@@ -3093,7 +3093,7 @@ class ProductionEnvironment:
 				var dy_dz := stream_surface_height(x_world, z_world + dz) - stream_surface_height(x_world, z_world - dz)
 				var dy_dx := stream_surface_height(x_world + 0.12, z_world) - stream_surface_height(x_world - 0.12, z_world)
 				var normal := Vector3(-dy_dx / 0.24, 1.0, -dy_dz / (2.0 * dz)).normalized()
-				var color := Color("235361")
+				var color := Color("254d51")
 				# Thin shoreline water blends into the real bank. This is visual
 				# opacity, not depth simulation or additional underwater geometry.
 				color.a = 0.25 if c == 0 or c == cols else 1.0
