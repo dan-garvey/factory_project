@@ -885,7 +885,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             entity && *entity == *target && generation && *generation == *requested_generation &&
             made && requested_component && *made == *requested_component &&
             cost && timber && *timber == cost->timber && raw && *raw == cost->ore &&
-            count && *count > 0 && *count <= profile.material.component_capacity &&
+            count && *count > 0 && (profile.material.component_capacity == 0 ||
+                *count <= profile.material.component_capacity) &&
             targets.front() == anchor(profile, *bench_center) && result.size() == 20;
     }
     if (action == "field_craft") {
@@ -904,7 +905,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         return cost->timber > 0 && cost->ore == 0 && entity && entity->empty() &&
             generation && *generation == 0 && made && *made == *requested &&
             timber && *timber == cost->timber && raw && *raw == 0 && count && *count > 0 &&
-            *count <= profile.material.component_capacity && targets.front() == *actor_position &&
+            (profile.material.component_capacity == 0 ||
+                *count <= profile.material.component_capacity) && targets.front() == *actor_position &&
             result.size() == 20;
     }
     if (action == "craft_part") {
@@ -1123,7 +1125,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* center = field<Value::Array>(result, "component_center");
         const auto location = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
         if (!profile.landing_pod_center || !name || !materials::component_from_name(*name) ||
-            !count || *count < 0 || *count > profile.material.component_capacity ||
+            !count || *count < 0 || (profile.material.component_capacity > 0 &&
+                *count > profile.material.component_capacity) ||
             !entity || !generation || *generation <= 0 || !location ||
             targets.front() != anchor(profile, *location) || result.size() != 19) return false;
         if (action == "place_component") {
@@ -1702,7 +1705,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         Integer carried = 0;
         for (const auto& [owner_kind, count] : crafted_components)
             if (owner_kind.first == actor &&
-                (count < 0 || !add(carried, count) || carried > profile.material.component_capacity)) return false;
+                (count < 0 || !add(carried, count) ||
+                    (profile.material.component_capacity > 0 &&
+                        carried > profile.material.component_capacity))) return false;
         return true;
     };
     const auto replay_broad_ticks = [&](Integer first, Integer last) {
@@ -2836,7 +2841,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             } else {
                 const auto found = placed_components.find(*entity);
                 if (found == placed_components.end() || found->second != std::make_pair(*component, *center) ||
-                    carried >= profile.material.component_capacity) return false;
+                    (profile.material.component_capacity > 0 &&
+                        carried >= profile.material.component_capacity)) return false;
                 if (*component == materials::Component::anvil &&
                     historical_slide_routes.contains(*center)) return false;
                 if (*component == materials::Component::anvil &&
@@ -5217,7 +5223,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 (void)name;
                 if (!add(carried, count)) return refused("inventory_full", *target, std::move(facts));
             }
-            if (carried >= profile_.material.component_capacity)
+            if (profile_.material.component_capacity > 0 &&
+                carried >= profile_.material.component_capacity)
                 return refused("inventory_full", *target, std::move(facts));
             if (kind == materials::Component::anvil &&
                 state.slide_press_routes.contains(center))

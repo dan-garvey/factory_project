@@ -274,8 +274,8 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         config.raw_mass < 1 || config.raw_mass > 1000000 || plate_mass < 1 ||
         plate_mass > input_mass || config.sheet_mass < 0 ||
         config.sheet_mass > 1000000 ||
-        config.cycle_ticks < 1 || config.hand_carry_capacity < 1 ||
-        config.hand_carry_capacity > 1000000 || config.component_capacity < 1 ||
+        config.cycle_ticks < 1 || config.hand_carry_capacity < 0 ||
+        config.hand_carry_capacity > 1000000 || config.component_capacity < 0 ||
         config.component_capacity > 1000000 || config.timber_sites.size() > 16)
         return Error::invalid_configuration;
     if (config.manual_ore && (config.manual_ore->id.empty() ||
@@ -412,7 +412,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         for (const auto& [kind, count] : cargo.components) {
             const auto cost = component_cost(kind);
             if (!cost || count < 1 || !add(component_count, count) ||
-                component_count > config.component_capacity ||
+                (config.component_capacity > 0 && component_count > config.component_capacity) ||
                 (cost->timber > 0 && !products(timber_accounted, count, cost->timber)) ||
                 (cost->ore > 0 && !products(total, count, cost->ore * config.raw_mass))) return Error::invalid_state;
         }
@@ -866,7 +866,8 @@ Error harvest_source(State& state, const Config& config, const Path& path,
         (void)kind;
         component_count += count;
     }
-    if (used + component_count >= config.hand_carry_capacity) return Error::inventory_full;
+    if (config.hand_carry_capacity > 0 &&
+        used + component_count >= config.hand_carry_capacity) return Error::inventory_full;
     auto next = state;
     if (ore) {
         --next.stock.source;
@@ -895,7 +896,8 @@ Error craft_component(State& state, const Config& config, const Path& path,
         (void)kind;
         if (!add(count, amount)) return Error::quantity_overflow;
     }
-    if (count >= config.component_capacity) return Error::inventory_full;
+    if (config.component_capacity > 0 && count >= config.component_capacity)
+        return Error::inventory_full;
     auto next = state;
     auto& output = next.cargo.at(actor);
     output.timber -= cost->timber;

@@ -648,6 +648,71 @@ void placed_components_keep_custody_and_history() {
           "Restore rejects a forged history that temporarily carries a frame and shaft in one slot.");
 }
 
+void unbounded_component_reclaim_keeps_history() {
+    auto [profile, state] = seed();
+    profile.build_reach = 4;
+    profile.material.hand_carry_capacity = 0;
+    profile.material.component_capacity = 0;
+    profile.material.timber_sites = {{"tree", {{8, 0, 20}, 8}}};
+    state.material.timber_remaining = {{"tree", 8}};
+    auto world = w::World::create("unbounded-chapter", profile, state);
+    check(world != nullptr, "The uncapped chapter world starts with finite shared timber.");
+    const auto near = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {8, 0, 16}, 2, true, 4};
+    };
+    const auto send = [&](O request) {
+        const auto actor = std::get<std::string>(request.at("actor").storage());
+        const auto client = std::get<std::string>(request.at("client").storage());
+        return std::get<std::string>(request.at("action").storage()) == "harvest_source" ?
+            w::tests::complete_manual_cut(*world, {actor, client}, request, near) :
+            world->command({actor, client}, request, near);
+    };
+    const auto intent = [](const char* request, const char* action) {
+        return O{{"context", V("unbounded-chapter")}, {"client", V("P-client")},
+            {"request", V(request)}, {"actor", V("P")}, {"action", V(action)}};
+    };
+    for (int cut = 0; cut < 4; ++cut) {
+        auto harvest = intent(("cut-" + std::to_string(cut)).c_str(), "harvest_source");
+        harvest.emplace("target", V("tree"));
+        const auto result = send(harvest);
+        check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
+              "Each finite cut reaches the real actor's inventory.");
+    }
+    auto frame = intent("frame", "craft_component");
+    frame.emplace("target", V("pod-fabrication-hub"));
+    frame.emplace("generation", V(I{1}));
+    frame.emplace("component", V("wooden_frame"));
+    check(std::get<bool>(send(frame).result->at("accepted").storage()),
+          "The bench makes a frame from three finite timber units.");
+    auto place = intent("place-frame", "place_component");
+    place.emplace("component", V("wooden_frame"));
+    place.emplace("center", V(V::Array{V(I{8}), V(I{0}), V(I{12})}));
+    const auto placed = send(place);
+    check(placed.completed() && std::get<bool>(placed.result->at("accepted").storage()),
+          "The actor installs the same frame in the world.");
+    auto shaft = frame;
+    shaft.at("request") = V("shaft");
+    shaft.at("component") = V("wooden_shaft");
+    check(std::get<bool>(send(shaft).result->at("accepted").storage()),
+          "The remaining timber makes a carried shaft.");
+    auto reclaim = intent("reclaim-frame", "reclaim_component");
+    reclaim.emplace("target", placed.result->at("entity"));
+    reclaim.emplace("generation", placed.result->at("generation"));
+    const auto returned = send(reclaim);
+    check(returned.completed() && std::get<bool>(returned.result->at("accepted").storage()) &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_frame) == 1 &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1,
+          "Reclaim admits a second carried part without a component-slot refusal.");
+    const auto snapshot = world->snapshot();
+    const auto saved = w::encode_checkpoint(profile, snapshot);
+    check(std::holds_alternative<V>(saved), "The uncapped placement and reclaim history encodes.");
+    const auto restored = w::decode_checkpoint(profile, "unbounded-chapter", std::get<V>(saved));
+    check(std::holds_alternative<w::Snapshot>(restored) &&
+          w::World::restore("unbounded-chapter", profile, std::get<w::Snapshot>(restored)) != nullptr &&
+          std::get<w::Snapshot>(restored).state == snapshot.state,
+          "Restore replays the uncapped actor's exact finite custody and component history.");
+}
+
 void portable_bench_crafts_with_finite_shared_stock() {
     auto [profile, state] = seed();
     profile.build_reach = 6;
@@ -1003,6 +1068,7 @@ int main() {
         deck_recovery_is_a_normal_world_transaction();
         reachable_craft_uses_one_hub_and_owned_ingredients();
         placed_components_keep_custody_and_history();
+        unbounded_component_reclaim_keeps_history();
         portable_bench_crafts_with_finite_shared_stock();
         powered_slide_ticks_and_restores();
         first_plate_gate_admits_only_starter_parts();

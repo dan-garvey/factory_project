@@ -296,11 +296,9 @@ func _settle_pending() -> void:
 				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason)), item.action.action)
 			if item.action.action == "craft_component":
 				refusal = {"unavailable_input": "Gather the timber or copper shown for this component.",
-					"inventory_full": "Your component bag is full. Place a carried part to make room.",
 					"out_of_reach": "Move beside the selected workshop to craft this component."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "field_craft":
 				refusal = {"unavailable_input": "Gather the timber shown for this component.",
-					"inventory_full": "Your component bag is full. Place a carried part to make room.",
 					"unavailable_recipe": "Metal components need a workshop."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "craft_part":
 				refusal = {"unavailable_input": "Gather the timber or copper shown for this transmission kit.",
@@ -315,8 +313,6 @@ func _settle_pending() -> void:
 					"source_depleted": "This ore deposit is depleted.",
 					"output_full": "Clear a loose material drop before cutting more ore.",
 					"out_of_reach": "Move beside the collector's fitted shaft to turn it."}.get(result.get("reason", ""), refusal)
-			elif item.action.action == "reclaim_component" and result.get("reason", "") == "inventory_full":
-				refusal = "Your component bag is full. Place another carried part before reclaiming."
 			_message(refusal, true)
 		if item.action.action == "select_belt_shaft" and transmission_controls != null:
 			transmission_controls.settle_belt_selection(request, result.accepted)

@@ -1008,10 +1008,10 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             {"tree-east-north", {{16, 0, 28}, 8}},
             {"tree-north", {{0, 0, 28}, 8}},
             {"tree-east-upstream", {{16, 0, -4}, 8}}};
-        // Opening stock is finite, so an actor can carry the whole site while
-        // still using the existing bounded native inventory representation.
-        profile.material.hand_carry_capacity = 1000000;
-        profile.material.component_capacity = 1000000;
+        // Zero means no carried-count limit. Finite sources and native custody
+        // still bound the material that can exist in the opening.
+        profile.material.hand_carry_capacity = 0;
+        profile.material.component_capacity = 0;
         // Reversible cold-workshop costs for a real powered receiver route.
         // Every kit remains in the one World inventory and history ledger.
         profile.fabrication_parts = {{{Role::shaft, 0, 2}, {1, 0}},

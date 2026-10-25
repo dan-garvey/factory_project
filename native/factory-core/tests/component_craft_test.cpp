@@ -160,6 +160,38 @@ void component_capacity() {
           state == full && state.cargo.at("P").timber == 1,
           "A full component inventory leaves both ingredient and output untouched.");
 }
+
+void unbounded_finite_custody() {
+    auto facts = config();
+    facts.hand_carry_capacity = 0;
+    facts.component_capacity = 0;
+    facts.timber_sites = {{"tree-a", {{12, 0, 12}, 64}}};
+    auto state = seed();
+    state.timber_remaining = {{"tree-a", 64}};
+    state.initial_units = 64;
+    state.stock.source = 64;
+    const m::Path path{};
+    for (int cut = 0; cut < 40; ++cut)
+        check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none &&
+              m::harvest_source(state, facts, path, "P", "ore") == m::Error::none,
+              "A Chapter 1 actor can carry more than the former small total without losing finite stock.");
+    for (int made = 0; made < 26; ++made)
+        check(m::craft_component(state, facts, path, "P", m::Component::wooden_shaft) == m::Error::none,
+              "Crafted components pass the former twenty-four-part limit.");
+    check(state.cargo.at("P").components.at(m::Component::wooden_shaft) == 26 &&
+          state.cargo.at("P").timber == 14 && state.cargo.at("P").raw_units == 40 &&
+          state.timber_remaining.at("tree-a") == 24 && state.stock.source == 24 &&
+          m::validate(state, facts, path) == m::Error::none,
+          "The uncapped actor still owns exactly the stock debited from two finite sources.");
+    const auto saved = m::encode_material_state(state, facts, path, {"P", "Q"});
+    check(std::holds_alternative<V>(saved), "Uncapped finite custody encodes for a shared checkpoint.");
+    const auto loaded = m::decode_material_state(std::get<V>(saved), facts, path, {"P", "Q"});
+    check(std::holds_alternative<m::State>(loaded) && std::get<m::State>(loaded) == state,
+          "Shared restore keeps the exact uncapped material and component balances.");
+    check(m::harvest_source(state, facts, path, "Q", "ore") == m::Error::none &&
+          state.stock.source == 23 && state.cargo.at("Q").raw_units == 1,
+          "A second actor continues harvesting the same finite reserve after the large carry.");
+}
 }  // namespace
 
 int main() {
@@ -167,6 +199,7 @@ int main() {
         exact_bill_and_refusals();
         integral_slide_custody();
         component_capacity();
+        unbounded_finite_custody();
         std::cout << "component_craft_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

@@ -1100,8 +1100,8 @@ func _multitool_controls() -> void:
 			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 0}) == "Cutting…",
 			"The start receipt is not mislabeled as collected stock; contact reports actual moved quantities.")
 		verify("depleted" in view._material_refusal_message({"reason": "unavailable_source"}, "fallback")
-			and "full" in view._material_refusal_message({"reason": "inventory_full"}, "fallback"),
-			"Native stock and capacity refusals retain actionable advice.")
+			and view._material_refusal_message({"reason": "inventory_full"}, "fallback") == "fallback",
+			"Native stock advice remains, while the obsolete carried-cap advice is absent.")
 		view.state.hand_sources.tree.remaining = 0
 		var depleted_summary: Dictionary = view._pointed_summary_data(Vector2.ZERO)
 		view._interact_pointed()
@@ -2247,14 +2247,12 @@ func _shared_component_results() -> void:
 		{"action": "place_component", "accepted": true, "reason": "", "text": "Component placed on the shared grid."},
 		{"action": "reclaim_component", "accepted": true, "reason": "", "text": "Component returned to your carried cargo."},
 		{"action": "craft_component", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber or copper shown for this component."},
-		{"action": "craft_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place a carried part to make room."},
 		{"action": "craft_component", "accepted": false, "reason": "out_of_reach", "text": "Move beside the selected workshop to craft this component."},
 		{"action": "field_craft", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber shown for this component."},
 		{"action": "field_craft", "accepted": false, "reason": "unavailable_recipe", "text": "Metal components need a workshop."},
 		{"action": "craft_part", "accepted": false, "reason": "out_of_reach", "text": "Move beside the selected workshop to make a transmission kit."},
 		{"action": "load_belt_slot", "accepted": false, "reason": "belt_cannot_carry", "text": "This belt is too narrow for broad work. Carry it to the next machine."},
-		{"action": "load_belt_slot", "accepted": false, "reason": "belt_path_cannot_carry", "text": "This belt transmits rotation but cannot carry items along this path."},
-		{"action": "reclaim_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place another carried part before reclaiming."}]
+		{"action": "load_belt_slot", "accepted": false, "reason": "belt_path_cannot_carry", "text": "This belt transmits rotation but cannot carry items along this path."}]
 	for sample: Dictionary in cases:
 		var view := SharedSettlementView.new()
 		view.session = SessionStub.new()

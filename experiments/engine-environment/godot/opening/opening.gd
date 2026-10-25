@@ -5334,11 +5334,9 @@ func issue(action: Dictionary) -> Dictionary:
 			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."), action.action)
 		if action.action == "craft_component":
 			refusal = {"unavailable_input": "Gather the timber or copper shown for this component.",
-				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"out_of_reach": "Move beside the selected workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "field_craft":
 			refusal = {"unavailable_input": "Gather the timber shown for this component.",
-				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"unavailable_recipe": "Metal components need a workshop."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "craft_part":
 			refusal = {"unavailable_input": "Gather the timber or copper shown for this transmission kit.",
@@ -5354,8 +5352,6 @@ func issue(action: Dictionary) -> Dictionary:
 				"out_of_reach": "Move beside the collector mount to turn it."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "deploy_fabrication_hub" and outcome.get("reason", "") == "unsupported_bench":
 			refusal = "Set the pod workshop on clear ground or a foundation top."
-		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":
-			refusal = "Your component bag is full. Place another carried part before reclaiming."
 		_message(refusal, true)
 	_refresh()
 	return outcome
@@ -5383,7 +5379,6 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 	var advice: String = {
 		"first_plate_required": "Carry your first copper plate to unlock that part.",
 		"unavailable_source": "That source is unavailable or depleted. Choose another tree or ore deposit.",
-		"inventory_full": "Your carried inventory is full. Store or use material before collecting more.",
 		"unaligned_elevation": "Machines and wheels need a whole-tile height. Build a factory floor with Access steps off, or adjust the wheel's drive height.",
 		"axles_already_touch": "These axle ends already touch; no shaft is needed.",
 		"overlapping_shafts": "A shaft already occupies that length. Place the new segment end to end.",
