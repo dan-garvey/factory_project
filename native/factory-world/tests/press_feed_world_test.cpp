@@ -2205,6 +2205,25 @@ void powered_broad_sheet_custody() {
     source.state.kits.at("P")[{s::Role::shaft, 0, 2}] = 1;
     source.profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 2;
     source.state.kits.at("P")[{s::Role::waterwheel, 0, 0}] = 1;
+    // Keep a separate ordinary-width belt available to probe broad custody.
+    // Its endpoints are real placed shafts, not a fabricated lane-only fixture.
+    const auto belt_first = s::PlacedPart{{"sheet-width-first", g::Kind::shaft,
+        {12, 4, 8}, g::Axis::z, 0, 2}, 1, s::Role::shaft};
+    const auto belt_last = s::PlacedPart{{"sheet-width-last", g::Kind::shaft,
+        {20, 4, 8}, g::Axis::z, 0, 2}, 1, s::Role::shaft};
+    const auto belt_path = g::belt_path(belt_first.geometry, belt_last.geometry);
+    check(belt_path && belt_path->tiles.size() >= 2,
+        "The broad custody fixture has a real one-wide belt corridor.");
+    source.profile.finite_parts[{s::Role::shaft, 0, 2}] += 2;
+    source.profile.finite_parts[{s::Role::belt, 0, 0}] = 1;
+    source.state.topology.parts.push_back(belt_first);
+    source.state.topology.parts.push_back(belt_last);
+    source.state.topology.belt_spans.push_back({{"sheet-width-belt",
+        belt_first.geometry.id, belt_last.geometry.id}, 1});
+    source.state.material.belt_lanes.emplace("sheet-width-belt",
+        m::BeltLane{std::vector<std::optional<m::Cargo>>(belt_path->tiles.size())});
+    for (const auto* id : {"sheet-width-first", "sheet-width-last", "sheet-width-belt"})
+        source.state.issued_entities.emplace(id, 1);
     Runner run(source);
     run.p = {5.8, 1, 0.8};
     auto cross = request("P", "sheet-place-cross-shaft", "place");
@@ -2393,6 +2412,40 @@ void powered_broad_sheet_custody() {
     refed.accept("P", recover_partial);
     check(w::validate(source.profile, refed.world->snapshot()),
         "The picked broad partial lot has valid replay before refeed.");
+    Runner belt_probe(source);
+    belt_probe.world = w::World::restore("press-feed", source.profile, refed.world->snapshot());
+    check(belt_probe.world != nullptr,
+        "The carried sheet-bound lot restores beside a valid one-wide belt.");
+    belt_probe.p = {5.8, 1, 0.8};
+    auto load_broad = request("P", "sheet-width-refuse", "load_belt_slot");
+    load_broad.emplace("target", V("sheet-width-belt"));
+    load_broad.emplace("generation", V(I{1}));
+    load_broad.emplace("slot", V(I{0}));
+    load_broad.emplace("item", V("work"));
+    load_broad.emplace("work_id", V(partial_lot.id));
+    const auto before_broad_load = belt_probe.world->snapshot();
+    belt_probe.refuses("P", load_broad, "belt_cannot_carry");
+    check(belt_probe.world->snapshot().state == before_broad_load.state &&
+          codec_restore(source.profile, belt_probe.world->snapshot(),
+              "The refused broad lot retains its carried identity after a checkpoint."),
+          "A one-wide belt refuses sheet-bound work without changing actor or slot custody.");
+    belt_probe.p = {0, 1, 1.65};
+    auto harvest_control = request("P", "sheet-width-control-ore", "harvest_source");
+    harvest_control.emplace("target", V("ore"));
+    belt_probe.accept("P", harvest_control);
+    belt_probe.p = {5.8, 1, 0.8};
+    auto load_control = load_broad;
+    load_control.at("request") = V("sheet-width-control-load");
+    load_control.at("item") = V("raw");
+    load_control.at("work_id") = V(I{0});
+    belt_probe.accept("P", load_control);
+    const auto control = belt_probe.world->snapshot();
+    check(control.state.material.belt_lanes.at("sheet-width-belt").slots.front() &&
+          control.state.material.belt_lanes.at("sheet-width-belt").slots.front()->raw_units == 1 &&
+          control.state.material.cargo.at("P").work_lots.front().id == partial_lot.id &&
+          codec_restore(source.profile, control,
+              "The small input and carried broad lot keep their separate identities."),
+          "The same one-wide belt accepts ordinary stock while the broad lot stays carried.");
     auto fake_refeed = request("P", "sheet-wrong-refeed", "refeed_broad_press_work");
     fake_refeed.emplace("target", V(first_anvil));
     fake_refeed.emplace("generation", V(first_generation));

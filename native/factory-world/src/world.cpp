@@ -4921,6 +4921,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 const auto lot = std::find_if(cargo.work_lots.begin(), cargo.work_lots.end(),
                     [&](const auto& value) { return value.id == *work_id; });
                 if (lot == cargo.work_lots.end()) return refused("unavailable_cargo", *id, std::move(facts));
+                if (lot->recipe.output == materials::WorkOutput::sheet)
+                    return refused("belt_cannot_carry", *id, std::move(facts));
                 moved.work_lots.push_back(*lot);
                 cargo.work_lots.erase(lot);
             } else return refused("unavailable_cargo", *id, std::move(facts));
