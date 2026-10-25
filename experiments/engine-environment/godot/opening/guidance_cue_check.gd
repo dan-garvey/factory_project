@@ -414,6 +414,47 @@ func check_slide_manager_cue() -> void:
 	verify(shared.goal_label.text.contains("Open the fitted press [E]. Move a blank to the workbed, then crank.")
 		and shared.manager_log_current.text.ends_with("Open the fitted press [E]. Move a blank to the workbed, then crank."),
 		"The shared worker receives the same ready-slide cue without creating local authority.")
+	view.state.sliding_press_assemblies[0].open_feeds = [
+		{"entry": [-1, 0, 0], "exit": [1, 0, 0]},
+		{"entry": [3, 0, 0], "exit": [2, 0, 0]}]
+	view.state.sliding_press_assemblies[0].selected_exit = [1, 0, 0]
+	view.state.dropped_material = [{"center": [9, 0, 0], "products": 1}]
+	view._refresh_guided_tools()
+	verify(view.goal_label.text.contains("Move a blank to the workbed"),
+		"A plate elsewhere in the world does not replace the press feed cue.")
+	view.state.dropped_material.append({"center": [1, 0, 0], "products": 1})
+	shared.state = view.state.duplicate(true)
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	shared._refresh_guided_tools()
+	shared._refresh_manager_log()
+	verify(view.goal_label.text.contains("Plate at outlet. Open the press [E], then collect it [P].")
+		and view.manager_log_current.text.ends_with("Plate at outlet. Open the press [E], then collect it [P].")
+		and shared.goal_label.text == view.goal_label.text
+		and shared.manager_log_current.text == view.manager_log_current.text,
+		"Ordinary and shared first-shift cues guide pickup of the confirmed slide outlet plate.")
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--slide-outlet-cue-screenshot="):
+			shared.arrival_gameplay_canvas.visible = false
+			for _frame in range(12):
+				await process_frame
+			verify(root.get_texture().get_image().save_png(
+				argument.trim_prefix("--slide-outlet-cue-screenshot=")) == OK,
+				"Retain the ordinary outlet-pickup cue as passive pixels.")
+		if argument.begins_with("--slide-outlet-cue-narrow-screenshot="):
+			shared.arrival_gameplay_canvas.visible = false
+			root.size = Vector2i(900, 600)
+			for _frame in range(12):
+				await process_frame
+			verify(root.get_texture().get_image().save_png(
+				argument.trim_prefix("--slide-outlet-cue-narrow-screenshot=")) == OK,
+				"Retain the outlet-pickup cue in the narrow ordinary viewport.")
+			root.size = Vector2i(1280, 800)
+	view.state.sliding_press_assemblies[0].selected_exit = [2, 0, 0]
+	view._refresh_guided_tools()
+	verify(view.goal_label.text.contains("Move a blank to the workbed"),
+		"The cue follows the native selected exit rather than an occupied alternate route.")
+	view.state.dropped_material.clear()
 	view.state.first_plate_unlock = true
 	view.state.placed_components = {"anvil": {"component": "anvil", "center": [0, 0, 0]},
 		"head": {"component": "flat_head", "center": [0, 1, 0]},

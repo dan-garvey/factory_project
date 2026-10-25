@@ -9639,6 +9639,19 @@ func _toggle_manager_log() -> void:
 	manager_log_layer.visible = manager_log_open
 	_refresh_ui()
 
+func _slide_outlet_holds_plate(press: Dictionary) -> bool:
+	var exits: Array = []
+	var selected_exit: Array = press.get("selected_exit", [])
+	if not selected_exit.is_empty():
+		exits.append(selected_exit)
+	else:
+		for feed: Dictionary in press.get("open_feeds", []):
+			exits.append(feed.get("exit", []))
+	for drop: Dictionary in state.get("dropped_material", []):
+		if int(drop.get("products", 0)) > 0 and exits.has(drop.get("center", [])):
+			return true
+	return false
+
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if rotation_button != null:
 		rotation_button.visible = _native_transmission() and mode in ["collector", "processor", "wheel"] and not explanation_open
@@ -9712,6 +9725,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		var next_work := "Gather 3 timber and 4 copper blanks with the multitool [E]."
 		var press_ready := false
 		var sliding_press_ready := false
+		var sliding_plate_waiting := false
 		var ready_slide_has_crank := false
 		var sliding_feed_blocked := false
 		var collector_ready := false
@@ -9719,6 +9733,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			press_ready = press_ready or press.get("status") == "ready"
 		for press: Dictionary in state.get("sliding_press_assemblies", []):
 			sliding_press_ready = sliding_press_ready or press.get("status") == "ready"
+			if press.get("status") == "ready":
+				sliding_plate_waiting = sliding_plate_waiting or _slide_outlet_holds_plate(press)
 			sliding_feed_blocked = sliding_feed_blocked or press.get("status") == "blocked_feed"
 			press_ready = press_ready or press.get("status") == "ready"
 			if press.get("status") == "ready":
@@ -9732,6 +9748,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			_notice_workshop_completion(workshop_complete)
 		if workshop_complete:
 			next_work = "Open Work log [J] for optional projects, or keep building."
+		elif sliding_plate_waiting:
+			next_work = "Plate at outlet. Open the press [E], then collect it [P]."
 		elif sliding_press_ready and ready_slide_has_crank:
 			next_work = "Open the fitted press [E]. Move a blank to the workbed, then crank."
 		elif sliding_press_ready:

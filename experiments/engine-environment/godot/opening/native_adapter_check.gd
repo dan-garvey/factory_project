@@ -2696,6 +2696,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and before_pickup.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 				"Native bottom contact conserves mass and places one formed plate at the chosen exit"):
 			return
+		if not _expect(opening.goal_label.text.contains(
+				"Plate at outlet. Open the press [E], then collect it [P].")
+				and opening.manager_log_current.text.ends_with(
+					"Plate at outlet. Open the press [E], then collect it [P]."),
+				"The ordinary first-shift cue and replayable log direct pickup of the native formed plate"):
+			return
 		if not await _approach(Vector2(4.1, 6.0)):
 			return
 		opening._open_object_menu_for(fitted.anvil)
