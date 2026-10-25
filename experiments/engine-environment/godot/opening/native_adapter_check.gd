@@ -2522,7 +2522,7 @@ func _arrival_run() -> void:
 		return
 	var initial: Dictionary = opening.model.projection()
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
-			and initial.placed_components.is_empty() and initial.component_recipes.size() == 14
+			and initial.placed_components.is_empty() and initial.component_recipes.size() == 15
 			and initial.component_recipes.wooden_slide.timber == 3
 			and initial.component_recipes.copper_slide.copper == 4,
 			"Two finite trees and the ore deposit supply the original route while native slides remain finite options"):

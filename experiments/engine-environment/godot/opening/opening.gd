@@ -5251,7 +5251,7 @@ func _construction_feedback(intent: Dictionary, outcome: Dictionary) -> void:
 		construction_audio = ConstructionAudio.new()
 		construction_audio.name = "ConstructionAudio"
 		add_child(construction_audio)
-	construction_audio.confirmed(intent, outcome, str(model.projection().get("context", "")))
+	construction_audio.confirmed(intent, outcome, str(outcome.get("context", state.get("context", ""))))
 
 func _crank_turn_refusal(machine: String) -> String:
 	var holder: String = str(state.get("hand_crank", {}).get("holder", ""))
