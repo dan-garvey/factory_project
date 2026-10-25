@@ -2241,6 +2241,7 @@ func _shared_component_results() -> void:
 		{"action": "field_craft", "accepted": false, "reason": "unavailable_input", "text": "Gather the timber shown for this component."},
 		{"action": "field_craft", "accepted": false, "reason": "unavailable_recipe", "text": "Metal components need a workshop."},
 		{"action": "craft_part", "accepted": false, "reason": "out_of_reach", "text": "Move beside the selected workshop to make a transmission kit."},
+		{"action": "load_belt_slot", "accepted": false, "reason": "belt_cannot_carry", "text": "This belt is too narrow for broad work. Carry it to the next machine."},
 		{"action": "reclaim_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place another carried part before reclaiming."}]
 	for sample: Dictionary in cases:
 		var view := SharedSettlementView.new()
@@ -2261,6 +2262,15 @@ func _shared_component_results() -> void:
 		verify(view.pending_actions.is_empty() and view.state == before and view.model == null,
 			"Settling shared component feedback consumes only the confirmed request, not native stock.")
 		view.free()
+	var width_view := Opening.new()
+	width_view.state = fixture()
+	width_view.state.options = {"native": true, "physical": true}
+	verify(width_view._material_refusal_message({"reason": "belt_cannot_carry", "uncertain": true},
+		"uncertain outcome", "load_belt_slot") == "uncertain outcome"
+		and width_view._material_refusal_message({"reason": "belt_cannot_carry"},
+			"other action", "place_component") == "other action",
+		"A width explanation never turns uncertain delivery or another action into a belt refusal.")
+	width_view.free()
 	for sample: Dictionary in [
 		{"status": "missing_ram", "text": "No working face contacts this support."},
 		{"status": "missing_guide", "text": "The working face has no guided stroke."},
