@@ -3,11 +3,17 @@ extends "res://opening-session/native_shared_cog_check.gd"
 ## The ordinary server retains the only World, actor bodies and material clock.
 var prepared: Dictionary = {}
 var baseline: Dictionary = {}
+const INITIAL_ORE := 4096
+var outcomes: Dictionary = {}
 
 func _init() -> void:
 	super._init()
-	deadline = Time.get_ticks_msec() + 45000
-	facts.evidence = "shared_native_carried_work_rejoin"
+	if phase in ["firstplate", "firstplate-resume"]:
+		deadline = Time.get_ticks_msec() + 240000
+		facts.evidence = "ordinary_shared_first_plate_scene"
+	else:
+		deadline = Time.get_ticks_msec() + 45000
+		facts.evidence = "shared_native_carried_work_rejoin"
 
 func _until(condition: Callable, reason: String) -> bool:
 	while Time.get_ticks_msec() < deadline and not condition.call():
@@ -187,6 +193,9 @@ func _q() -> bool:
 		"Only two explicit material transfers occur after reconnection") and _marker("Q-material-cycled.bin")
 
 func _run() -> void:
+	if phase in ["firstplate", "firstplate-resume"]:
+		await _run_firstplate()
+		return
 	if actor not in ["P", "Q"] or phase != "resume" or not directory.is_absolute_path() or not previous.is_absolute_path():
 		push_error("The reconnect consumer requires P or Q and the original producer directory")
 		quit(1)
@@ -220,5 +229,267 @@ func _run() -> void:
 		return
 	opening.catalog_button.pressed.emit()
 	var passed := await _p() if actor == "P" else await _q()
+	if passed and not written:
+		_record("pass")
+
+func _wait_for(predicate: Callable, label: String) -> bool:
+	while Time.get_ticks_msec() < deadline and not predicate.call():
+		await process_frame
+	return _expect(predicate.call(), label)
+
+func _send(action: Dictionary, label: String) -> Dictionary:
+	var before: Dictionary = session.projection()
+	var queued: Dictionary = opening.issue(action)
+	if not _expect(queued.get("queued") == true and not queued.get("accepted", true)
+			and session.world == null and opening.actor_world == null,
+		label + " queues through the ordinary client without local authority"):
+		return {}
+	var request: String = str(queued.get("request", ""))
+	if not await _wait_for(func(): return outcomes.has(request) and \
+			not opening.pending_actions.has(request), label + " receives one native decision"):
+		return {}
+	var reply: Dictionary = outcomes[request]
+	outcomes.erase(request)
+	var wire: Dictionary = session._sent.get(request, {}).duplicate(true)
+	for key in ["context", "client", "request"]:
+		wire.erase(key)
+	facts.steps.append({"label": label, "wire": wire, "order_before": before.order,
+		"order_after": session.projection().order, "reply": reply})
+	if not _expect(wire == action and reply.get("accepted") == true
+			and reply.get("duplicate") == false and reply.get("order") == before.order + 1,
+		label + " preserves its literal intent and one accepted native order"):
+		return {}
+	if action.get("action") == "harvest_source":
+		var source: String = str(action.get("target", ""))
+		var remaining: int = int(before.hand_sources[source].remaining) - 1
+		if not await _wait_for(func(): return int(session.projection().hand_sources[source].remaining) == remaining,
+			label + " reaches finite physical contact"):
+			return {}
+	return reply
+
+func _walk(target: Vector2) -> bool:
+	var start: Dictionary = session.projection().actors.P.duplicate(true)
+	var leg_deadline := mini(deadline, Time.get_ticks_msec() + 25000)
+	while Time.get_ticks_msec() < leg_deadline:
+		var sample: Dictionary = session.projection().actors.P
+		var position: Array = sample.position
+		var gap := target - Vector2(float(position[0]), float(position[2]))
+		if gap.length() < 0.10:
+			opening._release_character_input()
+			return _expect(sample.native_epoch > start.native_epoch and sample.ready,
+				"The observed server body walks to " + str(target))
+		opening._send_character_input(gap.normalized(), false)
+		await process_frame
+	opening._release_character_input()
+	facts["failed_walk"] = {"target": target, "at": session.projection().actors.P.position}
+	return _expect(false, "The physical shared actor reaches " + str(target))
+
+func _walk_points(points: Array[Vector2]) -> bool:
+	for point in points:
+		if not await _walk(point):
+			return false
+	return true
+
+func _id_for(kind: String) -> String:
+	for id: String in session.projection().placed_components:
+		if session.projection().placed_components[id].component == kind:
+			return id
+	return ""
+
+func _crank_id() -> String:
+	var items: Dictionary = session.projection().get("crank_items", {})
+	return str(items.keys()[0]) if items.size() == 1 else ""
+
+func _initial_p() -> bool:
+	if (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	var start: Dictionary = session.projection()
+	var inventory = opening.building_hotbar
+	if not _expect(start.order == 0 and start.cargo.P.products == 0
+			and inventory.slots.all(func(slot: String) -> bool: return slot.is_empty())
+			and session.world == null and opening.actor_world == null,
+		"The shared arrival starts with an empty hotbar and no client material authority"):
+		return false
+	inventory.open_catalog()
+	if not _expect(inventory.recipe_buttons.has("component:anvil")
+			and inventory.recipe_buttons.has("component:flat_head")
+			and inventory.recipe_buttons.has("component:wooden_slide")
+			and inventory.recipe_buttons.has("component:hand_crank")
+			and not inventory.recipe_buttons.has("component:wooden_cog"),
+		"The first-plate catalog exposes only required press components"):
+		return false
+	inventory.catalog.hide()
+	if not await _walk(Vector2(6.0, 3.45)):
+		return false
+	for index in range(5):
+		if (await _send({"action": "harvest_source", "target": "tree-east-south"},
+			"Timber cut %d" % index)).is_empty():
+			return false
+	if not await _walk_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return false
+	for index in range(4):
+		if (await _send({"action": "harvest_source", "target": "opening-copper"},
+			"Copper cut %d" % index)).is_empty():
+			return false
+	if not _expect(session.projection().cargo.P.timber == 5
+			and session.projection().cargo.P.raw == 4
+			and session.projection().hand_sources["opening-copper"].remaining == INITIAL_ORE - 4,
+		"Five real timber and four real copper cuts fund the complete preplate bill"):
+		return false
+	if not await _walk_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
+		return false
+	var bench: String = str(session.projection().fabrication_hub.id)
+	for kind in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
+		if (await _send({"action": "craft_component", "entity": bench, "component": kind},
+			"Craft " + kind)).is_empty():
+			return false
+	var crank: String = _crank_id()
+	if not _expect(not crank.is_empty() and session.projection().crank_items[crank].holder == "P"
+			and session.projection().cargo.P.timber == 0 and session.projection().cargo.P.raw == 1,
+		"The paid hand crank has an individual carried ID after finite crafting"):
+		return false
+	if not await _walk(Vector2(4.95, 4.95)):
+		return false
+	for part in [{"kind": "anvil", "center": [12, 0, 16]},
+			{"kind": "flat_head", "center": [12, 1, 16]},
+			{"kind": "wooden_slide", "center": [12, 2, 16]}]:
+		if (await _send({"action": "place_component", "component": part.kind,
+			"center": part.center}, "Place " + part.kind)).is_empty():
+			return false
+	var anvil := _id_for("anvil")
+	var slide := _id_for("wooden_slide")
+	if not _expect(not anvil.is_empty() and not slide.is_empty()
+			and session.projection().sliding_press_assemblies.size() == 1,
+		"Three individually placed parts assemble the native preplate press"):
+		return false
+	if (await _send({"action": "attach_hand_crank", "entity": slide,
+			"crank": crank, "port": [13, 2, 16]}, "Fit paid crank to exterior slide input")).is_empty():
+		return false
+	if not _expect(session.projection().crank_items[crank].attached_to == slide,
+		"Both clients can identify the same fitted crank"):
+		return false
+	var route: Dictionary = session.projection().sliding_press_assemblies[0].open_feeds[0]
+	if (await _send({"action": "feed_press", "entity": anvil, "entry": route.entry},
+		"Feed the final carried blank to the workbed")).is_empty():
+		return false
+	var formed := false
+	for index in range(64):
+		if (await _send({"action": "turn_slide_crank", "entity": slide,
+			"port": [13, 2, 16]}, "Turn fitted slide %d" % index)).is_empty():
+			return false
+		for drop: Dictionary in session.projection().dropped_material:
+			if drop.center == route.exit and drop.products == 1:
+				formed = true
+				break
+		if formed:
+			break
+	if not _expect(formed and session.projection().cargo.P.products == 0
+			and session.projection().workshop_completed_actors.is_empty(),
+		"Forming at the press outlet does not complete the carried-item milestone"):
+		return false
+	if not await _walk(Vector2(4.1, 6.0)):
+		return false
+	var expected_output: Dictionary = {}
+	for drop: Dictionary in session.projection().dropped_material:
+		if drop.center == route.exit:
+			expected_output = drop.duplicate(true)
+			break
+	if not _expect(not expected_output.is_empty(), "The same confirmed outlet remains occupied"):
+		return false
+	expected_output.erase("center")
+	if (await _send({"action": "pickup_material", "center": route.exit,
+			"expected": expected_output},
+		"Carry the first copper plate")).is_empty():
+		return false
+	if not _expect(session.projection().cargo.P.products == 1
+			and session.projection().workshop_completed_actors.has("P"),
+		"Only the carried first plate completes the shared native milestone"):
+		return false
+	if (await _send({"action": "detach_hand_crank", "entity": crank},
+		"Detach the same reusable crank")).is_empty():
+		return false
+	if not _expect(session.projection().crank_items[crank].holder == "P"
+			and session.projection().crank_items[crank].attached_to == "",
+		"The paid crank returns to its original inventory identity"):
+		return false
+	return _expect(_write("P-complete.bin", {"status": "pass", "crank": crank,
+		"slide": slide, "order": session.projection().order}),
+		"Publish P's exact confirmed plate and crank IDs")
+
+func _initial_q() -> bool:
+	if not _expect(session.projection().order == 0
+			and _write("Q-ready.bin", {"status": "pass"}),
+		"Q joins before finite stock is spent"):
+		return false
+	var complete: Dictionary = await _barrier("P-complete.bin")
+	if complete.is_empty() or not await _wait_for(
+		func(): return session.projection().order >= complete.order,
+		"Q receives the finished native chapter projection"):
+		return false
+	var view: Dictionary = session.projection()
+	return _expect(view.cargo.P.products == 1
+		and view.workshop_completed_actors.has("P")
+		and view.crank_items.has(complete.crank)
+		and view.crank_items[complete.crank].holder == "P"
+		and view.placed_components.has(complete.slide)
+		and view.hand_sources["opening-copper"].remaining == INITIAL_ORE - 4,
+		"Q sees P's carried plate, exact crank and finite copper debit")
+
+func _firstplate_resume_p() -> bool:
+	if (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	var view: Dictionary = session.projection()
+	var saved: Dictionary = _read(previous.path_join("P-complete.bin"))
+	if not _expect(saved.get("status") == "pass" and view.cargo.P.products == 1
+			and view.crank_items.has(saved.crank)
+			and view.crank_items[saved.crank].holder == "P"
+			and view.placed_components.has(saved.slide)
+			and view.workshop_completed_actors.has("P"),
+		"Fresh server and ordinary client restore the same paid crank and plate"):
+		return false
+	if (await _send({"action": "attach_hand_crank", "entity": saved.slide,
+			"crank": saved.crank, "port": [13, 2, 16]},
+		"Refit the saved crank after rejoin")).is_empty():
+		return false
+	return _expect(_write("P-complete.bin", {"status": "pass", "crank": saved.crank,
+		"order": session.projection().order}),
+		"Publish the confirmed post-rejoin attachment")
+
+func _firstplate_resume_q() -> bool:
+	if not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q rejoins the fresh native server"):
+		return false
+	var complete: Dictionary = await _barrier("P-complete.bin")
+	if complete.is_empty() or not await _wait_for(
+		func(): return session.projection().order >= complete.order,
+		"Q receives the refitted saved crank"):
+		return false
+	var view: Dictionary = session.projection()
+	return _expect(view.cargo.P.products == 1
+		and view.crank_items.has(complete.crank)
+		and not view.crank_items[complete.crank].attached_to.is_empty()
+		and view.hand_sources["opening-copper"].remaining == INITIAL_ORE - 4,
+		"Q sees the same crank ID fitted after restart without extra material")
+
+func _run_firstplate() -> void:
+	if actor not in ["P", "Q"] or phase not in ["firstplate", "firstplate-resume"] \
+			or not directory.is_absolute_path() or \
+			(phase == "firstplate-resume" and not previous.is_absolute_path()):
+		push_error("The first-plate consumer requires P or Q and an owned absolute directory")
+		quit(1)
+		return
+	opening = load("res://opening/shared_opening.tscn").instantiate()
+	root.add_child(opening)
+	session = opening.session
+	session.outcome.connect(func(reply: Dictionary):
+		outcomes[str(reply.get("request", ""))] = reply.duplicate(true))
+	if not await _wait_for(func(): return session.is_ready(),
+		"The ordinary client joins its physical native server"):
+		return
+	var passed := false
+	if phase == "firstplate":
+		passed = await _initial_p() if actor == "P" else await _initial_q()
+	else:
+		passed = await _firstplate_resume_p() if actor == "P" else await _firstplate_resume_q()
 	if passed and not written:
 		_record("pass")
