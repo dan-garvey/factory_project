@@ -6699,11 +6699,11 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		normal: Vector3) -> Dictionary:
 	# The press's working offsets are larger than a one-step face snap. Use the
 	# part the player can actually point at to expose its next fitted socket.
+	if kind == "flat_head" and pointed_kind == "anvil":
+		return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
+	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
+		return {"center": [center[0], center[1] + 1, center[2]], "label": "Slide over head"}
 	if normal.y > 0.5:
-		if kind == "flat_head" and pointed_kind == "anvil":
-			return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
-		if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
-			return {"center": [center[0], center[1] + 1, center[2]], "label": "Slide over head"}
 		if kind == "ram_face" and pointed_kind == "anvil":
 			return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
 		if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
@@ -7070,6 +7070,8 @@ func _component_placement_hint() -> String:
 	if component_footprint_size == 2 and kind in ["anvil", "ram_face"]:
 		action = "Aim at a free area cell" if component_preview_blocked else "Click each area cell"
 	var stack_hint := "Aim at a floor or built surface" if kind == "anvil" else \
+		"Aim at the anvil to place the head above" if kind == "flat_head" else \
+		"Aim at the flat head to place the slide above" if kind in ["wooden_slide", "copper_slide"] else \
 		"Aim at the anvil top" if kind == "ram_face" else \
 		"Aim at the anvil or ram top" if kind == "sliding_guide" else \
 		"Press drive: aim at anvil side or guide side" if kind in ["wooden_shaft", "copper_shaft"] else \
