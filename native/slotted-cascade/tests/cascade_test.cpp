@@ -133,7 +133,7 @@ void validation() {
     std::vector<c::Obstacle> many;
     for (std::size_t index = 0; index < g::maximum_parts; ++index) many.push_back({index + 1, box(100, 3)});
     many.back().box = box(2, 3);
-    require(std::get<w::StationaryContact>(std::get<w::Blocked>(h::prepare(chain, initial, rig, {{8, true}, many}, {})).contact).hit.obstacle == 256,
+    require(std::get<w::StationaryContact>(std::get<w::Blocked>(h::prepare(chain, initial, rig, {{8, true}, many}, {})).contact).hit.obstacle == g::maximum_parts,
         "last admitted obstacle participates in the complete cascade query");
     many.push_back({999, box(100, 3)});
     require(refused(h::prepare(chain, initial, rig, {{8, true}, many}, {}), h::Error::workcell_refused), "oversized obstacle set never truncates");
