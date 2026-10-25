@@ -1,6 +1,7 @@
 #include "factory/material_state_codec.hpp"
 
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <variant>
 
@@ -47,6 +48,32 @@ void support_fit_rule() {
     check(!m::fits_supported_workcells(origin, m::sheet_footprint(), 4,
               four_cell_floor),
         "An unsupported orientation cannot open a transport path.");
+    const m::DropPoint destination{8, 4, 20};
+    const std::vector<m::DropPoint> complete_route{{8, 4, 12}, {12, 4, 12},
+        {8, 4, 16}, {12, 4, 16}, {8, 4, 20}, {12, 4, 20},
+        {8, 4, 24}, {12, 4, 24}};
+    check(m::fits_clear_swept_workcells(origin, destination, m::sheet_footprint(), 2,
+              complete_route, {}),
+        "A two-wide floor supports the entire oriented sheet sweep.");
+    check(m::fits_clear_swept_workcells(destination, origin, m::sheet_footprint(), 2,
+              complete_route, {}),
+        "Reversing a level route checks the same whole workpiece corridor.");
+    auto missing_middle = complete_route;
+    missing_middle.erase(missing_middle.begin() + 3);
+    check(!m::fits_clear_swept_workcells(origin, destination, m::sheet_footprint(), 2,
+              missing_middle, {}),
+        "Endpoint support cannot excuse a missing middle channel cell.");
+    check(!m::fits_clear_swept_workcells(origin, destination, m::sheet_footprint(), 2,
+              complete_route, {{12, 4, 16}}),
+        "A blocked cell anywhere under the moving sheet refuses the route.");
+    check(!m::swept_workcells(origin, {12, 4, 20}, m::sheet_footprint(), 2) &&
+          !m::swept_workcells(origin, {8, 8, 20}, m::sheet_footprint(), 2) &&
+          !m::swept_workcells(origin, {8, 4, 19}, m::sheet_footprint(), 2),
+        "A level straight channel cannot silently bend, climb or use a fractional workcell.");
+    check(!m::swept_workcells(origin,
+              {std::numeric_limits<m::Quantity>::max(), 4, 12},
+              m::sheet_footprint(), 2),
+        "An untrusted remote endpoint cannot overflow the bounded route check.");
 }
 
 void formed_sheet_and_blocked_output() {

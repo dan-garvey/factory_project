@@ -81,6 +81,16 @@ struct Footprint {
     const DropPoint& origin, Footprint footprint, Quantity rotation);
 [[nodiscard]] bool fits_supported_workcells(const DropPoint& origin, Footprint footprint,
     Quantity rotation, const std::vector<DropPoint>& support);
+// Every workcell covered while an item moves along one level cardinal route.
+// Endpoints are whole-workcell origins. The result is bounded by the material
+// state's maximum number of loose positions; callers still own motion and
+// custody, and must exclude the moving item from their blocked-cell set.
+[[nodiscard]] std::optional<std::vector<DropPoint>> swept_workcells(
+    const DropPoint& origin, const DropPoint& destination, Footprint footprint,
+    Quantity rotation);
+[[nodiscard]] bool fits_clear_swept_workcells(const DropPoint& origin,
+    const DropPoint& destination, Footprint footprint, Quantity rotation,
+    const std::vector<DropPoint>& support, const std::vector<DropPoint>& blocked);
 
 // The initial chapter bill has no intermediate recipe inputs: every component
 // is made directly from carried timber or copper ore. These IDs are stable
