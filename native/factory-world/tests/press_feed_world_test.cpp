@@ -318,7 +318,85 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
           "Powered frame-free forming conserves one plate and its physical offcut destination.");
     codec_restore(source.profile, automatic,
                   "Powered frame-free production and its offcut survive checkpoint reload.");
+    if (center[1] > 0) {
+        Runner channel(source);
+        channel.world = w::World::restore("press-feed", source.profile, automatic);
+        check(channel.world != nullptr,
+            "An offcut-channel trial starts from the finished finite press checkpoint.");
+        channel.p = {6.6, 1, 4.95};
+        for (int index = 0; index < 2; ++index) {
+            auto timber = request("P", "offcut-channel-timber-" + std::to_string(index),
+                "harvest_source");
+            timber.emplace("target", V("crank-tree"));
+            channel.accept("P", timber);
+        }
+        channel.p = {1.65, 1, 6.6};
+        auto craft = request("P", "offcut-channel-craft", "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V("channel_narrow_x"));
+        channel.accept("P", craft);
+        channel.p = {2, 1, 0};
+        const g::Point destination{center[0] + 4, center[1], center[2]};
+        auto foundation = request("P", "offcut-channel-foundation", "place_foundation");
+        foundation.emplace("center", V(point(destination[0], destination[1], destination[2])));
+        channel.accept("P", foundation);
+        auto place = request("P", "offcut-channel-place", "place_component");
+        place.emplace("component", V("channel_narrow_x"));
+        place.emplace("center", V(point(destination[0], destination[1], destination[2])));
+        channel.accept("P", place);
+        auto move = request("P", "offcut-channel-move", "push_channel_small");
+        move.emplace("from", V(point(center[0], center[1], center[2])));
+        move.emplace("to", V(point(destination[0], destination[1], destination[2])));
+        move.emplace("form", V("offcut"));
+        channel.accept("P", move);
+        check(channel.world->snapshot().state.material.dropped_material.at(destination).offcuts == 1 &&
+              codec_restore(source.profile, channel.world->snapshot(),
+                  "A native press offcut keeps one owner after moving onto a channel."),
+            "The offcut moves from its press work center onto one narrow segment.");
+    }
     if (center[1] == 0) {
+        Runner plate_channel(source);
+        plate_channel.world = w::World::restore("press-feed", source.profile, automatic);
+        check(plate_channel.world != nullptr,
+            "A plate-channel trial starts from the exact powered press checkpoint.");
+        plate_channel.p = {6.6, 1, 4.95};
+        for (int index = 0; index < 2; ++index) {
+            auto timber = request("P", "plate-channel-timber-" + std::to_string(index),
+                "harvest_source");
+            timber.emplace("target", V("crank-tree"));
+            plate_channel.accept("P", timber);
+        }
+        plate_channel.p = {1.65, 1, 6.6};
+        auto craft = request("P", "plate-channel-craft", "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V("channel_narrow_x"));
+        plate_channel.accept("P", craft);
+        plate_channel.p = {2, 1, 0};
+        const g::Point destination{plate_exit[0] - 3, plate_exit[1], plate_exit[2]};
+        auto place = request("P", "plate-channel-place", "place_component");
+        place.emplace("component", V("channel_narrow_x"));
+        place.emplace("center", V(point(destination[0], destination[1], destination[2])));
+        plate_channel.accept("P", place);
+        auto move = request("P", "plate-channel-move", "push_channel_small");
+        move.emplace("from", V(point(plate_exit[0], plate_exit[1], plate_exit[2])));
+        move.emplace("to", V(point(destination[0], destination[1], destination[2])));
+        move.emplace("form", V("plate"));
+        plate_channel.accept("P", move);
+        check(plate_channel.world->snapshot().state.material.dropped_material.at(destination).products == 1 &&
+              codec_restore(source.profile, plate_channel.world->snapshot(),
+                  "A press plate retains its work identity on the first channel segment."),
+            "A finished press plate moves from its tray onto the adjacent channel.");
+        auto pickup = request("P", "plate-channel-pickup", "pickup_material");
+        pickup.emplace("center", V(point(destination[0], destination[1], destination[2])));
+        pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+        plate_channel.accept("P", pickup);
+        check(plate_channel.world->snapshot().state.material.cargo.at("P").products == 1 &&
+              codec_restore(source.profile, plate_channel.world->snapshot(),
+                  "A channeled press plate can be picked up and saved exactly once."),
+            "Plate pickup after the channel push keeps its original press identity.");
         auto displaced = automatic;
         const auto offcuts = displaced.state.material.dropped_material.at(offcut_tray);
         displaced.state.material.dropped_material.erase(offcut_tray);
@@ -2651,6 +2729,13 @@ void powered_broad_sheet_custody() {
     place_broad.at("request") = V("channel-place-broad-first");
     place_broad.at("component") = V("channel_broad_x");
     channel.accept("P", place_broad);
+    auto long_sheet_push = push;
+    long_sheet_push.at("request") = V("channel-skip-sheet-cell");
+    long_sheet_push.at("to") = V(point(20, 0, 0));
+    const auto before_sheet_skip = channel.world->snapshot().state;
+    channel.refuses("P", long_sheet_push, "invalid_channel_target");
+    check(channel.world->snapshot().state == before_sheet_skip,
+        "A sheet cannot skip the intervening supported channel cell.");
     push.at("request") = V("channel-first-push");
     channel.accept("P", push);
     const auto first_transfer = channel.world->snapshot();
@@ -2986,6 +3071,77 @@ void powered_broad_sheet_custody() {
               }) &&
           codec_restore(source.profile, four, "Four separate plates restore after cutting."),
         "One twelve-mass sheet becomes exactly four ordinary three-mass plates.");
+    Runner small_channel(source);
+    small_channel.world = w::World::restore("press-feed", source.profile, four);
+    check(small_channel.world != nullptr,
+        "A small-channel trial starts from the exact finite four-plate checkpoint.");
+    small_channel.p = {10.7, 1, 0.8};
+    for (const auto& [id, placed] : four.state.placed_components) {
+        if (placed.center != g::Point{28, 1, 0} &&
+            placed.center != g::Point{28, 3, 0}) continue;
+        if (placed.kind != m::Component::cutting_edge &&
+            placed.kind != m::Component::sliding_guide) continue;
+        auto reclaim = request("P", "small-channel-clear-" + id, "reclaim_component");
+        reclaim.emplace("target", V(id));
+        reclaim.emplace("generation", V(placed.generation));
+        small_channel.accept("P", reclaim);
+    }
+    small_channel.p = {6.6, 1, 4.95};
+    for (int index = 0; index < 4; ++index) {
+        auto timber = request("P", "small-channel-timber-" + std::to_string(index),
+            "harvest_source");
+        timber.emplace("target", V("crank-tree"));
+        small_channel.accept("P", timber);
+    }
+    small_channel.p = {1.65, 1, 6.6};
+    for (int index = 0; index < 2; ++index) {
+        auto craft = request("P", "small-channel-craft-" + std::to_string(index),
+            "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V("channel_narrow_x"));
+        small_channel.accept("P", craft);
+    }
+    small_channel.p = {12.1, 1, 0.8};
+    auto place_small = request("P", "small-channel-place-first", "place_component");
+    place_small.emplace("component", V("channel_narrow_x"));
+    place_small.emplace("center", V(point(32, 0, 0)));
+    small_channel.accept("P", place_small);
+    auto move_plate = request("P", "small-channel-move-plate", "push_channel_small");
+    move_plate.emplace("from", V(point(28, 0, 0)));
+    move_plate.emplace("to", V(point(32, 0, 0)));
+    move_plate.emplace("form", V("plate"));
+    auto long_plate_push = move_plate;
+    long_plate_push.at("request") = V("small-channel-skip-plate-cell");
+    long_plate_push.at("to") = V(point(36, 0, 0));
+    const auto before_plate_skip = small_channel.world->snapshot().state;
+    small_channel.refuses("P", long_plate_push, "invalid_channel_target");
+    check(small_channel.world->snapshot().state == before_plate_skip,
+        "A plate cannot skip a full channel cell even when its source is valid.");
+    small_channel.accept("P", move_plate);
+    const auto moved_plate = small_channel.world->snapshot();
+    check(!moved_plate.state.material.dropped_material.contains({28, 0, 0}) &&
+          moved_plate.state.material.dropped_material.at({32, 0, 0}).products == 1 &&
+          codec_restore(source.profile, moved_plate,
+              "A shear plate keeps one native owner after a hand push."),
+        "The first narrow segment receives one of the four finite shear plates.");
+    move_plate.at("request") = V("small-channel-missing-receiver");
+    move_plate.at("from") = V(point(32, 0, 0));
+    move_plate.at("to") = V(point(36, 0, 0));
+    const auto before_small_gap = small_channel.world->snapshot().state;
+    small_channel.refuses("P", move_plate, "blocked_channel");
+    check(small_channel.world->snapshot().state == before_small_gap,
+        "A missing next narrow segment leaves the plate at its current owner.");
+    place_small.at("request") = V("small-channel-place-second");
+    place_small.at("center") = V(point(36, 0, 0));
+    small_channel.accept("P", place_small);
+    small_channel.p = {13.3, 1, 0.8};
+    move_plate.at("request") = V("small-channel-repaired-plate");
+    small_channel.accept("P", move_plate);
+    check(small_channel.world->snapshot().state.material.dropped_material.at({36, 0, 0}).products == 1 &&
+          codec_restore(source.profile, small_channel.world->snapshot(),
+              "A repaired small route saves the same plate at its new position."),
+        "The repaired narrow segment carries the original plate one more step.");
     const auto replay = run.send("P", shear);
     auto replay_expected = finish;
     replay_expected.at("duplicate") = V(true);

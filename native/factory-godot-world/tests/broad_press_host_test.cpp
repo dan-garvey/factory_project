@@ -214,6 +214,21 @@ void channel_projection_and_wire() {
           get<std::string>(malformed, "reason") != "unavailable_input" &&
           get<A>(host.projection(), "dropped_material").empty(),
         "The Host does not coerce a floating sheet identity or change custody.");
+    auto small = request("channel-no-raw", "push_channel_small");
+    small.emplace("from", V(A{V(I{28}), V(I{0}), V(I{0})}));
+    small.emplace("to", V(A{V(I{32}), V(I{0}), V(I{0})}));
+    small.emplace("form", V("raw"));
+    const auto absent_raw = host.command("P", small);
+    check(!get<bool>(absent_raw, "accepted") &&
+          get<std::string>(absent_raw, "reason") == "unavailable_input",
+        "The typed small-stock wire reaches native custody and refuses absent raw material.");
+    small.at("request") = V("channel-float-small");
+    small.at("from") = V(A{V(28.0), V(I{0}), V(I{0})});
+    const auto malformed_small = host.command("P", small);
+    check(!get<bool>(malformed_small, "accepted") &&
+          get<std::string>(malformed_small, "reason") == "invalid_center" &&
+          get<A>(host.projection(), "dropped_material").empty(),
+        "The Host refuses a floating small-stock coordinate without changing custody.");
     Host restored;
     check(get<bool>(restored.initialize_arrival_advanced_fixture("broad-site", {"P", "Q"}),
             "accepted") &&

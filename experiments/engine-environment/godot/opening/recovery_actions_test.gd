@@ -288,6 +288,65 @@ func _loose_channel_handling() -> void:
 	_expect(sent.is_empty(), "A changed world cannot receive the former sheet command.")
 	loose.free()
 
+func _small_channel_handling() -> void:
+	for form: String in ["raw", "plate", "offcut"]:
+		_new_fixture()
+		var loose = RecoveryActions.LooseMaterialControls.new()
+		root.add_child(loose)
+		fixture.snapshot.dropped_material = [{"center": [20, 0, 0],
+			"raw": 1 if form == "raw" else 0,
+			"products": 1 if form == "plate" else 0,
+			"offcuts": 1 if form == "offcut" else 0,
+			"sheets": 0, "work_lots": [], "sheet_items": []}]
+		loose.configure(host)
+		loose.get_popup().about_to_popup.emit()
+		_expect(loose.visible and loose.get_popup().item_count == 5,
+			"One confirmed %s exposes pickup and four explicit pushes." % form)
+		_expect("east" in loose.get_popup().get_item_text(1) and
+			"[24, 0, 0]" in loose.get_popup().get_item_text(1),
+			"The %s push names a direction and one complete receiving cell." % form)
+		loose.get_popup().id_pressed.emit(1)
+		_expect(sent == [{"action": "push_channel_small", "from": [20, 0, 0],
+			"to": [24, 0, 0], "form": form}],
+			"The %s push keeps its exact native material form." % form)
+		sent.clear()
+		loose.get_popup().about_to_popup.emit()
+		fixture.snapshot.dropped_material[0].raw = 0
+		fixture.snapshot.dropped_material[0].products = 0
+		fixture.snapshot.dropped_material[0].offcuts = 0
+		loose.get_popup().id_pressed.emit(1)
+		_expect(sent.is_empty(), "A changed %s drop cannot use a stale push offer." % form)
+		loose.free()
+	_new_fixture()
+	var tray = RecoveryActions.LooseMaterialControls.new()
+	root.add_child(tray)
+	fixture.snapshot.dropped_material = [{"center": [20, 0, 1], "raw": 1,
+		"products": 0, "offcuts": 0, "sheets": 0, "work_lots": [], "sheet_items": []}]
+	tray.configure(host)
+	tray.get_popup().about_to_popup.emit()
+	_expect(tray.get_popup().item_count == 3 and
+		"south" in tray.get_popup().get_item_text(1) and
+		"[20, 0, 4]" in tray.get_popup().get_item_text(1),
+		"An offset receiver offers only its two adjacent channel entry cells.")
+	tray.get_popup().id_pressed.emit(1)
+	_expect(sent == [{"action": "push_channel_small", "from": [20, 0, 1],
+		"to": [20, 0, 4], "form": "raw"}],
+		"The receiver handoff keeps the raw identity and exact quarter-grid source.")
+	sent.clear()
+	fixture.snapshot.dropped_material[0].center = [7, 0, 0]
+	fixture.snapshot.dropped_material[0].raw = 0
+	fixture.snapshot.dropped_material[0].products = 1
+	tray.get_popup().about_to_popup.emit()
+	_expect(tray.get_popup().item_count == 3 and
+		"west" in tray.get_popup().get_item_text(2) and
+		"[4, 0, 0]" in tray.get_popup().get_item_text(2),
+		"A press tray one step west of its workcell offers the adjacent west channel.")
+	tray.get_popup().id_pressed.emit(2)
+	_expect(sent == [{"action": "push_channel_small", "from": [7, 0, 0],
+		"to": [4, 0, 0], "form": "plate"}],
+		"The offset plate offer keeps its form and exact tray-to-channel geometry.")
+	tray.free()
+
 func _run() -> void:
 	_collector_recovery()
 	_raw_and_whole_work()
@@ -297,6 +356,7 @@ func _run() -> void:
 	_belt_span_recovery()
 	_belt_loading()
 	_loose_channel_handling()
+	_small_channel_handling()
 	controls.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "evidence": "invented_recovery_ui", "checks": checks}))
 	quit(1 if failed else 0)

@@ -98,7 +98,7 @@ V::Object accepted(w::World& world, const V::Object& intent) {
     return *result.result;
 }
 
-std::unique_ptr<w::World> prepared(const Fixture& fixture) {
+std::unique_ptr<w::World> prepared(const Fixture& fixture, g::Integer x_shift = 0) {
     auto world = create(fixture);
     for (int n = 0; n < 10; ++n) {
         auto wire = request("wood-" + std::to_string(n), "harvest_source");
@@ -114,6 +114,7 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture) {
         {"wooden_shaft", {1, 0, 0}}};
     std::string drive;
     for (const auto& part : parts) {
+        const g::Point center{part.center[0] + x_shift, part.center[1], part.center[2]};
         auto craft = request(std::string("craft-") + part.name, "craft_component");
         craft.emplace("target", V("pod-fabrication-hub"));
         craft.emplace("generation", V(g::Integer{1}));
@@ -121,7 +122,7 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture) {
         accepted(*world, craft);
         auto place = request(std::string("place-") + part.name, "place_component");
         place.emplace("component", V(part.name));
-        place.emplace("center", V(V::Array{V(part.center[0]), V(part.center[1]), V(part.center[2])}));
+        place.emplace("center", V(V::Array{V(center[0]), V(center[1]), V(center[2])}));
         const auto placed = accepted(*world, place);
         if (std::string(part.name) == "tool_mount") drive = std::get<std::string>(placed.at("entity").storage());
     }
@@ -148,7 +149,7 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture) {
     attach.emplace("generation", V(g::Integer{2}));
     attach.emplace("crank", crank.at("crank_id"));
     attach.emplace("crank_generation", crank.at("crank_generation"));
-    attach.emplace("port", V(V::Array{V(g::Integer{-1}), V(g::Integer{0}), V(g::Integer{0})}));
+    attach.emplace("port", V(V::Array{V(g::Integer{-1} + x_shift), V(g::Integer{0}), V(g::Integer{0})}));
     accepted(*world, attach);
     auto turn = request("cut-blank", "turn_hand_crank");
     turn.emplace("target", V(drive));
@@ -165,9 +166,49 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture) {
         resume.emplace("enabled", V(true));
         accepted(*world, resume);
     }
-    check(world->snapshot().state.material.dropped_material.contains({0, 0, 1}),
+    check(world->snapshot().state.material.dropped_material.contains({x_shift, 0, 1}),
           "The real crank command leaves one raw blank in the assembled receiver.");
     return world;
+}
+
+void raw_moves_from_collector_tray_to_channel() {
+    auto source = fixture();
+    source.profile.collector_faces = {{{8, 0, 0}, {-1, 0, 0}}};
+    source.profile.material.manual_ore->center = {5, 0, 0};
+    source.profile.material.timber_sites.at("tree").initial = 12;
+    source.state.material.timber_remaining.at("tree") = 12;
+    auto world = prepared(source, 8);
+    for (int index = 0; index < 2; ++index) {
+        auto timber = request("raw-channel-timber-" + std::to_string(index), "harvest_source");
+        timber.emplace("target", V("tree"));
+        accepted(*world, timber);
+    }
+    auto craft = request("raw-channel-craft", "craft_component");
+    craft.emplace("target", V("pod-fabrication-hub"));
+    craft.emplace("generation", V(g::Integer{1}));
+    craft.emplace("component", V("channel_narrow_z"));
+    accepted(*world, craft);
+    auto place = request("raw-channel-place", "place_component");
+    place.emplace("component", V("channel_narrow_z"));
+    place.emplace("center", V(V::Array{V(g::Integer{8}), V(g::Integer{0}), V(g::Integer{4})}));
+    accepted(*world, place);
+    auto push = request("raw-channel-push", "push_channel_small");
+    push.emplace("from", V(V::Array{V(g::Integer{8}), V(g::Integer{0}), V(g::Integer{1})}));
+    push.emplace("to", V(V::Array{V(g::Integer{8}), V(g::Integer{0}), V(g::Integer{4})}));
+    push.emplace("form", V("raw"));
+    accepted(*world, push);
+    const auto moved = world->snapshot();
+    check(!moved.state.material.dropped_material.contains({8, 0, 1}) &&
+          moved.state.material.dropped_material.at({8, 0, 4}) == m::Cargo{1, 0, {}} &&
+          moved.state.material.stock.source == 0,
+          "One collector-produced raw chunk moves from its tray without another ore debit.");
+    const auto encoded = w::encode_checkpoint(source.profile, moved);
+    check(std::holds_alternative<V>(encoded),
+          "The collector's moved raw chunk encodes in a canonical checkpoint.");
+    const auto decoded = w::decode_checkpoint(source.profile, "collector-belt", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(decoded) &&
+          std::get<w::Snapshot>(decoded).state == moved.state,
+          "A rejoined World retains the moved raw chunk at its exact channel cell.");
 }
 
 void transfers_only_to_outward_belt() {
@@ -505,6 +546,7 @@ void powers_two_modular_collectors_with_distinct_custody() {
 
 int main() {
     try {
+        raw_moves_from_collector_tray_to_channel();
         transfers_only_to_outward_belt();
         builds_powered_route_from_finite_arrival_stock();
         powers_two_modular_collectors_with_distinct_custody();

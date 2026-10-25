@@ -5313,6 +5313,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "load_belt_slot": "Material placed on the belt.",
 			"push_channel_sheet": "Sheet moved one workcell along the channel.",
+			"push_channel_small": "Material moved to the next channel cell.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
@@ -5412,13 +5413,15 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 	if _native_transmission() and action_name == "load_belt_slot" \
 			and outcome.get("reason") == "belt_path_cannot_carry" and not outcome.get("uncertain", false):
 		return "This belt transmits rotation but cannot carry items along this path."
-	if _native_transmission() and action_name == "push_channel_sheet" and not outcome.get("uncertain", false):
+	if _native_transmission() and action_name in ["push_channel_sheet", "push_channel_small"] \
+			and not outcome.get("uncertain", false):
+		var small_item: bool = action_name == "push_channel_small"
 		var channel_advice: String = {
-			"unavailable_input": "That sheet is no longer at the chosen square. Inspect the loose material again.",
+			"unavailable_input": "That item is no longer at the chosen square. Inspect the loose material again.",
 			"partial_shear": "A partly cut sheet must be finished or recovered before moving.",
-			"missing_channel": "Build a broad channel in the direction of travel before pushing this sheet.",
-			"blocked_channel": "The full sheet needs two supported squares and a clear swept route. Clear or extend the channel.",
-			"invalid_channel_target": "Push one whole tile along X or Z at the sheet's current height."}.get(outcome.get("reason", ""), "")
+			"missing_channel": "Build a narrow or broad channel in the direction of travel before pushing this item." if small_item else "Build a broad channel in the direction of travel before pushing this sheet.",
+			"blocked_channel": "The item needs a supported square and a clear receiver. Clear or extend the channel." if small_item else "The full sheet needs two supported squares and a clear swept route. Clear or extend the channel.",
+			"invalid_channel_target": "Push toward the next channel cell along X or Z at the item's current height." if small_item else "Push one whole tile along X or Z at the sheet's current height."}.get(outcome.get("reason", ""), "")
 		if not channel_advice.is_empty():
 			return channel_advice
 	if _native_transmission() and action_name == "stroke_broad_shear" and not outcome.get("uncertain", false):

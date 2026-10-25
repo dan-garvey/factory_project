@@ -536,6 +536,13 @@ bool historical_wire(const authority::Record& record) {
             field<Integer>(*wire, "sheet_id") &&
             same("from", "from") && same("to", "to") &&
             same("sheet_id", "sheet_id");
+    if (*action == "push_channel_small")
+        return *original_action == "push_channel_small" &&
+            keys(*wire, {"from", "to", "form"}) &&
+            field<Array>(*wire, "from") && field<Array>(*wire, "to") &&
+            field<std::string>(*wire, "form") &&
+            same("from", "from") && same("to", "to") &&
+            same("form", "form");
     if (*action == "stroke_broad_shear")
         return *original_action == "stroke_broad_shear" &&
             keys(*wire, {"entity", "sheet_id"}) &&
@@ -2057,9 +2064,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.at("action") = Value("place_sheet");
         normalized.emplace("center", wire.at("center"));
         normalized.emplace("sheet_id", wire.at("sheet_id"));
-    } else if (*action == "push_channel_sheet") {
-        if (!keys(wire, {"from", "to", "sheet_id"}) ||
-            !field<Integer>(wire, "sheet_id")) return refuse("invalid_command");
+    } else if (*action == "push_channel_sheet" || *action == "push_channel_small") {
+        const bool sheet_move = *action == "push_channel_sheet";
+        if (!(sheet_move ? keys(wire, {"from", "to", "sheet_id"}) &&
+                    field<Integer>(wire, "sheet_id") :
+                keys(wire, {"from", "to", "form"}) &&
+                    field<std::string>(wire, "form"))) return refuse("invalid_command");
         for (const auto* name : {"from", "to"}) {
             const auto* point = field<Array>(wire, name);
             if (!point || point->size() != 3) return refuse("invalid_center");
@@ -2070,10 +2080,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     return refuse("invalid_center");
             }
         }
-        normalized.at("action") = Value("push_channel_sheet");
+        normalized.at("action") = Value(*action);
         normalized.emplace("from", wire.at("from"));
         normalized.emplace("to", wire.at("to"));
-        normalized.emplace("sheet_id", wire.at("sheet_id"));
+        if (sheet_move) normalized.emplace("sheet_id", wire.at("sheet_id"));
+        else normalized.emplace("form", wire.at("form"));
     } else if (*action == "stroke_broad_shear") {
         if (!keys(wire, {"entity", "sheet_id"}) ||
             !field<std::string>(wire, "entity") || !field<Integer>(wire, "sheet_id"))

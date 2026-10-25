@@ -259,7 +259,7 @@ class LooseMaterialControls:
 
 	func _init() -> void:
 		text = "Handle loose material…  [Ctrl+L]"
-		tooltip_text = "Pick up loose material or push a sheet along a built channel. Stand near its route."
+		tooltip_text = "Pick up loose material or push one item along a built channel. Stand near its route."
 		get_popup().about_to_popup.connect(_open)
 		get_popup().id_pressed.connect(_choose)
 		visible = false
@@ -314,6 +314,42 @@ class LooseMaterialControls:
 			expected.erase("center")
 			_offers.append({"drop": drop.duplicate(true), "wire": {
 				"action": "pickup_material", "center": point.duplicate(), "expected": expected}})
+			var small_form := ""
+			if typeof(drop.get("offcuts", 0)) == TYPE_INT and typeof(drop.get("sheets", 0)) == TYPE_INT \
+					and drop.work_lots.is_empty() and int(drop.get("sheets", 0)) == 0 \
+					and (not drop.has("sheet_items") or (drop.sheet_items is Array and drop.sheet_items.is_empty())):
+				if drop.raw == 1 and drop.products == 0 and drop.get("offcuts", 0) == 0:
+					small_form = "raw"
+				elif drop.raw == 0 and drop.products == 1 and drop.get("offcuts", 0) == 0:
+					small_form = "plate"
+				elif drop.raw == 0 and drop.products == 0 and drop.get("offcuts", 0) == 1:
+					small_form = "offcut"
+			if not small_form.is_empty():
+				var directions: Array[Dictionary] = []
+				if point[0] % 4 == 0 and point[2] % 4 == 0:
+					directions = [
+						{"name": "east", "dx": 4, "dz": 0},
+						{"name": "west", "dx": -4, "dz": 0},
+						{"name": "south", "dx": 0, "dz": 4},
+						{"name": "north", "dx": 0, "dz": -4}]
+				elif point[2] % 4 == 0 and abs(point[0] % 4) % 2 == 1:
+					var x_offset: int = (point[0] % 4 + 4) % 4
+					directions = [
+						{"name": "east", "dx": 4 - x_offset, "dz": 0},
+						{"name": "west", "dx": -x_offset, "dz": 0}]
+				elif point[0] % 4 == 0 and abs(point[2] % 4) % 2 == 1:
+					var z_offset: int = (point[2] % 4 + 4) % 4
+					directions = [
+						{"name": "south", "dx": 0, "dz": 4 - z_offset},
+						{"name": "north", "dx": 0, "dz": -z_offset}]
+				for direction: Dictionary in directions:
+					var target: Array = [point[0] + direction.dx, point[1], point[2] + direction.dz]
+					var material_name: String = {"raw": "blank", "plate": "plate", "offcut": "offcut"}[small_form]
+					get_popup().add_item("Push %s %s → %s" % [material_name,
+						direction.name, str(target)], _offers.size())
+					_offers.append({"drop": drop.duplicate(true), "wire": {
+						"action": "push_channel_small", "from": point.duplicate(),
+						"to": target, "form": small_form}})
 			var sheets: Variant = drop.get("sheet_items")
 			if int(drop.get("sheets", 0)) != 1 or not sheets is Array or sheets.size() != 1 \
 					or not sheets[0] is Dictionary or typeof(sheets[0].get("id")) != TYPE_INT \

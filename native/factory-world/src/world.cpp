@@ -267,6 +267,10 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"from", "to", "sheet_id"}) &&
             field<Value::Array>(intent, "from") && field<Value::Array>(intent, "to") &&
             field<Integer>(intent, "sheet_id");
+    if (action == "push_channel_small")
+        return keys(intent, {"from", "to", "form"}) &&
+            field<Value::Array>(intent, "from") && field<Value::Array>(intent, "to") &&
+            field<std::string>(intent, "form");
     if (action == "stroke_broad_shear")
         return keys(intent, {"target", "generation", "sheet_id"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
@@ -409,6 +413,40 @@ std::vector<authority::Point> broad_reach_targets(const Profile& profile,
     targets.reserve(4);
     for (const auto& cell : broad_cells(origin)) targets.push_back(anchor(profile, cell));
     return targets;
+}
+
+std::optional<std::vector<materials::DropPoint>> channel_swept_cells(
+        const mechanics::Point& from, const mechanics::Point& to,
+        materials::Footprint footprint, Integer rotation, bool small_move) {
+    if (from[1] != to[1]) return std::nullopt;
+    const auto distance = std::abs(to[0] - from[0]) +
+        std::abs(to[2] - from[2]);
+    if (distance == 4) {
+        if (auto cells = materials::swept_workcells(from, to, footprint, rotation))
+            return cells;
+    }
+    if (!small_move || footprint.x_cells != 1 || footprint.z_cells != 1 ||
+        rotation != 0 || to[0] % 4 || to[2] % 4)
+        return std::nullopt;
+    const bool offset_x = from[0] % 4 != 0;
+    const bool offset_z = from[2] % 4 != 0;
+    if (offset_x == offset_z) return std::nullopt;
+    const auto axis = offset_x ? 0U : 2U;
+    const auto other = offset_x ? 2U : 0U;
+    if (std::abs(from[axis] % 4) % 2 != 1 || from[other] != to[other] ||
+        std::abs(to[axis] - from[axis]) < 1 ||
+        std::abs(to[axis] - from[axis]) > 3) return std::nullopt;
+    return std::vector<materials::DropPoint>{from, to};
+}
+
+bool channel_cells_fit(const std::vector<materials::DropPoint>& cells,
+        const std::vector<materials::DropPoint>& supports,
+        const std::vector<materials::DropPoint>& blocked) {
+    const std::set<materials::DropPoint> supported(supports.begin(), supports.end());
+    const std::set<materials::DropPoint> obstructed(blocked.begin(), blocked.end());
+    return std::all_of(cells.begin(), cells.end(), [&](const auto& cell) {
+        return supported.contains(cell) && !obstructed.contains(cell);
+    });
 }
 
 // A rectangle uses the same absolute quarter-pitch coordinates as every part.
@@ -762,6 +800,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         !position || !points || !distances ||
         (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
          action == "push_channel_sheet" ? points->size() != 8 :
+         action == "push_channel_small" ? points->size() != 2 :
          (broad_pickup || action == "place_sheet" || action == "stroke_broad_shear" ||
              action == "feed_broad_press" ||
              action == "refeed_broad_press_work") ? points->size() != 4 :
@@ -921,6 +960,31 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto receiver = broad_reach_targets(profile, *to);
         expected.insert(expected.end(), receiver.begin(), receiver.end());
         return targets == expected;
+    }
+    if (action == "push_channel_small") {
+        const auto* from_value = field<Value::Array>(record.intent, "from");
+        const auto* to_value = field<Value::Array>(record.intent, "to");
+        const auto from = from_value ? grid_point(Object{{"center", Value(*from_value)}},
+            materials::maximum_drop_coordinate) : std::nullopt;
+        const auto to = to_value ? grid_point(Object{{"center", Value(*to_value)}},
+            materials::maximum_drop_coordinate) : std::nullopt;
+        const auto* requested_form = field<std::string>(record.intent, "form");
+        const auto* moved_form = field<std::string>(result, "form");
+        const auto* from_result = field<Value::Array>(result, "from");
+        const auto* to_result = field<Value::Array>(result, "to");
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        if (!from || !to || !requested_form ||
+            (*requested_form != "raw" && *requested_form != "plate" &&
+                *requested_form != "offcut") ||
+            !moved_form || *moved_form != *requested_form ||
+            !from_result || !to_result ||
+            values::typed_difference(Value(*from_result), grid_value(*from)) ||
+            values::typed_difference(Value(*to_result), grid_value(*to)) ||
+            !entity || !entity->empty() || !generation || *generation != 0 ||
+            !channel_swept_cells(*from, *to, {1, 1}, 0, true) ||
+            result.size() != 19) return false;
+        return targets == std::vector<authority::Point>{anchor(profile, *from), anchor(profile, *to)};
     }
     if (action == "stroke_broad_shear") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -1475,6 +1539,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::map<materials::WorkId, Integer> manual_reductions;
     std::set<materials::WorkId> picked_press_products;
     std::map<materials::WorkId, mechanics::Point> picked_product_exits;
+    std::map<materials::WorkId, mechanics::Point> delivered_product_locations;
     std::set<Integer> command_revisions;
     std::map<Integer, bool> drive_commands;
     std::set<Integer> layout_mutations;
@@ -1696,6 +1761,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             auto& amount = expected_offcuts[delivery.receiver];
             if (!add(amount, offcut_per_plate) ||
                 amount > materials::press_offcut_receiver_capacity) return false;
+            if (!delivered_product_locations.emplace(deliveries[next_delivery].first,
+                    delivery.exit).second) return false;
             ++next_delivery;
         }
         return true;
@@ -1966,7 +2033,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto* generation = field<Integer>(record.result, "generation");
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
         if (*action != "pickup_material" && *action != "place_sheet" &&
-            *action != "push_channel_sheet" &&
+            *action != "push_channel_sheet" && *action != "push_channel_small" &&
             *action != "harvest_source" && *action != "fast_harvest_source" &&
             *action != "finish_harvest" && *action != "cancel_harvest" &&
             *action != "set_developer_conveniences" && *action != "field_craft") {
@@ -2803,15 +2870,32 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 }
                 for (const auto& value : *receiver_ids) {
                     const auto* id = std::get_if<Integer>(&value.storage());
+                    const auto location = id ? delivered_product_locations.find(*id) :
+                        delivered_product_locations.end();
                     if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
                         !picked_press_products.insert(*id).second ||
-                        !picked_product_exits.emplace(*id, *point).second) return false;
+                        (location != delivered_product_locations.end() &&
+                            location->second != *point) ||
+                        !picked_product_exits.emplace(*id,
+                            location == delivered_product_locations.end() ? *point :
+                                snapshot.state.press_offcut_deliveries.at(*id).exit).second)
+                        return false;
+                    if (location != delivered_product_locations.end())
+                        delivered_product_locations.erase(location);
                 }
             } else {
                 if (*picked_id > 0) {
                     const auto* moved_products = field<Integer>(record.result, "moved_products");
+                    const auto location = delivered_product_locations.find(*picked_id);
                     if (!moved_products || *moved_products != 1 ||
-                        !picked_product_exits.emplace(*picked_id, *point).second) return false;
+                        (location != delivered_product_locations.end() &&
+                            location->second != *point) ||
+                        !picked_product_exits.emplace(*picked_id,
+                            location == delivered_product_locations.end() ? *point :
+                                snapshot.state.press_offcut_deliveries.at(*picked_id).exit).second)
+                        return false;
+                    if (location != delivered_product_locations.end())
+                        delivered_product_locations.erase(location);
                 }
                 if (*picked_id > 0 && snapshot.state.belt_press_work_ids.contains(*picked_id)) {
                     const auto* raw = field<Integer>(record.result, "moved_raw");
@@ -2908,7 +2992,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (!broad_work.emplace(*origin, std::move(staged)).second) return false;
             carried_sheets[*actor].erase(sheet);
         }
-        if (*action == "push_channel_sheet") {
+        if (*action == "push_channel_sheet" || *action == "push_channel_small") {
+            const bool sheet_move = *action == "push_channel_sheet";
             const auto* from_value = field<Value::Array>(record.intent, "from");
             const auto* to_value = field<Value::Array>(record.intent, "to");
             const auto from = from_value ? grid_point(Object{{"center", Value(*from_value)}},
@@ -2917,31 +3002,83 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 materials::maximum_drop_coordinate) : std::nullopt;
             const auto* id = field<Integer>(record.intent, "sheet_id");
             const auto* rotation = field<Integer>(record.result, "rotation");
-            if (!from || !to || !id || !rotation || shear_progress.contains(*id))
+            const auto* form = field<std::string>(record.intent, "form");
+            if (!from || !to || (sheet_move ? !id || !rotation ||
+                    shear_progress.contains(*id) :
+                !form || (*form != "raw" && *form != "plate" && *form != "offcut")))
                 return false;
             const auto source = broad_work.find(*from);
-            if (source == broad_work.end() || source->second.raw_units != 0 ||
-                source->second.products != 0 || source->second.offcuts != 0 ||
-                source->second.timber != 0 || !source->second.components.empty() ||
-                !source->second.work_lots.empty() || source->second.sheets.size() != 1 ||
+            if (sheet_move && (source == broad_work.end() ||
+                source->second.raw_units != 0 || source->second.products != 0 ||
+                source->second.offcuts != 0 || source->second.timber != 0 ||
+                !source->second.components.empty() || !source->second.work_lots.empty() ||
+                source->second.sheets.size() != 1 ||
                 source->second.sheets.front() != materials::Sheet{*id, *rotation} ||
-                broad_work.contains(*to)) return false;
-            const auto swept = materials::swept_workcells(*from, *to,
-                materials::sheet_footprint(), *rotation);
+                broad_work.contains(*to))) return false;
+            if (!sheet_move && *form == "plate" &&
+                !press_products.contains(*from) && !shear_products.contains(*from)) {
+                // Like pickup, a channel push may be the first command after
+                // a powered press finishes between history records.
+                bool settled = false;
+                for (auto active = press_work.begin(); active != press_work.end(); ++active) {
+                    if (active->second.automatic_exit != *from ||
+                        active->second.last_tick_seen == ticks_seen ||
+                        !automatic_finish_witnessed(active->second)) continue;
+                    const bool delivered_here = std::any_of(delivered_product_locations.begin(),
+                        delivered_product_locations.end(), [&](const auto& entry) {
+                            return entry.second == *from;
+                        });
+                    if (!delivered_here && !record_offcut(active->first)) return false;
+                    if (!add(press_products[*from], 1)) return false;
+                    press_work.erase(active);
+                    settled = true;
+                    break;
+                }
+                if (!settled) return false;
+            }
+            if (!sheet_move && (broad_work.contains(*from) || broad_work.contains(*to) ||
+                (*form == "plate" && !press_products.contains(*from) &&
+                    !shear_products.contains(*from)))) return false;
+            if (!sheet_move && *form == "offcut" && !expected_offcuts.contains(*from)) {
+                // A powered press may finish between recorded commands. Settle
+                // the same witnessed completion as pickup does before moving
+                // the offcut away from its original work center.
+                const auto active = press_work.find(*from);
+                if (active == press_work.end() || !active->second.automatic_exit ||
+                    active->second.last_tick_seen == ticks_seen ||
+                    !automatic_finish_witnessed(active->second) ||
+                    !record_offcut(*from) ||
+                    !add(press_products[*active->second.automatic_exit], 1)) return false;
+                press_work.erase(active);
+            }
+            if (!sheet_move && *form == "offcut" &&
+                (!expected_offcuts.contains(*from) || expected_offcuts.at(*from) != 1))
+                return false;
+            const auto footprint = sheet_move ? materials::sheet_footprint() :
+                materials::Footprint{1, 1};
+            const auto swept = channel_swept_cells(*from, *to, footprint,
+                sheet_move ? *rotation : 0, !sheet_move);
             if (!swept) return false;
+            if (!sheet_move && ((*from)[0] % 4 || (*from)[2] % 4) &&
+                std::none_of(placed_components.begin(), placed_components.end(),
+                    [&](const auto& entry) {
+                        return entry.second.first == materials::Component::receiver_tray &&
+                            entry.second.second == *from;
+                    })) return false;
             const auto travel_axis = (*from)[0] != (*to)[0] ? 0U : 2U;
             std::vector<materials::DropPoint> supports, blocked;
             bool channel_seen = false;
             for (const auto& [part_id, placed] : placed_components) {
                 (void)part_id;
-                if (placed.first == materials::Component::anvil) {
+                if (placed.first == materials::Component::anvil ||
+                    (!sheet_move && placed.first == materials::Component::receiver_tray)) {
                     supports.push_back(placed.second);
                     continue;
                 }
                 const auto spec = materials::channel_spec(placed.first);
                 if (spec && spec->travel_axis == travel_axis &&
-                    (travel_axis == 0 ? spec->floor.z_cells == 2 :
-                        spec->floor.x_cells == 2)) {
+                    (travel_axis == 0 ? spec->floor.z_cells >= footprint.z_cells :
+                        spec->floor.x_cells >= footprint.x_cells)) {
                     const auto cells = materials::channel_workcells(placed.first, placed.second);
                     if (!cells) return false;
                     for (const auto& cell : *cells) {
@@ -2962,26 +3099,47 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
             for (const auto& [point, work] : press_work) {
                 (void)work;
-                blocked.push_back(point);
+                if (point != *from) blocked.push_back(point);
             }
             for (const auto& [point, count] : press_products) {
                 (void)count;
-                blocked.push_back(point);
+                if (point != *from) blocked.push_back(point);
             }
             for (const auto& [point, count] : expected_offcuts) {
                 (void)count;
-                blocked.push_back(point);
+                if (point != *from) blocked.push_back(point);
             }
             for (const auto& [point, count] : shear_products) {
                 (void)count;
-                blocked.push_back(point);
+                if (point != *from) blocked.push_back(point);
             }
-            if (!channel_seen || !materials::fits_clear_swept_workcells(*from, *to,
-                    materials::sheet_footprint(), *rotation, supports, blocked))
+            if (!channel_seen || !channel_cells_fit(*swept, supports, blocked))
                 return false;
-            auto moved = broad_work.extract(source);
-            moved.key() = *to;
-            if (!broad_work.insert(std::move(moved)).inserted) return false;
+            if (sheet_move) {
+                auto moved = broad_work.extract(source);
+                moved.key() = *to;
+                if (!broad_work.insert(std::move(moved)).inserted) return false;
+            } else if (*form == "plate") {
+                auto& products = press_products.contains(*from) ? press_products : shear_products;
+                if (products[*from] != 1 || products.contains(*to)) return false;
+                if (&products == &press_products) {
+                    std::optional<materials::WorkId> delivered_id;
+                    for (const auto& [candidate_id, location] : delivered_product_locations)
+                        if (location == *from) {
+                            if (delivered_id) return false;
+                            delivered_id = candidate_id;
+                        }
+                    if (delivered_id) delivered_product_locations[*delivered_id] = *to;
+                }
+                auto moved = products.extract(*from);
+                moved.key() = *to;
+                if (!products.insert(std::move(moved)).inserted) return false;
+            } else if (*form == "offcut") {
+                if (expected_offcuts.contains(*to)) return false;
+                auto moved = expected_offcuts.extract(*from);
+                moved.key() = *to;
+                if (!expected_offcuts.insert(std::move(moved)).inserted) return false;
+            }
         }
         if (*action == "stroke_broad_shear") {
             const auto* sheet_id = field<Integer>(record.intent, "sheet_id");
@@ -3416,10 +3574,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             !record_offcut(claim.work)) return false;
     }
     for (const auto& [id, delivery] : snapshot.state.press_offcut_deliveries) {
-        const auto waiting = snapshot.state.press_output_at_exit.find(delivery.exit);
-        const auto receiver = snapshot.state.press_output_at_receiver.find(delivery.exit);
-        const auto exported = snapshot.state.press_output_exported.find(delivery.exit);
-        const auto belt = snapshot.state.belt_press_products.find(delivery.exit);
+        const auto moving = delivered_product_locations.find(id);
+        const auto location = moving == delivered_product_locations.end() ?
+            delivery.exit : moving->second;
+        const auto waiting = snapshot.state.press_output_at_exit.find(location);
+        const auto receiver = snapshot.state.press_output_at_receiver.find(location);
+        const auto exported = snapshot.state.press_output_exported.find(location);
+        const auto belt = snapshot.state.belt_press_products.find(location);
         const auto picked = picked_product_exits.find(id);
         const bool known_product =
             (waiting != snapshot.state.press_output_at_exit.end() && waiting->second == id) ||
@@ -4680,46 +4841,62 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("rotation", Value(rotation));
         return accepted(std::move(candidate), "", std::move(facts));
     }
-    if (*action == "push_channel_sheet") {
-        if (!profile_.landing_pod_center || !copper_profile(profile_.material) ||
-            profile_.material.sheet_mass == 0) return refused("unavailable_recipe");
+    if (*action == "push_channel_sheet" || *action == "push_channel_small") {
+        const bool sheet_move = *action == "push_channel_sheet";
+        if (!profile_.landing_pod_center ||
+            (sheet_move && (!copper_profile(profile_.material) ||
+                profile_.material.sheet_mass == 0)))
+            return refused("unavailable_recipe");
         const auto* from_value = field<Value::Array>(intent, "from");
         const auto* to_value = field<Value::Array>(intent, "to");
         const auto* requested_id = field<Integer>(intent, "sheet_id");
+        const auto* requested_form = field<std::string>(intent, "form");
         const auto from = from_value ? grid_point(Object{{"center", Value(*from_value)}},
             materials::maximum_drop_coordinate) : std::nullopt;
         const auto to = to_value ? grid_point(Object{{"center", Value(*to_value)}},
             materials::maximum_drop_coordinate) : std::nullopt;
-        if (!from || !to || !requested_id || *requested_id <= 0 ||
-            (*from)[0] % 4 != 0 || (*from)[2] % 4 != 0 ||
-            (*to)[0] % 4 != 0 || (*to)[2] % 4 != 0 ||
-            (*from)[1] != (*to)[1] ||
-            (std::abs((*to)[0] - (*from)[0]) +
-             std::abs((*to)[2] - (*from)[2])) != 4)
+        if (!from || !to || (sheet_move ? !requested_id || *requested_id <= 0 :
+                !requested_form || (*requested_form != "raw" &&
+                    *requested_form != "plate" && *requested_form != "offcut")) ||
+            !channel_swept_cells(*from, *to,
+                sheet_move ? materials::sheet_footprint() : materials::Footprint{1, 1},
+                0, !sheet_move))
             return refused("invalid_channel_target");
         const auto source = state.material.dropped_material.find(*from);
         const auto item = source == state.material.dropped_material.end() ?
             std::nullopt : materials::single_loose_item(source->second);
-        if (!item || item->form != materials::LooseForm::sheet || item->id != *requested_id)
+        const auto form_matches = item && (sheet_move ?
+            item->form == materials::LooseForm::sheet && item->id == *requested_id :
+            (item->form == materials::LooseForm::raw && *requested_form == "raw") ||
+            (item->form == materials::LooseForm::plate && *requested_form == "plate") ||
+            (item->form == materials::LooseForm::offcut && *requested_form == "offcut"));
+        if (!form_matches)
             return refused("unavailable_input");
-        if (state.shear_progress.contains(*requested_id))
+        if (sheet_move && state.shear_progress.contains(*requested_id))
             return refused("partial_shear");
-        const auto swept = materials::swept_workcells(*from, *to,
-            item->footprint, item->rotation);
+        const auto swept = channel_swept_cells(*from, *to,
+            item->footprint, item->rotation, !sheet_move);
         if (!swept) return refused("invalid_channel_target");
+        if (!sheet_move && ((*from)[0] % 4 || (*from)[2] % 4) &&
+            std::none_of(state.placed_components.begin(), state.placed_components.end(),
+                [&](const auto& entry) {
+                    return entry.second.kind == materials::Component::receiver_tray &&
+                        entry.second.center == *from;
+                })) return refused("invalid_channel_target");
         const std::size_t travel_axis = (*from)[0] != (*to)[0] ? 0 : 2;
         std::vector<materials::DropPoint> supports;
         bool channel_seen = false;
         for (const auto& [id, placed] : state.placed_components) {
             (void)id;
-            if (placed.kind == materials::Component::anvil) {
+            if (placed.kind == materials::Component::anvil ||
+                (!sheet_move && placed.kind == materials::Component::receiver_tray)) {
                 supports.push_back(placed.center);
                 continue;
             }
             const auto spec = materials::channel_spec(placed.kind);
             if (!spec || spec->travel_axis != travel_axis ||
-                (travel_axis == 0 ? spec->floor.z_cells != 2 :
-                    spec->floor.x_cells != 2)) continue;
+                (travel_axis == 0 ? spec->floor.z_cells < item->footprint.z_cells :
+                    spec->floor.x_cells < item->footprint.x_cells)) continue;
             const auto cells = materials::channel_workcells(placed.kind, placed.center);
             if (!cells) return refused("invalid_mechanics");
             for (const auto& cell : *cells) {
@@ -4740,6 +4917,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         for (const auto& [id, placed] : state.placed_components) {
             (void)id;
             if (placed.kind == materials::Component::anvil ||
+                (!sheet_move && placed.kind == materials::Component::receiver_tray) ||
                 materials::channel_spec(placed.kind)) continue;
             if (placed.center[1] >= (*from)[1] &&
                 placed.center[1] <= (*from)[1] + 3)
@@ -4749,16 +4927,18 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             if (part.geometry.center[1] >= (*from)[1] &&
                 part.geometry.center[1] <= (*from)[1] + 3)
                 blocked.push_back(part.geometry.center);
-        if (!materials::fits_clear_swept_workcells(*from, *to,
-                item->footprint, item->rotation, supports, blocked))
+        if (!channel_cells_fit(*swept, supports, blocked))
             return refused("blocked_channel");
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready");
         auto checked_cut = *cut;
         checked_cut.build_reach = profile_.build_reach;
-        auto targets = broad_reach_targets(profile_, *from);
-        const auto receiver_targets = broad_reach_targets(profile_, *to);
-        targets.insert(targets.end(), receiver_targets.begin(), receiver_targets.end());
+        auto targets = sheet_move ? broad_reach_targets(profile_, *from) :
+            std::vector<authority::Point>{anchor(profile_, *from)};
+        if (sheet_move) {
+            const auto receiver_targets = broad_reach_targets(profile_, *to);
+            targets.insert(targets.end(), receiver_targets.begin(), receiver_targets.end());
+        } else targets.push_back(anchor(profile_, *to));
         const auto checked = authority::check_reach(binding.actor, checked_cut, targets);
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
@@ -4768,9 +4948,26 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             material_path(candidate.topology), *from, *to);
         if (error != materials::Error::none)
             return refused(materials::error_name(error), "", std::move(facts));
+        if (!sheet_move && item->form == materials::LooseForm::plate) {
+            auto witness = candidate.press_output_at_exit.extract(*from);
+            if (!witness.empty()) {
+                witness.key() = *to;
+                if (!candidate.press_output_at_exit.insert(std::move(witness)).inserted)
+                    return refused("blocked_channel", "", std::move(facts));
+            } else if (const auto received = candidate.press_output_at_receiver.find(*from);
+                       received != candidate.press_output_at_receiver.end()) {
+                if (received->second.size() != 1 ||
+                    !candidate.press_output_at_exit.emplace(*to,
+                        *received->second.begin()).second)
+                    return refused("blocked_channel", "", std::move(facts));
+                candidate.press_output_at_receiver.erase(received);
+            }
+        }
         facts.emplace("generation", Value(Integer{0}));
-        facts.emplace("sheet_id", Value(*requested_id));
-        facts.emplace("rotation", Value(item->rotation));
+        if (sheet_move) {
+            facts.emplace("sheet_id", Value(*requested_id));
+            facts.emplace("rotation", Value(item->rotation));
+        } else facts.emplace("form", Value(*requested_form));
         facts.emplace("from", grid_value(*from));
         facts.emplace("to", grid_value(*to));
         return accepted(std::move(candidate), "", std::move(facts));
