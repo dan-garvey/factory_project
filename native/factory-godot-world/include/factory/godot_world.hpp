@@ -78,6 +78,10 @@ private:
     std::vector<double> terrain_axis_, terrain_heights_;
     std::vector<std::pair<authority::Point, authority::Point>> terrain_obstacles_;
     std::optional<std::size_t> source_obstacle_index_;
+    std::map<std::string, std::size_t> tree_obstacle_indices_;
+    [[nodiscard]] bool clear_harvest_path(const std::string& source,
+        const authority::Point& actor, const authority::Point& contact) const;
+    [[nodiscard]] values::Value::Object harvest_clearances(const Actor& actor) const;
     [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high,
         std::optional<std::size_t> ignored = std::nullopt) const;
     [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z,

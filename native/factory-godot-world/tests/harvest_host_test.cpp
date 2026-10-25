@@ -752,6 +752,55 @@ void cutter_reach_is_shorter_than_build_reach() {
           "F3 moves one finite timber immediately inside the same cut boundary.");
 }
 
+void harvest_path_respects_obstacles_and_interrupts() {
+    auto site = factory::godot_world::tests::flat_site();
+    site.insert_or_assign("obstacles", V(A{
+        V(A{V(A{V(6.3), V(0.0), V(3.0)}), V(A{V(6.9), V(2.0), V(3.6)})}),
+        V(A{V(A{V(5.0), V(0.0), V(3.0)}), V(A{V(5.2), V(2.0), V(3.6)})})}));
+    site.emplace("tree_obstacles", V(O{{"tree-east-south", V(I{0})}}));
+    Host host;
+    check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(site), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(4.1), V(1.0), V(3.3)}, 1), "accepted"),
+          "A trusted source hull and intervening wall bind before the actor cuts.");
+    const auto blocked = host.command("P", cut("P", "wall-blocked", "tree-east-south"));
+    const auto actor = std::get<O>(get<O>(host.projection(), "actors").at("P").storage());
+    check(!get<bool>(blocked, "accepted") && get<std::string>(blocked, "reason") == "source_occluded" &&
+          !get<bool>(V(get<O>(V(actor), "harvest_clear")), "tree-east-south") &&
+          !get<bool>(V(get<O>(host.actor_projection("P"), "harvest_clear")), "tree-east-south") &&
+          get<O>(host.projection(), "manual_cuts").empty(),
+          "The visible radial target cannot start through the wall; the prompt receives the same refusal.");
+    check(get<bool>(host.publish_actor("P", {V(5.7), V(1.0), V(3.3)}, 2), "accepted") &&
+          get<bool>(V(get<O>(get<O>(host.projection(), "actors").at("P"), "harvest_clear")),
+              "tree-east-south") &&
+          get<bool>(V(get<O>(host.actor_projection("P"), "harvest_clear")),
+              "tree-east-south") &&
+          get<bool>(host.command("P", cut("P", "clear-bark", "tree-east-south")), "accepted"),
+          "The selected tree's own hull does not falsely block contact from the clear side.");
+    check(get<bool>(host.publish_actor("P", {V(4.1), V(1.0), V(3.3)}, 3), "accepted") &&
+          get<O>(host.projection(), "manual_cuts").empty() &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0,
+          "Moving behind a wall interrupts an active timed cut without giving stock.");
+    const O enable{{"context", V("harvest-site")}, {"client", V("P")},
+        {"request", V("enable-fast-wall")}, {"action", V("set_developer_conveniences")},
+        {"enabled", V(true)}};
+    check(get<bool>(host.command("P", enable), "accepted"), "F3 is enabled for the wall admission test.");
+    const auto fast_blocked = host.command("P", cut("P", "fast-wall", "tree-east-south"));
+    check(!get<bool>(fast_blocked, "accepted") &&
+          get<std::string>(fast_blocked, "reason") == "source_occluded" &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 8,
+          "F3 cannot move finite timber through the same wall.");
+    Host restored;
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
+          get<bool>(restored.configure_terrain(site), "accepted") &&
+          get<bool>(restored.restore_checkpoint(host.checkpoint()), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(5.7), V(1.0), V(3.3)}, 4), "accepted") &&
+          get<bool>(restored.command("P", cut("P", "fast-clear", "tree-east-south")), "accepted") &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "timber") == 1 &&
+          get<bool>(restored.validate_checkpoint(restored.checkpoint()), "accepted"),
+          "A clear F3 cut after restore spends exactly one tree unit with valid history.");
+}
+
 void ore_outcrop_has_a_standing_cut_boundary() {
     Host host;
     auto site = factory::godot_world::tests::flat_site();
@@ -801,6 +850,23 @@ void ore_outcrop_has_a_standing_cut_boundary() {
     altered.at("world") = V(std::move(forged));
     check(!get<bool>(host.validate_checkpoint(V(std::move(altered))), "accepted"),
           "A saved ore contact surface cannot be enlarged without invalidating the native profile.");
+    auto walled = site;
+    auto obstacles = std::get<A>(walled.at("obstacles").storage());
+    obstacles.emplace_back(A{V(A{V(-1.4), V(0.0), V(2.0)}),
+        V(A{V(-0.9), V(2.0), V(2.2)})});
+    walled.at("obstacles") = V(std::move(obstacles));
+    Host behind_wall;
+    check(get<bool>(behind_wall.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
+          get<bool>(behind_wall.configure_terrain(walled), "accepted") &&
+          get<bool>(behind_wall.publish_actor("P", {V(-1.2375), V(0.825), V(3.74)}, 1), "accepted"),
+          "The ore hull and a separate wall bind to the same native terrain producer.");
+    const auto occluded = behind_wall.command("P", cut("P", "ore-behind-wall", "opening-copper"));
+    check(!get<bool>(occluded, "accepted") &&
+          get<std::string>(occluded, "reason") == "source_occluded" &&
+          !get<bool>(V(get<O>(get<O>(behind_wall.projection(), "actors").at("P"),
+              "harvest_clear")), "opening-copper") &&
+          get<I>(get<O>(behind_wall.projection(), "cargo").at("P"), "raw") == 0,
+          "Ore contact ignores its own hull but refuses an intervening wall without paying raw stock.");
 }
 
 void field_wood_uses_physical_actor_and_one_ledger() {
@@ -1248,6 +1314,7 @@ int main() {
         one_piece_slide_custody();
         flat_head_host_custody();
         cutter_reach_is_shorter_than_build_reach();
+        harvest_path_respects_obstacles_and_interrupts();
         ore_outcrop_has_a_standing_cut_boundary();
         shared_harvest();
         mature_bank_tree_stock_survives_shared_restore();

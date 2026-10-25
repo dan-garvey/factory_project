@@ -100,6 +100,7 @@ class SharedSourceRayView extends "res://opening/shared_opening.gd":
 
 class SourceBodyLookup extends RefCounted:
 	var site_bodies: Dictionary = {}
+	var floor_body: StaticBody3D
 
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
@@ -1113,7 +1114,17 @@ func _multitool_controls() -> void:
 		verify(view.issued == [{"action": "harvest_source", "target": "ore"}],
 			"An in-range source pick submits the native harvest command.")
 		view.issued.clear()
+		view.state.actors.P.harvest_clear = {"ore": false, "tree": true}
+		verify("Move around" in view._pointed_summary_data(Vector2.ZERO).detail,
+			"A source hidden from the physical actor does not offer the harvest key despite radial reach.")
+		view._interact_pointed()
+		verify(view.issued.is_empty(),
+			"The pointed interaction does not submit a harvest through a native obstacle.")
+		view.state.actors.P.harvest_clear = {"ore": true, "tree": true}
+		verify("E Harvest" in view._pointed_summary_data(Vector2.ZERO).detail,
+			"A newly clear path restores the source prompt at the same standing distance.")
 		view.state.actors.P.position = before.actors.P.position
+		view.state.actors.P.erase("harvest_clear")
 		view.hand_pointed = "tree"
 		verify(view.state == before and view.model == null and view.request_sequence == 0,
 			"Presentation and request selection do not debit local stock or create a Model.")

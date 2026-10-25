@@ -168,7 +168,8 @@ func _capture_pose_actors(view: Dictionary) -> void:
 	for actor_id in view.get("actors", {}):
 		var actor: Dictionary = view.actors[actor_id]
 		_pose_actors[actor_id] = {"ready": actor.ready, "position": actor.position,
-			"native_epoch": actor.native_epoch}
+			"native_epoch": actor.native_epoch,
+			"harvest_clear": actor.get("harvest_clear", {})}
 
 func _publish_actor_state(actor_id: String) -> void:
 	if not _native_authority:
@@ -179,7 +180,8 @@ func _publish_actor_state(actor_id: String) -> void:
 		_broadcast(_frame())
 		return
 	_pose_actors[actor_id] = {"ready": observed.ready, "position": observed.position,
-		"native_epoch": observed.native_epoch}
+		"native_epoch": observed.native_epoch,
+		"harvest_clear": observed.get("harvest_clear", {})}
 	last_serial += 1
 	var frame := {"context": context, "serial": last_serial, "revision": _full_revision,
 		"order": _full_order, "actors": _pose_actors.duplicate(true)}
