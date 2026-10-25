@@ -2559,6 +2559,38 @@ func _workshop_pages() -> void:
 		view._input(broad_feed_key)
 		verify(view.issued.is_empty() and panel.broad_feed_button.disabled,
 			"Fewer than three carried blanks cannot issue a broad feed.")
+		view.state.cargo[view.client].work_lots = [
+			{"id": 7, "recipe_input": 1, "remaining": 1},
+			{"id": 41, "recipe_input": 3, "output_form": "sheet", "remaining": 2}]
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(panel.broad_refeed_button.is_visible_in_tree() and not panel.broad_refeed_button.disabled
+			and panel.broad_refeed_button.text.is_empty() and panel.broad_refeed_button.icon != null
+			and panel.broad_refeed_button.icon.resource_path.ends_with("/broad-refeed.svg")
+			and panel.broad_refeed_button.tooltip_text.contains("N")
+			and not panel.broad_refeed_button.accessibility_name.is_empty()
+			and panel._held_work_ids == [7],
+			"Broad and small held work retain separate, described refeed controls.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-refeed.png") == OK,
+				"Retain the distinct broad-work refeed icon in the selected anvil panel.")
+		var broad_refeed_key := InputEventKey.new()
+		broad_refeed_key.keycode = KEY_N
+		broad_refeed_key.pressed = true
+		view._input(broad_refeed_key)
+		verify(panel.broad_refeed_button.get_popup().item_count == 1,
+			"N lists only identity-bearing carried sheet work.")
+		panel.broad_refeed_button.get_popup().id_pressed.emit(0)
+		panel.broad_refeed_button.get_popup().hide()
+		verify(view.issued == [{"action": "refeed_broad_press_work", "entity": "press-anvil", "work_id": 41}],
+			"The selected broad lot reenters native authority with its exact ID and first anvil.")
+		view.issued.clear()
+		view.state.cargo[view.client].work_lots.remove_at(1)
+		panel.broad_refeed_button.get_popup().id_pressed.emit(0)
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(view.issued.is_empty() and not panel.broad_refeed_button.visible,
+			"A stale broad-work choice cannot reinsert a lot the actor no longer carries.")
+		view.state.cargo[view.client].work_lots.clear()
 		view.state.cargo[view.client].raw = 1
 		view.state.broad_press_assemblies = [{"origin": [8, 0, 8], "geometry_status": "missing_ram"}]
 		panel.refresh(view.state, view.client, view.selected, true)
