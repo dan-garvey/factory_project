@@ -251,12 +251,14 @@ func _aim_actor_at_component(id: String) -> Dictionary:
 func _approach(target: Vector2, actor: String = "P") -> bool:
 	if not await _walk_to(target, false, actor):
 		return false
-	for _frame in range(4):
+	for frame in range(30):
 		await physics_frame
 		await process_frame
+		if frame >= 3 and opening.actor_world.diagnostics(actor).sample.on_floor:
+			break
 	var sample: Dictionary = opening.actor_world.diagnostics(actor).sample
 	return _expect(sample.ready and sample.registered and sample.on_floor and sample.control == [0.0, 0.0],
-		"The real approach finishes with a released, registered actor on the floor")
+		"The real approach to %s finishes with a released, registered actor on the floor: %s" % [target, sample])
 
 func _approach_points(points: Array[Vector2], actor: String = "P") -> bool:
 	for point in points:
@@ -1311,11 +1313,12 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		if collector.get("status") == "ready":
 			drive = str(collector.parts.mount)
 			break
-	if not await _approach(Vector2(0.0, 1.3)):
+	# Walk around the east side of the fitted collector. Its frame closes the
+	# direct path from the receiver aisle to the wheel, while both inputs stay
+	# within the same physical actor's build reach from the south approach.
+	if not await _approach_points([Vector2(1.1, 3.3), Vector2(1.1, 0.2), Vector2(0.2, 0.55)]):
 		return
 	if _construct({"action": "remove", "entity": wheel.entity}).is_empty():
-		return
-	if not await _approach(Vector2(0.7, 3.3)):
 		return
 	if not _expect(panel._receiver_route_status(opening.model.projection()).contains("linked"),
 			"Removing the wheel leaves the physical belt linked for a manual collector cut"):
@@ -1331,8 +1334,6 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		"The hand crank puts one true ore blank in the fitted receiver"):
 		return
 	if _construct({"action": "detach_hand_crank", "entity": carried_crank}).is_empty():
-		return
-	if not await _approach(Vector2(0.0, 1.3)):
 		return
 	if not _select_inventory_item("wheel"):
 		return
@@ -1405,7 +1406,7 @@ func _arrival_belt_controls(middle: String, span: String) -> bool:
 			and opening.inspector.text.begins_with("Mechanical belt\n"),
 			"The confirmed belt opens its inspector without submitting an authority request"):
 		return false
-	if not await _approach(Vector2(0.4, 2.8)):
+	if not await _approach_points([Vector2(1.1, 0.2), Vector2(1.1, 3.3), Vector2(0.4, 2.8)]):
 		return false
 	var before: Dictionary = opening.model.checkpoint()
 	var before_state: Dictionary = opening.model.projection()
@@ -1766,8 +1767,8 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 	for source in [
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 2},
-		{"point": Vector2(0.6, 11.55), "id": "tree-north", "cuts": 8},
+		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 1},
+		{"point": Vector2(0.6, 11.55), "id": "tree-north", "cuts": 6},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 	]:
@@ -1776,14 +1777,13 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 		for cut in range(source.cuts):
 			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
 				return
-	if mode == "arrival-powered-press-site":
-		if not await _approach_points([Vector2(4.95, 3.3), Vector2(6.0, -1.65)]):
+	if not await _approach_points([Vector2(4.95, 3.3), Vector2(6.0, -1.65)]):
+		return
+	for cut in range(8 if mode == "arrival-powered-press-site" else 3):
+		if _construct({"action": "harvest_source", "target": "tree-east-upstream"}).is_empty():
 			return
-		for cut in range(5):
-			if _construct({"action": "harvest_source", "target": "tree-east-upstream"}).is_empty():
-				return
-		if not await _approach_points([Vector2(4.95, 3.3), Vector2(4.95, 4.95)]):
-			return
+	if not await _approach_points([Vector2(4.95, 3.3), Vector2(4.95, 4.95)]):
+		return
 	if not _expect(opening.model.projection().cargo.P.timber ==
 			(15 if mode == "arrival-powered-press-site" else 10)
 			and opening.model.projection().cargo.P.raw ==
@@ -1920,6 +1920,15 @@ func _finish_belt_fed_press_run(panel) -> void:
 			and not opening.model.projection().dropped_material.any(func(drop: Variant) -> bool:
 				return drop is Dictionary and drop.get("products", 0) > 0),
 			"The finite belt supplies the press while its separate drive remains unpowered"):
+		return
+	var carried_crank := ""
+	for crank_id: String in opening.model.projection().crank_items:
+		if opening.model.projection().crank_items[crank_id].holder == "P":
+			carried_crank = crank_id
+	if not _expect(not carried_crank.is_empty(), "The same crafted hand crank remains in P's custody"):
+		return
+	if _construct({"action": "attach_hand_crank", "entity": shaft,
+			"crank": carried_crank, "port": press.shaft_center}).is_empty():
 		return
 	opening._open_object_menu_for(anvil)
 	if not _expect(opening.object_menu.visible and panel.press_section.visible
@@ -2746,10 +2755,13 @@ func _arrival_mature_tree_run(capture_prefix: String) -> void:
 				and body.get_node("PickShape").shape is ConcavePolygonShape3D,
 				"The visible root, native finite source and physical picker agree for " + spec.id):
 			return
-	if not await _approach_points([Vector2(6.0, 3.0), Vector2(6.0, 0.0), Vector2(5.4, -3.0)]):
-		return
 	var broadleaf: Dictionary = surface.broadleaf_specs()[0]
-	var target := Vector3(broadleaf.center.x + 0.74, 1.45, broadleaf.center.z + 0.75)
+	if not await _approach_points([Vector2(6.0, 3.0), Vector2(6.0, 0.0),
+			Vector2(6.0, -4.0), Vector2(6.0, -8.0), Vector2(9.2, -8.0),
+			Vector2(9.2, -12.0), Vector2(9.2, -15.0), Vector2(8.5, -17.0),
+			Vector2(broadleaf.center.x + 1.65, broadleaf.center.z + 0.6)]):
+		return
+	var target: Vector3 = broadleaf.center + Vector3.UP * 1.2
 	opening.distance = 0.0
 	opening._update_camera()
 	var direction: Vector3 = (target - opening.camera.global_position).normalized()
@@ -2759,9 +2771,13 @@ func _arrival_mature_tree_run(capture_prefix: String) -> void:
 	await physics_frame
 	await process_frame
 	var aim: Vector2 = root.get_visible_rect().size * 0.5
-	if not _expect(opening._screen_hand_source(aim) == "broadleaf_00"
-			and opening._pointed_summary_data(aim).get("detail", "").contains("E Harvest"),
-			"The ordinary actor-eye ray and E cue identify the reported broadleaf in native reach"):
+	var aimed_source: String = opening._screen_hand_source(aim)
+	var aimed_summary: Dictionary = opening._pointed_summary_data(aim)
+	if not _expect(aimed_source == "broadleaf_00"
+			and aimed_summary.get("detail", "").contains("E Harvest"),
+			"The ordinary actor-eye ray and E cue identify the reported broadleaf in native reach: %s" %
+			{"source": aimed_source, "summary": aimed_summary,
+				"actor": opening.actor_world.bodies.P.global_position, "tree": broadleaf.center}):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		if not _expect(await _capture_actor_area(capture_prefix + "-broadleaf-standing.png", target),
@@ -2810,7 +2826,7 @@ func _arrival_mature_tree_run(capture_prefix: String) -> void:
 				stump.get_node("Stump").global_position),
 				"Retain the actor-eye depleted broadleaf and low stump"):
 			return
-	if not await _approach_points([Vector2(7.0, -3.0), Vector2(10.0, -6.0),
+	if not await _approach_points([Vector2(9.2, -15.0), Vector2(9.2, -12.0),
 		Vector2(10.5, -9.7)]):
 		return
 	var fir: Dictionary = surface.fir_specs()[3]
@@ -2886,8 +2902,10 @@ func _arrival_mature_tree_resume_run(capture_prefix: String) -> void:
 			and _same(opening.startup_resume_checkpoint.world, opening.model.checkpoint().world),
 			"Rejoin keeps native timber custody, depleted presentation and absent trunk collision"):
 		return
-	if not await _approach_points([Vector2(10.0, -6.0), Vector2(7.0, -3.0),
-		Vector2(3.11, -3.0)]):
+	var surface = load("res://opening/site_surface.gd")
+	var broadleaf: Dictionary = surface.broadleaf_specs()[0]
+	if not await _approach_points([Vector2(9.2, -12.0), Vector2(9.2, -15.0),
+		Vector2(8.5, -17.0), Vector2(broadleaf.center.x, broadleaf.center.z)]):
 		return
 	if not _expect(opening.actor_world._geometry_registered(),
 			"The restored actor can walk across the former trunk without an invisible collision"):

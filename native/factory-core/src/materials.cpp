@@ -69,18 +69,16 @@ std::optional<std::vector<DropPoint>> swept_workcells(const DropPoint& origin,
         (dz > 0 ? destination[2] - origin[2] : origin[2] - destination[2]);
     const Quantity steps = distance / 4;
     if (steps >= static_cast<Quantity>(maximum_drop_points)) return std::nullopt;
-    std::vector<DropPoint> cells;
+    std::set<DropPoint> cells;
     for (Quantity step = 0; step <= steps; ++step) {
         const DropPoint position{origin[0] + 4 * step * dx, origin[1],
             origin[2] + 4 * step * dz};
         const auto occupied = occupied_workcells(position, footprint, rotation);
-        if (!occupied || occupied->size() > maximum_drop_points - cells.size())
-            return std::nullopt;
-        cells.insert(cells.end(), occupied->begin(), occupied->end());
+        if (!occupied) return std::nullopt;
+        cells.insert(occupied->begin(), occupied->end());
+        if (cells.size() > maximum_drop_points) return std::nullopt;
     }
-    std::sort(cells.begin(), cells.end());
-    cells.erase(std::unique(cells.begin(), cells.end()), cells.end());
-    return cells;
+    return std::vector<DropPoint>(cells.begin(), cells.end());
 }
 
 bool fits_clear_swept_workcells(const DropPoint& origin,

@@ -1053,7 +1053,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             {"fir_03", {{29, 0, -24}, 8}},
             {"fir_04", {{32, 0, -2}, 8}},
             {"fir_05", {{44, 0, 15}, 8}},
-            {"broadleaf_00", {{8, 0, -7}, 8}},
+            {"broadleaf_00", {{15, 1, -46}, 8}},
             {"broadleaf_01", {{-46, 0, -34}, 8}}};
         // Zero means no carried-count limit. Finite sources and native custody
         // still bound the material that can exist in the opening.

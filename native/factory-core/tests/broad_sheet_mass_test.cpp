@@ -84,6 +84,24 @@ void support_fit_rule() {
               std::vector<m::DropPoint>{{8, 4, 12}, {12, 4, 12}} &&
           !m::channel_spec(m::Component::anvil),
         "A selected channel segment has one fixed cardinal rail direction and complete width.");
+    const m::DropPoint long_origin{0, 4, 0};
+    const m::DropPoint long_destination{0, 4, 4 * 1200};
+    std::vector<m::DropPoint> long_support;
+    for (m::Quantity z = 0; z <= 1201; ++z) {
+        long_support.push_back({0, 4, 4 * z});
+        long_support.push_back({4, 4, 4 * z});
+    }
+    const auto long_sweep = m::swept_workcells(long_origin, long_destination,
+        m::sheet_footprint(), 0);
+    check(long_sweep && long_sweep->size() == long_support.size() &&
+          m::fits_clear_swept_workcells(long_origin, long_destination,
+              m::sheet_footprint(), 0, long_support, {}),
+        "A long two-wide corridor counts distinct cells rather than repeated footprint samples.");
+    const auto full_sweep = m::swept_workcells(long_origin, {0, 4, 4 * 2046},
+        m::sheet_footprint(), 0);
+    check(full_sweep && full_sweep->size() == m::maximum_drop_points &&
+          !m::swept_workcells(long_origin, {0, 4, 4 * 2047}, m::sheet_footprint(), 0),
+        "The route accepts its exact distinct-cell cap and refuses the next cell pair.");
 }
 
 void formed_sheet_and_blocked_output() {
