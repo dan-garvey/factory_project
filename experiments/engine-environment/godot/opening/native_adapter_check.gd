@@ -3013,6 +3013,11 @@ func _arrival_run() -> void:
 				and opening.model.projection().source_deposit.initial_units == 4096)),
 			"The physical actor reaches the scene floor"):
 		return
+	if mode in ["arrival-press", "arrival-raised-press"]:
+		opening.configure_save_slot(destination + ".worksite")
+		if not _expect(opening.save_slot_ready,
+				"The guided press consumer has a fresh owned Store destination"):
+			return
 	if mode == "supplied-hardware":
 		await _supplied_hardware_run()
 		return
@@ -3143,6 +3148,13 @@ func _arrival_run() -> void:
 		opening._select_tool("inspect")
 	if mode == "arrival-resume":
 		var restored: Dictionary = opening.model.projection()
+		var restored_press: Dictionary = restored.guided_press_assemblies[0] if restored.guided_press_assemblies.size() == 1 else {}
+		var fitted_crank := ""
+		for crank_id: String in restored.crank_items:
+			var item: Dictionary = restored.crank_items[crank_id]
+			if item.attached_to == restored_press.get("parts", {}).get("shaft", "") \
+					and item.port == restored_press.get("shaft_center", []):
+				fitted_crank = crank_id
 		if not _expect(opening.last_load_result.get("accepted", false)
 				and opening.arrival_reveal_audio == null
 				and restored.cargo.P.products == 2 and restored.cargo.P.offcuts == 2
@@ -3155,12 +3167,12 @@ func _arrival_run() -> void:
 				and restored.cargo.P.components.get("cutting_edge", 0) == 1
 				and restored.cargo.P.components.get("tool_mount", 0) == 1
 				and restored.cargo.P.components.get("wooden_shaft", 0) == 1
-				and restored.guided_press_assemblies.size() == 1 and restored.guided_press_assemblies[0].status == "ready"
-				and restored.hand_crank.holder == "P" and panel.visible
-				and opening.landing_pod_visual != null and not opening.landing_crank_visual.visible
+				and restored_press.get("status") == "ready"
+				and not fitted_crank.is_empty() and panel.visible
+				and opening.landing_pod_visual != null
 				and not opening.arrival_reveal_active
 				and opening.manager_log_completion_entry.visible,
-				"A fresh process reopens the finite press and P's saved inventory milestone"):
+				"A fresh process reopens the finite press, attached crank and P's saved inventory milestone"):
 			return
 		opening.manager_log_button.pressed.emit()
 		if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
@@ -3179,10 +3191,32 @@ func _arrival_run() -> void:
 				and opening.model.projection() == before_log_close,
 				"A resumed worker returns from the log without changing stock"):
 			return
-		panel.crank_button.pressed.emit()
-		if not _expect(opening.model.projection().hand_crank.holder == "pod"
-				and opening.landing_crank_visual.visible,
-				"The resumed ordinary panel can make a new native command"):
+		if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 8.0), Vector2(5.7, 8.0)]):
+			return
+		opening.distance = 0.0
+		opening._update_camera()
+		var port: Array = restored.crank_items[fitted_crank].port
+		var crank_target := Vector3(float(port[0]) * OpeningGeometry.HEIGHT_STEP,
+			float(port[1]) * OpeningGeometry.HEIGHT_STEP + OpeningGeometry.ANCHOR_HEIGHT + 0.19,
+			float(port[2]) * OpeningGeometry.HEIGHT_STEP + 0.22)
+		var direction: Vector3 = (crank_target - opening.camera.global_position).normalized()
+		opening.orbit_yaw = atan2(-direction.x, -direction.z)
+		opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+		opening._update_camera()
+		await physics_frame
+		var hit: Dictionary = opening._screen_pick(opening._pointed_screen_position())
+		if not _expect(not hit.is_empty() and hit.collider.get_meta("crank_entity", "") == fitted_crank,
+				"The resumed actor-eye E ray resolves the same fitted crank: %s" %
+				{"hit": str(hit.get("collider")),
+					"crank": str(hit.get("collider", null).get_meta("crank_entity", "")) if not hit.is_empty() else "",
+					"camera": opening.camera.global_position, "target": crank_target,
+					"actor": opening.actor_world.bodies.P.global_position}):
+			return
+		opening._interact_pointed()
+		if not _expect(opening.model.projection().crank_items[fitted_crank].holder == "P"
+				and opening.model.projection().cargo.P.components.get("hand_crank", 0) == 1
+				and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+				"E detaches the same finite crank into the resumed actor's inventory"):
 			return
 		_record("pass")
 		return
@@ -3221,7 +3255,7 @@ func _arrival_run() -> void:
 			return
 	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(6.0, 11.55)]):
 		return
-	for index in range(7):
+	for index in range(8 if raised else 7):
 		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
 			return
 	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 3.3),
@@ -3243,7 +3277,7 @@ func _arrival_run() -> void:
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	var initial: Dictionary = opening.model.projection()
-	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
+	if not _expect(initial.cargo.P.timber == (16 if raised else 15) and initial.cargo.P.raw == 7
 			and initial.placed_components.is_empty()
 			and initial.component_recipes.flat_head.copper == 1
 			and initial.component_recipes.wooden_slide.timber == 3
@@ -3269,10 +3303,13 @@ func _arrival_run() -> void:
 				and opening.model.projection().cargo.P.components.get(kind, 0) == owned_before + 1,
 				"The panel crafts one native component with exact finite cargo"):
 			return
-	if not _expect(opening.model.projection().cargo.P.timber == 3
+	if mode != "arrival-guide-geometry":
+		if not _press_inventory_recipe("component:hand_crank", str(opening.model.projection().fabrication_hub.id)):
+			return
+	if not _expect(opening.model.projection().cargo.P.timber == (3 if mode == "arrival-guide-geometry" else 2 if raised else 1)
 			and opening.model.projection().cargo.P.raw == 2
-			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 10,
-			"The frame-free press and collector bills use twelve timber and five ore blanks, retaining two press inputs"):
+			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == (10 if mode == "arrival-guide-geometry" else 11),
+			"The finite press, collector and optional crafted crank retain two copper inputs"):
 		return
 	if raised:
 		var before_floor: Dictionary = opening.model.projection()
@@ -3280,7 +3317,7 @@ func _arrival_run() -> void:
 			return
 		var floor_kit: Dictionary = opening.model.projection()
 		if not _expect(floor_kit.order == before_floor.order + 1
-				and floor_kit.cargo.P.timber == 1
+				and floor_kit.cargo.P.timber == 0
 				and floor_kit.part_kits.P.foundation == before_floor.part_kits.P.foundation + 1,
 				"Two local timber make one raised press floor through the ordinary workshop"):
 			return
@@ -3470,89 +3507,77 @@ func _arrival_run() -> void:
 			and panel.route_choice.get_item_count() > 0,
 			"The selected press exposes its live feed routes in the ordinary panel"):
 		return
-	panel.crank_button.pressed.emit()
-	if not _expect(opening.model.projection().hand_crank.holder == "P"
-			and not opening.landing_crank_visual.visible,
-			"The player takes the one conserved pod crank and its tray visual clears"):
+	if not _select_inventory_item("component:hand_crank"):
 		return
+	opening.component_nudge_active = true
+	opening.component_nudge_center = ready.shaft_center.duplicate()
+	opening._refresh_component_preview()
+	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked,
+			"The crafted crank has a clear ordinary preview on the guided press shaft input"):
+		return
+	opening._world_click(Vector2i(3, 4), str(ready.parts.shaft))
+	opening.component_nudge_active = false
+	opening.component_nudge_center.clear()
+	if not _expect(opening.model.projection().crank_items.values().any(func(item: Variant) -> bool:
+			return item.attached_to == ready.parts.shaft and item.port == ready.shaft_center),
+			"The actor fits one conserved crafted crank at the projected native shaft input"):
+		return
+	opening._open_object_menu_for(str(ready.anvil))
 	panel.feed_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.raw == 1
 			and opening.model.projection().dropped_material.size() == 1,
 			"The panel moves one carried blank into retained press work"):
 		return
 	var ready_die_y: float = _guided_die_y(str(ready.parts.ram)) if raised else NAN
-	if mode == "arrival-press":
-		opening._open_object_menu_for(str(ready.anvil))
+	var work_target := Vector3(float(ready.work_center[0]) * OpeningGeometry.HEIGHT_STEP,
+		OpeningGeometry.ANCHOR_HEIGHT + float(ready.work_center[1]) * OpeningGeometry.HEIGHT_STEP + 0.18,
+		float(ready.work_center[2]) * OpeningGeometry.HEIGHT_STEP)
+	for turn in range(3):
+		if not opening.object_menu.visible:
+			opening._open_object_menu_for(str(ready.anvil))
 		if not _expect(opening.object_menu.visible and panel.turn_button.is_visible_in_tree()
 				and not panel.turn_button.disabled,
-				"The physical worker can hold the crank in the ordinary press E menu"):
+				"A retained workpiece enables the fitted crank in the ordinary press E menu"):
 			return
-		var before_hold_order: int = opening.model.projection().order
-		panel.turn_button.button_down.emit()
+		var before_turn: int = int(opening.model.projection().order)
+		var before_cues: int = opening.construction_audio.heard.size()
 		panel.turn_button.pressed.emit()
-		var first_turn: Dictionary = opening.model.projection()
-		if not _expect(first_turn.order == before_hold_order + 1
-				and not first_turn.dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
-				and first_turn.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-				"The first held input advances one authoritative turn and retains partial copper work"):
+		if not _expect(opening.model.projection().order == before_turn + 1
+				and opening.construction_audio.heard.size() == before_cues + 1
+				and opening.construction_audio.stream == OpeningScene.ConstructionAudio.make_stream("assembly")
+				and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+				"One ordinary press turn advances native work, conserves mass and emits one restrained impact"):
 			return
-		if not _expect("0 / 2 steps" in panel.press_status.text,
-				"The press panel shows projected held-turn progress: %s" % panel.press_status.text):
-			return
-		var progress_deadline: int = Time.get_ticks_msec() + 1500
-		while Time.get_ticks_msec() < progress_deadline and opening.model.projection().order < before_hold_order + 2:
-			await process_frame
-		if not _expect(opening.model.projection().order == before_hold_order + 2
-				and "1 / 2 steps" in panel.press_status.text,
-				"The held action exposes the next native stroke step before completion: %s" % panel.press_status.text):
-			return
-		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-			await RenderingServer.frame_post_draw
-			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-held-work.png") == OK,
-					"The in-progress held crank and retained work are visible in passive scene pixels"):
+		if mode == "arrival-press" and turn < 2:
+			if not _expect("%d / 2 steps" % turn in panel.press_status.text
+					and not opening.model.projection().dropped_material.any(
+						func(drop: Variant) -> bool: return drop.products == 1),
+					"The E menu exposes the native partial-work step before plate formation"):
 				return
-		var hold_deadline: int = Time.get_ticks_msec() + 2500
-		while Time.get_ticks_msec() < hold_deadline and not opening.model.projection().dropped_material.any(
-				func(drop: Variant) -> bool: return drop.products == 1):
-			await process_frame
-		panel.turn_button.button_up.emit()
-		var after_hold_order: int = opening.model.projection().order
-		await create_timer(0.40).timeout
-		if not _expect(after_hold_order == before_hold_order + 3
-				and opening.model.projection().order == after_hold_order
-				and panel.turn_hold_source.is_empty(),
-				"One held pointer gesture advances exactly three native turns and stops on release"):
+		if not _expect(opening.status_label.text.contains(
+				"Plate formed at outlet. Collect it [P]." if turn == 2 else
+				"Press work advanced. Turn again to finish the plate."),
+				"The ordinary turn feedback agrees with the native partial or formed output"):
 			return
-	else:
-		for turn in range(3):
-			if not _expect(not panel.turn_button.disabled, "A retained workpiece enables the selected drive"):
+		if raised:
+			var die_y: float = _guided_die_y(str(ready.parts.ram))
+			if not _expect(is_finite(ready_die_y) and is_finite(die_y)
+					and (die_y < ready_die_y - 0.01 if turn == 1 else absf(die_y - ready_die_y) < 0.001),
+					"The raised die follows confirmed hand-turn work and returns after forming: %s" %
+					str({"turn": turn, "rest": ready_die_y, "current": die_y,
+						"work": opening.model.projection().dropped_material})):
 				return
-			var before_cues: int = opening.construction_audio.heard.size()
-			panel.turn_button.pressed.emit()
-			if not _expect(opening.construction_audio.heard.size() == before_cues + 1
-					and opening.construction_audio.stream == OpeningScene.ConstructionAudio.make_stream("assembly"),
-					"Only the confirmed hand turn emits one restrained work impact"):
+		if turn == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			opening.object_menu.hide()
+			var frame_name := "-raised-held.png" if raised else "-partial-work.png"
+			if not _expect(await _capture_actor_area(capture_prefix + frame_name, work_target),
+				"The native partial work is retained in an ordinary actor-eye press view"):
 				return
-			if raised:
-				var die_y: float = _guided_die_y(str(ready.parts.ram))
-				if not _expect(is_finite(ready_die_y) and is_finite(die_y)
-						and (die_y < ready_die_y - 0.01 if turn == 1 else absf(die_y - ready_die_y) < 0.001),
-						"The raised die follows confirmed hand-turn work and returns after forming: %s" %
-						str({"turn": turn, "rest": ready_die_y, "current": die_y,
-							"work": opening.model.projection().dropped_material})):
-					return
-				if turn == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-					for frame in range(3):
-						await process_frame
-						await RenderingServer.frame_post_draw
-					if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-raised-held.png") == OK,
-							"The retained billet is captured at the actor-built raised press"):
-						return
-				if turn == 1 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-					if not _expect(await _capture_guided_close(str(ready.parts.ram),
-							capture_prefix + "-forming-close.png"),
-							"The native in-stroke guided press is retained in a close passive frame"):
-						return
+		if turn == 1 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			if not _expect(await _capture_guided_close(str(ready.parts.ram),
+					capture_prefix + "-forming-close.png"),
+					"The native in-stroke guided press is retained in a close passive frame"):
+				return
 	var after: Dictionary = opening.model.projection()
 	if not _expect(after.dropped_material.size() == 2
 			and after.dropped_material.any(func(drop: Variant) -> bool:
@@ -3573,18 +3598,18 @@ func _arrival_run() -> void:
 				"Store retains the raised press, formed plate, offcut and physical worker"):
 			return
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-			await RenderingServer.frame_post_draw
-			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-raised-press.png") == OK,
-					"The formed raised press is retained as passive pixels"):
+			opening.object_menu.hide()
+			if not _expect(await _capture_actor_area(capture_prefix + "-raised-press.png", work_target),
+				"The formed raised press is retained in an ordinary actor-eye view"):
 				return
 		_record("pass")
 		return
-	if not capture_prefix.is_empty():
-		await process_frame
-		var copper_output: Image = root.get_texture().get_image()
-		if not _expect(copper_output != null and copper_output.save_png(capture_prefix + "-plate-offcut.png") == OK,
-				"The separate formed plate and copper offcut are retained as passive pixels"):
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening.object_menu.hide()
+		if not _expect(await _capture_actor_area(capture_prefix + "-plate-offcut.png", work_target),
+				"The separate formed plate and copper offcut are retained in an actor-eye press view"):
 			return
+		opening._open_object_menu_for(str(ready.anvil))
 	if not _expect(not panel.pickup_button.disabled, "The formed plate is offered for physical pickup"):
 		return
 	if not _expect(not panel.recover_work_button.disabled
@@ -3647,11 +3672,10 @@ func _arrival_run() -> void:
 			and FileAccess.file_exists(opening.save_slot),
 			"The ordinary Store retains a typed modular press and original physical actor"):
 		return
-	if not capture_prefix.is_empty():
-		await process_frame
-		var formed: Image = root.get_texture().get_image()
-		if not _expect(formed != null and formed.save_png(capture_prefix + "-press.png") == OK,
-				"The passive completed press viewport is retained"):
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening.object_menu.hide()
+		if not _expect(await _capture_actor_area(capture_prefix + "-press.png", work_target),
+				"The completed press remains visible in an ordinary actor-eye view"):
 			return
 	_record("pass")
 

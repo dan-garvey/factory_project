@@ -5307,7 +5307,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"deploy_fabrication_hub": "Pod workshop installed at its new worksite.",
 			"turn_hand_crank": "Collector cut one ore blank into its receiver tray.",
 			"feed_press": "One carried blank is now under the press head.",
-			"turn_press_crank": "The press advanced its work. Check the worksite for the formed plate.",
+			"turn_press_crank": "Plate formed at outlet. Collect it [P]." if int(outcome.get("formed_products", 0)) > 0 else "Press work advanced. Turn again to finish the plate.",
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
