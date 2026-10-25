@@ -51,6 +51,7 @@ var component_grid: GridContainer
 var inventory_empty: Array[Control] = []
 var recipe_grid: GridContainer
 var recipe_buttons: Dictionary = {}
+var recipe_names: Dictionary = {}
 var recipe_costs: Dictionary = {}
 var recipe_side: VBoxContainer
 var recipe_scroll: ScrollContainer
@@ -451,16 +452,32 @@ func _recipe_tile(key: String, icon: Texture2D) -> Button:
 	var host = _view()
 	var tile: Button = host._button(recipe_grid, "", _craft_recipe.bind(key))
 	_style_inventory_tile(tile, icon)
+	tile.custom_minimum_size = Vector2(78, 98)
+	tile.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+	tile.add_theme_constant_override("icon_max_width", 32)
+	tile.clip_contents = true
 	tile.focus_entered.connect(_describe_focus.bind(tile))
+	var name_label := Label.new()
+	name_label.name = "RecipeName"
+	name_label.position = Vector2(2, 42)
+	name_label.size = Vector2(74, 29)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_label.add_theme_font_size_override("font_size", 10)
+	name_label.add_theme_color_override("font_color", Color("dde5d9"))
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_child(name_label)
 	var cost := Label.new()
-	cost.position = Vector2(4, 44)
-	cost.size = Vector2(70, 18)
+	cost.position = Vector2(2, 73)
+	cost.size = Vector2(74, 18)
 	cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cost.add_theme_font_size_override("font_size", 11)
+	cost.add_theme_font_size_override("font_size", 12)
 	cost.add_theme_color_override("font_color", Color("f6e5c5"))
 	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tile.add_child(cost)
 	recipe_buttons[key] = tile
+	recipe_names[key] = name_label
 	recipe_costs[key] = cost
 	return tile
 
@@ -483,7 +500,7 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 		"Wait for the character"
 	tile.visible = true
 	tile.disabled = not ready
-	tile.modulate = Color.WHITE if craftable else Color(0.42, 0.47, 0.50) if not affordable else \
+	tile.modulate = Color.WHITE if craftable else Color(0.68, 0.73, 0.76) if not affordable else \
 		Color(0.65, 0.70, 0.72)
 	for state_name in ["normal", "hover"]:
 		var surface := tile.get_theme_stylebox(state_name, "Button") as StyleBoxFlat
@@ -493,6 +510,7 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 		label, timber, ore, station, rating_detail, reason]
 	tile.accessibility_name = "%s recipe, needs %d timber and %d ore, %s%s, %s" % [
 		label, timber, ore, station, rating_detail, reason]
+	recipe_names[key].text = label
 	recipe_costs[key].text = "%dT · %dO" % [timber, ore]
 
 func _refresh_recipes(host, ready: bool) -> void:

@@ -2150,6 +2150,8 @@ func _render_arrival_hotbar() -> void:
 	view.client = "P"
 	view.state = hotbar_observation()
 	view.state.hand_sources = {}
+	view.state.first_plate_unlock = true
+	view.state.workshop_completed_actors = ["P"]
 	view.state.part_kits.P = {"foundation": 15}
 	view.state.cargo = {"P": {"components": {"wooden_frame": 2, "wooden_shaft": 1,
 		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "copper_cog": 1,
@@ -2238,6 +2240,14 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-narrow-catalog.png") == OK,
 		"Retain the rendered narrow inventory window.")
+	bar.recipe_scroll.scroll_vertical = 10000
+	await settle_widgets()
+	verify(bar.recipe_scroll.scroll_vertical > 0
+		and bar.recipe_scroll.get_v_scroll_bar().max_value > bar.recipe_scroll.size.y,
+		"The advanced recipe grid remains scrollable in the narrow inventory.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-narrow-recipes-bottom.png") == OK,
+		"Retain the lower named recipe rows in the narrow inventory.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,

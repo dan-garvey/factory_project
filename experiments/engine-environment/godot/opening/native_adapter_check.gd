@@ -2400,6 +2400,23 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			and not inventory.context_label.text.contains("anvil, flat head"),
 			"The ordinary starter inventory offers recipes and a plate goal without an assembly checklist"):
 		return
+	for recipe: Dictionary in [
+		{"kind": "anvil", "name": "Anvil"},
+		{"kind": "flat_head", "name": "Flat pressing head"},
+		{"kind": "wooden_slide", "name": "Wooden slide"},
+		{"kind": "hand_crank", "name": "Hand crank"}]:
+		var key: String = "component:" + recipe.kind
+		var tile: Button = inventory.recipe_buttons[key]
+		var name_label: Label = inventory.recipe_names[key]
+		var cost_label: Label = inventory.recipe_costs[key]
+		var native_cost: Dictionary = start.component_recipes[recipe.kind]
+		if not _expect(tile.icon != null and tile.focus_mode == Control.FOCUS_ALL
+				and name_label.is_visible_in_tree() and name_label.text == recipe.name
+				and Rect2(Vector2.ZERO, tile.custom_minimum_size).encloses(name_label.get_rect())
+				and cost_label.text == "%dT · %dO" % [native_cost.timber, native_cost.copper]
+				and Rect2(Vector2.ZERO, tile.custom_minimum_size).encloses(cost_label.get_rect()),
+				"The %s icon shows a readable name and its native projected cost." % recipe.kind):
+			return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await process_frame
 		await RenderingServer.frame_post_draw
