@@ -67,8 +67,8 @@ moves one finite ore blank into canonical loose-item custody at its receiver
 center. Native World ticks can move that item onto a correctly positioned,
 outward-running belt endpoint, while stopped, reversed and full inlets retain
 it. The arrival workshop now offers provisional finite recipes for a waterwheel
-(two timber and one softmetal), a full-tile shaft (one timber), and a belt span
-(two timber and one softmetal). A route with three shafts, one span and one wheel
+(two timber and one copper), a full-tile shaft (one timber), and a belt span
+(two timber and one copper). A route with three shafts, one span and one wheel
 embodies seven timber and two ore. These kits stay in the single World inventory,
 with their spent material and installation custody checked against accepted
 history on restore. The ordinary workshop offers the recipes and points out the
@@ -213,7 +213,7 @@ very close to the body even when the exact rotated boxes do not overlap.
 Vertical and sideways spans transmit rotation without carrying cargo or actors.
 
 The physical checkpoint has schema 3 and format `factory-native-physical`. Its
-logical World checkpoint has schema 17, including exact powered-slide carriage phase, timed manual cuts, workshop custody and placement,
+logical World checkpoint has schema 18, including exact powered-slide carriage phase, timed manual cuts, workshop custody and placement,
 each actor's first collected plate milestone, building facings, the trusted interaction offset and
 identified belt spans, modular press output witnesses, belt-fed work claims and
 identified partial broad-sheet cutting strokes.
@@ -221,10 +221,10 @@ Manual press receipts carry the prior work item, and productive tick records
 bind automatic progress to its work identity, revision and press work point
 during restore. These mutable records check save consistency; they do not
 authenticate an arbitrarily rewritten save.
-The arrival material ledger inside it has schema 13 and retains finite plate,
+The arrival material ledger inside it has schema 15 and retains finite plate,
 copper offcut and sheet custody. Earlier logical formats are refused without
 migration. The physical envelope remains schema 3. Its arrival material payload
-has schema 13, including typed loose material and timber/ore embodied in
+has schema 14, including typed loose material and timber/ore embodied in
 fabricated stationary kits. The
 nonresource material payload remains schema 6. Earlier payloads are refused
 rather than migrated.

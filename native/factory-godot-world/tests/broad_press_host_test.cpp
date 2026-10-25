@@ -76,7 +76,7 @@ void broad_projection() {
         "The finite arrival starts without a gifted broad press.");
     I epoch = 0;
     pose(host, -0.5, 0.0, ++epoch);
-    harvest(host, "opening-softmetal", 16, "broad-ore-");
+    harvest(host, "opening-copper", 16, "broad-ore-");
     pose(host, 1.65, 6.6, ++epoch);
     craft(host, "anvil", 4);
     craft(host, "ram_face", 4);

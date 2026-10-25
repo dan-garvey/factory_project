@@ -277,7 +277,7 @@ func _settle_pending() -> void:
 				(item.action.action != "harvest_source" or state.get("manual_cuts", {}).has(client)):
 				_message(_harvest_result_text(result) if item.action.action == "harvest_source" else {"place": "Placed.", "place_foundation": "Foundation placed on the world grid.", "place_foundations": "Foundation area placed on the world grid.", "connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 				"craft_component": "Component crafted from carried material.", "field_craft": "Wooden component shaped with your multitool.",
-				"craft_part": "Transmission kit made from carried timber and softmetal.",
+				"craft_part": "Transmission kit made from carried timber and copper.",
 				"place_component": "Component placed on the shared grid.", "reclaim_component": "Component returned to your carried cargo.",
 				"turn_hand_crank": "Collector cut one ore blank into its receiver tray.",
 				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "load_belt_slot": "Material placed on the belt.",
@@ -295,7 +295,7 @@ func _settle_pending() -> void:
 				"ports_not_adjacent": "choose neighboring ports in the arrow's direction.",
 				"no_shaft": "all shared shafts are in use."}.get(result.reason, str(result.reason)), item.action.action)
 			if item.action.action == "craft_component":
-				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
+				refusal = {"unavailable_input": "Gather the timber or copper shown for this component.",
 					"inventory_full": "Your component bag is full. Place a carried part to make room.",
 					"out_of_reach": "Move beside the selected workshop to craft this component."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "field_craft":
@@ -303,7 +303,7 @@ func _settle_pending() -> void:
 					"inventory_full": "Your component bag is full. Place a carried part to make room.",
 					"unavailable_recipe": "Metal components need a workshop."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "craft_part":
-				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
+				refusal = {"unavailable_input": "Gather the timber or copper shown for this transmission kit.",
 					"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 					"quantity_overflow": "Too many of this kit are already carried."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "turn_hand_crank":

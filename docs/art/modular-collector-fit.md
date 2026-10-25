@@ -3,7 +3,7 @@
 This is an asset and clearance study for the new chapter-one collector. The
 current [native recognizer](../../native/factory-assembly/src/assembly.cpp)
 finds a wooden frame, tool mount, cutting edge, receiver tray and wooden or
-softmetal shaft by their placed identities. The [Host
+copper shaft by their placed identities. The [Host
 projection](../../native/factory-godot-world/src/host.cpp) now reports ready,
 incomplete and ambiguous arrangements from real placed components. It does not
 yet make those arrangements extract ore, transmit power or route output.

@@ -492,7 +492,7 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 		return
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 		return
 	opening._open_object_menu_for(id)
 	var remote: Dictionary = opening.model.projection()
@@ -671,7 +671,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	await process_frame
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 		return
 	if not await _approach(Vector2(5.4, 4.95)):
 		return
@@ -991,22 +991,22 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	var recipes: Dictionary = opening.model.projection().component_recipes
 	opening._open_object_menu_for(str(opening.model.projection().fabrication_hub.id))
 	var inventory = opening.building_hotbar
-	var tile: Button = inventory.recipe_buttons["component:softmetal_shaft"]
+	var tile: Button = inventory.recipe_buttons["component:copper_shaft"]
 	if not _expect(inventory.catalog.visible and inventory.context_bench == opening.model.projection().fabrication_hub.id
 			and tile.visible and tile.icon != null,
 			"The pod workshop exposes the native component recipes in its shared inventory"):
 		return
 	if not _expect(recipes.wooden_shaft.load_rating == 8
 			and recipes.wooden_cog.load_rating == 8
-			and recipes.softmetal_shaft.load_rating == 24
-			and recipes.softmetal_cog.load_rating == 24,
+			and recipes.copper_shaft.load_rating == 24
+			and recipes.copper_cog.load_rating == 24,
 			"The ordinary workshop receives its drive ratings from the native projection"):
 		return
 	tile.grab_focus()
 	if not _expect("rated for 24 load" in tile.tooltip_text
 			and "0 timber + 2 ore" in tile.tooltip_text
 			and "needs 0 timber and 2 ore" in tile.accessibility_name,
-			"The softmetal upgrade recipe shows its native rating and actual bill"):
+			"The copper upgrade recipe shows its native rating and actual bill"):
 		return
 	if not capture_prefix.is_empty():
 		await process_frame
@@ -1146,7 +1146,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 6},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 3.3), "cuts": 0},
-		{"point": Vector2(-0.5, 0.0), "id": "opening-softmetal", "cuts": 3 + ore_for_press},
+		{"point": Vector2(-0.5, 0.0), "id": "opening-copper", "cuts": 3 + ore_for_press},
 	]:
 		if not await _approach(source.point):
 			return
@@ -1701,7 +1701,7 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 		return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
-	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "softmetal_cog", "receiver_tray"]:
+	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "copper_cog", "receiver_tray"]:
 		if not _expect(opening.building_hotbar.recipe_buttons.has("component:" + kind),
 				"The ordinary inventory lists the finite guided press component"):
 			return
@@ -1730,7 +1730,7 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 		{"kind": "ram_face", "center": [0, 5, -8]},
 		{"kind": "sliding_guide", "center": [0, 7, -8]},
 		{"kind": "wooden_shaft", "center": [0, 8, -7]},
-		{"kind": "softmetal_cog", "center": [0, 8, -6]},
+		{"kind": "copper_cog", "center": [0, 8, -6]},
 		{"kind": "receiver_tray", "center": [1, 4, -8]},
 	]:
 		if _construct({"action": "place_component", "component": part.kind,
@@ -2147,7 +2147,7 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 			return
 	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 		return
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
 		return
@@ -2484,7 +2484,7 @@ func _arrival_run() -> void:
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for index in range(7):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	var distant_before: Dictionary = opening.model.projection()
 	if not _press_inventory_recipe("component:wooden_frame", str(distant_before.fabrication_hub.id)):
@@ -2502,7 +2502,7 @@ func _arrival_run() -> void:
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
 			and initial.placed_components.is_empty() and initial.component_recipes.size() == 14
 			and initial.component_recipes.wooden_slide.timber == 3
-			and initial.component_recipes.softmetal_slide.softmetal == 4,
+			and initial.component_recipes.copper_slide.copper == 4,
 			"Two finite trees and the ore deposit supply the original route while native slides remain finite options"):
 		return
 	var part_list := ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"]
@@ -2512,7 +2512,7 @@ func _arrival_run() -> void:
 				"Every collector and press part is available in the inventory recipes"):
 			return
 		var bill: Dictionary = opening.model.projection().component_recipes[kind]
-		var bill_text := "%d timber + %d ore" % [bill.timber, bill.softmetal]
+		var bill_text := "%d timber + %d ore" % [bill.timber, bill.copper]
 		if not _expect(bill_text in inventory.recipe_buttons["component:" + kind].tooltip_text,
 				"The ordinary inventory shows the native hub recipe bill"):
 			return
@@ -2895,7 +2895,7 @@ func _arrival_broad_pad_run(panel) -> void:
 			Vector2(3.3, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for cut in range(16):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	var gathered: Dictionary = opening.model.projection()
 	if not _expect(gathered.cargo.P.timber == 16 and gathered.cargo.P.raw == 16
@@ -2996,7 +2996,7 @@ func _arrival_broad_drive_run(panel) -> void:
 	if not await _approach_points([Vector2(3.3, -1.2), Vector2(3.3, 3.3),
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 		return
 	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, 4.95)]):
 		return
@@ -3072,7 +3072,7 @@ func _arrival_broad_form_run() -> void:
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for cut in range(3):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	if not _expect(opening.model.projection().cargo.P.raw == 3,
 			"Three finite ore chunks provide one twelve-mass broad sheet"):
@@ -3171,7 +3171,7 @@ func _arrival_broad_cut_resume_run(panel) -> void:
 			Vector2(3.3, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for cut in range(8):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 3.3),
 			Vector2(3.3, 4.95)]):

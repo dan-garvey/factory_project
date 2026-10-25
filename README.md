@@ -19,7 +19,7 @@ the drive. Each holds four items. A full tray keeps the next workpiece ready
 until its contents are collected; the saved work can then continue. Hand-cranked
 strokes use the same fitted plate tray and still leave their offcut at the anvil
 for manual pickup when no side tray is fitted.
-The HUD shows carried timber, softmetal and the next local step. This remains
+The HUD shows carried timber, copper and the next local step. This remains
 an unfinished chapter; shared arrival adoption and human play feedback remain open.
 The earlier complete collector, belt, press and four-plate scenarios remain
 regression fixtures rather than the ordinary offline start.

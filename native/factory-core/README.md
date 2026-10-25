@@ -25,7 +25,8 @@ fractional shaft rate accumulates without a minimum-speed floor and the exact
 progress follows recovery, carried cargo and checkpoints. Rate changes retain
 exact fractions when their common denominator fits; larger combinations use
 bounded integer rounding. The earlier machine fixture uses material checkpoint
-schema 7. The experimental arrival profile uses schema 13: named finite timber
+schema 7. Resource profiles use schema 14, while the copper arrival payload
+uses schema 15: named finite timber
 balances and carried timber live beside the existing ore source and raw cargo
 in this same material State. Hand mining ore and the collector debit that same
 source. Strict conservation rejects missing, duplicated or refilled tree stock
@@ -107,11 +108,11 @@ crank starts work on the first turn, advances one baseline work tick on each
 later turn and retains a ready lot at the physical work point when the selected
 exit is full. Multiple work points remain independent inside one material State.
 The nonresource material checkpoint schema is 7. The arrival resource payload
-uses schema 13 and includes belt-lane and typed loose-material custody plus
+uses schema 14 and includes belt-lane and typed loose-material custody plus
 timber and ore embodied in fabricated stationary kits. Earlier schemas are
 refused rather than inventing a compatibility migration.
 
-The copper payload uses schema 14. A three-stock broad work lot retains its
+The copper payload uses schema 15. A three-stock broad work lot retains its
 sheet output form and serial through partial work, pickup and refeed. Four
 connected guided pads can form one twelve-mass sheet at the same four-cell
 work face; the completed sheet keeps that serial and blocks another batch

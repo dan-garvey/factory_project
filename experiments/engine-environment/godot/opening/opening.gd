@@ -5282,7 +5282,7 @@ func issue(action: Dictionary) -> Dictionary:
 			_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
 			"craft_component": "Component crafted from carried material.",
 			"field_craft": "Wooden component shaped with your multitool.",
-			"craft_part": "Transmission kit made from carried timber and softmetal.",
+			"craft_part": "Transmission kit made from carried timber and copper.",
 			"place_component": "Component placed on the shared grid.",
 			"reclaim_component": "Component returned to your carried cargo.",
 			"stow_fabrication_hub": "Pod workshop unbolted. Place it on clear ground or a foundation top.",
@@ -5329,7 +5329,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"not_at_seam": "Place the collector over the ore deposit beside the rock.",
 			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."), action.action)
 		if action.action == "craft_component":
-			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
+			refusal = {"unavailable_input": "Gather the timber or copper shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"out_of_reach": "Move beside the selected workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "field_craft":
@@ -5337,7 +5337,7 @@ func issue(action: Dictionary) -> Dictionary:
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"unavailable_recipe": "Metal components need a workshop."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "craft_part":
-			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
+			refusal = {"unavailable_input": "Gather the timber or copper shown for this transmission kit.",
 				"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "turn_hand_crank":
@@ -5361,7 +5361,7 @@ func _harvest_result_text(outcome: Dictionary) -> String:
 	var raw: int = outcome.get("moved_raw", 0)
 	if raw == 0:
 		return "Cutting…"
-	return "Collected %d softmetal %s." % [raw, "blank" if raw == 1 else "blanks"]
+	return "Collected %d copper %s." % [raw, "blank" if raw == 1 else "blanks"]
 
 func _press_contact_refusal(entity: String) -> String:
 	for assembly: Variant in state.get("guided_press_assemblies", []):
@@ -6518,9 +6518,9 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 			var rise := 3 if pointed_kind == "anvil" else 2
 			return {"center": [center[0], center[1] + rise, center[2]],
 				"label": "Guide over %s" % ("ram" if pointed_kind == "ram_face" else "anvil")}
-	if pointed_kind == "anvil" and kind in ["wooden_shaft", "softmetal_shaft",
-			"wooden_cog", "softmetal_cog"]:
-		var distance := 1 if kind in ["wooden_shaft", "softmetal_shaft"] else 2
+	if pointed_kind == "anvil" and kind in ["wooden_shaft", "copper_shaft",
+			"wooden_cog", "copper_cog"]:
+		var distance := 1 if kind in ["wooden_shaft", "copper_shaft"] else 2
 		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
 			return {"center": [center[0] + distance * (1 if normal.x > 0.0 else -1),
 				center[1] + 4, center[2]], "label": "Press drive from anvil"}
@@ -6528,7 +6528,7 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 			return {"center": [center[0], center[1] + 4,
 				center[2] + distance * (1 if normal.z > 0.0 else -1)],
 				"label": "Press drive from anvil"}
-	if kind in ["wooden_shaft", "softmetal_shaft"] and pointed_kind == "sliding_guide":
+	if kind in ["wooden_shaft", "copper_shaft"] and pointed_kind == "sliding_guide":
 		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
 			return {"center": [center[0] + (1 if normal.x > 0.0 else -1),
 				center[1] + 1, center[2]], "label": "Drive beside guide"}
@@ -6634,9 +6634,9 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 		"receiver_tray":
 			occupied.y -= 0.0825
 			half = Vector3(0.18, 0.15, 0.205)
-		"wooden_shaft", "softmetal_shaft":
+		"wooden_shaft", "copper_shaft":
 			half = Vector3(0.205, 0.12, 0.205)
-		"wooden_cog", "softmetal_cog":
+		"wooden_cog", "copper_cog":
 			half = Vector3(Geometry.HEIGHT_STEP - 0.205, 0.14, Geometry.HEIGHT_STEP - 0.205)
 	return {"center": occupied, "half": half, "size": half * 2.0}
 
@@ -6761,8 +6761,8 @@ func _component_placement_hint() -> String:
 	var stack_hint := "Aim at a floor or built surface" if kind == "anvil" else \
 		"Aim at the anvil top" if kind == "ram_face" else \
 		"Aim at the anvil or ram top" if kind == "sliding_guide" else \
-		"Press drive: aim at anvil side or guide side" if kind in ["wooden_shaft", "softmetal_shaft"] else \
-		"Press drive: aim at anvil side or shaft end" if kind in ["wooden_cog", "softmetal_cog"] else \
+		"Press drive: aim at anvil side or guide side" if kind in ["wooden_shaft", "copper_shaft"] else \
+		"Press drive: aim at anvil side or shaft end" if kind in ["wooden_cog", "copper_cog"] else \
 		"Point at a part face to snap"
 	return "%s\n%s · %s\nAlt + arrows / PgUp / PgDn nudges" % [location, action, stack_hint]
 
@@ -9098,7 +9098,7 @@ func _confirmed_drive_status(motion: Variant) -> String:
 		var limiting: Variant = motion.get("limiting_part", "")
 		if limiting is String and not limiting.is_empty():
 			var part_kind: String = str(motion.get("limiting_kind", "drive part")).replace("_", " ").capitalize()
-			description += "\nLimit: %s (%s). Replace with softmetal or split the load." % [part_kind, limiting]
+			description += "\nLimit: %s (%s). Replace with copper or split the load." % [part_kind, limiting]
 		else:
 			description += "\nAdd power or reduce load."
 		return description
@@ -10592,7 +10592,7 @@ func _build_manager_log() -> void:
 	column.add_child(manager_log_projects)
 	for project in [
 		["belt", "Route collector blanks by belt to a powered press."],
-		["gear", "Compare wood and softmetal drive parts under load."]]:
+		["gear", "Compare wood and copper drive parts under load."]]:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		manager_log_projects.add_child(row)

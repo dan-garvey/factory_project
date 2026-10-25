@@ -58,10 +58,10 @@ the only way to progress.
 | Pod | One deployed site object per landing. Its deck uses the global foundation origin and height denominator, with ordinary vertical and horizontal joins. Its hub and tray have explicit identities and stock custody. A late join never creates another free pod or kit. |
 | Hub | A local clamp/cutting/forming surface for component work. It has modest carried-item input and output capacity, and can be replaced by a player-built bench. Basic wood shaping remains possible with the multitool away from the pod; metal forming needs a bench or an equivalent assembled fixture. |
 | Hand crank | One detachable, reusable item. It supplies rotation only while an actor turns it at a shaft; it can be moved between early machines. The eventual waterwheel can run them without a player. No hidden motor, battery or endless pod power is implied. |
-| Site | At least three reachable, visibly harvestable trees and one finite softmetal ore deposit near the pod, plus a stream and room for different layouts. These are world stocks rather than inventory grants. The pod is not a restricted build rectangle. |
+| Site | At least three reachable, visibly harvestable trees and one finite copper ore deposit near the pod, plus a stream and room for different layouts. These are world stocks rather than inventory grants. The pod is not a restricted build rectangle. |
 
 Multitool cutting reduces a specific tree or deposit's finite stock and creates
-carried items at that actor. Sawing timber and cutting a softmetal blank take
+carried items at that actor. Sawing timber and cutting a copper blank take
 time and show contact/collection feedback. Refused range, wrong target,
 source depletion and repeated command cannot duplicate or erase material. The
 opening actor can carry its finite material supply without a small hidden bag
@@ -83,11 +83,11 @@ These are **reversible balance inputs** for a finite bootstrap. The approved
 powered-slide recipe needs a new complete budget and ordinary construction
 proof; the old separate-guide bill does not establish it. One tree yields
 eight usable timber pieces; the original
-balance fixture used sixteen softmetal blanks. At least three accessible trees
+balance fixture used sixteen copper blanks. At least three accessible trees
 give layout and mistake margin. The playable native arrival now uses a finite
 4,096-unit ore reserve; the old sixteen-blank fixture is not its current source
 capacity. A different final yield
-is fine if the same dependency and recovery proof is redone. Softmetal is a
+is fine if the same dependency and recovery proof is redone. Copper is a
 fictional workable material for early cold forming; its geology and final name
 remain open.
 
@@ -99,9 +99,9 @@ remain open.
 | Receiver tray | 2 timber | Catches a cut blank; full capacity pauses extraction. |
 | Tool mount | 1 timber | Supports the collector head at a chosen height and orientation. |
 | Powered slide | Mechanism/body cost plus one same-material shaft; total to be tuned | Complete rotary input, linear motion mechanism, rails and moving carriage. |
-| Cutting edge | 1 softmetal blank, subject to width/material tuning | Interchangeable cutting head for a compatible slide or cutter mount. |
-| Anvil/workbed | 2 softmetal blanks | Passive support for forming or cutting work. |
-| Flat working face | 2 softmetal blanks, subject to area/material tuning | Interchangeable pressing head carried by the slide. |
+| Cutting edge | 1 copper blank, subject to width/material tuning | Interchangeable cutting head for a compatible slide or cutter mount. |
+| Anvil/workbed | 2 copper blanks | Passive support for forming or cutting work. |
+| Flat working face | 2 copper blanks, subject to area/material tuning | Interchangeable pressing head carried by the slide. |
 | Extra foundation | 2 timber | Extends a floor or access step on the shared world grid. |
 
 The first forming arrangement uses a powered slide, a flat working face and
@@ -291,7 +291,7 @@ Part material sets transmitted load and suitable working conditions; geometry
 still controls connection and direction. A wooden shaft or cog handles a small
 early machine at ordinary speed. A heavier combined collector/press line
 exceeds a wooden bottleneck but can run after replacing that bottleneck with
-softmetal. Metal costs scarce blanks and more shaping, while wooden parts stay
+copper. Metal costs scarce blanks and more shaping, while wooden parts stay
 useful for light branches and remote early builds. A later alloy can enable
 still higher load or hostile-site operation through a genuinely new process.
 

@@ -203,7 +203,7 @@ func _collector_ui_p() -> bool:
 	if not await _chapter_ui_walk(Vector2(3.3, 1.65)) or not await _chapter_ui_walk(Vector2(0.0, 1.65)):
 		return false
 	if (await _collector_ui_issue("Harvest one finite edge blank",
-		{"action": "harvest_source", "target": "opening-softmetal"})).is_empty():
+		{"action": "harvest_source", "target": "opening-copper"})).is_empty():
 		return false
 	if not await _chapter_ui_walk(Vector2(1.65, 4.95)):
 		return false
@@ -239,7 +239,7 @@ func _collector_ui_p() -> bool:
 		{"action": "turn_hand_crank", "entity": shaft},
 		opening.arrival_assembly_controls.collector_cut_button.pressed.emit)
 	if cut.is_empty() or not _expect(cut.get("receiver_raw") == 1 and _collector_ui_drop(session.projection())
-		and session.projection().hand_sources["opening-softmetal"].remaining == 14
+		and session.projection().hand_sources["opening-copper"].remaining == 14
 		and opening.arrival_assembly_controls.collector_cut_button.disabled,
 		"One accepted panel cut debits finite ore and fills the receiver without an automatic second cut"):
 		return false
@@ -258,7 +258,7 @@ func _collector_ui_q() -> bool:
 		return false
 	return _expect(_collector_ui_drop(session.projection()) and session.projection().cargo.P.raw == 0
 		and session.projection().hand_sources["tree-east-south"].remaining == 1
-		and session.projection().hand_sources["opening-softmetal"].remaining == 14,
+		and session.projection().hand_sources["opening-copper"].remaining == 14,
 		"Q sees the same seven timber debits, one ore debit and exact receiver custody")
 
 func _collector_ui_resume_p() -> bool:
@@ -270,7 +270,7 @@ func _collector_ui_resume_p() -> bool:
 		if item.get("status") == "ready":
 			shaft = str(item.get("parts", {}).get("shaft", ""))
 	if not _expect(restored.order == 21 and not shaft.is_empty() and _collector_ui_drop(restored)
-		and restored.hand_crank.holder == "P" and restored.hand_sources["opening-softmetal"].remaining == 14,
+		and restored.hand_crank.holder == "P" and restored.hand_sources["opening-copper"].remaining == 14,
 		"Fresh host restores the issued collector, full receiver and original crank holder") \
 			or not _collector_ui_select(shaft, false):
 		return false
@@ -298,7 +298,7 @@ func _collector_ui_resume_p() -> bool:
 func _collector_ui_resume_q() -> bool:
 	var restored: Dictionary = session.projection()
 	if not _expect(restored.order == 21 and _collector_ui_drop(restored)
-		and restored.hand_sources["opening-softmetal"].remaining == 14,
+		and restored.hand_sources["opening-copper"].remaining == 14,
 		"Q joins the same Store-restored native receiver") \
 			or not _expect(_write("Q-ready.bin", {"status": "pass"}),
 			"Q announces its restored collector view"):
@@ -308,7 +308,7 @@ func _collector_ui_resume_q() -> bool:
 		"Q receives both restored receiver pickup and second cut"):
 		return false
 	return _expect(_collector_ui_drop(session.projection()) and session.projection().cargo.P.raw == 1
-		and session.projection().hand_sources["opening-softmetal"].remaining == 13,
+		and session.projection().hand_sources["opening-copper"].remaining == 13,
 		"Q sees one carried blank, one receiver blank and exactly thirteen uncut ore units")
 
 func _run_collector_ui() -> void:
@@ -359,7 +359,7 @@ func _plate_ui_p() -> bool:
 			collector_shaft = str(item.get("parts", {}).get("shaft", ""))
 	if not _expect(restored.order == 21 and not collector_shaft.is_empty()
 		and restored.hand_crank.holder == "P" and _collector_ui_drop(restored)
-		and restored.hand_sources["opening-softmetal"].remaining == 14,
+		and restored.hand_sources["opening-copper"].remaining == 14,
 		"Fresh host restores the actual first collector cut before press work"):
 		return false
 	for index in range(5):
@@ -378,7 +378,7 @@ func _plate_ui_p() -> bool:
 			"Every panel cut fills only the cleared collector receiver"):
 			return false
 	if not _expect(session.projection().cargo.P.raw == 5 and not _collector_ui_drop(session.projection())
-		and session.projection().hand_sources["opening-softmetal"].remaining == 10,
+		and session.projection().hand_sources["opening-copper"].remaining == 10,
 		"Five real collector cuts supply the four metal fittings and one press input"):
 		return false
 	if not await _chapter_ui_walk(Vector2(0.0, 9.9)):
@@ -478,7 +478,7 @@ func _plate_ui_p() -> bool:
 		panel.pickup_button.pressed.emit)).is_empty():
 		return false
 	if not _expect(session.projection().cargo.P.products == 1 and session.projection().cargo.P.raw == 0
-		and session.projection().hand_sources["opening-softmetal"].remaining == 10
+		and session.projection().hand_sources["opening-copper"].remaining == 10
 		and _plate_ui_drop(session.projection(), route.exit).is_empty(),
 		"The first carried plate comes from the collector's finite ore through the separate press"):
 		return false
@@ -491,7 +491,7 @@ func _plate_ui_p() -> bool:
 func _plate_ui_q() -> bool:
 	var restored: Dictionary = session.projection()
 	if not _expect(restored.order == 21 and _collector_ui_drop(restored)
-		and restored.hand_sources["opening-softmetal"].remaining == 14,
+		and restored.hand_sources["opening-copper"].remaining == 14,
 		"Q starts from the unchanged first collector-cut Store input") \
 			or not _expect(_write("Q-ready.bin", {"status": "pass"}),
 			"Q joins before the ordinary press route moves material"):
@@ -502,7 +502,7 @@ func _plate_ui_q() -> bool:
 		return false
 	if not _expect(_plate_ui_drop(session.projection(), fed.work_center).get("raw") == 1
 		and session.projection().cargo.P.raw == 0
-		and session.projection().hand_sources["opening-softmetal"].remaining == 10,
+		and session.projection().hand_sources["opening-copper"].remaining == 10,
 		"Q sees collector ore under the press head, with no remote raw copy") \
 			or not _expect(_write("Q-fed.bin", {"status": "pass"}), "Release P's first press turn"):
 		return false
@@ -529,7 +529,7 @@ func _plate_ui_q() -> bool:
 		"Q receives the same first carried plate"):
 		return false
 	return _expect(session.projection().cargo.P.products == 1 and session.projection().cargo.P.raw == 0
-		and session.projection().hand_sources["opening-softmetal"].remaining == 10
+		and session.projection().hand_sources["opening-copper"].remaining == 10
 		and not session.projection().placed_components.get(complete.press_frame, {}).is_empty()
 		and not session.projection().placed_components.get(complete.collector_shaft, {}).is_empty(),
 		"Q retains one product and both separate machines without stock duplication")
@@ -587,7 +587,7 @@ func _shipment_initial() -> bool:
 		and _same(current.get("dropped_material"), plate.get("dropped_material"))
 		and _same(current.get("freight_beacon"), plate.get("freight_beacon"))
 		and current.cargo.P.products == 1 and current.freight_beacon.shipped_products == 0
-		and current.hand_sources["opening-softmetal"].remaining == 10,
+		and current.hand_sources["opening-copper"].remaining == 10,
 		"Both scenes open the exact collector-derived carried plate checkpoint")
 
 func _shipment_p() -> bool:
@@ -621,7 +621,7 @@ func _shipment_p() -> bool:
 		and shipped.freight_beacon.order_complete
 		and shipped.freight_beacon.repeat_order_shipped == 0
 		and not shipped.freight_beacon.repeat_order_complete
-		and shipped.hand_sources["opening-softmetal"].remaining == 10
+		and shipped.hand_sources["opening-copper"].remaining == 10
 		and shipped.dropped_material.is_empty()
 		and opening.manager_log_repeat_entry.visible
 		and "REPEAT ORDER" in opening.goal_label.text,
@@ -653,7 +653,7 @@ func _shipment_q() -> bool:
 		and shipped.freight_beacon.order_complete
 		and shipped.freight_beacon.repeat_order_shipped == 0
 		and shipped.placed_components.size() == marker.components
-		and shipped.hand_sources["opening-softmetal"].remaining == 10
+		and shipped.hand_sources["opening-copper"].remaining == 10
 		and shipped.dropped_material.is_empty(),
 		"Q independently sees one shipped plate and unchanged two-machine stock"):
 		return false
@@ -700,7 +700,7 @@ func _mirrored_press_p() -> bool:
 		and reclaimed.cargo.P.components.get("wooden_shaft", 0) == 1
 		and reclaimed.cargo.P.components.get("wooden_cog", 0) == 1
 		and reclaimed.dropped_material.is_empty()
-		and reclaimed.hand_sources["opening-softmetal"].remaining == 10,
+		and reclaimed.hand_sources["opening-copper"].remaining == 10,
 		"Reclaiming the empty drive returns exactly the two reusable wooden parts"):
 		return false
 	var new_shaft: Dictionary = await _collector_ui_issue("Fit the press shaft on its south face",
@@ -744,7 +744,7 @@ func _mirrored_press_p() -> bool:
 		panel.collector_cut_button.pressed.emit)).is_empty():
 		return false
 	if not _expect(_collector_ui_drop(session.projection())
-		and session.projection().hand_sources["opening-softmetal"].remaining == 9,
+		and session.projection().hand_sources["opening-copper"].remaining == 9,
 		"The second layout needs one more genuinely collector-cut ore blank"):
 		return false
 	if not _expect(_write("P-cut.bin", {"status": "pass", "order": session.projection().order}),
@@ -800,7 +800,7 @@ func _mirrored_press_p() -> bool:
 	if not _expect(complete.order == 69 and complete.cargo.P.products == 1
 		and complete.cargo.P.raw == 0 and complete.dropped_material.is_empty()
 		and complete.freight_beacon.shipped_products == 1
-		and complete.hand_sources["opening-softmetal"].remaining == 9,
+		and complete.hand_sources["opening-copper"].remaining == 9,
 		"The mirrored press holds a new carried product after the first freight receipt"):
 		return false
 	if not _expect(_write("P-complete.bin", {"status": "pass", "order": complete.order,
@@ -825,7 +825,7 @@ func _mirrored_press_q() -> bool:
 		and state.placed_components.has(mirror.new_cog)
 		and press.get("frame") == mirror.frame and press.get("shaft_center") == [12, 4, 15]
 		and press.get("cog_center") == [12, 4, 14]
-		and state.hand_sources["opening-softmetal"].remaining == 10,
+		and state.hand_sources["opening-copper"].remaining == 10,
 		"Q sees reused parts on the new face without a material debit") \
 			or not _expect(_write("Q-mirrored.bin", {"status": "pass"}), "Release the second collector cut"):
 		return false
@@ -834,7 +834,7 @@ func _mirrored_press_q() -> bool:
 		"Q receives the second collector cut"):
 		return false
 	if not _expect(_collector_ui_drop(session.projection())
-		and session.projection().hand_sources["opening-softmetal"].remaining == 9,
+		and session.projection().hand_sources["opening-copper"].remaining == 9,
 		"Q sees one source-debited blank in the original collector receiver") \
 			or not _expect(_write("Q-cut.bin", {"status": "pass"}), "Release the second blank pickup"):
 		return false
@@ -861,7 +861,7 @@ func _mirrored_press_q() -> bool:
 		"Q receives the same carried second plate"):
 		return false
 	return _expect(session.projection().cargo.P.products == 1
-		and session.projection().hand_sources["opening-softmetal"].remaining == 9
+		and session.projection().hand_sources["opening-copper"].remaining == 9
 		and session.projection().freight_beacon.shipped_products == 1
 		and not _plate_ui_ready_press(session.projection()).is_empty()
 		and session.projection().placed_components.has(complete.new_shaft)
@@ -918,7 +918,7 @@ func _alternate_collector_p() -> bool:
 		and recovered.cargo.P.components.get("wooden_shaft", 0) == 1
 		and recovered.cargo.P.components.get("receiver_tray", 0) == 1
 		and recovered.dropped_material.is_empty()
-		and recovered.hand_sources["opening-softmetal"].remaining == 10,
+		and recovered.hand_sources["opening-copper"].remaining == 10,
 		"An empty receiver and its drive return as the same reusable parts"):
 		return false
 	var new_tray: Dictionary = await _collector_ui_issue("Fit the collector receiver on its north side",
@@ -967,7 +967,7 @@ func _alternate_collector_p() -> bool:
 	var complete: Dictionary = session.projection()
 	if not _expect(complete.order == 64 and complete.cargo.P.raw == 1
 		and complete.cargo.P.products == 0 and complete.dropped_material.is_empty()
-		and complete.hand_sources["opening-softmetal"].remaining == 9
+		and complete.hand_sources["opening-copper"].remaining == 9
 		and complete.freight_beacon.shipped_products == 1
 		and not _plate_ui_ready_press(complete).is_empty(),
 		"The alternate collector yields a carried blank beside the unchanged press and freight receipt"):
@@ -995,7 +995,7 @@ func _alternate_collector_q() -> bool:
 		and not changed.placed_components.has(alternate.old_shaft)
 		and changed.placed_components.get(alternate.new_tray, {}).get("center") == [0, 4, 5]
 		and changed.placed_components.get(alternate.new_shaft, {}).get("center") == [0, 4, 3]
-		and changed.hand_sources["opening-softmetal"].remaining == 10
+		and changed.hand_sources["opening-copper"].remaining == 10
 		and changed.dropped_material.is_empty(),
 		"Q sees the same parts reused in a distinct ready collector geometry") \
 			or not _expect(_write("Q-alternate.bin", {"status": "pass"}),
@@ -1006,7 +1006,7 @@ func _alternate_collector_q() -> bool:
 		"Q receives one actual cut through the alternate layout"):
 		return false
 	if not _expect(session.projection().order == 63
-		and session.projection().hand_sources["opening-softmetal"].remaining == 9
+		and session.projection().hand_sources["opening-copper"].remaining == 9
 		and _plate_ui_drop(session.projection(), [0, 4, 5]).get("raw") == 1
 		and _plate_ui_drop(session.projection(), [0, 4, 3]).is_empty(),
 		"Q sees one finite blank only in the moved receiver") \
@@ -1020,7 +1020,7 @@ func _alternate_collector_q() -> bool:
 	var final: Dictionary = session.projection()
 	return _expect(final.order == 64 and final.cargo.P.raw == 1
 		and final.dropped_material.is_empty() and final.freight_beacon.shipped_products == 1
-		and final.hand_sources["opening-softmetal"].remaining == 9
+		and final.hand_sources["opening-copper"].remaining == 9
 		and _alternate_collector(final).get("parts", {}).get("receiver") == complete.new_tray
 		and _alternate_collector(final).get("parts", {}).get("shaft") == complete.new_shaft,
 		"Q retains the carried alternate blank, source debit and distinct part identities")
@@ -1157,7 +1157,7 @@ func _hand_refeed_p() -> bool:
 	var finished: Dictionary = session.projection()
 	if not _expect(finished.order == 71 and finished.cargo.P.products == 1
 		and finished.cargo.P.raw == 0 and finished.cargo.P.work_lots.is_empty()
-		and finished.hand_sources["opening-softmetal"].remaining == 9,
+		and finished.hand_sources["opening-copper"].remaining == 9,
 		"The recovered ore blank yields one plate without a second source debit"):
 		return false
 	if not _expect(_write("P-complete.bin", {"status": "pass", "order": finished.order,
@@ -1201,7 +1201,7 @@ func _hand_refeed_q() -> bool:
 		return false
 	return _expect(session.projection().cargo.P.products == 1
 		and session.projection().cargo.P.work_lots.is_empty()
-		and session.projection().hand_sources["opening-softmetal"].remaining == 9,
+		and session.projection().hand_sources["opening-copper"].remaining == 9,
 		"Q observes one conserved recovered-work product") \
 		and _expect(_write("Q-complete.bin", {"status": "pass"}), "Release the completed P route")
 
@@ -1312,7 +1312,7 @@ func _alternate_repeat_p() -> bool:
 		and shipped.freight_beacon.shipped_products == 2
 		and shipped.freight_beacon.repeat_order_shipped == 1
 		and not shipped.freight_beacon.repeat_order_complete
-		and shipped.hand_sources["opening-softmetal"].remaining == 9
+		and shipped.hand_sources["opening-copper"].remaining == 9
 		and shipped.dropped_material.is_empty(),
 		"Repeat freight debits exactly one collector-derived plate and retains the remaining work order"):
 		return false
@@ -1363,7 +1363,7 @@ func _alternate_repeat_q() -> bool:
 		return false
 	if not _expect(session.projection().cargo.P.products == 1
 		and session.projection().freight_beacon.shipped_products == 1
-		and session.projection().hand_sources["opening-softmetal"].remaining == 9,
+		and session.projection().hand_sources["opening-copper"].remaining == 9,
 		"Q sees the product move into P cargo without a source refill") \
 			or not _expect(_write("Q-carried.bin", {"status": "pass"}), "Release repeat freight"):
 		return false
@@ -1376,7 +1376,7 @@ func _alternate_repeat_q() -> bool:
 		and shipped.freight_beacon.id == receipt.beacon
 		and shipped.freight_beacon.shipped_products == 2
 		and shipped.freight_beacon.repeat_order_shipped == 1
-		and shipped.hand_sources["opening-softmetal"].remaining == 9
+		and shipped.hand_sources["opening-copper"].remaining == 9
 		and shipped.dropped_material.is_empty()
 		and _alternate_collector(shipped).get("status") == "ready",
 		"Q retains one repeat shipment from the alternate layout with both machines intact") \

@@ -1,7 +1,7 @@
 # Chapter assembly geometry
 
 This native helper inspects World-owned placed components against a trusted ore
-face. A wooden frame, tool mount, cutting edge, receiver and wooden or softmetal
+face. A wooden frame, tool mount, cutting edge, receiver and wooden or copper
 shaft must form a contiguous quarter-grid arrangement. The cutter can sit at
 frame height or one quarter step above it; the receiver and drive may use
 different sides. The ore face supplies a workcell and direction, so the helper
@@ -20,7 +20,7 @@ not a running collection or human-play result.
 
 `inspect_press` reads the same placed-part identities at any four-step frame
 origin. A distinct anvil, ram face, sliding guide and tool mount rise one
-quarter-grid step at a time above the frame. A wooden or softmetal shaft and
+quarter-grid step at a time above the frame. A wooden or copper shaft and
 cog approach the mount from one horizontal side; a second complete drive is
 reported as ambiguous. The lower anvil level exposes all feed/exit pairs that
 remain clear of placed components. A raised frame uses the same absolute

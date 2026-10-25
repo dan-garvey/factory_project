@@ -100,7 +100,7 @@ The existing native drive evaluator now projects complete placed collector and
 press assemblies into the same connected graph as stationary shafts, cogs and
 wheel sources. The projected parts keep their issued identities. Speed-weighted
 machine load is limited by the weakest placed shaft or cog: provisional wooden
-rating 8 and softmetal rating 24, against the existing wheel capacity of 32
+rating 8 and copper rating 24, against the existing wheel capacity of 32
 per unit source rate. A connected overload stalls without consuming material
 or damaging parts; independent branches retain their own motion. World ticks
 and checkpoint restore recompute this graph from the one saved State. These
@@ -158,7 +158,7 @@ an X-axis belt, at the same height. A cell is four integer quarter-pitch units. 
 diagonals, other heights and nearby power components do not attach. This is a
 revisable adapter layout, not a general material-routing rule.
 
-The logical checkpoint uses schema 17 and retains exact powered-slide carriage phase and pending manual cut identity,
+The logical checkpoint uses schema 18 and retains exact powered-slide carriage phase and pending manual cut identity,
 remaining trusted ticks, and interruption state alongside each actor's witnessed
 first collected plate, the pod workshop's installed or held
 custody and relocated center, and collector/press quarter-turn
