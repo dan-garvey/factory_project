@@ -1084,9 +1084,11 @@ Value Host::configure_terrain(const Object& input) {
     const auto* heights = field<Array>(input, "heights");
     const auto* obstacles = field<Array>(input, "obstacles");
     const auto* source_obstacle = field<Integer>(input, "source_obstacle");
+    const auto* tree_obstacles = field<Object>(input, "tree_obstacles");
     const auto* water = field<Array>(input, "water");
     const auto* flow_cells = field<Array>(input, "flow_cells");
-    if (input.size() != (water || flow_cells ? 4u : 3u) + (source_obstacle ? 1u : 0u) || (water && flow_cells) ||
+    if (input.size() != (water || flow_cells ? 4u : 3u) + (source_obstacle ? 1u : 0u) +
+        (tree_obstacles ? 1u : 0u) || (water && flow_cells) ||
         !axis || !heights || !obstacles || obstacles->size() > 1024 || axis->size() < 2 || axis->size() > 200 ||
         heights->size() != axis->size() * axis->size()) return result(false, "invalid_terrain");
     std::vector<double> coordinates, elevations;
@@ -1122,6 +1124,17 @@ Value Host::configure_terrain(const Object& input) {
                             {(high[0] - low[0]) / 2, (high[1] - low[1]) / 2, (high[2] - low[2]) / 2}};
         if (!overlap(source, *collector_intake_bounds({0, 0, 0})) ||
             !overlap(source, *collector_intake_bounds({0, 0, 4}))) return result(false, "invalid_terrain");
+    }
+    std::map<std::string, std::size_t> named_trees;
+    std::set<std::size_t> named_indices;
+    if (tree_obstacles) for (const auto& [id, value] : *tree_obstacles) {
+        const auto* index = std::get_if<Integer>(&value.storage());
+        if (!index || *index < 0 || static_cast<std::size_t>(*index) >= solids.size() ||
+            (source_obstacle && *index == *source_obstacle) ||
+            !profile_.material.timber_sites.contains(id) ||
+            !named_indices.insert(static_cast<std::size_t>(*index)).second)
+            return result(false, "invalid_terrain");
+        named_trees.emplace(id, static_cast<std::size_t>(*index));
     }
     auto next_profile = profile_;
     if (source_obstacle && next_profile.material.manual_ore)
@@ -1171,7 +1184,60 @@ Value Host::configure_terrain(const Object& input) {
     terrain_heights_ = std::move(elevations);
     terrain_obstacles_ = std::move(solids);
     source_obstacle_index_ = source_obstacle ? std::optional<std::size_t>{static_cast<std::size_t>(*source_obstacle)} : std::nullopt;
+    tree_obstacle_indices_ = std::move(named_trees);
     return result(true, "terrain_bound");
+}
+
+bool Host::clear_harvest_path(const std::string& source,
+        const authority::Point& actor, const authority::Point& contact) const {
+    // The actor's upper body is the origin; the selected source's own obstacle
+    // is the destination, not a wall between the two. Other trusted solids
+    // and the emitted ground can still stop a cut despite valid radial reach.
+    auto start = actor;
+    start[1] += 0.45;
+    const authority::Point delta{contact[0] - start[0], contact[1] - start[1], contact[2] - start[2]};
+    const auto own_tree = tree_obstacle_indices_.find(source);
+    for (std::size_t index = 0; index < terrain_obstacles_.size(); ++index) {
+        if ((source_obstacle_index_ == index && profile_.material.manual_ore &&
+             profile_.material.manual_ore->id == source) ||
+            (own_tree != tree_obstacle_indices_.end() && own_tree->second == index)) continue;
+        const auto& [low, high] = terrain_obstacles_[index];
+        double entry = 0.0, exit = 1.0;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            if (std::abs(delta[axis]) < 1e-9) {
+                if (start[axis] < low[axis] || start[axis] > high[axis]) { entry = 2.0; break; }
+                continue;
+            }
+            const double a = (low[axis] - start[axis]) / delta[axis];
+            const double b = (high[axis] - start[axis]) / delta[axis];
+            entry = std::max(entry, std::min(a, b));
+            exit = std::min(exit, std::max(a, b));
+        }
+        if (entry <= exit && entry < 1.0 - 1e-6 && exit > 1e-6) return false;
+    }
+    const double span = std::hypot(delta[0], delta[2]);
+    const int steps = std::max(1, static_cast<int>(std::ceil(span / 0.15)));
+    for (int step = 1; step < steps; ++step) {
+        const double t = static_cast<double>(step) / steps;
+        const auto ground = terrain_range(start[0] + delta[0] * t,
+            start[2] + delta[2] * t, 0, 0);
+        if (!ground || ground->second > start[1] + delta[1] * t - 0.02) return false;
+    }
+    return true;
+}
+
+Object Host::harvest_clearances(const Actor& actor) const {
+    Object clear;
+    if (!actor.ready) return clear;
+    const auto examine = [&](const std::string& id, const materials::DropPoint& center, bool ore) {
+        const auto contact = world::manual_cut_target(profile_, center, actor.position, ore);
+        clear.emplace(id, Value(clear_harvest_path(id, actor.position, contact)));
+    };
+    if (profile_.material.manual_ore)
+        examine(profile_.material.manual_ore->id, profile_.material.manual_ore->center, true);
+    for (const auto& [id, site] : profile_.material.timber_sites)
+        examine(id, site.center, false);
+    return clear;
 }
 
 bool Host::site_blocked(const authority::Point& low, const authority::Point& high,
@@ -1663,6 +1729,18 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("enabled", wire.at("enabled"));
     } else if (*action == "harvest_source") {
         if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
+        const auto& id = *field<std::string>(wire, "target");
+        const bool ore = profile_.material.manual_ore && profile_.material.manual_ore->id == id;
+        const auto tree = profile_.material.timber_sites.find(id);
+        if (ore || tree != profile_.material.timber_sites.end()) {
+            const auto observed = observe()(bound_actor);
+            if (observed && observed->ready) {
+                const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
+                if (!clear_harvest_path(id, observed->position,
+                    world::manual_cut_target(profile_, center, observed->position, ore)))
+                    return refuse("source_occluded");
+            }
+        }
         normalized.at("action") = Value(snapshot.state.developer_conveniences ?
             "fast_harvest_source" : "harvest_source");
         normalized.emplace("target", wire.at("target"));
@@ -2432,7 +2510,8 @@ Value Host::actor_projection(const std::string& actor) const {
     if (found == owned_->actors.end()) return result(false, "unknown_actor");
     const auto& current = found->second;
     return Value(Object{{"accepted", Value(true)}, {"ready", Value(current.ready)},
-        {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)}});
+        {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)},
+        {"harvest_clear", Value(harvest_clearances(current))}});
 }
 
 Value Host::invalidate_actor(const std::string& actor) {
@@ -2475,7 +2554,8 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
             profile_.manual_cut_reach : profile_.build_reach;
         const auto target = world::manual_cut_target(profile_, center, actor_cut.position, ore);
         const bool lost_reach = !sampled || authority::check_reach(actor, actor_cut,
-            {target}).error != authority::Error::none;
+            {target}).error != authority::Error::none ||
+            !clear_harvest_path(cut.target, actor_cut.position, target);
         const bool interrupted = cut.interrupted_revision != 0 || lost_reach;
         if (!interrupted && cut.remaining_ticks != 0) continue;
         const Object wire{{"context", Value(snapshot.history.context)},
@@ -2707,7 +2787,8 @@ Value Host::projection() const {
             {"build_reach", Value(profile_.build_reach)},
             {"harvest_reach", Value(profile_.manual_cut_reach > 0 ?
                 profile_.manual_cut_reach : profile_.build_reach)}})},
-        {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)}}));
+        {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)},
+        {"harvest_clear", Value(harvest_clearances(sample))}}));
     for (const auto& [actor, cut] : state.manual_cuts)
         manual_cuts.emplace(actor, Value(Object{{"target", Value(cut.target)},
             {"remaining_ticks", Value(cut.remaining_ticks)},

@@ -35,6 +35,7 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 		heights.append(float(vertex.y))
 	var obstacles: Array = []
 	var source_obstacle := -1
+	var tree_obstacles: Dictionary = {}
 	for solid in surface.support_boxes():
 		if solid.id == "source_outcrop":
 			source_obstacle = obstacles.size()
@@ -42,15 +43,18 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
 	for fir in surface.fir_specs():
 		var bounds: AABB = fir.bounds
+		tree_obstacles[fir.id] = obstacles.size()
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
 	for broadleaf in surface.broadleaf_specs():
 		var bounds: AABB = broadleaf.bounds
+		tree_obstacles[broadleaf.id] = obstacles.size()
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
 	if source_obstacle < 0:
 		boot_result = {"accepted": false, "reason": "source_outcrop_missing"}
 		return
 	boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights, "obstacles": obstacles,
-		"source_obstacle": source_obstacle, "flow_cells": surface.flow_cells()}])
+		"source_obstacle": source_obstacle, "tree_obstacles": tree_obstacles,
+		"flow_cells": surface.flow_cells()}])
 	if not boot_result.get("accepted", false):
 		return
 	var profile: Dictionary = projection().get("adapter_profile", {})
@@ -152,6 +156,7 @@ func publish_actor(actor: String, position: Array, native_epoch: int) -> Diction
 			current.position = [float(position[0]), float(position[1]), float(position[2])]
 			current.ready = true
 			current.native_epoch = native_epoch
+			current.harvest_clear = _invoke("actor_projection", [actor]).get("harvest_clear", {})
 			actors[actor] = current
 			updated.actors = actors
 			_view_cache = updated

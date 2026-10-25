@@ -5395,6 +5395,7 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 	var advice: String = {
 		"first_plate_required": "Carry your first copper plate to unlock that part.",
 		"unavailable_source": "That source is unavailable or depleted. Choose another tree or ore deposit.",
+		"source_occluded": "Move around the obstacle before harvesting.",
 		"unaligned_elevation": "Machines and wheels need a whole-tile height. Build a factory floor with Access steps off, or adjust the wheel's drive height.",
 		"axles_already_touch": "These axle ends already touch; no shaft is needed.",
 		"overlapping_shafts": "A shaft already occupies that length. Place the new segment end to end.",
@@ -6163,6 +6164,10 @@ func _hand_source_in_reach(source: Dictionary) -> bool:
 		distance_squared += difference * difference
 	return distance_squared <= float(radius) * float(radius)
 
+func _hand_source_clear(id: String) -> bool:
+	var actor: Dictionary = state.get("actors", {}).get(client, {})
+	return actor.get("harvest_clear", {}).get(id, true) == true
+
 func _prepare_hand_tree_assets() -> bool:
 	if not hand_tree_assets.is_empty():
 		return true
@@ -6530,6 +6535,9 @@ func _interact_pointed() -> void:
 		return
 	if not _hand_source_in_reach(source):
 		_message("Move closer to the source before harvesting.", true)
+		return
+	if not _hand_source_clear(source_id):
+		_message("Move around the obstacle before harvesting.", true)
 		return
 	if state.get("manual_cuts", {}).has(client):
 		return
@@ -10613,8 +10621,10 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 				"detail": "Cutting…"}
 		var detail := "Depleted"
 		if source.remaining > 0:
-			detail = "%d left  ·  E Harvest" % source.remaining if _hand_source_in_reach(source) else \
-				"%d left  ·  Move closer" % source.remaining
+			detail = "%d left  ·  Move closer" % source.remaining
+			if _hand_source_in_reach(source):
+				detail = "%d left  ·  E Harvest" % source.remaining if _hand_source_clear(source_id) else \
+					"%d left  ·  Move around" % source.remaining
 		return {"name": "Timber tree" if source.kind == "tree" else "Ore deposit",
 			"detail": detail}
 	return {}
