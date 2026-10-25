@@ -60,8 +60,9 @@ void craft(Host& host, const char* kind, int count) {
 }
 
 void place(Host& host, const char* kind, I x, I y, I z, int index, I& epoch) {
-    pose(host, static_cast<double>(x) * 0.4125, static_cast<double>(z) * 0.4125 + 1.65,
-        ++epoch);
+    const bool broad_channel = std::string(kind).starts_with("channel_broad_");
+    pose(host, static_cast<double>(x) * 0.4125 - (broad_channel ? 1.65 : 0.0),
+        static_cast<double>(z) * 0.4125 + 1.65, ++epoch);
     auto wire = request(std::string("broad-place-") + kind + std::to_string(index), "place_component");
     wire.emplace("component", V(kind));
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
@@ -161,11 +162,73 @@ void broad_projection() {
               "status") == "unpowered",
         "Fresh Host restore keeps all four placed identities and the unpowered refusal.");
 }
+
+void channel_projection_and_wire() {
+    Host host;
+    check(get<bool>(host.initialize_arrival_advanced_fixture("broad-site", {"P", "Q"}),
+            "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()),
+            "accepted"), "The channel consumer starts from a finite native arrival.");
+    I epoch = 0;
+    pose(host, 5.8, 3.3, ++epoch);
+    harvest(host, "tree-east-south", 6, "channel-wood-");
+    pose(host, 1.65, 6.6, ++epoch);
+    craft(host, "channel_narrow_x", 1);
+    craft(host, "channel_broad_x", 1);
+    place(host, "channel_narrow_x", 28, 0, 0, 0, epoch);
+    place(host, "channel_broad_x", 20, 0, 0, 0, epoch);
+    const auto placed = get<O>(host.projection(), "placed_components");
+    bool broad_found = false;
+    bool narrow_found = false;
+    for (const auto& [id, value] : placed) {
+        (void)id;
+        const auto kind = get<std::string>(value, "component");
+        const auto& occupied = get<O>(value, "occupied");
+        const auto& half = std::get<A>(occupied.at("half").storage());
+        if (kind == "channel_broad_x") {
+            broad_found = true;
+            check(std::get<double>(half[2].storage()) >
+                    std::get<double>(half[0].storage()),
+                "Host projects the broad X channel as two workcells across Z.");
+        } else if (kind == "channel_narrow_x") {
+            narrow_found = true;
+            check(std::get<double>(half[2].storage()) ==
+                    std::get<double>(half[0].storage()),
+                "Host projects a one-workcell X channel without broadening it.");
+        }
+    }
+    check(broad_found && narrow_found,
+        "Both channel widths retain their selected component identity in projection.");
+    pose(host, 8.25, 1.65, ++epoch);
+    auto push = request("channel-no-sheet", "push_channel_sheet");
+    push.emplace("from", V(A{V(I{20}), V(I{0}), V(I{0})}));
+    push.emplace("to", V(A{V(I{24}), V(I{0}), V(I{0})}));
+    push.emplace("sheet_id", V(I{1}));
+    const auto absent = host.command("P", push);
+    check(!get<bool>(absent, "accepted") &&
+          get<std::string>(absent, "reason") == "unavailable_input",
+        "The ordinary wire reaches native custody and refuses an absent sheet.");
+    push["sheet_id"] = V(1.0);
+    const auto malformed = host.command("P", push);
+    check(!get<bool>(malformed, "accepted") &&
+          get<std::string>(malformed, "reason") != "unavailable_input" &&
+          get<A>(host.projection(), "dropped_material").empty(),
+        "The Host does not coerce a floating sheet identity or change custody.");
+    Host restored;
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("broad-site", {"P", "Q"}),
+            "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()),
+            "accepted") &&
+          get<bool>(restored.restore_checkpoint(host.checkpoint()), "accepted") &&
+          get<O>(restored.projection(), "placed_components").size() == 2,
+        "A fresh Host restores both placed channel identities after refusals.");
+}
 }  // namespace
 
 int main() {
     try {
         broad_projection();
+        channel_projection_and_wire();
         std::cout << "broad_press_host_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

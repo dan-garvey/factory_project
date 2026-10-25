@@ -258,8 +258,8 @@ class LooseMaterialControls:
 	var _actor := ""
 
 	func _init() -> void:
-		text = "Pick up loose material…  [Ctrl+L]"
-		tooltip_text = "Stand near loose material, then choose it here."
+		text = "Handle loose material…  [Ctrl+L]"
+		tooltip_text = "Pick up loose material or push a sheet along a built channel. Stand near its route."
 		get_popup().about_to_popup.connect(_open)
 		get_popup().id_pressed.connect(_choose)
 		visible = false
@@ -310,17 +310,36 @@ class LooseMaterialControls:
 			if drop.has("offcuts"):
 				label += ", %d offcut(s), %d sheet(s)" % [drop.offcuts, drop.sheets]
 			get_popup().add_item("%s at %s" % [label, str(point)], _offers.size())
-			_offers.append(drop.duplicate(true))
+			var expected: Dictionary = drop.duplicate(true)
+			expected.erase("center")
+			_offers.append({"drop": drop.duplicate(true), "wire": {
+				"action": "pickup_material", "center": point.duplicate(), "expected": expected}})
+			var sheets: Variant = drop.get("sheet_items")
+			if int(drop.get("sheets", 0)) != 1 or not sheets is Array or sheets.size() != 1 \
+					or not sheets[0] is Dictionary or typeof(sheets[0].get("id")) != TYPE_INT \
+					or sheets[0].id <= 0 or drop.raw != 0 or drop.products != 0 \
+					or not drop.work_lots.is_empty() or int(drop.get("offcuts", 0)) != 0:
+				continue
+			for direction: Dictionary in [
+				{"name": "east", "dx": 4, "dz": 0},
+				{"name": "west", "dx": -4, "dz": 0},
+				{"name": "south", "dx": 0, "dz": 4},
+				{"name": "north", "dx": 0, "dz": -4}]:
+				var target: Array = [point[0] + direction.dx, point[1], point[2] + direction.dz]
+				get_popup().add_item("Push sheet #%d %s → %s" % [sheets[0].id,
+					direction.name, str(target)], _offers.size())
+				_offers.append({"drop": drop.duplicate(true), "wire": {
+					"action": "push_channel_sheet", "from": point.duplicate(),
+					"to": target, "sheet_id": sheets[0].id}})
 
 	func _choose(id: int) -> void:
 		var context := _context()
 		if context.is_empty() or not context.usable or context.world != _world or context.actor != _actor or id < 0 or id >= _offers.size():
 			return
+		var chosen: Dictionary = _offers[id]
 		for drop: Variant in context.drops:
-			if drop is Dictionary and drop == _offers[id]:
-				var expected: Dictionary = _offers[id].duplicate(true)
-				expected.erase("center")
-				_host.get_ref().issue({"action": "pickup_material", "center": _offers[id].center.duplicate(), "expected": expected})
+			if drop is Dictionary and drop == chosen.drop:
+				_host.get_ref().issue(chosen.wire.duplicate(true))
 				return
 
 class WorkbedInventorySlot:
@@ -365,6 +384,10 @@ class ArrivalAssemblyControls:
 		["copper_cog", "Copper cog"], ["wooden_workbench", "Wooden workbench"],
 		["wooden_slide", "Wooden slide"], ["copper_slide", "Copper slide"],
 		["flat_head", "Flat pressing head"], ["hand_crank", "Hand crank"],
+		["channel_narrow_x", "Narrow channel · X"],
+		["channel_narrow_z", "Narrow channel · Z"],
+		["channel_broad_x", "Broad channel · X"],
+		["channel_broad_z", "Broad channel · Z"],
 	]
 	const COLLECTOR_NEXT := {
 		"missing_mount": "Fit a tool mount toward the ore deposit.",

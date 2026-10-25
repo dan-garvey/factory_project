@@ -95,6 +95,39 @@ bool fits_clear_swept_workcells(const DropPoint& origin,
     });
 }
 
+std::optional<LooseItem> single_loose_item(const Cargo& cargo) noexcept {
+    if (cargo.raw_units < 0 || cargo.products < 0 || cargo.offcuts < 0 ||
+        cargo.timber != 0 || !cargo.components.empty() || !cargo.work_lots.empty())
+        return std::nullopt;
+    if (cargo.raw_units == 1 && cargo.products == 0 && cargo.offcuts == 0 &&
+        cargo.sheets.empty()) return LooseItem{LooseForm::raw, {1, 1}, 0, 0};
+    if (cargo.raw_units == 0 && cargo.products == 1 && cargo.offcuts == 0 &&
+        cargo.sheets.empty()) return LooseItem{LooseForm::plate, {1, 1}, 0, 0};
+    if (cargo.raw_units == 0 && cargo.products == 0 && cargo.offcuts == 1 &&
+        cargo.sheets.empty()) return LooseItem{LooseForm::offcut, {1, 1}, 0, 0};
+    if (cargo.raw_units != 0 || cargo.products != 0 || cargo.offcuts != 0 ||
+        cargo.sheets.size() != 1) return std::nullopt;
+    const auto& sheet = cargo.sheets.front();
+    if (sheet.id <= 0 || sheet.rotation < 0 || sheet.rotation > 3) return std::nullopt;
+    return LooseItem{LooseForm::sheet, sheet_footprint(), sheet.rotation, sheet.id};
+}
+
+std::optional<ChannelSpec> channel_spec(Component kind) noexcept {
+    switch (kind) {
+        case Component::channel_narrow_x: return ChannelSpec{{1, 1}, 0};
+        case Component::channel_narrow_z: return ChannelSpec{{1, 1}, 2};
+        case Component::channel_broad_x: return ChannelSpec{{1, 2}, 0};
+        case Component::channel_broad_z: return ChannelSpec{{2, 1}, 2};
+        default: return std::nullopt;
+    }
+}
+
+std::optional<std::vector<DropPoint>> channel_workcells(
+        Component kind, const DropPoint& origin) {
+    const auto spec = channel_spec(kind);
+    return spec ? occupied_workcells(origin, spec->floor, 0) : std::nullopt;
+}
+
 Quantity belt_speed_subticks(Quantity numerator, Quantity denominator, bool inclined) noexcept {
     if (numerator == 0 || denominator <= 0) return 0;
     __extension__ using Wide = __int128;
@@ -184,6 +217,10 @@ const char* component_name(Component component) noexcept {
         case Component::copper_slide: return "copper_slide";
         case Component::flat_head: return "flat_head";
         case Component::hand_crank: return "hand_crank";
+        case Component::channel_narrow_x: return "channel_narrow_x";
+        case Component::channel_narrow_z: return "channel_narrow_z";
+        case Component::channel_broad_x: return "channel_broad_x";
+        case Component::channel_broad_z: return "channel_broad_z";
     }
     return "invalid_component";
 }
@@ -194,7 +231,9 @@ std::optional<Component> component_from_name(const std::string& name) noexcept {
              Component::sliding_guide, Component::cutting_edge, Component::anvil,
              Component::ram_face, Component::copper_shaft, Component::copper_cog,
              Component::wooden_workbench, Component::wooden_slide,
-             Component::copper_slide, Component::flat_head, Component::hand_crank})
+             Component::copper_slide, Component::flat_head, Component::hand_crank,
+             Component::channel_narrow_x, Component::channel_narrow_z,
+             Component::channel_broad_x, Component::channel_broad_z})
         if (name == component_name(component)) return component;
     return std::nullopt;
 }
@@ -217,6 +256,10 @@ std::optional<ComponentCost> component_cost(Component component) noexcept {
         case Component::copper_slide: return ComponentCost{0, 4};
         case Component::flat_head: return ComponentCost{0, 1};
         case Component::hand_crank: return ComponentCost{2, 0};
+        case Component::channel_narrow_x:
+        case Component::channel_narrow_z: return ComponentCost{2, 0};
+        case Component::channel_broad_x:
+        case Component::channel_broad_z: return ComponentCost{4, 0};
     }
     return std::nullopt;
 }
@@ -517,7 +560,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             if (!products(total, lot.recipe.input_units_per_product, config.raw_mass)) return Error::quantity_overflow;
         }
     }
-    if (state.placed_components.size() > 16 || state.fabricated_timber < 0 ||
+    if (state.placed_components.size() > 20 || state.fabricated_timber < 0 ||
         state.fabricated_raw < 0 || !add(timber_accounted, state.fabricated_timber) ||
         !products(total, state.fabricated_raw, config.raw_mass)) return Error::invalid_state;
     for (const auto& [kind, count] : state.placed_components) {
@@ -928,6 +971,26 @@ Error pickup_material(State& state, const Config& config, const Path& path,
         found->second.sheets.begin(), found->second.sheets.end());
     destination.work_lots.insert(destination.work_lots.end(), found->second.work_lots.begin(), found->second.work_lots.end());
     next.dropped_material.erase(point);
+    const auto output_error = validate(next, config, path);
+    if (output_error != Error::none) return output_error;
+    state = std::move(next);
+    return Error::none;
+}
+
+Error move_loose_item(State& state, const Config& config, const Path& path,
+        const DropPoint& from, const DropPoint& to) {
+    const auto input_error = validate(state, config, path);
+    if (input_error != Error::none) return input_error;
+    if (from == to) return Error::unavailable_output;
+    const auto source = state.dropped_material.find(from);
+    if (source == state.dropped_material.end() || !single_loose_item(source->second))
+        return Error::unavailable_input;
+    if (state.dropped_material.contains(to)) return Error::unavailable_output;
+    auto next = state;
+    auto item = next.dropped_material.extract(from);
+    item.key() = to;
+    if (!next.dropped_material.insert(std::move(item)).inserted)
+        return Error::unavailable_output;
     const auto output_error = validate(next, config, path);
     if (output_error != Error::none) return output_error;
     state = std::move(next);

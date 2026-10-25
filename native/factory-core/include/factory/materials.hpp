@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -112,7 +113,21 @@ enum class Component {
     copper_slide,
     flat_head,
     hand_crank,
+    channel_narrow_x,
+    channel_narrow_z,
+    channel_broad_x,
+    channel_broad_z,
 };
+
+struct ChannelSpec {
+    Footprint floor{};
+    // Zero travels along X; two travels along Z on the common world grid.
+    std::size_t travel_axis{};
+    bool operator==(const ChannelSpec&) const = default;
+};
+[[nodiscard]] std::optional<ChannelSpec> channel_spec(Component) noexcept;
+[[nodiscard]] std::optional<std::vector<DropPoint>> channel_workcells(
+    Component, const DropPoint& origin);
 
 struct ComponentCost {
     Quantity timber{};
@@ -143,6 +158,19 @@ struct Cargo {
         : raw_units(raw), products(finished), work_lots(std::move(lots)), timber(wood) {}
     bool operator==(const Cargo&) const = default;
 };
+
+enum class LooseForm { raw, plate, offcut, sheet };
+struct LooseItem {
+    LooseForm form{};
+    Footprint footprint{};
+    Quantity rotation{};
+    WorkId id{};
+    bool operator==(const LooseItem&) const = default;
+};
+
+// A channel position holds one complete loose item. Mixed piles and unfinished
+// press work stay at their current owner for explicit pickup or recovery.
+[[nodiscard]] std::optional<LooseItem> single_loose_item(const Cargo&) noexcept;
 
 // A pure, bounded transport proposal. Each occupied slot carries one raw unit,
 // product, or whole work lot. World must validate recipe, identity and total
@@ -370,6 +398,11 @@ struct PressStep {
 
 // World must first authenticate the actor and admit reach to the exact point.
 [[nodiscard]] Error pickup_material(State&, const Config&, const Path&, const std::string&, const DropPoint&);
+
+// World first authenticates the actor, supported sweep, receiver, headroom and
+// reach. This changes only one loose item's owner; it grants no motion itself.
+[[nodiscard]] Error move_loose_item(State&, const Config&, const Path&,
+                                    const DropPoint& from, const DropPoint& to);
 
 // World authenticates the actor, target identity and physical reach first.
 // The existing ore source feeds both hand extraction and the collector.

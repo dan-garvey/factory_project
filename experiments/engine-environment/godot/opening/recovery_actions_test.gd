@@ -259,6 +259,35 @@ func _belt_loading() -> void:
 		"item": "sheet", "work_id": SHEET_ID}],
 		"The sheet-only menu keeps the original identity and the selected open position.")
 
+func _loose_channel_handling() -> void:
+	_new_fixture()
+	var loose = RecoveryActions.LooseMaterialControls.new()
+	root.add_child(loose)
+	fixture.snapshot.dropped_material = [{"center": [20, 0, 0], "raw": 0,
+		"products": 0, "offcuts": 0, "sheets": 1, "work_lots": [],
+		"sheet_items": [{"id": SHEET_ID, "rotation": 1}]}]
+	loose.configure(host)
+	loose.get_popup().about_to_popup.emit()
+	_expect(loose.visible and loose.get_popup().item_count == 5,
+		"One confirmed loose sheet exposes pickup and four cardinal push directions through Ctrl+L.")
+	_expect("east" in loose.get_popup().get_item_text(1) and
+		"[24, 0, 0]" in loose.get_popup().get_item_text(1),
+		"The push offer identifies its sheet and receiving square before submission.")
+	loose.get_popup().id_pressed.emit(1)
+	_expect(sent == [{"action": "push_channel_sheet", "from": [20, 0, 0],
+		"to": [24, 0, 0], "sheet_id": SHEET_ID}],
+		"The push uses the native sheet serial and a single full-cell step.")
+	sent.clear()
+	loose.get_popup().about_to_popup.emit()
+	fixture.snapshot.dropped_material[0].sheet_items[0].id = SHEET_ID + 1
+	loose.get_popup().id_pressed.emit(1)
+	_expect(sent.is_empty(), "A changed loose sheet cannot receive a stale push command.")
+	loose.get_popup().about_to_popup.emit()
+	fixture.snapshot.context = "other-world"
+	loose.get_popup().id_pressed.emit(1)
+	_expect(sent.is_empty(), "A changed world cannot receive the former sheet command.")
+	loose.free()
+
 func _run() -> void:
 	_collector_recovery()
 	_raw_and_whole_work()
@@ -267,6 +296,7 @@ func _run() -> void:
 	_malformed_projection_is_not_coerced()
 	_belt_span_recovery()
 	_belt_loading()
+	_loose_channel_handling()
 	controls.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "evidence": "invented_recovery_ui", "checks": checks}))
 	quit(1 if failed else 0)

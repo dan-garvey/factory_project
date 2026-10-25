@@ -1319,6 +1319,54 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			for z in [-0.095, 0.095]:
 				_support_box(die, "FlatHeadWearStrip", Vector3(0, -0.045, z),
 					Vector3(0.23, 0.012, 0.018), dark)
+		"channel_narrow_x", "channel_narrow_z", "channel_broad_x", "channel_broad_z":
+			# The selected segment owns its complete floor and outer rails.
+			# Adjacent segments meet at their open faces; a broad segment has no
+			# center rail that would slice through the sheet's swept footprint.
+			var along_x := kind.ends_with("_x")
+			var top := occupied_size.y * 0.5
+			var deck := top - 0.12
+			var deck_base := Visuals.material(Color("4d3d2d"), 0.02, 0.87)
+			var plank_light := Visuals.material(Color("80684b"), 0.02, 0.82)
+			var plank_dark := Visuals.material(Color("705b42"), 0.02, 0.86)
+			_support_box(anchor, "ChannelDeck", Vector3(0, deck - 0.06, 0),
+				Vector3(occupied_size.x - 0.08, 0.08, occupied_size.z - 0.08), deck_base, true)
+			var cross_width: float = occupied_size.z if along_x else occupied_size.x
+			var inner_width: float = cross_width - 0.18
+			var plank_count: int = 6 if kind.begins_with("channel_broad") else 3
+			var plank_gap := 0.018
+			var plank_width: float = (inner_width - float(plank_count - 1) * plank_gap) / float(plank_count)
+			for index in plank_count:
+				var across: float = -inner_width * 0.5 + plank_width * 0.5 \
+					+ float(index) * (plank_width + plank_gap)
+				var location := Vector3(0, deck - 0.01, across) if along_x else \
+					Vector3(across, deck - 0.01, 0)
+				var size := Vector3(occupied_size.x - 0.08, 0.02, plank_width) if along_x else \
+					Vector3(plank_width, 0.02, occupied_size.z - 0.08)
+				_support_box(anchor, "ChannelPlank%d" % index, location, size,
+					plank_light if index % 2 == 0 else plank_dark, true)
+			for side in [-1.0, 1.0]:
+				var edge := (occupied_size.z if along_x else occupied_size.x) * 0.5 - 0.055
+				var rail_position := Vector3(0, top - 0.07, side * edge) if along_x else \
+					Vector3(side * edge, top - 0.07, 0)
+				var rail_size := Vector3(occupied_size.x, 0.14, 0.075) if along_x else \
+					Vector3(0.075, 0.14, occupied_size.z)
+				_support_box(anchor, "ChannelRail", rail_position, rail_size, worked, true)
+				var wear_position := Vector3(0, deck + 0.004, side * edge * 0.62) if along_x else \
+					Vector3(side * edge * 0.62, deck + 0.004, 0)
+				var wear_size := Vector3(occupied_size.x - 0.12, 0.008, 0.025) if along_x else \
+					Vector3(0.025, 0.008, occupied_size.z - 0.12)
+				_support_box(anchor, "ChannelWear", wear_position, wear_size, dark)
+			for x in [-occupied_size.x * 0.5 + 0.12, occupied_size.x * 0.5 - 0.12]:
+				for z in [-occupied_size.z * 0.5 + 0.12, occupied_size.z * 0.5 - 0.12]:
+					_support_box(anchor, "ChannelLeg", Vector3(x, -0.12, z),
+						Vector3(0.105, occupied_size.y - 0.24, 0.105), timber)
+			for z in [-occupied_size.z * 0.5 + 0.12, occupied_size.z * 0.5 - 0.12]:
+				_support_box(anchor, "ChannelRunner", Vector3(0, -0.30, z),
+					Vector3(occupied_size.x - 0.16, 0.07, 0.065), timber, true)
+			for x in [-occupied_size.x * 0.5 + 0.12, occupied_size.x * 0.5 - 0.12]:
+				_support_box(anchor, "ChannelCrossbrace", Vector3(x, -0.30, 0),
+					Vector3(0.065, 0.07, occupied_size.z - 0.16), timber, true)
 		"sliding_guide":
 			# Full-length rails are intrinsic to the selected part. Its native
 			# occupied box includes the reach toward the ram in every state.
@@ -2043,8 +2091,34 @@ func refresh() -> void:
 			elif int(drop.get("offcuts", 0)) > 0:
 				visual = Items.copper_offcuts(self, location)
 			elif int(drop.get("sheets", 0)) > 0:
-				visual = _cylinder(self, "CopperSheet", 0.17, 0.018, Color("d39768"))
-				visual.position = location
+				# One native sheet spans four workcells. Its location is the first
+				# cell, while its visible center lies halfway across the 2x2 area.
+				# The corner stamp alone turns with the confirmed rotation; the
+				# square footprint and material custody stay native-owned.
+				visual = Node3D.new()
+				visual.name = "CopperSheet"
+				visual.position = location + Vector3(Geometry.PITCH * 0.5,
+					0.082 + 0.025 + 0.006, Geometry.PITCH * 0.5)
+				var sheet_items: Variant = drop.get("sheet_items", [])
+				if sheet_items is Array and sheet_items.size() == 1 and sheet_items[0] is Dictionary \
+						and typeof(sheet_items[0].get("rotation")) == TYPE_INT \
+						and sheet_items[0].rotation in [0, 1, 2, 3]:
+					visual.rotation.y = float(sheet_items[0].rotation) * PI * 0.5
+				add_child(visual)
+				var copper := Finish.material("worked", Color("c58b66"), 0.82, 0.39)
+				var bright_edge := Finish.material("worked", Color("ddb08b"), 0.84, 0.35)
+				var stamp := Visuals.material(Color("694f45"), 0.42, 0.72)
+				_support_box(visual, "SheetBody", Vector3.ZERO,
+					Vector3(Geometry.PITCH * 2.0 - 0.26, 0.05, Geometry.PITCH * 2.0 - 0.26), copper, true)
+				for side in [-1.0, 1.0]:
+					_support_box(visual, "SheetWorkedEdge", Vector3(0, 0.026, side * 1.49),
+						Vector3(2.98, 0.006, 0.028), bright_edge)
+					_support_box(visual, "SheetWorkedEdge", Vector3(side * 1.49, 0.026, 0),
+						Vector3(0.028, 0.006, 2.98), bright_edge)
+				_support_box(visual, "SheetCornerMark", Vector3(-1.29, 0.027, -1.29),
+					Vector3(0.25, 0.004, 0.045), stamp)
+				_support_box(visual, "SheetCornerTick", Vector3(-1.39, 0.027, -1.18),
+					Vector3(0.045, 0.004, 0.25), stamp)
 			elif supported_slide:
 				visual = _cylinder(self, "PressedWorkpiece", 0.11, 0.06, Color("c88e61"))
 				visual.position = location

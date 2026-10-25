@@ -239,6 +239,15 @@ Bounds component_bounds(const world::Profile& profile,
         return {{at[0], (low + high) / 2, at[2]}, {0.14, (high - low) / 2, 0.14}};
     };
     if (!kind) return {at, {0.14, 0.14, 0.14}};
+    if (const auto channel = materials::channel_spec(*kind)) {
+        const double low = center[1] * height_step;
+        const double high = at[1] + press_work_crown_rise + 0.12;
+        const double width_x = pitch * channel->floor.x_cells;
+        const double width_z = pitch * channel->floor.z_cells;
+        return {{at[0] + (width_x - pitch) / 2, (low + high) / 2,
+                 at[2] + (width_z - pitch) / 2},
+                {width_x / 2, (high - low) / 2, width_z / 2}};
+    }
     if (*kind == materials::Component::tool_mount ||
         *kind == materials::Component::cutting_edge) {
         const auto step = *kind == materials::Component::tool_mount ? 1 : 2;
@@ -520,6 +529,13 @@ bool historical_wire(const authority::Record& record) {
             keys(*wire, {"center", "sheet_id"}) &&
             field<Array>(*wire, "center") && field<Integer>(*wire, "sheet_id") &&
             same("center", "center") && same("sheet_id", "sheet_id");
+    if (*action == "push_channel_sheet")
+        return *original_action == "push_channel_sheet" &&
+            keys(*wire, {"from", "to", "sheet_id"}) &&
+            field<Array>(*wire, "from") && field<Array>(*wire, "to") &&
+            field<Integer>(*wire, "sheet_id") &&
+            same("from", "from") && same("to", "to") &&
+            same("sheet_id", "sheet_id");
     if (*action == "stroke_broad_shear")
         return *original_action == "stroke_broad_shear" &&
             keys(*wire, {"entity", "sheet_id"}) &&
@@ -1595,6 +1611,9 @@ const char* Host::component_site_refusal(const world::State& state,
     const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
     if (!ground) return "terrain_unavailable";
     if (ground->second > at[1] - volume.half[1]) return "site_occupied";
+    if (kind && materials::channel_spec(*kind) && center[1] == 0 &&
+        ground->first < at[1] - volume.half[1] - 0.04)
+        return "support_required";
     if (kind == materials::Component::wooden_workbench) {
         const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
             [&](const auto& entry) { return entry.second.center == center; });
@@ -2037,6 +2056,23 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         normalized.at("action") = Value("place_sheet");
         normalized.emplace("center", wire.at("center"));
+        normalized.emplace("sheet_id", wire.at("sheet_id"));
+    } else if (*action == "push_channel_sheet") {
+        if (!keys(wire, {"from", "to", "sheet_id"}) ||
+            !field<Integer>(wire, "sheet_id")) return refuse("invalid_command");
+        for (const auto* name : {"from", "to"}) {
+            const auto* point = field<Array>(wire, name);
+            if (!point || point->size() != 3) return refuse("invalid_center");
+            for (const auto& value : *point) {
+                const auto* coordinate = std::get_if<Integer>(&value.storage());
+                if (!coordinate || *coordinate < -materials::maximum_drop_coordinate ||
+                    *coordinate > materials::maximum_drop_coordinate)
+                    return refuse("invalid_center");
+            }
+        }
+        normalized.at("action") = Value("push_channel_sheet");
+        normalized.emplace("from", wire.at("from"));
+        normalized.emplace("to", wire.at("to"));
         normalized.emplace("sheet_id", wire.at("sheet_id"));
     } else if (*action == "stroke_broad_shear") {
         if (!keys(wire, {"entity", "sheet_id"}) ||
@@ -2941,7 +2977,9 @@ Value Host::projection() const {
                 materials::Component::ram_face, materials::Component::copper_shaft,
                 materials::Component::copper_cog, materials::Component::wooden_workbench,
                 materials::Component::wooden_slide, materials::Component::copper_slide,
-                materials::Component::flat_head, materials::Component::hand_crank}) {
+                materials::Component::flat_head, materials::Component::hand_crank,
+                materials::Component::channel_narrow_x, materials::Component::channel_narrow_z,
+                materials::Component::channel_broad_x, materials::Component::channel_broad_z}) {
             const auto cost = materials::component_cost(kind);
             if (cost) {
                 Object recipe{{"timber", Value(cost->timber)}, {"copper", Value(cost->ore)}};

@@ -5312,6 +5312,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_foundations": "Foundation area placed on the world grid.",
 			"connect": "Material path connected.", "connect_drive": "Drive shaft connected.",
 			"retrieve": "Plate collected.", "pickup_material": "Loose material collected.", "load_belt_slot": "Material placed on the belt.",
+			"push_channel_sheet": "Sheet moved one workcell along the channel.",
 			"remove": "Part returned to your carried kit.",
 			"disconnect": "Material connection removed.",
 			"disconnect_drive": "Drive shaft returned."}.get(action.action, "Done."))
@@ -5411,6 +5412,15 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 	if _native_transmission() and action_name == "load_belt_slot" \
 			and outcome.get("reason") == "belt_path_cannot_carry" and not outcome.get("uncertain", false):
 		return "This belt transmits rotation but cannot carry items along this path."
+	if _native_transmission() and action_name == "push_channel_sheet" and not outcome.get("uncertain", false):
+		var channel_advice: String = {
+			"unavailable_input": "That sheet is no longer at the chosen square. Inspect the loose material again.",
+			"partial_shear": "A partly cut sheet must be finished or recovered before moving.",
+			"missing_channel": "Build a broad channel in the direction of travel before pushing this sheet.",
+			"blocked_channel": "The full sheet needs two supported squares and a clear swept route. Clear or extend the channel.",
+			"invalid_channel_target": "Push one whole tile along X or Z at the sheet's current height."}.get(outcome.get("reason", ""), "")
+		if not channel_advice.is_empty():
+			return channel_advice
 	if _native_transmission() and action_name == "stroke_broad_shear" and not outcome.get("uncertain", false):
 		var shear_advice: String = {"output_full": "Clear the other anvil squares before cutting the sheet.",
 			"shear_unpowered": "Drive the cutting head forward before cutting."}.get(outcome.get("reason", ""), "")
@@ -6867,6 +6877,17 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 		"wooden_workbench":
 			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45
 			half = Vector3(0.34, 0.45, 0.30)
+		"channel_narrow_x", "channel_narrow_z", "channel_broad_x", "channel_broad_z":
+			var pitch := Geometry.HEIGHT_STEP * 4.0
+			var wide := kind.begins_with("channel_broad")
+			var along_x := kind.ends_with("_x")
+			var width_x := pitch * (1.0 if not wide or along_x else 2.0)
+			var width_z := pitch * (1.0 if not wide or not along_x else 2.0)
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var high: float = at.y + 0.082 + 0.12
+			occupied += Vector3((width_x - pitch) * 0.5,
+				(low + high) * 0.5 - occupied.y, (width_z - pitch) * 0.5)
+			half = Vector3(width_x * 0.5, (high - low) * 0.5, width_z * 0.5)
 		"anvil":
 			var low := at.y - Geometry.HEIGHT_STEP + (0.9 - Geometry.ANCHOR_HEIGHT)
 			var high := at.y + 0.082

@@ -2600,6 +2600,86 @@ void powered_broad_sheet_custody() {
               fed.state.material.dropped_material.at({12, 0, 0}).work_lots.front().id &&
           codec_restore(source.profile, finished, "The formed twelve-mass sheet restores."),
         "Four powered half-speed ticks form one sheet on the same four-cell work face.");
+    Runner channel(source);
+    channel.world = w::World::restore("press-feed", source.profile, finished);
+    check(channel.world != nullptr,
+        "A separate channel trial starts from the exact finished-sheet checkpoint.");
+    channel.p = {5.8, 1, 0.8};
+    for (const auto& [id, placed] : finished.state.placed_components) {
+        if (placed.kind != m::Component::ram_face &&
+            placed.kind != m::Component::sliding_guide) continue;
+        auto reclaim = request("P", "channel-clear-head-" + id, "reclaim_component");
+        reclaim.emplace("target", V(id));
+        reclaim.emplace("generation", V(placed.generation));
+        channel.accept("P", reclaim);
+    }
+    channel.p = {6.6, 1, 4.95};
+    for (int index = 0; index < 10; ++index) {
+        auto timber = request("P", "channel-timber-" + std::to_string(index),
+            "harvest_source");
+        timber.emplace("target", V("crank-tree"));
+        channel.accept("P", timber);
+    }
+    channel.p = {1.65, 1, 6.6};
+    for (const auto* kind : {"channel_narrow_x", "channel_broad_x", "channel_broad_x"}) {
+        auto craft = request("P", std::string("channel-craft-") + kind +
+            std::to_string(channel.world->snapshot().revision), "craft_component");
+        craft.emplace("target", V("pod-fabrication-hub"));
+        craft.emplace("generation", V(I{1}));
+        craft.emplace("component", V(kind));
+        channel.accept("P", craft);
+    }
+    channel.p = {7.4, 1, 0.8};
+    auto place_narrow = request("P", "channel-place-narrow", "place_component");
+    place_narrow.emplace("component", V("channel_narrow_x"));
+    place_narrow.emplace("center", V(point(20, 0, 0)));
+    const auto narrow_result = channel.accept("P", place_narrow);
+    auto push = request("P", "channel-narrow-refuse", "push_channel_sheet");
+    push.emplace("from", V(point(12, 0, 0)));
+    push.emplace("to", V(point(16, 0, 0)));
+    const auto sheet_serial = finished.state.material.dropped_material.at({12, 0, 0}).sheets.front().id;
+    push.emplace("sheet_id", V(sheet_serial));
+    const auto before_narrow = channel.world->snapshot().state;
+    channel.refuses("P", push, "missing_channel");
+    check(channel.world->snapshot().state == before_narrow,
+        "A one-wide channel cannot take a two-wide sheet from its supported workbed.");
+    auto reclaim_narrow = request("P", "channel-reclaim-narrow", "reclaim_component");
+    reclaim_narrow.emplace("target", narrow_result.at("entity"));
+    reclaim_narrow.emplace("generation", narrow_result.at("generation"));
+    channel.accept("P", reclaim_narrow);
+    auto place_broad = place_narrow;
+    place_broad.at("request") = V("channel-place-broad-first");
+    place_broad.at("component") = V("channel_broad_x");
+    channel.accept("P", place_broad);
+    push.at("request") = V("channel-first-push");
+    channel.accept("P", push);
+    const auto first_transfer = channel.world->snapshot();
+    check(!first_transfer.state.material.dropped_material.contains({12, 0, 0}) &&
+          first_transfer.state.material.dropped_material.at({16, 0, 0}).sheets ==
+              std::vector<m::Sheet>{{sheet_serial, 0}} &&
+          codec_restore(source.profile, first_transfer,
+              "The sheet saves at its new supported channel position."),
+        "A hand push changes the same sheet owner once without changing serial, rotation or mass.");
+    push.at("request") = V("channel-missing-next-segment");
+    push.at("from") = V(point(16, 0, 0));
+    push.at("to") = V(point(20, 0, 0));
+    const auto before_gap = channel.world->snapshot().state;
+    channel.refuses("P", push, "blocked_channel");
+    check(channel.world->snapshot().state == before_gap,
+        "A missing middle support retains the sheet at its last real owner.");
+    auto second_segment = place_broad;
+    second_segment.at("request") = V("channel-place-broad-second");
+    second_segment.at("center") = V(point(24, 0, 0));
+    channel.accept("P", second_segment);
+    push.at("request") = V("channel-repaired-second-push");
+    channel.p = {8.25, 1, 0.8};
+    channel.accept("P", push);
+    const auto repaired = channel.world->snapshot();
+    check(repaired.state.material.dropped_material.at({20, 0, 0}).sheets ==
+              std::vector<m::Sheet>{{sheet_serial, 0}} &&
+          codec_restore(source.profile, repaired,
+              "A repaired two-wide route restores the same sheet owner."),
+        "Adding the missing broad segment lets the original sheet move one more supported cell.");
     run.p = {0, 1, 1.65};
     for (int index = 35; index < 38; ++index) {
         auto harvest = request("P", "sheet-later-ore-" + std::to_string(index), "harvest_source");

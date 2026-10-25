@@ -167,7 +167,7 @@ Cargo decode_cargo(const Value& value, const std::string& path, bool resources, 
     if (resources || copper) {
         cargo.timber = integer(entries.at("timber"), path + ".timber");
         const auto& components = object(entries.at("components"), path + ".components");
-        if (components.size() > 16) refuse(CodecReason::invalid_material_state, path + ".components");
+        if (components.size() > 20) refuse(CodecReason::invalid_material_state, path + ".components");
         for (const auto& [name, count] : components) {
             const auto component = component_from_name(name);
             if (!component) refuse(CodecReason::invalid_material_state, path + ".components." + name);

@@ -216,8 +216,9 @@ static func component_boxes(snapshot: Dictionary) -> Dictionary:
 		var half := Vector3(occupied.half[0], occupied.half[1], occupied.half[2])
 		var anchor := Vector3(cell[0] * HEIGHT_STEP, cell[1] * HEIGHT_STEP + ANCHOR_HEIGHT,
 			cell[2] * HEIGHT_STEP)
+		var horizontal_limit: float = PITCH if part.component in ["channel_broad_x", "channel_broad_z"] else 1.0
 		if half.x <= 0.0 or half.y <= 0.0 or half.z <= 0.0 \
-				or half.x > 1.0 or half.y > 1.0 or half.z > 1.0 \
+				or half.x > horizontal_limit or half.y > 1.0 or half.z > horizontal_limit \
 				or (center - anchor).length() > 1.0:
 			return {"accepted": false}
 		result[id] = {"center": center, "size": half * 2.0, "component": part.component,

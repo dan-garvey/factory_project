@@ -74,6 +74,16 @@ void support_fit_rule() {
               {std::numeric_limits<m::Quantity>::max(), 4, 12},
               m::sheet_footprint(), 2),
         "An untrusted remote endpoint cannot overflow the bounded route check.");
+    check(m::channel_spec(m::Component::channel_narrow_x) ==
+              m::ChannelSpec{{1, 1}, 0} &&
+          m::channel_spec(m::Component::channel_narrow_z) ==
+              m::ChannelSpec{{1, 1}, 2} &&
+          m::channel_workcells(m::Component::channel_broad_x, origin) ==
+              std::vector<m::DropPoint>{{8, 4, 12}, {8, 4, 16}} &&
+          m::channel_workcells(m::Component::channel_broad_z, origin) ==
+              std::vector<m::DropPoint>{{8, 4, 12}, {12, 4, 12}} &&
+          !m::channel_spec(m::Component::anvil),
+        "A selected channel segment has one fixed cardinal rail direction and complete width.");
 }
 
 void formed_sheet_and_blocked_output() {
@@ -181,6 +191,69 @@ void recovered_broad_work() {
           state.dropped_material.at(work).sheets == std::vector<m::Sheet>{{partial.id, 0}},
         "One resumed stroke completes the original twelve-mass workpiece.");
 }
+
+void one_owner_loose_transfer() {
+    const auto config = recipe();
+    const m::Path path{};
+    const m::DropPoint source{0, 4, 0};
+    const m::DropPoint occupied{4, 4, 0};
+    const m::DropPoint destination{8, 4, 0};
+    m::Cargo sheet;
+    sheet.sheets.push_back({1, 2});
+    m::Cargo offcut;
+    offcut.offcuts = 1;
+    m::Cargo mixed{1, 1, {}};
+    check(m::single_loose_item(m::Cargo{1, 0, {}}) ==
+              m::LooseItem{m::LooseForm::raw, {1, 1}, 0, 0} &&
+          m::single_loose_item(m::Cargo{0, 1, {}}) ==
+              m::LooseItem{m::LooseForm::plate, {1, 1}, 0, 0} &&
+          m::single_loose_item(offcut) ==
+              m::LooseItem{m::LooseForm::offcut, {1, 1}, 0, 0} &&
+          m::single_loose_item(sheet) ==
+              m::LooseItem{m::LooseForm::sheet, {2, 2}, 2, 1} &&
+          !m::single_loose_item(mixed),
+        "The same one-item custody rule identifies stock, plates, offcuts and oriented sheets.");
+    m::State state;
+    state.initial_units = 5;
+    state.next_work_id = 2;
+    state.cargo = {{"P", {}}};
+    state.dropped_material.emplace(source, sheet);
+    state.dropped_material.emplace(occupied, m::Cargo{1, 0, {}});
+    state.dropped_material.emplace(m::DropPoint{12, 4, 0}, m::Cargo{0, 1, {}});
+    state.dropped_material.emplace(m::DropPoint{16, 4, 0}, offcut);
+    check(m::validate(state, config, path) == m::Error::none,
+        "Sheet, stock, plate and offcut are four finite loose items with conserved mass.");
+    const auto before = state;
+    check(m::move_loose_item(state, config, path, source, occupied) ==
+              m::Error::unavailable_output && state == before,
+        "An occupied receiver cannot take or duplicate the sheet.");
+    check(m::move_loose_item(state, config, path, source, destination) == m::Error::none &&
+          !state.dropped_material.contains(source) &&
+          state.dropped_material.at(destination) == sheet &&
+          m::validate(state, config, path) == m::Error::none,
+        "One accepted handoff moves the same sheet serial and orientation exactly once.");
+    check(m::move_loose_item(state, config, path, occupied, {28, 4, 0}) == m::Error::none &&
+          m::move_loose_item(state, config, path, {12, 4, 0}, {20, 4, 0}) == m::Error::none &&
+          m::move_loose_item(state, config, path, {16, 4, 0}, {24, 4, 0}) == m::Error::none &&
+          state.dropped_material.at({28, 4, 0}) == m::Cargo{1, 0, {}} &&
+          state.dropped_material.at({20, 4, 0}) == m::Cargo{0, 1, {}} &&
+          state.dropped_material.at({24, 4, 0}) == offcut &&
+          m::validate(state, config, path) == m::Error::none,
+        "The same handoff preserves separate stock, plate and offcut forms without changing mass.");
+    const auto moved = state;
+    check(m::move_loose_item(state, config, path, source, {12, 4, 0}) ==
+              m::Error::unavailable_input && state == moved,
+        "A stale source cannot move the already transferred sheet again.");
+    const auto encoded = m::encode_material_state(state, config, path, {"P"});
+    check(std::holds_alternative<v::Value>(encoded),
+        "A transferred sheet and its blocked neighboring stock encode at the new owner.");
+    if (const auto* value = std::get_if<v::Value>(&encoded)) {
+        const auto restored = m::decode_material_state(*value, config, path, {"P"});
+        check(std::holds_alternative<m::State>(restored) &&
+              std::get<m::State>(restored) == state,
+            "Save and reopen preserve the single transferred sheet owner and mass.");
+    }
+}
 }  // namespace
 
 int main() {
@@ -188,6 +261,7 @@ int main() {
         support_fit_rule();
         formed_sheet_and_blocked_output();
         recovered_broad_work();
+        one_owner_loose_transfer();
         std::cout << "broad_sheet_mass_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

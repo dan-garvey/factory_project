@@ -1052,6 +1052,148 @@ func _broad_press_component_view() -> void:
 	view.free()
 	await process_frame
 
+func _capture_channel_pose(path: String, along_z: bool) -> void:
+	root.size = Vector2i(1280, 800)
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = Color("49535d")
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color.WHITE
+	environment.ambient_light_energy = 1.4
+	var world_environment := WorldEnvironment.new()
+	world_environment.environment = environment
+	root.add_child(world_environment)
+	var light := DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-48, -35, 0)
+	light.light_energy = 2.0
+	root.add_child(light)
+	var camera := Camera3D.new()
+	camera.position = Vector3(6.6, 3.25, 4.2) if along_z else Vector3(4.2, 3.25, 6.6)
+	root.add_child(camera)
+	camera.look_at(Vector3(0.7, 0.65, 2.2) if along_z else Vector3(2.2, 0.65, 0.7))
+	camera.fov = 45.0
+	camera.current = true
+	for frame in range(3):
+		await process_frame
+		await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(path) == OK,
+		"A passive image retains the channel and confirmed sheet pose.")
+	camera.free()
+	light.free()
+	world_environment.free()
+
+func _channel_component_view() -> void:
+	var along_z: bool = "--channel-z-only" in OS.get_cmdline_user_args()
+	var sheet_mode: bool = "--channel-sheet-only" in OS.get_cmdline_user_args()
+	var broad_kind := "channel_broad_z" if along_z else "channel_broad_x"
+	var narrow_kind := "channel_narrow_z" if along_z else "channel_narrow_x"
+	var broad_center := [0.825, 0.5135, 0.0] if along_z else [0.0, 0.5135, 0.825]
+	var broad_half := [1.65, 0.5135, 0.825] if along_z else [0.825, 0.5135, 1.65]
+	var second_cell := [0, 0, 4] if along_z else [4, 0, 0]
+	var second_center := [0.825, 0.5135, 1.65] if along_z else [1.65, 0.5135, 0.825]
+	var narrow_cell := [0, 0, 12] if along_z else [12, 0, 0]
+	var narrow_center := [0.0, 0.5135, 4.95] if along_z else [4.95, 0.5135, 0.0]
+	var state: Dictionary = {"context": "channel-component-view", "revision": 1,
+		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
+		"collector_assemblies": [], "press_assemblies": [],
+		"placed_components": {
+			"broad0": _component_record(broad_kind, [0, 0, 0], broad_center, broad_half),
+			"broad1": _component_record(broad_kind, second_cell, second_center, broad_half),
+			"narrow": _component_record(narrow_kind, narrow_cell, narrow_center,
+				[0.825, 0.5135, 0.825])}}
+	if sheet_mode:
+		state.placed_components["broad2"] = _component_record(broad_kind,
+			[0, 0, 8] if along_z else [8, 0, 0],
+			[0.825, 0.5135, 3.3] if along_z else [3.3, 0.5135, 0.825], broad_half)
+		state.dropped_material = [{"center": [0, 0, 0], "raw": 0, "products": 0,
+			"offcuts": 0, "sheets": 1, "work_lots": [],
+			"sheet_items": [{"id": 7001, "rotation": 1}]}]
+	var expected_parts: int = 4 if sheet_mode else 3
+	var parsed: Dictionary = Geometry.component_boxes(state)
+	verify(parsed.get("accepted", false) and parsed.boxes.size() == expected_parts,
+		"The source-matched view uses two broad native boxes and one narrow box.")
+	var invalid: Dictionary = state.duplicate(true)
+	invalid.placed_components.broad0.occupied.half[0 if along_z else 2] = 1.66
+	verify(not Geometry.component_boxes(invalid).get("accepted", false),
+		"A broad channel cannot claim more than its two-workcell native extent.")
+	invalid = state.duplicate(true)
+	invalid.placed_components.narrow.occupied.half[2] = 1.65
+	verify(not Geometry.component_boxes(invalid).get("accepted", false),
+		"A narrow channel cannot borrow the broad geometry allowance.")
+	var opening := SuppliedOpening.new()
+	for id: String in parsed.boxes:
+		var placed: Dictionary = state.placed_components[id]
+		var preview_box: Dictionary = opening._component_candidate_box(placed.component, placed.center)
+		verify(preview_box.center.distance_to(parsed.boxes[id].center) < 0.0001
+			and preview_box.size.distance_to(parsed.boxes[id].size) < 0.0001,
+			"The build preview covers the exact native narrow or broad footprint.")
+	opening.free()
+	var facts := PhysicalProjection.new()
+	facts.state = state
+	var physical := ActorWorld.new()
+	root.add_child(physical)
+	verify(physical.configure(facts).get("accepted", false) and physical.component_bodies.size() == expected_parts,
+		"The physical actor scene registers each broad and narrow occupied box.")
+	for id: String in parsed.boxes:
+		var body: StaticBody3D = physical.component_bodies[id]
+		var collider: CollisionShape3D = body.get_child(0)
+		verify(body.position == parsed.boxes[id].center
+			and collider.shape.size == parsed.boxes[id].size,
+			"The actor collision size follows the exact selected channel footprint.")
+	var host := HostStub.new()
+	host.state = state
+	var view := Presenter.new()
+	root.add_child(view)
+	view.configure(host)
+	var anchors := {}
+	for node: Node in view.get_children():
+		if node.has_meta("component_entity"):
+			anchors[node.get_meta("component_entity")] = node
+	verify(anchors.size() == expected_parts,
+		"Each channel segment retains its own native placed identity.")
+	for id: String in parsed.boxes:
+		var spec: Dictionary = parsed.boxes[id]
+		verify(anchors[id].position == spec.center and anchors[id].get_node_or_null("ChannelDeck") != null,
+			"The channel deck follows the selected native footprint and occupied center.")
+		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
+			var mesh := found as MeshInstance3D
+			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
+			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
+				"Every rail and support stays inside its selected native bounds.")
+	var preview := Node3D.new()
+	root.add_child(preview)
+	view.preview_component(preview, broad_kind, parsed.boxes.broad0.size)
+	verify(_component_mesh_shapes(anchors.broad0) == _component_mesh_shapes(preview),
+		"A broad channel preview and its installed segment use the same shape.")
+	preview.free()
+	if sheet_mode:
+		var sheet: Node3D = view.get_node_or_null("CopperSheet")
+		var body: MeshInstance3D = sheet.get_node_or_null("SheetBody") if sheet != null else null
+		verify(sheet != null and body != null and body.mesh.get_aabb().size.x > 3.0
+			and body.mesh.get_aabb().size.z > 3.0
+			and sheet.position.distance_to(Vector3(0.825, 0.938, 0.825)) < 0.0001
+			and absf(sheet.rotation.y - PI * 0.5) < 0.0001,
+			"One confirmed sheet spans four channel workcells above the deck with its native rotation.")
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--channel-capture=") and DisplayServer.get_name() != "headless":
+			await _capture_channel_pose(argument.trim_prefix("--channel-capture="), along_z)
+	if sheet_mode:
+		host.state.dropped_material[0].center = second_cell.duplicate()
+		host.state.revision += 1
+		view.refresh()
+		var moved_sheet: Node3D = view.get_node_or_null("CopperSheet")
+		var expected_move := Vector3(0.825, 0.938, 2.475) if along_z else Vector3(2.475, 0.938, 0.825)
+		verify(moved_sheet != null and moved_sheet.position.distance_to(expected_move) < 0.0001
+			and absf(moved_sheet.rotation.y - PI * 0.5) < 0.0001,
+			"The same sheet projection follows one workcell step without changing form or orientation.")
+		for argument: String in OS.get_cmdline_user_args():
+			if argument.begins_with("--channel-after-capture=") and DisplayServer.get_name() != "headless":
+				await _capture_channel_pose(argument.trim_prefix("--channel-after-capture="), along_z)
+	view.free()
+	physical.free()
+	await process_frame
+
 func _capture_guided_component_view(path: String) -> void:
 	root.size = Vector2i(1280, 800)
 	var environment := Environment.new()
@@ -3272,6 +3414,10 @@ func _run() -> void:
 		await _broad_press_component_view()
 	elif "--broad-press-raised-only" in OS.get_cmdline_user_args():
 		await _broad_press_component_view()
+	elif "--channel-components-only" in OS.get_cmdline_user_args() \
+			or "--channel-z-only" in OS.get_cmdline_user_args() \
+			or "--channel-sheet-only" in OS.get_cmdline_user_args():
+		await _channel_component_view()
 	elif "--physical-topology-cache-only" in OS.get_cmdline_user_args():
 		_physical_topology_cache_regression()
 	elif "--physical-actor-bridge-only" in OS.get_cmdline_user_args():
