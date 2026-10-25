@@ -1273,14 +1273,19 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					Vector3(0.012, 0.014, 0.038), worked)
 		"anvil":
 			var bottom := -occupied_size.y * 0.5
+			# The copper seat ends just below the native crown. Its edge and
+			# pedestal remain inside the same admitted occupied box.
+			var seat_top := occupied_size.y * 0.5 - 0.02
+			var seat_bottom := seat_top - 0.055
+			var foot_top := bottom + 0.0575
 			_support_box(anchor, "CastPedestalFoot", Vector3(0, bottom + 0.03, 0),
 				Vector3(0.265, 0.055, 0.265), dark)
-			_support_box(anchor, "CastPedestal", Vector3(0, bottom + 0.14, 0),
-				Vector3(0.17, 0.235, 0.17), dark)
-			_support_box(anchor, "OpenAnvilSeat", Vector3(0, bottom + 0.29, 0),
+			_support_box(anchor, "CastPedestal", Vector3(0, (foot_top + seat_bottom) * 0.5, 0),
+				Vector3(0.17, seat_bottom - foot_top, 0.17), dark)
+			_support_box(anchor, "OpenAnvilSeat", Vector3(0, seat_top - 0.0275, 0),
 				Vector3(0.265, 0.055, 0.245), worked)
 			for z in [-0.107, 0.107]:
-				_support_box(anchor, "AnvilEdge", Vector3(0, bottom + 0.35, z),
+				_support_box(anchor, "AnvilEdge", Vector3(0, occupied_size.y * 0.5 - 0.03, z),
 					Vector3(0.23, 0.06, 0.03), dark)
 		"ram_face":
 			var bottom := -occupied_size.y * 0.5
@@ -1916,7 +1921,8 @@ func refresh() -> void:
 		snapshot.get("engagements", []), snapshot.get("dropped_material", []),
 		component_result.boxes, snapshot.get("collector_assemblies", []),
 		snapshot.get("press_assemblies", []), snapshot.get("guided_press_assemblies", []),
-				snapshot.get("broad_press_assemblies", []), snapshot.get("slide_phases", {})]
+		snapshot.get("sliding_press_assemblies", []),
+		snapshot.get("broad_press_assemblies", []), snapshot.get("slide_phases", {})]
 	if next_key == _view_key:
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null
@@ -1959,15 +1965,32 @@ func refresh() -> void:
 	for press: Variant in snapshot.get("guided_press_assemblies", []):
 		if press is Dictionary and press.get("status") == "ready" and press.get("work_center") is Array:
 			guided_work_centers.append(press.work_center)
+	var sliding_work_surfaces := {}
+	for press: Variant in snapshot.get("sliding_press_assemblies", []):
+		if not press is Dictionary or press.get("status") != "ready" \
+				or not press.get("work_center") is Array or not press.get("parts") is Dictionary:
+			continue
+		var anvil_id: Variant = press.parts.get("anvil")
+		var anvil: Variant = component_result.boxes.get(anvil_id)
+		if anvil is Dictionary and anvil.get("component") == "anvil":
+			sliding_work_surfaces[press.work_center] = anvil.center.y + anvil.size.y * 0.5 - 0.02
 	var drops: Variant = snapshot.get("dropped_material", [])
 	if drops is Array:
 		for drop: Variant in drops:
 			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty() and int(drop.get("offcuts", 0)) == 0 and int(drop.get("sheets", 0)) == 0):
 				continue
 			var location := world_center(drop.center)
+			var supported_slide: bool = sliding_work_surfaces.has(drop.center) \
+				and drop.products == 0 and int(drop.get("offcuts", 0)) == 0 \
+				and int(drop.get("sheets", 0)) == 0 \
+				and ((drop.raw == 1 and drop.work_lots.is_empty()) \
+					or (drop.raw == 0 and drop.work_lots.size() == 1))
+			if supported_slide:
+				location.y = float(sliding_work_surfaces[drop.center]) + (0.04 if drop.raw > 0 else 0.03)
 			var visual: Node3D
 			if drop.raw > 0:
-				visual = _cylinder(self, "LooseBlank", 0.15, 0.08, Color("b9a88c"))
+				visual = _cylinder(self, "LooseBlank", 0.11 if supported_slide else 0.15,
+					0.08, Color("b9a88c"))
 				visual.position = location
 			elif drop.products > 0:
 				visual = Node3D.new()
@@ -1983,6 +2006,9 @@ func refresh() -> void:
 				visual = Items.copper_offcuts(self, location)
 			elif int(drop.get("sheets", 0)) > 0:
 				visual = _cylinder(self, "CopperSheet", 0.17, 0.018, Color("d39768"))
+				visual.position = location
+			elif supported_slide:
+				visual = _cylinder(self, "PressedWorkpiece", 0.11, 0.06, Color("c88e61"))
 				visual.position = location
 			else:
 				visual = Items.workpiece_billet(self, location)
@@ -2001,7 +2027,8 @@ func refresh() -> void:
 				label.text = "%d copper sheet" % int(drop.sheets)
 			else:
 				label.text = "%d held workpiece" % drop.work_lots.size()
-			label.position.y = 1.2 if int(drop.get("offcuts", 0)) > 0 else 0.3
+			label.position = Vector3(0.29, 0.07, 0) if supported_slide else \
+				Vector3(0, 1.2 if int(drop.get("offcuts", 0)) > 0 else 0.3, 0)
 			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 			label.fixed_size = true
 			label.font_size = 24

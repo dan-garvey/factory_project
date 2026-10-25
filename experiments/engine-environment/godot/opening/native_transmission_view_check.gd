@@ -1094,7 +1094,7 @@ func _guided_press_component_view() -> void:
 			var mesh := found as MeshInstance3D
 			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
 			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
-				"Each frame-free fitting stays inside its own native occupied volume.")
+				"Each frame-free fitting stays inside its own native occupied volume: %s/%s." % [id, mesh.name])
 	var shaft_mark: MeshInstance3D = shaft.get_node("ShaftIndexMark")
 	var cog_mark: MeshInstance3D = cog.get_node("CogIndexMark")
 	var shaft_before: Vector3 = shaft_mark.global_position - shaft.global_position
@@ -2294,6 +2294,93 @@ func _loose_material() -> void:
 	verify(session.projection().dropped_material.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
 	session.free()
 
+func _slide_material_seat() -> void:
+	var state := {"context": "slide-material-seat", "revision": 1,
+		"options": {"native": true}, "transmission_parts": {}, "belt_spans": {},
+		"motion": {}, "collector_assemblies": [], "press_assemblies": [],
+		"guided_press_assemblies": []}
+	state.placed_components = {
+		"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.69725, 0.0], [0.14, 0.20975, 0.14]),
+		"head": _component_record("flat_head", [0, 1, 0], [0.0, 1.1859375, 0.0], [0.14, 0.2578125, 0.14]),
+		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.44375, 0.0], [0.21, 0.4125, 0.21])}
+	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
+		"status": "ready", "work_center": [0, 0, 0],
+		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"}}]
+	state.dropped_material = [{"center": [0, 0, 0], "raw": 1, "products": 0, "work_lots": []}]
+	var host := HostStub.new()
+	host.state = state
+	var presenter := Presenter.new()
+	root.add_child(presenter)
+	presenter.configure(host)
+	var anvil: Node3D
+	for child: Node in presenter.get_children():
+		if child.has_meta("component_entity") and child.get_meta("component_entity") == "anvil":
+			anvil = child
+	var seat: MeshInstance3D = anvil.get_node_or_null("OpenAnvilSeat") if anvil != null else null
+	var edge: MeshInstance3D = anvil.get_node_or_null("AnvilEdge") if anvil != null else null
+	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")
+	var crown: float = 0.907
+	verify(seat != null and edge != null and blank != null
+		and is_equal_approx(seat.global_position.y + 0.0275, crown - 0.02)
+		and is_equal_approx(edge.global_position.y + 0.03, crown)
+		and is_equal_approx(blank.position.y - 0.04, crown - 0.02),
+		"The admitted anvil crown, visible seat and native-confirmed blank share one work surface.")
+	var raw_label: Label3D
+	if blank != null:
+		for child: Node in blank.get_children():
+			if child is Label3D:
+				raw_label = child
+	verify(raw_label != null and raw_label.position.x > 0.2 and raw_label.position.y < 0.1,
+		"The blank count sits beside the work surface instead of on the slide carriage.")
+	var image_path := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--slide-material-image="):
+			image_path = argument.trim_prefix("--slide-material-image=")
+	if not image_path.is_empty():
+		verify(DisplayServer.get_name().to_lower() != "headless",
+			"The material frame requires a rendered display.")
+		root.size = Vector2i(1280, 800)
+		var environment := WorldEnvironment.new()
+		var sky := Environment.new()
+		sky.background_mode = Environment.BG_COLOR
+		sky.background_color = Color("303c3c")
+		environment.environment = sky
+		root.add_child(environment)
+		var floor := MeshInstance3D.new()
+		var floor_mesh := BoxMesh.new()
+		floor_mesh.size = Vector3(1.5, 0.05, 1.5)
+		floor.mesh = floor_mesh
+		floor.position.y = 0.025
+		root.add_child(floor)
+		var sun := DirectionalLight3D.new()
+		sun.rotation_degrees = Vector3(-45, -30, 0)
+		root.add_child(sun)
+		var camera := Camera3D.new()
+		camera.position = Vector3(0.7, 1.4, 1.65)
+		camera.fov = 39
+		root.add_child(camera)
+		camera.look_at(Vector3(0, 1.05, 0))
+		camera.current = true
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(image_path.trim_suffix(".png") + "-blank.png") == OK,
+			"Retain the visible supported blank frame.")
+	state.dropped_material = [{"center": [0, 0, 0], "raw": 0, "products": 0,
+		"work_lots": [{"id": 7, "remaining": 1, "cycle_ticks": 2}]}]
+	state.slide_phases = {"slide": {"subticks": 2048, "remainder": 0,
+		"denominator": 1, "cycle_subticks": 4096}}
+	presenter.refresh()
+	var work: MeshInstance3D = presenter.get_node_or_null("PressedWorkpiece")
+	verify(work != null and is_equal_approx(work.position.y - 0.03, crown - 0.02)
+		and presenter.get_node_or_null("LooseBlank") == null,
+		"The same confirmed work point shows a thinner copper workpiece during the stroke.")
+	if not image_path.is_empty():
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(image_path.trim_suffix(".png") + "-work.png") == OK,
+			"Retain the visible supported workpiece frame.")
+	presenter.free()
+
 func _mechanical_collision_geometry() -> void:
 	var state := {"options": {"native": true}, "transmission_parts": {
 		"a": {"kind": "shaft", "center": [0, 0, 0], "axis": 2, "half_span": 2},
@@ -3161,6 +3248,8 @@ func _run() -> void:
 		_direction_basis()
 	elif "--loose-material-only" in OS.get_cmdline_user_args():
 		_loose_material()
+	elif "--slide-material-only" in OS.get_cmdline_user_args():
+		await _slide_material_seat()
 	elif "--mechanical-collision-only" in OS.get_cmdline_user_args():
 		_mechanical_collision_geometry()
 	elif "--collision-lifecycle-only" in OS.get_cmdline_user_args():
