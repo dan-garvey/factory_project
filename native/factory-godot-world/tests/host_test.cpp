@@ -221,12 +221,26 @@ void exact_observation_conversion() {
           field<I>(host.actor_projection("P"), "native_epoch") == epoch - 1,
           "Invalidation clears readiness without rewinding the published ordinal.");
 }
+
+void nonarrival_tick_schema() {
+    Host host;
+    check(accepted(host.initialize("plain-tick-schema", {"P"})) &&
+          accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+          "The nonarrival Host starts with an ordinary finite world.");
+    const auto full_before = std::get<O>(host.projection().storage());
+    const auto fields = std::get<O>(host.advance_tick_fields().storage());
+    const auto full_after = std::get<O>(host.projection().storage());
+    check(!full_before.contains("slide_phases") && !fields.contains("slide_phases") &&
+          !full_after.contains("slide_phases"),
+          "A nonarrival tick cannot introduce an arrival-only slide phase field.");
+}
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
         if (argc == 1 || (argc == 2 && std::string(argv[1]) == "--wire")) historical_translation();
         if (argc == 1 || (argc == 2 && std::string(argv[1]) == "--point")) exact_observation_conversion();
+        if (argc == 1) nonarrival_tick_schema();
         if (argc > 2 || (argc == 2 && std::string(argv[1]) != "--wire" && std::string(argv[1]) != "--point"))
             throw std::runtime_error("Unknown Host regression selection.");
         std::cout << "{\"status\":\"pass\",\"evidence\":\"native_host_source_regressions\",\"checks\":" << checks
