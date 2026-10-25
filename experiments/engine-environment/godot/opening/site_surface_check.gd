@@ -19,6 +19,13 @@ class NativeChallengeFacts extends RefCounted:
 	var client := "P"
 	var legacy_fixture := false
 
+class MaturePhysicalFacts extends RefCounted:
+	var sources := {}
+	func projection() -> Dictionary:
+		return {"context": "mature-tree-physics", "options": {"physical": true, "native": true},
+			"actors": {}, "entities": {}, "transmission_parts": {}, "belt_spans": {},
+			"hand_sources": sources}
+
 func verify(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
@@ -49,6 +56,9 @@ func _initialize() -> void:
 		return
 	if "--bank-firs-physics-only" in OS.get_cmdline_user_args():
 		call_deferred("check_bank_firs_physics")
+		return
+	if "--mature-tree-depletion-only" in OS.get_cmdline_user_args():
+		call_deferred("check_mature_tree_depletion")
 		return
 	if "--native-hull-matching-only" in OS.get_cmdline_user_args():
 		check_native_hull_matching()
@@ -324,6 +334,57 @@ func check_bank_firs_physics() -> void:
 		"tree_contacts": contacts, "terrain_triangles": Surface.faces().size() / 3,
 		"wood_triangles": (Surface.fir_collision_faces().size() + Surface.broadleaf_collision_faces().size()) / 3,
 		"authority": "invented empty facts only", "gameplay": "not_run", "desktop": "not_used"}))
+	world.free()
+	quit(1 if failed else 0)
+
+func check_mature_tree_depletion() -> void:
+	var facts := MaturePhysicalFacts.new()
+	for row in Surface.mature_tree_collision_rows():
+		facts.sources[row.id] = {"remaining": 8}
+	var world := ActorWorld.new()
+	verify(world.configure(facts).accepted, "A physical site accepts the finite mature-tree projection.")
+	root.add_child(world)
+	for frame in range(3):
+		await physics_frame
+		await process_frame
+	var tree: Dictionary = Surface.broadleaf_specs()[0]
+	var at: Vector3 = tree.center + Vector3.UP * 1.2
+	var query := PhysicsShapeQueryParameters3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = 0.3
+	capsule.height = 1.8
+	query.shape = capsule
+	query.collision_mask = Geometry.GROUND_LAYER
+	query.transform = Transform3D(Basis.IDENTITY, at)
+	var rid: RID = world.floor_body.get_rid()
+	var before: Array = world.get_world_3d().direct_space_state.intersect_shape(query, 128)
+	verify(world._geometry_registered() and before.any(func(hit: Dictionary) -> bool: return hit.rid == rid),
+		"The standing broadleaf has its exact physical trunk in the actor floor.")
+	facts.sources[tree.id].remaining = 0
+	verify(world.sync_topology().accepted, "Native projected depletion refreshes the physical floor.")
+	for frame in range(3):
+		await physics_frame
+		await process_frame
+	var after: Array = world.get_world_3d().direct_space_state.intersect_shape(query, 128)
+	var expected := Surface.faces()
+	expected.append_array(Surface.mature_tree_collision_faces(world.active_woody_ids))
+	var measured := Surface.capsule_overlap(at, capsule.radius, capsule.height, world.active_woody_ids)
+	verify(world._geometry_registered() and world.terrain_faces == expected \
+		and not after.any(func(hit: Dictionary) -> bool: return hit.rid == rid)
+		and not measured.geometric_overlap and measured.nearest_broadleaf == "",
+		"Depletion removes the invisible trunk from native physics and analytical contact.")
+	verify(facts.sources["broadleaf_01"].remaining == 8 and world.active_woody_ids.has("broadleaf_01"),
+		"A neighboring broadleaf keeps its own finite and physical identity.")
+	facts.sources[tree.id].remaining = 8
+	verify(world.sync_topology().accepted, "A fresh projection can reconstruct the standing tree collision.")
+	for frame in range(3):
+		await physics_frame
+		await process_frame
+	var restored: Array = world.get_world_3d().direct_space_state.intersect_shape(query, 128)
+	verify(world._geometry_registered() and restored.any(func(hit: Dictionary) -> bool: return hit.rid == rid),
+		"Restored native source state reconstructs the exact standing trunk.")
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		"scope": "native-projected mature tree collision and depletion", "desktop": "not_used"}))
 	world.free()
 	quit(1 if failed else 0)
 

@@ -33,6 +33,7 @@ var site_specs: Dictionary = {}
 var site_shapes: Dictionary = {}
 var _site_shape_matches: Dictionary = {}
 var terrain_faces := PackedVector3Array()
+var active_woody_ids: Variant = null
 var floor_error := ""
 var observation_ordinal := 0
 var sample_history: Dictionary = {}
@@ -78,11 +79,9 @@ func _create_floor() -> bool:
 		if site_surface == null:
 			floor_error = "native_site_geometry_invalid"
 			return false
+		active_woody_ids = _standing_woody_ids(model.projection())
 		terrain_faces = site_surface.faces()
-		# The same prepared woody triangles are visible in the ordinary scene.
-		# Retain the existing sole floor body and its strict native-data guard.
-		terrain_faces.append_array(site_surface.fir_collision_faces())
-		terrain_faces.append_array(site_surface.broadleaf_collision_faces())
+		terrain_faces.append_array(site_surface.mature_tree_collision_faces(active_woody_ids))
 	floor_body = StaticBody3D.new()
 	floor_body.name = "PhysicalGround"
 	floor_body.collision_layer = Geometry.GROUND_LAYER
@@ -119,6 +118,30 @@ func _create_floor() -> bool:
 			add_child(body)
 	return true
 
+func _standing_woody_ids(snapshot: Dictionary) -> Variant:
+	if site_surface == null or snapshot.get("options", {}).get("native") != true \
+			or not snapshot.get("hand_sources") is Dictionary:
+		return null
+	var active := {}
+	var sources: Dictionary = snapshot.hand_sources
+	for spec in site_surface.fir_specs() + site_surface.broadleaf_specs():
+		var source: Variant = sources.get(spec.id)
+		if source is Dictionary and int(source.get("remaining", 0)) > 0:
+			active[spec.id] = true
+	return active
+
+func _refresh_woody_floor(snapshot: Dictionary) -> void:
+	var standing: Variant = _standing_woody_ids(snapshot)
+	if standing == active_woody_ids:
+		return
+	active_woody_ids = standing
+	terrain_faces = site_surface.faces()
+	terrain_faces.append_array(site_surface.mature_tree_collision_faces(standing))
+	var terrain := ConcavePolygonShape3D.new()
+	terrain.backface_collision = true
+	terrain.set_faces(terrain_faces)
+	(floor_body.get_child(0) as CollisionShape3D).shape = terrain
+
 func _native_topology_stamp(snapshot: Dictionary) -> Array:
 	# Native command order changes for every construction decision, while
 	# actor poses and material ticks can change revision without new solids.
@@ -136,6 +159,8 @@ func sync_topology(known_snapshot: Dictionary = {}) -> Dictionary:
 	# derive the geometry even if command order did not change.
 	_topology_stamp.clear()
 	var snapshot: Dictionary = model.projection() if known_snapshot.is_empty() else known_snapshot
+	if site_surface != null:
+		_refresh_woody_floor(snapshot)
 	var derived: Dictionary = Geometry.mechanical_boxes(snapshot)
 	if not derived.get("accepted", false):
 		return {"accepted": false, "reason": "invalid_transmission_topology"}
@@ -596,7 +621,8 @@ func _penetration(actor: String, other: RID, shape_index: int = 0) -> Dictionary
 	target = target * PhysicsServer3D.body_get_shape_transform(other, shape_index)
 	var shape = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(other, shape_index))
 	if other == floor_body.get_rid() and site_surface != null:
-		var measured: Dictionary = site_surface.capsule_overlap(at.origin, float(capsule.radius), float(capsule.height))
+		var measured: Dictionary = site_surface.capsule_overlap(at.origin, float(capsule.radius),
+			float(capsule.height), active_woody_ids)
 		measured.merge({"unsupported_overlap": measured.analytical_overlap_measure > Geometry.SAFE_MARGIN,
 			"contact_tolerance": Geometry.SAFE_MARGIN, "kind": "terrain", "actor_position": _array(at.origin)})
 		return measured

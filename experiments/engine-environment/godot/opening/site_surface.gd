@@ -245,15 +245,32 @@ static func fir_collision_faces() -> PackedVector3Array:
 	_prepare_firs()
 	return _fir_faces.duplicate()
 
-static func _fir_capsule_distance(at: Vector3, radius: float, height: float) -> Dictionary:
+static func mature_tree_collision_faces(active_ids: Variant = null) -> PackedVector3Array:
 	_prepare_firs()
-	return _woody_capsule_distance(at, radius, height, _fir_contact_rows)
-
-static func _broadleaf_capsule_distance(at: Vector3, radius: float, height: float) -> Dictionary:
 	_prepare_broadleaf()
-	return _woody_capsule_distance(at, radius, height, _broadleaf_contact_rows)
+	var faces := PackedVector3Array()
+	for row in _fir_contact_rows + _broadleaf_contact_rows:
+		if active_ids == null or active_ids.has(row.id):
+			faces.append_array(row.faces)
+	return faces
 
-static func _woody_capsule_distance(at: Vector3, radius: float, height: float, rows: Array[Dictionary]) -> Dictionary:
+static func mature_tree_collision_rows() -> Array[Dictionary]:
+	_prepare_firs()
+	_prepare_broadleaf()
+	return (_fir_contact_rows + _broadleaf_contact_rows).duplicate(true)
+
+static func _fir_capsule_distance(at: Vector3, radius: float, height: float,
+		active_ids: Variant = null) -> Dictionary:
+	_prepare_firs()
+	return _woody_capsule_distance(at, radius, height, _fir_contact_rows, active_ids)
+
+static func _broadleaf_capsule_distance(at: Vector3, radius: float, height: float,
+		active_ids: Variant = null) -> Dictionary:
+	_prepare_broadleaf()
+	return _woody_capsule_distance(at, radius, height, _broadleaf_contact_rows, active_ids)
+
+static func _woody_capsule_distance(at: Vector3, radius: float, height: float,
+		rows: Array[Dictionary], active_ids: Variant = null) -> Dictionary:
 	var p := at - Vector3.UP * (height * 0.5 - radius)
 	var q := at + Vector3.UP * (height * 0.5 - radius)
 	var box := AABB(at - Vector3(radius, height * 0.5, radius), Vector3(radius * 2, height, radius * 2))
@@ -261,6 +278,8 @@ static func _woody_capsule_distance(at: Vector3, radius: float, height: float, r
 	var measured := 0
 	var closest := ""
 	for tree in rows:
+		if active_ids != null and not active_ids.has(tree.id):
+			continue
 		if not box.intersects(tree.bounds):
 			continue
 		var triangles: PackedVector3Array = tree.faces
@@ -627,7 +646,8 @@ static func _segment_triangle_distance(p: Vector3, q: Vector3, a: Vector3, b: Ve
 		distance = minf(distance, pair[0].distance_squared_to(pair[1]))
 	return sqrt(maxf(distance, 0.0))
 
-static func capsule_overlap(at: Vector3, radius: float, height: float) -> Dictionary:
+static func capsule_overlap(at: Vector3, radius: float, height: float,
+		active_tree_ids: Variant = null) -> Dictionary:
 	# A trimesh is hollow in Godot. In addition to measuring real nearby
 	# triangle contacts, explicitly reject a saved capsule buried below the
 	# represented ground even when a native surface query reports no hit.
@@ -651,8 +671,8 @@ static func capsule_overlap(at: Vector3, radius: float, height: float) -> Dictio
 					count += 1
 	var surface := height_at(at.x, at.z)
 	var buried := maxf(surface - (at.y - height / 2.0), 0.0) if is_finite(surface) else 0.0
-	var fir := _fir_capsule_distance(at, radius, height)
-	var broadleaf := _broadleaf_capsule_distance(at, radius, height)
+	var fir := _fir_capsule_distance(at, radius, height, active_tree_ids)
+	var broadleaf := _broadleaf_capsule_distance(at, radius, height, active_tree_ids)
 	var measure := maxf(maxf(maxf(maxf(radius - distance, 0.0), radius - fir.distance), radius - broadleaf.distance), buried)
 	return {"analytical_overlap_measure": measure, "geometric_overlap": measure > 0.0,
 		"minimum_triangle_distance": distance, "center_surface_height": surface,

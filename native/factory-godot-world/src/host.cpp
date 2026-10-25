@@ -1007,7 +1007,17 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             {"tree-east-south", {{16, 0, 8}, 8}},
             {"tree-east-north", {{16, 0, 28}, 8}},
             {"tree-north", {{0, 0, 28}, 8}},
-            {"tree-east-upstream", {{16, 0, -4}, 8}}};
+            {"tree-east-upstream", {{16, 0, -4}, 8}},
+            // Mature bank trees have stable native identities. The scene
+            // matches each prepared mesh root to these quarter-tile centers.
+            {"fir_00", {{-28, 0, -44}, 8}},
+            {"fir_01", {{-31, 0, -11}, 8}},
+            {"fir_02", {{-51, 0, 37}, 8}},
+            {"fir_03", {{29, 0, -24}, 8}},
+            {"fir_04", {{32, 0, -2}, 8}},
+            {"fir_05", {{44, 0, 15}, 8}},
+            {"broadleaf_00", {{8, 0, -7}, 8}},
+            {"broadleaf_01", {{-46, 0, -34}, 8}}};
         // Zero means no carried-count limit. Finite sources and native custody
         // still bound the material that can exist in the opening.
         profile.material.hand_carry_capacity = 0;

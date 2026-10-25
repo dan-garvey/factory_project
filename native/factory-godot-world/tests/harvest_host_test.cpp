@@ -890,9 +890,11 @@ void shared_harvest() {
           "The trusted arrival site initializes one native source roster.");
     const auto initial = host.projection();
     const auto sources = get<O>(initial, "hand_sources");
-    check(sources.size() == 5 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
+    check(sources.size() == 13 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
+          get<I>(sources.at("broadleaf_00"), "remaining") == 8 &&
+          get<I>(sources.at("fir_05"), "remaining") == 8 &&
           get<I>(sources.at("opening-copper"), "remaining") == 4096,
-          "Four finite trees and one shared ore reserve are visible to both actors.");
+          "The four starter pines, eight mature bank trees and ore reserve share native custody.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "P walks to the clear east timber site while Q remains on the deployed deck.");
@@ -1000,6 +1002,57 @@ void shared_harvest() {
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),
           "A fresh Host restores both actors and all finite source balances.");
+}
+
+void mature_bank_tree_stock_survives_shared_restore() {
+    Host host;
+    check(get<bool>(host.initialize_arrival_advanced_fixture("mature-bank", {"P", "Q"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
+          "The mature bank tree roster initializes inside the one native arrival profile.");
+    const auto sources = get<O>(host.projection(), "hand_sources");
+    check(sources.size() == 13 && get<I>(sources.at("broadleaf_00"), "initial") == 8 &&
+          get<I>(sources.at("fir_00"), "initial") == 8,
+          "Mature broadleaf and fir instances have separate finite source identities.");
+    const auto wire = [](const char* actor, const std::string& request, const char* action, O extra) {
+        O command{{"context", V("mature-bank")}, {"client", V(actor)},
+            {"request", V(request)}, {"action", V(action)}};
+        command.merge(extra);
+        return command;
+    };
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(-2.8875)}, 1), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(0.0), V(1.0), V(0.0)}, 1), "accepted") &&
+          get<bool>(host.command("P", wire("P", "fast", "set_developer_conveniences",
+              {{"enabled", V(true)}})), "accepted"),
+          "Native actor samples and fast-mode setup remain shared by both clients.");
+    for (int cut_index = 0; cut_index < 8; ++cut_index) {
+        const auto request = "broadleaf-" + std::to_string(cut_index);
+        check(get<bool>(host.command("P", wire("P", request, "harvest_source",
+                  {{"target", V("broadleaf_00")}})), "accepted"),
+              "Each broadleaf cut transfers one real finite timber unit.");
+    }
+    check(get<I>(get<O>(host.projection(), "hand_sources").at("broadleaf_00"), "remaining") == 0 &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("fir_00"), "remaining") == 8 &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 8 &&
+          get<I>(get<O>(host.projection(), "cargo").at("Q"), "timber") == 0,
+          "Depletion of one visual tree cannot alter its neighbor or another actor's custody.");
+    const auto saved = host.checkpoint();
+    Host restored;
+    check(get<bool>(host.validate_checkpoint(saved), "accepted") &&
+          get<bool>(restored.initialize_arrival_advanced_fixture("mature-bank", {"P", "Q"}), "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, restored.checkpoint()),
+          "A fresh Host replays the exact mature-tree stock and shared material history.");
+    check(get<bool>(restored.publish_actor("Q", {V(3.3), V(1.0), V(-2.8875)}, 2), "accepted"),
+          "A second actor can observe the restored broadleaf site.");
+    const auto exhausted = restored.command("Q", wire("Q", "depleted", "harvest_source",
+        {{"target", V("broadleaf_00")}}));
+    check(!get<bool>(exhausted, "accepted") &&
+          get<std::string>(exhausted, "reason") == "unavailable_source" &&
+          get<I>(get<O>(restored.projection(), "hand_sources").at("broadleaf_00"), "remaining") == 0 &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "timber") == 8 &&
+          get<I>(get<O>(restored.projection(), "cargo").at("Q"), "timber") == 0,
+          "Neither rejoin nor a second actor can respawn or duplicate the depleted broadleaf.");
 }
 
 void placed_bench_preserves_two_actor_custody() {
@@ -1197,6 +1250,7 @@ int main() {
         cutter_reach_is_shorter_than_build_reach();
         ore_outcrop_has_a_standing_cut_boundary();
         shared_harvest();
+        mature_bank_tree_stock_survives_shared_restore();
         field_wood_uses_physical_actor_and_one_ledger();
         opening_actor_carries_finite_site_across_restore();
         placed_bench_preserves_two_actor_custody();

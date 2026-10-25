@@ -2800,6 +2800,8 @@ class ProductionEnvironment:
 	const STONE_FILES := {"albedo": "stone_albedo.webp", "arm": "stone_arm.webp", "normal": "stone_normal_gl.webp"}
 	static var stone_source_status := "uninitialized"
 	static var timber_finish: StandardMaterial3D
+	const CUT_WOOD_SHADER = preload("res://opening/mature_tree_cut.gdshader")
+	static var cut_wood_finish: ShaderMaterial
 	static var iron_finish: StandardMaterial3D
 	static var sky_finish: PanoramaSkyMaterial
 	const SKY_FILE := "res://opening/assets/sky/kloppenheim_03_puresky_1k.hdr"
@@ -2981,6 +2983,12 @@ class ProductionEnvironment:
 		if timber_finish == null:
 			timber_finish = ProductionVisuals.material(Color("6e5339"), 0.04, 0.84)
 		return timber_finish
+
+	static func cut_wood_material() -> ShaderMaterial:
+		if cut_wood_finish == null:
+			cut_wood_finish = ShaderMaterial.new()
+			cut_wood_finish.shader = CUT_WOOD_SHADER
+		return cut_wood_finish
 
 	static func iron_material() -> StandardMaterial3D:
 		if iron_finish == null:
@@ -3584,6 +3592,12 @@ class ProductionEnvironment:
 		# Only soft, unsaved decoration is hidden. Natural collision geometry
 		# and the confirmed construction facts remain untouched.
 		var volumes := _construction_volumes(state)
+		for spec in Surface.fir_specs() + Surface.broadleaf_specs():
+			var source: Dictionary = state.get("hand_sources", {}).get(spec.id, {})
+			if source.get("remaining", 1) == 0:
+				var radius := 0.5 if str(spec.id).begins_with("fir_") else 0.8
+				volumes.append(AABB(spec.center - Vector3(radius, 0.1, radius),
+					Vector3(radius * 2.0, 0.8, radius * 2.0)))
 		for name in ["GroundFoliage", "ForegroundBank", "PineUnderstory"]:
 			_refresh_plant_patch(scenery.get_node_or_null(name) as MultiMeshInstance3D, volumes)
 		var shrubs := scenery.get_node_or_null("ShrubUnderstory")
@@ -4601,6 +4615,8 @@ var geometry_key := ""
 var ui_refresh_key: Array = []
 var hand_tree_nodes: Dictionary = {}
 var hand_tree_assets: Dictionary = {}
+var mature_tree_nodes: Dictionary = {}
+var mature_tree_collision_rows: Dictionary = {}
 var camera: Camera3D
 var machine_root: Node3D
 var item_root: Node3D
@@ -6302,6 +6318,7 @@ func _refresh_hand_trees() -> void:
 			if source.get("kind") == "tree" and typeof(source.get("initial")) == TYPE_INT \
 					and source.initial > 0 and source.remaining <= source.initial:
 				sources[id] = source
+	_refresh_mature_trees(sources)
 	for id: String in hand_tree_nodes.keys():
 		if not sources.has(id) or hand_tree_nodes[id].get_meta("source_position") != sources[id].position:
 			hand_tree_nodes[id].free()
@@ -6309,6 +6326,8 @@ func _refresh_hand_trees() -> void:
 	if sources.is_empty() or not _prepare_hand_tree_assets():
 		return
 	for id: String in sources:
+		if id.begins_with("fir_") or id.begins_with("broadleaf_"):
+			continue
 		var source: Dictionary = sources[id]
 		if not hand_tree_nodes.has(id):
 			var body := StaticBody3D.new()
@@ -6364,6 +6383,96 @@ func _refresh_hand_trees() -> void:
 		else:
 			cut.material_override = null
 
+func _mature_cut_disk(radius: float) -> ArrayMesh:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for segment in range(48):
+		var angle := TAU * float(segment) / 48.0
+		var next_angle := TAU * float(segment + 1) / 48.0
+		var edge := radius * (1.0 + 0.025 * sin(angle * 5.0) + 0.012 * sin(angle * 11.0))
+		var next_edge := radius * (1.0 + 0.025 * sin(next_angle * 5.0)
+			+ 0.012 * sin(next_angle * 11.0))
+		var first := Vector2(cos(angle), sin(angle)) * edge
+		var second := Vector2(cos(next_angle), sin(next_angle)) * next_edge
+		for point in [Vector2.ZERO, first, second]:
+			tool.set_normal(Vector3.UP)
+			tool.set_uv(Vector2(0.5 + point.x / (2.0 * radius),
+				0.5 + point.y / (2.0 * radius)))
+			tool.add_vertex(Vector3(point.x, 0.0, point.y))
+	return tool.commit()
+
+func _refresh_mature_trees(sources: Dictionary) -> void:
+	var scenery := get_node_or_null("ProductionScenery")
+	if scenery == null or ProductionEnvironment.Surface == null:
+		return
+	if mature_tree_collision_rows.is_empty():
+		for row in ProductionEnvironment.Surface.mature_tree_collision_rows():
+			mature_tree_collision_rows[row.id] = row
+	for spec in ProductionEnvironment.Surface.fir_specs() + ProductionEnvironment.Surface.broadleaf_specs():
+		var id: String = spec.id
+		var group := "BankFirs" if id.begins_with("fir_") else "BankBroadleaf"
+		var standing_mesh := scenery.get_node_or_null("%s/%s" % [group, id]) as MeshInstance3D
+		if standing_mesh == null:
+			continue
+		var source: Dictionary = sources.get(id, {})
+		var center: Vector3 = spec.center
+		var site := Vector3(float(source.get("position", [0.0, 0.0, 0.0])[0]), 0.0,
+			float(source.get("position", [0.0, 0.0, 0.0])[2]))
+		if source.is_empty() or Vector2(site.x - center.x, site.z - center.z).length() > 0.35:
+			standing_mesh.visible = false
+			push_error("Mature tree lacks a matching native timber source: " + id)
+			continue
+		var standing: bool = source.remaining > 0
+		standing_mesh.visible = standing
+		if not mature_tree_nodes.has(id):
+			var body := StaticBody3D.new()
+			body.name = "MatureTreePicker_" + id
+			body.collision_layer = Geometry.PICK_LAYER
+			body.collision_mask = 0
+			body.set_meta("hand_source", id)
+			var picker := CollisionShape3D.new()
+			picker.name = "PickShape"
+			body.add_child(picker)
+			var radius := 0.28 if id.begins_with("fir_") else 0.5
+			var stump := MeshInstance3D.new()
+			stump.name = "Stump"
+			var stump_mesh := CylinderMesh.new()
+			stump_mesh.height = 0.18
+			stump_mesh.bottom_radius = radius
+			stump_mesh.top_radius = radius * 0.9
+			stump.mesh = stump_mesh
+			stump.material_override = standing_mesh.mesh.surface_get_material(2)
+			stump.position = Vector3(center.x,
+				ProductionEnvironment.Surface.height_at(center.x, center.z) + 0.07, center.z)
+			body.add_child(stump)
+			var cap := MeshInstance3D.new()
+			cap.name = "CutFace"
+			cap.mesh = _mature_cut_disk(radius * 0.9)
+			cap.material_override = ProductionEnvironment.cut_wood_material()
+			cap.position = stump.position + Vector3.UP * 0.11
+			body.add_child(cap)
+			add_child(body)
+			mature_tree_nodes[id] = body
+		var body: StaticBody3D = mature_tree_nodes[id]
+		if body.has_meta("standing") and body.get_meta("standing") == standing:
+			continue
+		body.set_meta("standing", standing)
+		body.get_node("Stump").visible = not standing
+		body.get_node("CutFace").visible = not standing
+		var picker: CollisionShape3D = body.get_node("PickShape")
+		if standing:
+			var shape := ConcavePolygonShape3D.new()
+			shape.backface_collision = true
+			shape.set_faces(mature_tree_collision_rows[id].faces)
+			picker.position = Vector3.ZERO
+			picker.shape = shape
+		else:
+			var shape := CylinderShape3D.new()
+			shape.radius = 0.28 if id.begins_with("fir_") else 0.5
+			shape.height = 0.18
+			picker.position = body.get_node("Stump").position
+			picker.shape = shape
+
 func _screen_hand_source(screen: Vector2) -> String:
 	if not _native_transmission() or camera == null or state.get("hand_sources", {}).is_empty():
 		return ""
@@ -6377,6 +6486,16 @@ func _screen_hand_source(screen: Vector2) -> String:
 	# A resource presenter identifies the actual hit, rather than selecting a
 	# nearby source from camera distance. Host retains the actor-reach check.
 	var id: String = str(hit.collider.get_meta("hand_source", ""))
+	if id.is_empty() and actor_world != null and hit.collider == actor_world.floor_body:
+		# Standing mature trunks use the same exact triangles in the actor floor
+		# and in a resource picker. Resolve the coincident hit by its pick ID,
+		# but keep a nearer terrain surface as an occluder.
+		var pick_query := PhysicsRayQueryParameters3D.create(eye,
+			eye + camera.project_ray_normal(screen) * 80.0, Geometry.PICK_LAYER)
+		var pick := get_world_3d().direct_space_state.intersect_ray(pick_query)
+		if not pick.is_empty() and pick.collider.get_meta("hand_source", "") != "" \
+				and pick.position.distance_to(eye) <= hit.position.distance_to(eye) + 0.03:
+			id = str(pick.collider.get_meta("hand_source"))
 	if id.is_empty() and hit.collider == get_node_or_null("SharedOreSourcePicker"):
 		# The shared view owns only a pick shape. The server projection supplies
 		# the source identity and remains the sole stock and reach authority.

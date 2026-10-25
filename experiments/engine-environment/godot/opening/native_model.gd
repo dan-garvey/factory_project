@@ -43,6 +43,9 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 	for fir in surface.fir_specs():
 		var bounds: AABB = fir.bounds
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
+	for broadleaf in surface.broadleaf_specs():
+		var bounds: AABB = broadleaf.bounds
+		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
 	if source_obstacle < 0:
 		boot_result = {"accepted": false, "reason": "source_outcrop_missing"}
 		return

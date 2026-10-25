@@ -777,7 +777,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -2588,6 +2588,182 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		return
 	_record("pass")
 
+func _arrival_mature_tree_run(capture_prefix: String) -> void:
+	var surface = load("res://opening/site_surface.gd")
+	var initial: Dictionary = opening.model.projection()
+	var specs: Array[Dictionary] = surface.fir_specs() + surface.broadleaf_specs()
+	if not _expect(specs.size() == 8 and opening.mature_tree_nodes.size() == 8,
+			"Every mature bank tree has one native-backed pick identity"):
+		return
+	for spec in specs:
+		var source: Dictionary = initial.hand_sources.get(spec.id, {})
+		var body: StaticBody3D = opening.mature_tree_nodes[spec.id]
+		var anchor := Vector3(float(source.get("position", [0, 0, 0])[0]), 0.0,
+			float(source.get("position", [0, 0, 0])[2]))
+		if not _expect(source.get("kind") == "tree" and source.get("remaining") == 8
+				and Vector2(anchor.x - spec.center.x, anchor.z - spec.center.z).length() <= 0.35
+				and body.get_meta("hand_source") == spec.id
+				and body.get_node("PickShape").shape is ConcavePolygonShape3D,
+				"The visible root, native finite source and physical picker agree for " + spec.id):
+			return
+	if not await _approach_points([Vector2(6.0, 3.0), Vector2(6.0, 0.0), Vector2(5.4, -3.0)]):
+		return
+	var broadleaf: Dictionary = surface.broadleaf_specs()[0]
+	var target := Vector3(broadleaf.center.x + 0.74, 1.45, broadleaf.center.z + 0.75)
+	opening.distance = 0.0
+	opening._update_camera()
+	var direction: Vector3 = (target - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-direction.x, -direction.z)
+	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+	opening._update_camera()
+	await physics_frame
+	await process_frame
+	var aim: Vector2 = root.get_visible_rect().size * 0.5
+	if not _expect(opening._screen_hand_source(aim) == "broadleaf_00"
+			and opening._pointed_summary_data(aim).get("detail", "").contains("E Harvest"),
+			"The ordinary actor-eye ray and E cue identify the reported broadleaf in native reach"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-broadleaf-standing.png", target),
+				"Retain the actor-eye standing broadleaf and harvest cue"):
+			return
+	opening._interact_pointed()
+	var started: Dictionary = opening.model.projection()
+	if not _expect(started.manual_cuts.has("P") and started.manual_cuts.P.target == "broadleaf_00",
+			"Ordinary E interaction starts a real timed cut on the aimed broadleaf"):
+		return
+	for tick in range(int(started.manual_cuts.P.duration_ticks)):
+		opening.model.advance()
+	opening._refresh()
+	var first: Dictionary = opening.model.projection()
+	if not _expect(first.hand_sources.broadleaf_00.remaining == 7 and first.cargo.P.timber == 1
+			and opening.actor_world.active_woody_ids.has("broadleaf_00"),
+			"The first contact transfers exactly one timber and retains standing trunk collision"):
+		return
+	if not _expect(_issue({"action": "set_developer_conveniences", "enabled": true}).accepted,
+			"The fixture can shorten only its seven remaining finite cuts"):
+		return
+	for cut in range(7):
+		var before: Dictionary = opening.model.projection()
+		var result := _issue({"action": "harvest_source", "target": "broadleaf_00"})
+		var after: Dictionary = opening.model.projection()
+		if not _expect(result.get("accepted", false) and after.manual_cuts.is_empty()
+				and after.hand_sources.broadleaf_00.remaining == before.hand_sources.broadleaf_00.remaining - 1
+				and after.cargo.P.timber == before.cargo.P.timber + 1,
+				"Fast fixture contact spends one finite broadleaf unit without a duplicate payout"):
+			return
+	await physics_frame
+	await process_frame
+	var depleted: Dictionary = opening.model.projection()
+	var stump: StaticBody3D = opening.mature_tree_nodes["broadleaf_00"]
+	var standing: MeshInstance3D = opening.get_node("ProductionScenery/BankBroadleaf/broadleaf_00")
+	if not _expect(depleted.hand_sources.broadleaf_00.remaining == 0 and depleted.cargo.P.timber == 8
+			and not standing.visible and stump.get_node("Stump").visible
+			and stump.get_node("PickShape").shape is CylinderShape3D
+			and not opening.actor_world.active_woody_ids.has("broadleaf_00")
+			and opening.actor_world.active_woody_ids.has("broadleaf_01")
+			and opening.actor_world._geometry_registered(),
+			"Native depletion leaves a selectable stump, removes trunk collision and preserves its neighbor"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-broadleaf-depleted.png",
+				stump.get_node("Stump").global_position),
+				"Retain the actor-eye depleted broadleaf and low stump"):
+			return
+	if not await _approach_points([Vector2(7.0, -3.0), Vector2(10.0, -6.0),
+		Vector2(10.5, -9.7)]):
+		return
+	var fir: Dictionary = surface.fir_specs()[3]
+	var fir_target: Vector3 = fir.center + Vector3.UP * 1.0
+	opening._update_camera()
+	var fir_direction: Vector3 = (fir_target - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-fir_direction.x, -fir_direction.z)
+	opening.orbit_pitch = asin(clampf(-fir_direction.y, -1.0, 1.0))
+	opening._update_camera()
+	await physics_frame
+	await process_frame
+	if not _expect(opening._screen_hand_source(aim) == "fir_03"
+			and opening._pointed_summary_data(aim).get("detail", "").contains("E Harvest"),
+			"The same actor-eye resource cue selects a separate mature fir"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-fir-standing.png", fir_target),
+				"Retain the standing fir and its E cue"):
+			return
+	opening._interact_pointed()
+	var fir_first: Dictionary = opening.model.projection()
+	if not _expect(fir_first.hand_sources.fir_03.remaining == 7 and fir_first.cargo.P.timber == 9,
+			"Aiming and pressing E on the fir transfers only its own finite timber"):
+		return
+	for cut in range(7):
+		var before: Dictionary = opening.model.projection()
+		var result := _issue({"action": "harvest_source", "target": "fir_03"})
+		var after: Dictionary = opening.model.projection()
+		if not _expect(result.get("accepted", false) and after.hand_sources.fir_03.remaining ==
+				before.hand_sources.fir_03.remaining - 1 and after.cargo.P.timber == before.cargo.P.timber + 1,
+				"Each further fir cut debits that distinct native tree once"):
+			return
+	await physics_frame
+	await process_frame
+	var fir_stump: StaticBody3D = opening.mature_tree_nodes["fir_03"]
+	var fir_mesh: MeshInstance3D = opening.get_node("ProductionScenery/BankFirs/fir_03")
+	if not _expect(opening.model.projection().cargo.P.timber == 16 and not fir_mesh.visible
+			and fir_stump.get_node("Stump").visible
+			and not opening.actor_world.active_woody_ids.has("fir_03")
+			and opening.actor_world.active_woody_ids.has("fir_04")
+			and opening.actor_world._geometry_registered(),
+			"The mature fir also becomes a low stump with no invisible trunk collision"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-fir-depleted.png",
+				fir_stump.get_node("Stump").global_position),
+				"Retain the depleted fir beside its intact neighboring trees"):
+			return
+	opening.configure_save_slot(destination + ".worksite")
+	var saved: Dictionary = opening._save_worksite()
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"The ordinary depleted tree and actor state save through native preflight"):
+		return
+	_record("pass")
+
+func _arrival_mature_tree_resume_run(capture_prefix: String) -> void:
+	var input := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--resume-input="):
+			input = argument.trim_prefix("--resume-input=")
+	if not _expect(not input.is_empty() and opening.last_load_result.get("accepted", false),
+			"A fresh ordinary scene reopens the saved mature-tree worksite"):
+		return
+	var restored: Dictionary = opening.model.projection()
+	var standing: MeshInstance3D = opening.get_node("ProductionScenery/BankBroadleaf/broadleaf_00")
+	var stump: StaticBody3D = opening.mature_tree_nodes["broadleaf_00"]
+	if not _expect(restored.hand_sources.broadleaf_00.remaining == 0
+			and restored.hand_sources.fir_03.remaining == 0 and restored.cargo.P.timber == 16
+			and not standing.visible and stump.get_node("Stump").visible
+			and not opening.actor_world.active_woody_ids.has("broadleaf_00")
+			and not opening.actor_world.active_woody_ids.has("fir_03")
+			and opening.actor_world._geometry_registered()
+			and _same(opening.startup_resume_checkpoint.world, opening.model.checkpoint().world),
+			"Rejoin keeps native timber custody, depleted presentation and absent trunk collision"):
+		return
+	if not await _approach_points([Vector2(10.0, -6.0), Vector2(7.0, -3.0),
+		Vector2(3.11, -3.0)]):
+		return
+	if not _expect(opening.actor_world._geometry_registered(),
+			"The restored actor can walk across the former trunk without an invisible collision"):
+		return
+	var refused: Dictionary = _issue({"action": "harvest_source", "target": "broadleaf_00"})
+	if not _expect(not refused.get("accepted", true) and refused.get("reason", "") == "unavailable_source"
+			and opening.model.projection().cargo.P.timber == 16,
+			"A reopened depleted broadleaf cannot issue another timber unit"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-broadleaf-rejoined.png",
+				stump.get_node("Stump").global_position),
+				"Retain a passive view of the restored depleted broadleaf"):
+			return
+	_record("pass")
+
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-craft-capacity"]:
@@ -2596,12 +2772,12 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	var advanced_fixture := mode not in ["arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-reveal", "arrival-reveal-skip"]
+	var advanced_fixture := mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-reveal", "arrival-reveal-skip"]
 	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
@@ -2642,6 +2818,12 @@ func _arrival_run() -> void:
 		return
 	if mode in ["arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_reveal_run(capture_prefix)
+		return
+	if mode == "arrival-mature-trees":
+		await _arrival_mature_tree_run(capture_prefix)
+		return
+	if mode == "arrival-mature-trees-resume":
+		await _arrival_mature_tree_resume_run(capture_prefix)
 		return
 	var pod_state: Dictionary = opening.model.projection()
 	if not _expect(opening.landing_pod_visual != null and opening.landing_hub_visual != null
