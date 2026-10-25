@@ -162,7 +162,8 @@ void validation() {
     for (std::size_t index = 0; index < g::maximum_parts; ++index) many.push_back({index + 1, box(100, 0)});
     many.back().box = box(2, 0);
     const auto last = std::get<f::Blocked>(f::prepare(links, {{1, 2}, {{7, {0, 1}}}}, rig, {{9, 2}, true, many}, {}));
-    require(std::get<w::StationaryContact>(last.contact).hit == c::Hit{256, {3, 8}, false}, "last permitted obstacle participates in contact");
+    require(std::get<w::StationaryContact>(last.contact).hit == c::Hit{g::maximum_parts, {3, 8}, false},
+        "last permitted obstacle participates in contact");
     many.push_back({999, box(0, 0)});
     require(refused(f::prepare(links, initial, rig, {{9, 2}, true, many}, {}), f::Error::invalid_input), "oversized obstacle set never truncates");
     std::vector<p::Pair> too_many(p::maximum_pairs + 1, {{}, 7});
