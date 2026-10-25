@@ -146,12 +146,12 @@ void actual_powered_world_topology() {
     auto parts = parts_at({0, 0, 0});
     for (auto& part : parts)
         if (part.kind == m::Component::wooden_cog)
-            part.kind = m::Component::softmetal_cog;
+            part.kind = m::Component::copper_cog;
         else if (part.kind == m::Component::wooden_shaft)
-            part.kind = m::Component::softmetal_shaft;
+            part.kind = m::Component::copper_shaft;
     const auto inspected = a::inspect_broad_press(parts, {0, 0, 0});
     check(inspected.press.has_value(),
-        "Four softmetal exterior cogs preserve the native broad geometry.");
+        "Four copper exterior cogs preserve the native broad geometry.");
     const auto& press = *inspected.press;
     w::Profile profile;
     w::State state;
@@ -184,7 +184,7 @@ void actual_powered_world_topology() {
     const auto overloaded = w::BroadPressDriveIndex(w::drive_power(profile, state)).inspect(press);
     check(overloaded.status == w::BroadPressDriveStatus::stalled,
         "One real wooden shaft rating stalls the otherwise complete four-head load.");
-    state.placed_components.at(press.shafts[0]).kind = m::Component::softmetal_shaft;
+    state.placed_components.at(press.shafts[0]).kind = m::Component::copper_shaft;
     state.topology.drive_enabled = false;
     check(w::BroadPressDriveIndex(w::drive_power(profile, state)).inspect(press).status ==
           w::BroadPressDriveStatus::stopped,

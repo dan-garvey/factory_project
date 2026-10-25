@@ -291,7 +291,7 @@ Bounds component_bounds(const world::Profile& profile,
             // above. All three use the one construction height denominator.
             return vertical(at[1] - height_step * 0.5, at[1] + height_step - 0.08);
         case materials::Component::wooden_slide:
-        case materials::Component::softmetal_slide:
+        case materials::Component::copper_slide:
             // Its fixed rails and moving carriage live inside this volume.
             // The lower face is the admitted stroke limit even when unloaded.
             return {{at[0], at[1] - height_step * 0.5, at[2]},
@@ -301,10 +301,10 @@ Bounds component_bounds(const world::Profile& profile,
         case materials::Component::receiver_tray:
             return {{at[0], at[1] - 0.0825, at[2]}, {0.18, 0.15, 0.205}};
         case materials::Component::wooden_shaft:
-        case materials::Component::softmetal_shaft:
+        case materials::Component::copper_shaft:
             return {at, {component_shaft_half, 0.12, component_shaft_half}};
         case materials::Component::wooden_cog:
-        case materials::Component::softmetal_cog:
+        case materials::Component::copper_cog:
             // Either horizontal press layout seats this hub against the
             // neighboring shaft without moving either common-grid center.
             return {at, {height_step - component_shaft_half, 0.14,
@@ -395,7 +395,7 @@ bool transmission_intersects(const Bounds& other, const mechanics::Point& center
 bool shaft_meets_component_cog(std::optional<materials::Component> kind,
         const mechanics::Point& component, const mechanics::Point& shaft, mechanics::Axis axis) {
     if (kind != materials::Component::wooden_cog &&
-        kind != materials::Component::softmetal_cog) return false;
+        kind != materials::Component::copper_cog) return false;
     if (axis != mechanics::Axis::x && axis != mechanics::Axis::z) return false;
     const auto along = static_cast<std::size_t>(axis);
     for (std::size_t dimension = 0; dimension < 3; ++dimension)
@@ -965,7 +965,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     // reversible authored site anchor, expressed in the one quarter-tile grid.
     if (arrival) {
         profile.landing_pod_center = mechanics::Point{4, 0, 16};
-        profile.material.manual_ore = materials::OreSite{"opening-softmetal", {-3, 0, 0}};
+        profile.material.manual_ore = materials::OreSite{"opening-copper", {-3, 0, 0}};
         profile.material.raw_mass = 4;
         profile.material.plate_mass = 3;
         profile.material.sheet_mass = 12;
@@ -2592,7 +2592,7 @@ Value Host::projection() const {
                         projected.emplace("limiting_kind", Value(materials::component_name(found->second.kind)));
                 }
                 projected.emplace("remedy", Value(load->second.limiting_part.empty() ?
-                    "add_power_or_reduce_load" : "replace_with_softmetal_or_split_load"));
+                    "add_power_or_reduce_load" : "replace_with_copper_or_split_load"));
             }
         }
         motions.emplace(id, Value(std::move(projected)));
@@ -2741,12 +2741,12 @@ Value Host::projection() const {
                 materials::Component::wooden_cog, materials::Component::receiver_tray,
                 materials::Component::tool_mount, materials::Component::sliding_guide,
                 materials::Component::cutting_edge, materials::Component::anvil,
-                materials::Component::ram_face, materials::Component::softmetal_shaft,
-                materials::Component::softmetal_cog, materials::Component::wooden_workbench,
-                materials::Component::wooden_slide, materials::Component::softmetal_slide}) {
+                materials::Component::ram_face, materials::Component::copper_shaft,
+                materials::Component::copper_cog, materials::Component::wooden_workbench,
+                materials::Component::wooden_slide, materials::Component::copper_slide}) {
             const auto cost = materials::component_cost(kind);
             if (cost) {
-                Object recipe{{"timber", Value(cost->timber)}, {"softmetal", Value(cost->ore)}};
+                Object recipe{{"timber", Value(cost->timber)}, {"copper", Value(cost->ore)}};
                 if (const auto rating = world::placed_drive_load_rating(kind))
                     recipe.emplace("load_rating", Value(*rating));
                 recipes.emplace(materials::component_name(kind), Value(std::move(recipe)));
@@ -2757,10 +2757,10 @@ Value Host::projection() const {
         for (const auto& [spec, cost] : profile_.fabrication_parts)
             fabrication.emplace_back(Object{{"kind", Value(kind(spec.role))},
                 {"teeth", Value(spec.teeth)}, {"half_span", Value(spec.half_span)},
-                {"timber", Value(cost.timber)}, {"softmetal", Value(cost.ore)}});
+                {"timber", Value(cost.timber)}, {"copper", Value(cost.ore)}});
         projection.emplace("part_recipes", Value(std::move(fabrication)));
         projection.emplace("foundation_recipe", Value(Object{{"timber", Value(world::foundation_timber_cost)},
-            {"softmetal", Value(Integer{0})}}));
+            {"copper", Value(Integer{0})}}));
         projection.emplace("component_capacity", Value(profile_.material.component_capacity));
         Array completed;
         for (const auto& actor : state.workshop_completed_actors)

@@ -124,7 +124,7 @@ bool add(Integer& total, Integer count) {
 
 bool slide_component(materials::Component kind) {
     return kind == materials::Component::wooden_slide ||
-           kind == materials::Component::softmetal_slide;
+           kind == materials::Component::copper_slide;
 }
 
 bool advance_slide_phase_internal(State::SlidePhase& phase, mechanics::Rate rate) {
@@ -3216,7 +3216,7 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     };
     for (const auto& item : placed) {
         if (item.kind != materials::Component::wooden_slide &&
-            item.kind != materials::Component::softmetal_slide) continue;
+            item.kind != materials::Component::copper_slide) continue;
         // The shaft is embodied in this one crafted part. Its identity is the
         // placed slide, so drive, load and later carriage phase share an owner.
         append({item.id, mechanics::Kind::shaft, item.center,
@@ -4373,7 +4373,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (found == state.placed_components.end()) return refused("unknown_target", *id);
         if (found->second.generation != *generation) return refused("stale_generation", *id);
         if (found->second.kind != materials::Component::wooden_shaft &&
-            found->second.kind != materials::Component::softmetal_shaft)
+            found->second.kind != materials::Component::copper_shaft)
             return refused("not_drive_shaft", *id);
         if (!state.hand_crank || state.hand_crank->holder != binding.actor)
             return refused("not_crank_holder", *id);

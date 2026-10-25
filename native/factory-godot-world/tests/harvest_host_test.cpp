@@ -143,9 +143,9 @@ void shared_fast_setting_and_restore() {
     check(get<bool>(host.command("P", fast_site_cut("P", "fast-tree", "tree-east-south")), "duplicate") &&
           get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1,
           "An exact Host retry cannot duplicate fast timber.");
-    check(get<bool>(host.command("Q", fast_site_cut("Q", "fast-ore", "opening-softmetal")), "accepted") &&
+    check(get<bool>(host.command("Q", fast_site_cut("Q", "fast-ore", "opening-copper")), "accepted") &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1 &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") ==
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") ==
               get<I>(V(get<O>(host.projection(), "source_deposit")), "initial_units") - 1,
           "Q's immediate ore cut spends the same finite native reserve.");
     const auto saved = host.checkpoint();
@@ -318,7 +318,7 @@ void shared_harvest() {
     const auto initial = host.projection();
     const auto sources = get<O>(initial, "hand_sources");
     check(sources.size() == 5 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
-          get<I>(sources.at("opening-softmetal"), "remaining") == 4096,
+          get<I>(sources.at("opening-copper"), "remaining") == 4096,
           "Four finite trees and one shared ore reserve are visible to both actors.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
@@ -358,8 +358,8 @@ void shared_harvest() {
           "A second actor cannot cut a tree outside physical reach.");
     check(get<bool>(host.publish_actor("Q", {V(-0.5), V(1.0), V(0.0)}, 2), "accepted"),
           "Q can reach the ore side of the site with a new physical observation.");
-    check(get<bool>(complete_cut(host, "Q", cut("Q", "ore-first", "opening-softmetal")), "accepted") &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-softmetal"), "remaining") == 4095 &&
+    check(get<bool>(complete_cut(host, "Q", cut("Q", "ore-first", "opening-copper")), "accepted") &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") == 4095 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1,
           "Manual ore mining debits the same source that feeds a future collector.");
     const auto bench = get<O>(host.projection(), "fabrication_hub");
@@ -474,9 +474,9 @@ void placed_bench_preserves_two_actor_custody() {
           "The issued pod workshop moves into P's explicit custody without removing the placed bench.");
     const O mine{{"context", V("bench-site")}, {"client", V("Q")},
         {"request", V("bench-ore")}, {"action", V("harvest_source")},
-        {"target", V("opening-softmetal")}};
+        {"target", V("opening-copper")}};
     check(get<bool>(complete_cut(host, "Q", mine), "accepted"),
-          "Q mines one softmetal blank from the same finite source used by collectors.");
+          "Q mines one copper blank from the same finite source used by collectors.");
     const O craft_edge{{"context", V("bench-site")}, {"client", V("Q")},
         {"request", V("remote-bench-edge")}, {"action", V("craft_component")},
         {"entity", V(bench_id)}, {"component", V("cutting_edge")}};

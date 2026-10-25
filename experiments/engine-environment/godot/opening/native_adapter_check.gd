@@ -201,6 +201,27 @@ func _capture_guided_close(ram_id: String, path: String) -> bool:
 	close.queue_free()
 	return captured
 
+func _capture_actor_area(path: String, target: Vector3) -> bool:
+	var prior_distance: float = opening.distance
+	var prior_yaw: float = opening.orbit_yaw
+	var prior_pitch: float = opening.orbit_pitch
+	opening.distance = 0.0
+	opening._update_camera()
+	var direction: Vector3 = (target - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-direction.x, -direction.z)
+	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+	opening._update_camera()
+	if opening.mode == "component":
+		opening._refresh_component_preview()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var captured: bool = root.get_texture().get_image().save_png(path) == OK
+	opening.distance = prior_distance
+	opening.orbit_yaw = prior_yaw
+	opening.orbit_pitch = prior_pitch
+	opening._update_camera()
+	return captured
+
 func _approach(target: Vector2, actor: String = "P") -> bool:
 	if not await _walk_to(target, false, actor):
 		return false
@@ -492,7 +513,7 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 		return
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 		return
 	opening._open_object_menu_for(id)
 	var remote: Dictionary = opening.model.projection()
@@ -671,7 +692,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	await process_frame
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 		return
 	if not await _approach(Vector2(5.4, 4.95)):
 		return
@@ -991,22 +1012,22 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	var recipes: Dictionary = opening.model.projection().component_recipes
 	opening._open_object_menu_for(str(opening.model.projection().fabrication_hub.id))
 	var inventory = opening.building_hotbar
-	var tile: Button = inventory.recipe_buttons["component:softmetal_shaft"]
+	var tile: Button = inventory.recipe_buttons["component:copper_shaft"]
 	if not _expect(inventory.catalog.visible and inventory.context_bench == opening.model.projection().fabrication_hub.id
 			and tile.visible and tile.icon != null,
 			"The pod workshop exposes the native component recipes in its shared inventory"):
 		return
 	if not _expect(recipes.wooden_shaft.load_rating == 8
 			and recipes.wooden_cog.load_rating == 8
-			and recipes.softmetal_shaft.load_rating == 24
-			and recipes.softmetal_cog.load_rating == 24,
+			and recipes.copper_shaft.load_rating == 24
+			and recipes.copper_cog.load_rating == 24,
 			"The ordinary workshop receives its drive ratings from the native projection"):
 		return
 	tile.grab_focus()
 	if not _expect("rated for 24 load" in tile.tooltip_text
 			and "0 timber + 2 ore" in tile.tooltip_text
 			and "needs 0 timber and 2 ore" in tile.accessibility_name,
-			"The softmetal upgrade recipe shows its native rating and actual bill"):
+			"The copper upgrade recipe shows its native rating and actual bill"):
 		return
 	if not capture_prefix.is_empty():
 		await process_frame
@@ -1146,7 +1167,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 6},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 3.3), "cuts": 0},
-		{"point": Vector2(-0.5, 0.0), "id": "opening-softmetal", "cuts": 3 + ore_for_press},
+		{"point": Vector2(-0.5, 0.0), "id": "opening-copper", "cuts": 3 + ore_for_press},
 	]:
 		if not await _approach(source.point):
 			return
@@ -1701,7 +1722,7 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 		return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
-	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "softmetal_cog", "receiver_tray"]:
+	for kind in ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "copper_cog", "receiver_tray"]:
 		if not _expect(opening.building_hotbar.recipe_buttons.has("component:" + kind),
 				"The ordinary inventory lists the finite guided press component"):
 			return
@@ -1730,7 +1751,7 @@ func _arrival_press_site_run(panel, finish: bool = true) -> void:
 		{"kind": "ram_face", "center": [0, 5, -8]},
 		{"kind": "sliding_guide", "center": [0, 7, -8]},
 		{"kind": "wooden_shaft", "center": [0, 8, -7]},
-		{"kind": "softmetal_cog", "center": [0, 8, -6]},
+		{"kind": "copper_cog", "center": [0, 8, -6]},
 		{"kind": "receiver_tray", "center": [1, 4, -8]},
 	]:
 		if _construct({"action": "place_component", "component": part.kind,
@@ -2147,7 +2168,7 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 			return
 	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 		return
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
 		return
@@ -2323,7 +2344,7 @@ func _arrival_run() -> void:
 		await _arrival_slide_run(panel, capture_prefix)
 		return
 	if mode == "arrival-broad-pad":
-		await _arrival_broad_pad_run(panel)
+		await _arrival_broad_pad_run(panel, capture_prefix)
 		return
 	if mode == "arrival-broad-drive":
 		await _arrival_broad_drive_run(panel)
@@ -2484,7 +2505,7 @@ func _arrival_run() -> void:
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for index in range(7):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	var distant_before: Dictionary = opening.model.projection()
 	if not _press_inventory_recipe("component:wooden_frame", str(distant_before.fabrication_hub.id)):
@@ -2502,7 +2523,7 @@ func _arrival_run() -> void:
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
 			and initial.placed_components.is_empty() and initial.component_recipes.size() == 14
 			and initial.component_recipes.wooden_slide.timber == 3
-			and initial.component_recipes.softmetal_slide.softmetal == 4,
+			and initial.component_recipes.copper_slide.copper == 4,
 			"Two finite trees and the ore deposit supply the original route while native slides remain finite options"):
 		return
 	var part_list := ["anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog"]
@@ -2512,7 +2533,7 @@ func _arrival_run() -> void:
 				"Every collector and press part is available in the inventory recipes"):
 			return
 		var bill: Dictionary = opening.model.projection().component_recipes[kind]
-		var bill_text := "%d timber + %d ore" % [bill.timber, bill.softmetal]
+		var bill_text := "%d timber + %d ore" % [bill.timber, bill.copper]
 		if not _expect(bill_text in inventory.recipe_buttons["component:" + kind].tooltip_text,
 				"The ordinary inventory shows the native hub recipe bill"):
 			return
@@ -2865,7 +2886,7 @@ func _arrival_run() -> void:
 
 
 ## Finite actor-built broad-pad ground and raised layouts.
-func _arrival_broad_pad_run(panel) -> void:
+func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 	deadline = Time.get_ticks_msec() + 240000
 	facts.evidence = "ordinary_finite_broad_pad_assembly"
 	var base_level := 4 if "--broad-raised" in OS.get_cmdline_user_args() else 0
@@ -2895,7 +2916,7 @@ func _arrival_broad_pad_run(panel) -> void:
 			Vector2(3.3, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for cut in range(16):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	var gathered: Dictionary = opening.model.projection()
 	if not _expect(gathered.cargo.P.timber == 16 and gathered.cargo.P.raw == 16
@@ -2926,24 +2947,108 @@ func _arrival_broad_pad_run(panel) -> void:
 	if not await _approach_points([Vector2(4.95, 4.95), Vector2(6.6, 4.95),
 			Vector2(6.6, 2.5), Vector2(5.8, -1.2)]):
 		return
+	if not _select_inventory_item("component:anvil"):
+		return
+	opening.component_nudge_active = true
+	opening.component_nudge_center = [12, base_level, 0]
+	opening._refresh_component_preview()
+	if not _expect(opening.component_preview.visible and opening.component_preview.get_child_count() > 0,
+			"The original single-cell anvil ghost remains visible before size selection"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-one-anvil.png",
+				Vector3(4.95, 0.7 + base_level * OpeningGeometry.HEIGHT_STEP, 0.0)),
+				"Retain the actor-eye single-anvil ghost before choosing the larger footprint"):
+			return
+	opening._toggle_component_footprint()
+	if not _expect(opening.component_footprint_size == 2
+			and opening.building_hotbar.footprint_button.visible,
+			"The ordinary build bar selects a four-cell anvil footprint"):
+		return
 	for index in range(4):
 		if base_level > 0 and index == 2 and not await _approach(Vector2(5.8, 1.65)):
 			return
 		var x: int = 12 + (index % 2) * 4
 		var z: int = (index / 2) * 4
-		if _construct({"action": "place_component", "component": "anvil",
-				"center": [x, base_level, z]}).is_empty():
+		opening.component_nudge_active = true
+		opening.component_nudge_center = [x, base_level, z]
+		opening._refresh_component_preview()
+		if index == 0 and not _expect(opening.component_preview.visible
+				and opening.component_preview.get_child_count() == 4,
+				"The first anvil click previews all four charged native cells"):
 			return
+		if index == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			if not _expect(await _capture_actor_area(capture_prefix + "-four-anvil-ghost.png",
+					Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+					"Retain the actor-eye four-cell anvil ghost with its build control"):
+				return
+		var before_anvil: Dictionary = opening.model.projection()
+		opening._world_click(Vector2i.ZERO)
+		var after_anvil: Dictionary = opening.model.projection()
+		if not _expect(after_anvil.order == before_anvil.order + 1
+				and int(after_anvil.cargo.P.components.get("anvil", 0)) == int(before_anvil.cargo.P.components.get("anvil", 0)) - 1
+				and after_anvil.placed_components.size() == before_anvil.placed_components.size() + 1,
+				"Each area click charges and places one reachable anvil with its own identity"):
+			return
+		if index < 3:
+			opening._refresh_component_preview()
+			if not _expect(opening.component_area_anchor == [12, base_level, 0]
+					and opening.component_preview.get_child_count() == 3 - index,
+					"The selected area retains its unplaced native cells across separate clicks"):
+				return
 	var supported: Dictionary = opening.model.projection()
 	if not _expect(supported.broad_press_assemblies.size() == 1
 			and supported.broad_press_assemblies[0].geometry_status == "missing_ram",
 			"Four placed anvils define one incomplete area, not four presses"):
 		return
+	opening._toggle_component_footprint()
+	opening._toggle_component_footprint()
+	opening.component_nudge_center = [12, base_level, 0]
+	var occupied_before: Dictionary = opening.model.projection()
+	opening._world_click(Vector2i.ZERO)
+	if not _expect(opening.model.projection().order == occupied_before.order
+			and opening.status_label.text == "That part is already placed.",
+			"Clicking an occupied area cell keeps all four charged native anvils"):
+		return
+	opening.component_nudge_center = [20, base_level, 0]
+	var empty_before: Dictionary = opening.model.projection()
+	opening._world_click(Vector2i.ZERO)
+	if not _expect(opening.model.projection().placed_components.size() == empty_before.placed_components.size()
+			and opening.model.projection().cargo.P.components == empty_before.cargo.P.components
+			and opening.status_label.text == "Carry another anvil.",
+			"An exhausted carried stack refuses a new area cell without hidden partial placement"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening._select_tool("inspect")
+		if not _expect(await _capture_actor_area(capture_prefix + "-four-anvil-built.png",
+				Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+				"Retain the actor-eye installed four-anvil work area"):
+			return
+	if not _select_inventory_item("component:ram_face"):
+		return
 	for index in range(4):
 		var x: int = 12 + (index % 2) * 4
 		var z: int = (index / 2) * 4
+		opening.component_nudge_active = true
+		opening.component_nudge_center = [x, base_level + 1, z]
+		opening._refresh_component_preview()
+		if index == 0 and not _expect(opening.component_preview.visible
+				and opening.component_preview.get_child_count() == 4,
+				"The matching ram footprint shows four heads before the first placement"):
+			return
+		if index == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			if not _expect(await _capture_actor_area(capture_prefix + "-four-ram-ghost.png",
+					Vector3(5.775, 1.45 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+					"Retain the actor-eye matching ram footprint before placement"):
+				return
+		var before_ram: Dictionary = opening.model.projection()
+		opening._world_click(Vector2i.ZERO)
+		var after_ram: Dictionary = opening.model.projection()
+		if not _expect(after_ram.order == before_ram.order + 1
+				and after_ram.placed_components.size() == before_ram.placed_components.size() + 1,
+				"Each ram-face click charges one independent part on the broad work area"):
+			return
 		for part in [
-			{"kind": "ram_face", "center": [x, base_level + 1, z]},
 			{"kind": "sliding_guide", "center": [x, base_level + 3, z]},
 			{"kind": "wooden_shaft", "center": [x + (-1 if index % 2 == 0 else 1), base_level + 4, z]},
 			{"kind": "wooden_cog", "center": [x + (-2 if index % 2 == 0 else 2), base_level + 4, z]},
@@ -2996,7 +3101,7 @@ func _arrival_broad_drive_run(panel) -> void:
 	if not await _approach_points([Vector2(3.3, -1.2), Vector2(3.3, 3.3),
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 		return
 	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, 4.95)]):
 		return
@@ -3072,7 +3177,7 @@ func _arrival_broad_form_run() -> void:
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for cut in range(3):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	if not _expect(opening.model.projection().cargo.P.raw == 3,
 			"Three finite ore chunks provide one twelve-mass broad sheet"):
@@ -3171,7 +3276,7 @@ func _arrival_broad_cut_resume_run(panel) -> void:
 			Vector2(3.3, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for cut in range(8):
-		if _construct({"action": "harvest_source", "target": "opening-softmetal"}).is_empty():
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 3.3),
 			Vector2(3.3, 4.95)]):

@@ -136,9 +136,9 @@ func check_transmission_guidance(shared: bool) -> void:
 	var wooden_limit: String = view._transmission_inspection({"kind": "shaft", "axis": 0, "center": [0, 0, 0]},
 		{"state": "stalled", "overloaded": true, "impact": 12.0, "capacity": 8.0,
 		"limiting_part": "native-part-6", "limiting_kind": "wooden_shaft",
-		"remedy": "replace_with_softmetal_or_split_load"})
+		"remedy": "replace_with_copper_or_split_load"})
 	verify("Wooden Shaft (native-part-6)" in wooden_limit and
-		"Replace with softmetal or split the load" in wooden_limit,
+		"Replace with copper or split the load" in wooden_limit,
 		"The inspector names the physical wooden bottleneck and a useful remedy.")
 	var running: String = view._transmission_inspection({"kind": "shaft", "axis": 2, "center": [0, 0, 0]},
 		{"state": "rotating", "numerator": 1, "denominator": 1, "impact": 12.0, "capacity": 32.0})

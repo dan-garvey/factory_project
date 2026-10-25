@@ -847,7 +847,7 @@ func chapter_server() -> void:
 		if not await until(func(): return FileAccess.file_exists(directory.path_join("resume-clients-done")),
 			"Both restored clients observe the retained work finish"): quit(1); return
 		var continued: Dictionary = session.world.projection()
-		verify(continued.cargo.P.products == 2 and continued.hand_sources["opening-softmetal"].remaining == 9
+		verify(continued.cargo.P.products == 2 and continued.hand_sources["opening-copper"].remaining == 9
 			and chapter_component_ids(continued) == witness.get("component_ids") and not chapter_pending_work(continued)
 			and not chapter_ready(continued, "collector_assemblies").is_empty()
 			and not chapter_ready(continued, "press_assemblies").is_empty(),
@@ -882,7 +882,7 @@ func chapter_server() -> void:
 	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-ore-done")),
 		"P harvests five finite component blanks"): quit(1); return
 	var mined: Dictionary = session.world.projection()
-	verify(mined.cargo.P.raw == 5 and mined.hand_sources["opening-softmetal"].remaining == 11,
+	verify(mined.cargo.P.raw == 5 and mined.hand_sources["opening-copper"].remaining == 11,
 		"Five hand-cut ore blanks retain their exact source debit")
 	chapter_pose([3.3, 1.0, 4.8], 4, "P returns to the one pod workshop")
 	if failed: quit(1); return
@@ -899,7 +899,7 @@ func chapter_server() -> void:
 	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-collector-observed")),
 		"Q observes P carrying the collector-cut blank"): quit(1); return
 	var collected: Dictionary = session.world.projection()
-	verify(collected.cargo.P.raw == 1 and collected.hand_sources["opening-softmetal"].remaining == 10
+	verify(collected.cargo.P.raw == 1 and collected.hand_sources["opening-copper"].remaining == 10
 		and collected.placed_components.size() == 5
 		and not chapter_ready(collected, "collector_assemblies").is_empty(),
 		"The collector transfers one new blank without duplicating its finite source")
@@ -909,7 +909,7 @@ func chapter_server() -> void:
 	if not await until(func(): return chapter_marker("chapter-first-observed"),
 		"Q sees the first plate before new collector work"): quit(1); return
 	var first_plate: Dictionary = session.world.projection()
-	verify(first_plate.cargo.P.products == 1 and first_plate.hand_sources["opening-softmetal"].remaining == 10,
+	verify(first_plate.cargo.P.products == 1 and first_plate.hand_sources["opening-copper"].remaining == 10,
 		"The first plate consumes one collector-cut blank and leaves finite ore")
 	chapter_pose([0.7, 1.0, 3.3], 7, "P returns to the collector for a second cut")
 	if failed: quit(1); return
@@ -918,7 +918,7 @@ func chapter_server() -> void:
 		"P retrieves a second real collector blank"): quit(1); return
 	var second_blank: Dictionary = session.world.projection()
 	verify(second_blank.cargo.P.raw == 1 and second_blank.cargo.P.products == 1
-		and second_blank.hand_sources["opening-softmetal"].remaining == 9,
+		and second_blank.hand_sources["opening-copper"].remaining == 9,
 		"The second collector cut spends one more ore while retaining the first plate")
 	chapter_pose([3.3, 1.0, 4.95], 8, "P returns to the separate press aisle with the second blank")
 	if failed: quit(1); return
@@ -927,7 +927,7 @@ func chapter_server() -> void:
 		"P forms a plate, leaves second work pending, and Q observes both states"): quit(1); return
 	var formed: Dictionary = session.world.projection()
 	verify(formed.cargo.P.products == 1 and formed.cargo.P.raw == 0
-		and formed.hand_sources["opening-softmetal"].remaining == 9
+		and formed.hand_sources["opening-copper"].remaining == 9
 		and formed.placed_components.size() == 12 and chapter_pending_work(formed)
 		and not chapter_ready(formed, "collector_assemblies").is_empty()
 		and not chapter_ready(formed, "press_assemblies").is_empty(),
@@ -957,7 +957,7 @@ func chapter_client() -> void:
 		var witness: Variant = JSON.parse_string(FileAccess.get_file_as_string(directory.path_join("chapter-witness.json")))
 		verify(witness is Dictionary and chapter_component_ids(restored) == witness.get("component_ids")
 			and chapter_work(restored) == chapter_saved_work(witness)
-			and restored.cargo.P.products == 1 and restored.hand_sources["opening-softmetal"].remaining == 9
+			and restored.cargo.P.products == 1 and restored.hand_sources["opening-copper"].remaining == 9
 			and chapter_pending_work(restored) and not collector.is_empty()
 			and not chapter_ready(restored, "press_assemblies").is_empty(),
 			"Both new clients receive the same saved product, pending work and exact component IDs")
@@ -973,7 +973,7 @@ func chapter_client() -> void:
 			if not await until(func(): return chapter_marker("resume-P-done") and session.projection().cargo.P.products == 2,
 				"Q receives P's second plate after the Q refusal"): quit(1); return
 			var observed: Dictionary = session.projection()
-			verify(observed.hand_sources["opening-softmetal"].remaining == 9
+			verify(observed.hand_sources["opening-copper"].remaining == 9
 				and observed.placed_components.size() == 12 and not chapter_pending_work(observed),
 				"Q sees both plates and the exact finite source after unfinished work resumes")
 			if failed: quit(1); return
@@ -1004,7 +1004,7 @@ func chapter_client() -> void:
 		finish_role()
 		return
 	if actor == "Q":
-		if not await until(func(): return chapter_marker("chapter-cut-done") and session.projection().hand_sources["opening-softmetal"].remaining == 10 and chapter_drop(session.projection(), [0, 4, 3], 1, 0),
+		if not await until(func(): return chapter_marker("chapter-cut-done") and session.projection().hand_sources["opening-copper"].remaining == 10 and chapter_drop(session.projection(), [0, 4, 3], 1, 0),
 			"Q sees the collector's first finite blank in its real receiver"): quit(1); return
 		verify(not chapter_ready(session.projection(), "collector_assemblies").is_empty(),
 			"Q sees a ready collector derived from five placed identities")
@@ -1018,7 +1018,7 @@ func chapter_client() -> void:
 		mark("chapter-collector-observed")
 		if not await until(func(): return chapter_marker("chapter-first-product-done") and session.projection().cargo.P.products == 1,
 			"Q observes the first formed plate on the same native authority"): quit(1); return
-		verify(session.projection().hand_sources["opening-softmetal"].remaining == 10,
+		verify(session.projection().hand_sources["opening-copper"].remaining == 10,
 			"Q sees exactly one collector debit for the first plate")
 		if failed: quit(1); return
 		mark("chapter-first-observed")
@@ -1027,7 +1027,7 @@ func chapter_client() -> void:
 		var final: Dictionary = session.projection()
 		verify(final.cargo.P.products == 1 and final.cargo.P.raw == 0
 			and final.placed_components.size() == 12
-			and final.hand_sources["opening-softmetal"].remaining == 9
+			and final.hand_sources["opening-copper"].remaining == 9
 			and not chapter_ready(final, "collector_assemblies").is_empty()
 			and not chapter_ready(final, "press_assemblies").is_empty(),
 			"Q sees both fitted machines, the first plate and conserved pending second work")
@@ -1055,7 +1055,7 @@ func chapter_client() -> void:
 	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-ore-ready")),
 		"P reaches the ore deposit"): quit(1); return
 	for index in range(5):
-		await chapter_request({"action": "harvest_source", "target": "opening-softmetal"},
+		await chapter_request({"action": "harvest_source", "target": "opening-copper"},
 			"P cuts finite component ore %d" % index)
 		if failed: quit(1); return
 	if failed: quit(1); return
@@ -1105,7 +1105,7 @@ func chapter_client() -> void:
 	var replay: Dictionary = replies[first_request]
 	replies.erase(first_request)
 	verify(replay.get("accepted", false) and replay.get("duplicate", false)
-		and session.projection().hand_sources["opening-softmetal"].remaining == 10
+		and session.projection().hand_sources["opening-copper"].remaining == 10
 		and chapter_drop(session.projection(), [0, 4, 3], 1, 0),
 		"The exact retry cannot mine or deposit a second blank")
 	if failed: quit(1); return

@@ -42,7 +42,7 @@ void exact_bill_and_refusals() {
         m::Component::wooden_cog, m::Component::receiver_tray, m::Component::tool_mount,
         m::Component::sliding_guide, m::Component::wooden_workbench};
     constexpr std::array metal{m::Component::cutting_edge, m::Component::anvil,
-        m::Component::ram_face, m::Component::softmetal_shaft, m::Component::softmetal_cog,
+        m::Component::ram_face, m::Component::copper_shaft, m::Component::copper_cog,
         m::Component::flat_head};
     m::Quantity timber_bill = 0, ore_bill = 0;
     for (const auto component : wood) {
@@ -54,12 +54,12 @@ void exact_bill_and_refusals() {
     for (const auto component : metal) {
         const auto cost = m::component_cost(component);
         check(cost && cost->ore > 0 && cost->timber == 0,
-              "A softmetal recipe consumes only finite ore, never another component.");
+              "A copper recipe consumes only finite ore, never another component.");
         ore_bill += cost->ore;
     }
     check(timber_bill == 14 && ore_bill == 10 &&
           m::component_from_name("flat_head") == m::Component::flat_head,
-          "The separate pressing head has one finite softmetal bill and a stable component identity.");
+          "The separate pressing head has one finite copper bill and a stable component identity.");
     for (int cut = 0; cut < 8; ++cut)
         check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none,
               "P harvests the first finite tree.");
@@ -118,7 +118,7 @@ void integral_slide_custody() {
     const m::Path path{};
     auto state = seed();
     check(m::component_cost(m::Component::wooden_slide) == m::ComponentCost{3, 0} &&
-          m::component_cost(m::Component::softmetal_slide) == m::ComponentCost{0, 4},
+          m::component_cost(m::Component::copper_slide) == m::ComponentCost{0, 4},
           "Each slide bill includes its own same-material shaft once.");
     for (int i = 0; i < 3; ++i)
         check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none,
@@ -127,9 +127,9 @@ void integral_slide_custody() {
         check(m::harvest_source(state, facts, path, "Q", "ore") == m::Error::none,
               "The finite ore source supplies the metal slide.");
     check(m::craft_component(state, facts, path, "P", m::Component::wooden_slide) == m::Error::none &&
-          m::craft_component(state, facts, path, "Q", m::Component::softmetal_slide) == m::Error::none &&
+          m::craft_component(state, facts, path, "Q", m::Component::copper_slide) == m::Error::none &&
           state.cargo.at("P").components.at(m::Component::wooden_slide) == 1 &&
-          state.cargo.at("Q").components.at(m::Component::softmetal_slide) == 1 &&
+          state.cargo.at("Q").components.at(m::Component::copper_slide) == 1 &&
           state.cargo.at("P").timber == 0 && state.cargo.at("Q").raw_units == 0 &&
           m::validate(state, facts, path) == m::Error::none,
           "Crafting transfers exact finite stock into one actor-owned slide each.");

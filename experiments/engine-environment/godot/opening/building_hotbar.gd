@@ -13,6 +13,8 @@ const COMPONENT_PREFIX := "component:"
 const ARRIVAL_SLOTS: Array[String] = ["component:wooden_frame", "foundation", "component:wooden_shaft",
 	"component:tool_mount", "component:receiver_tray", "component:cutting_edge", "belt", "wheel"]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
+const FOOTPRINT_ONE_ICON = preload("res://opening/assets/build-icons/footprint-one.svg")
+const FOOTPRINT_FOUR_ICON = preload("res://opening/assets/build-icons/footprint-four.svg")
 const MATERIALS := {
 	"timber": ["Timber", "timber.svg"], "raw": ["Ore blank", "ore.svg"],
 	"products": ["Plate", "plate.svg"], "offcuts": ["Offcut", "offcut.svg"],
@@ -24,9 +26,9 @@ const COMPONENT_ICONS := {
 	"wooden_cog": "wooden_cog.svg", "receiver_tray": "receiver_tray.svg",
 	"tool_mount": "tool_mount.svg", "sliding_guide": "sliding_guide.svg",
 	"cutting_edge": "cutting_edge.svg", "anvil": "anvil.svg",
-	"ram_face": "ram_face.svg", "softmetal_shaft": "softmetal_shaft.svg",
-	"softmetal_cog": "softmetal_cog.svg", "wooden_workbench": "wooden_workbench.svg",
-	"wooden_slide": "wooden_slide.svg", "softmetal_slide": "softmetal_slide.svg"}
+	"ram_face": "ram_face.svg", "copper_shaft": "copper_shaft.svg",
+	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
+	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg"}
 var slots: Array[String] = ["collector", "foundation", "belt", "processor", "wheel", "gear", "drive", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []
@@ -34,6 +36,8 @@ var slot_counts: Array[Label] = []
 var catalog_buttons: Dictionary = {}
 var catalog_counts: Dictionary = {}
 var catalog_button: Button
+var footprint_button: Button
+var footprint_catalog_button: Button
 var catalog: PopupPanel
 var catalog_margin: MarginContainer
 var material_grid: GridContainer
@@ -90,6 +94,12 @@ func configure(host, ui: Control) -> void:
 	catalog_button.tooltip_text = "Build and inventory · B"
 	catalog_button.accessibility_name = "Build and inventory, shortcut B"
 	_style_slot(catalog_button)
+	footprint_button = host._button(row, "", host._toggle_component_footprint)
+	footprint_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	footprint_button.custom_minimum_size = Vector2(48, 54)
+	footprint_button.focus_mode = Control.FOCUS_ALL
+	_style_slot(footprint_button)
+	footprint_button.visible = false
 	for index in range(slots.size()):
 		var button: Button = host._button(row, "", select_slot.bind(index))
 		button.toggle_mode = true
@@ -140,6 +150,13 @@ func configure(host, ui: Control) -> void:
 	margin.add_child(column)
 	parts_label = host._label(column, "BUILD / INVENTORY", 18)
 	focus_description = host._label(column, " ", 12)
+	footprint_catalog_button = host._button(column, "", host._toggle_component_footprint)
+	footprint_catalog_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	footprint_catalog_button.custom_minimum_size = Vector2(48, 44)
+	footprint_catalog_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	footprint_catalog_button.focus_mode = Control.FOCUS_ALL
+	footprint_catalog_button.focus_entered.connect(_describe_focus.bind(footprint_catalog_button))
+	footprint_catalog_button.visible = false
 	context_label = host._label(column, "Carried items and craftable recipes", 12)
 	catalog_columns = BoxContainer.new()
 	catalog_columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -291,6 +308,8 @@ func _input(event: InputEvent) -> void:
 		clear_slot()
 	elif event.keycode == KEY_ESCAPE:
 		_close_catalog()
+	elif event.keycode == KEY_V and footprint_catalog_button.visible:
+		_view()._toggle_component_footprint()
 	elif event.keycode == KEY_S and context_action.visible and context_bench == str(_view().state.get("fabrication_hub", {}).get("id", "")):
 		_use_context_action()
 	elif event.keycode == KEY_R and context_action.visible and context_bench != str(_view().state.get("fabrication_hub", {}).get("id", "")):
@@ -437,7 +456,7 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 	var tile := _recipe_tile(key, icon)
 	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
 	var timber := int(cost.get("timber", 0))
-	var ore := int(cost.get("softmetal", 0))
+	var ore := int(cost.get("copper", 0))
 	var affordable := int(cargo.get("timber", 0)) >= timber and int(cargo.get("raw", 0)) >= ore
 	var at_bench := _valid_bench(host.state, context_bench)
 	var station := "Field or bench" if field_allowed else "Bench"
@@ -493,7 +512,7 @@ func _refresh_recipes(host, ready: bool) -> void:
 		var cost: Dictionary = recipes.get(component, {})
 		if cost.is_empty():
 			continue
-		var field_allowed := int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0
+		var field_allowed := int(cost.get("timber", 0)) > 0 and int(cost.get("copper", 0)) == 0
 		_recipe_state(host, COMPONENT_PREFIX + component, _component_labels[component], cost,
 			component_textures[component], field_allowed, ready)
 	var foundation: Dictionary = host.state.get("foundation_recipe", {})
@@ -550,7 +569,7 @@ func _craft_recipe(key: String) -> void:
 		cost = host.state.get("component_recipes", {}).get(component, {})
 		if not context_bench.is_empty() and _valid_bench(host.state, context_bench):
 			action = {"action": "craft_component", "entity": context_bench, "component": component}
-		elif int(cost.get("timber", 0)) > 0 and int(cost.get("softmetal", 0)) == 0:
+		elif int(cost.get("timber", 0)) > 0 and int(cost.get("copper", 0)) == 0:
 			action = {"action": "field_craft", "component": component}
 	elif key == "foundation":
 		cost = host.state.get("foundation_recipe", {})
@@ -569,7 +588,7 @@ func _craft_recipe(key: String) -> void:
 		focus_description.text = "Open a fabrication bench with E for this recipe."
 		return
 	if int(cargo.get("timber", 0)) < int(cost.get("timber", 0)) or \
-			int(cargo.get("raw", 0)) < int(cost.get("softmetal", 0)):
+			int(cargo.get("raw", 0)) < int(cost.get("copper", 0)):
 		focus_description.text = "Carry the ingredients shown on the recipe."
 		return
 	host.issue(action)
@@ -616,6 +635,17 @@ func refresh(snapshot_ready: bool = true) -> void:
 	var active: String = host.mode
 	if active == "component" and host.arrival_assembly_controls != null:
 		active = COMPONENT_PREFIX + host.arrival_assembly_controls.selected_name()
+	var sized_part := active in ["component:anvil", "component:ram_face"]
+	var area_size: int = host.component_footprint_size
+	var area_icon: Texture2D = FOOTPRINT_FOUR_ICON if area_size == 2 else FOOTPRINT_ONE_ICON
+	var area_tip := "2x2 footprint · four carried parts · V" if area_size == 2 else \
+		"1x1 footprint · one carried part · V"
+	for area_button: Button in [footprint_button, footprint_catalog_button]:
+		area_button.visible = sized_part
+		area_button.disabled = not usable
+		area_button.icon = area_icon
+		area_button.tooltip_text = area_tip
+		area_button.accessibility_name = "%s, shortcut V toggles size" % area_tip
 	if host.transmission_controls != null and not host.transmission_controls.active_tool.is_empty():
 		active = {"place_shaft": "drive", "belt_span": "belt"}.get(host.transmission_controls.active_tool, host.transmission_controls.active_tool)
 	if selected_slot < 0 or slots[selected_slot] != active:

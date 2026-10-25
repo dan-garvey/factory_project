@@ -4614,6 +4614,9 @@ var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
 var component_preview_blocked := false
 var component_preview_snap := ""
+var component_footprint_size := 1
+var component_area_anchor: Array = []
+var component_area_kind := ""
 var mutable_machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
@@ -5282,7 +5285,7 @@ func issue(action: Dictionary) -> Dictionary:
 			_message(_harvest_result_text(outcome) if action.action == "harvest_source" else {"place": "Placed. Parts stay with this worksite.",
 			"craft_component": "Component crafted from carried material.",
 			"field_craft": "Wooden component shaped with your multitool.",
-			"craft_part": "Transmission kit made from carried timber and softmetal.",
+			"craft_part": "Transmission kit made from carried timber and copper.",
 			"place_component": "Component placed on the shared grid.",
 			"reclaim_component": "Component returned to your carried cargo.",
 			"stow_fabrication_hub": "Pod workshop unbolted. Place it on clear ground or a foundation top.",
@@ -5329,7 +5332,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"not_at_seam": "Place the collector over the ore deposit beside the rock.",
 			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."), action.action)
 		if action.action == "craft_component":
-			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this component.",
+			refusal = {"unavailable_input": "Gather the timber or copper shown for this component.",
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"out_of_reach": "Move beside the selected workshop to craft this component."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "field_craft":
@@ -5337,9 +5340,11 @@ func issue(action: Dictionary) -> Dictionary:
 				"inventory_full": "Your component bag is full. Place a carried part to make room.",
 				"unavailable_recipe": "Metal components need a workshop."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "craft_part":
-			refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
+			refusal = {"unavailable_input": "Gather the timber or copper shown for this transmission kit.",
 				"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
+		elif action.action == "place_component" and outcome.get("reason", "") == "no_component":
+			refusal = "Carry another %s." % str(action.get("component", "component")).replace("_", " ")
 		elif action.action == "turn_hand_crank":
 			refusal = {"not_crank_holder": _crank_turn_refusal("collector"),
 				"incomplete_assembly": "Fit the collector's missing component before cutting ore.",
@@ -5361,7 +5366,7 @@ func _harvest_result_text(outcome: Dictionary) -> String:
 	var raw: int = outcome.get("moved_raw", 0)
 	if raw == 0:
 		return "Cutting…"
-	return "Collected %d softmetal %s." % [raw, "blank" if raw == 1 else "blanks"]
+	return "Collected %d copper %s." % [raw, "blank" if raw == 1 else "blanks"]
 
 func _press_contact_refusal(entity: String) -> String:
 	for assembly: Variant in state.get("guided_press_assemblies", []):
@@ -5826,7 +5831,11 @@ func _input(event: InputEvent) -> void:
 						_set_foundation_steps(foundation_steps_toggle.button_pressed)
 						handled = true
 				KEY_V:
-					if foundation_area_toggle.is_visible_in_tree() and not foundation_area_toggle.disabled:
+					if mode == "component" and arrival_assembly_controls != null \
+							and arrival_assembly_controls.selected_name() in ["anvil", "ram_face"]:
+						_toggle_component_footprint()
+						handled = true
+					elif foundation_area_toggle.is_visible_in_tree() and not foundation_area_toggle.disabled:
 						foundation_area_toggle.button_pressed = not foundation_area_toggle.button_pressed
 						foundation_area_mode = foundation_area_toggle.button_pressed
 						foundation_area_started = false
@@ -5996,13 +6005,24 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		if arrival_assembly_controls == null:
 			return
 		var center := _component_place_center(cell, entity_id)
+		var component_name: String = arrival_assembly_controls.selected_name()
+		var area_origin := _component_area_origin(component_name, center)
+		var centers := _component_footprint_centers(component_name, area_origin)
 		if not _component_center_allowed(center):
 			return
-		var component_name: String = arrival_assembly_controls.selected_name()
+		if centers.size() == 4 and not centers.has(center):
+			_message("Aim at one of the four highlighted cells.", true)
+			return
+		if centers.size() == 4 and _component_area_has_part(component_name, center):
+			_message("That part is already placed.", true)
+			return
 		var selected_anvil: String = arrival_assembly_controls.press_anvil_for(selected)
 		var outcome := issue({"action": "place_component",
-			"component": component_name,
-			"center": center})
+			"component": component_name, "center": center})
+		if outcome.accepted or outcome.get("queued", false):
+			if centers.size() == 4:
+				component_area_anchor = area_origin.duplicate()
+				component_area_kind = component_name
 		if outcome.accepted:
 			selected = selected_anvil if component_name != "anvil" and not selected_anvil.is_empty() \
 				else str(outcome.get("entity", ""))
@@ -6518,9 +6538,9 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 			var rise := 3 if pointed_kind == "anvil" else 2
 			return {"center": [center[0], center[1] + rise, center[2]],
 				"label": "Guide over %s" % ("ram" if pointed_kind == "ram_face" else "anvil")}
-	if pointed_kind == "anvil" and kind in ["wooden_shaft", "softmetal_shaft",
-			"wooden_cog", "softmetal_cog"]:
-		var distance := 1 if kind in ["wooden_shaft", "softmetal_shaft"] else 2
+	if pointed_kind == "anvil" and kind in ["wooden_shaft", "copper_shaft",
+			"wooden_cog", "copper_cog"]:
+		var distance := 1 if kind in ["wooden_shaft", "copper_shaft"] else 2
 		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
 			return {"center": [center[0] + distance * (1 if normal.x > 0.0 else -1),
 				center[1] + 4, center[2]], "label": "Press drive from anvil"}
@@ -6528,7 +6548,7 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 			return {"center": [center[0], center[1] + 4,
 				center[2] + distance * (1 if normal.z > 0.0 else -1)],
 				"label": "Press drive from anvil"}
-	if kind in ["wooden_shaft", "softmetal_shaft"] and pointed_kind == "sliding_guide":
+	if kind in ["wooden_shaft", "copper_shaft"] and pointed_kind == "sliding_guide":
 		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
 			return {"center": [center[0] + (1 if normal.x > 0.0 else -1),
 				center[1] + 1, center[2]], "label": "Drive beside guide"}
@@ -6571,6 +6591,41 @@ func _component_center_allowed(center: Array) -> bool:
 	var half: float = ProductionEnvironment.Surface.HALF - Geometry.HEIGHT_STEP / 2.0
 	return absf(center[0] * Geometry.HEIGHT_STEP) <= half \
 		and absf(center[2] * Geometry.HEIGHT_STEP) <= half
+
+func _component_footprint_centers(kind: String, anchor: Array) -> Array:
+	if anchor.size() != 3:
+		return []
+	if component_footprint_size != 2 or kind not in ["anvil", "ram_face"]:
+		return [anchor.duplicate()]
+	var centers := []
+	for z in 2:
+		for x in 2:
+			centers.append([int(anchor[0]) + x * Geometry.HEIGHT_DENOMINATOR,
+				int(anchor[1]), int(anchor[2]) + z * Geometry.HEIGHT_DENOMINATOR])
+	return centers
+
+func _component_area_origin(kind: String, pointer_center: Array) -> Array:
+	return component_area_anchor if component_area_kind == kind and component_area_anchor.size() == 3 \
+		else pointer_center
+
+func _component_area_has_part(kind: String, center: Array) -> bool:
+	for part: Dictionary in state.get("placed_components", {}).values():
+		if part.get("component", "") == kind and part.get("center", []) == center:
+			return true
+	return false
+
+func _toggle_component_footprint() -> void:
+	if mode != "component" or arrival_assembly_controls == null \
+			or arrival_assembly_controls.selected_name() not in ["anvil", "ram_face"]:
+		return
+	component_footprint_size = 1 if component_footprint_size == 2 else 2
+	component_area_anchor.clear()
+	component_area_kind = ""
+	component_preview_pose_key = ""
+	_refresh_component_preview()
+	_update_cursor()
+	if building_hotbar != null:
+		building_hotbar.refresh()
 
 func _component_collector_face(kind: String, center: Array) -> Dictionary:
 	if kind not in ["tool_mount", "cutting_edge"]:
@@ -6634,9 +6689,9 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 		"receiver_tray":
 			occupied.y -= 0.0825
 			half = Vector3(0.18, 0.15, 0.205)
-		"wooden_shaft", "softmetal_shaft":
+		"wooden_shaft", "copper_shaft":
 			half = Vector3(0.205, 0.12, 0.205)
-		"wooden_cog", "softmetal_cog":
+		"wooden_cog", "copper_cog":
 			half = Vector3(Geometry.HEIGHT_STEP - 0.205, 0.14, Geometry.HEIGHT_STEP - 0.205)
 	return {"center": occupied, "half": half, "size": half * 2.0}
 
@@ -6693,7 +6748,50 @@ func _refresh_component_preview() -> void:
 	var center := _component_place_center(_screen_cell(_pointed_screen_position()), pointed)
 	if center.size() != 3:
 		return
+	if component_area_kind == kind and component_area_anchor.size() == 3:
+		var finished := true
+		for area_cell: Array in _component_footprint_centers(kind, component_area_anchor):
+			finished = finished and _component_area_has_part(kind, area_cell)
+		if finished:
+			component_area_anchor.clear()
+			component_area_kind = ""
+	var area_origin := _component_area_origin(kind, center)
 	var box := _component_candidate_box(kind, center)
+	var area_centers := _component_footprint_centers(kind, area_origin)
+	if area_centers.size() == 4:
+		var area_box := _component_candidate_box(kind, area_origin)
+		component_preview_blocked = not area_centers.has(center) \
+			or _component_area_has_part(kind, center) \
+			or _component_candidate_blocked(kind, center, box)
+		component_preview_snap = "Nudged point" if component_nudge_active else \
+			"Selected area" if component_area_anchor.size() == 3 else "Floor grid"
+		var placed_cells := []
+		for part_center: Array in area_centers:
+			placed_cells.append(_component_area_has_part(kind, part_center))
+		var area_key := "area:%s:%s" % [kind, str(placed_cells)]
+		if area_key != component_preview_pose_key:
+			for child in component_preview.get_children():
+				child.free()
+			for index in area_centers.size():
+				if placed_cells[index]:
+					continue
+				var part_center: Array = area_centers[index]
+				var part_box := _component_candidate_box(kind, part_center)
+				var anchor := Node3D.new()
+				anchor.position = part_box.center - area_box.center
+				component_preview.add_child(anchor)
+				transmission_presenter.preview_component(anchor, kind, part_box.size)
+			component_preview_kind = kind
+			component_preview_pose_key = area_key
+			component_preview_material = StandardMaterial3D.new()
+			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			component_preview_material.roughness = 0.72
+			_style_component_preview(component_preview)
+		component_preview.position = area_box.center
+		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
+			else Color(0.91, 0.73, 0.40, 0.56)
+		component_preview.visible = true
+		return
 	component_preview_blocked = not _component_center_allowed(center) or _component_candidate_blocked(kind, center, box)
 	component_preview_snap = ""
 	if component_nudge_active:
@@ -6758,11 +6856,13 @@ func _component_placement_hint() -> String:
 	var location := "%s · X %d  Y %d  Z %d" % [component_preview_snap, center[0], center[1], center[2]]
 	var action := "Blocked here · move the ghost" if component_preview_blocked else "Click to place"
 	var kind: String = arrival_assembly_controls.selected_name()
+	if component_footprint_size == 2 and kind in ["anvil", "ram_face"]:
+		action = "Aim at a free area cell" if component_preview_blocked else "Click each area cell"
 	var stack_hint := "Aim at a floor or built surface" if kind == "anvil" else \
 		"Aim at the anvil top" if kind == "ram_face" else \
 		"Aim at the anvil or ram top" if kind == "sliding_guide" else \
-		"Press drive: aim at anvil side or guide side" if kind in ["wooden_shaft", "softmetal_shaft"] else \
-		"Press drive: aim at anvil side or shaft end" if kind in ["wooden_cog", "softmetal_cog"] else \
+		"Press drive: aim at anvil side or guide side" if kind in ["wooden_shaft", "copper_shaft"] else \
+		"Press drive: aim at anvil side or shaft end" if kind in ["wooden_cog", "copper_cog"] else \
 		"Point at a part face to snap"
 	return "%s\n%s · %s\nAlt + arrows / PgUp / PgDn nudges" % [location, action, stack_hint]
 
@@ -9098,7 +9198,7 @@ func _confirmed_drive_status(motion: Variant) -> String:
 		var limiting: Variant = motion.get("limiting_part", "")
 		if limiting is String and not limiting.is_empty():
 			var part_kind: String = str(motion.get("limiting_kind", "drive part")).replace("_", " ").capitalize()
-			description += "\nLimit: %s (%s). Replace with softmetal or split the load." % [part_kind, limiting]
+			description += "\nLimit: %s (%s). Replace with copper or split the load." % [part_kind, limiting]
 		else:
 			description += "\nAdd power or reduce load."
 		return description
@@ -10592,7 +10692,7 @@ func _build_manager_log() -> void:
 	column.add_child(manager_log_projects)
 	for project in [
 		["belt", "Route collector blanks by belt to a powered press."],
-		["gear", "Compare wood and softmetal drive parts under load."]]:
+		["gear", "Compare wood and copper drive parts under load."]]:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		manager_log_projects.add_child(row)

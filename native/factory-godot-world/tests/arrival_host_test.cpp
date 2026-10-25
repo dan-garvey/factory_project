@@ -50,7 +50,7 @@ void arrival_projection_and_restore() {
           !std::get<O>(view.storage()).contains("freight_beacon"),
           "Fresh arrival has no shipment entity or completed actor goal.");
     const auto trees = get<O>(view, "hand_sources");
-    const auto ore = trees.at("opening-softmetal");
+    const auto ore = trees.at("opening-copper");
     const auto deposit = get<O>(view, "source_deposit");
     check(get<I>(view, "initial_feed") == 4096 && get<I>(V(deposit), "initial_units") == 4096 &&
           get<I>(V(get<O>(view, "stock")), "source") == 4096 &&
@@ -69,21 +69,21 @@ void arrival_projection_and_restore() {
     const auto recipes = get<O>(view, "component_recipes");
     check(recipes.size() == 14 && get<I>(view, "component_capacity") == 1000000 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
-          get<I>(recipes.at("wooden_frame"), "softmetal") == 0 &&
+          get<I>(recipes.at("wooden_frame"), "copper") == 0 &&
           get<I>(recipes.at("wooden_workbench"), "timber") == 4 &&
-          get<I>(recipes.at("wooden_workbench"), "softmetal") == 0 &&
-          get<I>(recipes.at("softmetal_cog"), "timber") == 0 &&
-          get<I>(recipes.at("softmetal_cog"), "softmetal") == 2,
+          get<I>(recipes.at("wooden_workbench"), "copper") == 0 &&
+          get<I>(recipes.at("copper_cog"), "timber") == 0 &&
+          get<I>(recipes.at("copper_cog"), "copper") == 2,
           "The normal consumer receives every native recipe cost and the generous opening carry bound.");
     check(get<I>(recipes.at("wooden_slide"), "timber") == 3 &&
           get<I>(recipes.at("wooden_slide"), "load_rating") == 8 &&
-          get<I>(recipes.at("softmetal_slide"), "softmetal") == 4 &&
-          get<I>(recipes.at("softmetal_slide"), "load_rating") == 24,
+          get<I>(recipes.at("copper_slide"), "copper") == 4 &&
+          get<I>(recipes.at("copper_slide"), "load_rating") == 24,
           "The one-part slide bills contain a matching material input and distinct load ratings.");
     check(get<I>(recipes.at("wooden_shaft"), "load_rating") == 8 &&
           get<I>(recipes.at("wooden_cog"), "load_rating") == 8 &&
-          get<I>(recipes.at("softmetal_shaft"), "load_rating") == 24 &&
-          get<I>(recipes.at("softmetal_cog"), "load_rating") == 24 &&
+          get<I>(recipes.at("copper_shaft"), "load_rating") == 24 &&
+          get<I>(recipes.at("copper_cog"), "load_rating") == 24 &&
           !std::get<O>(recipes.at("wooden_frame").storage()).contains("load_rating"),
           "The native recipe projection exposes only the four placed drive ratings.");
     const auto floors = get<O>(view, "foundations");
@@ -233,11 +233,11 @@ void fabricated_transmission_stock_is_finite() {
     check(recipes.size() == 5 && std::any_of(recipes.begin(), recipes.end(), [](const V& entry) {
               const auto* recipe = std::get_if<O>(&entry.storage());
               return recipe && get<std::string>(V(*recipe), "kind") == "vertical_gearbox" &&
-                  get<I>(V(*recipe), "timber") == 1 && get<I>(V(*recipe), "softmetal") == 1;
+                  get<I>(V(*recipe), "timber") == 1 && get<I>(V(*recipe), "copper") == 1;
           }) && std::any_of(recipes.begin(), recipes.end(), [](const V& entry) {
               const auto* recipe = std::get_if<O>(&entry.storage());
               return recipe && get<std::string>(V(*recipe), "kind") == "gearbox" &&
-                  get<I>(V(*recipe), "timber") == 1 && get<I>(V(*recipe), "softmetal") == 1;
+                  get<I>(V(*recipe), "timber") == 1 && get<I>(V(*recipe), "copper") == 1;
           }), "Arrival offers finite horizontal and vertical relays without gifting their kits.");
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 1), "accepted"),
           "The actor reaches the actual pod workshop before trying a route recipe.");
@@ -260,11 +260,11 @@ void fabricated_transmission_stock_is_finite() {
               "Each route timber input comes from the finite visible tree.");
     }
     check(get<bool>(host.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 3), "accepted"),
-          "The actor reaches the finite softmetal outcrop.");
+          "The actor reaches the finite copper outcrop.");
     for (int index = 0; index < 2; ++index) {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
             {"request", V("ore-" + std::to_string(index))}, {"action", V("harvest_source")},
-            {"target", V("opening-softmetal")}};
+            {"target", V("opening-copper")}};
         check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut), "accepted"),
               "Each route clasp input comes from the finite native deposit.");
     }
@@ -335,7 +335,7 @@ void crafted_foundation_extends_exhausted_kit() {
     initialized(host);
     const auto recipe = get<O>(host.projection(), "foundation_recipe");
     check(get<I>(V(recipe), "timber") == factory::world::foundation_timber_cost &&
-          get<I>(V(recipe), "softmetal") == 0,
+          get<I>(V(recipe), "copper") == 0,
           "The ordinary projection exposes the finite floor recipe cost.");
     const O craft{{"context", V("arrival-site")}, {"client", V("P")},
         {"request", V("make-floor")}, {"action", V("craft_foundation")},

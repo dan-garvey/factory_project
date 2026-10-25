@@ -122,7 +122,7 @@ void field_wood_shaping_keeps_actor_custody() {
     check(refused_metal.completed() &&
           std::get<std::string>(refused_metal.result->at("reason").storage()) == "unavailable_recipe" &&
           world->snapshot().state == saved.state,
-          "A softmetal edge cannot be formed with the field multitool.");
+          "A copper edge cannot be formed with the field multitool.");
     auto empty = craft;
     empty.at("client") = V("Q-client");
     empty.at("actor") = V("Q");

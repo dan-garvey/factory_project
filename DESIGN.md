@@ -123,7 +123,7 @@ tooling is one internally moving stationary installation, not independent
 machines pushing one another. Exact carriage attachment and later sizes are open.
 
 Begin with one thickness and stock, sheet, plate and offcut forms; derive size
-variants from geometry and quantity. “Copper”/“softmetal” is provisional workable
+variants from geometry and quantity. “Copper” is provisional workable
 stock, not a claim that ordinary copper ore can be cold-formed. Add preparation
 if the selected deposit yields ore rather than workable metal.
 

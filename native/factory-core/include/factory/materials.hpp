@@ -67,7 +67,7 @@ struct Sheet {
 };
 
 // The initial chapter bill has no intermediate recipe inputs: every component
-// is made directly from carried timber or softmetal ore. These IDs are stable
+// is made directly from carried timber or copper ore. These IDs are stable
 // within the experimental arrival checkpoint, not a final item catalogue.
 enum class Component {
     wooden_frame,
@@ -79,11 +79,11 @@ enum class Component {
     cutting_edge,
     anvil,
     ram_face,
-    softmetal_shaft,
-    softmetal_cog,
+    copper_shaft,
+    copper_cog,
     wooden_workbench,
     wooden_slide,
-    softmetal_slide,
+    copper_slide,
     flat_head,
 };
 

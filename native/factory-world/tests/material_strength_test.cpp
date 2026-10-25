@@ -38,14 +38,14 @@ Fixture connected_line() {
     add(state, "collector-mount", mat::Component::tool_mount, {-1, 4, 0});
     add(state, "collector-edge", mat::Component::cutting_edge, {-2, 4, 0});
     add(state, "collector-tray", mat::Component::receiver_tray, {0, 4, 1});
-    add(state, "collector-shaft", mat::Component::softmetal_shaft, {1, 4, 0});
+    add(state, "collector-shaft", mat::Component::copper_shaft, {1, 4, 0});
 
     add(state, "press-frame", mat::Component::wooden_frame, {8, 0, 0});
     add(state, "press-anvil", mat::Component::anvil, {8, 1, 0});
     add(state, "press-ram", mat::Component::ram_face, {8, 2, 0});
     add(state, "press-guide", mat::Component::sliding_guide, {8, 3, 0});
     add(state, "press-mount", mat::Component::tool_mount, {8, 4, 0});
-    add(state, "press-shaft", mat::Component::softmetal_shaft, {7, 4, 0});
+    add(state, "press-shaft", mat::Component::copper_shaft, {7, 4, 0});
     add(state, "press-cog", mat::Component::wooden_cog, {6, 4, 0});
 
     add(state, "light-frame", mat::Component::wooden_frame, {100, 4, 0});
@@ -70,7 +70,7 @@ void mixed_material_bottleneck_and_isolation() {
               stopped.load.at("light-shaft").impact == 4,
           "An independent wooden branch keeps turning below its own material rating.");
 
-    fixture.state.placed_components.at("press-cog").kind = mat::Component::softmetal_cog;
+    fixture.state.placed_components.at("press-cog").kind = mat::Component::copper_cog;
     const auto upgraded = w::drive_power(fixture.profile, fixture.state);
     check(upgraded.mechanical.accepted() &&
               upgraded.mechanical.motion.at("press-frame").state == m::MotionState::rotating &&
@@ -78,7 +78,7 @@ void mixed_material_bottleneck_and_isolation() {
               upgraded.load.at("press-cog").capacity == 24 &&
               upgraded.load.at("press-cog").impact == 12 &&
               !upgraded.load.at("press-cog").overloaded,
-          "Replacing only the limiting cog with softmetal runs the same connected line.");
+          "Replacing only the limiting cog with copper runs the same connected line.");
     check(upgraded.mechanical.motion.at("light-frame") == stopped.mechanical.motion.at("light-frame") &&
               upgraded.load.at("light-shaft") == stopped.load.at("light-shaft"),
           "The separate light branch is unchanged by the main-line substitution.");
