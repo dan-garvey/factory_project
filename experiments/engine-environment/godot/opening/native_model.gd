@@ -52,9 +52,16 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 	if source_obstacle < 0:
 		boot_result = {"accepted": false, "reason": "source_outcrop_missing"}
 		return
-	boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights, "obstacles": obstacles,
-		"source_obstacle": source_obstacle, "tree_obstacles": tree_obstacles,
-		"flow_cells": surface.flow_cells()}])
+	if arrival:
+		boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights, "obstacles": obstacles,
+			"source_obstacle": source_obstacle, "tree_obstacles": tree_obstacles,
+			"flow_cells": surface.flow_cells()}])
+	else:
+		# The collector still needs the source-rock contact exception. Only the
+		# arrival profile owns the named timber sites beside these solid trees.
+		boot_result = _invoke("configure_terrain", [{"axis": axis, "heights": heights,
+			"obstacles": obstacles, "source_obstacle": source_obstacle,
+			"flow_cells": surface.flow_cells()}])
 	if not boot_result.get("accepted", false):
 		return
 	var profile: Dictionary = projection().get("adapter_profile", {})

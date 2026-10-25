@@ -662,8 +662,8 @@ func check_belt_water_native(forward: bool) -> void:
 func check_flow_sections() -> void:
 	var sections := [
 		{"name": "starting reach", "cell": [-2, 0], "level": 4, "tiles": 3},
-		{"name": "broad deep reach", "cell": [-1, 13], "level": 8, "tiles": 6},
-		{"name": "downstream reach", "cell": [3, 33], "level": 4, "tiles": 4},
+		{"name": "broad deep reach", "cell": [-2, 14], "level": 8, "tiles": 6},
+		{"name": "downstream reach", "cell": [4, 23], "level": 4, "tiles": 4},
 	]
 	var tangential: Array[float] = []
 	for section in sections:
@@ -692,17 +692,16 @@ func check_flow_sections() -> void:
 		tangential.append(absf(float(motion.numerator) / float(motion.denominator)) * float(section.tiles))
 	if not expect(tangential[1] < tangential[2] and tangential[2] < tangential[0], "The broad reach is slower than the selected downstream and starting reaches: " + str(tangential)):
 		return
-	# Compare the native current in each terrain section even though the old
-	# constriction wheel site requires an axle between global transmission tiles.
-	# These are native water samples, not proof that a wheel fits that site.
+	# Compare native current at the corresponding terrain sections separately
+	# from the complete rim, bank and obstacle checks above.
 	var water_model = NativeModel.new("flow-sample-comparison", ["P"])
 	var samples := {}
 	for sample: Dictionary in water_model.checkpoint().world.profile.water:
 		if [sample.x, sample.z] in [[-8, 0], [-4, 52], [16, 92]]:
 			samples[Vector2i(sample.x, sample.z)] = absi(sample.velocity_z)
-	if not expect(samples.size() == 3 and samples[Vector2i(-4, 52)] < samples[Vector2i(-8, 0)]
-		and samples[Vector2i(-8, 0)] < samples[Vector2i(16, 92)],
-		"The widened starting reach flows between the broad pool and downstream constriction: " + str(samples)):
+	if not expect(samples.size() == 3 and samples[Vector2i(-4, 52)] < samples[Vector2i(16, 92)]
+		and samples[Vector2i(16, 92)] < samples[Vector2i(-8, 0)],
+		"The native broad pool flows slower than the downstream and starting reaches: " + str(samples)):
 		return
 	var bank = NativeModel.new("blocked-bank", ["P"])
 	if not expect(bank.boot_result.get("accepted", false) and bank.publish_actor("P", [1.5, 1.0, 1.65], 1).get("accepted", false), "Bind the solid east bank"):
