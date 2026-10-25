@@ -39,7 +39,3 @@ Create the artifact directory before the command with owner-only permissions
 the default is 180. Arguments after `--` reach the Godot fixture as user
 arguments. The executable limits its log to 2 MiB and its owned artifact family
 to 128 MiB. It never accepts or prints the log contents as a PASS receipt.
-
-The checked component example validates one mounted scene script. It does not
-prove engine startup, whole-scene playability, visual quality, performance, or
-human understanding. Inspect the retained log as well as the command status.

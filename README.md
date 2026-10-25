@@ -1,162 +1,88 @@
 # Factory
 
-An experimental 3D opening for a mechanically focused factory game. The ordinary
-offline entry now starts from the native arrival profile: a common-grid deck,
-finite resources and carried foundation parts, with no complete starter machines.
-Point at a tree or the ore deposit and press E to gather finite material through
-the native owner. At the pod workshop, make separate collector and press parts.
-Shape four timber into a wooden workbench with the multitool, place it on clear
-ground or a foundation top, and choose it in Craft parts to work away from the
-pod. Use Stow pod workshop under Craft parts to carry the issued hub; choose Place
-carried pod workshop and click a clear full tile to reinstall it while the pod
-stays at the landing site. The powered-route recipes make shaft tiles, belt spans
-and a waterwheel from carried stock. Fit a collector receiver beside an outward
-belt inlet, then turn its fitted shaft with the pod crank to cut a blank. The
-wheel powers belt travel.
-For unattended pressing, fit an offcut tray immediately beside the anvil,
-perpendicular to its drive shaft, and a second tray at the plate exit opposite
-the drive. Each holds four items. A full tray keeps the next workpiece ready
-until its contents are collected; the saved work can then continue. Hand-cranked
-strokes use the same fitted plate tray and still leave their offcut at the anvil
-for manual pickup when no side tray is fitted.
-The HUD shows carried timber, softmetal and the next local step. This remains
-an unfinished chapter; shared arrival adoption and human play feedback remain open.
-The earlier complete collector, belt, press and four-plate scenarios remain
-regression fixtures rather than the ordinary offline start.
+An experimental 3D mechanical factory game. The native opening starts with a
+landing pod, finite local wood/ore, a multitool and component fabrication.
+Players arrange machinery to make a first carried plate. Chapter 1 remains
+under development; a running prototype is not a claim of completed usability,
+multiplayer or performance acceptance.
 
-The default opening controls a physical character and limits construction to
-nearby targets. Walk with WASD and jump with Space. A waterwheel in flowing water
-drives connected parts automatically. Choose a building with the hotbar, aim its ghost at a floor or part face,
-press E to interact with a pointed resource or machine, or press F and click a part
-to deconstruct it. Right-drag orbits the following camera; its position grants no build
-reach. The four-world-unit reach and movement tuning are provisional demo values.
+[DESIGN.md](DESIGN.md) holds game requirements. Contributors and agents follow
+[AGENTS.md](AGENTS.md). Tasks, current status and evidence live in the private
+Rust Beads tracker; public source can be built without it.
 
-The opening HUD keeps the current objective at the upper left, contextual
-actions at the right, and the assignable build bar at the bottom. Every visible
-button also has a keyboard route. The table includes retained complete-machine
-fixture controls; arrival hides their old Help and four-plate confirmation:
+## Run the current opening
 
-| Task | Keys |
+On the configured development machine, use **Factory (Latest)** or:
+
+```bash
+./scripts/launch-factory-latest.sh
+```
+
+The shortcut checks and refreshes its pinned native startup executable and
+gameplay library before launch. It uses the canonical main checkout and an
+already configured human launcher. Preparation failure stops launch.
+
+```bash
+./scripts/launch-factory-latest.sh --check
+./scripts/launch-factory-latest.sh --prepare-only
+```
+
+`--check` validates existing installations without building; `--prepare-only`
+runs needed preparation without starting Godot. These are local development
+entrypoints, not a portable installer.
+
+For another checkout/machine, provision the verified Godot **4.7.2** executable,
+follow the [native build setup](docs/engineering/native-builds.md), then use the
+[explicit native capture and launch recipe](native/factory-godot-world/README.md#build-and-consume).
+It supplies the production extension and library; missing resources refuse
+startup. The old scripted launchers remain fixtures and do not deliver this entry.
+
+## Controls
+
+| Action | Keys |
 | --- | --- |
-| Build and inspect | `B` opens the catalog; `1`–`8` select a hotbar slot; `E` opens the pointed machine; `F` dismantles; `C` connects material; `Esc` closes the current menu or opens worksite actions from the game view. |
-| Assign a hotbar slot | In the catalog, `1`–`8` choose the destination. Click a carried part, or use `Tab` and `Enter`; `A` assigns the part selected in the list. `Delete` clears and `Esc` closes. |
-| Component placement | Point at a built part's top or side to snap the selected component. Hold `Alt` to lock the ghost; `Alt` with arrow keys nudges X/Z and `Alt+PageUp`/`Alt+PageDown` nudges height by one quarter-grid step. Click to place the visible ghost. A red ghost marks a known obstruction. |
-| Mechanical options | `Alt+1`–`Alt+6` select the six transmission tools. During placement, `T` opens mechanical options, `X` cycles the axle, `Shift+X` cycles chain direction, `K` changes cog size, `Shift+PageUp`/`Shift+PageDown` adjust transmission height, and `Ctrl+Home` follows the pointed surface again. |
-| Foundations and waterwheels | `PageUp`/`PageDown` change foundation or drive height; `Z` toggles access steps; `V` toggles two-corner area placement; `Shift+PageUp`/`Shift+PageDown` change waterwheel diameter when its size controls are shown; `R` rotates a building. |
-| Worksite actions | `P` operates the nearby drive; `Ctrl+R` collects a selected plate; `Delete` dismantles the selection; `Ctrl+M` opens the selected material menu; `Ctrl+L` opens loose-material pickup; `Ctrl+Enter` confirms four plates. From the game view, `Esc` opens worksite status, Resume, Save, reopen information and Exit; `F5` saves, `F9` shows how to reopen the save, and `Q` asks to exit while that menu is open. |
-| Help and shared sessions | `H` opens or closes Help. `Left`/`Right` change lesson, `Space` advances the example, `Enter` collects its plate, `Backspace` replays, and `Home` recenters. In a shared session, `Ctrl+J` reconnects and `Ctrl+Shift+J` disconnects. Menu choices use arrow keys and `Enter`; `Esc` closes the menu. |
+| Move / jump | WASD / Space |
+| Camera | Right-drag to orbit; wheel to zoom |
+| Interact, gather, open a machine | E |
+| Inventory/build catalog | B; 1–8 select hotbar slots |
+| Rotate a building | R during placement |
+| Deconstruct | F, then select the part |
+| Placement options | T; shown shortcuts depend on the selected part |
+| Lock/nudge a component ghost | Alt; Alt+arrows; Alt+PageUp/PageDown |
+| Foundation height / area placement | PageUp/PageDown / V |
+| Menus and worksite actions | Esc; Tab/arrows and Enter for controls |
+| Save / reopen information | F5 / F9 |
+| Developer conveniences | F3 |
 
-Early development prioritizes fixed/stationary contraptions and subfactories.
-Godot use is accepted with explicit [framework constraints](docs/engineering/godot-constraints.md),
-not engine defaults treated as game rules. A [continuing research catalogue](docs/research/README.md)
-tracks factory-builder and engineering-puzzle inspiration separately from adopted mechanics.
+Use local benches for fabrication. A hand crank is a reusable carried item;
+the shaft input must be within actor reach. Components and material remain
+owned through stalls and recovery. Saves use the selected native Store format;
+scripted fixture saves are separate.
 
-## Try the opening
+## Build and verify
 
-The current offline scene uses one C++ World through a thin Godot bridge. Follow
-the [native build, resource capture and human-entry instructions](native/factory-godot-world/README.md#build-and-consume).
-Missing native resources fail startup. The shared server can explicitly select
-the same owner with `--native-world`; the historical Python shared launcher keeps
-its scripted profile. Neither format automatically migrates the other's saves.
+Bazel **8.4.2** is pinned in `.bazelversion`. The
+[build recipe](docs/engineering/native-builds.md) covers toolchain/cache setup,
+resource admission, hook configuration and publication. Select relevant native
+package tests; the full non-host suite is:
 
-The Python offline command below is retained documentation of the earlier
-scripted profile. Its fixed roster does not deliver the new bridge or library,
-so it is not the current native offline entry. The associated scripted tests
-retain their original revision and evidence scope.
-
-On Linux with a graphical display, use the separately provisioned, verified
-Godot 4.7.2 stable executable. The launcher does not download an engine.
-From the repository root:
-
-```bash
-python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_opening.py \
-  --godot /absolute/path/to/Godot_v4.7.2-stable_linux.x86_64 \
-  --artifacts /absolute/owned/opening-sessions
+```text
+bazel test --build_tests_only --test_tag_filters=-host //native/...
 ```
 
-The artifact root must be outside Git checkouts. Each launch creates a fresh
-project copy, private profile and save slot there. The ordinary offline opening
-has one actor; P/Q sessions use the explicit shared launcher. Close the window
-to finish; experimental sessions are capped at 30 minutes. F5 saves the current
-worksite;
-F9 explains reopening rather than replacing the live physical world. Close the
-session, then add
-`--resume /absolute/path/to/previous/session/worksite.factory` to the command.
-The original is read only; the reopened world gets a new session and save slot.
-Native bodies must be realized at the saved positions before building is
-available; failed restoration never falls back to a fresh world or safe spawn.
-Old unrestricted saves require the explicit `--legacy-fixture` regression
-profile, not the normal physical opening. No automatic migration is supplied.
-See the [controls and construction example](experiments/engine-environment/godot/opening/README.md).
-
-To play the shared opening on this computer, use the same verified executable
-and its SHA256:
+Run it through the documented admitted, pinned invocation. Host-tagged tests
+need their explicit fixtures. Install the repository hook with:
 
 ```bash
-python3 -B scripts/run_local.py heavy -- python3 -B scripts/run_shared_opening.py \
-  --godot /absolute/path/to/Godot_v4.7.2-stable_linux.x86_64 \
-  --sha256 verified-lowercase-executable-sha256 \
-  --artifacts /absolute/owned/shared-opening-sessions
+./scripts/install-hooks.sh
 ```
 
-This opens ordinary P and Q game windows connected to one live loopback server.
-Add `--clients 1` for a single window. Both participants use the same finite
-starter kit, while collected plates and the four-plate confirmation belong to
-the individual participant. Client Save/Load is unavailable. Add
-`--save-on-close` to save the whole host worksite when the session ends; the
-console prints its new `worksite.factory` path. To reopen it, add
-`--resume /absolute/path/to/prior/shared-run/worksite.factory`. The original
-stays read only, and the resumed host saves to a fresh output on close. The
-offline launcher above retains its own F5 save and restart-based reopen controls.
-Physical saves require the same declared roster: reopen a P-only shared save
-with `--clients 1`, or a P/Q save with the default two clients. Offline P and
-shared P or P/Q are fixture profiles, not an account or roster-migration system.
-Without `--resume`, each command starts a fresh 16-blank worksite.
-Closing either window ends the whole shared session; Ctrl-C
-also stops it. The default session lasts at most 15 minutes. See the
-[shared launch controls and limits](experiments/engine-environment/godot/opening-session/README.md#normal-shared-play).
+The hook validates the immutable staged tree and parses staged Godot changes;
+it does not establish gameplay or human usability. Existing Python checks remain
+active during the native tooling transition. Never wrap `git commit` in a
+second admission command.
 
-The shared UI is a trusted same-host prototype without a lobby, accounts or
-remote hosting. Host checkpoints cover orderly stops, rather than crashes or
-power loss; clients cannot roll back the live server. Larger factories,
-durable cross-version saves and native-core portability remain future work.
-Construction is still a single ground grid with fixed machine boxes; this does
-not implement the intended stacked 3D factory. Actor-actor collision, pushing
-and live physical-world replacement are unsupported adapter cases, not chosen
-game rules. The shared finite starter kit is a fixture, not proof of a final
-personal-carried-parts or construction-delivery policy. Automated checks do not
-establish player understanding or enjoyment.
-
-## Verify
-
-The C++ material core uses the pinned [Bazel build and local
-caches](docs/engineering/native-builds.md). The offline native bridge uses that
-authority; the shared Session and installed commit hook have separate migrations.
-Its automated headless consumer covers actual body admission, running recovery,
-rebuilding, original request replay and typed save/reopen. It does not establish
-desktop input, shared adoption or human play.
-
-The source-only tooling suite needs no engine or private tracker:
-
-```bash
-python3 -B scripts/run_local.py check -- python3 -B scripts/check.py
-```
-
-For the historical scripted revisions, `--check --render` on the offline launcher provided bounded physical
-movement/reach and fresh-process save/reopen checks with viewport captures.
-They do not prove P/Q host-file reopening; same-server disconnect/rejoin is also
-different from starting a new host. The separate normal-launcher consumer is
-`scripts/check_physical_shared_resume.py`; its evidence must be reviewed for
-that specific claim. Use `--smoke` instead for
-explicit scene startup only. These are distinct from the source-only suite and
-from a real user session. Further bounded witnesses cover
-[two stationary clients](experiments/engine-environment/godot/stationary-tests/README.md)
-and [fresh-process save continuation](experiments/engine-environment/godot/save-tests/README.md).
-
-## Project direction
-
-[DESIGN.md](DESIGN.md) owns requirements and open decisions;
-[ROADMAP.md](ROADMAP.md) records staged work. Contributors should read
-[AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
-The [proposed delivery stages](docs/proposals/release-stage-map.md) compare two
-release envelopes while retaining later requirements and unresolved choices.
+The [fixture guide](experiments/engine-environment/README.md) identifies retained
+experimental scenes. Asset credits and licenses remain beside their sources.
+The compact [Godot register](docs/engineering/godot-constraints.md) separates
+engine constraints from adapter limitations and fixture assumptions.

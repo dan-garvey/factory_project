@@ -1,206 +1,108 @@
-# Agent Instructions
+# Agent instructions
 
-## UI design
+## Work and records
 
-Treat text buttons as a last resort. People scan shapes, icons, placement and
-state faster than rows of labeled actions. Prefer recognizable icon controls,
-direct manipulation and clear spatial grouping; give every icon a tooltip,
-keyboard focus description and shortcut where useful. Use a text button only
-when an icon would be ambiguous or the action needs an explicit safety choice.
-Keep explanatory text beside controls rather than filling every button with it.
+- [DESIGN.md](DESIGN.md) owns accepted game requirements. [README.md](README.md)
+  gives the current entrypoints. Beads owns tasks, dependencies, proposals,
+  decisions, investigations and review results; Git retains historical source.
+- Use Rust Beads (`br`), not `bd` or Dolt. Before work, inspect Git status,
+  recent relevant commits, ready/in-progress tasks and related closed work.
+  Claim a bounded task with a distinct actor and record scope, checkout/branch,
+  dependencies and intended evidence. Never take occupied work without a handoff.
+- Owners may discover and complete follow-ups toward the playable demo.
+  Routine reversible choices are delegated; record assumptions and keep moving.
+  Do not turn a prototype default into permanent design. Spawn agents only when
+  authorized. Coordinate shared files and interfaces through the owning Bead.
+- Use Beads for agent coordination, naming affected owners. Do not send direct
+  peer-session notifications. Record only new material findings, decisions,
+  ownership changes and results, not heartbeats, receipts or repeated blockers.
+- Write complete sentences with normal spacing. Keep user updates brief; put
+  detailed evidence in its owning record. Correct malformed prose in place,
+  preserving actual results and their limits.
+- Do not create Markdown files unless explicitly requested. Shorten or remove
+  obsolete prose instead of appending supersession notices. A local defect
+  normally needs a fix/test and Bead finding, not a new global instruction.
+- Research belongs in existing per-game Beads under `factory-yau.8`. Search
+  completed coverage before repeating a study; close thorough leaves while
+  leaving the continuing pipeline open. Research does not adopt mechanics.
 
-## Communication
+## Shared tracker and checkouts
 
-Write complete sentences with normal word spacing in chat, Beads, notes and
-handoffs. Concise does not mean compressed. Keep identifiers separate from the
-surrounding prose and explain unfamiliar abbreviations.
+All `.beads` content is private and Git-ignored, including exports and settings.
+Never stage it or publish account data. Every linked worktree must symlink the
+main checkout's canonical directory; never initialize a second tracker there.
 
-Use the owning Bead for all agent-to-agent coordination and publication results.
-Do not queue thread messages or send direct peer-session notifications. Record
-material cross-stream findings, resource or ownership conflicts, and decisions
-outside delegated authority in the relevant Bead, naming the affected owners.
-Do not post routine ready-to-land messages, review receipts or acknowledgements.
-Keep user-facing updates to a short outcome, what it means and the next action.
-Put detailed hashes, commands, counters and resource tables in structured evidence;
-do not forward those records verbatim into the user's conversation.
-
-Beads MUST contain new, material information only. Repetitive comments, notes,
-descriptions and status updates are forbidden. Never post an update whose result
-is "nothing has changed": no unchanged-condition restatements, duplicate evidence
-or approval summaries, repeated blocker notices, heartbeat comments or receipts
-that merely confirm an existing record. Link the original once when needed for a
-new finding or decision. Record a new result, finding, decision, ownership change
-or actionable handoff concisely; otherwise say nothing. Prune redundant history
-while preserving distinct findings, actual test results and their evidence.
-
-Use these instructions as the writing standard, not old messages or session logs.
-Rewrite or remove malformed prose from agent-facing records rather than preserving
-it as a quoted example, an appended correction or a duplicate archive. Retain the
-necessary technical facts in clear language. Do not erase or relabel actual test
-results, and never turn a wording cleanup into a passing test.
-
-## Self-management and review
-
-Agents own their work queues and coordinate tasks, dependencies, reviews and local
-resources directly. The progenitor reviews landed work against DESIGN.md and files
-concrete fix Beads, rather than assembling or approving every landing. Course
-corrections belong in specific Bead details and review findings, with a concrete reason
-and acceptance condition. Do not wait for PM instructions on ordinary work, send
-permission requests for delegated choices, or treat review as approval by default.
-
-The current user-directed trial decentralizes landing. Each workstream owner
-builds, tests and commits their scoped code, resolves its current-main joins, and
-lands and publishes it without waiting for the progenitor or pre-merge review.
-Independent review happens after merge. For every commit you author, open an
-unassigned Bead labelled `review-request` that names the exact commit,
-implementing agent, scope and relevant test results. Review the actual consumer
-and contract risks.
-Do not review your own commits or claim review requests that you authored.
-
-A merge that only preserves disjoint changes already covered by review requests,
-whether pending or completed, still needs a review request for the merge commit.
-Verify both parents, the relevant path/blob preservation and unchanged test
-inputs, then record that result once in the owning Bead with the original review
-references. The merge review can focus on that preservation.
-If conflict resolution changes code, a shared interface or behavior differs in
-combination, or relevant inputs change, run focused checks and request independent
-review of that integration seam. A clean textual merge alone does not prove these
-conditions.
-
-After opening a review request, check for unclaimed review-request
-Beads from other authors. If one is available, claim it and review that commit
-before returning to your own task. Complete concrete fixes in your
-own linked worktree, run the relevant tests, commit and merge them, and open a
-separate review request for each fix commit you author. Record the
-review outcome and any fix commits in the original request, then resume your own
-task and repeat this loop. If no eligible request is available, continue your own
-work instead of waiting.
-
-An existing relevant review already counts; do not require another reviewer, PM
-sign-off, plan, source-freeze, receipt or other approval chain. Reuse passing checks
-and reviews for unchanged relevant inputs. Never bypass the installed hook, hide a
-failed check or ignore a known correctness finding merely because review is
-asynchronous. Track remaining concrete findings in Beads without making review a
-pre-merge approval gate.
-
-For code reviews that affect a visible object or interface, consider inspecting a
-screenshot from the resulting build to check that it looks reasonable and
-intuitive in context. Look at shape, scale, orientation, connections and
-interaction cues. Follow the Playtesting guidance below for capture conditions
-and evidence limits.
-
-Keep concurrent workstreams narrow and non-overlapping. Agree shared interfaces
-directly and coordinate edits to shared files rather than creating competing
-implementations or rewriting another author's branch. Prefer merging current main
-into an owned branch over heavy rebasing. Only the brief canonical-main update and
-push are mechanically serialized through the shared Git lock documented in
-CONTRIBUTING.md; build, test and review outside it. There is no human landing queue.
-
-Never hand off work you could complete yourself, including ordinary integration
-and publication. If another owner must take over, state the concrete constraint
-and remaining action. Respect user authorization, privacy, desktop ownership and
-actual resource limits; these remain operating constraints, not approval tiers.
-This trial supersedes older progenitor-only landing and pre-merge-review prose,
-including copies in older worktrees. It does not change gameplay requirements.
-
-## Playtesting
-
-Agent desktop control is disabled until the user explicitly re-enables it. Do
-not use desktop automation to acquire the foreground, activate windows, inject
-mouse or keyboard input, or control the game. Agents may launch the game and take
-screenshots or record video for visual inspection without desktop control. This
-permission includes normal game views as well as isolated, non-interactive asset
-or presentation fixtures. Ordinary automated checks and development continue;
-human playtesting is not an additional code-landing approval gate. The deferred
-desktop-control workflow is recorded in `factory-yau.6.46`.
-
-Agents should inspect relevant screenshots and video frames. Record the source
-revision, view and sample conditions, and specific visible findings so art
-decisions are grounded in actual pixels. Use human playtesting for gameplay and
-usability feedback; screenshots and passive observation do not establish human
-understanding or enjoyment or prove the quality of the complete playable scene.
-
-## Project contract
-
-Favor fast, simple iteration over backward compatibility when changing features
-or refactoring. Remove superseded behavior and its supporting code instead of
-adding compatibility layers, migrations or exceptions to keep it alive. Preserve
-old behavior only when the user explicitly requires it. The former restricted
-construction area is obsolete and must not survive as a special case.
-
-Foundations, machines and other constructables must share one world-space height
-denominator and grid origin. Independently built sections must align when joined
-horizontally or vertically; do not introduce per-tool height grids or local
-foundation offsets that accumulate alignment errors.
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for coordination, evidence, review, and integration rules. [DESIGN.md](DESIGN.md) owns game requirements and open choices. The user explicitly delegates routine reversible design/technical decisions toward the demo: choose from the documented goals, record assumptions, and keep moving without repeated approval cards. Do not turn an experimental default into permanent canon. A runnable experimental opening and headless/network/save fixtures now exist; no production engine is selected. [README.md](README.md) links the launcher, controls and explicit prototype limits.
-
-Do not create new Markdown files unless the user explicitly requests one. Put
-reusable guidance in an existing relevant document and task-specific findings
-in Beads.
-
-Current priorities: a controlled physical character with proximity-restricted construction, and fixed/stationary contraptions/subfactories before mobile-factory expansion. Camera position is not construction authority. Godot use is accepted; record engine/API behavior, adapter limitations and probe shortcuts in the [constraint register](docs/engineering/godot-constraints.md), never silently as game requirements. Follow the [continuing research contract](docs/research/README.md) for factory/engineering-puzzle studies: deduplicate per game/coverage, close thorough game leaves, keep the recurring pipeline open.
-
-The user requires a native implementation path. Do not add or expand Python
-project code, test harnesses or operations tools. Use C++ or Rust for replacements
-and new authoritative rules; the first owned toolchain is the existing C++ compiler.
-Keep existing mandatory checks active until validated replacements preserve their
-contracts; independent review follows the same asynchronous policy. Assess
-pending Python additions against this direction before landing.
-The current GDScript demo and Godot adapters are transitional, not a permanent
-authority choice. See the [native migration contract](docs/engineering/native-migration.md).
-
-The dependency plan is [ROADMAP.md](ROADMAP.md), rooted at `factory-yau`; use `br ready --type task --json` to find executable next outcomes, not just organizational epics. Workstream owners integrate their own changes; the progenitor focuses on post-merge quality and design-fidelity review toward the demo-completion goal. The hourly PM schedule and its runbook remain retired. Cadence maintenance belongs to `factory-cadence` under `factory-wj6.21`, not another source-approval gate. Proposal completion is not user approval; delegated choices, runtime evidence, review and production adoption are distinct. Do not leave ordinary prototype work blocked on an approval the user has delegated. Actual user play cannot be fabricated, but waiting for it need not stop other development.
-
-Before starting, inspect Git status, ready/in-progress Beads, related closed work, and recent relevant commits. Claim a bounded task with a distinct actor name; comment the intended scope, worktree/branch, dependencies, and acceptance evidence. Do not take an occupied task or edit another agent's checkout without an agreed handoff. Spawn agents only when authorized. Keep decisions and resumable handoffs in Beads/Git/docs, not solely in chat or ignored `.notes/`.
-
-Existing workers own continuing workstream queues, not just the last dispatched task. The user explicitly authorizes them to discover, create, refine and claim bounded follow-up tasks toward the demo without per-task PM permission. Search for duplicates, prioritize playable improvements and actual consumer evidence, record scope/dependencies before edits, and coordinate interfaces directly with peers. Keep already-reviewed bytes and evidence attributable to their original revisions, but do not wait for review or progenitor publication to land checked work. Author checks are not independent review, and a pending implementation prerequisite is not satisfied by a proposal. Escalate genuine authority/resource conflicts, not routine reversible choices. The progenitor corrects landed work through actionable Bead findings rather than micromanagement or another approval gate.
-
-This is initially the only test machine. Use the installed native `factory-local --root CHECKOUT check|heavy|benchmark -- <command>` for cooperating work: shared cheap checks, four concurrent heavy slots, and exclusive measurements. Its executable is `<common-git-dir>/factory-local-resources/factory-local`. Existing `python3 -B scripts/run_local.py` commands and commit hooks remain supported through a compatible exclusive legacy gate; they can temporarily reduce concurrency. Supported-tool parallelism is eight jobs per admitted command; heavy/measurement admission requires 20 GiB free disk and 8 GiB available memory. Do not override floors without a documented resource decision, nest wrappers, unlink live locks, or delete unrelated artifacts. These are operational settings, not game performance targets or complete host isolation. See [resource admission](docs/engineering/local-resources.md).
-
-## Issue tracking
-
-Use **Rust Beads (`br`)** for project task tracking. This repository uses SQLite and JSONL, not the Go `bd` CLI or Dolt.
-
-```bash
-br ready --json
-br show <id>
-br create --title "Task title" --type task --priority 2
-br update <id> --claim
-br close <id>
-br sync --flush-only
-```
-
-Issue IDs use the `factory-` prefix. Read `br robot-docs` for command guidance. **All of `.beads` is private and Git-ignored**, including JSONL exports and configuration, not just the database. Never force-add it. Back up the portable text export separately to the user-authorized unlisted gist; keep its identifier and account telemetry out of public source. An unlisted gist is accessible to anyone with its URL, not access-controlled private storage.
-
-## Mandatory shared Beads directory for worktrees
-
-The main checkout owns the canonical `.beads` directory. **Every linked Git worktree MUST have a `.beads` directory symlink pointing to that same canonical directory. All worktrees share one database and one issue namespace.**
-
-- Never run `br init` in a linked worktree or create a separate worktree database.
-- After creating any worktree, run the main checkout's `scripts/link-beads-worktree.sh` before using Beads there.
-- Verify that `.beads` is a symlink and that `br where` resolves to the main checkout's directory.
-- Never replace an existing worktree database without reconciling its issues. The helper refuses databases and locally modified snapshots and archives clean checked-out metadata before linking.
-- Do not stage the `.beads` symlink, metadata or exports from any checkout. Export/backup from the canonical tracker; stage source changes explicitly in the relevant worktree.
-
-Run these from the main checkout, substituting a branch and worktree path:
+From the main checkout:
 
 ```bash
 git worktree add -b feature/example ../factory-example
 ./scripts/link-beads-worktree.sh ../factory-example
 ```
 
-This sharing policy applies to every agent and every worktree, including temporary review or test worktrees.
+Verify the symlink and `br where` before using Beads. Do not overwrite an existing
+worktree database. Legacy branches that tracked `.beads` require transferring
+scoped source changes into a fresh current-main worktree, not a merge/rebase
+across tracker removal with the shared symlink attached.
 
-Legacy branches may still track `.beads`. Do not merge/rebase them across its removal while the shared symlink is attached: the current clean-worktree policy does not make that historical transition safe. Preserve their commits and transfer only scoped source changes into your own fresh current-main worktree. Never force, stash or unlink the shared tracker to advance an old branch.
+```bash
+br ready --type task --json
+br show <id>
+br update <id> --claim --actor <name>
+br close <id>
+br sync --flush-only
+```
 
-## Session completion
+The integration owner maintains the separate authorized unlisted-gist
+[backup](docs/engineering/beads-backup.md); its identifier stays private.
 
-1. Update the owning Bead with new results, verification limits and the actual landed commit. Close implementation work when its declared outcome is satisfied; post-merge review and any concrete fix Beads are separate, not a hidden landing or closure approval.
-2. Run `br sync --flush-only` to persist the private portable export. The progenitor owns separate backup freshness; no ledger content belongs in source commits.
-3. Run focused checks needed to validate the changed behavior, then inspect and explicitly stage only scoped source paths. Do not duplicate the commit hook's full suite on unchanged relevant inputs.
-4. Commit through the installed precommit hook. It selects the repository-local pinned native coordinator when configured, otherwise `python3 -B scripts/check_commit.py`, as the single mandatory staged check. Both run the existing immutable staged source/compiler checks. Do not run the same coordinator manually before the hook on unchanged inputs; a manual run is optional diagnostics. The native coordinator takes one shared check permit or one of the four heavy slots; the legacy coordinator retains exclusive heavy admission for GDScript. Do not wrap either coordinator or `git commit` itself, or nest admission. Install the local hook using `./scripts/install-hooks.sh`; never auto-stage fixes or bypass a failure as acceptance evidence. Changes to safety gates preserve their validation contracts and receive independent review under the same asynchronous policy, not an extra landing approval.
-5. Land and publish your checked scoped branch using CONTRIBUTING.md's short shared Git transaction. Resolve conflicts and validate affected joins in your own worktree first; do not hold the landing lock during checks or reviews. A clean textual merge alone is insufficient.
-6. Inspect `git status` and hand off any remaining work or verification limits.
+## Implementation and verification
 
-The user authorized the public remote `https://github.com/dan-garvey/factory_project`. Workstream owners may publish their checked changes to existing main under this trial; no progenitor handoff is required. Do not push private ledger/history, account data or work branches under this authority, or change the remote. Historical Beads removal was explicitly authorized before the first push, with original history retained locally. Rust Beads does not run Git commits or pushes for you.
+- Prefer fast iteration; remove superseded behavior and compatibility code
+  unless the user requires it. Use C++ or Rust for new implementation. Do not
+  add or expand Python project code, tests or operations tools. Existing checks
+  remain active until validated replacements preserve their contracts.
+- Keep one native authority. Godot presentation/input must not own a shadow
+  simulation. Record current engine/adapter constraints in the compact
+  [register](docs/engineering/godot-constraints.md), separately from game rules.
+- Use icons, direct manipulation and spatial grouping; text buttons are a last
+  resort. Provide tooltips, keyboard focus descriptions and keyboard routes.
+- Use [resource admission](docs/engineering/local-resources.md) for checks,
+  builds and measurements. Never nest wrappers, unlink live locks, delete
+  unrelated evidence or lower floors without a documented resource decision.
+- Run relevant consumer checks and the installed hook. Reuse passing checks
+  for unchanged inputs. Never bypass a failure, auto-stage fixes or turn a
+  rerun into a fix. Distinguish source, native, rendered, performance and human
+  play evidence; retain exact revisions and material limitations.
+- Desktop control is disabled until the user re-enables it. Do not focus
+  windows or inject input. Launching and passive screenshots/video are allowed.
+  Inspect relevant pixels, recording revision, view and conditions. Consider
+  screenshots for reviews of visible changes: shape, scale, orientation,
+  connections and interaction cues. Passive fixtures do not prove usability.
+
+## Finish, publish and review
+
+Owners test, commit, reconcile current main and publish their scoped work.
+Follow the [build/hook and landing recipes](docs/engineering/native-builds.md).
+Keep concurrent writers in separate linked worktrees. Merge current main into
+committed work rather than routinely rebasing; never overwrite another checkout.
+Only the short main update/push holds the shared Git lock.
+
+For every authored commit, including merges, open an unassigned `review-request`
+Bead naming the exact commit, implementing agent, scope and checks. Never review
+your own commit or claim your own request. After opening one, claim and complete
+an available other-author review before returning to your task. Fix concrete
+findings in your own checkout, validate and publish them, and request review of
+each fix. A disjoint merge review may reuse original checks after verifying both
+parents' blobs and tested inputs; changed interfaces or conflict resolutions
+need focused integration evidence. Existing relevant review counts; review is
+not a pre-merge approval gate.
+
+Record the actual landed revision and new results once, close satisfied work,
+flush Beads, and inspect Git status. Remaining implementation and human-play
+gaps stay explicit. The progenitor reviews design fidelity and files actionable
+fixes; there is no PM landing queue or hourly approval schedule.
+
+Only checked existing `main` publication to
+`https://github.com/dan-garvey/factory_project` is authorized. Do not publish
+private tracker history, work branches, credentials or account data, or change
+the remote under that authority.

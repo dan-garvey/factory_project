@@ -4,7 +4,7 @@
 by Poly Haven under [CC0](https://polyhaven.com/license). This package contains
 adapted mesh and texture data. The provider's website and example renders are
 not redistributed. Exact donor pins are in the
-[source study](../../../../../../docs/art/mineral-outcrop-source.md).
+[source study](https://github.com/dan-garvey/factory_project/blob/0c87d16d1068bbcb779c085a6fcfea9fdb383053/docs/art/mineral-outcrop-source.md).
 
 The pinned Godot 4.7.2 preparation generates tangents, selects its third mesh
 distance level and retains only referenced vertices: 8,264 triangles and 5,748

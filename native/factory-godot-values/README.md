@@ -44,38 +44,9 @@ engine. It retains its original notice. Its source revision and SHA-256 are in
 [vendor/PROVENANCE.md](vendor/PROVENANCE.md). A header export proves metadata
 provenance, not successful conversion or extension loading.
 
-## Building and verification
+## Build and verify
 
-Bazel is the canonical build interface. The root module, pinned executable,
-toolchain and external cache/output policy belong to the independent native
-build-system task. This package depends explicitly on the reviewed portable
-value package; it never downloads or substitutes that source. Its targets are:
-
-```sh
-bazel build //native/factory-godot-values:godot_values
-bazel test //native/factory-godot-values:api_table_test
-bazel build //native/factory-godot-values:factory-value-abi-fixture.so
-```
-
-Use ordinary resource admission and the pinned native build profile. The native
-test uses invented function tables to check early
-refusal of missing symbols and an incompatible engine. It starts no engine. The
-source and mandatory staged checks also do not compile this library.
-
-A separate, declared headless engine invocation may load an owned external
-fixture directory with `--editor --quit`. The caller must capture the two
-`abi_fixture_config` files and the exact shared-library output there, then write
-the explicit fixture extension list before sealing its inputs. The extension uses invented
-values, checks actual scalar and nested roundtrips and refuses unsupported keys,
-nonfinite floats, invalid strings and excess depth. It also checks detached
-ownership after engine mutation. The original caller must require the fixture's
-explicit passing JSON record, a successful engine exit, complete retained inputs
-and clean bounded logs. Engine exit zero alone is not an ABI verdict.
-
-The generated extension list is deliberate fixture instrumentation. It is not
-the normal launcher or proof of normal project capture, ordinary input, native
-material authority, historical replay, save compatibility or human play. Actual
-build and fixture results remain scoped to their actual inputs. The native World
-bridge's automated offline consumer now exercises this boundary with actual
-ActorWorld samples and typed Store values; its result does not establish shared
-adoption or human play. Existing mandatory gates remain unchanged.
+Use `//native/factory-godot-values:godot_values`, `:api_table_test` and
+`:factory-value-abi-fixture.so` through [native builds](../../docs/engineering/native-builds.md).
+The table test uses invented API tables; exercise the actual engine ABI separately.
+Keep dated outcomes and current adoption work in Beads.
