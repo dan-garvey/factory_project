@@ -48,6 +48,51 @@ bool fits_supported_workcells(const DropPoint& origin, Footprint footprint,
     });
 }
 
+std::optional<std::vector<DropPoint>> swept_workcells(const DropPoint& origin,
+        const DropPoint& destination, Footprint footprint, Quantity rotation) {
+    const auto bounded = [](const DropPoint& point) {
+        return std::all_of(point.begin(), point.end(), [](Quantity value) {
+            return value >= -maximum_drop_coordinate && value <= maximum_drop_coordinate;
+        });
+    };
+    if (!bounded(origin) || !bounded(destination) || origin[1] != destination[1] ||
+        (origin[0] != destination[0] && origin[2] != destination[2]) ||
+        (destination[0] - origin[0]) % 4 != 0 ||
+        (destination[2] - origin[2]) % 4 != 0 ||
+        origin[0] % 4 != 0 || origin[2] % 4 != 0 ||
+        destination[0] % 4 != 0 || destination[2] % 4 != 0)
+        return std::nullopt;
+    const Quantity dx = (destination[0] > origin[0]) - (destination[0] < origin[0]);
+    const Quantity dz = (destination[2] > origin[2]) - (destination[2] < origin[2]);
+    const Quantity distance = dx != 0 ?
+        (dx > 0 ? destination[0] - origin[0] : origin[0] - destination[0]) :
+        (dz > 0 ? destination[2] - origin[2] : origin[2] - destination[2]);
+    const Quantity steps = distance / 4;
+    if (steps >= static_cast<Quantity>(maximum_drop_points)) return std::nullopt;
+    std::set<DropPoint> cells;
+    for (Quantity step = 0; step <= steps; ++step) {
+        const DropPoint position{origin[0] + 4 * step * dx, origin[1],
+            origin[2] + 4 * step * dz};
+        const auto occupied = occupied_workcells(position, footprint, rotation);
+        if (!occupied) return std::nullopt;
+        cells.insert(occupied->begin(), occupied->end());
+        if (cells.size() > maximum_drop_points) return std::nullopt;
+    }
+    return std::vector<DropPoint>(cells.begin(), cells.end());
+}
+
+bool fits_clear_swept_workcells(const DropPoint& origin,
+        const DropPoint& destination, Footprint footprint, Quantity rotation,
+        const std::vector<DropPoint>& support, const std::vector<DropPoint>& blocked) {
+    const auto cells = swept_workcells(origin, destination, footprint, rotation);
+    if (!cells) return false;
+    const std::set<DropPoint> supported(support.begin(), support.end());
+    const std::set<DropPoint> obstructed(blocked.begin(), blocked.end());
+    return std::all_of(cells->begin(), cells->end(), [&](const DropPoint& cell) {
+        return supported.contains(cell) && !obstructed.contains(cell);
+    });
+}
+
 Quantity belt_speed_subticks(Quantity numerator, Quantity denominator, bool inclined) noexcept {
     if (numerator == 0 || denominator <= 0) return 0;
     __extension__ using Wide = __int128;
