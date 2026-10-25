@@ -9652,6 +9652,27 @@ func _slide_outlet_holds_plate(press: Dictionary) -> bool:
 			return true
 	return false
 
+func _first_plate_material_cue(carried: Dictionary) -> String:
+	var recipes: Dictionary = state.get("component_recipes", {})
+	var timber_needed := 0
+	var copper_needed := 1 # The blank that becomes the first plate.
+	for part: String in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
+		var cost: Dictionary = recipes.get(part, {})
+		if cost.is_empty():
+			return "Gather timber and copper blanks with the multitool [E]."
+		timber_needed += int(cost.get("timber", 0))
+		copper_needed += int(cost.get("copper", 0))
+	var timber_left := maxi(0, timber_needed - int(carried.get("timber", 0)))
+	var copper_left := maxi(0, copper_needed - int(carried.get("raw", 0)))
+	if timber_left > 0 and copper_left > 0:
+		return "Gather %d timber and %d copper blanks with the multitool [E]." % [timber_left, copper_left]
+	if timber_left > 0:
+		return "Gather %d timber with the multitool [E] for the first plate." % timber_left
+	if copper_left > 0:
+		return "Gather %d copper blank%s with the multitool [E]." % [
+			copper_left, "" if copper_left == 1 else "s"]
+	return "Use Build [B] to craft and fit press parts from carried stock."
+
 func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if rotation_button != null:
 		rotation_button.visible = _native_transmission() and mode in ["collector", "processor", "wheel"] and not explanation_open
@@ -9722,7 +9743,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if arrival else "FIRST SHIFT  /  01"
 	if arrival:
 		var carried: Dictionary = state.get("cargo", {}).get(client, {})
-		var next_work := "Gather 3 timber and 4 copper blanks with the multitool [E]."
+		var next_work := _first_plate_material_cue(carried)
 		var press_ready := false
 		var sliding_press_ready := false
 		var sliding_plate_waiting := false

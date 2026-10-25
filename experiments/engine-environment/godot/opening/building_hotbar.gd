@@ -517,7 +517,7 @@ func _refresh_recipes(host, ready: bool) -> void:
 	context_label.text = "Fabrication bench · choose a recipe" if not context_bench.is_empty() else \
 		"Field recipes can be made anywhere · E opens a bench"
 	if not _plate_unlocked(host):
-		context_label.text = "First plate: build anvil, flat head and slide. Feed 1 blank, crank, then pick up the plate."
+		context_label.text = "First plate: build a press with a hand crank. Feed a blank, turn the crank, collect the plate."
 	var recipes: Dictionary = host.state.get("component_recipes", {})
 	var recipe_names: Array[String] = []
 	if _plate_unlocked(host):

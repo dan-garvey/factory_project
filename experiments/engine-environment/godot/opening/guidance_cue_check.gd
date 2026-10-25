@@ -267,8 +267,17 @@ func check_shared_manager_log() -> void:
 	view._build_world()
 	view._build_interface()
 	view._refresh_ui()
-	verify("Gather 3 timber and 4 copper blanks" in view.manager_log_current.text,
+	verify("Gather 5 timber and 4 copper blanks" in view.manager_log_current.text,
 		"A confirmed shared arrival shows the live material cue in its replayable manager log.")
+	var adjusted: Dictionary = unchanged.duplicate(true)
+	adjusted.component_recipes.hand_crank.timber = 4
+	adjusted.cargo.P.timber = 1
+	view.state = adjusted
+	view._refresh_ui()
+	verify("Gather 6 timber and 4 copper blanks" in view.manager_log_current.text,
+		"The shared cue reads projected recipe costs and accounts for material already carried.")
+	view.state = unchanged
+	view._refresh_ui()
 	verify("first copper plate" in view._material_refusal_message({"reason": "first_plate_required"}, "missing advice"),
 		"A shared worker sees the carried-plate prerequisite instead of a native reason code.")
 	view.session.ready = false

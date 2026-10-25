@@ -1600,7 +1600,7 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 	opening.manager_log_button.pressed.emit()
 	if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
 			and not opening._can_control_character()
-			and "Gather 3 timber and 4 copper blanks" in opening.manager_log_current.text
+			and "Gather 5 timber and 4 copper blanks" in opening.manager_log_current.text
 			and opening.model.projection() == after,
 			"The replayable manager log opens after normal or skipped arrival without changing native work"):
 		return
@@ -1627,8 +1627,10 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 			and inventory.recipe_buttons.has("component:wooden_slide")
 			and not inventory.recipe_buttons.has("component:wooden_cog")
 			and not inventory.recipe_buttons.has("component:receiver_tray")
-			and not inventory.recipe_buttons.has("foundation"),
-			"Fresh native arrival gives the actor empty slots and only the three first-plate recipes"):
+			and not inventory.recipe_buttons.has("foundation")
+			and inventory.context_label.text.contains("press with a hand crank")
+			and not inventory.context_label.text.contains("anvil, flat head"),
+			"Fresh native arrival offers starter recipes and a first-plate goal without an assembly checklist"):
 		return
 	if not capture_prefix.is_empty():
 		await RenderingServer.frame_post_draw
@@ -2393,9 +2395,29 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			and inventory.recipe_buttons.has("component:wooden_slide")
 			and inventory.recipe_buttons.has("component:hand_crank")
 			and not inventory.recipe_buttons.has("component:wooden_cog")
-			and not inventory.recipe_buttons.has("component:receiver_tray"),
-			"The ordinary starter inventory offers only the four required press components"):
+			and not inventory.recipe_buttons.has("component:receiver_tray")
+			and inventory.context_label.text.contains("press with a hand crank")
+			and not inventory.context_label.text.contains("anvil, flat head"),
+			"The ordinary starter inventory offers recipes and a plate goal without an assembly checklist"):
 		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await process_frame
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(
+				capture_prefix + "-starter-catalog.png") == OK,
+				"Retain the first-plate starter catalog at 1280x800"):
+			return
+		root.size = Vector2i(900, 600)
+		inventory._place_catalog()
+		await process_frame
+		await RenderingServer.frame_post_draw
+		if not _expect(Rect2i(Vector2i.ZERO, root.size).encloses(
+				Rect2i(inventory.catalog.position, inventory.catalog.size))
+				and root.get_texture().get_image().save_png(
+					capture_prefix + "-starter-catalog-narrow.png") == OK,
+				"Retain the first-plate starter catalog inside a 900x600 window"):
+			return
+		root.size = Vector2i(1280, 800)
 	inventory.catalog.hide()
 	var early: Dictionary = _issue({"action": "craft_component",
 		"entity": str(start.fabrication_hub.id), "component": "wooden_cog"})
