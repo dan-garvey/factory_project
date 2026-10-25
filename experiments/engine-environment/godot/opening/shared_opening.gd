@@ -288,6 +288,7 @@ func _settle_pending() -> void:
 				"not_at_stream": "place the waterwheel beside the stream bank.",
 				"unavailable_output": "there is no finished plate to collect.", "not_stopped": "stop the drive before editing.",
 				"out_of_reach": "move closer to the target before building or interacting.",
+				"not_crank_holder": _crank_turn_refusal("press"),
 				"actor_unready": "your character is not ready yet; wait a moment.",
 				"actor_occupied": "a character is in that square; move clear before placing the machine.",
 				"powered": "stop the drive before editing.", "held_stock": "material remains in that machine.",
@@ -306,7 +307,7 @@ func _settle_pending() -> void:
 					"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 					"quantity_overflow": "Too many of this kit are already carried."}.get(result.get("reason", ""), refusal)
 			elif item.action.action == "turn_hand_crank":
-				refusal = {"not_crank_holder": "Take the pod crank before turning this collector.",
+				refusal = {"not_crank_holder": _crank_turn_refusal("collector"),
 					"incomplete_assembly": "Fit the collector's missing component before cutting ore.",
 					"receiver_full": "Pick up the ore blank in the collector receiver before cutting again.",
 					"source_depleted": "This ore deposit is depleted.",

@@ -5249,6 +5249,11 @@ func _construction_feedback(intent: Dictionary, outcome: Dictionary) -> void:
 		add_child(construction_audio)
 	construction_audio.confirmed(intent, outcome, str(model.projection().get("context", "")))
 
+func _crank_turn_refusal(machine: String) -> String:
+	var holder: String = str(state.get("hand_crank", {}).get("holder", ""))
+	return "Take the pod crank before turning this %s." % machine if holder == "pod" \
+		else "Crank held by another worker."
+
 func issue(action: Dictionary) -> Dictionary:
 	if explanation_open:
 		return {"accepted": false, "reason": "explanation_open"}
@@ -5302,7 +5307,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"already_connected": "Those ports are already connected.",
 			"unavailable_output": "There is no finished plate to collect yet.",
 			"out_of_reach": "Move closer to the target before building or interacting.",
-			"not_crank_holder": "Take the pod crank before turning this press.",
+			"not_crank_holder": _crank_turn_refusal("press"),
 			"wrong_drive_shaft": "Use this press's fitted drive shaft.",
 			"incomplete_assembly": "The press still needs the indicated component.",
 			"receiver_full": "Pick up the ore blank in the collector receiver before cutting again.",
@@ -5336,7 +5341,7 @@ func issue(action: Dictionary) -> Dictionary:
 				"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 				"quantity_overflow": "Too many of this kit are already carried."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "turn_hand_crank":
-			refusal = {"not_crank_holder": "Take the pod crank before turning this collector.",
+			refusal = {"not_crank_holder": _crank_turn_refusal("collector"),
 				"incomplete_assembly": "Fit the collector's missing component before cutting ore.",
 				"source_depleted": "This ore deposit is depleted.",
 				"output_full": "Clear a loose material drop before cutting more ore.",

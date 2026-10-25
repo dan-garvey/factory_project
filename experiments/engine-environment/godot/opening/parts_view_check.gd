@@ -2239,11 +2239,17 @@ func _workshop_pages() -> void:
 		verify(inventory.carried_label.text == "CARRIED · CRANK WITH OTHER WORKER"
 			and not inventory.material_buttons.hand_crank.visible,
 			"The local and shared inventory locate a foreign-held crank outside carried stock.")
+		verify(view._crank_turn_refusal("press") == "Crank held by another worker."
+			and view._crank_turn_refusal("collector") == "Crank held by another worker.",
+			"Both machine refusals follow a foreign holder instead of promising a pod pickup.")
 		view.state.hand_crank.holder = "pod"
 		inventory.refresh()
 		verify(inventory.carried_label.text == "CARRIED · CRANK AT POD TRAY"
 			and not inventory.material_buttons.hand_crank.visible,
 			"The local and shared inventory locate a pod-held crank outside carried stock.")
+		verify(view._crank_turn_refusal("press") == "Take the pod crank before turning this press."
+			and view._crank_turn_refusal("collector") == "Take the pod crank before turning this collector.",
+			"Both machine refusals point to the actual pod tray while the crank is there.")
 		view.state.hand_crank.holder = view.client
 		inventory.refresh()
 		await process_frame
