@@ -9,6 +9,45 @@
 
 namespace factory::materials {
 
+Footprint work_footprint(WorkOutput output) noexcept {
+    switch (output) {
+        case WorkOutput::plate: return {1, 1};
+        case WorkOutput::sheet: return {2, 2};
+    }
+    return {0, 0};
+}
+
+Footprint sheet_footprint() noexcept {
+    return {2, 2};
+}
+
+std::optional<std::vector<DropPoint>> occupied_workcells(
+        const DropPoint& origin, Footprint footprint, Quantity rotation) {
+    if (rotation < 0 || rotation > 3 || footprint.x_cells < 1 || footprint.z_cells < 1 ||
+        footprint.x_cells > 2 || footprint.z_cells > 2 ||
+        std::any_of(origin.begin(), origin.end(), [](Quantity value) {
+            return value < -maximum_drop_coordinate || value > maximum_drop_coordinate;
+        })) return std::nullopt;
+    if (rotation % 2 != 0) std::swap(footprint.x_cells, footprint.z_cells);
+    if (origin[0] > maximum_drop_coordinate - 4 * (footprint.x_cells - 1) ||
+        origin[2] > maximum_drop_coordinate - 4 * (footprint.z_cells - 1))
+        return std::nullopt;
+    std::vector<DropPoint> cells;
+    cells.reserve(static_cast<std::size_t>(footprint.x_cells * footprint.z_cells));
+    for (Quantity z = 0; z < footprint.z_cells; ++z)
+        for (Quantity x = 0; x < footprint.x_cells; ++x)
+            cells.push_back({origin[0] + 4 * x, origin[1], origin[2] + 4 * z});
+    return cells;
+}
+
+bool fits_supported_workcells(const DropPoint& origin, Footprint footprint,
+        Quantity rotation, const std::vector<DropPoint>& support) {
+    const auto cells = occupied_workcells(origin, footprint, rotation);
+    return cells && std::all_of(cells->begin(), cells->end(), [&](const DropPoint& cell) {
+        return std::find(support.begin(), support.end(), cell) != support.end();
+    });
+}
+
 Quantity belt_speed_subticks(Quantity numerator, Quantity denominator, bool inclined) noexcept {
     if (numerator == 0 || denominator <= 0) return 0;
     __extension__ using Wide = __int128;
@@ -172,7 +211,7 @@ std::optional<BeltAdvance> advance_belt_lane(const BeltLane& lane, Quantity sign
         if (!raw && !product && !work) return std::nullopt;
         if (work) {
             const auto& lot = item.work_lots.front();
-            if (lot.recipe.output != WorkOutput::plate || lot.id <= 0 ||
+            if (work_footprint(lot.recipe.output) != Footprint{1, 1} || lot.id <= 0 ||
                 lot.recipe.input_units_per_product < 1 || lot.recipe.cycle_ticks < 1 ||
                 lot.remaining_ticks < 0 || lot.remaining_ticks > lot.recipe.cycle_ticks ||
                 lot.completed_subticks < 0 || lot.completed_subticks >= work_subticks_per_tick ||
@@ -399,7 +438,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
             if (product && !add(total, plate_mass)) return Error::quantity_overflow;
             if (work) {
                 const auto& lot = item->work_lots.front();
-                if (lot.recipe.output != WorkOutput::plate || !record_lot(lot))
+                if (work_footprint(lot.recipe.output) != Footprint{1, 1} || !record_lot(lot))
                     return Error::invalid_state;
                 if (!products(total, lot.recipe.input_units_per_product, config.raw_mass)) return Error::quantity_overflow;
             }

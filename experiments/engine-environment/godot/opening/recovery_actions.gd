@@ -55,7 +55,9 @@ func refresh() -> void:
 		return
 	var cargo: Dictionary = context.cargo
 	var lots: Array = cargo.work_lots
-	var carrying: bool = cargo.raw > 0 or cargo.products > 0 or not lots.is_empty()
+	var sheets: Array = cargo.get("sheet_items", [])
+	var carrying: bool = cargo.raw > 0 or cargo.products > 0 or not lots.is_empty() \
+		or (context.kind == "belt_span" and not sheets.is_empty())
 	var occupied: bool = _has_contents(context)
 	visible = carrying or occupied
 	# Keep this inspector addition to one action row, including expanded Details.
@@ -63,6 +65,8 @@ func refresh() -> void:
 	var summary: String = "%s, %s and %s carried." % [
 		_count(cargo.raw, "blank", "blanks"), _count(cargo.products, "plate", "plates"),
 		_count(lots.size(), "workpiece", "workpieces")]
+	if context.kind == "belt_span" and not sheets.is_empty():
+		summary += " %s still carried as one broad item." % _count(sheets.size(), "sheet", "sheets")
 	action_button.tooltip_text = summary + "\nMove material near the selected machine or belt position."
 	action_button.text = ("Move materials…" if occupied and carrying else "Recover contents…" if occupied else "Insert carried material…") + "  [Ctrl+M]"
 	action_button.disabled = not context.usable or _offers(context).is_empty()
@@ -116,6 +120,15 @@ func _context() -> Dictionary:
 		if typeof(id) != TYPE_INT or id <= 0 or identities.has(id) or remaining < 0 or cycle < 1 or remaining > cycle or _quantity(value, "recipe_input") < 1:
 			return {}
 		identities[id] = true
+	var sheets: Variant = cargo.get("sheet_items", [])
+	if not sheets is Array or sheets.size() > 4096:
+		return {}
+	for value: Variant in sheets:
+		if not value is Dictionary or typeof(value.get("id")) != TYPE_INT \
+				or value.id <= 0 or identities.has(value.id) \
+				or typeof(value.get("rotation")) != TYPE_INT or value.rotation not in [0, 1, 2, 3]:
+			return {}
+		identities[value.id] = true
 	for key: String in ["collector", "belt", "input", "held", "output"]:
 		if _quantity(stock, key) < 0:
 			return {}
@@ -163,13 +176,21 @@ func _offers(context: Dictionary) -> Array[Dictionary]:
 		for index: int in context.slots.size():
 			var item: Variant = context.slots[index]
 			if item == null and context.belt_carries:
-				for kind: String in ["raw", "product", "work"]:
+				for kind: String in ["raw", "product", "work", "sheet"]:
 					var ids: Array = [0] if (kind == "raw" and context.cargo.raw > 0) or (kind == "product" and context.cargo.products > 0) else []
 					if kind == "work":
 						for lot: Dictionary in context.cargo.work_lots:
 							ids.append(lot.id)
+					elif kind == "sheet":
+						for sheet: Dictionary in context.cargo.get("sheet_items", []):
+							ids.append(sheet.id)
 					for id: int in ids:
-						var label: String = "blank" if kind == "raw" else "plate" if kind == "product" else "workpiece %d" % id
+						var label: String
+						match kind:
+							"raw": label = "blank"
+							"product": label = "plate"
+							"sheet": label = "broad sheet %d" % id
+							_: label = "workpiece %d" % id
 						offers.append({"text": "Put %s on belt position %d" % [label, index + 1],
 							"wire": {"action": "load_belt_slot", "entity": context.target, "slot": index, "item": kind, "work_id": id}})
 				continue

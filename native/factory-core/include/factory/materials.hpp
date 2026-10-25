@@ -66,6 +66,22 @@ struct Sheet {
     bool operator==(const Sheet&) const = default;
 };
 
+// Horizontal support in whole workcells (four quarter-grid steps per edge).
+// A carrier must support every occupied cell at each position of a transfer;
+// this does not grant motion or change material custody by itself.
+struct Footprint {
+    Quantity x_cells{1};
+    Quantity z_cells{1};
+    bool operator==(const Footprint&) const = default;
+};
+
+[[nodiscard]] Footprint work_footprint(WorkOutput output) noexcept;
+[[nodiscard]] Footprint sheet_footprint() noexcept;
+[[nodiscard]] std::optional<std::vector<DropPoint>> occupied_workcells(
+    const DropPoint& origin, Footprint footprint, Quantity rotation);
+[[nodiscard]] bool fits_supported_workcells(const DropPoint& origin, Footprint footprint,
+    Quantity rotation, const std::vector<DropPoint>& support);
+
 // The initial chapter bill has no intermediate recipe inputs: every component
 // is made directly from carried timber or copper ore. These IDs are stable
 // within the experimental arrival checkpoint, not a final item catalogue.

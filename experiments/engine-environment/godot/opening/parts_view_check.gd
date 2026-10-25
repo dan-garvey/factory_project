@@ -270,6 +270,14 @@ func _component_key(code: Key, pressed: bool, alt := false) -> InputEventKey:
 	event.alt_pressed = alt
 	return event
 
+func _component_center_hit(camera: Camera3D) -> Dictionary:
+	var screen := root.get_visible_rect().size * 0.5
+	var origin := camera.project_ray_origin(screen)
+	var query := PhysicsRayQueryParameters3D.create(origin,
+		origin + camera.project_ray_normal(screen) * 5.0)
+	query.collision_mask = Geometry.PICK_LAYER
+	return camera.get_world_3d().direct_space_state.intersect_ray(query)
+
 func _component_placement_check() -> void:
 	var prefix := ""
 	for argument in OS.get_cmdline_user_args():
@@ -394,6 +402,101 @@ func _component_placement_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(prefix + "-flat-head-stroke.png") == OK,
 			"Retain the driven head at native half-cycle over the passive workbed.")
+	view.state.placed_components["workbed"] = {"component": "anvil", "center": [12, 0, 8],
+		"generation": 1, "occupied": {"center": [workbed_box.center.x, workbed_box.center.y,
+			workbed_box.center.z], "half": [workbed_box.half.x, workbed_box.half.y,
+			workbed_box.half.z]}}
+	view.state.cargo.P.components.flat_head = 1
+	choice.kind = "flat_head"
+	view.aimed = "workbed"
+	view.aim_normal = Vector3.RIGHT
+	body.set_meta("component_entity", "workbed")
+	body.collision_layer = Geometry.PICK_LAYER
+	body.position = workbed_box.center
+	var press_collision := CollisionShape3D.new()
+	var press_shape := BoxShape3D.new()
+	press_shape.size = workbed_box.size
+	press_collision.shape = press_shape
+	body.add_child(press_collision)
+	camera.position = workbed_box.center + Vector3(1.05, 1.2, 2.2)
+	camera.look_at(workbed_box.center)
+	await physics_frame
+	var workbed_hit := _component_center_hit(camera)
+	verify(workbed_hit.get("collider") == body and absf(workbed_hit.get("normal", Vector3.UP).y) < 0.5,
+		"A standing eye-level center ray can hit a side of the lower workbed.")
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "workbed") == [12, 1, 8]
+		and view.component_preview.visible and not view.component_preview_blocked
+		and view.component_preview_snap == "Head over workbed"
+		and "Aim at the anvil to place the head above" in view._component_placement_hint(),
+		"A standing side-face aim on the anvil shows a clear fitted head and names the target.")
+	view._world_click(Vector2i.ZERO, "workbed")
+	verify(view.issued.back().center == [12, 1, 8],
+		"A click on the anvil side sends the displayed elevated head center to Host.")
+	view.aim_normal = Vector3.UP
+	verify(view._component_place_center(Vector2i.ZERO, "workbed") == [12, 1, 8],
+		"Top-face aiming retains the same fitted head socket.")
+	verify(view._guided_press_part_snap("ram_face", "anvil", [12, 0, 8], Vector3.RIGHT).is_empty()
+		and view._guided_press_part_snap("flat_head", "wooden_frame", [12, 0, 8], Vector3.RIGHT).is_empty(),
+		"Side-face matching remains specific to the flat-head press pair.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		view.aim_normal = Vector3.RIGHT
+		view._refresh_component_preview()
+		workbed_sample.visible = true
+		frame.visible = false
+		head_sample.visible = false
+		slide_sample.visible = false
+		stroked_head.visible = false
+		stroked_slide.visible = false
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-head-side-snap.png") == OK,
+			"Retain the actor-eye head ghost from an anvil side aim.")
+	view.state.placed_components["sample-head"] = {"component": "flat_head", "center": [12, 1, 8],
+		"generation": 1, "occupied": {"center": [head_box.center.x, head_box.center.y,
+			head_box.center.z], "half": [head_box.half.x, head_box.half.y, head_box.half.z]}}
+	view.state.cargo.P.components.copper_slide = 1
+	choice.kind = "copper_slide"
+	view.aimed = "sample-head"
+	view.aim_normal = Vector3.RIGHT
+	body.set_meta("component_entity", "sample-head")
+	body.position = head_box.center
+	press_shape.size = head_box.size
+	camera.look_at(head_box.center)
+	await physics_frame
+	var head_hit := _component_center_hit(camera)
+	verify(head_hit.get("collider") == body and absf(head_hit.get("normal", Vector3.UP).y) < 0.5,
+		"A standing eye-level center ray can hit the fitted head's side.")
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "sample-head") == [12, 2, 8]
+		and view.component_preview.visible and not view.component_preview_blocked
+		and view.component_preview_snap == "Slide over head"
+		and "Aim at the flat head to place the slide above" in view._component_placement_hint(),
+		"A standing side-face aim on the head shows a clear fitted slide and names the target.")
+	view._world_click(Vector2i.ZERO, "sample-head")
+	verify(view.issued.back().center == [12, 2, 8],
+		"A click on the head side sends the displayed elevated slide center to Host.")
+	view.aim_normal = Vector3.UP
+	verify(view._component_place_center(Vector2i.ZERO, "sample-head") == [12, 2, 8],
+		"Top-face aiming retains the same fitted slide socket.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		view.aim_normal = Vector3.RIGHT
+		view._refresh_component_preview()
+		head_sample.visible = true
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-slide-side-snap.png") == OK,
+			"Retain the actor-eye slide ghost from a head side aim.")
+	view.state.placed_components.erase("sample-head")
+	view.state.placed_components.erase("workbed")
+	view.issued.clear()
+	choice.kind = "anvil"
+	view.aimed = "frame"
+	view.aim_normal = Vector3.UP
+	body.set_meta("component_entity", "frame")
+	press_collision.free()
+	body.position = Vector3.ZERO
+	frame.visible = true
 	head_sample.free()
 	workbed_sample.free()
 	slide_sample.free()

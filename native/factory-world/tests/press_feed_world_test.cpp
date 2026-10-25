@@ -2633,6 +2633,40 @@ void powered_broad_sheet_custody() {
           codec_restore(source.profile, recovered, "Q's exact sheet identity restores."),
         "A second actor physically clears the completed sheet with exact checkpoint custody.");
     const auto sheet_id = recovered.state.material.cargo.at("Q").sheets.front().id;
+    auto load_sheet = request("Q", "finished-sheet-width-refuse", "load_belt_slot");
+    load_sheet.emplace("target", V("sheet-width-belt"));
+    load_sheet.emplace("generation", V(I{1}));
+    load_sheet.emplace("slot", V(I{0}));
+    load_sheet.emplace("item", V("sheet"));
+    load_sheet.emplace("work_id", V(sheet_id));
+    const auto before_sheet_load = run.world->snapshot();
+    run.refuses("Q", load_sheet, "belt_cannot_carry");
+    check(run.world->snapshot().state == before_sheet_load.state &&
+          run.world->snapshot().state.material.cargo.at("Q").sheets.front() ==
+              recovered.state.material.cargo.at("Q").sheets.front() &&
+          codec_restore(source.profile, run.world->snapshot(),
+              "The one-wide refusal retains the finished sheet's identity and orientation."),
+        "A carried finished sheet cannot be loaded into one narrow belt slot or lost on restore.");
+    Runner full_belt(source);
+    full_belt.world = w::World::restore("press-feed", source.profile, run.world->snapshot());
+    check(full_belt.world != nullptr, "The finished sheet and empty belt restore before a full-path probe.");
+    full_belt.p = {5.8, 1, 0.8};
+    auto fill_belt = request("P", "finished-sheet-fill-belt", "load_belt_slot");
+    fill_belt.emplace("target", V("sheet-width-belt"));
+    fill_belt.emplace("generation", V(I{1}));
+    fill_belt.emplace("slot", V(I{0}));
+    fill_belt.emplace("item", V("raw"));
+    fill_belt.emplace("work_id", V(I{0}));
+    full_belt.accept("P", fill_belt);
+    full_belt.q = {5.5, 1, 1.0};
+    auto occupied_load = load_sheet;
+    occupied_load.at("request") = V("finished-sheet-full-slot");
+    const auto before_occupied_load = full_belt.world->snapshot();
+    full_belt.refuses("Q", occupied_load, "slot_changed");
+    check(full_belt.world->snapshot().state == before_occupied_load.state &&
+          codec_restore(source.profile, full_belt.world->snapshot(),
+              "A full belt slot leaves the sheet with Q through restore."),
+        "An occupied belt slot keeps the whole sheet with its previous actor.");
     auto stage = request("Q", "sheet-stage", "place_sheet");
     stage.emplace("center", V(point(24, 0, 0)));
     stage.emplace("sheet_id", V(sheet_id));
