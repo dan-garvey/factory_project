@@ -2482,8 +2482,9 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		opening._open_object_menu_for(fitted.anvil)
 		if not _expect(opening.object_menu.visible and panel.press_section.is_visible_in_tree()
 				and panel.slide_port_choice.visible and panel.slide_port_choice.get_item_count() == 2
-				and panel.feed_button.visible and panel.turn_button.visible,
-				"The physical actor opens a ready three-part sliding press with feed and crank controls"):
+				and panel.inventory_section.visible and not panel.feed_button.visible
+				and panel.turn_button.visible,
+			"The physical actor opens a ready three-part sliding press with workbed inventory and crank controls"):
 			return
 		panel.slide_port_choice.select(1)
 		panel.slide_port_choice.item_selected.emit(1)
@@ -2504,10 +2505,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not _expect(panel.press_section.is_visible_in_tree()
 				and opening.object_menu_target == fitted.wooden_slide
 				and panel.reclaim_button.is_visible_in_tree()
-				and not panel.feed_button.disabled and panel.route_choice.get_item_count() > 0,
-				"The slide's E panel keeps reclaim and the feed icon available while carrying the last copper blank"):
+				and not panel.inventory_drag("player_raw").is_empty()
+				and panel.route_choice.get_item_count() > 0,
+			"The slide's E panel keeps reclaim and a carried blank transfer available"):
 			return
-		panel.feed_button.pressed.emit()
+		panel.inventory_slots.player_raw.pressed.emit()
 	else:
 		feed = _issue({"action": "feed_press", "entity": fitted.anvil, "entry": route.entry})
 	var loaded: Dictionary = opening.model.projection()
@@ -2551,10 +2553,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not await _approach(Vector2(4.1, 6.0)):
 			return
 		opening._open_object_menu_for(fitted.anvil)
-		if not _expect(panel.pickup_button.visible and not panel.pickup_button.disabled,
-				"The fitted press exposes the formed plate through its pickup icon"):
+		if not _expect(panel.inventory_slots.workbed_output.visible
+				and not panel.inventory_drag("workbed_output").is_empty(),
+			"The fitted press exposes the formed plate in its workbed outlet"):
 			return
-		panel.pickup_button.pressed.emit()
+		panel.inventory_slots.workbed_output.pressed.emit()
 		var completed: Dictionary = opening.model.projection()
 		if not _expect(completed.cargo.P.products == 1
 				and completed.workshop_completed_actors.has("P")

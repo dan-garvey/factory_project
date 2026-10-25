@@ -5727,14 +5727,14 @@ func _input(event: InputEvent) -> void:
 				var actions = arrival_assembly_controls
 				match event.keycode:
 					KEY_C: used = _activate_button(actions.crank_button)
-					KEY_P: used = _activate_button(actions.pickup_button)
-					KEY_F: used = _activate_button(actions.feed_button)
+					KEY_P: used = actions.inventory_shortcut(KEY_P) or _activate_button(actions.pickup_button)
+					KEY_F: used = actions.inventory_shortcut(KEY_F) or _activate_button(actions.feed_button)
 					KEY_Y: used = _activate_button(actions.broad_feed_button)
 					KEY_N: used = _open_action_menu(actions.broad_refeed_button)
 					KEY_T: used = actions.press_turn_key() or _activate_button(actions.collector_crank_button)
 					KEY_X: used = _activate_button(actions.shear_button) or _activate_button(actions.collector_cut_button)
-					KEY_R: used = _activate_button(actions.refeed_work_button)
-					KEY_U: used = _activate_button(actions.recover_work_button)
+					KEY_R: used = actions.inventory_shortcut(KEY_R) or _activate_button(actions.refeed_work_button)
+					KEY_U: used = actions.inventory_shortcut(KEY_U) or _activate_button(actions.recover_work_button)
 					KEY_V: used = actions.cycle_slide_port()
 					KEY_G: used = actions.cycle_feed_route()
 					KEY_S: used = _open_action_menu(actions.sheet_button)
@@ -9543,6 +9543,13 @@ func _refresh_ui() -> void:
 		recovery_actions.refresh()
 	if loose_material_controls != null:
 		loose_material_controls.refresh()
+	if arrival_assembly_controls != null and arrival_assembly_controls.inventory_section.visible:
+		# The selected slide's workbed shows the same finite material at its actual
+		# work face and outlet. Keep one transfer surface in this object panel.
+		if recovery_actions != null:
+			recovery_actions.visible = false
+		if loose_material_controls != null:
+			loose_material_controls.visible = false
 	if model is NativeWorldModel:
 		ui_refresh_key = _native_ui_key()
 
@@ -9674,8 +9681,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			_notice_workshop_completion(workshop_complete)
 		if workshop_complete:
 			next_work = "Open Work log [J] for optional projects, or keep building."
-		elif state.get("first_plate_unlock", false) and sliding_press_ready:
-			next_work = "Open the fitted press [E]. Feed one blank and crank by hand."
+		elif sliding_press_ready:
+			next_work = "Open the fitted press [E]. Move a blank to the workbed, then crank."
 		elif state.get("first_plate_unlock", false) and sliding_feed_blocked:
 			next_work = "Clear an X-side feed path [F], then open the press [E]."
 		elif press_ready:
