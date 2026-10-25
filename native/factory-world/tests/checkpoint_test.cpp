@@ -1131,7 +1131,7 @@ void belt_span_commands() {
     sideways_load.emplace("slot", V(I{1})); sideways_load.emplace("item", V("raw")); sideways_load.emplace("work_id", V(I{0}));
     const auto sideways_refusal = send(*sideways_loading, sideways_load);
     check(sideways_refusal.completed() && !field<bool>(*sideways_refusal.result, "accepted") &&
-              field<std::string>(*sideways_refusal.result, "reason") == "belt_cannot_carry" &&
+              field<std::string>(*sideways_refusal.result, "reason") == "belt_path_cannot_carry" &&
               sideways_loading->snapshot().state == carried_sideways,
           "A sideways power-only belt refuses a carried blank without changing custody.");
     auto sideways_cargo = sideways_world->snapshot().state;
@@ -1165,7 +1165,7 @@ void belt_span_commands() {
     vertical_load.emplace("slot", V(I{1})); vertical_load.emplace("item", V("raw")); vertical_load.emplace("work_id", V(I{0}));
     const auto vertical_refusal = send(*vertical_loading, vertical_load);
     check(vertical_refusal.completed() && !field<bool>(*vertical_refusal.result, "accepted") &&
-              field<std::string>(*vertical_refusal.result, "reason") == "belt_cannot_carry" &&
+              field<std::string>(*vertical_refusal.result, "reason") == "belt_path_cannot_carry" &&
               vertical_loading->snapshot().state == carried_vertical,
           "A vertical power-only belt refuses a carried blank without changing custody.");
     auto illegal_cargo = vertical_world->snapshot().state;

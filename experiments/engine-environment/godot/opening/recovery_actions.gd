@@ -359,6 +359,11 @@ class ArrivalAssemblyControls:
 	var turn_hold_source := ""
 	var pickup_button: Button
 	var recover_work_button: Button
+	var sheet_button: MenuButton
+	var _sheet_offers: Array[Dictionary] = []
+	var _sheet_menu_actor := ""
+	var _sheet_menu_selected := ""
+	var _sheet_menu_world := ""
 	var collector_section: VBoxContainer
 	var press_section: VBoxContainer
 
@@ -396,6 +401,17 @@ class ArrivalAssemblyControls:
 		column.add_child(press_section)
 		press_status = host._label(press_section, "Select an anvil with E", 13, Color("bfd1cc"))
 		press_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var sheet_actions := HBoxContainer.new()
+		sheet_actions.alignment = BoxContainer.ALIGNMENT_CENTER
+		press_section.add_child(sheet_actions)
+		sheet_button = MenuButton.new()
+		sheet_button.icon = load("res://opening/assets/build-icons/sheet.svg")
+		sheet_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		sheet_button.custom_minimum_size = Vector2(44, 37)
+		sheet_button.focus_mode = Control.FOCUS_ALL
+		sheet_button.get_popup().about_to_popup.connect(_open_sheet_menu)
+		sheet_button.get_popup().id_pressed.connect(_choose_sheet)
+		sheet_actions.add_child(sheet_button)
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
 		route_choice.tooltip_text = "Choose the side for the next blank · G"
@@ -562,6 +578,11 @@ class ArrivalAssemblyControls:
 		var selected_kind: String = str(snapshot.get("placed_components", {}).get(selected, {}).get("component", ""))
 		if _anvil.is_empty() and selected_kind == "anvil":
 			_anvil = selected
+		_sheet_offers = _sheet_stage_offers(snapshot, actor, selected)
+		sheet_button.visible = not _sheet_offers.is_empty()
+		sheet_button.disabled = not ready
+		sheet_button.tooltip_text = "Stage a carried copper sheet on the selected four-anvil area · S"
+		sheet_button.accessibility_name = "Stage carried sheet on four anvils, shortcut S"
 		if _anvil != _last_anvil:
 			_route_index = 0
 			_slide_port_index = 0
@@ -763,6 +784,55 @@ class ArrivalAssemblyControls:
 					if value.get("anvil") == selected or parts.values().has(selected):
 						return value
 		return {}
+
+	func _sheet_stage_offers(snapshot: Dictionary, actor: String, selected: String) -> Array[Dictionary]:
+		var offers: Array[Dictionary] = []
+		var selected_part: Variant = snapshot.get("placed_components", {}).get(selected)
+		if not selected_part is Dictionary or selected_part.get("component") != "anvil":
+			return offers
+		var center: Variant = selected_part.get("center")
+		var carried: Variant = snapshot.get("cargo", {}).get(actor, {}).get("sheet_items")
+		if not center is Array or center.size() != 3 or not carried is Array:
+			return offers
+		for assembly: Variant in snapshot.get("broad_press_assemblies", []):
+			if not assembly is Dictionary or not assembly.get("origin") is Array or assembly.origin.size() != 3:
+				continue
+			var origin: Array = assembly.origin
+			if center[1] != origin[1] or center[0] not in [origin[0], origin[0] + 4] \
+					or center[2] not in [origin[2], origin[2] + 4]:
+				continue
+			for sheet: Variant in carried:
+				if sheet is Dictionary and typeof(sheet.get("id")) == TYPE_INT and sheet.id > 0:
+					offers.append({"center": origin.duplicate(), "sheet_id": sheet.id})
+		return offers
+
+	func _open_sheet_menu() -> void:
+		var popup := sheet_button.get_popup()
+		popup.clear()
+		_sheet_menu_actor = _actor
+		_sheet_menu_selected = _selected
+		_sheet_menu_world = str(_snapshot.get("context", ""))
+		_sheet_offers = _sheet_stage_offers(_snapshot, _actor, _selected)
+		for index: int in _sheet_offers.size():
+			var offer: Dictionary = _sheet_offers[index]
+			popup.add_item("Sheet #%d → %s" % [offer.sheet_id, str(offer.center)], index)
+
+	func _choose_sheet(index: int) -> void:
+		var host = _host_view()
+		if host == null or index < 0 or index >= _sheet_offers.size() or sheet_button.disabled:
+			return
+		var current: Variant = host.get("state")
+		if not current is Dictionary or host.get("client") != _sheet_menu_actor \
+				or host.get("selected") != _sheet_menu_selected \
+				or str(current.get("context", "")) != _sheet_menu_world \
+				or current.get("actors", {}).get(_sheet_menu_actor, {}).get("ready") != true \
+				or host.get("explanation_open") == true or host.get("startup_save_pending") == true \
+				or (host.has_method("_can_mutate") and host.call("_can_mutate") != true):
+			return
+		var chosen: Dictionary = _sheet_offers[index]
+		if _sheet_stage_offers(current, _sheet_menu_actor, _sheet_menu_selected).has(chosen):
+			host.issue({"action": "place_sheet", "center": chosen.center.duplicate(),
+				"sheet_id": chosen.sheet_id})
 
 	func _selected_collector(snapshot: Dictionary, selected: String) -> Dictionary:
 		var placed: Dictionary = snapshot.get("placed_components", {})
