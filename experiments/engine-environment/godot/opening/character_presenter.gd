@@ -4,6 +4,8 @@ extends Node3D
 const Geometry = preload("res://opening/site_geometry.gd")
 const Surface = preload("res://opening/site_surface.gd")
 const MULTITOOL = preload("res://opening/assets/multitool/multitool.tscn")
+const FIRST_PERSON_TOOL_HAND = preload("res://opening/assets/worker/first_person_tool_hand.glb")
+const FIRST_PERSON_TOOL_SLEEVE = preload("res://opening/assets/worker/first_person_tool_sleeve.glb")
 const EYE_MULTITOOL_REST := Vector3(0.27, -0.20, -0.72)
 const ADULT_ASSETS := "res://opening/assets/worker/"
 const SECOND_ADULT_ASSETS := "res://opening/assets/worker-second/"
@@ -329,7 +331,19 @@ func _refresh_multitools(delta: float) -> void:
 	var show_eye: bool = equipped and local_ready and host.distance <= 1.0 and views.has(host.client)
 	if show_eye and eye_multitool == null:
 		var body: Node3D = views[host.client].get_node("BodyView")
-		var hand := _bake_multitool_hand(body)
+		var hand: Mesh
+		var sleeve: Mesh
+		if body.get_meta("source", "") == "Microsoft Rocketbox Female_Adult_04":
+			var hand_source: Node3D = FIRST_PERSON_TOOL_HAND.instantiate()
+			var modeled_hand := hand_source.find_child("ModeledRightHand", true, false) as MeshInstance3D
+			hand = modeled_hand.mesh if modeled_hand != null else null
+			hand_source.free()
+			var sleeve_source: Node3D = FIRST_PERSON_TOOL_SLEEVE.instantiate()
+			var modeled_sleeve := sleeve_source.find_child("QualifiedRightHand", true, false) as MeshInstance3D
+			sleeve = modeled_sleeve.mesh if modeled_sleeve != null else null
+			sleeve_source.free()
+		else:
+			hand = _bake_multitool_hand(body)
 		if hand == null:
 			push_error("The qualified worker needs a valid first-person hand.")
 			get_tree().quit(1)
@@ -339,7 +353,19 @@ func _refresh_multitools(delta: float) -> void:
 		var hand_view := MeshInstance3D.new()
 		hand_view.name = "QualifiedRightHand"
 		hand_view.mesh = hand
+		if sleeve != null:
+			var skin := hand.surface_get_material(0) as StandardMaterial3D
+			if skin != null:
+				var toned := skin.duplicate() as StandardMaterial3D
+				toned.albedo_color = Color(0.65, 0.572, 0.52)
+				toned.roughness = 0.95
+				hand_view.material_override = toned
 		eye_multitool.add_child(hand_view)
+		if sleeve != null:
+			var sleeve_view := MeshInstance3D.new()
+			sleeve_view.name = "QualifiedSleeve"
+			sleeve_view.mesh = sleeve
+			eye_multitool.add_child(sleeve_view)
 		# Keep the sourced fingers and grip in view without covering the center aim.
 		eye_multitool.position = EYE_MULTITOOL_REST
 		eye_multitool.rotation_degrees = Vector3(18, 20, -8)

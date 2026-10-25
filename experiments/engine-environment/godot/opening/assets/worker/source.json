@@ -157,6 +157,20 @@
     "scale": "Uniformly fit the actual skinned standing height to the existing 1.8-metre fixture capsule, with the foot plane 0.9 metres below the body origin.",
     "authority": "No collider, physical actor, input, reach, material quantity, clock or saved state is added."
   },
+  "first_person_tool_hand": {
+    "source": "MakeHuman Community MPFB 2.0.18 system adult, generated with Blender 4.5.15 game_engine rig and young_caucasian_female.mhmat system skin",
+    "source_license": "CC0 (MPFB system asset metadata)",
+    "source_export_sha256": "6963c47781fbb784475b4909ca5b1513dfbec193120cd504edd2bb373dbf8f86",
+    "source_export_bytes": 22489728,
+    "preparation": "Curl index, middle, ring and pinky game_engine finger segments around the existing multitool grip; oppose the thumb. Rigidly fit hand and finger-root landmarks to the current Rocketbox tool pose, then retain only the posed right hand and short wrist as a static first-person mesh. Skin tint is applied by character_presenter.gd. This is presentation geometry only.",
+    "runtime_resource": "first_person_tool_hand.glb",
+    "runtime_resource_sha256": "e95007a0ec0ab92a568b5bb3cf62806883ee8740b082da08af4dd26886ceebe9",
+    "sleeve_source": "The baked right arm of the pinned Microsoft Rocketbox Female_Adult_04 worker",
+    "sleeve_license": "MIT (LICENSE.md)",
+    "sleeve_preparation": "Retain the brown sleeve from the existing baked first-person right arm and crop it before the wrist so the posed hand remains visible.",
+    "sleeve_runtime_resource": "first_person_tool_sleeve.glb",
+    "sleeve_runtime_resource_sha256": "2999d09d3d93bd253c57f26691b5d99f4d3d9adba878aab38446bc7fd205f2c5"
+  },
   "motion": {
     "source_clip": "Assets/Animations/all_animations_max_motextr_xy/f_run_neutral.max.fbx",
     "runtime_resource": "run_neutral.res",
