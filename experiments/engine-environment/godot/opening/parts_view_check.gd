@@ -2374,6 +2374,7 @@ func _workshop_pages() -> void:
 		view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
 			"Q": {"raw": 1, "timber": 3, "components": {}}}
 		view.state.component_recipes = {"wooden_frame": {"timber": 3, "copper": 0}}
+		view.state.first_plate_unlock = false
 		view.state.foundation_recipe = {"timber": 2, "copper": 0}
 		view.state.part_recipes = [
 			{"kind": "gearbox", "timber": 2, "copper": 1, "half_span": 0, "teeth": 0},
@@ -2394,6 +2395,8 @@ func _workshop_pages() -> void:
 			"parts": {"frame": "collector-frame", "mount": "collector-mount", "shaft": "collector-shaft"}}]
 		view.state.hand_crank = {"id": "pod-hand-crank", "holder": view.client}
 		var before: Dictionary = view.state.duplicate(true)
+		view.camera = Camera3D.new()
+		view.add_child(view.camera)
 		root.add_child(view)
 		view.selection_ring = MeshInstance3D.new()
 		view.add_child(view.selection_ring)
@@ -3185,6 +3188,7 @@ class ObjectMenuWidgets:
 func _object_menu_snapshot() -> Dictionary:
 	return {"context": "object-menu-fixture", "revision": 1, "order": 0,
 		"options": {"native": true, "physical": true, "foundations": true},
+		"first_plate_unlock": false,
 		"actors": {"P": {"ready": true, "position": [0.0, 1.0, 0.0]}},
 		"inventories": {"P": 0}, "parts": {}, "part_kits": {"P": {}},
 		"entities": {}, "foundations": {}, "transmission_parts": {}, "belt_spans": {},
