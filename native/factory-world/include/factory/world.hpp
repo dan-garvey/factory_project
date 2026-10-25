@@ -100,8 +100,17 @@ struct FabricationHub {
 struct HandCrank {
     std::string id;
     authority::Integer generation{};
-    // Empty means the pod tray holds this one physical tool.
+    // Carried items retain identity when attached and detached. Exactly one of
+    // holder and attached_to is present after a crank is crafted.
     std::optional<std::string> holder;
+    std::optional<std::string> attached_to;
+    std::optional<mechanics::Point> port;
+    HandCrank(std::string name, authority::Integer serial,
+              std::optional<std::string> carried_by = std::nullopt,
+              std::optional<std::string> target = std::nullopt,
+              std::optional<mechanics::Point> at = std::nullopt)
+        : id(std::move(name)), generation(serial), holder(std::move(carried_by)),
+          attached_to(std::move(target)), port(at) {}
     bool operator==(const HandCrank&) const = default;
 };
 
@@ -175,7 +184,8 @@ struct State {
     // Acquiring a formed plate completes the local actor's first workshop once.
     // Later inventory use cannot erase this witnessed chapter milestone.
     std::set<std::string> workshop_completed_actors;
-    std::optional<HandCrank> hand_crank;
+    // Each crafted crank keeps its issued identity across carrying and attachment.
+    std::map<std::string, HandCrank> crank_items;
     std::map<std::string, PlacedComponent> placed_components;
     struct SlidePhase {
         // Four shaft turns make one reciprocal, unloaded carriage cycle.

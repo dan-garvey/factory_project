@@ -628,9 +628,8 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 			and carried.fabrication_hub.id == id and carried.fabrication_hub.generation == 1
 			and opening.landing_pod_visual.position == pod_anchor
 			and not opening.landing_hub_visual.visible and opening.landing_hub_pick.collision_layer == 0
-			and opening.landing_crank_visual.visible
 			and not inventory._valid_bench(carried, id),
-			"Stowing moves only the one issued hub into actor custody while pod and crank stay landed"):
+		"Stowing moves only the one issued hub into actor custody while the pod stays landed"):
 		return
 	var invalid: Dictionary = _issue({"action": "deploy_fabrication_hub", "entity": id,
 		"center": [17, 0, 12]})
@@ -1178,6 +1177,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 7},
+		{"point": Vector2(0.6, 11.55), "id": "tree-north", "cuts": 2},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 3.3), "cuts": 0},
 		{"point": Vector2(-0.5, 0.0), "id": "opening-copper", "cuts": 3 + ore_for_press},
@@ -1189,9 +1189,9 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 				return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
-	if not _expect(opening.model.projection().cargo.P.timber == 15
+	if not _expect(opening.model.projection().cargo.P.timber == 17
 			and opening.model.projection().cargo.P.raw == 3 + ore_for_press,
-			"Two finite trees and the outcrop supply the collector route and later press stock"):
+			"Three finite trees and the outcrop supply the collector route, crank and later press stock"):
 		return
 	for kind in ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]:
 		if not _expect(opening.building_hotbar.recipe_buttons.has("component:" + kind),
@@ -1217,20 +1217,21 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		if not _expect(after.order == before.order + 1 and after.part_kits.P[route_part] == before.part_kits.P[route_part] + 1,
 				"The ordinary workshop turns carried stock into one exact native route kit"):
 			return
+	if not _press_inventory_recipe("component:hand_crank", str(opening.model.projection().fabrication_hub.id)):
+		return
 	if not _expect(opening.model.projection().cargo.P.timber == 0
 			and opening.model.projection().cargo.P.raw == ore_for_press,
-			"The complete collector and three-shaft route spend fifteen timber and three ore"):
+			"The collector, hand crank and three-shaft route spend seventeen timber and three ore"):
 		return
-	panel.crank_button.pressed.emit()
-	if not _expect(opening.model.projection().hand_crank.holder == "P",
-			"The physical actor takes the single pod crank before leaving the workshop"):
+	var carried_crank := ""
+	for crank_id: String in opening.model.projection().crank_items:
+		if opening.model.projection().crank_items[crank_id].holder == "P":
+			carried_crank = crank_id
+	if not _expect(not carried_crank.is_empty(),
+			"The physical actor carries the finite crafted crank away from the workshop"):
 		return
 	if not await _approach(Vector2(0.0, 1.3)):
 		return
-	var wheel_recipe := -1
-	for choice in opening.model.projection().part_recipes.size():
-		if opening.model.projection().part_recipes[choice].kind == "wheel":
-			wheel_recipe = choice
 	if not _select_inventory_item("wheel"):
 		return
 	if not _expect(opening.mode == "wheel", "The ordinary workshop arms its crafted waterwheel tool"):
@@ -1297,12 +1298,37 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		if collector.get("status") == "ready":
 			drive = str(collector.parts.mount)
 			break
+	if not await _approach(Vector2(0.0, 1.3)):
+		return
+	if _construct({"action": "remove", "entity": wheel.entity}).is_empty():
+		return
+	if not await _approach(Vector2(0.7, 3.3)):
+		return
+	if not _expect(panel._receiver_route_status(opening.model.projection()).contains("linked"),
+			"Removing the wheel leaves the physical belt linked for a manual collector cut"):
+		return
+	if _construct({"action": "attach_hand_crank", "entity": drive,
+			"crank": carried_crank, "port": [-1, 4, 4]}).is_empty():
+		return
 	if _construct({"action": "turn_hand_crank", "entity": drive}).is_empty():
 		return
 	var before_tick: Dictionary = opening.model.projection()
 	if not _expect(before_tick.dropped_material.any(func(drop: Variant) -> bool:
 		return drop is Dictionary and drop.get("raw", 0) == 1),
 		"The hand crank puts one true ore blank in the fitted receiver"):
+		return
+	if _construct({"action": "detach_hand_crank", "entity": carried_crank}).is_empty():
+		return
+	if not await _approach(Vector2(0.0, 1.3)):
+		return
+	if not _select_inventory_item("wheel"):
+		return
+	if not _expect(opening.mode == "wheel", "The ordinary workshop arms its crafted waterwheel tool"):
+		return
+	if _construct({"action": "place", "kind": "wheel", "cell": [-2, 0], "axis": "x", "level": 4}).is_empty():
+		return
+	if not _expect(panel._receiver_route_status(opening.model.projection()).contains("outward"),
+			"The installed waterwheel turns the linked receiver belt outward"):
 		return
 	var stepped: Dictionary = opening.model.advance()
 	if not _expect(stepped.has("belt_spans") and int(stepped.get("revision", 0)) > int(before_tick.revision),
@@ -1545,7 +1571,7 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 			and not opening.arrival_reveal_canvas.visible and deck_settled
 			and after.landing_pod == before.landing_pod and after.fabrication_hub == before.fabrication_hub
 			and after.foundations == before.foundations and after.cargo == before.cargo
-			and after.hand_sources == before.hand_sources and after.hand_crank == before.hand_crank,
+			and after.hand_sources == before.hand_sources and after.crank_items == before.crank_items,
 			"Finishing or skipping restores the ordinary camera, controls and settled native pod visual"):
 		return
 	if not capture_prefix.is_empty():
@@ -1863,7 +1889,8 @@ func _arrival_belt_fed_press_resume_run(panel) -> void:
 			and restored.dropped_material.any(func(drop: Variant) -> bool:
 				return drop is Dictionary and drop.get("center") == [0, 4, -8] and drop.get("raw", 0) == 1)
 			and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
-			and restored.hand_crank.holder == "P"
+			and restored.crank_items.values().any(func(item: Variant) -> bool:
+				return item.holder == "P")
 			and restored.actors.P.ready and restored.actors.Q.ready
 			and opening.actor_world.bodies.P.is_on_floor()
 			and opening.actor_world.bodies.Q.is_on_floor(),
@@ -2310,7 +2337,8 @@ func _arrival_first_plate_resume_run(capture_prefix: String) -> void:
 			and restored.first_plate_unlock and restored.cargo.P.products == 1
 			and restored.workshop_completed_actors.has("P")
 			and restored.placed_components.size() == 3
-			and restored.hand_crank.holder == "P"
+			and restored.crank_items.values().any(func(item: Variant) -> bool:
+				return item.attached_to == restored.sliding_press_assemblies[0].parts.slide)
 			and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
 			and opening.objective_heading.text.contains("COMPLETE"),
 			"A separate Godot process reopens the first carried plate and completed native milestone"):
@@ -2341,9 +2369,10 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	if not _expect(inventory.recipe_buttons.has("component:anvil")
 			and inventory.recipe_buttons.has("component:flat_head")
 			and inventory.recipe_buttons.has("component:wooden_slide")
+			and inventory.recipe_buttons.has("component:hand_crank")
 			and not inventory.recipe_buttons.has("component:wooden_cog")
 			and not inventory.recipe_buttons.has("component:receiver_tray"),
-			"The ordinary starter inventory offers only the three required press components"):
+			"The ordinary starter inventory offers only the four required press components"):
 		return
 	inventory.catalog.hide()
 	var early: Dictionary = _issue({"action": "craft_component",
@@ -2354,7 +2383,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		return
 	if not await _approach(Vector2(6.0, 3.45)):
 		return
-	for index in range(3):
+	for index in range(5):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
 	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
@@ -2364,7 +2393,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
-	for kind in ["anvil", "flat_head", "wooden_slide"]:
+	for kind in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
 		if not _press_inventory_recipe("component:" + kind, str(start.fabrication_hub.id)):
 			return
 	if mode == "arrival-blocked-feed-cue" and not _press_inventory_recipe(
@@ -2372,7 +2401,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		return
 	if not _expect(opening.model.projection().cargo.P.raw == 1
 			and opening.model.projection().cargo.P.timber == 0,
-			"Finite shaping spends two copper for the anvil, one for its separate head and three timber for the slide"):
+			"Finite shaping spends two copper for the anvil, one for its head, and five timber for the slide and crank"):
 		return
 	if not await _approach(Vector2(4.95, 4.95)):
 		return
@@ -2471,32 +2500,70 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			return
 		_record("pass")
 		return
-	if not await _approach(Vector2(1.8, 5.4)):
+	if not _select_inventory_item("component:hand_crank"):
 		return
-	if _construct({"action": "take_hand_crank", "entity": str(assembled.hand_crank.id)}).is_empty():
+	opening.component_nudge_active = true
+	opening.component_nudge_center = [13, 2, 16]
+	opening._refresh_component_preview()
+	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked
+			and absf(opening.component_preview.rotation.y) < 0.001,
+			"The east slide input exposes an outward fitted-crank preview"):
 		return
-	if not await _approach(Vector2(4.95, 4.95)):
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		var preview_position: Array = assembled.placed_components[fitted.wooden_slide].position
+		if not _expect(await _capture_actor_area(capture_prefix + "-crank-preview-east.png",
+				Vector3(float(preview_position[0]) + OpeningGeometry.HEIGHT_STEP,
+					float(preview_position[1]), float(preview_position[2]))),
+				"Retain the east input preview in the ordinary scene"):
+			return
+	opening.component_nudge_center = [11, 2, 16]
+	opening._refresh_component_preview()
+	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked
+			and absf(opening.component_preview.rotation.y - PI) < 0.001,
+			"The west slide input visibly reverses the crank fitting"):
 		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		var preview_position: Array = assembled.placed_components[fitted.wooden_slide].position
+		if not _expect(await _capture_actor_area(capture_prefix + "-crank-preview-west.png",
+				Vector3(float(preview_position[0]) - OpeningGeometry.HEIGHT_STEP,
+					float(preview_position[1]), float(preview_position[2]))),
+				"Retain the west input preview in the ordinary scene"):
+			return
+	opening.component_nudge_center = [13, 2, 16]
+	opening._world_click(Vector2i(3, 4), fitted.wooden_slide)
+	opening.component_nudge_active = false
+	opening.component_nudge_center.clear()
+	var attached: Dictionary = opening.model.projection()
+	if not _expect(attached.crank_items.values().any(func(item: Variant) -> bool:
+			return item.attached_to == fitted.wooden_slide and item.port == [13, 2, 16]),
+			"The ordinary component tool fits the crafted crank to the real slide input"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		var slide_position: Array = attached.placed_components[fitted.wooden_slide].position
+		if not _expect(await _capture_actor_area(capture_prefix + "-crank-fitted.png",
+				Vector3(float(slide_position[0]) + OpeningGeometry.HEIGHT_STEP,
+					float(slide_position[1]), float(slide_position[2]))),
+				"Retain the fitted exterior crank in the ordinary scene view"):
+			return
 	var panel = opening.arrival_assembly_controls
 	if mode == "arrival-first-plate":
 		opening._open_object_menu_for(fitted.anvil)
 		if not _expect(opening.object_menu.visible and panel.press_section.is_visible_in_tree()
-				and panel.slide_port_choice.visible and panel.slide_port_choice.get_item_count() == 2
+				and not panel.slide_port_choice.visible
 				and panel.inventory_section.visible and not panel.feed_button.visible
 				and panel.turn_button.visible,
 			"The physical actor opens a ready three-part sliding press with workbed inventory and crank controls"):
 			return
-		panel.slide_port_choice.select(1)
-		panel.slide_port_choice.item_selected.emit(1)
 	var prior_phase: Dictionary = opening.model.projection().slide_phases[fitted.wooden_slide]
 	var turn: Dictionary = _issue({"action": "turn_slide_crank", "entity": fitted.wooden_slide,
 		"port": [13, 2, 16]})
 	var cycled: Dictionary = opening.model.projection()
 	if not _expect(turn.get("accepted", false)
 			and cycled.slide_phases[fitted.wooden_slide].subticks > prior_phase.subticks
-			and cycled.hand_crank.holder == "P"
+			and cycled.crank_items.values().any(func(item: Variant) -> bool:
+				return item.attached_to == fitted.wooden_slide and item.port == [13, 2, 16])
 			and cycled.workshop_completed_actors.is_empty(),
-			"The worker takes the finite pod crank and turns the unchanged placed slide through its integral input"):
+			"The worker turns the fitted crafted crank through the slide's integral input"):
 		return
 	var route: Dictionary = presses[0].open_feeds[0]
 	var feed: Dictionary = {}
@@ -2833,9 +2900,8 @@ func _arrival_run() -> void:
 			and opening.landing_pod_visual.get_meta("authority_entity", "") == pod_state.landing_pod.id
 			and opening.landing_hub_visual.get_meta("authority_entity", "") == pod_state.fabrication_hub.id
 			and opening.landing_pod_visual.position.distance_to(Vector3(1.65, 0, 6.6)) < 0.001
-			and opening.landing_hub_visual.position.distance_to(Vector3(3.3, 0, 6.6)) < 0.001
-			and opening.landing_crank_visual.visible == (pod_state.hand_crank.holder == "pod"),
-			"The settled hull and bench meet the native foundation top plane with the crank in its actual custody"):
+			and opening.landing_hub_visual.position.distance_to(Vector3(3.3, 0, 6.6)) < 0.001,
+			"The settled hull and bench meet the native foundation top plane without a pod crank display"):
 		return
 	if DisplayServer.get_name() != "headless":
 		while opening.get_node_or_null("MachinePreviewWarmup") != null and Time.get_ticks_msec() < deadline:

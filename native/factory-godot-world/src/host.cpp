@@ -543,7 +543,12 @@ bool historical_wire(const authority::Record& record) {
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "role") &&
             field<Integer>(*wire, "half_span") && same("entity", "target") &&
             same("role", "role") && same("half_span", "half_span");
-    if (*action == "take_hand_crank" || *action == "return_hand_crank")
+    if (*action == "attach_hand_crank")
+        return *original_action == *action && keys(*wire, {"entity", "crank", "port"}) &&
+            field<std::string>(*wire, "entity") && field<std::string>(*wire, "crank") &&
+            field<Array>(*wire, "port") && same("entity", "target") &&
+            same("crank", "crank") && same("port", "port");
+    if (*action == "detach_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "turn_hand_crank")
@@ -1047,8 +1052,6 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         seed.issued_entities.emplace("landing-pod", 1);
         seed.fabrication_hub = world::FabricationHub{"pod-fabrication-hub", world::landing_hub_center(center), 1};
         seed.issued_entities.emplace(seed.fabrication_hub->id, 1);
-        seed.hand_crank = world::HandCrank{"pod-hand-crank", 1, std::nullopt};
-        seed.issued_entities.emplace(seed.hand_crank->id, 1);
         const auto deck = world::landing_deck_centers(center);
         for (std::size_t index = 0; index < deck.size(); ++index) {
             const auto id = "pod-floor-" + std::to_string(index);
@@ -1844,14 +1847,29 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             *field<std::string>(wire, "entity"))));
         normalized.emplace("role", wire.at("role"));
         normalized.emplace("half_span", wire.at("half_span"));
-    } else if (*action == "take_hand_crank" || *action == "return_hand_crank") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+    } else if (*action == "attach_hand_crank") {
+        if (!keys(wire, {"entity", "crank", "port"}) ||
+            !field<std::string>(wire, "entity") || !field<std::string>(wire, "crank") ||
+            !field<Array>(wire, "port") || !gear_center(*field<Array>(wire, "port")))
             return refuse("invalid_command");
+        const auto slide = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "crank"));
         normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
-        normalized.emplace("generation", Value(snapshot.state.hand_crank &&
-            snapshot.state.hand_crank->id == *field<std::string>(wire, "entity") ?
-            snapshot.state.hand_crank->generation : Integer{0}));
+        normalized.emplace("generation", Value(slide == snapshot.state.placed_components.end() ?
+            Integer{0} : slide->second.generation));
+        normalized.emplace("crank", wire.at("crank"));
+        normalized.emplace("crank_generation", Value(crank == snapshot.state.crank_items.end() ?
+            Integer{0} : crank->second.generation));
+        normalized.emplace("port", wire.at("port"));
+    } else if (*action == "detach_hand_crank") {
+        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+            return refuse("invalid_command");
+        const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "entity"));
+        normalized.at("action") = Value(*action);
+        normalized.emplace("target", wire.at("entity"));
+        normalized.emplace("generation", Value(crank == snapshot.state.crank_items.end() ?
+            Integer{0} : crank->second.generation));
     } else if (*action == "turn_hand_crank") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -2906,7 +2924,7 @@ Value Host::projection() const {
                 materials::Component::ram_face, materials::Component::copper_shaft,
                 materials::Component::copper_cog, materials::Component::wooden_workbench,
                 materials::Component::wooden_slide, materials::Component::copper_slide,
-                materials::Component::flat_head}) {
+                materials::Component::flat_head, materials::Component::hand_crank}) {
             const auto cost = materials::component_cost(kind);
             if (cost) {
                 Object recipe{{"timber", Value(cost->timber)}, {"copper", Value(cost->ore)}};
@@ -2930,14 +2948,15 @@ Value Host::projection() const {
             completed.emplace_back(actor);
         projection.emplace("workshop_completed_actors", Value(std::move(completed)));
         projection.emplace("first_plate_unlock", Value(profile_.first_plate_unlock));
-        const auto& crank = *state.hand_crank;
-        projection.emplace("hand_crank", Value(Object{{"id", Value(crank.id)},
-            {"generation", Value(crank.generation)},
-            {"holder", Value(crank.holder ? *crank.holder : "pod")},
-            {"pod_position", Value(Array{
-                Value(pod.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
-                Value(pod.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
-                Value(pod.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+        Object crank_items;
+        for (const auto& [id, item] : state.crank_items)
+            crank_items.emplace(id, Value(Object{{"id", Value(item.id)},
+                {"generation", Value(item.generation)},
+                {"holder", Value(item.holder.value_or(""))},
+                {"attached_to", Value(item.attached_to.value_or(""))},
+                {"port", Value(item.port ? Array{Value((*item.port)[0]),
+                    Value((*item.port)[1]), Value((*item.port)[2])} : Array{})}}));
+        projection.emplace("crank_items", Value(std::move(crank_items)));
         Object placed;
         for (const auto& [id, component] : state.placed_components) {
             const auto occupied = component_bounds(profile_, component.kind, component.center);
@@ -2958,6 +2977,12 @@ Value Host::projection() const {
                     ports.emplace_back(Array{Value(component.center[0] + direction),
                         Value(component.center[1]), Value(component.center[2])});
                 part.emplace("input_ports", Value(std::move(ports)));
+            } else if (component.kind == materials::Component::tool_mount ||
+                component.kind == materials::Component::wooden_shaft ||
+                component.kind == materials::Component::copper_shaft) {
+                part.emplace("input_ports", Value(Array{Value(Array{
+                    Value(component.center[0]), Value(component.center[1]),
+                    Value(component.center[2])})}));
             }
             placed.emplace(id, Value(std::move(part)));
         }

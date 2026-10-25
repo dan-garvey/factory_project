@@ -82,6 +82,27 @@ std::string place(Host& host, const char* name, I x, I y, I z, const char* id) {
     return get<std::string>(accepted(host, wire), "entity");
 }
 
+std::string craft_crank(Host& host, const char* request_id) {
+    auto wire = request(request_id, "field_craft");
+    wire.emplace("component", V("hand_crank"));
+    return get<std::string>(accepted(host, wire), "crank_id");
+}
+
+void fit_crank(Host& host, const std::string& crank, const std::string& shaft,
+               I x, I y, I z, const char* request_id) {
+    auto wire = request(request_id, "attach_hand_crank");
+    wire.emplace("entity", V(shaft));
+    wire.emplace("crank", V(crank));
+    wire.emplace("port", V(A{V(x), V(y), V(z)}));
+    accepted(host, wire);
+}
+
+void carry_crank(Host& host, const std::string& crank, const char* request_id) {
+    auto wire = request(request_id, "detach_hand_crank");
+    wire.emplace("entity", V(crank));
+    accepted(host, wire);
+}
+
 void reclaim(Host& host, const std::string& id, const char* request_id) {
     auto wire = request(request_id, "reclaim_component");
     wire.emplace("entity", V(id));
@@ -157,9 +178,6 @@ void guided_press_host_path() {
     }
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
           "The actor reaches the pod bench with guided-press parts and a temporary obstruction.");
-    auto take = request("guided-take-crank", "take_hand_crank");
-    take.emplace("entity", V("pod-hand-crank"));
-    accepted(host, take);
     for (const auto* kind : {"anvil", "ram_face", "sliding_guide", "wooden_shaft", "wooden_cog",
                              "tool_mount"}) {
         auto craft = request(std::string("guided-craft-") + kind, "craft_component");
@@ -340,6 +358,17 @@ void guided_press_host_path() {
               V(get<A>(with_tray.projection(), "guided_press_assemblies")),
               V(get<A>(tray_reopened.projection(), "guided_press_assemblies"))),
           "The finite receiver remains projected after a fresh Host restores its placed parts.");
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(-1.65)}, 5), "accepted"),
+          "The worker reaches a second finite tree for the guided crank.");
+    for (int index = 0; index < 2; ++index) {
+        auto cut = request("guided-crank-wood-" + std::to_string(index), "harvest_source");
+        cut.emplace("target", V("tree-east-upstream"));
+        accepted(host, cut);
+    }
+    const auto crank = craft_crank(host, "guided-craft-crank");
+    check(get<bool>(host.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 6), "accepted"),
+          "The worker returns with the crafted crank to the guided shaft.");
+    fit_crank(host, crank, shaft, 9, 4, 0, "guided-fit-crank");
     accepted(host, feed("guided-feed", anvil, 9, 0, 0));
     check(!get<bool>(host.command("P", turn("guided-wrong-drive", anvil, cog, 7, 0, 0)),
               "accepted"), "A nearby cog cannot impersonate the guided press drive shaft.");
@@ -454,6 +483,12 @@ void placed_press_projection() {
     auto input_wood = request("mount-input-wood", "harvest_source");
     input_wood.emplace("target", V("tree-east-upstream"));
     accepted(host, input_wood);
+    for (int index = 0; index < 2; ++index) {
+        auto cut = request("press-crank-wood-" + std::to_string(index), "harvest_source");
+        cut.emplace("target", V("tree-east-upstream"));
+        accepted(host, cut);
+    }
+    const auto crank = craft_crank(host, "press-craft-crank");
     check(get<bool>(host.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 3), "accepted"),
           "The actor approaches the ore deposit.");
     for (int index = 0; index < 6; ++index) {
@@ -463,9 +498,6 @@ void placed_press_projection() {
     }
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 4), "accepted"),
           "The actor returns with the first press bill and two real feed blanks.");
-    auto take = request("take-pod-crank", "take_hand_crank");
-    take.emplace("entity", V("pod-hand-crank"));
-    accepted(host, take);
     for (const auto* name : {"wooden_frame", "anvil", "ram_face", "sliding_guide",
                               "tool_mount", "wooden_shaft", "wooden_cog"}) {
         auto craft = request(std::string("craft-") + name, "craft_component");
@@ -570,6 +602,7 @@ void placed_press_projection() {
           !factory::values::typed_difference(V(get<A>(mirrored, "shaft_center")),
               V(A{V(I{7}), V(I{4}), V(I{0})})),
           "The same conserved pieces form a second real drive route.");
+    fit_crank(host, crank, mirrored_shaft, 7, 4, 0, "press-fit-mirrored-crank");
     accepted(host, feed("feed-mirrored", frame, 9, 1, 0));
     const auto mirrored_turn = turn("start-mirrored-work", frame, mirrored_shaft, 7, 1, 0);
     accepted(host, mirrored_turn);
@@ -706,6 +739,7 @@ void placed_press_projection() {
     check(!get<bool>(rock_turn, "accepted") && get<std::string>(rock_turn, "reason") == "site_occupied" &&
           get<A>(obstructed.projection(), "dropped_material").size() == 1,
           "A scenery rock blocks product exit without destroying the fed blank.");
+    carry_crank(host, crank, "press-detach-mirrored-crank");
     for (const auto& [id, request_id] : {
              std::pair{mirrored_cog, "reclaim-mirrored-cog"},
              std::pair{mirrored_shaft, "reclaim-mirrored-shaft"},
@@ -737,6 +771,7 @@ void placed_press_projection() {
           "Reclaimed parts rebuild a working-height candidate on an independently placed foundation.");
     const auto raised_frame = get<std::string>(raised, "frame");
     const auto raised_shaft = get<std::string>(V(get<O>(raised, "parts")), "shaft");
+    fit_crank(host, crank, raised_shaft, 9, 8, 0, "press-fit-raised-crank");
     accepted(host, feed("feed-raised", raised_frame, 9, 5, 0));
     check(get<A>(host.projection(), "dropped_material").size() == 1,
           "The elevated press accepts the same conserved feed rule.");
@@ -931,14 +966,23 @@ void belt_fed_press_projection() {
           get<bool>(fresh.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, fresh.checkpoint()),
           "A fresh Host restores the same belt-fed press work and physical site.");
-    check(get<bool>(fresh.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, ++epoch), "accepted"),
-          "The actor returns to the pod for the manual press crank.");
-    auto take = request("inlet-host-take-crank", "take_hand_crank");
-    take.emplace("entity", V("pod-hand-crank"));
-    accepted(fresh, take);
+    check(get<bool>(fresh.publish_actor("P", {V(5.8), V(1.0), V(-1.65)}, ++epoch), "accepted"),
+          "The actor reaches a remaining finite tree for the manual crank.");
+    for (int n = 0; n < 2; ++n) {
+        auto cut = request("inlet-host-crank-wood-" + std::to_string(n), "harvest_source");
+        cut.emplace("target", V("tree-east-upstream"));
+        accepted(fresh, cut);
+    }
+    const auto crank = craft_crank(fresh, "inlet-host-craft-crank");
     check(get<bool>(fresh.publish_actor("P", {V(1.4), V(1.0), V(0.0)}, ++epoch), "accepted"),
-          "The crank holder reaches the belt-fed raised press.");
+          "The crank carrier reaches the belt-fed raised press.");
     const auto press_shaft = get<std::string>(V(get<O>(inspection(fresh), "parts")), "shaft");
+    const auto shaft_center = get<A>(get<O>(fresh.projection(), "placed_components").at(press_shaft), "center");
+    auto fit = request("inlet-host-fit-crank", "attach_hand_crank");
+    fit.emplace("entity", V(press_shaft));
+    fit.emplace("crank", V(crank));
+    fit.emplace("port", V(shaft_center));
+    accepted(fresh, fit);
     for (int n = 0; n < 3; ++n)
         accepted(fresh, turn("inlet-host-turn-" + std::to_string(n), frame, press_shaft, -1, 5, 0));
     const auto products = get<A>(fresh.projection(), "dropped_material");

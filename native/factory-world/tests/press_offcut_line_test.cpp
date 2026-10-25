@@ -97,8 +97,7 @@ Site site(bool plate_receiver) {
     state.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub",
         w::landing_hub_center(*profile.landing_pod_center), 1};
-    state.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
-    for (const char* id : {"landing-pod", "pod-fabrication-hub", "pod-hand-crank"})
+    for (const char* id : {"landing-pod", "pod-fabrication-hub"})
         state.issued_entities.emplace(id, 1);
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {

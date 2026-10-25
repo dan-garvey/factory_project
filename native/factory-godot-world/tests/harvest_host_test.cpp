@@ -135,11 +135,20 @@ void one_piece_slide_custody() {
         {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
     check(!get<bool>(resumed("no-crank", "turn_slide_crank", turn), "accepted"),
           "A worker without the issued crank cannot turn the slide's integral input.");
-    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(5.8)}, 2), "accepted") &&
-          get<bool>(resumed("take-crank", "take_hand_crank",
-              {{"entity", V("pod-hand-crank")}}), "accepted") &&
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 2), "accepted") &&
+          get<bool>(resumed("crank-wood-1", "harvest_source",
+              {{"target", V("tree-east-south")}}), "accepted") &&
+          get<bool>(resumed("crank-wood-2", "harvest_source",
+              {{"target", V("tree-east-south")}}), "accepted") &&
+          get<bool>(resumed("craft-slide-crank", "field_craft",
+              {{"component", V("hand_crank")}}), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 3), "accepted"),
-          "The same actor takes the finite issued crank and approaches the placed input port.");
+          "The same actor crafts a finite crank and approaches the placed input port.");
+    const auto cranks = get<O>(restored.projection(), "crank_items");
+    check(cranks.size() == 1 && get<bool>(resumed("fit-slide-crank", "attach_hand_crank",
+              {{"entity", V(slide_id)}, {"crank", V(cranks.begin()->first)},
+               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
+          "The crafted crank attaches to the actual exterior shaft before turning.");
     check(!get<bool>(resumed("wrong-port", "turn_slide_crank",
               {{"entity", V(slide_id)},
                {"port", V(A{V(I{12}), V(I{1}), V(I{8})})}}), "accepted"),
@@ -297,11 +306,20 @@ void flat_head_host_custody() {
           get<std::string>(V(fitted), "slide") == slide_id &&
           get<A>(V(press), "open_feeds").size() == 2,
           "Ordinary Host projection names the three finite parts and both open X-axis routes.");
-    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(5.8)}, 10), "accepted") &&
-          get<bool>(resumed("take-press-crank", "take_hand_crank",
-              {{"entity", V("pod-hand-crank")}}), "accepted") &&
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 10), "accepted") &&
+          get<bool>(resumed("press-crank-wood-1", "harvest_source",
+              {{"target", V("tree-east-south")}}), "accepted") &&
+          get<bool>(resumed("press-crank-wood-2", "harvest_source",
+              {{"target", V("tree-east-south")}}), "accepted") &&
+          get<bool>(resumed("craft-press-crank", "field_craft",
+              {{"component", V("hand_crank")}}), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 11), "accepted"),
-          "The worker takes the issued crank and returns within reach of the loaded slide.");
+          "The worker crafts a finite crank and returns within reach of the loaded slide.");
+    const auto cranks = get<O>(restored.projection(), "crank_items");
+    check(cranks.size() == 1 && get<bool>(resumed("fit-press-crank", "attach_hand_crank",
+              {{"entity", V(slide_id)}, {"crank", V(cranks.begin()->first)},
+               {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}}), "accepted"),
+          "The pressed slide uses an attached crank at its actual exterior input.");
     const auto loaded_turn = resumed("loaded-slide-turn", "turn_slide_crank",
         {{"entity", V(slide_id)},
          {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});

@@ -46,7 +46,8 @@ Site site() {
     profile.material = {1, 1, 2};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
     profile.material.timber_sites = {{"tree", {{12, 0, 12}, 8}},
-                                     {"tree-branch", {{12, 0, 24}, 4}}};
+                                     {"tree-branch", {{12, 0, 24}, 4}},
+                                     {"crank-tree", {{16, 0, 12}, 16}}};
     profile.material.hand_carry_capacity = 24;
     profile.initial_units = 10;
     profile.actors = {"P", "Q"};
@@ -61,7 +62,8 @@ Site site() {
     state.material.initial_units = 10;
     state.material.stock.source = 10;
     state.material.cargo = {{"P", {}}, {"Q", {}}};
-    state.material.timber_remaining = {{"tree", 8}, {"tree-branch", 4}};
+    state.material.timber_remaining = {{"tree", 8}, {"tree-branch", 4},
+                                       {"crank-tree", 16}};
     state.kits = {{"P", {}}, {"Q", {}}};
     state.foundation_kits = {{"P", 15}, {"Q", 0}};
     state.topology.drive_enabled = true;
@@ -71,9 +73,8 @@ Site site() {
     state.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub",
         w::landing_hub_center(*profile.landing_pod_center), 1};
-    state.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
     state.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1},
-        {"pod-hand-crank", 1}, {"press-wheel", 1}};
+        {"press-wheel", 1}};
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {
         const auto id = "pod-floor-" + std::to_string(index);
@@ -129,6 +130,44 @@ struct Runner {
 
 V::Array point(g::Integer x, g::Integer y, g::Integer z) {
     return {V(x), V(y), V(z)};
+}
+
+struct CrankToken { std::string id; I generation; };
+
+CrankToken craft_crank(Runner& run, const std::string& label) {
+    const auto previous = run.p;
+    run.p = {6.6, 1, 4.95};
+    for (int index = 0; index < 2; ++index) {
+        auto harvest = request("P", label + "-timber-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("crank-tree"));
+        run.accept("P", harvest);
+    }
+    auto craft = request("P", label + "-craft", "field_craft");
+    craft.emplace("component", V("hand_crank"));
+    const auto result = run.accept("P", craft);
+    run.p = previous;
+    return {std::get<std::string>(result.at("crank_id").storage()),
+        std::get<I>(result.at("crank_generation").storage())};
+}
+
+void fit_crank(Runner& run, const CrankToken& crank, const std::string& shaft,
+               const std::string& label) {
+    const auto snapshot = run.world->snapshot();
+    const auto component = snapshot.state.placed_components.at(shaft);
+    auto fit = request("P", label, "attach_hand_crank");
+    fit.emplace("target", V(shaft));
+    fit.emplace("generation", V(component.generation));
+    fit.emplace("crank", V(crank.id));
+    fit.emplace("crank_generation", V(crank.generation));
+    fit.emplace("port", V(point(component.center[0], component.center[1], component.center[2])));
+    run.accept("P", fit);
+}
+
+void carry_crank(Runner& run, const CrankToken& crank, const std::string& label) {
+    auto detach = request("P", label, "detach_hand_crank");
+    detach.emplace("target", V(crank.id));
+    detach.emplace("generation", V(crank.generation));
+    run.accept("P", detach);
 }
 
 void frame_free_hand_press(g::Point center, g::Point direction) {
@@ -403,10 +442,14 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
         auto next_ore = request("P", "guided-fitted-manual-ore", "harvest_source");
         next_ore.emplace("target", V("ore"));
         resumed.accept("P", next_ore);
-        auto take_crank = request("P", "guided-fitted-take-crank", "take_hand_crank");
-        take_crank.emplace("target", V("pod-hand-crank"));
-        take_crank.emplace("generation", V(I{1}));
-        resumed.accept("P", take_crank);
+        resumed.p = {2, 1, 0};
+        auto stop_manual = request("P", "guided-fitted-stop-drive", "set_drive");
+        stop_manual.emplace("target", V("press-wheel"));
+        stop_manual.emplace("generation", V(I{1}));
+        stop_manual.emplace("enabled", V(false));
+        resumed.accept("P", stop_manual);
+        const auto fitted_crank = craft_crank(resumed, "guided-fitted-crank");
+        fit_crank(resumed, fitted_crank, shaft, "guided-fitted-fit-crank");
         auto manual_feed = feed;
         manual_feed.at("request") = V("guided-fitted-manual-feed");
         resumed.accept("P", manual_feed);
@@ -427,12 +470,14 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
                   "A manually turned plate stacks with the powered fifth plate through a checkpoint."),
               "Manual and powered products share one finite physical plate receiver.");
     }
-    run.p = {1.65, 1, 6.6};
-    auto take = request("P", "guided-take-crank", "take_hand_crank");
-    take.emplace("target", V("pod-hand-crank"));
-    take.emplace("generation", V(I{1}));
-    run.accept("P", take);
     run.p = {2, 1, 0};
+    auto stop_manual = request("P", "guided-stop-for-manual", "set_drive");
+    stop_manual.emplace("target", V("press-wheel"));
+    stop_manual.emplace("generation", V(I{1}));
+    stop_manual.emplace("enabled", V(false));
+    run.accept("P", stop_manual);
+    const auto hand_crank = craft_crank(run, "guided-manual-crank");
+    fit_crank(run, hand_crank, shaft, "guided-fit-manual-crank");
     auto turn = request("P", "guided-turn", "turn_press_crank");
     turn.emplace("target", V(anvil));
     turn.emplace("generation", V(anvil_generation));
@@ -706,12 +751,14 @@ void actor_feed_is_physical_custody() {
     check(!w::World::restore("press-feed", source.profile, forged),
           "A checkpoint cannot relocate a fed blank without an accepted pickup.");
 
-    run.p = {1.65, 1, 6.6};
-    auto take = request("P", "take-press-crank", "take_hand_crank");
-    take.emplace("target", V("pod-hand-crank"));
-    take.emplace("generation", V(I{1}));
-    run.accept("P", take);
     run.p = {2, 1, 0};
+    auto stop_for_manual = request("P", "stop-press-wheel-for-manual", "set_drive");
+    stop_for_manual.emplace("target", V("press-wheel"));
+    stop_for_manual.emplace("generation", V(I{1}));
+    stop_for_manual.emplace("enabled", V(false));
+    run.accept("P", stop_for_manual);
+    const auto hand_crank = craft_crank(run, "press-manual-crank");
+    fit_crank(run, hand_crank, shaft, "press-fit-manual-crank");
     auto turn = request("P", "turn-press-start", "turn_press_crank");
     turn.emplace("target", V(frame));
     turn.emplace("generation", V(frame_generation));
@@ -794,7 +841,12 @@ void actor_feed_is_physical_custody() {
     other_turn.at("client") = V("Q-client");
     other_turn.at("actor") = V("Q");
     other_turn.at("request") = V("q-turn-press");
-    run.refuses("Q", other_turn, "not_crank_holder");
+    Runner cooperative(source);
+    cooperative.world = w::World::restore("press-feed", source.profile, run.world->snapshot());
+    check(cooperative.world != nullptr, "A second actor can rejoin the fitted crank worksite.");
+    cooperative.accept("Q", other_turn);
+    check(w::World::restore("press-feed", source.profile, cooperative.world->snapshot()) != nullptr,
+          "Either nearby actor can turn the installed crank without changing its identity.");
     auto output_obstruction = obstruction;
     output_obstruction.at("request") = V("block-press-output");
     output_obstruction.at("center") = V(point(7, 1, 0));
@@ -825,15 +877,28 @@ void actor_feed_is_physical_custody() {
             record.result.at("formed_products") = V(I{1});
     check(!w::World::restore("press-feed", source.profile, false_output),
           "A saved crank receipt cannot report output absent from the physical exit.");
-    const auto overloaded = w::drive_power(source.profile, first_work.state);
+    Runner powered_after_manual(source);
+    powered_after_manual.world = w::World::restore("press-feed", source.profile, first_work);
+    powered_after_manual.p = {2, 1, 0};
+    carry_crank(powered_after_manual, hand_crank, "detach-crank-before-overload");
+    auto resume_for_overload = request("P", "resume-wheel-for-overload", "set_drive");
+    resume_for_overload.emplace("target", V("press-wheel"));
+    resume_for_overload.emplace("generation", V(I{1}));
+    resume_for_overload.emplace("enabled", V(true));
+    powered_after_manual.accept("P", resume_for_overload);
+    const auto overloaded_work = powered_after_manual.world->snapshot();
+    const auto overloaded = w::drive_power(source.profile, overloaded_work.state);
     check(overloaded.mechanical.accepted() &&
           overloaded.mechanical.motion.at(frame).state == g::MotionState::stalled &&
           overloaded.load.at(shaft).overloaded && overloaded.load.at(shaft).capacity == 8 &&
           overloaded.load.at(shaft).impact == 16 &&
           !overloaded.load.at(shaft).limiting_part.empty(),
           "The sourced press exceeds its actual wooden drive-part rating at double speed.");
+    check(powered_after_manual.world->tick().error == w::TransactionError::none &&
+          powered_after_manual.world->snapshot().state == overloaded_work.state,
+          "An overloaded powered tick leaves the partial work and placed parts intact.");
     Runner unrelated_belt(source);
-    unrelated_belt.world = w::World::restore("press-feed", source.profile, first_work);
+    unrelated_belt.world = w::World::restore("press-feed", source.profile, overloaded_work);
     unrelated_belt.p = {2, 1, 0};
     auto load_unrelated = request("P", "load-unrelated-belt-work", "load_belt_slot");
     load_unrelated.emplace("target", V("press-output-belt"));
@@ -850,6 +915,12 @@ void actor_feed_is_physical_custody() {
           unrelated_belt.world->snapshot().state.material.belt_lanes !=
               before_unrelated_tick.state.material.belt_lanes,
           "A belt can advance the World revision while the overloaded press does no work.");
+    auto stop_after_belt_tick = request("P", "stop-wheel-after-unrelated-belt-tick", "set_drive");
+    stop_after_belt_tick.emplace("target", V("press-wheel"));
+    stop_after_belt_tick.emplace("generation", V(I{1}));
+    stop_after_belt_tick.emplace("enabled", V(false));
+    unrelated_belt.accept("P", stop_after_belt_tick);
+    fit_crank(unrelated_belt, hand_crank, shaft, "fit-crank-after-unrelated-belt-tick");
     auto turn_after_belt_tick = turn;
     turn_after_belt_tick.at("request") = V("turn-after-unrelated-belt-tick");
     unrelated_belt.accept("P", turn_after_belt_tick);
@@ -862,6 +933,7 @@ void actor_feed_is_physical_custody() {
     later_stop.emplace("generation", V(I{1}));
     later_stop.emplace("enabled", V(false));
     unrelated_belt.accept("P", later_stop);
+    carry_crank(unrelated_belt, hand_crank, "detach-crank-before-later-wheel-resume");
     auto later_resume = later_stop;
     later_resume.at("request") = V("resume-after-unrelated-belt-tick");
     later_resume.at("enabled") = V(true);
@@ -927,17 +999,18 @@ void actor_feed_is_physical_custody() {
           "A later wheel removal cannot hide a forged stalled press tick.");
     check(run.world->tick().error == w::TransactionError::none &&
           run.world->snapshot().state == first_work.state,
-          "An overloaded native tick leaves the partial WorkLot and all placed parts intact.");
+          "A stopped drive tick leaves the manually worked lot and all placed parts intact.");
     const auto stalled_save = w::encode_checkpoint(source.profile, run.world->snapshot());
     check(std::holds_alternative<V>(stalled_save), "The overloaded press checkpoint encodes.");
     const auto stalled_decoded = w::decode_checkpoint(source.profile, "press-feed", std::get<V>(stalled_save));
     check(std::holds_alternative<w::Snapshot>(stalled_decoded), "The overloaded press checkpoint decodes.");
     auto stalled_restored = w::World::restore("press-feed", source.profile, std::get<w::Snapshot>(stalled_decoded));
     check(stalled_restored && stalled_restored->snapshot().state == first_work.state &&
-          w::drive_power(source.profile, stalled_restored->snapshot().state).load.at(shaft).overloaded &&
+          w::drive_power(source.profile, stalled_restored->snapshot().state).mechanical.motion.at(shaft).state ==
+              g::MotionState::stopped &&
           stalled_restored->tick().error == w::TransactionError::none &&
           stalled_restored->snapshot().state == first_work.state,
-          "A fresh World recomputes the same non-destructive stall after checkpoint restore.");
+          "A fresh World retains the stopped drive after checkpoint restore.");
     const auto turn_retry = run.send("P", turn);
     check(turn_retry.completed() && turn_retry.result &&
           std::get<bool>(turn_retry.result->at("duplicate").storage()) &&
@@ -1049,7 +1122,17 @@ void actor_feed_is_physical_custody() {
           !manual_blocked.world->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
           w::World::restore("press-feed", source.profile, manual_blocked.world->snapshot()) != nullptr,
           "Clearing the exit lets the exact ready manual lot form one product and restore.");
-    auto exported = w::World::restore("press-feed", source.profile, formed);
+    Runner powered_output(source);
+    powered_output.world = w::World::restore("press-feed", source.profile, formed);
+    powered_output.p = {2, 1, 0};
+    carry_crank(powered_output, hand_crank, "detach-crank-before-output-belt");
+    auto resume_output = request("P", "resume-wheel-for-output-belt", "set_drive");
+    resume_output.emplace("target", V("press-wheel"));
+    resume_output.emplace("generation", V(I{1}));
+    resume_output.emplace("enabled", V(true));
+    powered_output.accept("P", resume_output);
+    const auto powered_formed = powered_output.world->snapshot();
+    auto exported = w::World::restore("press-feed", source.profile, powered_formed);
     check(exported && exported->tick().error == w::TransactionError::none,
           "A powered outward belt accepts the finished modular press plate on a trusted tick.");
     const auto on_route = exported->snapshot();
@@ -1065,7 +1148,7 @@ void actor_feed_is_physical_custody() {
           "A fresh checkpoint admits the identified product after belt export.");
     auto reverse_source = source;
     reverse_source.profile.waterwheel_rate = {-2, 1};
-    auto reverse_state = formed;
+    auto reverse_state = powered_formed;
     for (auto& power : reverse_state.state.topology.sources)
         power.rate = reverse_source.profile.waterwheel_rate;
     auto reverse = w::World::restore("press-feed", reverse_source.profile, reverse_state);
@@ -1073,7 +1156,7 @@ void actor_feed_is_physical_custody() {
           reverse->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1 &&
           reverse->snapshot().state.press_output_at_exit.contains({7, 1, 0}),
           "A belt running toward the press cannot pull the plate from its outlet.");
-    auto swapped = formed;
+    auto swapped = powered_formed;
     auto& reversed_span = swapped.state.topology.belt_spans.front().geometry;
     std::swap(reversed_span.first_shaft, reversed_span.last_shaft);
     auto opposite_order = w::World::restore("press-feed", source.profile, swapped);
@@ -1082,7 +1165,7 @@ void actor_feed_is_physical_custody() {
           opposite_order->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 1,
           "The same physical outward route works with the belt endpoint order reversed.");
     Runner occupied(source);
-    occupied.world = w::World::restore("press-feed", source.profile, formed);
+    occupied.world = w::World::restore("press-feed", source.profile, powered_formed);
     occupied.p = {2, 1, 0};
     auto load = request("P", "block-press-belt-inlet", "load_belt_slot");
     load.emplace("target", V("press-output-belt"));
@@ -1100,7 +1183,7 @@ void actor_feed_is_physical_custody() {
           occupied.world->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 1,
           "The same plate exits after the inlet clears without another press cycle.");
     Runner obstructed(source);
-    obstructed.world = w::World::restore("press-feed", source.profile, formed);
+    obstructed.world = w::World::restore("press-feed", source.profile, powered_formed);
     obstructed.p = {2, 1, 0};
     auto obstruction_in_chute = request("P", "obstruct-press-chute", "place_component");
     obstruction_in_chute.emplace("component", V("tool_mount"));
@@ -1119,6 +1202,12 @@ void actor_feed_is_physical_custody() {
     Runner repeated(source);
     repeated.world = w::World::restore("press-feed", source.profile, on_route);
     repeated.p = {2, 1, 0};
+    auto stop_repeat = request("P", "stop-wheel-for-repeat-manual", "set_drive");
+    stop_repeat.emplace("target", V("press-wheel"));
+    stop_repeat.emplace("generation", V(I{1}));
+    stop_repeat.emplace("enabled", V(false));
+    repeated.accept("P", stop_repeat);
+    fit_crank(repeated, hand_crank, shaft, "fit-crank-for-repeat-manual");
     auto repeat_feed = feed;
     repeat_feed.at("request") = V("feed-after-export");
     repeated.accept("P", repeat_feed);
@@ -1127,6 +1216,11 @@ void actor_feed_is_physical_custody() {
         next_turn.at("request") = V("turn-after-export-" + std::to_string(index));
         repeated.accept("P", next_turn);
     }
+    carry_crank(repeated, hand_crank, "detach-crank-before-repeat-export");
+    auto resume_repeat = stop_repeat;
+    resume_repeat.at("request") = V("resume-wheel-for-repeat-export");
+    resume_repeat.at("enabled") = V(true);
+    repeated.accept("P", resume_repeat);
     check(repeated.world->tick().error == w::TransactionError::none &&
           repeated.world->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 2 &&
           w::World::restore("press-feed", source.profile, repeated.world->snapshot()) != nullptr,
@@ -1137,12 +1231,7 @@ void actor_feed_is_physical_custody() {
     forged_product.state.material.dropped_material.emplace(g::Point{7, 1, 1}, produced);
     check(!w::World::restore("press-feed", source.profile, forged_product),
           "A checkpoint cannot relocate the formed product without an accepted pickup.");
-    run.p = {1.65, 1, 6.6};
-    auto return_crank = request("P", "return-crank-between-press-and-pickup", "return_hand_crank");
-    return_crank.emplace("target", V("pod-hand-crank"));
-    return_crank.emplace("generation", V(I{1}));
-    run.accept("P", return_crank);
-    run.p = {2, 1, 0};
+    carry_crank(run, hand_crank, "detach-crank-between-press-and-pickup");
     auto pickup_product = request("P", "pickup-formed-product", "pickup_material");
     pickup_product.emplace("center", V(point(7, 1, 0)));
     pickup_product.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
@@ -1185,11 +1274,7 @@ void actor_feed_is_physical_custody() {
     retired_delivery.emplace("target", V("first-freight-beacon"));
     retired_delivery.emplace("generation", V(I{1}));
     run.refuses("P", retired_delivery, "invalid_command");
-    auto retake_crank = take;
-    retake_crank.at("request") = V("retake-press-crank");
-    run.p = {1.65, 1, 6.6};
-    run.accept("P", retake_crank);
-    run.p = {2, 1, 0};
+    fit_crank(run, hand_crank, shaft, "refit-press-crank");
     auto second_feed = feed;
     second_feed.at("request") = V("feed-second");
     run.accept("P", second_feed);
@@ -1200,6 +1285,10 @@ void actor_feed_is_physical_custody() {
     auto remove = request("P", "remove-shaft", "reclaim_component");
     remove.emplace("target", V(shaft));
     remove.emplace("generation", V(I{6}));
+    auto remove_with_crank = remove;
+    remove_with_crank.at("request") = V("remove-shaft-with-crank");
+    run.refuses("P", remove_with_crank, "attached_crank");
+    carry_crank(run, hand_crank, "detach-crank-before-remove-shaft");
     run.accept("P", remove);
     check(run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots ==
           std::vector<m::WorkLot>{partial},
@@ -1264,6 +1353,9 @@ void actor_feed_is_physical_custody() {
         }
     check(!w::World::restore("press-feed", source.profile, forged_reinsert),
           "A forged hand-refeed receipt cannot change the recovered WorkLot progress.");
+    fit_crank(refeed, hand_crank,
+              std::get<std::string>(replacement_shaft.at("entity").storage()),
+              "fit-crank-to-replacement-shaft");
     auto remaining_turn = turn;
     remaining_turn.at("request") = V("advance-reinserted-work");
     remaining_turn.at("drive") = replacement_shaft.at("entity");
@@ -1308,6 +1400,11 @@ void actor_feed_is_physical_custody() {
         place.emplace("center", V(point(center[0], center[1], center[2])));
         run.accept("P", place);
     }
+    auto resume_upgraded = request("P", "resume-upgraded-press-wheel", "set_drive");
+    resume_upgraded.emplace("target", V("press-wheel"));
+    resume_upgraded.emplace("generation", V(I{1}));
+    resume_upgraded.emplace("enabled", V(true));
+    run.accept("P", resume_upgraded);
     const auto upgraded = run.world->snapshot();
     const auto powered = w::drive_power(source.profile, upgraded.state);
     check(powered.mechanical.accepted() &&
@@ -1596,16 +1693,15 @@ void two_placed_presses_advance_distinct_powered_work() {
     auto clear_again = pickup;
     clear_again.at("request") = V("clear-powered-exit-again");
     run.accept("P", clear_again);
+    const auto hand_crank = craft_crank(run, "powered-substitute-crank");
     auto feed_manual = feed_again;
     feed_manual.at("request") = V("feed-powered-for-crank");
     run.accept("P", feed_manual);
-    check(run.world->tick().error == w::TransactionError::none &&
+    const auto fourth_tick = run.world->tick();
+    check(fourth_tick.error == w::TransactionError::none &&
+          run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
           run.world->snapshot().state.material.dropped_material.at({0, 1, 0}).work_lots.front().id == 4,
           "The fourth blank starts a new automatically powered lot.");
-    auto take = request("P", "take-crank-with-power", "take_hand_crank");
-    take.emplace("target", V("pod-hand-crank"));
-    take.emplace("generation", V(I{1}));
-    run.accept("P", take);
     auto turn = request("P", "turn-after-powered-start", "turn_press_crank");
     turn.emplace("target", V(frames[0]));
     turn.emplace("generation", V(frame_generations[0]));
@@ -1649,6 +1745,7 @@ void two_placed_presses_advance_distinct_powered_work() {
     stopped_then_manual.world = w::World::restore("press-feed", source.profile,
         powered_then_manual.world->snapshot());
     stopped_then_manual.p = {2, 1, 0};
+    fit_crank(stopped_then_manual, hand_crank, shafts[0], "fit-after-real-tick-while-stopped");
     auto finish_while_stopped = turn;
     finish_while_stopped.at("request") = V("finish-after-real-press-tick-while-stopped");
     const auto stopped_finish = stopped_then_manual.accept("P", finish_while_stopped);
@@ -1659,14 +1756,36 @@ void two_placed_presses_advance_distinct_powered_work() {
     resume_after_real_progress.at("request") = V("resume-after-real-press-tick");
     resume_after_real_progress.at("enabled") = V(true);
     powered_then_manual.accept("P", resume_after_real_progress);
+    auto powered_fit = request("P", "fit-crank-while-powered", "attach_hand_crank");
+    const auto powered_shaft = powered_then_manual.world->snapshot().state.placed_components.at(shafts[0]);
+    powered_fit.emplace("target", V(shafts[0]));
+    powered_fit.emplace("generation", V(powered_shaft.generation));
+    powered_fit.emplace("crank", V(hand_crank.id));
+    powered_fit.emplace("crank_generation", V(hand_crank.generation));
+    powered_fit.emplace("port", V(point(powered_shaft.center[0], powered_shaft.center[1],
+        powered_shaft.center[2])));
+    powered_then_manual.refuses("P", powered_fit, "input_already_driven");
+    auto stop_again = stop_after_real_progress;
+    stop_again.at("request") = V("stop-again-for-manual-finish");
+    powered_then_manual.accept("P", stop_again);
+    fit_crank(powered_then_manual, hand_crank, shafts[0], "fit-after-wheel-toggle");
     auto finish_after_power = turn;
     finish_after_power.at("request") = V("finish-after-powered-progress");
     const auto powered_finish = powered_then_manual.accept("P", finish_after_power);
     check(std::get<I>(powered_finish.at("formed_products").storage()) == 1 &&
           std::get<I>(powered_finish.at("prior_auto_remaining_ticks").storage()) == 1 &&
           w::World::restore("press-feed", source.profile, powered_then_manual.world->snapshot()) != nullptr,
-          "Real automatic progress survives later wheel toggles and a completing manual turn.");
+          "Real automatic progress survives a wheel toggle and a later fitted manual turn.");
+    run.p = {2, 1, 0};
+    auto stop_for_substitution = stop_after_real_progress;
+    stop_for_substitution.at("request") = V("stop-wheel-for-crank-substitution");
+    run.accept("P", stop_for_substitution);
+    fit_crank(run, hand_crank, shafts[0], "fit-crank-after-powered-start");
     run.accept("P", turn);
+    carry_crank(run, hand_crank, "detach-crank-before-powered-tick");
+    auto resume_for_tick = resume_after_real_progress;
+    resume_for_tick.at("request") = V("resume-wheel-after-crank-substitution");
+    run.accept("P", resume_for_tick);
     check(run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
               .work_lots.front().remaining_ticks == 1 &&
           run.world->tick().error == w::TransactionError::none &&
@@ -1991,10 +2110,13 @@ void belt_feeds_a_placed_press() {
     check(mirrored.world->tick().error == w::TransactionError::none &&
           mirrored.world->snapshot().state.material.dropped_material.at({0, 1, 0}) == m::Cargo{1, 0, {}},
           "The same belt feeds the newly unambiguous mirrored press orientation.");
-    auto take = request("P", "inlet-take-crank", "take_hand_crank");
-    take.emplace("target", V("pod-hand-crank"));
-    take.emplace("generation", V(I{1}));
-    mirrored.accept("P", take);
+    auto stop_for_belt_manual = request("P", "inlet-stop-wheel-for-manual", "set_drive");
+    stop_for_belt_manual.emplace("target", V("press-wheel"));
+    stop_for_belt_manual.emplace("generation", V(I{1}));
+    stop_for_belt_manual.emplace("enabled", V(false));
+    mirrored.accept("P", stop_for_belt_manual);
+    const auto hand_crank = craft_crank(mirrored, "inlet-manual-crank");
+    fit_crank(mirrored, hand_crank, mirror_shaft, "inlet-fit-manual-crank");
     w::Snapshot belt_manual_partial;
     for (int n = 0; n < 3; ++n) {
         auto turn = request("P", "inlet-mirror-turn-" + std::to_string(n), "turn_press_crank");

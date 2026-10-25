@@ -18,7 +18,6 @@ const MATERIALS := {
 	"timber": ["Timber", "timber.svg"], "raw": ["Ore blank", "ore.svg"],
 	"products": ["Plate", "plate.svg"], "offcuts": ["Offcut", "offcut.svg"],
 	"sheets": ["Broad sheet", "sheet.svg"], "work_lots": ["Workpiece", "press-feed.svg"],
-	"hand_crank": ["Hand crank", "workshop-crank.svg"],
 	"fabrication_hub": ["Pod workshop", "workshop-pod.svg"]}
 const COMPONENT_ICONS := {
 	"wooden_frame": "wooden_frame.svg", "wooden_shaft": "wooden_shaft.svg",
@@ -28,7 +27,7 @@ const COMPONENT_ICONS := {
 	"ram_face": "ram_face.svg", "copper_shaft": "copper_shaft.svg",
 	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
 	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg",
-	"flat_head": "flat_head.svg"}
+	"flat_head": "flat_head.svg", "hand_crank": "workshop-crank.svg"}
 var slots: Array[String] = ["", "", "", "", "", "", "", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []
@@ -392,7 +391,7 @@ func _material_count(kind: String, host) -> int:
 	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
 	if kind == "work_lots":
 		return cargo.get("work_lots", []).size()
-	if kind == "hand_crank" or kind == "fabrication_hub":
+	if kind == "fabrication_hub":
 		return int(host.state.get(kind, {}).get("holder", "") == host.client)
 	return maxi(0, int(cargo.get(kind, 0)))
 
@@ -402,7 +401,8 @@ func _tool_label(tool: String) -> String:
 
 func _offered(tool: String, host) -> bool:
 	if _arrival_active and not _plate_unlocked(host):
-		return tool in ["component:anvil", "component:flat_head", "component:wooden_slide"]
+		return tool in ["component:anvil", "component:flat_head", "component:wooden_slide",
+			"component:hand_crank"]
 	return not (_arrival_active and tool in ["collector", "processor"]) \
 		and not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
 		and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
@@ -511,11 +511,7 @@ func _refresh_recipes(host, ready: bool) -> void:
 		context_action.accessibility_name = "Stow pod workshop, shortcut S" if hub else \
 			"Reclaim wooden workbench, shortcut R"
 	parts_label.text = "BENCH / INVENTORY" if not context_bench.is_empty() else "BUILD / INVENTORY"
-	var crank: Dictionary = host.state.get("hand_crank", {})
-	var holder: String = str(crank.get("holder", ""))
-	carried_label.text = "CARRIED · CRANK WITH YOU" if holder == host.client else \
-		"CARRIED · CRANK AT POD TRAY" if holder == "pod" else \
-		"CARRIED · CRANK WITH OTHER WORKER" if not crank.is_empty() else "CARRIED"
+	carried_label.text = "CARRIED"
 	context_label.text = "Fabrication bench · choose a recipe" if not context_bench.is_empty() else \
 		"Field recipes can be made anywhere · E opens a bench"
 	if not _plate_unlocked(host):
@@ -525,7 +521,7 @@ func _refresh_recipes(host, ready: bool) -> void:
 	if _plate_unlocked(host):
 		recipe_names.assign(_component_names)
 	else:
-		for starter: String in ["anvil", "flat_head", "wooden_slide"]:
+		for starter: String in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
 			recipe_names.append(starter)
 	for component: String in recipe_names:
 		if not _component_labels.has(component):
@@ -584,7 +580,8 @@ func _craft_recipe(key: String) -> void:
 	var host = _view()
 	if host == null or not _arrival_active or not host._can_choose_tool():
 		return
-	if not _plate_unlocked(host) and key not in ["component:anvil", "component:flat_head", "component:wooden_slide"]:
+	if not _plate_unlocked(host) and key not in ["component:anvil", "component:flat_head",
+			"component:wooden_slide", "component:hand_crank"]:
 		focus_description.text = "Carry your first copper plate to unlock this recipe."
 		return
 	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})

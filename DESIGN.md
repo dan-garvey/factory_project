@@ -25,8 +25,8 @@ gantries, moving factories and trains remain intended-game requirements.
 ## Chapter 1: arrival and first fabrication
 
 - An AI corporation sends a field fabricator to a peaceful industrial frontier.
-  A landing pod unfolds into foundations, a crafting hub, storage and a
-  detachable hand crank. The worker wears a work suit and carries a multitool.
+  A landing pod unfolds into foundations, a crafting hub and storage. The
+  worker wears a work suit and carries a multitool.
   The arrival should be skippable and settle safely on rejoin.
 - The pod uses the same world grid as player construction. It is one finite
   shared landing stock, not a build boundary, unlimited supply or per-join gift.
@@ -49,15 +49,15 @@ gantries, moving factories and trains remain intended-game requirements.
   There is no opening shipment destination. Manual ore acquisition and a
   hand-tended press are viable before collector or belt automation.
 - The experimental first-plate opening starts with an empty hotbar. Only an
-  anvil, flat head and wooden slide are craftable before the actor carries a
-  plate; the slide's integral shaft accepts the issued hand crank. Carrying
-  that plate unlocks the other construction recipes for that actor. The
+  anvil, flat head, wooden slide and timber hand crank are craftable before
+  the actor carries a plate; the slide's integral shaft accepts a fitted
+  crank. Carrying that plate unlocks the other construction recipes for that actor. The
   advanced catalog includes external shafts and cogs, waterwheels, belts,
   collector parts, foundations, receiver trays and broad-work parts. Later
   introductions remain an open teaching and progression choice.
-- The reusable crank supplies rotation while an actor turns it at an input.
-  Its identity and custody persist as it moves between machines. A waterwheel
-  in flowing water supplies unattended rotation from local flow speed/direction;
+- A finite crafted crank supplies rotation while an actor turns it at an input.
+  Its identity, fitting and custody persist as it moves between machines. A
+  waterwheel in flowing water supplies unattended rotation from local flow speed/direction;
   its axle aligns with elevated shafts on the common grid.
 - The collector needs a supporting frame, cutting head/mount, exposed stock
   contact, a receiver at the discharge and physical drive. Direction, support
