@@ -518,6 +518,8 @@ WorkingPressInspection inspect_working_press(const assembly::Layout& layout,
                 press.slide_center, press.slide, press.open_feeds, std::nullopt,
                 std::nullopt, true}};
         }
+        if (sliding.status == assembly::PressStatus::blocked_feed)
+            return {sliding.status, std::nullopt};
         const auto inspected = layout.inspect_guided_press(center);
         if (!inspected.press) return {inspected.status, std::nullopt};
         const auto& press = *inspected.press;
@@ -4992,6 +4994,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             frame->second.kind, frame->second.center);
         if (inspected.status == assembly::PressStatus::ambiguous)
             return refused("ambiguous_assembly", *id);
+        if (inspected.status == assembly::PressStatus::blocked_feed)
+            return refused("blocked_feed", *id);
         if (!inspected.press || inspected.press->anchor != *id)
             return refused("incomplete_assembly", *id);
         if (compacting && inspected.press->sliding)

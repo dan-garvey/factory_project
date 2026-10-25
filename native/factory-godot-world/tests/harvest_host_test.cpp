@@ -381,6 +381,40 @@ void flat_head_host_custody() {
               "sliding_press_assemblies").front().storage()).contains("selected_exit") &&
           get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 1,
           "Recovering the untouched blank clears its route and returns exactly one raw unit.");
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(-1.0)}, 14), "accepted"),
+          "The worker can gather a physical through-feed obstruction.");
+    for (const char* request : {"feed-blocker-tree-1", "feed-blocker-tree-2",
+             "feed-blocker-tree-3"})
+        check(get<bool>(resumed(request, "harvest_source",
+                  {{"target", V("tree-east-upstream")}}), "accepted"),
+              "Finite timber supplies the feed obstruction without invented cargo.");
+    check(get<bool>(resumed("shape-feed-blocker", "field_craft",
+              {{"component", V("wooden_slide")}}), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 15), "accepted"),
+          "The crafted slide can be brought beside the press.");
+    const auto feed_blocker = resumed("place-feed-blocker", "place_component",
+        {{"component", V("wooden_slide")},
+         {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+    if (!get<bool>(feed_blocker, "accepted"))
+        throw std::runtime_error("Slide feed blocker refused: " +
+            get<std::string>(feed_blocker, "reason"));
+    const auto blocked_assembly = std::get<O>(get<A>(restored.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(get<std::string>(V(blocked_assembly), "status") == "blocked_feed",
+          "One solid X-side part blocks both through-feed directions of the fitted slide.");
+    const auto blocked_feed = resumed("refuse-blocked-slide-feed", "feed_press",
+        {{"entity", V(get<std::string>(support, "entity"))},
+         {"entry", V(A{V(I{13}), V(I{0}), V(I{8})})}});
+    if (get<bool>(blocked_feed, "accepted") ||
+        get<std::string>(blocked_feed, "reason") != "blocked_feed")
+        throw std::runtime_error("Blocked slide feed returned: " +
+            get<std::string>(blocked_feed, "reason"));
+    check(get<bool>(restored.validate_checkpoint(restored.checkpoint()), "accepted") &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 1,
+          "World preserves the slide's blocked-feed refusal and carried copper in a valid checkpoint.");
+    check(get<bool>(resumed("clear-feed-blocker", "reclaim_component",
+              {{"entity", V(get<std::string>(feed_blocker, "entity"))}}), "accepted"),
+          "Reclaiming the obstruction restores a physical through-feed route.");
     check(!get<bool>(resumed("blocked-slide-entry", "feed_press",
               {{"entity", V(get<std::string>(support, "entity"))},
                {"entry", V(A{V(I{12}), V(I{0}), V(I{9})})}}), "accepted") &&
@@ -469,6 +503,35 @@ void flat_head_host_custody() {
     check(get<bool>(second_pickup, "accepted") &&
           get<A>(get<O>(partial_restored.projection(), "cargo").at("Q"), "work_lots").size() == 1,
           "Q recovers P's identified unfinished work without converting it back to raw stock.");
+    check(get<bool>(partial_restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1),
+              "accepted"),
+          "P can return with the same conserved slide while Q holds the unfinished lot.");
+    const auto shared_blocker = partial_restored.command("P", O{
+        {"context", V("flat-head-site")}, {"client", V("P")},
+        {"request", V("place-shared-feed-blocker")}, {"action", V("place_component")},
+        {"component", V("wooden_slide")},
+        {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+    check(get<bool>(shared_blocker, "accepted"),
+          "P can obstruct the press while Q owns its recovered work identity.");
+    const auto shared_blocked_refeed = partial_restored.command("Q", O{
+        {"context", V("flat-head-site")}, {"client", V("Q")},
+        {"request", V("refuse-shared-blocked-refeed")},
+        {"action", V("refeed_press_work")},
+        {"entity", V(get<std::string>(support, "entity"))},
+        {"entry", V(A{V(I{13}), V(I{0}), V(I{8})})}, {"work_id", V(shared_work_id)}});
+    check(!get<bool>(shared_blocked_refeed, "accepted") &&
+          get<std::string>(shared_blocked_refeed, "reason") == "blocked_feed" &&
+          get<bool>(partial_restored.validate_checkpoint(
+              partial_restored.checkpoint()), "accepted") &&
+          get<A>(get<O>(partial_restored.projection(), "cargo").at("Q"),
+              "work_lots").size() == 1,
+          "Blocked refeed keeps Q's exact unfinished lot in a valid checkpoint.");
+    check(get<bool>(partial_restored.command("P", O{
+              {"context", V("flat-head-site")}, {"client", V("P")},
+              {"request", V("clear-shared-feed-blocker")},
+              {"action", V("reclaim_component")},
+              {"entity", V(get<std::string>(shared_blocker, "entity"))}}), "accepted"),
+          "Removing the same blocker makes the retained lot feedable again.");
     const auto second_refeed = partial_restored.command("Q", O{
         {"context", V("flat-head-site")}, {"client", V("Q")},
         {"request", V("shared-partial-refeed")}, {"action", V("refeed_press_work")},
@@ -480,7 +543,7 @@ void flat_head_host_custody() {
     const auto shared_partial_saved = partial_restored.checkpoint();
     check(get<bool>(partial_restored.validate_checkpoint(shared_partial_saved), "accepted"),
           "The second client's pickup and refeed preserve one exact native work identity.");
-    check(get<bool>(partial_restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+    check(get<bool>(partial_restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 2), "accepted"),
           "The original crank holder can resume the second client's reinserted work.");
     for (int index = 0; index < 4; ++index) {
         const auto shared_stroke = partial_restored.command("P", O{
@@ -515,7 +578,7 @@ void flat_head_host_custody() {
     forged_progress.at("world") = V(std::move(progress_world));
     check(!get<bool>(partial_restored.validate_checkpoint(V(std::move(forged_progress))), "accepted"),
           "Replay rejects a saved slide contact that skips an unwitnessed work reduction.");
-    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 14), "accepted"),
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 16), "accepted"),
           "The crank holder can walk to a finite timber site without losing the work lot.");
     for (const char* request : {"blocker-tree-1", "blocker-tree-2", "blocker-tree-3"})
         check(get<bool>(resumed(request, "harvest_source",
@@ -523,7 +586,7 @@ void flat_head_host_custody() {
               "Three more finite timber units supply an actual output obstruction.");
     check(get<bool>(resumed("shape-exit-blocker", "field_craft",
               {{"component", V("wooden_slide")}}), "accepted") &&
-          get<bool>(restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 15), "accepted"),
+          get<bool>(restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 17), "accepted"),
           "The worker brings one starter slide back to obstruct the selected outlet.");
     const auto blocker = resumed("block-slide-exit", "place_component",
         {{"component", V("wooden_slide")},
