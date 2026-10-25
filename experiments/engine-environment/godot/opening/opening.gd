@@ -6533,6 +6533,10 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 	# The press's working offsets are larger than a one-step face snap. Use the
 	# part the player can actually point at to expose its next fitted socket.
 	if normal.y > 0.5:
+		if kind == "flat_head" and pointed_kind == "anvil":
+			return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
+		if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
+			return {"center": [center[0], center[1] + 1, center[2]], "label": "Slide over head"}
 		if kind == "ram_face" and pointed_kind == "anvil":
 			return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
 		if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
@@ -6573,6 +6577,8 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 			var normal: Vector3 = hit.normal
 			var center: Array = placed[pointed].center.duplicate()
 			var kind: String = arrival_assembly_controls.selected_name() if arrival_assembly_controls != null else ""
+			if kind == "flat_head" and str(placed[pointed].component) in ["wooden_slide", "copper_slide"]:
+				return [center[0], center[1] - 1, center[2]]
 			var press_snap := _guided_press_part_snap(kind, str(placed[pointed].component), center, normal)
 			if not press_snap.is_empty():
 				return press_snap.center
@@ -6668,14 +6674,22 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			half = Vector3(0.34, 0.45, 0.30)
 		"anvil":
 			var low := at.y - Geometry.HEIGHT_STEP + (0.9 - Geometry.ANCHOR_HEIGHT)
-			var high := at.y + Geometry.HEIGHT_STEP * 0.3
+			var high := at.y + 0.082
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
 		"ram_face":
-			var low := at.y - Geometry.HEIGHT_STEP * 0.7
+			var low := at.y - Geometry.HEIGHT_STEP + 0.082
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
+		"flat_head":
+			var low := at.y - Geometry.HEIGHT_STEP * 0.75
+			var high := at.y + Geometry.HEIGHT_STEP * 0.5
+			occupied.y = (low + high) * 0.5
+			half.y = (high - low) * 0.5
+		"wooden_slide", "copper_slide":
+			occupied.y -= Geometry.HEIGHT_STEP * 0.5
+			half = Vector3(0.21, Geometry.HEIGHT_STEP, 0.21)
 		"sliding_guide":
 			var low := at.y - Geometry.HEIGHT_STEP * 0.5
 			var high := at.y + Geometry.HEIGHT_STEP - 0.08
@@ -6698,7 +6712,23 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 
 func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) -> bool:
 	var result: Dictionary = Geometry.component_boxes(state)
-	var occupied: Array = result.get("boxes", {}).values() if result.get("accepted", false) else []
+	var occupied: Array = []
+	if result.get("accepted", false):
+		var paired_ids: Dictionary = {}
+		for id: Variant in state.get("placed_components", {}):
+			var part: Dictionary = state.placed_components[id]
+			var part_center: Array = part.get("center", [])
+			if part_center.size() != 3 or center.size() != 3 or \
+					part_center[0] != center[0] or part_center[2] != center[2]:
+				continue
+			if (kind == "flat_head" and part.component in ["wooden_slide", "copper_slide"]
+					and part_center[1] == center[1] + 1) or \
+					(kind in ["wooden_slide", "copper_slide"] and part.component == "flat_head"
+					and part_center[1] == center[1] - 1):
+				paired_ids[id] = true
+		for id: Variant in result.boxes:
+			if not paired_ids.has(id):
+				occupied.append(result.boxes[id])
 	var mechanical: Dictionary = Geometry.mechanical_boxes(state)
 	if mechanical.get("accepted", false):
 		occupied.append_array(mechanical.get("boxes", {}).values())

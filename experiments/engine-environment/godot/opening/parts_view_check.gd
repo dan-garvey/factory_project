@@ -320,6 +320,80 @@ func _component_placement_check() -> void:
 	verify(view.component_preview_snap == "Above wooden frame"
 		and "Aim at a floor or built surface" in view._component_placement_hint(),
 		"The anvil hint allows a floor or built surface without requiring a press frame.")
+	var head_box: Dictionary = view._component_candidate_box("flat_head", [12, 1, 8])
+	var slide_box: Dictionary = view._component_candidate_box("copper_slide", [12, 2, 8])
+	var workbed_box: Dictionary = view._component_candidate_box("anvil", [12, 0, 8])
+	verify(absf(head_box.center.y - head_box.half.y - 0.928125) < 0.0001
+		and absf(head_box.center.y + head_box.half.y - 1.44375) < 0.0001
+		and absf(slide_box.center.y - slide_box.half.y - 1.03125) < 0.0001
+		and head_box.center.y - head_box.half.y > workbed_box.center.y + workbed_box.half.y,
+		"The flat head preview reserves a full stroke above the passive workbed.")
+	view.state.placed_components["sample-head"] = {"component": "flat_head", "center": [12, 1, 8],
+		"generation": 1, "occupied": {"center": [head_box.center.x, head_box.center.y, head_box.center.z],
+		"half": [head_box.half.x, head_box.half.y, head_box.half.z]}}
+	verify(not view._component_candidate_blocked("copper_slide", [12, 2, 8], slide_box),
+		"The slide ghost accepts the exact fitted head overlap.")
+	view.state.placed_components.erase("sample-head")
+	view.state.placed_components["sample-slide"] = {"component": "copper_slide", "center": [12, 2, 8],
+		"generation": 1, "occupied": {"center": [slide_box.center.x, slide_box.center.y, slide_box.center.z],
+		"half": [slide_box.half.x, slide_box.half.y, slide_box.half.z]}}
+	verify(not view._component_candidate_blocked("flat_head", [12, 1, 8], head_box),
+		"The head ghost accepts the same fitted slide overlap in reverse build order.")
+	view.state.placed_components.erase("sample-slide")
+	var head_sample := Node3D.new()
+	head_sample.position = head_box.center
+	view.add_child(head_sample)
+	presenter.preview_component(head_sample, "flat_head", head_box.size)
+	var workbed_sample := Node3D.new()
+	workbed_sample.position = workbed_box.center
+	view.add_child(workbed_sample)
+	presenter.preview_component(workbed_sample, "anvil", workbed_box.size)
+	var slide_sample := Node3D.new()
+	slide_sample.position = slide_box.center
+	view.add_child(slide_sample)
+	presenter.preview_component(slide_sample, "copper_slide", slide_box.size)
+	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace") and slide_sample.has_node("SlideCarriage"),
+		"The separate flat die and unchanged powered carriage both have visible meshes.")
+	var stroke_phase := {"subticks": 2048, "remainder": 0, "denominator": 1,
+		"cycle_subticks": 4096}
+	var stroked_head := Node3D.new()
+	stroked_head.position = head_box.center
+	view.add_child(stroked_head)
+	presenter._placed_component(stroked_head, "flat_head", Vector3.ZERO, head_box.size,
+		"", 0.0, 0.0, Vector3.ZERO, stroke_phase)
+	var stroked_slide := Node3D.new()
+	stroked_slide.position = slide_box.center
+	view.add_child(stroked_slide)
+	presenter._placed_component(stroked_slide, "copper_slide", Vector3.ZERO, slide_box.size,
+		"", 0.0, 0.0, Vector3.ZERO, stroke_phase)
+	var head_drop: float = stroked_head.get_node("FlatHeadMovingDie").position.y \
+		- head_sample.get_node("FlatHeadMovingDie").position.y
+	var carriage_drop: float = stroked_slide.get_node("SlideCarriage").position.y \
+		- slide_sample.get_node("SlideCarriage").position.y
+	verify(absf(head_drop - carriage_drop) < 0.0001 and head_drop < -0.35,
+		"The distinct flat head follows the native half-cycle by the same travel as the carriage.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		camera.position = head_box.center + Vector3(1.1, 0.45, 2.4)
+		camera.look_at(head_box.center - Vector3(0, 0.18, 0))
+		stroked_head.visible = false
+		stroked_slide.visible = false
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-flat-head-slide.png") == OK,
+			"Retain the low flat head and slide as an isolated visual sample.")
+		head_sample.visible = false
+		slide_sample.visible = false
+		stroked_head.visible = true
+		stroked_slide.visible = true
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-flat-head-stroke.png") == OK,
+			"Retain the driven head at native half-cycle over the passive workbed.")
+	head_sample.free()
+	workbed_sample.free()
+	slide_sample.free()
+	stroked_head.free()
+	stroked_slide.free()
 	view.component_footprint_size = 2
 	view.component_nudge_active = true
 	view.state.cargo.P.components.anvil = 4
@@ -423,12 +497,12 @@ func _component_placement_check() -> void:
 	view.aimed = "frame"
 	view.pointed_cell = Vector2i.ZERO
 	view.state.placed_components["anvil"] = {"component": "anvil", "center": [0, 1, 0],
-		"generation": 1, "occupied": {"center": [0.0, 1.130625, 0.0],
-		"half": [0.14, 0.230625, 0.14]}}
+		"generation": 1, "occupied": {"center": [0.0, 1.10975, 0.0],
+		"half": [0.14, 0.20975, 0.14]}}
 	var placed_anvil := Node3D.new()
-	placed_anvil.position.y = 1.130625
+	placed_anvil.position.y = 1.10975
 	view.add_child(placed_anvil)
-	presenter.preview_component(placed_anvil, "anvil", Vector3(0.28, 0.46125, 0.28))
+	presenter.preview_component(placed_anvil, "anvil", Vector3(0.28, 0.4195, 0.28))
 	view._refresh_component_preview()
 	verify(view.component_preview_blocked and view.component_preview_material.albedo_color.r > 0.9
 		and view.component_preview_material.albedo_color.g < 0.4,
@@ -2709,6 +2783,7 @@ func _field_craft_widget() -> void:
 		"Q": {"raw": 0, "timber": 0, "components": {}}}
 	view.state.component_recipes = {"wooden_frame": {"timber": 3, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
+		"flat_head": {"timber": 0, "copper": 1},
 		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
 		"copper_shaft": {"timber": 0, "copper": 2, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "copper": 0}
@@ -2721,11 +2796,13 @@ func _field_craft_widget() -> void:
 	inventory.open_catalog()
 	var frame: Button = inventory.recipe_buttons["component:wooden_frame"]
 	var edge: Button = inventory.recipe_buttons["component:cutting_edge"]
+	var head: Button = inventory.recipe_buttons["component:flat_head"]
 	var foundation: Button = inventory.recipe_buttons["foundation"]
-	verify(inventory.catalog.visible and frame.visible and edge.visible and foundation.visible
-		and frame.icon != null and edge.icon != null and foundation.icon != null
+	verify(inventory.catalog.visible and frame.visible and edge.visible and head.visible and foundation.visible
+		and frame.icon != null and edge.icon != null and head.icon != null and foundation.icon != null
 		and "3 timber + 0 ore" in frame.tooltip_text and "Field or bench" in frame.tooltip_text
-		and "Bench" in edge.tooltip_text and "2 timber + 0 ore" in foundation.tooltip_text,
+		and "Bench" in edge.tooltip_text and "Flat pressing head" in head.tooltip_text
+		and "1 ore" in head.tooltip_text and "2 timber + 0 ore" in foundation.tooltip_text,
 		"The shared inventory shows described field and bench recipes with native bills.")
 	frame.grab_focus()
 	verify(inventory.focus_description.text == frame.tooltip_text and not frame.accessibility_name.is_empty(),
@@ -2742,6 +2819,11 @@ func _field_craft_widget() -> void:
 	edge.pressed.emit()
 	verify(view.issued == [{"action": "craft_component", "entity": "pod-fabrication-hub", "component": "cutting_edge"}],
 		"The same recipe uses the selected native pod identity at a bench.")
+	view.issued.clear()
+	head.pressed.emit()
+	verify(view.issued == [{"action": "craft_component", "entity": "pod-fabrication-hub",
+		"component": "flat_head"}],
+		"The separate head icon crafts one native bench component, without a hidden press recipe.")
 	view.issued.clear()
 	foundation.pressed.emit()
 	verify(view.issued == [{"action": "craft_foundation", "entity": "pod-fabrication-hub"}],

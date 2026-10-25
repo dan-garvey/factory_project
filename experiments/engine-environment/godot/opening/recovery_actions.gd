@@ -315,6 +315,7 @@ class ArrivalAssemblyControls:
 		["ram_face", "Ram face"], ["copper_shaft", "Copper shaft"],
 		["copper_cog", "Copper cog"], ["wooden_workbench", "Wooden workbench"],
 		["wooden_slide", "Wooden slide"], ["copper_slide", "Copper slide"],
+		["flat_head", "Flat pressing head"],
 	]
 	const COLLECTOR_NEXT := {
 		"missing_mount": "Fit a tool mount toward the ore deposit.",

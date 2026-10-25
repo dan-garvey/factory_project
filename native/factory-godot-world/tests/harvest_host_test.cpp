@@ -119,6 +119,93 @@ void one_piece_slide_custody() {
           "The exact single-piece slide survives a fresh Host rejoin.");
 }
 
+void flat_head_host_custody() {
+    Host host;
+    check(get<bool>(host.initialize_arrival("flat-head-site", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(-1.2375), V(1.0), V(0.0)}, 1), "accepted"),
+          "The physical actor begins beside a finite copper deposit.");
+    const auto command = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("flat-head-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return host.command("P", wire);
+    };
+    check(get<bool>(command("fast", "set_developer_conveniences", {{"enabled", V(true)}}), "accepted") &&
+          get<bool>(command("cut", "harvest_source", {{"target", V("opening-copper")}}), "accepted") &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "raw") == 1,
+          "One real copper source unit enters native custody before fabrication.");
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 2), "accepted"),
+          "The actor approaches the pod bench before shaping the copper head.");
+    const auto shaped = command("craft", "craft_component",
+        {{"entity", V("pod-fabrication-hub")}, {"component", V("flat_head")}});
+    if (!get<bool>(shaped, "accepted"))
+        throw std::runtime_error("Flat head craft refused: " + get<std::string>(shaped, "reason"));
+    check(get<bool>(shaped, "accepted") &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "raw") == 0 &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")),
+              "flat_head") == 1,
+          "The separate flat head spends exactly one finite copper unit at the pod bench.");
+    check(get<bool>(host.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 3), "accepted"),
+          "The actor walks into physical reach of a clear build site.");
+    const auto installed = command("place", "place_component",
+        {{"component", V("flat_head")}, {"center", V(A{V(I{12}), V(I{1}), V(I{8})})}});
+    check(get<bool>(installed, "accepted"),
+          "The flat head can be placed at work height without a named press assembly.");
+    const auto id = get<std::string>(installed, "entity");
+    const auto placed = get<O>(host.projection(), "placed_components").at(id);
+    const auto occupied = get<O>(placed, "occupied");
+    const auto center = get<A>(V(occupied), "center");
+    const auto half = get<A>(V(occupied), "half");
+    const auto low = std::get<double>(center[1].storage()) - std::get<double>(half[1].storage());
+    const auto high = std::get<double>(center[1].storage()) + std::get<double>(half[1].storage());
+    check(get<std::string>(placed, "component") == "flat_head" &&
+          std::abs(low - 0.928125) < 1e-8 && std::abs(high - 1.44375) < 1e-8 &&
+          std::abs(std::get<double>(half[0].storage()) - 0.14) < 1e-8,
+          "The projected die reserves its downward sweep above the passive work surface.");
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted"),
+          "The actor can leave the placed die to gather a finite slide bill.");
+    for (const char* request : {"slide-tree-1", "slide-tree-2", "slide-tree-3"})
+        check(get<bool>(command(request, "harvest_source", {{"target", V("tree-east-south")}}),
+                "accepted"),
+              "The wooden slide consumes three distinct finite timber cuts.");
+    check(get<bool>(command("shape-slide", "field_craft", {{"component", V("wooden_slide")}}),
+            "accepted") &&
+          get<bool>(host.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 5), "accepted"),
+          "The actor shapes a separate slide and returns to the same physical build site.");
+    const auto slide = command("place-slide", "place_component",
+        {{"component", V("wooden_slide")}, {"center", V(A{V(I{12}), V(I{2}), V(I{8})})}});
+    check(get<bool>(slide, "accepted") &&
+          get<O>(host.projection(), "placed_components").size() == 2,
+          "The slide fits over the previously placed head without consuming another shaft.");
+    const auto slide_id = get<std::string>(slide, "entity");
+    const auto saved = host.checkpoint();
+    Host restored;
+    check(get<bool>(restored.initialize_arrival("flat-head-site", {"P"}), "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, restored.checkpoint()),
+          "The placed head, slide and spent raw stock persist through an exact fresh Host restore.");
+    check(get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 6), "accepted"),
+          "The restored actor can reach the same placed die.");
+    const auto reclaimed = restored.command("P", O{{"context", V("flat-head-site")},
+        {"client", V("P")}, {"request", V("reclaim")},
+        {"action", V("reclaim_component")}, {"entity", V(id)}});
+    check(get<bool>(reclaimed, "accepted") &&
+          get<O>(restored.projection(), "placed_components").size() == 1 &&
+          get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"), "components")),
+              "flat_head") == 1,
+          "Reclaim returns the head to carried custody while the slide remains in place.");
+    const auto replaced = restored.command("P", O{{"context", V("flat-head-site")},
+        {"client", V("P")}, {"request", V("replace-head")},
+        {"action", V("place_component")}, {"component", V("flat_head")},
+        {"center", V(A{V(I{12}), V(I{1}), V(I{8})})}});
+    check(get<bool>(replaced, "accepted") &&
+          get<O>(restored.projection(), "placed_components").contains(slide_id) &&
+          get<O>(restored.projection(), "placed_components").size() == 2,
+          "The head also fits after a slide is already placed at the matching grid center.");
+}
+
 void shared_fast_setting_and_restore() {
     Host host;
     check(get<bool>(host.initialize_arrival("fast-site", {"P", "Q"}), "accepted") &&
@@ -620,6 +707,7 @@ int main() {
     try {
         shared_fast_setting_and_restore();
         one_piece_slide_custody();
+        flat_head_host_custody();
         cutter_reach_is_shorter_than_build_reach();
         shared_harvest();
         field_wood_uses_physical_actor_and_one_ledger();

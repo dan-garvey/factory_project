@@ -1278,6 +1278,19 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				_support_box(anchor, "RamSlideNear" if z < 0.0 else "RamSlideFar",
 					Vector3(0, bottom + occupied_size.y * 0.55, z),
 					Vector3(0.20, occupied_size.y * 0.50, 0.028), worked)
+		"flat_head":
+			# The die follows the matching slide's native phase inside its own
+			# fixed swept envelope. It has no extra rails, input shaft or drive.
+			var die := Node3D.new()
+			die.name = "FlatHeadMovingDie"
+			die.position.y = occupied_size.y * 0.5 - 0.085 \
+				+ slide_carriage_drop(slide_phase, Geometry.HEIGHT_STEP * 0.9)
+			anchor.add_child(die)
+			_support_box(die, "FlatHeadFace", Vector3.ZERO,
+				Vector3(0.27, 0.10, 0.27), worked, true)
+			for z in [-0.095, 0.095]:
+				_support_box(die, "FlatHeadWearStrip", Vector3(0, -0.045, z),
+					Vector3(0.23, 0.012, 0.018), dark)
 		"sliding_guide":
 			# Side rails span the guided stroke gap; framed guides stay short.
 			var stroke_reach := Geometry.HEIGHT_STEP if press_role == "guided_guide" else 0.0
@@ -1769,10 +1782,19 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		anchor.set_meta("component_entity", id)
 		anchor.set_meta("component_kind", spec.component)
 		add_child(anchor)
+		var phase: Variant = snapshot.get("slide_phases", {}).get(id) \
+			if snapshot.get("slide_phases") is Dictionary else null
+		if spec.component == "flat_head" and placed[id].get("center") is Array:
+			var head_cell: Array = placed[id].center
+			for mate_id: Variant in placed:
+				var mate: Variant = placed[mate_id]
+				if mate is Dictionary and mate.get("component", "") in ["wooden_slide", "copper_slide"] \
+						and mate.get("center") == [head_cell[0], head_cell[1] + 1, head_cell[2]]:
+					phase = snapshot.get("slide_phases", {}).get(mate_id)
+					break
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
 			spec.size, press_roles.get(id, ""), float(collector_facings.get(id, 0.0)),
-			support_drop, collector_receivers.get(id, Vector3.ZERO),
-			snapshot.get("slide_phases", {}).get(id) if snapshot.get("slide_phases") is Dictionary else null)
+			support_drop, collector_receivers.get(id, Vector3.ZERO), phase)
 		if ram_lifts.has(id):
 			for child: Node in anchor.get_children():
 				if child is Node3D and (child.name == "MovingDie" or child.name.begins_with("RamSlide")):

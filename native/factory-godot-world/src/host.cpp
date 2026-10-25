@@ -286,6 +286,11 @@ Bounds component_bounds(const world::Profile& profile,
         case materials::Component::ram_face:
             return vertical(at[1] - height_step + press_work_crown_rise,
                 at[1] + height_step * 0.5);
+        case materials::Component::flat_head:
+            // Reserve the entire carriage-driven die sweep. The named slide
+            // may occupy its coaxial upper portion as an intentional fitting.
+            return vertical(at[1] - height_step * 0.75,
+                at[1] + height_step * 0.5);
         case materials::Component::sliding_guide:
             // The guide meets the ram below and the unchanged tool-mount box
             // above. All three use the one construction height denominator.
@@ -312,6 +317,21 @@ Bounds component_bounds(const world::Profile& profile,
         default:
             return {at, {0.14, 0.14, 0.14}};
     }
+}
+
+bool slide_head_fitting(std::optional<materials::Component> first,
+        const mechanics::Point& first_center, materials::Component second,
+        const mechanics::Point& second_center) {
+    const auto slide = [](materials::Component kind) {
+        return kind == materials::Component::wooden_slide ||
+            kind == materials::Component::copper_slide;
+    };
+    if (!first || first_center[0] != second_center[0] ||
+        first_center[2] != second_center[2]) return false;
+    return (*first == materials::Component::flat_head && slide(second) &&
+               second_center[1] == first_center[1] + 1) ||
+        (slide(*first) && second == materials::Component::flat_head &&
+               first_center[1] == second_center[1] + 1);
 }
 
 bool overlap(const Bounds& a, const Bounds& b) {
@@ -1484,6 +1504,7 @@ const char* Host::component_space_refusal(const world::State& state,
     }
     for (const auto& [id, other] : state.placed_components)
         if ((!current_id || id != *current_id) &&
+            !slide_head_fitting(kind, center, other.kind, other.center) &&
             overlap(volume, component_bounds(profile_, other.kind, other.center))) return "occupied";
     if (intersects_belt(state, volume)) return "occupied";
     for (const auto& part : state.topology.parts) {
@@ -2743,7 +2764,8 @@ Value Host::projection() const {
                 materials::Component::cutting_edge, materials::Component::anvil,
                 materials::Component::ram_face, materials::Component::copper_shaft,
                 materials::Component::copper_cog, materials::Component::wooden_workbench,
-                materials::Component::wooden_slide, materials::Component::copper_slide}) {
+                materials::Component::wooden_slide, materials::Component::copper_slide,
+                materials::Component::flat_head}) {
             const auto cost = materials::component_cost(kind);
             if (cost) {
                 Object recipe{{"timber", Value(cost->timber)}, {"copper", Value(cost->ore)}};
