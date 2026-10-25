@@ -2559,6 +2559,40 @@ func _workshop_pages() -> void:
 		panel.refresh(view.state, view.client, view.selected, true)
 		verify(view.issued.is_empty() and not panel.sheet_button.visible,
 			"A stale staging choice cannot submit a sheet the actor no longer carries.")
+		view.state.broad_shear_assemblies = [{"origin": [8, 0, 8], "status": "ready",
+			"parts": {"anvils": ["press-anvil", "broad-anvil-a", "broad-anvil-b", "broad-anvil-c"]},
+			"sheet_id": 37, "strokes": 0}]
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(panel.shear_button.is_visible_in_tree() and not panel.shear_button.disabled
+			and panel.shear_button.text.is_empty() and panel.shear_button.icon != null
+			and panel.shear_button.tooltip_text.contains("X")
+			and not panel.shear_button.accessibility_name.is_empty(),
+			"A staged native sheet exposes one focused cutting icon on its selected anvil.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-sheet-shear.png") == OK,
+				"Retain the selected anvil panel with a staged sheet-cutting icon.")
+		var shear_key := InputEventKey.new()
+		shear_key.keycode = KEY_X
+		shear_key.pressed = true
+		view._input(shear_key)
+		verify(view.issued == [{"action": "stroke_broad_shear", "entity": "press-anvil", "sheet_id": 37}],
+			"X sends the first native shear anvil and staged sheet identity.")
+		verify(view._material_refusal_message({"reason": "output_full"}, "unavailable", "stroke_broad_shear")
+			.contains("Clear the other anvil squares")
+			and view._material_refusal_message({"reason": "shear_unpowered"}, "unavailable", "stroke_broad_shear")
+			.contains("Drive the cutting head forward"),
+			"Native blocked-output and wrong-drive refusals point to the physical correction.")
+		view.issued.clear()
+		view.state.broad_shear_assemblies[0].status = "unpowered"
+		panel.refresh(view.state, view.client, view.selected, true)
+		view._input(shear_key)
+		verify(view.issued.is_empty() and panel.shear_button.disabled,
+			"An unpowered cutting head exposes its state without issuing a stroke.")
+		view.state.erase("broad_shear_assemblies")
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(not panel.shear_button.visible,
+			"Cutting controls disappear after the staged sheet leaves native projection.")
 		view.state.erase("broad_press_assemblies")
 		view.state.cargo[view.client].erase("sheet_items")
 		view.state.cargo[view.client].erase("sheets")
