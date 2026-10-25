@@ -9373,12 +9373,11 @@ func _refresh_ui() -> void:
 			str(state.fabrication_hub.get("center", []))
 	elif _native_transmission() and state.get("placed_components", {}).has(selected):
 		var component: Dictionary = state.placed_components[selected]
-		var detail := "Press E for recipes when nearby."
-		if component.get("component", "") != "wooden_workbench":
-			detail = "Reclaim with Delete."
-		inspector.text = "%s\nGrid center %s\n%s" % [
+		inspector.text = "%s\nGrid center %s" % [
 			str(component.get("component", "part")).replace("_", " ").capitalize(),
-			str(component.get("center", [])), detail]
+			str(component.get("center", []))]
+		if component.get("component", "") == "wooden_workbench":
+			inspector.text += "\nPress E for recipes when nearby."
 	else:
 		inspector.text = "Point at a machine and press E to open it."
 	inspector.tooltip_text = inspector.text
@@ -10275,6 +10274,12 @@ func _build_object_menu(root: Control, detail_panel: PanelContainer) -> void:
 	detail_panel.custom_minimum_size = Vector2(220, 0)
 	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	detail_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	var detail_column := inspector.get_parent() as VBoxContainer
+	arrival_assembly_controls.reclaim_spacer = Control.new()
+	arrival_assembly_controls.reclaim_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	arrival_assembly_controls.reclaim_spacer.visible = false
+	detail_column.add_child(arrival_assembly_controls.reclaim_spacer)
+	arrival_assembly_controls.reclaim_row.reparent(detail_column, false)
 	object_menu_operations = VBoxContainer.new()
 	object_menu_operations.custom_minimum_size.x = 420
 	object_menu_operations.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -2433,8 +2433,17 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		opening._open_object_menu_for(str(fitted.anvil))
 		if not _expect(opening.object_menu.visible
 				and opening.arrival_assembly_controls.press_status.text ==
-				"No clear through-feed route. Remove the blocking part [F].",
-			"The native blocked route gives the E menu a spatially accurate removal cue"):
+				"No clear through-feed route. Close [Esc], press F, then click the blocking part.",
+			"The native blocked route gives the E menu a removal cue that names its keyboard context"):
+			return
+		var before_feed_key: int = int(opening.model.projection().order)
+		var feed_key := InputEventKey.new()
+		feed_key.keycode = KEY_F
+		feed_key.pressed = true
+		opening._input(feed_key)
+		if not _expect(opening.object_menu.visible
+				and int(opening.model.projection().order) == before_feed_key,
+			"F in the blocked E menu cannot remove the blocker or feed a closed route"):
 			return
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
@@ -2442,11 +2451,23 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					capture_prefix + "-blocked-menu.png") == OK,
 				"Retain the blocked native press menu in a passive frame"):
 				return
+		var close_key := InputEventKey.new()
+		close_key.keycode = KEY_ESCAPE
+		close_key.pressed = true
+		opening._input(close_key)
+		await process_frame
+		opening._unhandled_input(feed_key)
+		if not _expect(not opening.object_menu.visible and opening.mode == "deconstruct",
+			"Escape then F selects the ordinary removal tool outside the E menu"):
+			return
 		if not _expect(_issue({"action": "reclaim_component", "entity": blocker_id}).get("accepted", false)
 				and opening.model.projection().sliding_press_assemblies[0].status == "ready"
-				and opening.goal_label.text.contains("Open the fitted press [E]")
-				and opening.arrival_assembly_controls.press_status.text.contains("ready"),
+				and opening.goal_label.text.contains("Open the fitted press [E]"),
 				"Reclaiming the obstruction restores the native ready feed route and first-plate cue"):
+			return
+		opening._open_object_menu_for(str(fitted.anvil))
+		if not _expect(opening.arrival_assembly_controls.press_status.text.contains("ready"),
+			"Reopening E after removing the blocker shows the restored clear feed route"):
 			return
 		_record("pass")
 		return
@@ -2479,10 +2500,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	var route: Dictionary = presses[0].open_feeds[0]
 	var feed: Dictionary = {}
 	if mode == "arrival-first-plate":
-		opening._open_object_menu_for(fitted.anvil)
+		opening._open_object_menu_for(fitted.wooden_slide)
 		if not _expect(panel.press_section.is_visible_in_tree()
+				and opening.object_menu_target == fitted.wooden_slide
+				and panel.reclaim_button.is_visible_in_tree()
 				and not panel.feed_button.disabled and panel.route_choice.get_item_count() > 0,
-				"The selected feed icon is available while carrying the last copper blank"):
+				"The slide's E panel keeps reclaim and the feed icon available while carrying the last copper blank"):
 			return
 		panel.feed_button.pressed.emit()
 	else:
