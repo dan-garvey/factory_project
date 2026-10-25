@@ -8,6 +8,7 @@ const SharedOpening = preload("res://opening/shared_opening.gd")
 const SiteSurface = preload("res://opening/site_surface.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const ComponentPresenter = preload("res://opening/native_transmission_presenter.gd")
+const RecoveryActions = preload("res://opening/recovery_actions.gd")
 var checks := 0
 var failures := 0
 
@@ -123,6 +124,9 @@ func _initialize() -> void:
 		return
 	if "--object-menu-only" in OS.get_cmdline_user_args():
 		call_deferred("_object_menu_check")
+		return
+	if "--slide-controls-only" in OS.get_cmdline_user_args():
+		call_deferred("_slide_controls_check")
 		return
 	if "--workshop-pages-only" in OS.get_cmdline_user_args():
 		call_deferred("_workshop_pages")
@@ -2536,7 +2540,7 @@ func _workshop_pages() -> void:
 		panel.refresh(view.state, view.client, view.selected, true)
 		verify(panel.broad_feed_button.is_visible_in_tree() and not panel.broad_feed_button.disabled
 			and panel.broad_feed_button.text.is_empty() and panel.broad_feed_button.icon != null
-			and panel.broad_feed_button.tooltip_text.contains("G")
+			and panel.broad_feed_button.tooltip_text.contains("Y")
 			and not panel.broad_feed_button.accessibility_name.is_empty(),
 			"A complete four-anvil press and three blanks expose a distinct feed icon.")
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
@@ -2544,11 +2548,11 @@ func _workshop_pages() -> void:
 			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-feed.png") == OK,
 				"Retain the four-anvil feed icon in the selected anvil panel.")
 		var broad_feed_key := InputEventKey.new()
-		broad_feed_key.keycode = KEY_G
+		broad_feed_key.keycode = KEY_Y
 		broad_feed_key.pressed = true
 		view._input(broad_feed_key)
 		verify(view.issued == [{"action": "feed_broad_press", "entity": "press-anvil"}],
-			"G feeds the projected first anvil through the native broad-press command.")
+			"Y feeds the projected first anvil through the native broad-press command.")
 		view.issued.clear()
 		view.state.cargo[view.client].raw = 2
 		panel.refresh(view.state, view.client, view.selected, true)
@@ -3159,6 +3163,77 @@ func _object_menu_snapshot() -> Dictionary:
 		"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
 		"remaining": 0, "powered": false, "power_enabled": false, "motion": {},
 		"links": [], "drive_links": [], "opening_engineering": {}}
+
+func _slide_controls_check() -> void:
+	var view := OfflineWidgets.new()
+	get_root().add_child(view)
+	var panel := RecoveryActions.ArrivalAssemblyControls.new()
+	panel.configure(view)
+	view.add_child(panel)
+	var snapshot := _object_menu_snapshot()
+	snapshot.placed_components = {
+		"anvil": {"component": "anvil", "center": [12, 0, 8]},
+		"head": {"component": "flat_head", "center": [12, 1, 8]},
+		"slide": {"component": "wooden_slide", "center": [12, 2, 8],
+			"input_ports": [[11, 2, 8], [13, 2, 8]]}}
+	snapshot.sliding_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
+		"status": "ready", "work_center": [12, 0, 8], "selected_exit": [13, 0, 8],
+		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"},
+		"open_feeds": [{"entry": [13, 0, 8], "exit": [11, 0, 8]},
+			{"entry": [11, 0, 8], "exit": [13, 0, 8]}]}]
+	snapshot.hand_crank = {"id": "pod-hand-crank", "holder": "P"}
+	snapshot.cargo.P.raw = 1
+	snapshot.dropped_material = [{"center": [12, 0, 8], "raw": 1, "products": 0,
+		"offcuts": 0, "work_lots": []}]
+	panel.refresh(snapshot, "P", "slide", true)
+	panel.open_context()
+	verify(panel.press_anvil_for("head") == "anvil" and panel.press_anvil_for("slide") == "anvil",
+		"The fitted head and slide resolve to the same native work support.")
+	verify(panel.press_section.visible and panel.route_choice.disabled and panel._route_index == 1
+		and panel.slide_port_choice.item_count == 2 and panel.turn_button.visible,
+		"The E-menu exposes the retained output route and both actual slide input sides.")
+	panel._turn()
+	verify(view.issued.back() == {"action": "turn_slide_crank", "entity": "slide",
+		"port": [11, 2, 8]}, "The turn icon sends the selected native input port.")
+	verify(panel.cycle_slide_port() and panel._slide_port_index == 1,
+		"V changes the visible crank side without changing the work route.")
+	panel._turn()
+	verify(view.issued.back().port == [13, 2, 8],
+		"The second crank side sends its own actual native input port.")
+	snapshot.sliding_press_assemblies[0].open_feeds = [{"entry": [13, 0, 8],
+		"exit": [11, 0, 8]}]
+	panel.refresh(snapshot, "P", "slide", true)
+	verify(panel.turn_button.disabled and panel.route_choice.disabled
+		and panel.press_status.text.contains("Selected outlet blocked"),
+		"A different clear outlet cannot silently replace the route owned by the work.")
+	snapshot.sliding_press_assemblies[0].open_feeds.append({"entry": [11, 0, 8],
+		"exit": [13, 0, 8]})
+	snapshot.dropped_material.clear()
+	snapshot.sliding_press_assemblies[0].erase("selected_exit")
+	panel.refresh(snapshot, "P", "anvil", true)
+	verify(panel.cycle_feed_route() and panel._route_index == 1,
+		"G changes the next feed direction after the retained route is released.")
+	panel._feed()
+	verify(view.issued.back() == {"action": "feed_press", "entity": "anvil",
+		"entry": [11, 0, 8]}, "The chosen feed side still sends the native anvil route.")
+	snapshot.dropped_material = [{"center": [13, 0, 8], "raw": 0, "products": 1,
+		"offcuts": 0, "work_lots": []}]
+	panel.refresh(snapshot, "P", "anvil", true)
+	panel._pickup_exit()
+	verify(view.issued.back().action == "pickup_material"
+		and view.issued.back().center == [13, 0, 8],
+		"After route release, the E-menu finds the formed plate at either native outlet.")
+	snapshot.sliding_press_assemblies[0] = {"anvil": "anvil", "center": [12, 0, 8],
+		"status": "missing_head"}
+	snapshot.guided_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
+		"status": "ready", "parts": {"anvil": "anvil", "shaft": "old-shaft"},
+		"open_feeds": [{"entry": [13, 0, 8], "exit": [11, 0, 8]}]}]
+	panel.refresh(snapshot, "P", "anvil", true)
+	verify(panel._press.get("parts", {}).has("shaft") and panel.turn_button.visible,
+		"An incomplete slide candidate cannot hide a ready guided press on the same anvil.")
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"failures": failures, "scope": "invented projection and ordinary E-menu command mapping"}))
+	quit(0 if failures == 0 else 1)
 
 func _object_menu_check() -> void:
 	var root := get_root()

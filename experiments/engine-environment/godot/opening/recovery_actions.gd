@@ -333,6 +333,7 @@ class ArrivalAssemblyControls:
 	var _press := {}
 	var _anvil := ""
 	var _route_index := 0
+	var _slide_port_index := 0
 	var _held_work_id := 0
 	var _held_work_ids: Array[int] = []
 	var _last_anvil := ""
@@ -348,6 +349,7 @@ class ArrivalAssemblyControls:
 	var output_heading: Label
 	var output_actions: HBoxContainer
 	var route_choice: OptionButton
+	var slide_port_choice: OptionButton
 	var held_work_choice: OptionButton
 	var feed_button: Button
 	var compact_button: Button
@@ -420,8 +422,16 @@ class ArrivalAssemblyControls:
 		_style_workshop_icon(shear_button, "workshop-cut")
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
+		route_choice.tooltip_text = "Choose the side for the next blank · G"
+		route_choice.accessibility_name = "Press feed direction, shortcut G"
 		route_choice.item_selected.connect(func(index: int) -> void: _route_index = index)
 		press_section.add_child(route_choice)
+		slide_port_choice = OptionButton.new()
+		slide_port_choice.name = "SlideCrankPort"
+		slide_port_choice.tooltip_text = "Choose a clear side of the slide's built-in input · V"
+		slide_port_choice.accessibility_name = "Slide crank input side, shortcut V"
+		slide_port_choice.item_selected.connect(func(index: int) -> void: _slide_port_index = index)
+		press_section.add_child(slide_port_choice)
 		held_work_choice = OptionButton.new()
 		held_work_choice.name = "HeldPressWorkChoice"
 		held_work_choice.item_selected.connect(func(index: int) -> void:
@@ -579,9 +589,9 @@ class ArrivalAssemblyControls:
 		_broad_press = _selected_broad_press(snapshot, selected)
 		broad_feed_button.visible = not _broad_press.is_empty()
 		broad_feed_button.disabled = not ready or int(cargo.get("raw", 0)) < 3
-		broad_feed_button.tooltip_text = ("Feed three carried blanks into this four-anvil press · G" \
-			if int(cargo.get("raw", 0)) >= 3 else "Carry three ore blanks to feed this four-anvil press · G")
-		broad_feed_button.accessibility_name = "Feed three blanks into four-anvil press, shortcut G"
+		broad_feed_button.tooltip_text = ("Feed three carried blanks into this four-anvil press · Y" \
+			if int(cargo.get("raw", 0)) >= 3 else "Carry three ore blanks to feed this four-anvil press · Y")
+		broad_feed_button.accessibility_name = "Feed three blanks into four-anvil press, shortcut Y"
 		_sheet_offers = _sheet_stage_offers(snapshot, actor, selected)
 		sheet_button.visible = not _sheet_offers.is_empty()
 		sheet_button.disabled = not ready
@@ -595,6 +605,7 @@ class ArrivalAssemblyControls:
 		shear_button.accessibility_name = "Cut staged copper sheet, shortcut X"
 		if _anvil != _last_anvil:
 			_route_index = 0
+			_slide_port_index = 0
 			_last_anvil = _anvil
 		var routes: Array = _press.get("open_feeds", [])
 		route_choice.clear()
@@ -602,9 +613,30 @@ class ArrivalAssemblyControls:
 		for route in routes:
 			route_choice.add_item("Feed %s  →  exit %s" % [
 				_bearing(route.entry, work_center), _bearing(route.exit, work_center)])
+		var selected_exit: Array = _press.get("selected_exit", [])
+		var selected_route_available := selected_exit.is_empty()
+		if not selected_exit.is_empty():
+			for index in routes.size():
+				if routes[index].get("exit", []) == selected_exit:
+					_route_index = index
+					selected_route_available = true
+					break
 		if routes.size() > 0:
 			_route_index = mini(_route_index, routes.size() - 1)
 			route_choice.select(_route_index)
+		route_choice.disabled = not selected_exit.is_empty()
+		var sliding: bool = _press.get("parts", {}).has("slide")
+		var work_face := "flat head" if sliding else "ram"
+		var slide: Dictionary = snapshot.get("placed_components", {}).get(
+			_press.get("parts", {}).get("slide", ""), {})
+		var slide_ports: Array = slide.get("input_ports", [])
+		slide_port_choice.clear()
+		for port in slide_ports:
+			if port is Array:
+				slide_port_choice.add_item("Crank from %s · V" % _bearing(port, slide.get("center", [])))
+		if not slide_ports.is_empty():
+			_slide_port_index = mini(_slide_port_index, slide_ports.size() - 1)
+			slide_port_choice.select(_slide_port_index)
 		var status := str(_press.get("status", ""))
 		_held_work_ids.clear()
 		held_work_choice.clear()
@@ -625,7 +657,7 @@ class ArrivalAssemblyControls:
 				else "Compact four carried copper offcuts here to recover a blank." if int(cargo.get("offcuts", 0)) >= 4 \
 				else "Cut ore with the multitool or build a collector."
 			if not work.is_empty():
-				advice = "Pick up the copper offcut beneath the ram before feeding again." if int(work.get("offcuts", 0)) > 0 \
+				advice = "Pick up the copper offcut beneath the %s before feeding again." % work_face if int(work.get("offcuts", 0)) > 0 \
 					else "Exit holds a plate; pick it up, then turn again." if int(exit_drop.get("products", 0)) > 0 \
 					else "Turn the crank to advance retained work."
 				var work_lots: Array = work.get("work_lots", [])
@@ -634,12 +666,15 @@ class ArrivalAssemblyControls:
 					var remaining: int = int(work_lots[0].get("remaining", 0))
 					if cycle > 0 and remaining > 0 and remaining <= cycle:
 						if exit_drop.is_empty():
-							advice = "Work stroke: %d / %d steps. Hold T or the turn icon." % [cycle - remaining, cycle]
+							advice = "Work stroke: %d / %d contacts. Hold T or the turn icon." % [cycle - remaining, cycle] if sliding else \
+								"Work stroke: %d / %d steps. Hold T or the turn icon." % [cycle - remaining, cycle]
 						else:
 							advice = "Exit holds a plate; stroke %d / %d steps. Pick it up before the final step." % [cycle - remaining, cycle]
-			press_status.text = "Press ready · %d clear feed routes. %s" % [routes.size(), advice]
+			press_status.text = "Selected outlet blocked. Clear it before the next stroke." if not selected_route_available else \
+				"%s ready · %d clear feed routes. %s" % [
+					"Slide press" if sliding else "Press", routes.size(), advice]
 		else:
-			press_status.text = {
+			press_status.text = "Both press outlets are blocked. Clear a side before turning." if status == "blocked_feed" else {
 				"anvil": "Anvil · work support",
 				"ram_face": "Ram face · contact tool",
 				"sliding_guide": "Guide · guided motion",
@@ -650,16 +685,20 @@ class ArrivalAssemblyControls:
 		output_heading.visible = active_press
 		output_actions.visible = active_press
 		route_choice.visible = active_press and not routes.is_empty()
-		var can_operate := ready and status == "ready" and not routes.is_empty()
+		slide_port_choice.visible = active_press and sliding and not slide_ports.is_empty()
+		var can_operate := ready and status == "ready" and not routes.is_empty() \
+			and selected_route_available
 		feed_button.visible = not _anvil.is_empty()
 		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1 or not _work_drop().is_empty()
-		var operate_cause := "Wait for the character" if not ready else "Complete the guided press and choose a clear feed route"
+		var operate_cause := "Wait for the character" if not ready else \
+			"Clear the selected outlet" if not selected_route_available else \
+			"Complete the press and choose a clear feed route"
 		feed_button.tooltip_text = "%s · F" % (operate_cause if not can_operate else \
 			"Carry an ore blank" if int(cargo.get("raw", 0)) < 1 else \
-			"Clear the work face beneath the ram" if not _work_drop().is_empty() else \
+			"Clear the work face beneath the %s" % work_face if not _work_drop().is_empty() else \
 			"Feed one carried ore blank")
 		feed_button.accessibility_name = "Feed one carried ore blank, shortcut F"
-		compact_button.visible = not _anvil.is_empty() and int(cargo.get("offcuts", 0)) > 0
+		compact_button.visible = not sliding and not _anvil.is_empty() and int(cargo.get("offcuts", 0)) > 0
 		compact_button.disabled = not can_operate or int(cargo.get("offcuts", 0)) < 4 \
 			or crank.get("holder") != actor or not _work_drop().is_empty() \
 			or not _press.get("parts", {}).has("shaft")
@@ -669,32 +708,34 @@ class ArrivalAssemblyControls:
 		refeed_work_button.visible = held_work_choice.visible
 		refeed_work_button.disabled = not can_operate or not _work_drop().is_empty()
 		refeed_work_button.tooltip_text = "%s · R" % (operate_cause if not can_operate else \
-			"Clear the work face beneath the ram" if not _work_drop().is_empty() else \
+			"Clear the work face beneath the %s" % work_face if not _work_drop().is_empty() else \
 			"Reinsert the selected held work")
 		refeed_work_button.accessibility_name = "Reinsert selected held work, shortcut R"
 		turn_button.visible = not _anvil.is_empty()
 		turn_button.disabled = not can_operate or crank.get("holder") != actor or _work_drop().is_empty() \
+			or (sliding and slide_ports.is_empty()) \
 			or int(_work_drop().get("offcuts", 0)) > 0
 		if changed_target or turn_button.disabled or not turn_button.visible:
 			stop_turn_hold()
 		turn_button.tooltip_text = "%s · T" % (operate_cause if not can_operate else \
 			("Take the crank from the pod" if crank.get("holder") == "pod" else "Crank held by another worker") if crank.get("holder") != actor else \
-			"Feed or reinsert work beneath the ram" if _work_drop().is_empty() else \
-			"Pick up the copper offcut beneath the ram" if int(_work_drop().get("offcuts", 0)) > 0 else \
+			"Feed or reinsert work beneath the %s" % work_face if _work_drop().is_empty() else \
+			"Pick up the copper offcut beneath the %s" % work_face if int(_work_drop().get("offcuts", 0)) > 0 else \
 			"Exit holds a plate; turn until blocked, then pick it up" if not _exit_drop().is_empty() else \
 			"Hold T or the icon to turn the crank; release to stop")
 		turn_button.accessibility_name = "Crank held by another worker" if ready and can_operate and \
-			crank.get("holder") not in [actor, "pod"] else "Hold to turn the guided press crank, shortcut T"
+			crank.get("holder") not in [actor, "pod"] else \
+			"Hold to turn the slide crank, shortcut T" if sliding else "Hold to turn the press crank, shortcut T"
 		pickup_button.visible = not _anvil.is_empty()
-		pickup_button.disabled = not ready or _exit_drop().is_empty()
+		pickup_button.disabled = not ready or int(_exit_drop().get("products", 0)) < 1
 		pickup_button.tooltip_text = "%s · P" % ("Wait for the character" if not ready else \
 			"No formed plate at the selected exit" if _exit_drop().is_empty() else \
 			"Pick up the formed plate at the selected exit")
 		pickup_button.accessibility_name = "Pick up formed plate from the selected exit, shortcut P"
 		recover_work_button.visible = not _anvil.is_empty()
 		recover_work_button.disabled = not ready or _work_drop().is_empty()
-		var recover_action := "Pick up the copper offcut beneath the ram" if int(_work_drop().get("offcuts", 0)) > 0 else \
-			"Recover material beneath the ram" if not _work_drop().is_empty() else "No material beneath the ram to recover"
+		var recover_action := "Pick up the copper offcut beneath the %s" % work_face if int(_work_drop().get("offcuts", 0)) > 0 else \
+			"Recover material beneath the %s" % work_face if not _work_drop().is_empty() else "No material beneath the %s to recover" % work_face
 		recover_work_button.tooltip_text = "%s · U" % ("Wait for the character" if not ready else recover_action)
 		recover_work_button.accessibility_name = "%s, shortcut U" % recover_action
 		if press_section.visible:
@@ -753,12 +794,15 @@ class ArrivalAssemblyControls:
 		return "Fit a collector receiver tray before connecting its belt mouth."
 
 	func _selected_press(snapshot: Dictionary, selected: String) -> Dictionary:
-		for value in snapshot.get("guided_press_assemblies", []):
-			if not value is Dictionary:
-				continue
-			var parts: Dictionary = value.get("parts", {})
-			if value.get("anvil") == selected or parts.values().has(selected):
-				return value
+		for ready_only in [true, false]:
+			for assemblies: Array in [snapshot.get("sliding_press_assemblies", []),
+					snapshot.get("guided_press_assemblies", [])]:
+				for value in assemblies:
+					if not value is Dictionary or (ready_only and value.get("status") != "ready"):
+						continue
+					var parts: Dictionary = value.get("parts", {})
+					if value.get("anvil") == selected or parts.values().has(selected):
+						return value
 		return {}
 
 	func _sheet_stage_offers(snapshot: Dictionary, actor: String, selected: String) -> Array[Dictionary]:
@@ -887,8 +931,14 @@ class ArrivalAssemblyControls:
 		return _drop_at(_work_center())
 
 	func _exit_drop() -> Dictionary:
-		var route := _route()
-		return _drop_at(route.get("exit", []))
+		var selected_exit: Array = _press.get("selected_exit", [])
+		if not selected_exit.is_empty():
+			return _drop_at(selected_exit)
+		for route in _press.get("open_feeds", []):
+			var output := _drop_at(route.get("exit", []))
+			if int(output.get("products", 0)) > 0:
+				return output
+		return _drop_at(_route().get("exit", []))
 
 	func _host_view():
 		return _host.get_ref() if _host != null else null
@@ -940,6 +990,16 @@ class ArrivalAssemblyControls:
 		var host = _host_view()
 		var route := _route()
 		var parts: Dictionary = _press.get("parts", {})
+		if host != null and parts.has("slide"):
+			var slide: Dictionary = _snapshot.get("placed_components", {}).get(parts.slide, {})
+			var ports: Array = slide.get("input_ports", [])
+			if _slide_port_index >= 0 and _slide_port_index < ports.size():
+				var slide_outcome: Dictionary = host.issue({"action": "turn_slide_crank",
+					"entity": parts.slide, "port": ports[_slide_port_index]})
+				if slide_outcome.get("accepted", false):
+					return true
+			stop_turn_hold()
+			return false
 		if host != null and not route.is_empty() and parts.has("shaft"):
 			var outcome: Dictionary = host.issue({"action": "turn_press_crank", "entity": _anvil,
 				"drive": parts.shaft, "exit": route.exit})
@@ -954,6 +1014,20 @@ class ArrivalAssemblyControls:
 		if turn_hold_source.is_empty():
 			_start_turn_hold("key")
 			turn_button.pressed.emit()
+		return true
+
+	func cycle_slide_port() -> bool:
+		if not slide_port_choice.is_visible_in_tree() or slide_port_choice.item_count < 2:
+			return false
+		_slide_port_index = (_slide_port_index + 1) % slide_port_choice.item_count
+		slide_port_choice.select(_slide_port_index)
+		return true
+
+	func cycle_feed_route() -> bool:
+		if not route_choice.is_visible_in_tree() or route_choice.disabled or route_choice.item_count < 2:
+			return false
+		_route_index = (_route_index + 1) % route_choice.item_count
+		route_choice.select(_route_index)
 		return true
 
 	func _start_turn_hold(source: String) -> void:

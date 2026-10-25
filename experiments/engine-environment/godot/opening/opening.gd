@@ -5716,11 +5716,13 @@ func _input(event: InputEvent) -> void:
 					KEY_C: used = _activate_button(actions.crank_button)
 					KEY_P: used = _activate_button(actions.pickup_button)
 					KEY_F: used = _activate_button(actions.feed_button)
-					KEY_G: used = _activate_button(actions.broad_feed_button)
+					KEY_Y: used = _activate_button(actions.broad_feed_button)
 					KEY_T: used = actions.press_turn_key() or _activate_button(actions.collector_crank_button)
 					KEY_X: used = _activate_button(actions.shear_button) or _activate_button(actions.collector_cut_button)
 					KEY_R: used = _activate_button(actions.refeed_work_button)
 					KEY_U: used = _activate_button(actions.recover_work_button)
+					KEY_V: used = actions.cycle_slide_port()
+					KEY_G: used = actions.cycle_feed_route()
 					KEY_S: used = _open_action_menu(actions.sheet_button)
 			if used:
 				get_viewport().set_input_as_handled()
@@ -10394,13 +10396,15 @@ func _object_supports_operations(target: String) -> bool:
 func _is_guided_press_part(target: String) -> bool:
 	if target.is_empty():
 		return false
-	for row: Variant in state.get("guided_press_assemblies", []):
-		if not row is Dictionary:
-			continue
-		var parts: Variant = row.get("parts", {})
-		if row.get("status") == "ready" and (row.get("anvil", "") == target \
-				or (parts is Dictionary and parts.values().has(target))):
-			return true
+	for assemblies: Array in [state.get("sliding_press_assemblies", []),
+			state.get("guided_press_assemblies", [])]:
+		for row: Variant in assemblies:
+			if not row is Dictionary:
+				continue
+			var parts: Variant = row.get("parts", {})
+			if row.get("status") == "ready" and (row.get("anvil", "") == target \
+					or (parts is Dictionary and parts.values().has(target))):
+				return true
 	return false
 
 func _is_collector_frame(target: String) -> bool:
