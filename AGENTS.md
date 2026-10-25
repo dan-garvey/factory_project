@@ -19,8 +19,8 @@
 - Write complete sentences with normal spacing. Keep user updates brief; put
   detailed evidence in its owning record. Correct malformed prose in place,
   preserving actual results and their limits.
-- Do not create any new Markdown file, including plans, reports or research
-  notes, unless the user explicitly asks for that new file. Put task-specific
+- Never create new Markdown files unless the user explicitly requests one;
+  this includes plans, reports and research notes. Put task-specific
   findings in Beads and reusable guidance in existing documents. Shorten or
   remove obsolete prose instead of appending supersession notices. A local
   defect normally needs a fix/test and Bead finding, not a new global instruction.
@@ -89,17 +89,23 @@ Keep concurrent writers in separate linked worktrees. Merge current main into
 committed work rather than routinely rebasing; never overwrite another checkout.
 Only the short main update/push holds the shared Git lock.
 
-For every authored commit, including merges, open an unassigned `review-request`
-Bead naming the exact commit, implementing agent, scope and checks. Never review
-your own commit or claim your own request. After opening one, claim and complete
-an available other-author review before returning to your task. Fix concrete
+For each authored commit that changes code, tests, visible assets, requirements
+or project process guidance, open an unassigned `review-request` Bead naming
+the exact commit, implementing agent, scope and checks. Never review your own
+commit or claim your own request. After opening one, claim and complete an
+available other-author review before returning to your task. Fix concrete
 findings in your own checkout, validate and publish them, and request review of
-each fix. Scale review effort to the changed risk. For code, tests, requirements
-and process guidance, inspect the relevant contract, affected consumer and
-evidence. For editorial-only prose, check claims, links and consistency. For an
-exact disjoint merge, verify both parents' relevant paths and blobs and unchanged
-test inputs; cite existing reviews and checks instead of repeating them. Changed
-interfaces or conflict resolutions need focused integration evidence. Record a
+each substantive fix. Scale review effort to the changed risk: inspect the
+relevant contract, affected consumer and evidence. For editorial-only prose,
+check claims, links and consistency in the owning Bead; a separate review
+request is unnecessary.
+
+A merge that only preserves disjoint changes already covered by pending or
+completed review requests needs no duplicate request. Verify both parents,
+relevant path and blob identity, unchanged test inputs and absence of a changed
+interface or combined behavior; record the result and original review references
+in the owning Bead. Changed interfaces, conflict resolutions or combined behavior
+need focused integration checks and an independent review request. Record a
 concrete verdict and evidence limits. Existing relevant review counts; review
 is not a pre-merge approval gate.
 
