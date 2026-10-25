@@ -989,7 +989,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
     profile.wheel_radius = wheel_radius;
     profile.wheel_axle_offset = wheel_axle_offset;
     profile.build_reach = reach;
-    if (arrival) profile.manual_cut_reach = 0.85;
+    if (arrival) profile.manual_cut_reach = 2.55;
     profile.foundation_parts = 24;
     // East of the river and clear of the exposed ore deposit. This is a
     // reversible authored site anchor, expressed in the one quarter-tile grid.
@@ -2689,7 +2689,10 @@ Value Host::projection() const {
         specifications.emplace(actor, Value(std::move(entries)));
     }
     for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
-        {"position", point_value(sample.position)}, {"capabilities", Value(Object{{"build_reach", Value(reach)}})},
+        {"position", point_value(sample.position)}, {"capabilities", Value(Object{
+            {"build_reach", Value(profile_.build_reach)},
+            {"harvest_reach", Value(profile_.manual_cut_reach > 0 ?
+                profile_.manual_cut_reach : profile_.build_reach)}})},
         {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)}}));
     for (const auto& [actor, cut] : state.manual_cuts)
         manual_cuts.emplace(actor, Value(Object{{"target", Value(cut.target)},

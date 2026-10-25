@@ -232,7 +232,7 @@ func _pose_cut_arm(body: Node3D, kind: String, reach: float,
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
 	var near := clampf((0.75 - reach) / 0.25, 0.0, 1.0)
 	var yaw := lerpf(0.9, 1.1, near) if kind == "tree" else 1.4
-	var pitch := lerpf(-0.7, 0.0, near) if kind == "tree" else -0.3
+	var pitch := lerpf(-0.7, 0.0, near) if kind == "tree" else -1.2
 	var bend := lerpf(-0.3, -1.0, near) if kind == "tree" else 0.6
 	var appearance: Node3D = body.get_node("AdultHuman")
 	appearance.position.y = float(body.get_meta("adult_fit_y")) - \
@@ -336,7 +336,10 @@ func _refresh_multitools(delta: float) -> void:
 		var raised := rest
 		if eye_state.get("contact") is Vector3 and host.camera != null:
 			var tip := Vector3(0.0, 0.0, -0.30)
-			raised = host.camera.to_local(eye_state.contact) - eye_multitool.basis * tip
+			var contact_position: Vector3 = host.camera.to_local(eye_state.contact) - eye_multitool.basis * tip
+			# The native cut may start beyond arm length. Keep the visible hand by
+			# the camera instead of pulling it to a distant source center.
+			raised = rest + (contact_position - rest).limit_length(0.45)
 		var stroke := sin(TAU * float(eye_state.get("elapsed", 0.0)) / CUT_TICK_SECONDS)
 		eye_multitool.position = rest.lerp(raised + Vector3(stroke * 0.035, 0.0, 0.0), blend)
 

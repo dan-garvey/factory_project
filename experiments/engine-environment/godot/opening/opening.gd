@@ -6122,6 +6122,19 @@ func _hand_source(id: String) -> Dictionary:
 		return {}
 	return source
 
+func _hand_source_in_reach(source: Dictionary) -> bool:
+	var actor: Dictionary = state.get("actors", {}).get(client, {})
+	var position: Variant = actor.get("position")
+	var radius: Variant = actor.get("capabilities", {}).get("harvest_reach")
+	if not Geometry.valid_position(position) or not (radius is float or radius is int) or radius <= 0:
+		return false
+	var center: Array = source.position
+	var distance_squared := 0.0
+	for axis in range(3):
+		var difference: float = float(position[axis]) - float(center[axis])
+		distance_squared += difference * difference
+	return distance_squared <= float(radius) * float(radius)
+
 func _prepare_hand_tree_assets() -> bool:
 	if not hand_tree_assets.is_empty():
 		return true
@@ -6383,6 +6396,9 @@ func _interact_pointed() -> void:
 		return
 	if source.remaining == 0:
 		_message("This source is depleted. Choose another tree or ore deposit.", true)
+		return
+	if not _hand_source_in_reach(source):
+		_message("Move closer to the source before harvesting.", true)
 		return
 	if state.get("manual_cuts", {}).has(client):
 		return
@@ -10447,8 +10463,12 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 		if cut.get("target", "") == source_id:
 			return {"name": "Timber tree" if source.kind == "tree" else "Ore deposit",
 				"detail": "Cutting…"}
+		var detail := "Depleted"
+		if source.remaining > 0:
+			detail = "%d left  ·  E Harvest" % source.remaining if _hand_source_in_reach(source) else \
+				"%d left  ·  Move closer" % source.remaining
 		return {"name": "Timber tree" if source.kind == "tree" else "Ore deposit",
-			"detail": "Depleted" if source.remaining == 0 else "%d left  ·  E Harvest" % source.remaining}
+			"detail": detail}
 	return {}
 
 func _refresh_pointed_summary() -> void:

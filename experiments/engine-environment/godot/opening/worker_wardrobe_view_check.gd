@@ -11,6 +11,7 @@ class HostFixture:
 	var client := "P"
 	var explanation_open := false
 	var distance := 2.0
+	var camera: Camera3D
 	var focus := Vector3.ZERO
 	var control_calls := 0
 	var safety_release_calls := 0
@@ -30,6 +31,7 @@ func _initialize() -> void:
 
 func run() -> void:
 	var prefix := ""
+	var harvest_reach := "--harvest-reach" in OS.get_cmdline_user_args()
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--capture-prefix="):
 			prefix = argument.trim_prefix("--capture-prefix=")
@@ -87,6 +89,42 @@ func run() -> void:
 	stage.add_child(camera)
 	camera.fov = 38.0
 	camera.current = true
+	host.camera = camera
+	if harvest_reach:
+		host.state.options = {"native": true}
+		host.state.hand_sources = {"ore": {"kind": "ore_deposit",
+			"position": [0.0, 0.825, -2.3], "initial": 4096, "remaining": 4096}}
+		host.state.manual_cuts = {"P": {"target": "ore", "remaining_ticks": 15,
+			"interrupted": false}}
+		var rock := MeshInstance3D.new()
+		rock.mesh = load("res://opening/assets/mineral-outcrop/boulder.res")
+		rock.position = Vector3(0.0, 0.3, -2.3)
+		stage.add_child(rock)
+		for spec in [["third-person", Vector3(-2.2, 1.7, 2.3), Vector3(0.0, 0.9, -1.2)],
+				["first-person", Vector3(0.0, 1.55, 0.0), Vector3(0.0, 0.825, -2.3)]]:
+			host.distance = 0.0 if spec[0] == "first-person" else 2.0
+			camera.position = spec[1]
+			camera.look_at(spec[2])
+			presenter.refresh(0.25)
+			await process_frame
+			await RenderingServer.frame_post_draw
+			var path: String = prefix + "-" + spec[0] + ".png"
+			if FileAccess.file_exists(path) or viewport.get_texture().get_image().save_png(path) != OK:
+				push_error("The passive harvest view could not retain its image: " + path)
+				quit(1)
+				return
+		if presenter.eye_multitool == null or \
+				presenter.eye_multitool.position.distance_to(Presenter.EYE_MULTITOOL_REST) > 0.46 or \
+				host.control_calls != 0:
+			push_error("A distant source pulled the first-person hand away or sent actor input.")
+			quit(1)
+			return
+		print(JSON.stringify({"status": "pass", "captures": [prefix + "-third-person.png",
+			prefix + "-first-person.png"], "input_calls": host.control_calls,
+			"native_actor": "not_started", "human_view": "unassessed"}))
+		viewport.free()
+		call_deferred("quit", 0)
+		return
 	for spec in [["front", Vector3(0.0, 1.15, 4.1)],
 			["quarter", Vector3(2.6, 1.3, 3.3)],
 			["distant", Vector3(6.0, 3.5, 8.0)]]:

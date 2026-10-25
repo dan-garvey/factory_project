@@ -714,24 +714,59 @@ void cutter_reach_is_shorter_than_build_reach() {
     Host host;
     check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(host.publish_actor("P", {V(5.4), V(1.0), V(3.3)}, 1), "accepted"),
+          get<bool>(host.publish_actor("P", {V(4.0), V(1.0), V(3.3)}, 1), "accepted"),
           "The actor is inside construction reach but beyond the held blade's bark contact.");
+    const auto capabilities = get<O>(get<O>(host.projection(), "actors").at("P"), "capabilities");
+    check(get<double>(V(capabilities), "build_reach") == 4.0 &&
+          get<double>(V(capabilities), "harvest_reach") == 2.55,
+          "The projection exposes the distinct native construction and harvesting limits.");
     const auto distant = host.command("P", cut("P", "too-far-for-tool", "tree-east-south"));
     check(!get<bool>(distant, "accepted") && get<std::string>(distant, "reason") == "out_of_reach" &&
           get<O>(host.projection(), "manual_cuts").empty() &&
           get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 8,
           "Construction reach cannot begin or consume a physical source cut.");
-    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 2), "accepted") &&
+    check(get<bool>(host.publish_actor("P", {V(4.1), V(1.0), V(3.3)}, 2), "accepted") &&
           get<bool>(host.command("P", cut("P", "near-bark", "tree-east-south")), "accepted"),
           "The same actor can start one cut from the blade's contact range.");
-    check(get<bool>(host.publish_actor("P", {V(5.4), V(1.0), V(3.3)}, 3), "accepted") &&
+    check(get<bool>(host.publish_actor("P", {V(4.0), V(1.0), V(3.3)}, 3), "accepted") &&
           get<O>(host.projection(), "manual_cuts").empty() &&
           get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0,
           "Moving outside blade reach interrupts the held cut before payout.");
-    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted") &&
+    check(get<bool>(host.publish_actor("P", {V(4.1), V(1.0), V(3.3)}, 4), "accepted") &&
           get<bool>(complete_cut(host, "P", cut("P", "back-at-bark", "tree-east-south")), "accepted") &&
           get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
           "A fresh close cut transfers exactly one timber and retains valid history.");
+    const O enable{{"context", V("harvest-site")}, {"client", V("P")},
+        {"request", V("enable-fast-reach")}, {"action", V("set_developer_conveniences")},
+        {"enabled", V(true)}};
+    check(get<bool>(host.command("P", enable), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(4.0), V(1.0), V(3.3)}, 5), "accepted"),
+          "F3 convenience mode preserves the same physical actor sample.");
+    const auto fast_far = host.command("P", cut("P", "fast-far", "tree-east-south"));
+    check(!get<bool>(fast_far, "accepted") && get<std::string>(fast_far, "reason") == "out_of_reach",
+          "F3 cannot harvest beyond the ordinary native cut boundary.");
+    check(get<bool>(host.publish_actor("P", {V(4.1), V(1.0), V(3.3)}, 6), "accepted") &&
+          get<bool>(host.command("P", cut("P", "fast-near", "tree-east-south")), "accepted") &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 2 &&
+          get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
+          "F3 moves one finite timber immediately inside the same cut boundary.");
+}
+
+void ore_outcrop_has_a_standing_cut_boundary() {
+    Host host;
+    check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(2.56)}, 1), "accepted"),
+          "The actor samples a standing point outside the opening ore reach.");
+    const auto far = host.command("P", cut("P", "ore-far", "opening-copper"));
+    check(!get<bool>(far, "accepted") && get<std::string>(far, "reason") == "out_of_reach" &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") == 4096,
+          "An out-of-range ore pick cannot consume finite source stock.");
+    check(get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(2.54)}, 2), "accepted") &&
+          get<bool>(complete_cut(host, "P", cut("P", "ore-standing", "opening-copper")), "accepted") &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "raw") == 1 &&
+          get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
+          "A standing ore cut near the visible outcrop transfers one blank with valid history.");
 }
 
 void field_wood_uses_physical_actor_and_one_ledger() {
@@ -1126,6 +1161,7 @@ int main() {
         one_piece_slide_custody();
         flat_head_host_custody();
         cutter_reach_is_shorter_than_build_reach();
+        ore_outcrop_has_a_standing_cut_boundary();
         shared_harvest();
         field_wood_uses_physical_actor_and_one_ledger();
         opening_actor_carries_finite_site_across_restore();

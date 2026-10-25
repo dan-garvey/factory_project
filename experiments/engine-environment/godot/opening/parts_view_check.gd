@@ -694,7 +694,10 @@ func hotbar_observation() -> Dictionary:
 	var other := {"collector": 0, "foundation": 2, "belt": 0, "processor": 1, "wheel": 0, "gear": 1, "shaft": 2}
 	return {"context": "hotbar-fixture", "revision": 7, "order": 0,
 		"options": {"physical": true, "native": true, "foundations": true},
-		"actors": {"P": {"ready": true, "position": [0.0, 1.0, 0.0]}, "Q": {"ready": true, "position": [3.0, 1.0, 0.0]}},
+		"actors": {"P": {"ready": true, "position": [0.0, 1.0, 0.0],
+			"capabilities": {"build_reach": 4.0, "harvest_reach": 2.55}},
+			"Q": {"ready": true, "position": [3.0, 1.0, 0.0],
+				"capabilities": {"build_reach": 4.0, "harvest_reach": 2.55}}},
 		"parts": kit.duplicate(), "part_kits": {"P": kit.duplicate(), "Q": other},
 		"part_specifications": {"P": [{"kind": "gear", "count": 8, "teeth": 2, "half_span": 0},
 			{"kind": "gear", "count": 2, "teeth": 4, "half_span": 0},
@@ -1095,6 +1098,21 @@ func _multitool_controls() -> void:
 		view._interact_pointed()
 		verify(view.issued == [{"action": "harvest_source", "target": "tree"}], "The tree keeps its distinct native source identity.")
 		view.issued.clear()
+		view.state.actors.P.position = [2.56, 0.825, 0.0]
+		view.hand_pointed = "ore"
+		verify("Move closer" in view._pointed_summary_data(Vector2.ZERO).detail,
+			"The ore prompt omits the harvest key beyond the projected native cut boundary.")
+		view._interact_pointed()
+		verify(view.issued.is_empty(), "A far source pick does not submit a misleading harvest request.")
+		view.state.actors.P.position = [2.54, 0.825, 0.0]
+		verify("E Harvest" in view._pointed_summary_data(Vector2.ZERO).detail,
+			"The same ore pick offers the action inside the native cut boundary.")
+		view._interact_pointed()
+		verify(view.issued == [{"action": "harvest_source", "target": "ore"}],
+			"An in-range source pick submits the native harvest command.")
+		view.issued.clear()
+		view.state.actors.P.position = before.actors.P.position
+		view.hand_pointed = "tree"
 		verify(view.state == before and view.model == null and view.request_sequence == 0,
 			"Presentation and request selection do not debit local stock or create a Model.")
 		verify(view._harvest_result_text({"moved_timber": 1, "moved_raw": 0}) == "Collected 1 timber."
