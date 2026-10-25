@@ -10958,7 +10958,7 @@ func _build_manager_log() -> void:
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		line.custom_minimum_size.x = 496.0
 	manager_log_completion_entry = _label(column,
-		"03  FIRST WORKSHOP COMPLETE\nOne formed plate is in your inventory. Corporate has filed your next shift under 'voluntary.'", 15,
+		"03  FIRST WORKSHOP COMPLETE\nYou collected your first formed plate. Corporate has filed your next shift under 'voluntary.'", 15,
 		Color("f1d7a5"))
 	manager_log_completion_entry.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	manager_log_completion_entry.custom_minimum_size.x = 496.0

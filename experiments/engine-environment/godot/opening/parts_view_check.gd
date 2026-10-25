@@ -866,10 +866,13 @@ func _multitool_presentation() -> void:
 		verify(presenter.eye_multitool != null and presenter.eye_multitool.visible and not presenter.views.P.visible and presenter.views.Q.visible,
 			"Eye-level presentation shows one local tool while retaining the other actor's normal body.")
 		var hand: MeshInstance3D = presenter.eye_multitool.get_node("QualifiedRightHand")
-		var arm_bounds: AABB = hand.mesh.get_aabb()
+		var sleeve: MeshInstance3D = presenter.eye_multitool.get_node_or_null("QualifiedSleeve")
+		var arm_bounds: AABB = hand.mesh.get_aabb().merge(sleeve.mesh.get_aabb()) if sleeve != null else hand.mesh.get_aabb()
 		verify(hand.mesh.get_surface_count() > 0 and arm_bounds.size.length() > 0.55
 			and arm_bounds.size.length() < 0.85 and arm_bounds.size.y < 0.30,
 			"The close view includes the qualified worker's hand and connected forearm without torso geometry: " + str(arm_bounds))
+		verify(sleeve != null and sleeve.mesh.get_surface_count() > 0,
+			"The first-person modeled hand stays seated under its sourced worker sleeve.")
 		verify(presenter.eye_multitool.get_node("CuttingBlade").mesh == blade.mesh,
 			"First- and third-person presentations use the exact same authored cutter.")
 		var hand_id := hand.mesh.get_instance_id()

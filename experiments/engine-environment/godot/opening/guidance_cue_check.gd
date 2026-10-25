@@ -367,6 +367,7 @@ func check_slide_manager_cue() -> void:
 	finish_checks()
 
 func check_inventory_goal_view() -> void:
+	root.size = Vector2i(1280, 800)
 	var source := NativeModel.new("inventory-goal-view-fixture", ["P", "Q"], true)
 	verify(source.boot_result.get("accepted", false),
 		"A native arrival projection supplies the local cargo for the workshop goal.")
@@ -419,8 +420,10 @@ func check_inventory_goal_view() -> void:
 		and "Open Work log [J]" in view.goal_label.text
 		and not view.goal_label.text.contains("PLATE IN INVENTORY")
 		and view.manager_log_completion_entry.visible
+		and view.manager_log_completion_entry.text.contains("You collected your first formed plate")
+		and not view.manager_log_completion_entry.text.contains("is in your inventory")
 		and view.workshop_completion_cue_count == 1,
-		"Using the carried plate later does not erase the completed workshop.")
+		"Using the plate later keeps a truthful historical completion entry without claiming current custody.")
 	var reopened := FooterView.new()
 	reopened.model = source
 	reopened.client = "P"
@@ -431,6 +434,7 @@ func check_inventory_goal_view() -> void:
 	reopened._refresh_ui()
 	verify(reopened.manager_log_completion_entry.visible
 		and "Open Work log [J]" in reopened.goal_label.text
+		and reopened.manager_log_completion_entry.text == view.manager_log_completion_entry.text
 		and reopened.workshop_completion_cue_count == 0,
 		"A reopened projection shows completion without replaying the acquisition sound.")
 	for argument: String in OS.get_cmdline_user_args():
@@ -441,6 +445,35 @@ func check_inventory_goal_view() -> void:
 				await process_frame
 			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--inventory-goal-screenshot=")) == OK,
 				"The completed workshop view can be retained as passive pixels.")
+		if argument.begins_with("--manager-complete-log-screenshot="):
+			shared.arrival_gameplay_canvas.visible = false
+			view.arrival_gameplay_canvas.visible = false
+			if not reopened.manager_log_open:
+				reopened._toggle_manager_log()
+			for _frame in range(12):
+				await process_frame
+			verify(reopened.manager_log_open and reopened.manager_log_layer.visible
+				and root.get_texture().get_image().save_png(
+					argument.trim_prefix("--manager-complete-log-screenshot=")) == OK,
+				"The replayed completion entry remains visible as passive pixels after plate use.")
+		if argument.begins_with("--manager-complete-log-narrow-screenshot="):
+			shared.arrival_gameplay_canvas.visible = false
+			view.arrival_gameplay_canvas.visible = false
+			root.size = Vector2i(900, 600)
+			if not reopened.manager_log_open:
+				reopened._toggle_manager_log()
+			reopened._refresh_manager_log()
+			for _frame in range(12):
+				await process_frame
+			var log_scroll := reopened.manager_log_panel.get_child(0) as ScrollContainer
+			log_scroll.scroll_vertical = 10000
+			for _frame in range(4):
+				await process_frame
+			verify(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+				reopened.manager_log_panel.get_global_rect())
+				and root.get_texture().get_image().save_png(
+					argument.trim_prefix("--manager-complete-log-narrow-screenshot=")) == OK,
+				"The replayed completion entry fits the narrow viewport after plate use.")
 	reopened.free()
 	shared.free()
 	view.free()
