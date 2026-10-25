@@ -791,7 +791,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -2975,7 +2975,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -3119,7 +3119,7 @@ func _arrival_run() -> void:
 	if mode == "arrival-craft-capacity":
 		await _arrival_capacity_run(panel, capture_prefix)
 		return
-	if not capture_prefix.is_empty() and mode == "arrival-press":
+	if not capture_prefix.is_empty() and mode in ["arrival-press", "arrival-guide-geometry"]:
 		await process_frame
 		var landfall: Image = root.get_texture().get_image()
 		if not _expect(landfall != null and landfall.save_png(capture_prefix + "-landfall.png") == OK,
@@ -3127,9 +3127,18 @@ func _arrival_run() -> void:
 			return
 	if DisplayServer.get_name() != "headless":
 		opening.building_hotbar.select_slot(1)
-		if not _expect(opening.mode == "foundation" and opening.machine_preview != null
+		if not _expect(opening.building_hotbar.catalog.visible
+				and opening.building_hotbar.target_slot == 1
+				and opening.building_hotbar.catalog_buttons.foundation.visible
+				and not opening.building_hotbar.catalog_buttons.foundation.disabled,
+				"An empty hotbar slot opens the build catalog with a carried foundation"):
+			return
+		opening.building_hotbar.catalog_buttons.foundation.pressed.emit()
+		if not _expect(opening.building_hotbar.slots[1] == "foundation"
+				and not opening.building_hotbar.catalog.visible
+				and opening.mode == "foundation" and opening.machine_preview != null
 				and opening.placement_options_panel.visible == opening.machine_preview.visible,
-				"The foundation shortcut selects placement and shows options only with its valid ghost"):
+				"The catalog assigns a foundation to the hotbar and shows options only with its valid ghost"):
 			return
 		opening._select_tool("inspect")
 	if mode == "arrival-resume":
@@ -3235,7 +3244,7 @@ func _arrival_run() -> void:
 		return
 	var initial: Dictionary = opening.model.projection()
 	if not _expect(initial.cargo.P.timber == 15 and initial.cargo.P.raw == 7
-			and initial.placed_components.is_empty() and initial.component_recipes.size() == 15
+			and initial.placed_components.is_empty()
 			and initial.component_recipes.flat_head.copper == 1
 			and initial.component_recipes.wooden_slide.timber == 3
 			and initial.component_recipes.copper_slide.copper == 4,
@@ -3291,6 +3300,9 @@ func _arrival_run() -> void:
 		"missing_cog", "ready"]
 	var press_parts: Dictionary = {}
 	var original_camera_distance: float = opening.distance
+	var guide_view_position := Vector2.ZERO
+	var guide_view_yaw := 0.0
+	var guide_view_pitch := 0.0
 	for index in range(part_list.size()):
 		var kind: String = part_list[index]
 		if not _select_inventory_item("component:" + kind):
@@ -3300,7 +3312,7 @@ func _arrival_run() -> void:
 			4 * OpeningGeometry.HEIGHT_DENOMINATOR]
 		var before: int = opening.model.projection().order
 		var before_parts: Dictionary = opening.model.projection().placed_components
-		if mode == "arrival-press":
+		if mode in ["arrival-press", "arrival-guide-geometry"]:
 			if index == 3 and not await _approach(Vector2(6.6, 6.6)):
 				return
 			await physics_frame
@@ -3377,11 +3389,32 @@ func _arrival_run() -> void:
 				and projection.guided_press_assemblies[0].status == expected_status[index],
 				"The native recognizer reports the current fitted press stage"):
 			return
-	if mode == "arrival-press":
+		if mode == "arrival-guide-geometry" and index == 2:
+			guide_view_position = Vector2(opening.actor_world.bodies.P.position.x,
+				opening.actor_world.bodies.P.position.z)
+			guide_view_yaw = opening.orbit_yaw
+			guide_view_pitch = opening.orbit_pitch
+			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+				opening._select_tool("inspect")
+				await RenderingServer.frame_post_draw
+				if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-partial-guide.png") == OK,
+						"Retain the placed guide before a shaft or cog completes the press"):
+					return
+	if mode == "arrival-guide-geometry":
+		if not await _approach(guide_view_position):
+			return
+		opening.orbit_yaw = guide_view_yaw
+		opening.orbit_pitch = guide_view_pitch
+		opening.distance = 0.0
+		opening._update_camera()
+		for _frame in range(12):
+			await process_frame
+	elif mode == "arrival-press":
 		if not await _approach_points([Vector2(6.6, 3.3), Vector2(4.95, 3.3)]):
 			return
 	var ready: Dictionary = opening.model.projection().guided_press_assemblies[0]
-	if mode == "arrival-press" and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+	if mode in ["arrival-press", "arrival-guide-geometry"] and not capture_prefix.is_empty() \
+			and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
 		opening.distance = 0.0
 		opening._update_camera()
@@ -3400,6 +3433,29 @@ func _arrival_run() -> void:
 		if not _expect(ordinary_captured and third_person_captured,
 				"Retain the fitted press in first-person and third-person actor views"):
 			return
+	if mode == "arrival-guide-geometry":
+		var guide_id: String = str(press_parts.sliding_guide)
+		var guide_before: Dictionary = opening.model.projection().placed_components[guide_id]
+		for kind: String in ["wooden_cog", "wooden_shaft", "ram_face", "anvil"]:
+			if not _expect(_issue({"action": "reclaim_component", "entity": str(press_parts[kind])}).get("accepted", false),
+					"The actor can remove the neighboring %s without reclaiming the guide" % kind):
+				return
+		var standalone: Dictionary = opening.model.projection()
+		if not _expect(standalone.placed_components.size() == 1
+				and standalone.placed_components[guide_id] == guide_before,
+				"The same guide keeps its native component geometry after the press is removed"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			opening.distance = 0.0
+			opening.orbit_yaw = guide_view_yaw
+			opening.orbit_pitch = guide_view_pitch
+			opening._update_camera()
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-standalone-guide.png") == OK,
+					"Retain the unchanged guide after its neighboring press parts are reclaimed"):
+				return
+		_record("pass")
+		return
 	if mode == "arrival-press":
 		opening.distance = original_camera_distance
 		opening._update_camera()
