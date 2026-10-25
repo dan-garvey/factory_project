@@ -13,6 +13,7 @@ class HostFixture:
 	var distance := 2.0
 	var focus := Vector3.ZERO
 	var control_calls := 0
+	var safety_release_calls := 0
 	func _update_camera() -> void:
 		pass
 	func _can_control_character() -> bool:
@@ -20,7 +21,9 @@ class HostFixture:
 	func _send_character_input(_direction: Vector2, _jump: bool) -> void:
 		control_calls += 1
 	func _release_character_input() -> void:
-		control_calls += 1
+		# A passive window can lose focus while frames render. Releasing held
+		# controls is safe and distinct from sending character movement.
+		safety_release_calls += 1
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -100,8 +103,13 @@ func run() -> void:
 		push_error("The passive fixture unexpectedly issued an input command.")
 		quit(1)
 		return
+	var control_calls := host.control_calls
+	var safety_release_calls := host.safety_release_calls
+	viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	viewport.free()
 	print(JSON.stringify({"status": "pass", "source": "Microsoft Rocketbox Female_Adult_04",
 		"field_mark": "removed",
 		"captures": [prefix + "-front.png", prefix + "-quarter.png", prefix + "-distant.png"],
-		"input_calls": host.control_calls, "native_actor": "not_started", "human_view": "unassessed"}))
-	quit(0)
+		"input_calls": control_calls, "safety_release_calls": safety_release_calls,
+		"native_actor": "not_started", "human_view": "unassessed"}))
+	call_deferred("quit", 0)
