@@ -295,6 +295,43 @@ void guided_press_without_structure() {
           "The work center follows the shared four-step world height grid.");
 }
 
+void sliding_press_contact_geometry() {
+    const g::Point work{8, 4, 12};
+    std::vector<a::Part> placed{
+        part("anvil", m::Component::anvil, work),
+        part("head", m::Component::flat_head, {8, 5, 12}),
+        part("slide", m::Component::wooden_slide, {8, 6, 12}),
+    };
+    const a::Layout layout(placed);
+    const auto ready = layout.inspect_sliding_press(work);
+    check(ready.status == a::PressStatus::ready && ready.press &&
+          ready.press->anvil == "anvil" && ready.press->head == "head" &&
+          ready.press->slide == "slide" && ready.press->slide_center == g::Point{8, 6, 12} &&
+          ready.press->open_feeds.size() == 2,
+          "A separate head mates to the slide immediately above a supported work point.");
+    placed[2].kind = m::Component::copper_slide;
+    check(a::inspect_sliding_press(placed, work).press->slide_material ==
+              m::Component::copper_slide,
+          "The same contact geometry accepts a stronger slide without replacing the head.");
+    placed.push_back(part("tray", m::Component::receiver_tray, {7, 4, 12}));
+    check(a::inspect_sliding_press(placed, work).press->open_feeds.size() == 1,
+          "A fitted plate tray may occupy the exit, but not the entry.");
+    placed[3].kind = m::Component::wooden_frame;
+    check(a::inspect_sliding_press(placed, work).status == a::PressStatus::blocked_feed,
+          "A solid obstruction cannot be treated as an outlet.");
+    placed.pop_back();
+    placed[2].center[1] += 1;
+    check(a::inspect_sliding_press(placed, work).status == a::PressStatus::missing_slide,
+          "A slide one step too high cannot contact the head.");
+    placed[2].center[1] -= 1;
+    placed[1].kind = m::Component::ram_face;
+    check(a::inspect_sliding_press(placed, work).status == a::PressStatus::missing_flat_head,
+          "The older ram face is not an interchangeable flat head.");
+    check(a::inspect_sliding_press(placed, {8, 5, 12}).status ==
+              a::PressStatus::invalid_input,
+          "Work support uses the common full-tile grid.");
+}
+
 void broad_press_from_repeated_work_faces() {
     const auto parts_at = [](g::Point origin, bool drive_from_x_edges) {
         std::vector<a::Part> placed;
@@ -502,6 +539,7 @@ int main() {
         press_arrangements_and_clearance();
         press_missing_and_invalid_parts();
         guided_press_without_structure();
+        sliding_press_contact_geometry();
         broad_press_from_repeated_work_faces();
         indexed_independent_assemblies();
         std::cout << "assembly_test: " << checks << " checks passed\n";

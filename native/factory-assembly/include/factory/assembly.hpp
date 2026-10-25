@@ -100,6 +100,8 @@ enum class PressStatus {
     missing_frame,
     missing_anvil,
     missing_ram,
+    missing_flat_head,
+    missing_slide,
     missing_guide,
     missing_mount,
     missing_shaft,
@@ -141,6 +143,27 @@ struct GuidedPressInspection {
     PressStatus status{PressStatus::invalid_input};
     std::optional<GuidedPress> press;
 };
+
+// The anvil supports one blank; the separate die rides one quarter-grid step
+// beneath the slide's integral input. The slide, not the anvil, owns motion.
+struct SlidingPress {
+    std::string anvil;
+    std::string head;
+    std::string slide;
+    mechanics::Point work_center{};
+    mechanics::Point slide_center{};
+    materials::Component slide_material{};
+    std::vector<PressFeed> open_feeds;
+    bool operator==(const SlidingPress&) const = default;
+};
+
+struct SlidingPressInspection {
+    PressStatus status{PressStatus::invalid_input};
+    std::optional<SlidingPress> press;
+};
+
+[[nodiscard]] SlidingPressInspection inspect_sliding_press(
+    const std::vector<Part>& placed, const mechanics::Point& anvil_center);
 
 [[nodiscard]] GuidedPressInspection inspect_guided_press(
     const std::vector<Part>& placed, const mechanics::Point& anvil_center);
@@ -232,6 +255,8 @@ public:
     [[nodiscard]] Inspection inspect_collector(const OreFace& face) const;
     [[nodiscard]] PressInspection inspect_press(const mechanics::Point& frame_center) const;
     [[nodiscard]] GuidedPressInspection inspect_guided_press(
+        const mechanics::Point& anvil_center) const;
+    [[nodiscard]] SlidingPressInspection inspect_sliding_press(
         const mechanics::Point& anvil_center) const;
     [[nodiscard]] BroadPressInspection inspect_broad_press(
         const mechanics::Point& lowest_anvil_center) const;

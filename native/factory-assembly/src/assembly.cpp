@@ -170,6 +170,39 @@ PressInspection Layout::inspect_press(const Point& center) const {
     return {PressStatus::ready, std::move(press)};
 }
 
+SlidingPressInspection Layout::inspect_sliding_press(const Point& center) const {
+    for (const auto coordinate : center)
+        if (coordinate % 4 != 0 || coordinate < -mechanics::maximum_coordinate + 4 ||
+            coordinate > mechanics::maximum_coordinate - 4)
+            return {PressStatus::invalid_input, std::nullopt};
+    if (!valid_) return {PressStatus::invalid_input, std::nullopt};
+    const auto* anvil = at(by_center_, center, materials::Component::anvil);
+    if (!anvil) return {PressStatus::missing_anvil, std::nullopt};
+    const Point head_center{center[0], center[1] + 1, center[2]};
+    const auto* head = at(by_center_, head_center, materials::Component::flat_head);
+    if (!head) return {PressStatus::missing_flat_head, std::nullopt};
+    const Point slide_center{center[0], center[1] + 2, center[2]};
+    const auto found = by_center_.find(slide_center);
+    const auto* slide = found != by_center_.end() &&
+        (found->second->kind == materials::Component::wooden_slide ||
+         found->second->kind == materials::Component::copper_slide) ? found->second : nullptr;
+    if (!slide) return {PressStatus::missing_slide, std::nullopt};
+    SlidingPress press{anvil->id, head->id, slide->id, center, slide_center,
+        slide->kind, {}};
+    // The slide's integral input is X-axis. The two opposed X faces remain
+    // physical feed/outlet candidates; a tray may receive a finished plate.
+    for (const Integer sign : {-1, 1}) {
+        const Point entry{center[0] + sign, center[1], center[2]};
+        const Point exit{center[0] - sign, center[1], center[2]};
+        if (!by_center_.contains(entry) &&
+            (!by_center_.contains(exit) ||
+             at(by_center_, exit, materials::Component::receiver_tray)))
+            press.open_feeds.push_back({entry, exit});
+    }
+    if (press.open_feeds.empty()) return {PressStatus::blocked_feed, std::nullopt};
+    return {PressStatus::ready, std::move(press)};
+}
+
 GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
     for (const auto coordinate : center)
         if (coordinate % 4 != 0 || coordinate < -mechanics::maximum_coordinate + 4 ||
@@ -342,6 +375,10 @@ PressInspection inspect_press(const std::vector<Part>& placed, const Point& cent
 
 GuidedPressInspection inspect_guided_press(const std::vector<Part>& placed, const Point& center) {
     return Layout(placed).inspect_guided_press(center);
+}
+
+SlidingPressInspection inspect_sliding_press(const std::vector<Part>& placed, const Point& center) {
+    return Layout(placed).inspect_sliding_press(center);
 }
 
 BroadPressInspection inspect_broad_press(const std::vector<Part>& placed, const Point& center) {
