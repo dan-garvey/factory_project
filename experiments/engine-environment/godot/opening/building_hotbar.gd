@@ -27,7 +27,9 @@ const COMPONENT_ICONS := {
 	"ram_face": "ram_face.svg", "copper_shaft": "copper_shaft.svg",
 	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
 	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg",
-	"flat_head": "flat_head.svg", "hand_crank": "workshop-crank.svg"}
+	"flat_head": "flat_head.svg", "hand_crank": "workshop-crank.svg",
+	"channel_narrow_x": "channel_narrow_x.svg", "channel_narrow_z": "channel_narrow_z.svg",
+	"channel_broad_x": "channel_broad_x.svg", "channel_broad_z": "channel_broad_z.svg"}
 var slots: Array[String] = ["", "", "", "", "", "", "", ""]
 var buttons: Array[Button] = []
 var slot_icons: Array[TextureRect] = []

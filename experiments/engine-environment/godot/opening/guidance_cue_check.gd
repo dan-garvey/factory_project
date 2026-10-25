@@ -293,6 +293,55 @@ func check_shared_manager_log() -> void:
 	view.free()
 	finish_checks()
 
+func check_channel_hotbar_icons() -> void:
+	root.size = Vector2i(1280, 800)
+	root.gui_embed_subwindows = true
+	var snapshot := first_target_fixture()
+	snapshot.hand_sources = {}
+	snapshot.first_plate_unlock = true
+	snapshot.workshop_completed_actors = ["P"]
+	snapshot.cargo = {"P": {"components": {
+		"channel_narrow_x": 1, "channel_narrow_z": 1,
+		"channel_broad_x": 1, "channel_broad_z": 1}}}
+	var view := FooterView.new()
+	view.client = "P"
+	view.state = snapshot
+	view.workshop_completion_observed = true
+	root.add_child(view)
+	view._build_interface()
+	view._refresh_guided_tools()
+	var icon_paths := {}
+	for kind in ["channel_narrow_x", "channel_narrow_z", "channel_broad_x", "channel_broad_z"]:
+		var button: Button = view.building_hotbar.component_buttons[kind]
+		verify(button.visible and button.icon != null and button.focus_mode == Control.FOCUS_ALL
+			and button.tooltip_text.contains("1 carried") and button.accessibility_name.contains("assign to hotbar"),
+			"A carried %s channel has a usable icon tile and keyboard description." % kind)
+		if button.icon != null:
+			icon_paths[button.icon.resource_path] = true
+	verify(icon_paths.size() == 4, "Narrow, broad, X and Z channel kits have distinct directional glyphs.")
+	view.building_hotbar.open_catalog()
+	await settle_footer()
+	verify(view.building_hotbar.catalog.visible, "The completed workshop can open its channel inventory.")
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--channel-icon-normal-screenshot="):
+			view.building_hotbar.inventory_scroll.scroll_vertical = 10000
+			await settle_footer()
+			verify(root.get_texture().get_image().save_png(
+				argument.trim_prefix("--channel-icon-normal-screenshot=")) == OK,
+				"Retain the ordinary channel kit inventory at 1280x800.")
+		if argument.begins_with("--channel-icon-narrow-screenshot="):
+			view.building_hotbar._close_catalog()
+			await settle_footer()
+			root.size = Vector2i(900, 600)
+			view.building_hotbar.open_catalog(0)
+			view.building_hotbar.inventory_scroll.scroll_vertical = 10000
+			await settle_footer()
+			verify(view.building_hotbar.catalog.visible and root.get_texture().get_image().save_png(
+				argument.trim_prefix("--channel-icon-narrow-screenshot=")) == OK,
+				"Retain the ordinary channel kit inventory at 900x600.")
+	view.free()
+	finish_checks()
+
 func check_slide_manager_cue() -> void:
 	root.size = Vector2i(1280, 800)
 	root.gui_embed_subwindows = true
@@ -952,6 +1001,9 @@ func run_native_route_report() -> void:
 	finish_checks()
 
 func _initialize() -> void:
+	if OS.get_cmdline_user_args().has("--channel-hotbar-icons-only"):
+		call_deferred("check_channel_hotbar_icons")
+		return
 	if OS.get_cmdline_user_args().has("--slide-manager-cue-only"):
 		call_deferred("check_slide_manager_cue")
 		return
