@@ -118,6 +118,19 @@ func _initialize() -> void:
 	verify(Surface.river_center_x(-4.0) < Surface.river_center_x(1.65) - 0.9
 		and Surface.river_center_x(8.0) < Surface.river_center_x(1.65) - 1.0,
 		"The unbuilt stream bends west of the worksite rather than retaining a straight canal cut.")
+	for bank_z in [-30.0, -22.0, 23.0, 30.0]:
+		var river_x := Surface.river_center_x(bank_z)
+		for side in [-1.0, 1.0]:
+			var edge := Surface.channel_half_width(bank_z)
+			var steepest := 0.0
+			for step in range(1, 61):
+				var outer := edge + float(step) * 0.5
+				var previous := Surface.height_at(river_x + side * (outer - 0.5), bank_z)
+				var current := Surface.height_at(river_x + side * outer, bank_z)
+				steepest = maxf(steepest, absf(current - previous) / 0.5)
+			verify(steepest < 0.95,
+				"The emitted distant riverbank rises without a near-vertical cut at "
+				+ str(Vector2(side, bank_z)) + ".")
 	for sample in [Vector2(-2.7, 1.65), Vector2(-1.65, 3.3), Vector2(0.125, 2.125),
 		Vector2(11.99, -9.99), Vector2(12.01, -10.01), Vector2(30.0, 1.65), Vector2(30.0, 30.0)]:
 		var at := Surface.cell(sample.x, sample.y)

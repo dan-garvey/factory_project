@@ -529,7 +529,18 @@ static func raw_height(x: float, z: float) -> float:
 	if dx_river <= half_w:
 		return bed_y
 	var bank_t := smoothstep(half_w, half_w + bank_span(z, -1.0 if x < rc else 1.0), dx_river)
-	return lerpf(bed_y, base_y, bank_t)
+	var current_bank := lerpf(bed_y, base_y, bank_t)
+	# Let distant high ground rise across a valley shoulder rather than ending
+	# the whole hill at the waterline. Keep the near worksite's established fit.
+	var far_bank := smoothstep(8.0, 25.0, absf(z - 1.65))
+	if far_bank <= 0.0:
+		return current_bank
+	var shore_y := minf(base_y, maxf(0.8, stream_surface_height(rc, z) + 0.45))
+	var span := bank_span(z, -1.0 if x < rc else 1.0)
+	var outer_span := maxf(14.0, (base_y - shore_y) * 2.8)
+	var outer_t := smoothstep(half_w + span * 0.6, half_w + span + outer_span, dx_river)
+	var gentle_bank := lerpf(bed_y, shore_y, bank_t) + maxf(0.0, base_y - shore_y) * outer_t
+	return lerpf(current_bank, gentle_bank, far_bank)
 
 static func normal(x: float, z: float) -> Vector3:
 	var step := 0.45

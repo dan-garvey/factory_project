@@ -211,11 +211,12 @@ func check_surface_composition() -> void:
 	inspect_visual(scenery)
 	var rendered := {}
 	collect_solids(view, rendered)
-	var expected := {}
+	var expected_visible := 0
 	for spec in shared.support_boxes():
-		expected[spec.id] = spec
-		if spec.id.begins_with("rock_"):
+		# Loose rocks and the mineable source render through separate object paths.
+		if spec.id.begins_with("rock_") or spec.id == "source_outcrop":
 			continue
+		expected_visible += 1
 		verify(rendered.has(spec.id), "Every architectural/deck collision descriptor has a real visible mesh: " + spec.id)
 		if not rendered.has(spec.id):
 			continue
@@ -226,7 +227,7 @@ func check_surface_composition() -> void:
 			verify(mesh.material_override == Scenery.ground_material()
 				and mesh.get_meta("surface_role") == "foundation",
 				"The natural bedrock terrace panels use the shared rocky-ground material instead of man-made steel floor plates.")
-	verify(rendered.size() == expected.size() - 64, "The shared descriptor set has no invisible architecture boxes.")
+	verify(rendered.size() == expected_visible, "The shared descriptor set has no invisible architecture boxes.")
 	var rocks: MultiMesh = scenery.get_node("RockOutcrops").multimesh
 	check_rock_shapes(rocks)
 	verify(shared.pad_panels().is_empty() and shared.foundation_boxes().is_empty()
