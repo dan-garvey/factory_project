@@ -801,6 +801,45 @@ void harvest_path_respects_obstacles_and_interrupts() {
           "A clear F3 cut after restore spends exactly one tree unit with valid history.");
 }
 
+void placed_machine_blocks_an_actors_harvest_path() {
+    Host host;
+    check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(5.8), V(0.825), V(3.3)}, 1), "accepted"),
+          "A physical worker begins by the real finite timber source.");
+    const auto wire = [](const char* request, const char* action, O extra = {}) {
+        O command{{"context", V("harvest-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        command.merge(extra);
+        return command;
+    };
+    check(get<bool>(host.command("P", wire("fast", "set_developer_conveniences",
+              {{"enabled", V(true)}})), "accepted"),
+          "Native F3 shortens the setup cuts without minting material.");
+    for (const char* request : {"wood-1", "wood-2", "wood-3"})
+        check(get<bool>(host.command("P", cut("P", request, "tree-east-south")), "accepted"),
+              "The actor cuts exactly one finite piece for each requested timber unit.");
+    check(get<bool>(host.command("P", wire("shape", "field_craft",
+              {{"component", V("wooden_slide")}})), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(4.1), V(0.825), V(3.3)}, 2), "accepted"),
+          "The actor carries one real shaped slide to the path between tree and worker.");
+    const auto placed = host.command("P", wire("place-slide", "place_component",
+        {{"component", V("wooden_slide")},
+         {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}}));
+    check(get<bool>(placed, "accepted"), "The actor installs the slide as a native world component.");
+    const auto blocked = host.command("P", cut("P", "tree-behind-slide", "tree-east-south"));
+    check(!get<bool>(blocked, "accepted") &&
+          get<std::string>(blocked, "reason") == "source_occluded" &&
+          !get<bool>(V(get<O>(host.actor_projection("P"), "harvest_clear")),
+              "tree-east-south") &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 5,
+          "A built machine blocks the actor and projected prompt without changing finite stock.");
+    check(get<bool>(host.publish_actor("P", {V(5.7), V(0.825), V(3.3)}, 3), "accepted") &&
+          get<bool>(host.command("P", cut("P", "tree-clear-slide", "tree-east-south")), "accepted") &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 4,
+          "The same source can be cut from the machine's clear side.");
+}
+
 void ore_outcrop_has_a_standing_cut_boundary() {
     Host host;
     auto site = factory::godot_world::tests::flat_site();
@@ -1315,6 +1354,7 @@ int main() {
         flat_head_host_custody();
         cutter_reach_is_shorter_than_build_reach();
         harvest_path_respects_obstacles_and_interrupts();
+        placed_machine_blocks_an_actors_harvest_path();
         ore_outcrop_has_a_standing_cut_boundary();
         shared_harvest();
         mature_bank_tree_stock_survives_shared_restore();
