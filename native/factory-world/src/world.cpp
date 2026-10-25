@@ -4356,21 +4356,29 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             (*origin)[0] > materials::maximum_drop_coordinate - 4 ||
             (*origin)[2] > materials::maximum_drop_coordinate - 4)
             return refused("invalid_sheet_target");
-        const auto cells = broad_cells(*origin);
+        // The current sheet is square, so all four saved orientations require
+        // the same supports. Check the site before disclosing carried identity.
+        const auto footprint = materials::sheet_footprint();
+        const auto occupied = materials::occupied_workcells(*origin, footprint, 0);
+        if (!occupied) return refused("invalid_sheet_target");
+        const auto& cells = *occupied;
+        std::vector<materials::DropPoint> supports;
         for (const auto& cell : cells) {
-            if (std::none_of(state.placed_components.begin(), state.placed_components.end(),
+            if (std::any_of(state.placed_components.begin(), state.placed_components.end(),
                     [&](const auto& entry) {
                         return entry.second.kind == materials::Component::anvil &&
                             entry.second.center == cell;
-                    })) return refused("missing_support");
+                    })) supports.push_back(cell);
             if (state.material.dropped_material.contains(cell))
                 return refused("occupied");
         }
+        if (!materials::fits_supported_workcells(*origin, footprint, 0, supports))
+            return refused("missing_support");
         for (const auto& [point, cargo] : state.material.dropped_material) {
             if (!broad_item(cargo)) continue;
-            const auto occupied = broad_cells(point);
+            const auto other_cells = broad_cells(point);
             if (std::any_of(cells.begin(), cells.end(), [&](const auto& cell) {
-                    return std::find(occupied.begin(), occupied.end(), cell) != occupied.end();
+                    return std::find(other_cells.begin(), other_cells.end(), cell) != other_cells.end();
                 })) return refused("occupied");
         }
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
@@ -5431,7 +5439,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 const auto lot = std::find_if(cargo.work_lots.begin(), cargo.work_lots.end(),
                     [&](const auto& value) { return value.id == *work_id; });
                 if (lot == cargo.work_lots.end()) return refused("unavailable_cargo", *id, std::move(facts));
-                if (lot->recipe.output == materials::WorkOutput::sheet)
+                if (!materials::fits_supported_workcells(center,
+                        materials::work_footprint(lot->recipe.output), 0, {center}))
                     return refused("belt_cannot_carry", *id, std::move(facts));
                 moved.work_lots.push_back(*lot);
                 cargo.work_lots.erase(lot);

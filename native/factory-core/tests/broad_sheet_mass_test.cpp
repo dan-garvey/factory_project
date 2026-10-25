@@ -22,6 +22,33 @@ m::Config recipe() {
     return result;
 }
 
+void support_fit_rule() {
+    const m::DropPoint origin{8, 4, 12};
+    const std::vector<m::DropPoint> one_wide{origin};
+    const std::vector<m::DropPoint> four_cell_floor{{8, 4, 12}, {12, 4, 12},
+        {8, 4, 16}, {12, 4, 16}};
+    check(m::fits_supported_workcells(origin, m::work_footprint(m::WorkOutput::plate), 0,
+              one_wide) &&
+          !m::fits_supported_workcells(origin, m::work_footprint(m::WorkOutput::sheet), 0,
+              one_wide),
+        "One supported belt tile fits a plate but cannot hold the broad unfinished lot.");
+    for (m::Quantity rotation = 0; rotation < 4; ++rotation)
+        check(m::fits_supported_workcells(origin, m::sheet_footprint(), rotation,
+                  four_cell_floor),
+            "The complete two-by-two floor supports one oriented sheet at the same height.");
+    check(!m::fits_supported_workcells(origin, m::sheet_footprint(), 0,
+              {{8, 4, 12}, {12, 4, 12}, {8, 4, 16}}),
+        "A missing corner cannot be treated as support for a whole sheet.");
+    check(m::fits_supported_workcells(origin, {1, 2}, 1,
+              {{8, 4, 12}, {12, 4, 12}}) &&
+          !m::fits_supported_workcells(origin, {1, 2}, 0,
+              {{8, 4, 12}, {12, 4, 12}}),
+        "A non-square future item must fit its actual quarter-turn orientation.");
+    check(!m::fits_supported_workcells(origin, m::sheet_footprint(), 4,
+              four_cell_floor),
+        "An unsupported orientation cannot open a transport path.");
+}
+
 void formed_sheet_and_blocked_output() {
     const auto config = recipe();
     const m::Path path{};
@@ -131,6 +158,7 @@ void recovered_broad_work() {
 
 int main() {
     try {
+        support_fit_rule();
         formed_sheet_and_blocked_output();
         recovered_broad_work();
         std::cout << "broad_sheet_mass_test: " << checks << " checks passed\n";
