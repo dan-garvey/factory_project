@@ -1,283 +1,51 @@
-# Atomic native transactions
+# Native World and transactions
 
-`TransactionOwner<State>` keeps one owned complete State, request history and
-revision in a single snapshot. A successful new command prepares and validates
-all three before replacing the snapshot with one nonthrowing pointer swap.
-Refused new commands retain the same State while caching their original outcome.
+World owns material, components, topology, actor custody, foundations, issued
+identities, request history and checkpoints. Host/Session admit authenticated
+requests and project results; scene nodes do not own a second simulation.
 
-This is unadopted native transaction machinery. It does not create a running World
-beside Model, Session or Store, change their implementation, or define another
-material schema. Its native tests use an invented marker State to test ownership
-and commit behavior; they are not game, quantity or physical evidence.
+## Transactions
 
-## Caller contract
+`TransactionOwner<State>` prepares a complete deeply owned State, history,
+revision and delivery before one nonthrowing pointer swap. Domain validation
+checks conservation, roster, generations, topology and historical references.
+Calls are serialized on the authority thread; the owner is not thread-safe.
 
-The real instantiation must use a complete, deeply owned value containing the
-canonical material State, actor kits, topology and identity metadata. Copies must
-not share mutable world objects. Destruction must not throw. The trusted complete
-validator must check conservation, expected actors, generations, topology and
-operation-specific history consistency. Generic history validation alone does
-not establish those domain facts.
+Exact history lookup precedes current admission. A retry returns its original
+owned receipt/revision and a delivery-only duplicate flag. Reusing an identity
+with changed intent is an error. Refusals retain State and cache their original
+outcome. Preparation/validation/allocation failure is not a gameplay refusal:
+it commits and caches nothing. Reentrant writes refuse.
 
-Session binds the caller before dispatch. For a fresh request, a trusted native
-handler receives const current facts and derives canonical targets, current
-native-body/reach admission and the pure rule candidate. Client coordinates,
-supplied handlers and validator callbacks are not public gameplay inputs. Calls
-are serialized on the authority thread; this component is not thread-safe and
-does not sandbox malicious native code or mutable external aliases.
+Trusted stepping uses the same complete validation and commit boundary without
+creating request receipts. An unchanged step changes no revision. Snapshots and
+results own their values; no public mutable borrow or history reset exists.
 
-## Transaction behavior
+## Custody and geometry
 
-Exact history lookup precedes the handler and current admission. A retry returns
-an owned copy of the original result, including its original revision and facts,
-with the delivery-only duplicate flag set. It invokes no handler, validator or
-current rule. The separately returned current revision identifies the current
-snapshot without retargeting the cached receipt. Changed intent under the same
-identity is a history error and cannot invoke the handler.
+Placement/reclaim, construction stock, source depletion and loose/held work
+share the transaction. Resolve actual entity generations, native actor/reach
+observations and physical interaction anchors. Client coordinates alone grant
+no authority. Reclaim cannot erase occupied contents or mint parts.
 
-For a new request, accepted decisions require a complete replacement State;
-refused decisions require no replacement State. The reviewed history helper
-prepares the original result and next order/revision. The owner builds a complete
-candidate snapshot, validates it and prepares the owned delivery before its
-single commit. Invalid decisions, invalid candidates, allocation/copy exceptions,
-handler exceptions and validator exceptions leave the original snapshot intact.
-Failed preparation is not a cached gameplay refusal; it returns no outcome.
-Reentrant writes are refused without a partial or nested commit.
+Mechanical power derives from placed geometry and physical source rates.
+Disconnected branches stop independently. Partial/ready work retains recipe,
+serial, remaining work and form through pauses, recovery and reinsertion.
+Assembly recognition and current tuning live in source; the intended component
+boundary is in [DESIGN](../../DESIGN.md).
 
-Snapshots and outcomes are independent owned copies. There is no public mutable
-borrow, setter, cache reset or context replacement. Fresh creation starts at
-revision and order zero after full validation. Validated restore preserves a
-complete logical checkpoint rather than resetting its history. Trusted
-stepping prepares one complete candidate and increments revision without creating
-or modifying a request receipt. An unchanged step increments nothing. The same
-validation, reentrancy guard and atomic commit apply to both paths. Complete
-Store-file integration, body registration/lifetimes and live adoption remain
-subsequent integration work. This API must not be used
-to manufacture a fresh world when a real checkpoint import fails.
+Material attachment resolves compatible physical endpoints and validates both
+ends, finite custody, direction and capacity atomically. A blocked outlet
+retains the same item/work rather than consuming another input.
 
-## Native stationary World
+## Checkpoints and consumers
 
-`World` instantiates the owner with the canonical material State, stationary
-topology, each actor's finite part kit and an issued-entity ledger. Immutable
-startup profile facts define the finite source, complete part budget, recipe,
-actor roster, source rate, grid scale and reach. Validation checks material and
-physical-part conservation, exact roster agreement, current generations, issued
-identities, canonical topology and historical work references before every commit.
-There is no mutable compatibility inventory or separately authoritative projection.
-The derived `machine_power(topology, drive)` overload consumes an already
-evaluated `DrivePower`. The Host uses it when projecting the same confirmed
-motion and machine flags, avoiding a second drive graph evaluation without
-changing World state or wire fields.
+Typed checkpoint validation covers complete current state and request history.
+Session binds actors/request namespaces; Store owns files; Host restores native
+bodies from validated facts. Invalid loads refuse without a fresh-world fallback.
+Component tests do not prove every shared or moving-world continuation.
 
-Foundations share this same transaction owner, identity sequence and request
-history. Their finite per-actor custody and grid-aligned placed blocks are part
-of the complete State and checkpoint, outside the mechanical topology. Removal
-cannot orphan a supported machine or stacked block. The trusted site adapter
-validates terrain support; the World retains exact reach, conservation, overlap,
-generation and history checks. The trusted profile fixes each actor's initial
-foundation kit; accepted placement and recovery history must reproduce each
-retained actor balance, not only the global part total. There is no old-save
-migration for this feature.
-
-The experimental arrival profile also keeps crafted component counts in the
-canonical material State when parts leave an actor's cargo. World assigns each
-installed part a distinct identity and shared quarter-grid center. Placing and
-reclaiming are actor-reachable requests with exact retry, issue-history,
-checkpoint and two-actor custody validation. Collector and press arrangements
-are recognized from those identities. `feed_press` requires a complete press,
-one of its clear feed faces and a reachable actor carrying one raw blank. It
-moves that blank into the canonical loose-material ledger at the press's work
-center. A second press has a different work point and cannot share its item.
-`turn_press_crank` names the exact press anchor, drive shaft and clear exit. A
-new guided press uses the anvil as that anchor, with a floating ram and guide;
-older framed layouts remain historical fixtures during consumer migration. The actor
-must hold the pod crank and reach that shaft. One turn starts a WorkLot, later
-turns advance it on the shared fixed work clock, and a completed lot becomes one
-product at the selected physical exit. A full exit retains ready work; pickup
-after dismantling recovers the original blank or partial WorkLot. Work and
-products remain in the canonical loose-material ledger and strict checkpoint.
-The existing native drive evaluator now projects complete placed collector and
-press assemblies into the same connected graph as stationary shafts, cogs and
-wheel sources. The projected parts keep their issued identities. Speed-weighted
-machine load is limited by the weakest placed shaft or cog: provisional wooden
-rating 8 and copper rating 24, against the existing wheel capacity of 32
-per unit source rate. A connected overload stalls without consuming material
-or damaging parts; independent branches retain their own motion. World ticks
-and checkpoint restore recompute this graph from the one saved State. These
-ratings are calibration values for the first chapter, not permanent torque
-units. Hand-crank commands still operate by explicit actor action; automatic
-collector-to-press custody and continuous machine actuation remain integration
-work.
-One identified hand crank starts in the arrival pod. Reach-checked take and
-return requests move its custody between the pod and one actor. The same
-issued identity, request history and checkpoint preserve that custody. Crank
-attachment and continuous machine power remain subsequent work.
-Trusted ore-face samples now let a held crank drive a recognized placed-part
-collector through an actor-reachable `turn_hand_crank` request. Each accepted
-turn debits the one native ore reserve and leaves one raw item at the real
-receiver center in the existing loose-material ledger. The tray has one-item
-capacity; pickup, dismantle and checkpoint preserve the item. On a tick, a
-ready tray may hand that blank to the empty endpoint slot of an adjacent belt
-on the tray side. The signed belt motion must carry away from the collector;
-a stopped, reversed or full inlet leaves the blank in the tray. The belt
-mouth sits at the next full-tile center from the quarter-grid tray and the
-following belt tile must not approach the frame. This is manual extraction;
-automatic extraction and scene input remain to be integrated.
-
-Session supplies the authenticated actor and request namespace. Fresh commands
-use exact integer fields and known keys. They resolve current entity generations,
-derive native interaction anchors and obtain an observation from the host's
-registered actor producer. Both endpoints of a material link require reach.
-Placement allocates a fresh identity only with its successful finite-part commit;
-removal retains the old identity for historical receipt lookup. Recovery, whole
-work insertion and product collection call the existing material functions.
-Stationary removal and rebuilding call the existing pure planners.
-
-The trusted host tick derives each machine's power from geometric shaft and gear
-engagements. A disconnected machine stops while unrelated rotating branches keep
-working. Carried work pauses; its original recipe, serial and remaining time
-survive recovery and reinsertion. A ready lot with zero remaining time still
-occupies its processor. Material links are the two permitted transport edges,
-not arbitrary power-transmission edges.
-
-This first profile limits the roster to 16 actors, current work to 4096 lots and
-issued entity identities to 4096. Other inherited component bounds still apply.
-These are adapter limits, not permanent game requirements. Calls are serialized
-on the authority thread. The native host observation callback is trusted code;
-the domain does not prove registration, collision clearance or process lifetime.
-Native body integration and the switch from the current scripted authority are
-unfinished. This native format does not decode the old scripted save format.
-
-## Material construction attachment
-
-The opening's Host translates ordinary collector, belt and press placement into
-`place_connected`. This internal native operation derives only compatible ports
-involving the new part. It uses the opening's directed port layout: collector
-to belt and belt to press, one cell along +X for a Z-axis belt or along +Z for
-an X-axis belt, at the same height. A cell is four integer quarter-pitch units. Gaps, reverse layouts,
-diagonals, other heights and nearby power components do not attach. This is a
-revisable adapter layout, not a general material-routing rule.
-
-The logical checkpoint uses schema 18 and retains exact powered-slide carriage phase and pending manual cut identity,
-remaining trusted ticks, and interruption state alongside each actor's witnessed
-first collected plate, the pod workshop's installed or held
-custody and relocated center, and collector/press quarter-turn
-facings as well as identified horizontal, inclined,
-vertical and sideways belt spans and their shaft endpoints. A span counts against the same finite belt
-part inventory as a conveyor. `place_belt_span` consumes a belt and checks
-reach to both shaft identities; `remove_belt_span` refunds it. Both retain
-generation, retry history and the ordered shaft centers used by its reach receipt.
-Accepted removals retain the removed part or span shape in their native history
-receipt. Restore reverses later layout edits when checking automatic tick
-witnesses used by manual press receipts; a later wheel toggle or construction
-edit does not lend an unrelated tick to the press. Schema 12 is
-refused rather than migrated because its removal history lacks these shapes.
-
-A separate four-anvil cutting station accepts four placed cutting edges,
-guides and connected shaft/cog pairs. `stroke_broad_shear` names the first
-anvil and the staged sheet identity. Each accepted powered stroke is recorded
-against that sheet; losing power or removing a blade leaves the sheet and its
-partial progress accessible. The fourth stroke exchanges one twelve-mass sheet
-for four separate ordinary three-mass plates on the four anvil cells. An
-occupied output cell refuses the stroke without changing either quantity or
-progress. The logical checkpoint stores the sheet's origin and stroke count,
-and restore checks both against the authenticated command history. Earlier
-logical checkpoint schemas are not migrated to this prototype schema.
-For a modular press, the checkpoint also retains the work identities waiting at
-its exit or already exported to a belt. Those witnesses do not own material;
-the single material ledger continues to hold every plate and belt slot.
-Manual press receipts also retain the work item immediately before each turn.
-Per-work automatic progress witnesses record productive material ticks, their
-World revisions and press work points. Restore reconciles them with manual
-receipts, refeed history and known stalled drive intervals. These mutable
-checkpoint records provide internal consistency checks, not authentication of
-an arbitrarily rewritten save.
-unrelated World revisions do not count as press progress. The witnesses do not
-own cargo or create products.
-An inward powered belt may feed one raw blank or matching WorkLot through a
-clear quarter-grid press face from its adjacent full-tile endpoint. A full
-work point, obstructed chute or ambiguous assembly retains the item on the
-belt. Belt-fed work and its output identities are checkpoint witnesses in the
-same World, and actor pickup clears a waiting output claim. The press still
-uses its placed drive or the actor's crank for the actual work cycle.
-Earlier checkpoints are refused rather than migrated. The native Host checks actor and site clearance.
-World owns canonical multi-slot lane custody; vertical and sideways power-only
-spans require empty lanes. The Godot Host admits all four path kinds with
-physical-body site and actor clearance.
-A powered collector adjacent to
-either outer endpoint can feed raw material into an empty endpoint, even while
-the span is stopped. Rotation carries raw material to an adjacent processor at
-the outgoing endpoint, subject to its input capacity. Attachment follows grid
-geometry regardless of construction order. Items leaving an open end enter the
-typed loose-material store and can be picked up; a full processor retains its
-queued cargo on the lane. The Host projects confirmed lane slots and the shared
-presenter shows those confirmed items at their confirmed slot and phase positions.
-Manual recovery uses the selected slot's current confirmed cargo. Earlier logical
-schema payloads are refused.
-
-The planner checks reach to the new part and every existing endpoint before
-preparing one replacement state. Placement, finite kit and the added links
-commit together, or none do. Material attachment creates no shaft, mechanical
-engagement, power or material tick. Placing the belt first, last or between the
-other two placements produces the same directed path without separate link
-requests. Existing removal still removes the affected links and refunds the
-exact carried specification.
-
-The original internal `place` operation remains unchanged for historical
-receipts and other construction. Its accepted history still requires exactly
-one reach target. `place_connected` retains the new part first, followed by its
-actual attached endpoints; historical validation permits only the corresponding
-distinct input and output anchors. Restoration and exact retry preserve the
-original identities and targets, including a removed belt, rather than deriving
-new attachments from the current worksite.
-
-## Typed logical checkpoints
-
-The checkpoint codec composes Recovery's canonical material subrecord with the
-stationary topology, actor part kits, all issued entity identities, request
-history and current revision. The exact trusted startup profile is included for
-comparison. Decoding cannot select another recipe, roster, finite budget, source
-rate, grid scale or reach. Integer authority fields stay integers; unknown and
-missing fields refuse. Input depth, text, node and collection bounds apply before
-material decoding and its current-work serial checks.
-
-`World::restore` validates a complete decoded snapshot and expected world context
-before creating an owner. It preserves every historical intent, outcome and
-revision, including receipts for removed parts and earlier actor observations.
-Accepted historical facts must retain their exact scalar/container schema,
-generation, moved material and valid original reach calculation. They are never
-compared against a new actor pose or retargeted to the current topology. Invalid
-input returns a refusal or no owner; there is no fresh-seed fallback.
-
-This is a logical native checkpoint value. Store still owns encoding, file
-publication and the original file. The codec owns no file descriptor or network
-operation. Physical poses, body registration and process lifetimes remain host
-adapter responsibilities and are not supplied by this checkpoint. Logical
-round-trip and resumed work tests do not establish fresh-process game restoration.
-
-## Build and evidence
-
-Bazel targets include `//native/factory-world:transactions`,
-`//native/factory-world:transactions_test`, `//native/factory-world:world` and
-`//native/factory-world:world_test`, `//native/factory-world:checkpoint` and
-`//native/factory-world:checkpoint_test`. The World consumes the existing material,
-recovery and stationary packages; the generic owner depends only on authority.
-
-The literal test source covers atomic accepted/refused commands, exact retry,
-strict request reuse, detached reads/delivery, invalid decisions/candidates,
-preparation exceptions and nested writes. Source checks do not compile or execute
-these controls. The new World tests use the real component implementations with
-invented finite state and actor observations. They check literal custody, partial
-and ready work, running removal/rebuild, independent local power, two-endpoint
-reach, authenticated binding and immutable historical outcomes. They do not run
-Godot, a real actor or ordinary gameplay. The root suite remains material-only;
-select the relevant package target explicitly. Use ordinary resource admission
-and the installed commit hook once. One independent reviewer covers the change;
-unchanged dependencies do not need repeated checks or reviews. See the
-[migration contract](../../docs/engineering/native-migration.md) and
-[resource rules](../../docs/engineering/local-resources.md).
-
-The original native World and logical-checkpoint consumers passed 124 and 126
-checks respectively, and the composed package built and linked through canonical
-Bazel. These results are retained component evidence, not a live game or physical
-restoration result. Recovery supplied the single independent source review.
+Use `//native/factory-world:all` through
+[native builds](../../docs/engineering/native-builds.md). The
+[Godot bridge](../factory-godot-world/README.md) is the ordinary scene consumer.
+Headers and tests define current APIs and schemas; dated results belong in Beads.

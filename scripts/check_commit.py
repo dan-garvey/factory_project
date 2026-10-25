@@ -14,7 +14,7 @@ def local_value(name):
     result = subprocess.run(["git", "-C", str(check.ROOT), "config", "--local", "--get", name],
                             text=True, capture_output=True)
     if result.returncode or not result.stdout.strip():
-        raise ValueError(f"Staged GDScript needs repository-local {name}; see CONTRIBUTING.md")
+        raise ValueError(f"Staged GDScript needs repository-local {name}; see docs/engineering/native-builds.md")
     return result.stdout.strip()
 
 
