@@ -651,10 +651,26 @@ func _component_placement_check() -> void:
 		"generation": 1,
 		"occupied": {"center": [ram_box.center.x, ram_box.center.y, ram_box.center.z],
 			"half": [ram_box.half.x, ram_box.half.y, ram_box.half.z]}}
+	var ram_record: Dictionary = view.state.placed_components.ram
 	var placed_ram := Node3D.new()
 	placed_ram.position = ram_box.center
 	view.add_child(placed_ram)
 	presenter.preview_component(placed_ram, "ram_face", ram_box.size)
+	var fitted_guide_box := view._component_candidate_box("sliding_guide", [0, 3, 0])
+	verify(not view._component_candidate_blocked("sliding_guide", [0, 3, 0], fitted_guide_box)
+		and fitted_guide_box.center.y - fitted_guide_box.half.y < ram_box.center.y + ram_box.half.y,
+		"The full guide rails preview around the exact fitted ram without hiding their occupied span.")
+	view.state.placed_components["fitted_guide"] = {"component": "sliding_guide", "center": [0, 3, 0],
+		"generation": 1, "occupied": {"center": [fitted_guide_box.center.x,
+			fitted_guide_box.center.y, fitted_guide_box.center.z],
+			"half": [fitted_guide_box.half.x, fitted_guide_box.half.y, fitted_guide_box.half.z]}}
+	view.state.placed_components.erase("ram")
+	verify(not view._component_candidate_blocked("ram_face", [0, 2, 0], ram_box)
+		and view._component_candidate_blocked("wooden_shaft", [0, 2, 0],
+			view._component_candidate_box("wooden_shaft", [0, 2, 0])),
+		"A ram can fit into the guide in reverse order, while an unrelated shaft cannot enter the rails.")
+	view.state.placed_components.erase("fitted_guide")
+	view.state.placed_components["ram"] = ram_record
 	view.aimed = "ram"
 	body.set_meta("component_entity", "ram")
 	view._refresh_component_preview()

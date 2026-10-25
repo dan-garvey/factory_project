@@ -293,9 +293,10 @@ Bounds component_bounds(const world::Profile& profile,
             return vertical(at[1] - height_step * 0.75,
                 at[1] + height_step * 0.5);
         case materials::Component::sliding_guide:
-            // The guide meets the ram below and the unchanged tool-mount box
-            // above. All three use the one construction height denominator.
-            return vertical(at[1] - height_step * 0.5, at[1] + height_step - 0.08);
+            // Its full selected rails reach the ram below, whether or not a
+            // press is recognized. The admitted box includes that entire
+            // span and meets the unchanged tool-mount box above.
+            return vertical(at[1] - height_step * 1.5, at[1] + height_step - 0.08);
         case materials::Component::wooden_slide:
         case materials::Component::copper_slide:
             // Its fixed rails and moving carriage live inside this volume.
@@ -333,6 +334,21 @@ bool slide_head_fitting(std::optional<materials::Component> first,
                second_center[1] == first_center[1] + 1) ||
         (slide(*first) && second == materials::Component::flat_head &&
                first_center[1] == second_center[1] + 1);
+}
+
+bool guide_ram_fitting(std::optional<materials::Component> first,
+        const mechanics::Point& first_center, materials::Component second,
+        const mechanics::Point& second_center) {
+    if (!first || first_center[0] != second_center[0] ||
+        first_center[2] != second_center[2]) return false;
+    // The guide's narrow fixed side rails wrap the centered ram. Their
+    // conservative occupied boxes overlap in this one fitted stack.
+    return (*first == materials::Component::sliding_guide &&
+               second == materials::Component::ram_face &&
+               first_center[1] == second_center[1] + 1) ||
+        (*first == materials::Component::ram_face &&
+               second == materials::Component::sliding_guide &&
+               second_center[1] == first_center[1] + 1);
 }
 
 bool overlap(const Bounds& a, const Bounds& b) {
@@ -1021,7 +1037,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
             {"fir_03", {{29, 0, -24}, 8}},
             {"fir_04", {{32, 0, -2}, 8}},
             {"fir_05", {{44, 0, 15}, 8}},
-            {"broadleaf_00", {{8, 0, -7}, 8}},
+            {"broadleaf_00", {{15, 1, -46}, 8}},
             {"broadleaf_01", {{-46, 0, -34}, 8}}};
         // Zero means no carried-count limit. Finite sources and native custody
         // still bound the material that can exist in the opening.
@@ -1614,6 +1630,7 @@ const char* Host::component_space_refusal(const world::State& state,
     for (const auto& [id, other] : state.placed_components)
         if ((!current_id || id != *current_id) &&
             !slide_head_fitting(kind, center, other.kind, other.center) &&
+            !guide_ram_fitting(kind, center, other.kind, other.center) &&
             overlap(volume, component_bounds(profile_, other.kind, other.center))) return "occupied";
     if (intersects_belt(state, volume)) return "occupied";
     for (const auto& part : state.topology.parts) {

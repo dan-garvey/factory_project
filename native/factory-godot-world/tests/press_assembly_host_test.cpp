@@ -513,8 +513,22 @@ void placed_press_projection() {
     check(!std::get<O>(inspection(host).storage()).contains("parts"),
           "An incomplete frame has no ready component identities.");
     const auto anvil = place(host, "anvil", 8, 1, 0, "place-anvil");
-    const auto ram = place(host, "ram_face", 8, 2, 0, "place-ram");
     const auto guide = place(host, "sliding_guide", 8, 3, 0, "place-guide");
+    const auto before_intrusion = host.projection();
+    auto intrusion = request("guide-rail-intrusion", "place_component");
+    intrusion.emplace("component", V("wooden_shaft"));
+    intrusion.emplace("center", V(A{V(I{8}), V(I{2}), V(I{0})}));
+    const auto blocked_intrusion = host.command("P", intrusion);
+    const auto after_intrusion = host.projection();
+    check(!get<bool>(blocked_intrusion, "accepted") &&
+          get<std::string>(blocked_intrusion, "reason") == "occupied" &&
+          !factory::values::typed_difference(
+              V(get<O>(before_intrusion, "placed_components")),
+              V(get<O>(after_intrusion, "placed_components"))) &&
+          !factory::values::typed_difference(
+              V(get<O>(before_intrusion, "cargo")), V(get<O>(after_intrusion, "cargo"))),
+          "An unrelated part cannot enter the guide rails or spend carried components.");
+    const auto ram = place(host, "ram_face", 8, 2, 0, "place-ram");
     const auto mount = place(host, "tool_mount", 8, 4, 0, "place-mount");
     const auto shaft = place(host, "wooden_shaft", 9, 4, 0, "place-shaft");
     check(get<std::string>(inspection(host), "status") == "missing_cog",
@@ -541,9 +555,9 @@ void placed_press_projection() {
         std::get<double>(mount_half[1].storage());
     check(std::abs(frame_top - anvil_faces.first) < 1e-9 &&
           std::abs(anvil_faces.second - ram_faces.first) < 1e-9 &&
-          std::abs(ram_faces.second - guide_faces.first) < 1e-9 &&
+          std::abs(ram_faces.second - guide_faces.first - 0.4125) < 1e-9 &&
           std::abs(guide_faces.second - mount_bottom) < 1e-9,
-          "Seven separately owned press parts meet at physical frame, anvil, ram, guide and crown faces.");
+          "The guide's selected rail volume wraps the fitted ram and meets the press crown.");
     check(get<std::string>(ready, "status") == "ready" &&
           get<std::string>(V(parts), "frame") == frame &&
           get<std::string>(V(parts), "anvil") == anvil &&

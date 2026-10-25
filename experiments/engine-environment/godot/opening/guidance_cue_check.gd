@@ -301,7 +301,7 @@ func check_slide_manager_cue() -> void:
 	snapshot.cargo = {"P": {"raw": 0, "products": 0, "components": {}}}
 	snapshot.workshop_completed_actors = []
 	snapshot.guided_press_assemblies = []
-	snapshot.sliding_press_assemblies = [{"status": "unpowered"}]
+	snapshot.sliding_press_assemblies = [{"status": "unpowered", "parts": {"slide": "slide"}}]
 	var view := FooterView.new()
 	view.client = "P"
 	view.state = snapshot
@@ -311,12 +311,43 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	verify(not view.goal_label.text.contains("Open the working press"),
 		"An unpowered slide candidate does not claim that the first press is ready.")
+	view.state.first_plate_unlock = true
+	view.state.cargo.P.timber = 3
+	view.state.cargo.P.raw = 4
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	verify(view.goal_label.text.contains("Use Build [B] to craft and fit press parts from carried stock")
+		and not view.goal_label.text.contains("Craft anvil, flat head"),
+		"Carried stock reveals the recipe grid without prescribing a fixed four-part checklist.")
 	view.state.sliding_press_assemblies[0].status = "ready"
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	verify(view.goal_label.text.contains("Craft a hand crank [B]")
+		and view.manager_log_current.text.ends_with(
+			"Craft a hand crank [B], fit it at a slide input, then open the press [E]."),
+		"A geometrically ready slide without a crank asks for the missing portable input.")
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--slide-missing-crank-screenshot="):
+			root.size = Vector2i(900, 600)
+			for _frame in range(12):
+				await process_frame
+			verify(root.get_texture().get_image().save_png(
+				argument.trim_prefix("--slide-missing-crank-screenshot=")) == OK,
+				"Retain the narrow ordinary cue before the slide has a crank.")
+			root.size = Vector2i(1280, 800)
+	view.state.cargo.P.components.hand_crank = 1
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	verify(view.goal_label.text.contains("Fit your carried crank at a slide input [B]")
+		and not view.goal_label.text.contains("Craft a hand crank"),
+		"A carried crank is fitted rather than crafted again.")
+	view.state.cargo.P.components.hand_crank = 0
+	view.state.crank_items = {"crank-1": {"holder": "", "attached_to": "slide", "port": [1, 2, 0]}}
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
 	verify(view.goal_label.text.contains("Open the fitted press [E]. Move a blank to the workbed, then crank.")
 		and view.manager_log_current.text.ends_with("Open the fitted press [E]. Move a blank to the workbed, then crank."),
-		"The ordinary first-shift cue and replayable log recognize a ready slide press.")
+		"The ordinary first-shift cue and replayable log recognize a ready slide with its fitted crank.")
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--slide-manager-screenshot="):
 			for _frame in range(12):
@@ -351,6 +382,24 @@ func check_slide_manager_cue() -> void:
 	verify(shared.goal_label.text == view.goal_label.text
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"The shared worker receives the same blocked-feed action without creating local authority.")
+	view.state.sliding_press_assemblies[0].status = "unpowered"
+	shared.state.sliding_press_assemblies[0].status = "unpowered"
+	view._refresh_guided_tools()
+	view._refresh_manager_log()
+	shared._refresh_guided_tools()
+	shared._refresh_manager_log()
+	verify(view.goal_label.text.contains("Inspect placed parts [E]")
+		and not view.goal_label.text.contains("Craft anvil, flat head")
+		and shared.manager_log_current.text == view.manager_log_current.text,
+		"Partial press work points to the placed parts without ordering a fixed four-part list.")
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--slide-partial-screenshot="):
+			shared.arrival_gameplay_canvas.visible = false
+			for _frame in range(12):
+				await process_frame
+			verify(root.get_texture().get_image().save_png(
+				argument.trim_prefix("--slide-partial-screenshot=")) == OK,
+				"Retain the ordinary partial-press cue without the old assembly checklist.")
 	view.state.sliding_press_assemblies[0].status = "ready"
 	shared.state.sliding_press_assemblies[0].status = "ready"
 	view._refresh_guided_tools()

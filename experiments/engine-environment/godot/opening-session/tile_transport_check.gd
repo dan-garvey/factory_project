@@ -775,6 +775,14 @@ func chapter_drop(view: Dictionary, center: Array, raw: int, products: int) -> b
 			return true
 	return false
 
+func chapter_expected_drop(view: Dictionary, center: Array) -> Dictionary:
+	for drop: Dictionary in view.get("dropped_material", []):
+		if drop.get("center") == center:
+			var expected := drop.duplicate(true)
+			expected.erase("center")
+			return expected
+	return {}
+
 func chapter_work(view: Dictionary) -> Dictionary:
 	for drop in view.get("dropped_material", []):
 		if drop is Dictionary and drop.get("work_lots", []) is Array \
@@ -1008,7 +1016,7 @@ func chapter_client() -> void:
 				"The restored WorkLot becomes one second plate at the same press exit")
 			if failed: quit(1); return
 			await chapter_request({"action": "pickup_material", "center": route.exit,
-				"expected": {"raw": 0, "products": 1, "work_lots": []}},
+				"expected": chapter_expected_drop(session.projection(), route.exit)},
 				"P collects the formed second plate without losing the first")
 			if failed: quit(1); return
 			mark("resume-P-done")
@@ -1119,7 +1127,7 @@ func chapter_client() -> void:
 	if failed: quit(1); return
 	var first_turn: Dictionary = await chapter_request({"action": "turn_hand_crank", "entity": collector_mount},
 		"P hand-cranks one collector-cut blank")
-	verify(first_turn.get("source_remaining") == 10 and first_turn.get("receiver_raw") == 1,
+	verify(first_turn.get("source_remaining") == 4090 and first_turn.get("receiver_raw") == 1,
 		"One collector turn debits one finite ore and fills its receiver")
 	if failed: quit(1); return
 	var first_request: String = str(first_turn.get("request", ""))
@@ -1143,7 +1151,7 @@ func chapter_client() -> void:
 	if not await until(func(): return FileAccess.file_exists(directory.path_join("chapter-cut-observed")),
 		"Q observes the live receiver blank before pickup"): quit(1); return
 	await chapter_request({"action": "pickup_material", "center": [0, 4, 3],
-		"expected": {"raw": 1, "products": 0, "work_lots": []}},
+		"expected": chapter_expected_drop(session.projection(), [0, 4, 3])},
 		"P physically retrieves the collector blank")
 	if failed: quit(1); return
 	await chapter_request({"action": "detach_hand_crank", "entity": crank_id},
@@ -1188,8 +1196,15 @@ func chapter_client() -> void:
 		"The separate press forms one actual plate at its selected exit")
 	if failed: quit(1); return
 	await chapter_request({"action": "pickup_material", "center": route.exit,
-		"expected": {"raw": 0, "products": 1, "work_lots": []}},
+		"expected": chapter_expected_drop(session.projection(), route.exit)},
 		"P picks up the first plate formed from collector ore")
+	if failed: quit(1); return
+	verify(chapter_expected_drop(session.projection(), press.work_center).get("offcuts", 0) == 1,
+		"The first plate leaves one recoverable copper offcut on the work face")
+	if failed: quit(1); return
+	await chapter_request({"action": "pickup_material", "center": press.work_center,
+		"expected": chapter_expected_drop(session.projection(), press.work_center)},
+		"P clears and carries the first copper offcut before another feed")
 	if failed: quit(1); return
 	await chapter_request({"action": "detach_hand_crank", "entity": crank_id},
 		"P detaches the press crank for another collector cut")
@@ -1203,11 +1218,11 @@ func chapter_client() -> void:
 	if failed: quit(1); return
 	var second_cut: Dictionary = await chapter_request({"action": "turn_hand_crank", "entity": collector_mount},
 		"P cuts a second blank while retaining the first plate")
-	verify(second_cut.get("source_remaining") == 9 and second_cut.get("receiver_raw") == 1,
+	verify(second_cut.get("source_remaining") == 4089 and second_cut.get("receiver_raw") == 1,
 		"The second collector cut consumes exactly one further finite ore")
 	if failed: quit(1); return
 	await chapter_request({"action": "pickup_material", "center": [0, 4, 3],
-		"expected": {"raw": 1, "products": 0, "work_lots": []}},
+		"expected": chapter_expected_drop(session.projection(), [0, 4, 3])},
 		"P retrieves the second collector blank")
 	if failed: quit(1); return
 	await chapter_request({"action": "detach_hand_crank", "entity": crank_id},

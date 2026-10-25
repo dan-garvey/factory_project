@@ -1205,7 +1205,7 @@ void mature_bank_tree_stock_survives_shared_restore() {
         command.merge(extra);
         return command;
     };
-    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(-2.8875)}, 1), "accepted") &&
+    check(get<bool>(host.publish_actor("P", {V(6.1875), V(1.0), V(-18.975)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(0.0), V(1.0), V(0.0)}, 1), "accepted") &&
           get<bool>(host.command("P", wire("P", "fast", "set_developer_conveniences",
               {{"enabled", V(true)}})), "accepted"),
@@ -1229,7 +1229,7 @@ void mature_bank_tree_stock_survives_shared_restore() {
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),
           "A fresh Host replays the exact mature-tree stock and shared material history.");
-    check(get<bool>(restored.publish_actor("Q", {V(3.3), V(1.0), V(-2.8875)}, 2), "accepted"),
+    check(get<bool>(restored.publish_actor("Q", {V(6.1875), V(1.0), V(-18.975)}, 2), "accepted"),
           "A second actor can observe the restored broadleaf site.");
     const auto exhausted = restored.command("Q", wire("Q", "depleted", "harvest_source",
         {{"target", V("broadleaf_00")}}));

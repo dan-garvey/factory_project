@@ -1320,13 +1320,11 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				_support_box(die, "FlatHeadWearStrip", Vector3(0, -0.045, z),
 					Vector3(0.23, 0.012, 0.018), dark)
 		"sliding_guide":
-			# Side rails span the guided stroke gap; framed guides stay short.
-			var stroke_reach := Geometry.HEIGHT_STEP if press_role == "guided_guide" else 0.0
-			var rail_x := 0.125 if press_role == "guided_guide" else 0.103
-			var rail_width := 0.03 if press_role == "guided_guide" else 0.045
-			for x in [-rail_x, rail_x]:
-				_support_box(anchor, "GuideRail", Vector3(x, -stroke_reach * 0.5, 0),
-					Vector3(rail_width, occupied_size.y + stroke_reach - 0.012, 0.21), worked)
+			# Full-length rails are intrinsic to the selected part. Its native
+			# occupied box includes the reach toward the ram in every state.
+			for x in [-0.125, 0.125]:
+				_support_box(anchor, "GuideRail", Vector3(x, 0, 0),
+					Vector3(0.03, occupied_size.y - 0.012, 0.21), worked)
 			_support_box(anchor, "GuideCrown", Vector3(0, occupied_size.y * 0.5 - 0.035, 0),
 				Vector3(0.25, 0.055, 0.25), dark)
 		"wooden_slide", "copper_slide":
@@ -1692,8 +1690,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 				continue
 			var cell := Vector3i(press.center[0], press.center[1], press.center[2])
 			for member in [[cell, "anvil", "anvil"],
-					[cell + Vector3i(0, 1, 0), "ram_face", "ram"],
-					[cell + Vector3i(0, 3, 0), "sliding_guide", "guided_guide"]]:
+					[cell + Vector3i(0, 1, 0), "ram_face", "ram"]]:
 				var id: Variant = by_cell.get(member[0])
 				if boxes.has(id) and boxes[id].component == member[1]:
 					press_roles[id] = member[2]

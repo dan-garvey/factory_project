@@ -33,6 +33,12 @@ static var _broadleaf_descriptors: Array[Dictionary] = []
 static var _broadleaf_faces := PackedVector3Array()
 static var _broadleaf_contact_rows: Array[Dictionary] = []
 
+static func _face_bounds(faces: PackedVector3Array) -> AABB:
+	var bounds := AABB(faces[0], Vector3.ZERO)
+	for point: Vector3 in faces:
+		bounds = bounds.expand(point)
+	return bounds
+
 static func read_fir(path: String = FIR_FILE) -> Dictionary:
 	# Optional prepared art, not a tree population or a physical fixture.
 	# Keep one resource interface for a later matched visual/collision join.
@@ -123,9 +129,11 @@ static func _prepare_firs() -> void:
 				if (q - p).cross(r - p).length_squared() > 0.0:
 					faces.append_array(PackedVector3Array([p, q, r]))
 		var id := "fir_%02d" % _fir_descriptors.size()
-		_fir_descriptors.append({"id": id, "center": at, "basis": basis, "scale": size, "bounds": envelope})
+		var collision_bounds := _face_bounds(faces)
+		_fir_descriptors.append({"id": id, "center": at, "basis": basis, "scale": size,
+			"bounds": envelope, "collision_bounds": collision_bounds})
 		_fir_faces.append_array(faces)
-		_fir_contact_rows.append({"id": id, "faces": faces, "bounds": envelope})
+		_fir_contact_rows.append({"id": id, "faces": faces, "bounds": collision_bounds})
 		_fir_layout_counts.accepted += 1
 		if _fir_descriptors.size() == 6:
 			break
@@ -176,7 +184,9 @@ static func _prepare_broadleaf() -> void:
 		# Scenic broadleaf roots stay outside that small resource cluster.
 		if side > 0.0 and z > -2.0 and z < 11.0:
 			continue
-		var x := river_center_x(z) + side * (channel_half_width(z) + 5.4 + float(candidate % 7) * 1.2)
+		# Keep the east roots outside the opening's riverside work and timber paths.
+		var x := river_center_x(z) + side * (channel_half_width(z) + (8.4 if side > 0.0 else 5.4)
+			+ float(candidate % 7) * 1.2)
 		var grid := cell(x, z)
 		var a := vertex(grid.x, grid.y)
 		var b := vertex(grid.x + 1, grid.y)
@@ -221,9 +231,11 @@ static func _prepare_broadleaf() -> void:
 			if (q - p).cross(r - p).length_squared() > 0.0:
 				faces.append_array(PackedVector3Array([p, q, r]))
 		var id := "broadleaf_%02d" % _broadleaf_descriptors.size()
-		_broadleaf_descriptors.append({"id": id, "center": at, "basis": basis, "scale": scale, "bounds": envelope})
+		var collision_bounds := _face_bounds(faces)
+		_broadleaf_descriptors.append({"id": id, "center": at, "basis": basis, "scale": scale,
+			"bounds": envelope, "collision_bounds": collision_bounds})
 		_broadleaf_faces.append_array(faces)
-		_broadleaf_contact_rows.append({"id": id, "faces": faces, "bounds": envelope})
+		_broadleaf_contact_rows.append({"id": id, "faces": faces, "bounds": collision_bounds})
 		if _broadleaf_descriptors.size() == 2:
 			break
 	if _broadleaf_descriptors.size() != 2:

@@ -42,11 +42,11 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 		var bounds: AABB = Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size)
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
 	for fir in surface.fir_specs():
-		var bounds: AABB = fir.bounds
+		var bounds: AABB = fir.collision_bounds
 		tree_obstacles[fir.id] = obstacles.size()
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
 	for broadleaf in surface.broadleaf_specs():
-		var bounds: AABB = broadleaf.bounds
+		var bounds: AABB = broadleaf.collision_bounds
 		tree_obstacles[broadleaf.id] = obstacles.size()
 		obstacles.append([[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]])
 	if source_obstacle < 0:
