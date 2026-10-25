@@ -36,9 +36,6 @@ class SharedWidgets:
 	var issued: Array = []
 	var pointed := ""
 	var hand_pointed := ""
-	var crank_pointed := false
-	func _pointed_pod_crank(_screen: Vector2) -> Dictionary:
-		return state.get("hand_crank", {}) if crank_pointed else {}
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
 		return {"accepted": false, "reason": "fixture_only"}
@@ -922,7 +919,7 @@ func _pod_floor_views() -> void:
 				"landing_pod": {"id": "landing-pod", "center": [1, level, 4], "deployed": true},
 				"fabrication_hub": {"id": "pod-fabrication-hub", "installed": true, "center": [2, level, 4],
 					"position": [3.3, floor_y + Opening.Geometry.ANCHOR_HEIGHT, 6.6]},
-				"hand_crank": {"holder": "pod"}}
+				"crank_items": {}}
 			var before: Dictionary = view.state.duplicate(true)
 			root.add_child(view)
 			view.camera = Camera3D.new()
@@ -999,15 +996,12 @@ func _pod_floor_views() -> void:
 			verify(view.landing_pod_visual.position.is_equal_approx(pod_floor)
 				and view.landing_hub_visual.position.is_equal_approx(hub_floor) and view.state == before,
 				"Ordinary refresh after touchdown applies the datum conversion exactly once.")
-			var crank_at: Vector3 = view.landing_crank_visual.global_position
 			view.state = before.duplicate(true)
 			view.state.fabrication_hub.installed = false
 			view.state.fabrication_hub.holder = "P"
 			view._sync_landing_pod_visual()
-			verify(not view.landing_hub_visual.visible and view.landing_hub_pick.collision_layer == 0
-				and view.landing_crank_visual.is_visible_in_tree()
-				and view.landing_crank_visual.global_position.is_equal_approx(crank_at),
-				"Stowing the issued workshop removes its view and pick while the crank remains at the landed pod.")
+			verify(not view.landing_hub_visual.visible and view.landing_hub_pick.collision_layer == 0,
+				"Stowing the issued workshop removes its view and pick.")
 			view.arrival_reveal_elapsed = 2.2
 			view._pose_arrival_reveal()
 			verify(not view.landing_hub_visual.visible and view.landing_hub_pick.collision_layer == 0,
@@ -1021,9 +1015,8 @@ func _pod_floor_views() -> void:
 			view._sync_landing_pod_visual()
 			verify(view.landing_hub_visual.visible and view.landing_hub_pick.collision_layer == Opening.Geometry.PICK_LAYER
 				and view.landing_hub_visual.position.is_equal_approx(Vector3(6.6, floor_y, 6.6))
-				and view.landing_pod_visual.position.is_equal_approx(pod_floor)
-				and view.landing_crank_visual.global_position.is_equal_approx(crank_at),
-				"A moved workshop keeps the rigid bench and matching pick separate from the fixed pod and crank.")
+				and view.landing_pod_visual.position.is_equal_approx(pod_floor),
+				"A moved workshop keeps the rigid bench and matching pick separate from the fixed pod.")
 			restored.free()
 			view.free()
 	print("POD_FLOOR_VIEW_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
@@ -1702,8 +1695,9 @@ func _interaction_controls() -> void:
 			"Choosing a gearbox from the placement menu leaves deconstruction and shows its ghost options.")
 		key.keycode = KEY_ESCAPE
 		view._unhandled_input(key)
-		verify(view.mode == "inspect" and view.issued.size() == 2 and view.state.get("entities") == before.entities,
-			"Escape leaves deconstruction without changing the confirmed worksite.")
+		verify(view.mode == "gearbox" and view.pause_menu.visible and view.issued.size() == 2
+			and view.state.get("entities") == before.entities,
+			"Escape opens the worksite menu without changing the confirmed worksite.")
 		view.free()
 	print("%d placement-interaction view checks" % checks)
 	quit(1 if failures else 0)
@@ -1891,6 +1885,7 @@ func _arrival_hotbar() -> void:
 		"ram_face": {"timber": 0, "copper": 2},
 		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
 		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
+		"hand_crank": {"timber": 2, "copper": 0},
 		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "copper": 0}
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
@@ -1910,7 +1905,8 @@ func _arrival_hotbar() -> void:
 	var component_icon_paths := {}
 	for component: String in bar._component_names:
 		var texture: Texture2D = bar.component_buttons[component].icon
-		verify(texture != null and texture.resource_path.ends_with("/" + component + ".svg"),
+		verify(texture != null and texture.resource_path.ends_with("/" + (
+			"workshop-crank" if component == "hand_crank" else component) + ".svg"),
 			"Each fabricated component uses its own named item icon in the inventory.")
 		component_icon_paths[texture.resource_path] = true
 	verify(component_icon_paths.size() == bar._component_names.size(),
@@ -1934,13 +1930,14 @@ func _arrival_hotbar() -> void:
 	verify(bar.recipe_buttons.has("component:anvil")
 		and bar.recipe_buttons.has("component:flat_head")
 		and bar.recipe_buttons.has("component:wooden_slide")
+		and bar.recipe_buttons.has("component:hand_crank")
 		and not bar.recipe_buttons.has("component:wooden_cog")
 		and not bar.recipe_buttons.has("component:receiver_tray")
 		and not bar.recipe_buttons.has("foundation"),
-		"Before the first carried plate, the inventory exposes only the three required press recipes.")
+		"Before the first carried plate, the inventory exposes only the four required press recipes.")
 	var initial: Dictionary = view.state.duplicate(true)
 	view.state.cargo.P.components = {"wooden_frame": 2, "copper_cog": 1,
-		"anvil": 1, "ram_face": 1}
+		"anvil": 1, "ram_face": 1, "hand_crank": 1}
 	view._refresh_ui()
 	verify(not bar.component_buttons.anvil.disabled and not bar.component_buttons.ram_face.disabled
 		and bar.component_counts.anvil.text == "1"
@@ -1950,16 +1947,16 @@ func _arrival_hotbar() -> void:
 	view.state.cargo.P.raw = 3
 	view.state.cargo.P.products = 1
 	view.state.cargo.P.work_lots = [{"id": 7}]
-	view.state.hand_crank = {"holder": "P"}
+	view.state.crank_items = {"crank-1": {"holder": "P", "attached_to": "", "port": []}}
 	view.state.workshop_completed_actors = ["P"]
 	view._refresh_ui()
 	verify(bar.material_counts.timber.text == "5" and bar.material_counts.raw.text == "3"
 		and bar.material_counts.products.text == "1" and bar.material_counts.work_lots.text == "1"
-		and bar.material_counts.hand_crank.text == "1"
+		and bar.component_counts.hand_crank.text == "1"
 		and "5 carried" in bar.material_buttons.timber.accessibility_name,
 		"Carried material icons read the active actor's confirmed cargo and hand tools.")
-	verify(bar.carried_label.text == "CARRIED · CRANK WITH YOU" and bar.material_buttons.hand_crank.visible,
-		"The inventory identifies the issued crank when this actor carries it.")
+	verify(bar.carried_label.text == "CARRIED" and bar.component_buttons.hand_crank.visible,
+		"The inventory shows the crafted crank as carried component stock.")
 	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
 		and view.goal_label.text.contains("Open Work log [J]"),
 		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_label.text)
@@ -2008,21 +2005,21 @@ func _arrival_hotbar() -> void:
 	view.state.cargo.P.timber = 2
 	view.state.cargo.P.raw = 0
 	view.state.cargo.P.components.anvil = 0
-	view.state.hand_crank.holder = "pod"
+	view.state.cargo.P.components.hand_crank = 0
+	view.state.crank_items["crank-1"] = {"holder": "", "attached_to": "slide", "port": [13, 2, 8]}
 	view._refresh_ui()
 	verify(bar.material_counts.timber.text == "2" and bar.material_counts.raw.text == "0"
-		and bar.material_counts.hand_crank.text == "0" and bar.component_counts.anvil.text == "0"
+		and bar.component_counts.hand_crank.text == "0" and bar.component_counts.anvil.text == "0"
 		and not bar.material_buttons.raw.visible and not bar.component_buttons.anvil.visible,
-		"Crafting, placement and return refresh icon counts from the next confirmed projection.")
-	verify(bar.carried_label.text == "CARRIED · CRANK AT POD TRAY"
-		and not bar.material_buttons.hand_crank.visible,
-		"The inventory locates the issued crank without showing it as carried stock.")
-	view.state.hand_crank.holder = "Q"
+		"Crafting and attachment refresh icon counts from the next confirmed projection.")
+	verify(bar.carried_label.text == "CARRIED" and not bar.component_buttons.hand_crank.visible,
+		"An attached crank no longer appears as carried stock.")
+	view.state.crank_items["crank-1"].holder = "Q"
+	view.state.crank_items["crank-1"].attached_to = ""
+	view.state.crank_items["crank-1"].port = []
 	view._refresh_ui()
-	verify(bar.carried_label.text == "CARRIED · CRANK WITH OTHER WORKER"
-		and not bar.material_buttons.hand_crank.visible,
-		"The inventory shows foreign crank custody without inventing another carried item.")
-	view.state.hand_crank.holder = "pod"
+	verify(bar.carried_label.text == "CARRIED" and not bar.component_buttons.hand_crank.visible,
+		"A crank held by another worker does not appear in this actor's inventory.")
 	view._refresh_ui()
 	view.state.cargo.P.components.anvil = 1
 	view._refresh_ui()
@@ -2140,10 +2137,10 @@ func _render_arrival_hotbar() -> void:
 	view.state.part_kits.P = {"foundation": 15}
 	view.state.cargo = {"P": {"components": {"wooden_frame": 2, "wooden_shaft": 1,
 		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "copper_cog": 1,
-		"wooden_slide": 1, "copper_slide": 1},
+		"wooden_slide": 1, "copper_slide": 1, "hand_crank": 1},
 		"timber": 7, "raw": 3, "products": 1, "offcuts": 2, "sheets": 1,
 		"work_lots": [{"id": 7}]}}
-	view.state.hand_crank = {"holder": "P"}
+	view.state.crank_items = {"component-1": {"holder": "P", "attached_to": ""}}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
@@ -2153,6 +2150,7 @@ func _render_arrival_hotbar() -> void:
 		"anvil": {"timber": 0, "copper": 2},
 		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
 		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
+		"hand_crank": {"timber": 2, "copper": 0},
 		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "copper": 0}
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
@@ -2184,20 +2182,20 @@ func _render_arrival_hotbar() -> void:
 		"The item inventory presents field and bench recipes beside carried stock.")
 	var stocked_cargo: Dictionary = view.state.cargo.P.duplicate(true)
 	view.state.cargo.P = {"components": {}}
-	view.state.hand_crank.holder = "pod"
+	view.state.crank_items.clear()
 	view.state.part_kits.P = {}
 	view._refresh_ui()
 	bar.open_catalog(7)
 	await settle_widgets()
-	verify(bar.catalog.visible and bar.carried_label.text == "CARRIED · CRANK AT POD TRAY"
+	verify(bar.catalog.visible and bar.carried_label.text == "CARRIED"
 		and not bar.material_buttons.timber.visible and not bar.component_buttons.wooden_frame.visible
 		and bar.recipe_buttons["component:wooden_frame"].visible,
-		"Empty carried stock shows the pod crank location while recipes remain discoverable.")
+		"Empty carried stock leaves the finite crank recipe discoverable.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-empty.png") == OK,
 		"Retain the empty-inventory recipe catalog.")
 	view.state.cargo.P = stocked_cargo
-	view.state.hand_crank.holder = "P"
+	view.state.crank_items = {"component-1": {"holder": "P", "attached_to": ""}}
 	view.state.part_kits.P = {"foundation": 15}
 	view._refresh_ui()
 	await settle_widgets()
@@ -2529,13 +2527,18 @@ func _workshop_pages() -> void:
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
 			"press-anvil": {"component": "anvil", "center": [8, 0, 8]},
 			"press-ram": {"component": "ram_face", "center": [8, 1, 8]},
+			"press-shaft": {"component": "wooden_shaft", "center": [9, 4, 8],
+				"input_ports": [[9, 4, 8]]},
+			"collector-mount": {"component": "tool_mount", "center": [-1, 0, 0],
+				"input_ports": [[-1, 0, 0]]},
 			"collector-frame": {"component": "wooden_frame", "center": [0, 0, 0]}}
 		view.state.guided_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
 			"work_center": [8, 0, 8], "status": "ready", "parts": {"ram": "press-ram", "shaft": "press-shaft"},
 			"open_feeds": [{"entry": [9, 0, 8], "exit": [7, 0, 8]}]}]
 		view.state.collector_assemblies = [{"status": "ready", "center": [0, 0, 0],
 			"parts": {"frame": "collector-frame", "mount": "collector-mount", "shaft": "collector-shaft"}}]
-		view.state.hand_crank = {"id": "pod-hand-crank", "holder": view.client}
+		view.state.crank_items = {"crank": {"holder": "", "attached_to": "press-shaft",
+			"port": [9, 4, 8]}}
 		var before: Dictionary = view.state.duplicate(true)
 		view.camera = Camera3D.new()
 		view.add_child(view.camera)
@@ -2546,26 +2549,9 @@ func _workshop_pages() -> void:
 		view._refresh_ui()
 		var panel = view.arrival_assembly_controls
 		var inventory = view.building_hotbar
-		verify(inventory.carried_label.text == "CARRIED · CRANK WITH YOU",
-			"The local and shared inventory read this actor's confirmed crank custody.")
-		view.state.hand_crank.holder = "P" if shared else "Q"
-		inventory.refresh()
-		verify(inventory.carried_label.text == "CARRIED · CRANK WITH OTHER WORKER"
-			and not inventory.material_buttons.hand_crank.visible,
-			"The local and shared inventory locate a foreign-held crank outside carried stock.")
-		verify(view._crank_turn_refusal("press") == "Crank held by another worker."
-			and view._crank_turn_refusal("collector") == "Crank held by another worker.",
-			"Both machine refusals follow a foreign holder instead of promising a pod pickup.")
-		view.state.hand_crank.holder = "pod"
-		inventory.refresh()
-		verify(inventory.carried_label.text == "CARRIED · CRANK AT POD TRAY"
-			and not inventory.material_buttons.hand_crank.visible,
-			"The local and shared inventory locate a pod-held crank outside carried stock.")
-		verify(view._crank_turn_refusal("press") == "Take the pod crank before turning this press."
-			and view._crank_turn_refusal("collector") == "Take the pod crank before turning this collector.",
-			"Both machine refusals point to the actual pod tray while the crank is there.")
-		view.state.hand_crank.holder = view.client
-		inventory.refresh()
+		verify(inventory.carried_label.text == "CARRIED"
+			and view._crank_turn_refusal("press").contains("Fit a crafted hand crank"),
+			"The workshop points to a crafted fitted crank without presenting pod custody.")
 		await process_frame
 		await process_frame
 		verify(not view.object_menu.visible and not panel.is_visible_in_tree()
@@ -2683,7 +2669,7 @@ func _workshop_pages() -> void:
 			and panel.feed_button.is_visible_in_tree() and not panel.feed_button.disabled,
 			"Ordinary E on a confirmed press exposes its existing feed controls.")
 		var press_icons := [panel.feed_button, panel.refeed_work_button, panel.turn_button,
-			panel.compact_button, panel.pickup_button, panel.recover_work_button, panel.crank_button]
+			panel.compact_button, panel.pickup_button, panel.recover_work_button]
 		var icons_described := true
 		for button: Button in press_icons:
 			icons_described = icons_described and button.text.is_empty() and button.icon != null \
@@ -2692,21 +2678,13 @@ func _workshop_pages() -> void:
 		verify(icons_described, "Press actions use focusable icons with an action description and shortcut.")
 		verify(panel.feed_button.tooltip_text.contains("F") and panel.turn_button.tooltip_text.contains("T")
 			and panel.pickup_button.tooltip_text.contains("P")
-			and panel.recover_work_button.tooltip_text.contains("U")
-			and panel.crank_button.tooltip_text.contains("C"),
+			and panel.recover_work_button.tooltip_text.contains("U"),
 			"Press action tooltips retain their keyboard routes.")
-		view.state.hand_crank.holder = "P" if shared else "Q"
+		view.state.crank_items.crank = {"holder": view.client, "attached_to": "", "port": []}
 		panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.crank_button.disabled and panel.crank_button.tooltip_text == "Crank held by another worker"
-			and panel.crank_button.accessibility_name == "Crank held by another worker"
-			and "another worker" in panel.turn_button.tooltip_text
-			and panel.turn_button.accessibility_name == "Crank held by another worker",
-			"A foreign-held crank cannot be offered as a pod pickup at the press.")
-		view.state.hand_crank.holder = "pod"
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(not panel.crank_button.disabled and "Take pod crank" in panel.crank_button.tooltip_text,
-			"The pod-held crank retains its available pickup cue at the press.")
-		view.state.hand_crank.holder = view.client
+		verify(panel.turn_button.disabled and panel.turn_button.tooltip_text.contains("Fit a crafted crank"),
+			"A carried crank must be fitted before the press offers a turn.")
+		view.state.crank_items.crank = {"holder": "", "attached_to": "press-shaft", "port": [9, 4, 8]}
 		panel.refresh(view.state, view.client, view.selected, true)
 		panel.feed_button.pressed.emit()
 		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
@@ -2981,8 +2959,7 @@ func _workshop_pages() -> void:
 		var narrow_details: Rect2 = view.object_menu_detail_panel.get_global_rect()
 		var narrow_reclaim: Rect2 = panel.reclaim_button.get_global_rect()
 		verify(panel.feed_button.get_global_rect().position.x >= narrow_actions.position.x
-			and panel.compact_button.get_global_rect().end.x <= narrow_actions.end.x
-			and panel.crank_button.get_global_rect().end.x <= narrow_actions.end.x,
+			and panel.compact_button.get_global_rect().end.x <= narrow_actions.end.x,
 			"Both grouped press action rows fit inside the narrow object panel.")
 		verify(narrow_reclaim.position.x >= narrow_details.position.x
 			and narrow_reclaim.end.x <= narrow_details.end.x
@@ -3016,38 +2993,28 @@ func _workshop_pages() -> void:
 			view.state.erase("dropped_material")
 		verify(not panel.press_section.is_visible_in_tree(),
 			"Closing a press panel removes its actions from the game view.")
+		view.state.crank_items.crank = {"holder": "", "attached_to": "collector-mount", "port": [-1, 0, 0]}
 		view.pointed = "collector-frame"
 		view._open_pointed_machine()
 		verify(view.object_menu.visible and panel.collector_section.is_visible_in_tree()
 			and not panel.press_section.visible
 			and panel.collector_cut_button.is_visible_in_tree(),
 			"Ordinary E on a collector shows its cutting controls without unrelated crafting.")
-		verify(panel.collector_crank_button.text.is_empty() and panel.collector_cut_button.text.is_empty()
-			and panel.collector_crank_button.icon != null and panel.collector_cut_button.icon != null
-			and "Return crank" in panel.collector_crank_button.tooltip_text
+		verify(panel.collector_cut_button.text.is_empty() and panel.collector_cut_button.icon != null
 			and "Cut one ore blank" in panel.collector_cut_button.tooltip_text
-			and "shortcut T" in panel.collector_crank_button.accessibility_name
 			and "shortcut X" in panel.collector_cut_button.accessibility_name,
-			"Collector crank custody and cutting appear as described, focused icons.")
-		view.state.hand_crank.holder = "P" if shared else "Q"
+			"The collector exposes a described cutting icon when a crank is fitted.")
+		view.state.crank_items.crank = {"holder": "P" if shared else "Q", "attached_to": "", "port": []}
 		panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.collector_crank_button.disabled
-			and panel.collector_crank_button.tooltip_text == "Crank held by another worker"
-			and panel.collector_crank_button.accessibility_name == "Crank held by another worker"
-			and "another worker" in panel.collector_cut_button.tooltip_text
-			and panel.collector_cut_button.accessibility_name == "Crank held by another worker",
-			"A foreign-held crank cannot be offered as a pod pickup at the collector.")
-		view.state.hand_crank.holder = "pod"
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(not panel.collector_crank_button.disabled
-			and "Take pod crank" in panel.collector_crank_button.tooltip_text,
-			"The pod-held crank retains its available pickup cue at the collector.")
-		view.state.hand_crank.holder = view.client
+		verify(panel.collector_cut_button.disabled
+			and panel.collector_cut_button.tooltip_text.contains("Fit a crafted crank"),
+			"A carried crank cannot cut until fitted to the collector mount.")
+		view.state.crank_items.crank = {"holder": "", "attached_to": "collector-mount", "port": [-1, 0, 0]}
 		panel.refresh(view.state, view.client, view.selected, true)
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-collector.png") == OK,
-				"Retain the ordinary collector menu with its two icon controls.")
+			"Retain the ordinary collector menu with its cutting icon.")
 		action_key.keycode = KEY_X
 		view._input(action_key)
 		verify(view.issued == [{"action": "turn_hand_crank", "entity": "collector-mount"}],
@@ -3055,8 +3022,8 @@ func _workshop_pages() -> void:
 		view.issued.clear()
 		action_key.keycode = KEY_T
 		view._input(action_key)
-		verify(view.issued == [{"action": "return_hand_crank", "entity": "pod-hand-crank"}],
-			"T in the collector panel retains the exact crank-custody command.")
+		verify(view.issued.is_empty(),
+			"T in the collector panel cannot issue a removed pod custody command.")
 		view.issued.clear()
 		view.object_menu.hide()
 		await process_frame
@@ -3135,6 +3102,8 @@ func _field_craft_widget() -> void:
 	view.state = fixture()
 	view.state.options.native = true
 	view.state.hand_sources = {}
+	view.state.first_plate_unlock = true
+	view.state.workshop_completed_actors = ["P"]
 	view.state.cargo = {"P": {"raw": 1, "timber": 3, "components": {}},
 		"Q": {"raw": 0, "timber": 0, "components": {}}}
 	view.state.component_recipes = {"wooden_frame": {"timber": 3, "copper": 0},
@@ -3291,6 +3260,7 @@ func _field_craft_widget() -> void:
 	shared.session = SessionStub.new()
 	shared.client = "Q"
 	shared.state = view.state.duplicate(true)
+	shared.state.workshop_completed_actors = ["P", "Q"]
 	root.add_child(shared)
 	shared._build_interface()
 	shared.building_hotbar.open_at_bench("pod-fabrication-hub")
@@ -3368,9 +3338,6 @@ class ObjectMenuWidgets:
 	var hit := {}
 	var source_id := ""
 	var issued: Array = []
-	var crank_pointed := false
-	func _pointed_pod_crank(_screen: Vector2) -> Dictionary:
-		return state.get("hand_crank", {}) if crank_pointed else {}
 	func _ready() -> void:
 		set_process(false)
 	func _screen_pick(_screen: Vector2) -> Dictionary:
@@ -3424,7 +3391,8 @@ func _slide_controls_check() -> void:
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"},
 		"open_feeds": [{"entry": [13, 0, 8], "exit": [11, 0, 8]},
 			{"entry": [11, 0, 8], "exit": [13, 0, 8]}]}]
-	snapshot.hand_crank = {"id": "pod-hand-crank", "holder": "P"}
+	snapshot.crank_items = {"crank-1": {"id": "crank-1", "holder": "",
+		"attached_to": "slide", "port": [11, 2, 8]}}
 	snapshot.cargo.P.raw = 1
 	snapshot.dropped_material = [{"center": [12, 0, 8], "raw": 1, "products": 0,
 		"offcuts": 0, "work_lots": []}]
@@ -3436,8 +3404,9 @@ func _slide_controls_check() -> void:
 	verify(panel.press_anvil_for("head") == "anvil" and panel.press_anvil_for("slide") == "anvil",
 		"The fitted head and slide resolve to the same native work support.")
 	verify(panel.press_section.visible and panel.route_choice.disabled and panel._route_index == 1
-		and panel.slide_port_choice.item_count == 2 and panel.turn_button.visible,
-		"The E-menu exposes the retained output route and both actual slide input sides.")
+		and not panel.slide_port_choice.visible and panel.turn_button.visible
+		and not panel.turn_button.disabled,
+		"The E-menu turns the fitted slide input without a side selector.")
 	verify(panel.inventory_section.visible and not panel.feed_button.visible
 		and not panel.refeed_work_button.visible and not panel.pickup_button.visible
 		and not panel.recover_work_button.visible
@@ -3456,12 +3425,14 @@ func _slide_controls_check() -> void:
 	view.issued.clear()
 	panel._turn()
 	verify(view.issued.back() == {"action": "turn_slide_crank", "entity": "slide",
-		"port": [11, 2, 8]}, "The turn icon sends the selected native input port.")
-	verify(panel.cycle_slide_port() and panel._slide_port_index == 1,
-		"V changes the visible crank side without changing the work route.")
+		"port": [11, 2, 8]}, "The turn icon sends the fitted native input port.")
+	verify(not panel.cycle_slide_port(),
+		"The workbed has no crank-side cycling control.")
+	snapshot.crank_items["crank-1"].port = [13, 2, 8]
+	panel.refresh(snapshot, "P", "slide", true)
 	panel._turn()
 	verify(view.issued.back().port == [13, 2, 8],
-		"The second crank side sends its own actual native input port.")
+		"Refitting the crank on the other side changes the actual drive port.")
 	snapshot.sliding_press_assemblies[0].open_feeds = [{"entry": [13, 0, 8],
 		"exit": [11, 0, 8]}]
 	panel.refresh(snapshot, "P", "slide", true)
@@ -3661,24 +3632,6 @@ func _object_menu_check() -> void:
 	root.add_child(view)
 	view._build_interface()
 	view._refresh_ui()
-	view.state.hand_crank = {"id": "pod-hand-crank", "holder": "Q"}
-	view.crank_pointed = true
-	verify(view._pointed_summary_data(Vector2.ZERO).detail == "Held by Q",
-		"The pointed pod tray reports the other worker's confirmed crank custody.")
-	view._interact_pointed()
-	verify(view.issued.is_empty(), "E on a foreign-held crank sends no false pickup request.")
-	view.state.hand_crank.holder = "pod"
-	view._interact_pointed()
-	verify(view.issued == [{"action": "take_hand_crank", "entity": "pod-hand-crank"}],
-		"E on the pod-held crank still sends the native take request.")
-	view.issued.clear()
-	view.state.hand_crank.holder = "P"
-	view._interact_pointed()
-	verify(view.issued == [{"action": "return_hand_crank", "entity": "pod-hand-crank"}],
-		"E on this actor's crank still sends the native return request.")
-	view.issued.clear()
-	view.crank_pointed = false
-	view.state.erase("hand_crank")
 	var picker := StaticBody3D.new()
 	picker.set_meta("component_entity", "bench")
 	view.add_child(picker)
@@ -3812,22 +3765,6 @@ func _object_menu_check() -> void:
 	root.add_child(shared)
 	shared._build_interface()
 	shared._refresh_ui()
-	shared.state.hand_crank = {"id": "pod-hand-crank", "holder": "Q"}
-	shared.crank_pointed = true
-	shared._interact_pointed()
-	verify(shared.issued.is_empty(), "Shared E on a foreign-held crank sends no false pickup request.")
-	shared.state.hand_crank.holder = "pod"
-	shared._interact_pointed()
-	verify(shared.issued == [{"action": "take_hand_crank", "entity": "pod-hand-crank"}],
-		"Shared E still sends the native take request for a pod-held crank.")
-	shared.issued.clear()
-	shared.state.hand_crank.holder = "P"
-	shared._interact_pointed()
-	verify(shared.issued == [{"action": "return_hand_crank", "entity": "pod-hand-crank"}],
-		"Shared E still sends the native return request for this actor's crank.")
-	shared.issued.clear()
-	shared.crank_pointed = false
-	shared.state.erase("hand_crank")
 	shared._open_pointed_machine()
 	await process_frame
 	verify(shared.building_hotbar.catalog.visible

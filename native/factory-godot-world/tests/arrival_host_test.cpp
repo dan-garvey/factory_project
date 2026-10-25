@@ -67,7 +67,7 @@ void arrival_projection_and_restore() {
           std::abs(std::get<double>(upstream[2].storage()) + 1.65) < 1e-8,
           "Finite east timber sites include a separate upstream tree for the constructed plate route.");
     const auto recipes = get<O>(view, "component_recipes");
-    check(recipes.size() == 15 && get<I>(view, "component_capacity") == 0 &&
+    check(recipes.size() == 16 && get<I>(view, "component_capacity") == 0 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
           get<I>(recipes.at("wooden_frame"), "copper") == 0 &&
           get<I>(recipes.at("wooden_workbench"), "timber") == 4 &&
@@ -75,7 +75,9 @@ void arrival_projection_and_restore() {
           get<I>(recipes.at("copper_cog"), "timber") == 0 &&
           get<I>(recipes.at("copper_cog"), "copper") == 2 &&
           get<I>(recipes.at("flat_head"), "timber") == 0 &&
-          get<I>(recipes.at("flat_head"), "copper") == 1,
+          get<I>(recipes.at("flat_head"), "copper") == 1 &&
+          get<I>(recipes.at("hand_crank"), "timber") == 2 &&
+          get<I>(recipes.at("hand_crank"), "copper") == 0,
           "The normal consumer receives every native recipe cost and no opening carry bound.");
     check(get<I>(recipes.at("wooden_slide"), "timber") == 3 &&
           get<I>(recipes.at("wooden_slide"), "load_rating") == 8 &&
@@ -184,49 +186,145 @@ void historical_initializer_keeps_its_fixture_kit() {
           get<I>(kits.at("P"), "shaft") == 8,
           "The historical initializer keeps its original complete-machine kit.");
 }
-void unique_crank_custody_survives_host_restore() {
+void crafted_cranks_keep_distinct_identities_before_first_plate() {
     Host host;
-    initialized(host);
-    const auto initial = get<O>(host.projection(), "hand_crank");
-    check(get<std::string>(V(initial), "id") == "pod-hand-crank" &&
-          get<std::string>(V(initial), "holder") == "pod",
-          "The pod exposes one detachable crank in its tray.");
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(4.8)}, 1), "accepted") &&
-          get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
-          "Both actors can reach the pod tray.");
-    const auto command = [](const char* actor, const char* request, const char* action) {
-        return O{{"context", V("arrival-site")}, {"client", V(actor)},
-            {"request", V(request)}, {"action", V(action)},
-            {"entity", V("pod-hand-crank")}};
+    check(get<bool>(host.initialize_arrival("crank-item-site", {"P", "Q"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
+          "A fresh Chapter 1 actor can reach finite timber before the first plate.");
+    const auto command = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("crank-item-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return host.command("P", wire);
     };
-    const auto take = command("P", "take-crank", "take_hand_crank");
-    check(get<bool>(host.command("P", take), "accepted") &&
-          get<std::string>(V(get<O>(host.projection(), "hand_crank")), "holder") == "P",
-          "Taking the crank transfers the single identity into P's custody.");
-    check(get<bool>(host.command("P", take), "duplicate") &&
-          get<std::string>(V(get<O>(host.projection(), "hand_crank")), "holder") == "P",
-          "A repeated Host command does not duplicate the crank.");
-    const auto other_take = host.command("Q", command("Q", "Q-take", "take_hand_crank"));
-    check(!get<bool>(other_take, "accepted") &&
-          get<std::string>(other_take, "reason") == "crank_held",
-          "Another actor cannot take the held crank.");
+    check(get<bool>(host.projection(), "first_plate_unlock") &&
+          get<A>(host.projection(), "workshop_completed_actors").empty() &&
+          get<bool>(command("fast", "set_developer_conveniences", {{"enabled", V(true)}}), "accepted"),
+          "Only the test's cutting duration is shortened; the first-plate recipe gate stays closed.");
+    for (const char* request : {"wood-1", "wood-2", "wood-3", "wood-4"})
+        check(get<bool>(command(request, "harvest_source", {{"target", V("tree-east-south")}}), "accepted"),
+              "Four finite timber units move into actor P's native cargo.");
+    const auto first = command("crank-1", "field_craft", {{"component", V("hand_crank")}});
+    const auto second = command("crank-2", "field_craft", {{"component", V("hand_crank")}});
+    check(get<bool>(first, "accepted") && get<bool>(second, "accepted") &&
+          get<std::string>(first, "crank_id") != get<std::string>(second, "crank_id") &&
+          get<I>(first, "crank_generation") != get<I>(second, "crank_generation"),
+          "Two pre-plate timber recipes issue distinct persistent crank item identities.");
+    const auto items = get<O>(host.projection(), "crank_items");
+    const auto cargo = get<O>(get<O>(host.projection(), "cargo").at("P"), "components");
+    check(items.size() == 2 &&
+          get<std::string>(items.at(get<std::string>(first, "crank_id")), "holder") == "P" &&
+          get<std::string>(items.at(get<std::string>(second, "crank_id")), "holder") == "P" &&
+          get<I>(V(cargo), "hand_crank") == 2 &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0,
+          "The two identities agree with one actor's finite carried component count.");
+    const auto duplicate = command("crank-2", "field_craft", {{"component", V("hand_crank")}});
+    check(get<bool>(duplicate, "duplicate") && get<O>(host.projection(), "crank_items").size() == 2,
+          "Retransmitting a craft command cannot mint a third crank item.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
-          "Host validates a checkpoint with actor-held crank custody.");
+          "The finite pair validates through native checkpoint history.");
     Host restored;
-    initialized(restored);
-    check(get<bool>(restored.restore_checkpoint(saved), "accepted") &&
-          get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "P",
-          "Late join preserves the exact holder of the unique crank.");
-    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(4.8)}, 2), "accepted") &&
-          get<bool>(restored.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 2), "accepted"),
-          "Restored actors publish fresh physical observations before new commands.");
-    check(get<bool>(restored.command("P", command("P", "return-crank", "return_hand_crank")), "accepted") &&
-          get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "pod",
-          "The holder can return the crank to its tray after restore.");
-    check(get<bool>(restored.command("Q", command("Q", "Q-take-after", "take_hand_crank")), "accepted") &&
-          get<std::string>(V(get<O>(restored.projection(), "hand_crank")), "holder") == "Q",
-          "The other actor can then take the same crank.");
+    check(get<bool>(restored.initialize_arrival("crank-item-site", {"P", "Q"}), "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, restored.checkpoint()),
+          "A new Host restores both exact pre-plate crank identities and their paid timber.");
+    const auto resumed = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("crank-item-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return restored.command("P", wire);
+    };
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 2), "accepted"),
+          "A restored actor publishes a fresh observation before further cutting.");
+    for (const char* request : {"wood-5", "wood-6", "wood-7"})
+        check(get<bool>(resumed(request, "harvest_source", {{"target", V("tree-east-south")}}),
+            "accepted"), "The remaining finite timber pays for a separate slide body.");
+    check(get<bool>(resumed("slide-craft", "field_craft",
+              {{"component", V("wooden_slide")}}), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 3), "accepted"),
+          "The actor carries a separate slide body to a reachable rotary port.");
+    const auto slide = resumed("slide-place", "place_component",
+        {{"component", V("wooden_slide")},
+         {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}});
+    check(get<bool>(slide, "accepted"), "The slide body spends its own crafted item.");
+    const auto slide_id = get<std::string>(slide, "entity");
+    const auto first_id = get<std::string>(first, "crank_id");
+    const auto second_id = get<std::string>(second, "crank_id");
+    const O attach{{"entity", V(slide_id)}, {"crank", V(first_id)},
+        {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
+    const auto fitted = resumed("attach-first", "attach_hand_crank", attach);
+    check(get<bool>(fitted, "accepted") && get<std::string>(fitted, "entity") == first_id &&
+          get<std::string>(get<O>(restored.projection(), "crank_items").at(first_id),
+              "attached_to") == slide_id &&
+          get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
+              "components")), "hand_crank") == 1,
+          "The first crafted crank attaches at the real port while the second stays carried.");
+    check(get<bool>(resumed("attach-first", "attach_hand_crank", attach), "duplicate") &&
+          !get<bool>(resumed("attach-second", "attach_hand_crank",
+              {{"entity", V(slide_id)}, {"crank", V(second_id)},
+               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted") &&
+          !get<bool>(resumed("reclaim-with-crank", "reclaim_component",
+              {{"entity", V(slide_id)}}), "accepted"),
+          "A retry cannot mint a crank, and one occupied port blocks another crank and slide reclaim.");
+    const auto turn = resumed("turn-fitted", "turn_slide_crank",
+        {{"entity", V(slide_id)},
+         {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}});
+    check(get<bool>(turn, "accepted") &&
+          get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") > 0,
+          "Turning the fitted crank advances the actual slide phase.");
+    const auto fitted_checkpoint = restored.checkpoint();
+    check(get<bool>(restored.validate_checkpoint(fitted_checkpoint), "accepted"),
+          "Checkpoint validation preserves both paid crank identities and attached port custody.");
+    const auto removed = resumed("detach-first", "detach_hand_crank", {{"entity", V(first_id)}});
+    check(get<bool>(removed, "accepted") &&
+          get<std::string>(get<O>(restored.projection(), "crank_items").at(first_id),
+              "holder") == "P" &&
+          get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
+              "components")), "hand_crank") == 2 &&
+          !get<bool>(resumed("turn-after-detach", "turn_slide_crank",
+              {{"entity", V(slide_id)},
+               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
+          "Detaching returns the same crank identity and removes its manual drive.");
+    const auto west = resumed("attach-second-west", "attach_hand_crank",
+        {{"entity", V(slide_id)}, {"crank", V(second_id)},
+         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+    if (!get<bool>(west, "accepted"))
+        throw std::runtime_error("West crank attachment refused: " +
+            get<std::string>(west, "reason"));
+    const auto west_turn = resumed("turn-west", "turn_slide_crank",
+        {{"entity", V(slide_id)},
+         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+    if (!get<bool>(west_turn, "accepted"))
+        throw std::runtime_error("West crank turn refused: " +
+            get<std::string>(west_turn, "reason"));
+    check(get<bool>(west, "accepted") &&
+          get<bool>(west_turn, "accepted") &&
+          get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") == 0,
+          "Moving the crank to the opposite shaft end reverses the native slide rotation.");
+    check(get<bool>(restored.publish_actor("Q", {V(4.8), V(1.0), V(3.3)}, 1), "accepted"),
+          "A second authenticated worker can approach the shared fitted crank.");
+    const auto q_command = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("crank-item-site")}, {"client", V("Q")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return restored.command("Q", wire);
+    };
+    check(!get<bool>(q_command("q-steal-held", "attach_hand_crank",
+              {{"entity", V(slide_id)}, {"crank", V(first_id)},
+               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted") &&
+          get<bool>(q_command("q-turn-attached", "turn_slide_crank",
+              {{"entity", V(slide_id)},
+               {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}}), "accepted") &&
+          get<bool>(q_command("q-detach", "detach_hand_crank",
+              {{"entity", V(second_id)}}), "accepted") &&
+          get<std::string>(get<O>(restored.projection(), "crank_items").at(second_id),
+              "holder") == "Q" &&
+          get<std::string>(get<O>(restored.projection(), "crank_items").at(first_id),
+              "holder") == "P",
+          "Another worker can turn and remove a shared fitted crank, but cannot place P's carried item.");
 }
 void fabricated_transmission_stock_is_finite() {
     Host host;
@@ -420,7 +518,7 @@ int main() {
     try {
         arrival_projection_and_restore();
         historical_initializer_keeps_its_fixture_kit();
-        unique_crank_custody_survives_host_restore();
+        crafted_cranks_keep_distinct_identities_before_first_plate();
         fabricated_transmission_stock_is_finite();
         crafted_foundation_extends_exhausted_kit();
         std::cout << "arrival_host_test: " << checks << " checks passed\n";

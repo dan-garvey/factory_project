@@ -1195,6 +1195,15 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 	var worked := Finish.material("worked", Color("9aaba5"), 0.78, 0.36)
 	var dark := Finish.material("cast", Color("354442"), 0.72, 0.52)
 	match kind:
+		"hand_crank":
+			# A removable hand grip seats on the slide's actual horizontal input.
+			var spindle := _support_cylinder(anchor, "CrankSpindle", 0.027, 0.15, worked)
+			spindle.rotation.z = PI * 0.5
+			_support_box(anchor, "CrankArm", Vector3(0.045, 0.065, 0),
+				Vector3(0.055, 0.16, 0.035), dark, true)
+			var grip := _support_cylinder(anchor, "CrankGrip", 0.025, 0.11, timber)
+			grip.position = Vector3(0.05, 0.145, 0)
+			grip.rotation.z = PI * 0.5
 		"wooden_workbench":
 			# The issued component box seats this whole work surface on the floor.
 			# Its separate visible joinery makes a player-built station legible
@@ -1818,6 +1827,37 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 			for child: Node in anchor.get_children():
 				if child is Node3D and (child.name == "MovingDie" or child.name.begins_with("RamSlide")):
 					(child as Node3D).position.y += float(ram_lifts[id])
+	for id: String in snapshot.get("crank_items", {}):
+		var item: Dictionary = snapshot.crank_items[id]
+		var input_id: String = str(item.get("attached_to", ""))
+		var port: Array = item.get("port", [])
+		if not boxes.has(input_id) or not placed is Dictionary or not placed.has(input_id) \
+				or port.size() != 3:
+			continue
+		var input_cell: Array = placed[input_id].get("center", [])
+		var central: bool = input_cell == port
+		var crank := Node3D.new()
+		crank.name = "AttachedHandCrank"
+		crank.position = Vector3(float(port[0]) * UNIT,
+			float(port[1]) * UNIT + Geometry.ANCHOR_HEIGHT + (0.12 if central else 0.0),
+			float(port[2]) * UNIT + (0.22 if central else 0.0))
+		crank.rotation.y = PI if input_cell.size() == 3 and port[0] < input_cell[0] else 0.0
+		crank.set_meta("crank_entity", id)
+		add_child(crank)
+		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.15, 0.2, 0.15),
+			"", 0.0, 0.0, Vector3.ZERO)
+		var pick := StaticBody3D.new()
+		pick.name = "AttachedCrankPick"
+		pick.set_meta("crank_entity", id)
+		pick.collision_layer = Geometry.PICK_LAYER
+		pick.collision_mask = 0
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(0.19, 0.25, 0.19)
+		shape.shape = box
+		shape.position.y = 0.07
+		pick.add_child(shape)
+		crank.add_child(pick)
 
 func _render_receiver_chutes(snapshot: Dictionary) -> void:
 	# A chute joins only a native ready receiver to a native belt endpoint at
@@ -1922,7 +1962,8 @@ func refresh() -> void:
 		component_result.boxes, snapshot.get("collector_assemblies", []),
 		snapshot.get("press_assemblies", []), snapshot.get("guided_press_assemblies", []),
 		snapshot.get("sliding_press_assemblies", []),
-		snapshot.get("broad_press_assemblies", []), snapshot.get("slide_phases", {})]
+		snapshot.get("broad_press_assemblies", []), snapshot.get("slide_phases", {}),
+		snapshot.get("crank_items", {})]
 	if next_key == _view_key:
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null

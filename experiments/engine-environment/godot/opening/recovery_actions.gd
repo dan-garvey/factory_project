@@ -364,7 +364,7 @@ class ArrivalAssemblyControls:
 		["ram_face", "Ram face"], ["copper_shaft", "Copper shaft"],
 		["copper_cog", "Copper cog"], ["wooden_workbench", "Wooden workbench"],
 		["wooden_slide", "Wooden slide"], ["copper_slide", "Copper slide"],
-		["flat_head", "Flat pressing head"],
+		["flat_head", "Flat pressing head"], ["hand_crank", "Hand crank"],
 	]
 	const COLLECTOR_NEXT := {
 		"missing_mount": "Fit a tool mount toward the ore deposit.",
@@ -390,8 +390,6 @@ class ArrivalAssemblyControls:
 	var reclaim_button: Button
 	var reclaim_row: HBoxContainer
 	var reclaim_spacer: Control
-	var crank_button: Button
-	var collector_crank_button: Button
 	var collector_cut_button: Button
 	var collector_status: Label
 	var press_status: Label
@@ -455,9 +453,6 @@ class ArrivalAssemblyControls:
 		var collector_actions := HBoxContainer.new()
 		collector_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		collector_section.add_child(collector_actions)
-		collector_crank_button = host._button(collector_actions, "", _crank)
-		_style_workshop_icon(collector_crank_button, "workshop-crank")
-		collector_crank_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		collector_cut_button = host._button(collector_actions, "", _cut_collector)
 		_style_workshop_icon(collector_cut_button, "workshop-cut")
 		collector_cut_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -567,8 +562,6 @@ class ArrivalAssemblyControls:
 		_style_workshop_icon(pickup_button, "press-pickup")
 		recover_work_button = host._button(output_actions, "", _recover_work)
 		_style_workshop_icon(recover_work_button, "press-recover")
-		crank_button = host._button(output_actions, "", _crank)
-		_style_workshop_icon(crank_button, "workshop-crank")
 		collector_section.visible = false
 		press_section.visible = false
 		visible = false
@@ -661,14 +654,12 @@ class ArrivalAssemblyControls:
 		reclaim_button.disabled = not ready or not reclaim_button.visible
 		reclaim_button.tooltip_text = "%s · Delete" % ("Reclaim selected placed part" if ready else "Wait for the character")
 		reclaim_button.accessibility_name = "Reclaim selected placed part, shortcut Delete"
-		var crank: Dictionary = snapshot.get("hand_crank", {})
 		var collector: Dictionary = _selected_collector(snapshot, selected)
 		var collector_parts: Dictionary = collector.get("parts", {})
 		var receiver: Dictionary = snapshot.get("placed_components", {}).get(collector_parts.get("receiver", ""), {})
 		var receiver_center: Array = receiver.get("center", [])
 		var receiver_full: bool = not receiver_center.is_empty() and not _drop_at(receiver_center).is_empty()
 		collector_status.visible = not collector.is_empty()
-		collector_crank_button.visible = collector_status.visible and not crank.is_empty()
 		collector_cut_button.visible = collector_status.visible
 		if collector_status.visible:
 			var collector_state := str(collector.get("status", ""))
@@ -677,33 +668,26 @@ class ArrivalAssemblyControls:
 				"Collector: %s" % COLLECTOR_NEXT.get(collector_state, "Choose a clear ore-deposit frame.")
 			if collector_state == "ready":
 				collector_status.text += "\n" + _receiver_route_status(snapshot)
-			var crank_holder: String = str(crank.get("holder", ""))
-			var crank_action := "Return crank to pod" if crank_holder == actor else \
-				"Take pod crank" if crank_holder == "pod" else "Crank held by another worker"
-			collector_crank_button.tooltip_text = "%s · T" % crank_action if crank_holder in [actor, "pod"] else crank_action
-			collector_crank_button.accessibility_name = "%s, shortcut T" % crank_action if crank_holder in [actor, "pod"] else crank_action
-			collector_crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
+			var mount_id: String = str(collector_parts.get("mount", ""))
+			var mount: Dictionary = snapshot.get("placed_components", {}).get(mount_id, {})
+			var crank_fitted := false
+			for item: Dictionary in snapshot.get("crank_items", {}).values():
+				if item.get("attached_to", "") == mount_id and item.get("port", []) == mount.get("center", []):
+					crank_fitted = true
+					break
 			collector_cut_button.disabled = not ready or collector_state != "ready" or receiver_full \
-				or crank.get("holder") != actor or not collector_parts.has("mount")
+				or not crank_fitted or not collector_parts.has("mount")
 			var cut_hint := "Cut one ore blank"
 			if not ready:
 				cut_hint = "Wait for the character"
 			elif receiver_full:
 				cut_hint = "Clear the receiver"
-			elif crank.get("holder") != actor:
-				cut_hint = "Take the crank from the pod" if crank.get("holder") == "pod" else "Crank held by another worker"
+			elif not crank_fitted:
+				cut_hint = "Fit a crafted crank to the collector input"
 			elif collector_state != "ready":
 				cut_hint = COLLECTOR_NEXT.get(collector_state, "Complete the collector")
 			collector_cut_button.tooltip_text = "%s · X" % cut_hint
-			collector_cut_button.accessibility_name = "Crank held by another worker" if ready and \
-				crank.get("holder") not in [actor, "pod"] else "Cut one ore blank at the selected collector, shortcut X"
-		crank_button.visible = not crank.is_empty()
-		crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
-		var press_crank_holder: String = str(crank.get("holder", ""))
-		var press_crank_action := "Return crank to pod" if press_crank_holder == actor else \
-			"Take pod crank" if press_crank_holder == "pod" else "Crank held by another worker"
-		crank_button.tooltip_text = "%s · C" % press_crank_action if press_crank_holder in [actor, "pod"] else press_crank_action
-		crank_button.accessibility_name = "%s, shortcut C" % press_crank_action if press_crank_holder in [actor, "pod"] else press_crank_action
+			collector_cut_button.accessibility_name = "Cut one ore blank at the selected collector, shortcut X"
 		_press = _selected_press(snapshot, selected)
 		_anvil = str(_press.get("anvil", ""))
 		var selected_kind: String = str(snapshot.get("placed_components", {}).get(selected, {}).get("component", ""))
@@ -756,16 +740,14 @@ class ArrivalAssemblyControls:
 		var sliding: bool = _press.get("parts", {}).has("slide")
 		inventory_section.visible = sliding and not _anvil.is_empty()
 		var work_face := "flat head" if sliding else "ram"
-		var slide: Dictionary = snapshot.get("placed_components", {}).get(
-			_press.get("parts", {}).get("slide", ""), {})
-		var slide_ports: Array = slide.get("input_ports", [])
-		slide_port_choice.clear()
-		for port in slide_ports:
-			if port is Array:
-				slide_port_choice.add_item("Crank from %s · V" % _bearing(port, slide.get("center", [])))
-		if not slide_ports.is_empty():
-			_slide_port_index = mini(_slide_port_index, slide_ports.size() - 1)
-			slide_port_choice.select(_slide_port_index)
+		var input_id: String = str(_press.get("parts", {}).get("slide" if sliding else "shaft", ""))
+		var rotary_input: Dictionary = snapshot.get("placed_components", {}).get(input_id, {})
+		var input_ports: Array = rotary_input.get("input_ports", [])
+		var fitted_crank: Dictionary = {}
+		for item: Dictionary in snapshot.get("crank_items", {}).values():
+			if item.get("attached_to", "") == input_id and input_ports.has(item.get("port", [])):
+				fitted_crank = item
+				break
 		var status := str(_press.get("status", ""))
 		_held_work_ids.clear()
 		held_work_choice.clear()
@@ -816,11 +798,11 @@ class ArrivalAssemblyControls:
 		feed_heading.visible = active_press
 		feed_heading.text = "TURN THE SLIDE" if sliding else "FEED & STROKE"
 		feed_actions.visible = active_press
-		output_heading.visible = active_press and (not sliding or crank_button.visible)
+		output_heading.visible = active_press and not sliding
 		output_heading.text = "CRANK CUSTODY" if sliding else "OUTPUT & RECOVERY"
 		output_actions.visible = output_heading.visible
 		route_choice.visible = active_press and not routes.is_empty() and (not sliding or routes.size() > 1)
-		slide_port_choice.visible = active_press and sliding and slide_ports.size() > 1
+		slide_port_choice.visible = false
 		var can_operate := ready and status == "ready" and not routes.is_empty() \
 			and selected_route_available
 		feed_button.visible = not _anvil.is_empty() and not sliding
@@ -835,9 +817,9 @@ class ArrivalAssemblyControls:
 		feed_button.accessibility_name = "Feed one carried ore blank, shortcut F"
 		compact_button.visible = not sliding and not _anvil.is_empty() and int(cargo.get("offcuts", 0)) > 0
 		compact_button.disabled = not can_operate or int(cargo.get("offcuts", 0)) < 4 \
-			or crank.get("holder") != actor or not _work_drop().is_empty() \
+			or fitted_crank.is_empty() or not _work_drop().is_empty() \
 			or not _press.get("parts", {}).has("shaft")
-		compact_button.tooltip_text = "Compact four carried copper offcuts into one stock blank at this press. Hold the crank and clear the work face. [%d/4]  B" % mini(4, int(cargo.get("offcuts", 0)))
+		compact_button.tooltip_text = "Compact four carried copper offcuts into one stock blank at this press. Fit a crank and clear the work face. [%d/4]  B" % mini(4, int(cargo.get("offcuts", 0)))
 		compact_button.accessibility_name = "Compact four carried copper offcuts into one blank, shortcut B"
 		held_work_choice.visible = active_press and not _held_work_ids.is_empty() \
 			and (not sliding or _held_work_ids.size() > 1)
@@ -848,19 +830,17 @@ class ArrivalAssemblyControls:
 			"Reinsert the selected held work")
 		refeed_work_button.accessibility_name = "Reinsert selected held work, shortcut R"
 		turn_button.visible = not _anvil.is_empty()
-		turn_button.disabled = not can_operate or crank.get("holder") != actor or _work_drop().is_empty() \
-			or (sliding and slide_ports.is_empty()) \
+		turn_button.disabled = not can_operate or fitted_crank.is_empty() \
+			or _work_drop().is_empty() \
 			or int(_work_drop().get("offcuts", 0)) > 0
 		if changed_target or turn_button.disabled or not turn_button.visible:
 			stop_turn_hold()
-		turn_button.tooltip_text = "%s · T" % (operate_cause if not can_operate else \
-			("Take the crank from the pod" if crank.get("holder") == "pod" else "Crank held by another worker") if crank.get("holder") != actor else \
+		turn_button.tooltip_text = "Fit a crafted crank on the input · T" if fitted_crank.is_empty() else "%s · T" % (operate_cause if not can_operate else \
 			"Feed or reinsert work beneath the %s" % work_face if _work_drop().is_empty() else \
 			"Pick up the copper offcut beneath the %s" % work_face if int(_work_drop().get("offcuts", 0)) > 0 else \
 			"Exit holds a plate; turn until blocked, then pick it up" if not _exit_drop().is_empty() else \
 			"Hold T or the icon to turn the crank; release to stop")
-		turn_button.accessibility_name = "Crank held by another worker" if ready and can_operate and \
-			crank.get("holder") not in [actor, "pod"] else \
+		turn_button.accessibility_name = "Fit a crafted crank to the input before turning" if fitted_crank.is_empty() else \
 			"Hold to turn the slide crank, shortcut T" if sliding else "Hold to turn the press crank, shortcut T"
 		pickup_button.visible = not _anvil.is_empty() and not sliding
 		pickup_button.disabled = not ready or int(_exit_drop().get("products", 0)) < 1
@@ -1131,21 +1111,11 @@ class ArrivalAssemblyControls:
 		if host != null and _snapshot.get("placed_components", {}).has(_selected):
 			host.issue({"action": "reclaim_component", "entity": _selected})
 
-	func _crank() -> void:
-		var host = _host_view()
-		if host == null:
-			return
-		var crank: Dictionary = _snapshot.get("hand_crank", {})
-		if not crank.is_empty():
-			host.issue({"action": "return_hand_crank" if crank.get("holder") == _actor else "take_hand_crank",
-				"entity": crank.id})
-
 	func _cut_collector() -> void:
 		var host = _host_view()
 		var collector: Dictionary = _selected_collector(_snapshot, _selected)
 		var parts: Dictionary = collector.get("parts", {})
-		if host != null and collector.get("status") == "ready" and parts.has("mount") \
-				and _snapshot.get("hand_crank", {}).get("holder") == _actor:
+		if host != null and collector.get("status") == "ready" and parts.has("mount"):
 			host.issue({"action": "turn_hand_crank", "entity": parts.mount})
 
 	func _refresh_workbed_inventory(ready: bool) -> void:
@@ -1304,11 +1274,13 @@ class ArrivalAssemblyControls:
 		if host != null and parts.has("slide"):
 			var slide: Dictionary = _snapshot.get("placed_components", {}).get(parts.slide, {})
 			var ports: Array = slide.get("input_ports", [])
-			if _slide_port_index >= 0 and _slide_port_index < ports.size():
-				var slide_outcome: Dictionary = host.issue({"action": "turn_slide_crank",
-					"entity": parts.slide, "port": ports[_slide_port_index]})
-				if slide_outcome.get("accepted", false):
-					return true
+			for item: Dictionary in _snapshot.get("crank_items", {}).values():
+				if item.get("attached_to", "") == parts.slide and ports.has(item.get("port", [])):
+					var slide_outcome: Dictionary = host.issue({"action": "turn_slide_crank",
+						"entity": parts.slide, "port": item.port})
+					if slide_outcome.get("accepted", false):
+						return true
+					break
 			stop_turn_hold()
 			return false
 		if host != null and not route.is_empty() and parts.has("shaft"):

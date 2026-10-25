@@ -53,9 +53,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
     seed.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     seed.fabrication_hub = w::FabricationHub{"pod-fabrication-hub",
         w::landing_hub_center(*profile.landing_pod_center), 1};
-    seed.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
-    seed.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1},
-        {"pod-hand-crank", 1}};
+    seed.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1}};
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {
         const auto id = "pod-floor-" + std::to_string(index);
@@ -605,9 +603,7 @@ int main(int argc, char** argv) {
     empty_site.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     empty_site.fabrication_hub = w::FabricationHub{"pod-fabrication-hub",
         w::landing_hub_center(*profile.landing_pod_center), 1};
-    empty_site.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
-    empty_site.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1},
-        {"pod-hand-crank", 1}};
+    empty_site.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1}};
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {
         const auto id = "pod-floor-" + std::to_string(index);

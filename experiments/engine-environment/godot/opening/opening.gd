@@ -4561,7 +4561,6 @@ class ProductionInterface:
 
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
-const CRANK_TRAY_OFFSET := Vector3(-0.65, 0.83, -1.10)
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation", "pod_workshop": "Pod workshop"}
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 const LESSONS := [
@@ -4761,8 +4760,6 @@ var component_nudge_center: Array = []
 var landing_pod_visual: Node3D
 var landing_hub_visual: Node3D
 var landing_hub_pick: StaticBody3D
-var landing_crank_visual: Node3D
-var landing_crank_pick: StaticBody3D
 var arrival_reveal_probe := false
 var arrival_reveal_active := false
 var arrival_reveal_elapsed := 0.0
@@ -5270,9 +5267,7 @@ func _construction_feedback(intent: Dictionary, outcome: Dictionary) -> void:
 	construction_audio.confirmed(intent, outcome, str(outcome.get("context", state.get("context", ""))))
 
 func _crank_turn_refusal(machine: String) -> String:
-	var holder: String = str(state.get("hand_crank", {}).get("holder", ""))
-	return "Take the pod crank before turning this %s." % machine if holder == "pod" \
-		else "Crank held by another worker."
+	return "Fit a crafted hand crank to this %s's input before turning it." % machine
 
 func issue(action: Dictionary) -> Dictionary:
 	if explanation_open:
@@ -5304,11 +5299,12 @@ func issue(action: Dictionary) -> Dictionary:
 			"field_craft": "Wooden component shaped with your multitool.",
 			"craft_part": "Transmission kit made from carried timber and copper.",
 			"place_component": "Component placed on the shared grid.",
+			"attach_hand_crank": "Hand crank fitted to the input.",
+			"detach_hand_crank": "The same hand crank returned to your inventory.",
+			"turn_slide_crank": "The fitted crank advanced the slide.",
 			"reclaim_component": "Component returned to your carried cargo.",
 			"stow_fabrication_hub": "Pod workshop unbolted. Place it on clear ground or a foundation top.",
 			"deploy_fabrication_hub": "Pod workshop installed at its new worksite.",
-			"take_hand_crank": "You have the pod crank. Turn a fitted input nearby.",
-			"return_hand_crank": "Crank returned to the pod tray.",
 			"turn_hand_crank": "Collector cut one ore blank into its receiver tray.",
 			"feed_press": "One carried blank is now under the press head.",
 			"turn_press_crank": "The press advanced its work. Check the worksite for the formed plate.",
@@ -5327,7 +5323,10 @@ func issue(action: Dictionary) -> Dictionary:
 			"already_connected": "Those ports are already connected.",
 			"unavailable_output": "There is no finished plate to collect yet.",
 			"out_of_reach": "Move closer to the target before building or interacting.",
-			"not_crank_holder": _crank_turn_refusal("press"),
+			"crank_not_attached": "Fit a crafted hand crank to the input before turning it.",
+			"input_port_occupied": "That input already holds a crank or another part.",
+			"wrong_input_port": "Fit the crank at an exposed rotary input.",
+			"attached_crank": "Remove the fitted crank before reclaiming its input.",
 			"wrong_drive_shaft": "Use this press's fitted drive shaft.",
 			"incomplete_assembly": "The press still needs the indicated component.",
 			"receiver_full": "Pick up the ore blank in the collector receiver before cutting again.",
@@ -5361,7 +5360,7 @@ func issue(action: Dictionary) -> Dictionary:
 		elif action.action == "place_component" and outcome.get("reason", "") == "no_component":
 			refusal = "Carry another %s." % str(action.get("component", "component")).replace("_", " ")
 		elif action.action == "turn_hand_crank":
-			refusal = {"not_crank_holder": _crank_turn_refusal("collector"),
+			refusal = {"crank_not_attached": "Fit a crafted hand crank to the collector input.",
 				"incomplete_assembly": "Fit the collector's missing component before cutting ore.",
 				"source_depleted": "This ore deposit is depleted.",
 				"output_full": "Clear a loose material drop before cutting more ore.",
@@ -5726,12 +5725,11 @@ func _input(event: InputEvent) -> void:
 			elif not event.ctrl_pressed and arrival_assembly_controls != null:
 				var actions = arrival_assembly_controls
 				match event.keycode:
-					KEY_C: used = _activate_button(actions.crank_button)
 					KEY_P: used = actions.inventory_shortcut(KEY_P) or _activate_button(actions.pickup_button)
 					KEY_F: used = actions.inventory_shortcut(KEY_F) or _activate_button(actions.feed_button)
 					KEY_Y: used = _activate_button(actions.broad_feed_button)
 					KEY_N: used = _open_action_menu(actions.broad_refeed_button)
-					KEY_T: used = actions.press_turn_key() or _activate_button(actions.collector_crank_button)
+					KEY_T: used = actions.press_turn_key()
 					KEY_X: used = _activate_button(actions.shear_button) or _activate_button(actions.collector_cut_button)
 					KEY_R: used = actions.inventory_shortcut(KEY_R) or _activate_button(actions.refeed_work_button)
 					KEY_U: used = actions.inventory_shortcut(KEY_U) or _activate_button(actions.recover_work_button)
@@ -6042,6 +6040,25 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			return
 		var center := _component_place_center(cell, entity_id)
 		var component_name: String = arrival_assembly_controls.selected_name()
+		if component_name == "hand_crank":
+			var input_id := _rotary_at_input_port(center)
+			if input_id.is_empty():
+				_message("Point at a visible rotary input to fit the crank.", true)
+				return
+			var carried_id := ""
+			for item_id: String in state.get("crank_items", {}):
+				if state.crank_items[item_id].get("holder", "") == client:
+					carried_id = item_id
+					break
+			if carried_id.is_empty():
+				_message("Craft and carry a hand crank before fitting an input.", true)
+				return
+			var attached := issue({"action": "attach_hand_crank", "entity": input_id,
+				"crank": carried_id, "port": center})
+			if attached.accepted:
+				selected = input_id
+			_refresh_ui()
+			return
 		var area_origin := _component_area_origin(component_name, center)
 		var centers := _component_footprint_centers(component_name, area_origin)
 		if not _component_center_allowed(center):
@@ -6523,11 +6540,11 @@ func _screen_hand_source(screen: Vector2) -> String:
 func _interact_pointed() -> void:
 	if not _can_control_character():
 		return
-	var crank: Dictionary = _pointed_pod_crank(_pointed_screen_position())
-	if not crank.is_empty():
-		if crank.get("holder") in ["pod", client]:
-			issue({"action": "return_hand_crank" if crank.holder == client else "take_hand_crank",
-				"entity": crank.id})
+	var crank_hit := _screen_pick(_pointed_screen_position())
+	var attached_crank: String = str(crank_hit.collider.get_meta("crank_entity", "")) \
+		if not crank_hit.is_empty() else ""
+	if state.get("crank_items", {}).has(attached_crank):
+		issue({"action": "detach_hand_crank", "entity": attached_crank})
 		return
 	var source_id := _screen_hand_source(_pointed_screen_position()) if mode == "inspect" else ""
 	var source := _hand_source(source_id)
@@ -6548,14 +6565,6 @@ func _interact_pointed() -> void:
 	if state.get("manual_cuts", {}).has(client):
 		return
 	issue({"action": "harvest_source", "target": source_id})
-
-func _pointed_pod_crank(screen: Vector2) -> Dictionary:
-	var hit := _screen_pick(screen)
-	if hit.is_empty():
-		return {}
-	var crank: Dictionary = state.get("hand_crank", {})
-	return crank if not crank.is_empty() and hit.collider == landing_crank_pick \
-		and hit.collider.get_meta("hand_crank_entity", "") == crank.get("id", "") else {}
 
 func _open_pointed_machine() -> void:
 	if _catalog_open() or not _can_control_character():
@@ -6701,6 +6710,16 @@ func _component_pointed_center() -> Array:
 	var screen := _pointed_screen_position()
 	return _component_place_center(_screen_cell(screen), _screen_entity(screen), false)
 
+func _rotary_at_input_port(port: Array) -> String:
+	var found := ""
+	for id: String in state.get("placed_components", {}):
+		var placed: Dictionary = state.placed_components[id]
+		if placed.get("input_ports", []).has(port):
+			if not found.is_empty():
+				return ""
+			found = id
+	return found
+
 func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		normal: Vector3) -> Dictionary:
 	# The press's working offsets are larger than a one-step face snap. Use the
@@ -6750,6 +6769,9 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 			var normal: Vector3 = hit.normal
 			var center: Array = placed[pointed].center.duplicate()
 			var kind: String = arrival_assembly_controls.selected_name() if arrival_assembly_controls != null else ""
+			if kind == "hand_crank" and placed[pointed].get("component", "") in \
+					["tool_mount", "wooden_shaft", "copper_shaft"]:
+				return center
 			if kind == "flat_head" and str(placed[pointed].component) in ["wooden_slide", "copper_slide"]:
 				return [center[0], center[1] - 1, center[2]]
 			var press_snap := _guided_press_part_snap(kind, str(placed[pointed].component), center, normal)
@@ -6952,6 +6974,35 @@ func _refresh_component_preview() -> void:
 	var center := _component_place_center(_screen_cell(_pointed_screen_position()), pointed)
 	if center.size() != 3:
 		return
+	if kind == "hand_crank":
+		var input_id := _rotary_at_input_port(center)
+		var input: Dictionary = state.get("placed_components", {}).get(input_id, {})
+		component_preview_blocked = input_id.is_empty()
+		for item: Dictionary in state.get("crank_items", {}).values():
+			if item.get("port", []) == center:
+				component_preview_blocked = true
+		component_preview_snap = "Rotary input" if not component_preview_blocked else "Point at a rotary input"
+		if component_preview_pose_key != "hand_crank":
+			for child in component_preview.get_children():
+				child.free()
+			transmission_presenter.preview_component(component_preview, kind, Vector3(0.15, 0.2, 0.15))
+			component_preview_pose_key = "hand_crank"
+			component_preview_kind = kind
+			component_preview_material = StandardMaterial3D.new()
+			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			_style_component_preview(component_preview)
+		component_preview.position = Vector3(float(center[0]) * Geometry.HEIGHT_STEP,
+			float(center[1]) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
+			float(center[2]) * Geometry.HEIGHT_STEP)
+		var input_cell: Array = input.get("center", [])
+		if input_cell == center:
+			component_preview.position += Vector3(0.0, 0.12, 0.22)
+		component_preview.rotation.y = PI if input_cell.size() == 3 and center[0] < input_cell[0] else 0.0
+		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
+			else Color(0.91, 0.73, 0.40, 0.56)
+		component_preview.visible = true
+		return
+	component_preview.rotation.y = 0.0
 	if component_area_kind == kind and component_area_anchor.size() == 3:
 		var finished := true
 		for area_cell: Array in _component_footprint_centers(kind, component_area_anchor):
@@ -7068,6 +7119,9 @@ func _style_component_preview(node: Node, material: StandardMaterial3D = null) -
 func _component_placement_hint() -> String:
 	if component_preview == null or not component_preview.visible:
 		return "Point at a floor or built part"
+	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "hand_crank":
+		return "Point at a slide input shaft end · click to fit the carried crank" \
+			if not component_preview_blocked else "Point at a clear slide input shaft end"
 	var center := _component_place_center(_screen_cell(_pointed_screen_position()),
 		_screen_entity(_pointed_screen_position()))
 	var location := "%s · X %d  Y %d  Z %d" % [component_preview_snap, center[0], center[1], center[2]]
@@ -7507,38 +7561,6 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 		bolt.position = mounting_points[index]
 		bolt.scale = Vector3.ONE * 0.5
 		workspace.add_child(bolt)
-	# The crank belongs to the landed pod even after its bench is moved.
-	var tray := Node3D.new()
-	tray.name = "CrankTrayMount"
-	tray.position = CRANK_TRAY_OFFSET
-	landing_pod_visual.add_child(tray)
-	_machine_box(tray, "CrankTray", Vector3.ZERO,
-		Vector3(0.35, 0.045, 0.19), dark, 0.58, 0.43)
-	_machine_box(tray, "TrayStand", Vector3(0, -0.415, 0),
-		Vector3(0.045, 0.83, 0.045), graphite, 0.45, 0.64)
-	_machine_box(tray, "TrayFoot", Vector3(0, -0.81, 0),
-		Vector3(0.22, 0.04, 0.20), graphite, 0.45, 0.64)
-	landing_crank_visual = Node3D.new()
-	landing_crank_visual.name = "CrankInTray"
-	landing_crank_visual.set_meta("authority_entity", "pod-hand-crank")
-	landing_crank_visual.position = Vector3(0, 0.08, 0)
-	tray.add_child(landing_crank_visual)
-	landing_crank_pick = StaticBody3D.new()
-	landing_crank_pick.name = "PodCrankPick"
-	landing_crank_pick.set_meta("hand_crank_entity", state.get("hand_crank", {}).get("id", ""))
-	landing_crank_pick.collision_layer = Geometry.PICK_LAYER
-	landing_crank_pick.collision_mask = 0
-	landing_crank_pick.position = Vector3(0.04, 0.12, 0)
-	var crank_pick_shape := CollisionShape3D.new()
-	var crank_pick_box := BoxShape3D.new()
-	crank_pick_box.size = Vector3(0.38, 0.20, 0.26)
-	crank_pick_shape.shape = crank_pick_box
-	landing_crank_pick.add_child(crank_pick_shape)
-	tray.add_child(landing_crank_pick)
-	_machine_cylinder(landing_crank_visual, "CrankAxle", Vector3.ZERO, 0.025, 0.26,
-		Color("bac5ba"), Vector3(0, 0, PI / 2.0))
-	_machine_box(landing_crank_visual, "CrankHandle", Vector3(0.12, 0.055, 0),
-		Vector3(0.045, 0.15, 0.045), amber, 0.20, 0.46)
 	_pose_pod_canopy(1.0)
 
 func _pose_pod_canopy(amount: float) -> void:
@@ -7561,8 +7583,6 @@ func _sync_landing_pod_visual() -> void:
 			landing_pod_visual = null
 			landing_hub_visual = null
 			landing_hub_pick = null
-			landing_crank_visual = null
-			landing_crank_pick = null
 		return
 	var pod: Dictionary = state.landing_pod
 	var hub: Dictionary = state.fabrication_hub
@@ -7583,7 +7603,6 @@ func _sync_landing_pod_visual() -> void:
 		# Host positions use the shared spindle anchor; the bench art sits on its floor.
 		landing_hub_visual.position = Vector3(float(position[0]), float(position[1]), float(position[2])) \
 			- Vector3.UP * Geometry.ANCHOR_HEIGHT
-	landing_crank_visual.visible = state.get("hand_crank", {}).get("holder", "") == "pod"
 
 func _maybe_start_arrival_reveal() -> void:
 	var deadline := Time.get_ticks_msec() + 30000
@@ -7629,9 +7648,6 @@ func _pose_arrival_reveal() -> void:
 	workspace.rotation.z = -PI * 0.5 * (1.0 - bench_fold)
 	workspace.visible = bench_fold > 0.01
 	landing_hub_visual.visible = bench_fold > 0.01 and state.get("fabrication_hub", {}).get("installed", false)
-	var tray: Node3D = landing_pod_visual.get_node("CrankTrayMount")
-	tray.position = CRANK_TRAY_OFFSET * bench_fold
-	tray.visible = bench_fold > 0.01
 	if arrival_reveal_caption != null:
 		arrival_reveal_caption.text = "SITE PACKAGE UNFOLDING" if arrival_reveal_elapsed >= 1.45 else "FIELD DESCENT IN PROGRESS"
 	for panel in machine_root.get_children():
@@ -9699,7 +9715,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 				not state.get("placed_components", {}).is_empty() or
 				not carried.get("components", {}).is_empty() or
 				int(carried.get("timber", 0)) >= 3 or int(carried.get("raw", 0)) >= 4):
-			next_work = "Craft and place anvil, flat head and wooden slide [B]."
+			next_work = "Craft anvil, flat head, wooden slide and hand crank [B]. Fit the crank to a slide input."
 		elif collector_ready and int(state.get("line_belt_raw", 0)) > 0:
 			next_work = "Blank on belt. Inspect its outlet [E] or recover it."
 		elif collector_ready:
@@ -10616,11 +10632,6 @@ func _is_collector_frame(target: String) -> bool:
 func _pointed_summary_data(screen: Vector2) -> Dictionary:
 	if camera == null or not camera.is_inside_tree():
 		return {}
-	var crank: Dictionary = _pointed_pod_crank(screen)
-	if not crank.is_empty():
-		var holder: String = str(crank.get("holder", ""))
-		return {"name": "Hand crank", "detail": "E Return" if holder == client else
-			"E Take" if holder == "pod" else "Held by %s" % holder, "target": crank.id}
 	var hit := _screen_pick(screen)
 	var target: String = str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
 	if _contains_target(state, target):

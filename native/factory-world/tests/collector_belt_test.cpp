@@ -1,6 +1,7 @@
 #include "factory/checkpoint.hpp"
 #include "native/factory-world/tests/harvest_fixture.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -27,7 +28,7 @@ Fixture fixture(g::Integer rate = 1) {
     auto& [profile, state] = result;
     profile.material = {1, 2, 2};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
-    profile.material.timber_sites = {{"tree", {{12, 0, 12}, 8}}};
+    profile.material.timber_sites = {{"tree", {{12, 0, 12}, 10}}};
     profile.initial_units = 2;
     profile.actors = {"P"};
     profile.foundation_parts = 9;
@@ -41,12 +42,11 @@ Fixture fixture(g::Integer rate = 1) {
     state.material.initial_units = 2;
     state.material.stock.source = 2;
     state.material.cargo = {{"P", {}}};
-    state.material.timber_remaining = {{"tree", 8}};
+    state.material.timber_remaining = {{"tree", 10}};
     state.kits = {{"P", {}}};
     state.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub", w::landing_hub_center(*profile.landing_pod_center), 1};
-    state.hand_crank = w::HandCrank{"pod-hand-crank", 1, std::nullopt};
-    state.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1}, {"pod-hand-crank", 1}};
+    state.issued_entities = {{"landing-pod", 1}, {"pod-fabrication-hub", 1}};
     const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
     for (std::size_t index = 0; index < deck.size(); ++index) {
         const auto id = "pod-floor-" + std::to_string(index);
@@ -92,14 +92,15 @@ V::Object accepted(w::World& world, const V::Object& intent) {
         world.command({"P", "P-client"}, intent, nearby);
     if (!result.completed() || !result.result || !std::get<bool>(result.result->at("accepted").storage()))
         throw std::runtime_error("Setup action " + std::get<std::string>(intent.at("request").storage()) +
-            " refused: " + (result.result ? std::get<std::string>(result.result->at("reason").storage()) : "no outcome"));
+            " refused (transaction " + std::to_string(static_cast<int>(result.error)) + "): " +
+            (result.result ? std::get<std::string>(result.result->at("reason").storage()) : "no outcome"));
     ++checks;
     return *result.result;
 }
 
 std::unique_ptr<w::World> prepared(const Fixture& fixture) {
     auto world = create(fixture);
-    for (int n = 0; n < 8; ++n) {
+    for (int n = 0; n < 10; ++n) {
         auto wire = request("wood-" + std::to_string(n), "harvest_source");
         wire.emplace("target", V("tree"));
         accepted(*world, wire);
@@ -124,14 +125,46 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture) {
         const auto placed = accepted(*world, place);
         if (std::string(part.name) == "tool_mount") drive = std::get<std::string>(placed.at("entity").storage());
     }
-    auto take = request("take-crank", "take_hand_crank");
-    take.emplace("target", V("pod-hand-crank"));
-    take.emplace("generation", V(g::Integer{1}));
-    accepted(*world, take);
+    auto craft_crank = request("craft-crank", "craft_component");
+    craft_crank.emplace("target", V("pod-fabrication-hub"));
+    craft_crank.emplace("generation", V(g::Integer{1}));
+    craft_crank.emplace("component", V("hand_crank"));
+    const auto crank = accepted(*world, craft_crank);
+    const auto current = world->snapshot();
+    const bool wheel_present = std::any_of(current.state.topology.parts.begin(),
+        current.state.topology.parts.end(), [](const auto& part) {
+            return part.geometry.id == "wheel";
+        });
+    const bool wheel_was_running = wheel_present && current.state.topology.drive_enabled;
+    if (wheel_was_running) {
+        auto stop = request("stop-wheel-for-manual-cut", "set_drive");
+        stop.emplace("target", V("wheel"));
+        stop.emplace("generation", V(g::Integer{1}));
+        stop.emplace("enabled", V(false));
+        accepted(*world, stop);
+    }
+    auto attach = request("fit-crank", "attach_hand_crank");
+    attach.emplace("target", V(drive));
+    attach.emplace("generation", V(g::Integer{2}));
+    attach.emplace("crank", crank.at("crank_id"));
+    attach.emplace("crank_generation", crank.at("crank_generation"));
+    attach.emplace("port", V(V::Array{V(g::Integer{-1}), V(g::Integer{0}), V(g::Integer{0})}));
+    accepted(*world, attach);
     auto turn = request("cut-blank", "turn_hand_crank");
     turn.emplace("target", V(drive));
     turn.emplace("generation", V(g::Integer{2}));
     accepted(*world, turn);
+    auto detach = request("detach-crank-after-cut", "detach_hand_crank");
+    detach.emplace("target", crank.at("crank_id"));
+    detach.emplace("generation", crank.at("crank_generation"));
+    accepted(*world, detach);
+    if (wheel_was_running) {
+        auto resume = request("resume-wheel-after-manual-cut", "set_drive");
+        resume.emplace("target", V("wheel"));
+        resume.emplace("generation", V(g::Integer{1}));
+        resume.emplace("enabled", V(true));
+        accepted(*world, resume);
+    }
     check(world->snapshot().state.material.dropped_material.contains({0, 0, 1}),
           "The real crank command leaves one raw blank in the assembled receiver.");
     return world;
@@ -257,8 +290,8 @@ void builds_powered_route_from_finite_arrival_stock() {
     f.profile.finite_parts.clear();
     f.profile.fabrication_parts = {{{s::Role::shaft, 0, 2}, {1, 0}},
         {{s::Role::belt, 0, 0}, {2, 1}}, {{s::Role::waterwheel, 0, 0}, {2, 1}}};
-    f.profile.material.timber_sites.at("tree").initial = 15;
-    f.state.material.timber_remaining.at("tree") = 15;
+    f.profile.material.timber_sites.at("tree").initial = 17;
+    f.state.material.timber_remaining.at("tree") = 17;
     f.profile.initial_units = f.state.material.initial_units = f.state.material.stock.source = 4;
     f.profile.material.hand_carry_capacity = 24;
     f.state.topology.parts.clear();
@@ -335,8 +368,8 @@ void builds_powered_route_from_finite_arrival_stock() {
 void powers_two_modular_collectors_with_distinct_custody() {
     auto f = fixture();
     f.profile.collector_faces.push_back({{8, 0, 0}, {-1, 0, 0}});
-    f.profile.material.timber_sites.at("tree").initial = 18;
-    f.state.material.timber_remaining.at("tree") = 18;
+    f.profile.material.timber_sites.at("tree").initial = 20;
+    f.state.material.timber_remaining.at("tree") = 20;
     f.profile.initial_units = f.state.material.initial_units = f.state.material.stock.source = 8;
     f.profile.material.hand_carry_capacity = 24;
     f.profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}};

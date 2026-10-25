@@ -44,29 +44,24 @@ func _collector_control(view: LayoutView) -> bool:
 	var snapshot := {"options": {"native": true}, "hand_sources": {"ore": {}},
 		"cargo": {"P": {"components": {}, "timber": 0, "raw": 0}},
 		"placed_components": {"frame": {"component": "wooden_frame", "center": [0, 4, 4]},
+			"mount": {"component": "tool_mount", "center": [0, 4, 5]},
 			"tray": {"component": "receiver_tray", "center": [0, 4, 3]}},
-		"hand_crank": {"id": "pod-hand-crank", "holder": "P"},
+		"crank_items": {"crank": {"holder": "", "attached_to": "mount", "port": [0, 4, 5]}},
 		"collector_assemblies": [{"center": [0, 4, 4], "status": "ready",
 			"parts": {"frame": "frame", "mount": "mount", "edge": "edge",
 				"receiver": "tray", "shaft": "shaft"}}],
 		"dropped_material": []}
 	panel.refresh(snapshot, "P", "shaft", true)
 	var ready: bool = panel.collector_cut_button.visible and not panel.collector_cut_button.disabled \
-		and panel.collector_crank_button.visible \
-		and panel.collector_crank_button.tooltip_text == "Return crank to pod · T" \
-		and panel.collector_crank_button.accessibility_name == "Return crank to pod, shortcut T"
+		and panel.collector_cut_button.tooltip_text == "Cut one ore blank · X"
 	panel.collector_cut_button.pressed.emit()
-	var exact: bool = view.submitted == [{"action": "turn_hand_crank", "entity": "shaft"}]
+	var exact: bool = view.submitted == [{"action": "turn_hand_crank", "entity": "mount"}]
 	view.submitted.clear()
-	snapshot.hand_crank.holder = "Q"
+	snapshot.crank_items.crank = {"holder": "Q", "attached_to": "", "port": []}
 	panel.refresh(snapshot, "P", "shaft", true)
-	var held_elsewhere: bool = panel.collector_cut_button.disabled and panel.collector_crank_button.disabled
-	snapshot.hand_crank.holder = "pod"
-	panel.refresh(snapshot, "P", "shaft", true)
-	panel.collector_crank_button.pressed.emit()
-	var take: bool = view.submitted == [{"action": "take_hand_crank", "entity": "pod-hand-crank"}]
-	view.submitted.clear()
-	snapshot.hand_crank.holder = "P"
+	var held_elsewhere: bool = panel.collector_cut_button.disabled \
+		and panel.collector_cut_button.tooltip_text.contains("Fit a crafted crank")
+	snapshot.crank_items.crank = {"holder": "", "attached_to": "mount", "port": [0, 4, 5]}
 	snapshot.dropped_material = [{"center": [0, 4, 3], "raw": 1}]
 	panel.refresh(snapshot, "P", "shaft", true)
 	var full: bool = panel.collector_cut_button.disabled and "Pick it up" in panel.collector_status.text
@@ -74,7 +69,7 @@ func _collector_control(view: LayoutView) -> bool:
 	snapshot.collector_assemblies[0] = {"center": [0, 4, 4], "status": "missing_mount"}
 	panel.refresh(snapshot, "P", "frame", true)
 	var missing: bool = panel.collector_cut_button.disabled and "tool mount" in panel.collector_status.text
-	return ready and exact and held_elsewhere and take and full and missing and view.submitted.is_empty()
+	return ready and exact and held_elsewhere and full and missing and view.submitted.is_empty()
 
 func _run() -> void:
 	root.size = Vector2i(1280, 800)

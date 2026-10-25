@@ -101,6 +101,7 @@ enum class Component {
     wooden_slide,
     copper_slide,
     flat_head,
+    hand_crank,
 };
 
 struct ComponentCost {

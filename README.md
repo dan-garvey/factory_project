@@ -54,9 +54,11 @@ startup. The old scripted launchers remain fixtures and do not deliver this entr
 | Save / reopen information | F5 / F9 |
 | Developer conveniences | F3 |
 
-Use local benches for fabrication. A hand crank is a reusable carried item;
-the shaft input must be within actor reach. Components and material remain
-owned through stalls and recovery. Saves use the selected native Store format;
+Use local benches for fabrication. Craft a timber hand crank, select it in the
+inventory and click an exposed input to fit it. Turn it from the machine menu;
+point at the fitted crank and press E to detach it before external power takes
+over. Components and material remain owned through stalls and recovery. Saves
+use the selected native Store format;
 scripted fixture saves are separate.
 
 ## Build and verify
