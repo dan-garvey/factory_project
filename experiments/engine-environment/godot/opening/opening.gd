@@ -4612,6 +4612,7 @@ var component_preview: Node3D
 var component_preview_kind := ""
 var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
+var component_preview_cell_materials: Dictionary = {}
 var component_preview_blocked := false
 var component_preview_snap := ""
 var component_footprint_size := 1
@@ -6761,6 +6762,7 @@ func _refresh_component_preview() -> void:
 	if area_centers.size() == 4:
 		var area_box := _component_candidate_box(kind, area_origin)
 		component_preview_blocked = not area_centers.has(center) \
+			or not _component_center_allowed(center) \
 			or _component_area_has_part(kind, center) \
 			or _component_candidate_blocked(kind, center, box)
 		component_preview_snap = "Nudged point" if component_nudge_active else \
@@ -6768,10 +6770,14 @@ func _refresh_component_preview() -> void:
 		var placed_cells := []
 		for part_center: Array in area_centers:
 			placed_cells.append(_component_area_has_part(kind, part_center))
-		var area_key := "area:%s:%s" % [kind, str(placed_cells)]
+		var area_key := "area:%s:%s:%s" % [kind, str(area_origin), str(placed_cells)]
 		if area_key != component_preview_pose_key:
 			for child in component_preview.get_children():
 				child.free()
+			component_preview_cell_materials.clear()
+			component_preview_material = StandardMaterial3D.new()
+			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			component_preview_material.roughness = 0.72
 			for index in area_centers.size():
 				if placed_cells[index]:
 					continue
@@ -6781,12 +6787,20 @@ func _refresh_component_preview() -> void:
 				anchor.position = part_box.center - area_box.center
 				component_preview.add_child(anchor)
 				transmission_presenter.preview_component(anchor, kind, part_box.size)
+				var material := component_preview_material.duplicate() as StandardMaterial3D
+				component_preview_cell_materials[str(part_center)] = material
+				_style_component_preview(anchor, material)
 			component_preview_kind = kind
 			component_preview_pose_key = area_key
-			component_preview_material = StandardMaterial3D.new()
-			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			component_preview_material.roughness = 0.72
-			_style_component_preview(component_preview)
+		for part_center: Array in area_centers:
+			if _component_area_has_part(kind, part_center):
+				continue
+			var part_box := _component_candidate_box(kind, part_center)
+			var blocked := not _component_center_allowed(part_center) \
+				or _component_candidate_blocked(kind, part_center, part_box)
+			var material: StandardMaterial3D = component_preview_cell_materials[str(part_center)]
+			material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if blocked \
+				else Color(0.91, 0.73, 0.40, 0.56)
 		component_preview.position = area_box.center
 		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
 			else Color(0.91, 0.73, 0.40, 0.56)
@@ -6841,12 +6855,12 @@ func _refresh_component_preview() -> void:
 		else Color(0.91, 0.73, 0.40, 0.56)
 	component_preview.visible = true
 
-func _style_component_preview(node: Node) -> void:
+func _style_component_preview(node: Node, material: StandardMaterial3D = null) -> void:
 	if node is MeshInstance3D:
-		node.material_override = component_preview_material
+		node.material_override = material if material != null else component_preview_material
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for child in node.get_children():
-		_style_component_preview(child)
+		_style_component_preview(child, material)
 
 func _component_placement_hint() -> String:
 	if component_preview == null or not component_preview.visible:

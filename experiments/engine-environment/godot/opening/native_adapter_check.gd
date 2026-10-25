@@ -2965,6 +2965,62 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 			and opening.building_hotbar.footprint_button.visible,
 			"The ordinary build bar selects a four-cell anvil footprint"):
 		return
+	var edge := floori((OpeningGeometry.DISPLAY_TERRAIN_SIZE * 0.5 -
+		OpeningGeometry.HEIGHT_STEP * 0.5) / OpeningGeometry.HEIGHT_STEP)
+	opening.component_nudge_center = [edge, base_level, 0]
+	opening.component_area_anchor = opening.component_nudge_center.duplicate()
+	opening.component_area_kind = "anvil"
+	opening._refresh_component_preview()
+	var edge_inside: Array = opening.component_area_anchor
+	var edge_outside := [edge + OpeningGeometry.HEIGHT_DENOMINATOR, base_level, 0]
+	var inside_material: StandardMaterial3D = opening.component_preview_cell_materials[str(edge_inside)]
+	var outside_material: StandardMaterial3D = opening.component_preview_cell_materials[str(edge_outside)]
+	if not _expect(inside_material.albedo_color.g > outside_material.albedo_color.g,
+			"The ordinary broad ghost distinguishes an interior cell from its out-of-terrain neighbor"):
+		return
+	var edge_before: Dictionary = opening.model.projection()
+	var edge_reply: Dictionary = opening.issue({"action": "place_component", "component": "anvil",
+		"center": edge_outside})
+	var edge_after: Dictionary = opening.model.projection()
+	if not _expect(not edge_reply.accepted and edge_after.cargo.P.components == edge_before.cargo.P.components
+			and edge_after.placed_components == edge_before.placed_components,
+			"Native authority refuses the red out-of-terrain cell without spending a carried anvil"):
+		return
+	opening.component_area_anchor.clear()
+	opening.component_area_kind = ""
+	var obstructed_center := [16, base_level, 0]
+	var obstacle_before: Dictionary = opening.model.projection()
+	var obstacle_reply: Dictionary = opening.issue({"action": "place_component",
+		"component": "ram_face", "center": obstructed_center})
+	if not _expect(obstacle_reply.accepted
+			and int(opening.model.projection().cargo.P.components.get("ram_face", 0)) ==
+			int(obstacle_before.cargo.P.components.get("ram_face", 0)) - 1,
+			"A real carried ram face can temporarily occupy one neighboring anvil cell"):
+		return
+	opening.component_nudge_center = [12, base_level, 0]
+	opening.component_area_anchor = opening.component_nudge_center.duplicate()
+	opening.component_area_kind = "anvil"
+	opening._refresh_component_preview()
+	var free_material: StandardMaterial3D = opening.component_preview_cell_materials[str([12, base_level, 0])]
+	var occupied_material: StandardMaterial3D = opening.component_preview_cell_materials[str(obstructed_center)]
+	if not _expect(free_material.albedo_color.g > occupied_material.albedo_color.g
+			and not opening.component_preview_blocked,
+			"The actual neighboring ram turns only its own anvil ghost red"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-mixed-anvil-ghost.png",
+				Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+				"Retain the actor-eye mixed-validity anvil ghost beside a real placed part"):
+			return
+	var reclaimed: Dictionary = opening.issue({"action": "reclaim_component",
+		"entity": str(obstacle_reply.entity)})
+	if not _expect(reclaimed.accepted
+			and opening.model.projection().cargo.P.components == obstacle_before.cargo.P.components
+			and opening.model.projection().placed_components == obstacle_before.placed_components,
+			"Removing the temporary obstruction restores the same four available broad-pad parts"):
+		return
+	opening.component_area_anchor.clear()
+	opening.component_area_kind = ""
 	for index in range(4):
 		if base_level > 0 and index == 2 and not await _approach(Vector2(5.8, 1.65)):
 			return

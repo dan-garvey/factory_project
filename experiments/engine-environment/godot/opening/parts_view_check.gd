@@ -320,6 +320,81 @@ func _component_placement_check() -> void:
 	verify(view.component_preview_snap == "Above wooden frame"
 		and "Aim at a floor or built surface" in view._component_placement_hint(),
 		"The anvil hint allows a floor or built surface without requiring a press frame.")
+	view.component_footprint_size = 2
+	view.component_nudge_active = true
+	view.state.cargo.P.components.anvil = 4
+	var clear_area: Array = []
+	for x in range(-24, 25, 4):
+		for z in range(-24, 25, 4):
+			var candidate := [x, 0, z]
+			var clear := true
+			for part_center: Array in view._component_footprint_centers("anvil", candidate):
+				clear = clear and view._component_center_allowed(part_center) \
+					and not view._component_candidate_blocked("anvil", part_center,
+						view._component_candidate_box("anvil", part_center))
+			if clear:
+				clear_area = candidate
+				break
+		if not clear_area.is_empty():
+			break
+	verify(not clear_area.is_empty(), "The isolated fixture has four clear, buildable anvil cells.")
+	if not clear_area.is_empty():
+		for level in [0, 4]:
+			view.component_nudge_center = [clear_area[0], level, clear_area[2]]
+			view.component_area_anchor = view.component_nudge_center.duplicate()
+			view.component_area_kind = "anvil"
+			view._refresh_component_preview()
+			var area_centers := view._component_footprint_centers("anvil", view.component_nudge_center)
+			var blocked_center: Array = area_centers[1]
+			var blocking_box := view._component_candidate_box("wooden_frame", blocked_center)
+			view.state.placed_components["broad_obstacle"] = {"component": "wooden_frame",
+				"center": blocked_center, "generation": 2,
+				"occupied": {"center": [blocking_box.center.x, blocking_box.center.y,
+					blocking_box.center.z], "half": [blocking_box.half.x,
+					blocking_box.half.y, blocking_box.half.z]}}
+			view._refresh_component_preview()
+			var clear_material: StandardMaterial3D = view.component_preview_cell_materials[str(area_centers[0])]
+			var blocked_material: StandardMaterial3D = view.component_preview_cell_materials[str(blocked_center)]
+			verify(view.component_preview.visible and view.component_preview.get_child_count() == 4
+				and clear_material.albedo_color.g > blocked_material.albedo_color.g
+				and not view.component_preview_blocked,
+				"A neighboring occupied cell alone turns red while the pointed anvil cell stays buildable.")
+			if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+				camera.position = view.component_preview.position + Vector3(3.5, 1.1, 4.0)
+				camera.look_at(view.component_preview.position)
+				await process_frame
+				await RenderingServer.frame_post_draw
+				verify(root.get_texture().get_image().save_png(prefix +
+					("-broad-raised.png" if level > 0 else "-broad-ground.png")) == OK,
+					"Retain the actor-eye broad area with one obstructed cell at this height.")
+			view.component_nudge_center = blocked_center
+			view._refresh_component_preview()
+			verify(view.component_preview_blocked
+				and view.component_preview_cell_materials[str(area_centers[0])] == clear_material,
+				"Pointing at the obstructed cell reports its refusal without recoloring a valid neighbor.")
+			view.state.placed_components.erase("broad_obstacle")
+		var last_inside := floori((SiteSurface.HALF - Geometry.HEIGHT_STEP / 2.0) \
+			/ Geometry.HEIGHT_STEP)
+		view.component_nudge_center = [last_inside, 0, 0]
+		view.component_area_anchor = view.component_nudge_center.duplicate()
+		view._refresh_component_preview()
+		var edge_centers := view._component_footprint_centers("anvil", view.component_area_anchor)
+		var inside_material: StandardMaterial3D = view.component_preview_cell_materials[str(edge_centers[0])]
+		var outside_material: StandardMaterial3D = view.component_preview_cell_materials[str(edge_centers[1])]
+		verify(view._component_center_allowed(edge_centers[0])
+			and not view._component_center_allowed(edge_centers[1])
+			and inside_material.albedo_color.g > outside_material.albedo_color.g,
+			"A four-cell area straddling the terrain edge colors its inside and outside cells separately.")
+		view.component_nudge_center = edge_centers[1]
+		view._refresh_component_preview()
+		verify(view.component_preview_blocked,
+			"Pointing at the outside cell reports the same boundary refusal as placement.")
+	view.component_area_anchor.clear()
+	view.component_area_kind = ""
+	view.component_footprint_size = 1
+	view.component_nudge_active = false
+	view.component_preview_pose_key = ""
+	view._refresh_component_preview()
 	view._input(_component_key(KEY_ALT, true, true))
 	view._input(_component_key(KEY_RIGHT, true, true))
 	view._input(_component_key(KEY_PAGEUP, true, true))
