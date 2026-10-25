@@ -175,6 +175,9 @@ struct State {
         bool operator==(const SlidePhase&) const = default;
     };
     std::map<std::string, SlidePhase> slide_phases;
+    // A blank or unfinished lot on a sliding press retains its selected
+    // outlet across later strokes, pickup and checkpoint continuation.
+    std::map<mechanics::Point, mechanics::Point> slide_press_routes;
     struct ManualCut {
         std::string target;
         authority::Integer start_revision{};

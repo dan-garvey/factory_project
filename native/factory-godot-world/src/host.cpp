@@ -2965,6 +2965,10 @@ Value Host::projection() const {
                 entry.emplace("slide_center", Value(Array{Value(press.slide_center[0]),
                     Value(press.slide_center[1]), Value(press.slide_center[2])}));
                 entry.emplace("slide_material", Value(materials::component_name(press.slide_material)));
+                if (const auto selected = snapshot.state.slide_press_routes.find(press.work_center);
+                    selected != snapshot.state.slide_press_routes.end())
+                    entry.emplace("selected_exit", Value(Array{Value(selected->second[0]),
+                        Value(selected->second[1]), Value(selected->second[2])}));
                 Array feeds;
                 for (const auto& feed : press.open_feeds)
                     feeds.emplace_back(Object{{"entry", Value(Array{Value(feed.entry[0]),

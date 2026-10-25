@@ -460,6 +460,7 @@ struct WorkingPress {
     std::vector<assembly::PressFeed> open_feeds;
     std::optional<mechanics::Point> offcut_receiver;
     std::optional<mechanics::Point> plate_receiver;
+    bool sliding{};
 };
 
 struct WorkingPressInspection {
@@ -470,6 +471,13 @@ struct WorkingPressInspection {
 WorkingPressInspection inspect_working_press(const assembly::Layout& layout,
         materials::Component anchor_kind, const mechanics::Point& center) {
     if (anchor_kind == materials::Component::anvil) {
+        const auto sliding = layout.inspect_sliding_press(center);
+        if (sliding.press) {
+            const auto& press = *sliding.press;
+            return {sliding.status, WorkingPress{press.anvil, center, press.work_center,
+                press.slide_center, press.slide, press.open_feeds, std::nullopt,
+                std::nullopt, true}};
+        }
         const auto inspected = layout.inspect_guided_press(center);
         if (!inspected.press) return {inspected.status, std::nullopt};
         const auto& press = *inspected.press;
@@ -1293,6 +1301,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         bool drive_changed{};
     };
     std::map<mechanics::Point, PressWorkRecord> press_work;
+    std::map<mechanics::Point, mechanics::Point> historical_slide_routes;
     std::map<mechanics::Point, Integer> press_products;
     std::map<mechanics::Point, Integer> expected_offcuts;
     const Integer offcut_per_plate = profile.material.plate_mass == 0 ? 0 :
@@ -2087,8 +2096,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto inspected = inspect_historical_press(frame->second.first, frame->second.second);
             if (!inspected.press || inspected.press->anchor != *entity ||
                 inspected.press->work_center != *selected_work ||
-                std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
-                    [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; })) return false;
+                (compacting && inspected.press->sliding)) return false;
+            const auto selected_feed = std::find_if(inspected.press->open_feeds.begin(),
+                inspected.press->open_feeds.end(), [&](const assembly::PressFeed& feed) {
+                    return feed.entry == *selected_entry;
+                });
+            if (selected_feed == inspected.press->open_feeds.end()) return false;
             for (const auto& [point, cargo] : broad_work) {
                 (void)cargo;
                 const auto occupied = broad_cells(point);
@@ -2103,8 +2116,14 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     return false;
             }
             auto automatic_exit = inspected.press->work_center;
-            automatic_exit[0] -= inspected.press->shaft_center[0] - inspected.press->anchor_center[0];
-            automatic_exit[2] -= inspected.press->shaft_center[2] - inspected.press->anchor_center[2];
+            if (inspected.press->sliding) {
+                automatic_exit = selected_feed->exit;
+                if (!historical_slide_routes.emplace(*selected_work, automatic_exit).second)
+                    return false;
+            } else {
+                automatic_exit[0] -= inspected.press->shaft_center[0] - inspected.press->anchor_center[0];
+                automatic_exit[2] -= inspected.press->shaft_center[2] - inspected.press->anchor_center[2];
+            }
             historical_press_exits.insert(automatic_exit);
             if (const auto previous = press_work.find(*selected_work); previous != press_work.end()) {
                 if (!previous->second.automatic_exit || previous->second.last_tick_seen == ticks_seen ||
@@ -2140,7 +2159,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 (frame->second.first != materials::Component::wooden_frame &&
                  frame->second.first != materials::Component::anvil)) return false;
             const auto inspected = inspect_historical_press(frame->second.first, frame->second.second);
-            if (!inspected.press || inspected.press->anchor != *entity ||
+            if (!inspected.press || inspected.press->sliding ||
+                inspected.press->anchor != *entity ||
                 inspected.press->shaft != *drive ||
                 inspected.press->shaft_center != *selected_shaft ||
                 inspected.press->work_center != *selected_work ||
@@ -2545,6 +2565,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 press_work.erase(active);
             }
             belt_press_turns.erase(*point);
+            historical_slide_routes.erase(*point);
         }
         if (*action == "place_sheet") {
             const auto origin = grid_point(record.intent, materials::maximum_drop_coordinate);
@@ -2677,6 +2698,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 const auto found = placed_components.find(*entity);
                 if (found == placed_components.end() || found->second != std::make_pair(*component, *center) ||
                     carried >= profile.material.component_capacity) return false;
+                if (*component == materials::Component::anvil &&
+                    historical_slide_routes.contains(*center)) return false;
                 if (*component == materials::Component::anvil &&
                     std::any_of(broad_work.begin(), broad_work.end(),
                         [&](const auto& entry) {
@@ -2822,7 +2845,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     if (snapshot.revision < history_revision) return false;
     if (!replay_broad_ticks(history_revision + 1, snapshot.revision) ||
         !replay_slide_ticks(history_revision + 1, snapshot.revision) ||
-        historical_slide_phases != snapshot.state.slide_phases) return false;
+        historical_slide_phases != snapshot.state.slide_phases ||
+        historical_slide_routes != snapshot.state.slide_press_routes) return false;
     ticks_seen += snapshot.revision - history_revision;
     if (!apply_deliveries(snapshot.revision, true) ||
         next_delivery != deliveries.size()) return false;
@@ -3725,6 +3749,23 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             progress.origin[2] % 4 != 0) return false;
     if (state.placed_components.size() > maximum_issued_entities) return false;
     if (state.slide_phases.size() > state.placed_components.size()) return false;
+    if (state.slide_press_routes.size() > materials::maximum_drop_points) return false;
+    for (const auto& [work, exit] : state.slide_press_routes) {
+        const auto dropped = state.material.dropped_material.find(work);
+        if (std::any_of(work.begin(), work.end(), [](Integer value) {
+                return value < -materials::maximum_drop_coordinate ||
+                    value > materials::maximum_drop_coordinate;
+            }) || std::any_of(exit.begin(), exit.end(), [](Integer value) {
+                return value < -materials::maximum_drop_coordinate ||
+                    value > materials::maximum_drop_coordinate;
+            }) || exit[1] != work[1] || exit[2] != work[2] ||
+            (exit[0] != work[0] - 1 && exit[0] != work[0] + 1) ||
+            dropped == state.material.dropped_material.end() ||
+            (dropped->second.raw_units != 1 && dropped->second.work_lots.size() != 1) ||
+            !std::any_of(state.placed_components.begin(), state.placed_components.end(),
+                [&](const auto& entry) { return entry.second.kind == materials::Component::anvil &&
+                    entry.second.center == work; })) return false;
+    }
     std::map<materials::Component, Integer> component_totals;
     std::set<mechanics::Point> component_centers;
     for (const auto& [id, placed] : state.placed_components) {
@@ -4072,6 +4113,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto error = materials::pickup_material(candidate.material, profile_.material,
                                                   material_path(candidate.topology), binding.actor, *point);
         if (error != materials::Error::none) return refused(materials::error_name(error), "", std::move(facts));
+        candidate.slide_press_routes.erase(*point);
         if (contents.products == 1) {
             const auto witness = candidate.press_output_at_exit.find(*point);
             if (witness != candidate.press_output_at_exit.end()) {
@@ -4685,6 +4727,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             return refused("ambiguous_assembly", *id);
         if (!inspected.press || inspected.press->anchor != *id)
             return refused("incomplete_assembly", *id);
+        if (compacting && inspected.press->sliding)
+            return refused("slide_requires_contact_stroke", *id);
         if (compacting && (!copper_profile(profile_.material) ||
             profile_.material.input_units_per_product != 1))
             return refused("unavailable_recipe", *id);
@@ -4692,8 +4736,11 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             return refused("not_crank_holder", *id);
         if (compacting && inspected.press->shaft != *drive)
             return refused("wrong_drive_shaft", *id);
-        if (std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
-                [&](const assembly::PressFeed& feed) { return feed.entry == *selected_entry; }))
+        const auto selected_feed = std::find_if(inspected.press->open_feeds.begin(),
+            inspected.press->open_feeds.end(), [&](const assembly::PressFeed& feed) {
+                return feed.entry == *selected_entry;
+            });
+        if (selected_feed == inspected.press->open_feeds.end())
             return refused("blocked_feed", *id);
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready", *id);
@@ -4733,6 +4780,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (state.material.dropped_material.size() >= materials::maximum_drop_points)
             return refused("output_full", *id, std::move(facts));
         auto candidate = state;
+        if (inspected.press->sliding &&
+            !candidate.slide_press_routes.emplace(work, selected_feed->exit).second)
+            return refused("input_full", *id, std::move(facts));
         if (refeed_work) {
             const auto lot = *selected_work;
             auto& next_lots = candidate.material.cargo.at(binding.actor).work_lots;
@@ -4785,6 +4835,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             return refused("ambiguous_assembly", *id);
         if (!inspected.press || inspected.press->anchor != *id)
             return refused("incomplete_assembly", *id);
+        if (inspected.press->sliding)
+            return refused("slide_requires_contact_stroke", *id);
         if (inspected.press->shaft != *drive) return refused("wrong_drive_shaft", *id);
         if (std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                 [&](const assembly::PressFeed& feed) { return feed.exit == *selected_exit; }))
@@ -4931,6 +4983,9 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             }
             if (carried >= profile_.material.component_capacity)
                 return refused("inventory_full", *target, std::move(facts));
+            if (kind == materials::Component::anvil &&
+                state.slide_press_routes.contains(center))
+                return refused("work_on_anvil", *target, std::move(facts));
             if (kind == materials::Component::anvil &&
                 std::any_of(state.material.dropped_material.begin(),
                     state.material.dropped_material.end(), [&](const auto& entry) {

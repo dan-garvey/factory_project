@@ -367,6 +367,12 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"remainder", Value(phase.remainder)},
                     {"denominator", Value(phase.denominator)}}));
             state.emplace("slide_phases", Value(std::move(slide_phases)));
+            Array slide_routes;
+            for (const auto& [work, exit] : snapshot.state.slide_press_routes)
+                slide_routes.emplace_back(Object{
+                    {"work", Value(Array{Value(work[0]), Value(work[1]), Value(work[2])})},
+                    {"exit", Value(Array{Value(exit[0]), Value(exit[1]), Value(exit[2])})}});
+            state.emplace("slide_press_routes", Value(std::move(slide_routes)));
             Array waiting, receiver_plates, exported, belt_work, belt_products;
             for (const auto& [center, id] : snapshot.state.press_output_at_exit)
                 waiting.emplace_back(Object{{"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
@@ -453,7 +459,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
         const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "hand_crank", "placed_components", "slide_phases", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "hand_crank", "placed_components", "slide_phases", "slide_press_routes", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences"});
@@ -535,6 +541,14 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                 return mechanics::Point{scalar<Integer>(center[0], path),
                     scalar<Integer>(center[1], path), scalar<Integer>(center[2], path)};
             };
+            for (const auto& value : array(state.at("slide_press_routes"),
+                    "$.state.slide_press_routes", materials::maximum_drop_points)) {
+                const auto& entry = fields(value, "$.state.slide_press_routes", {"work", "exit"});
+                if (!candidate.state.slide_press_routes.emplace(
+                        read_point(entry.at("work"), "$.state.slide_press_routes.work"),
+                        read_point(entry.at("exit"), "$.state.slide_press_routes.exit")).second)
+                    refuse(CheckpointReason::invalid_world, "$.state.slide_press_routes");
+            }
             const auto& waiting = array(state.at("press_output_at_exit"), "$.state.press_output_at_exit", 4096);
             for (const auto& value : waiting) {
                 const auto& entry = fields(value, "$.state.press_output_at_exit", {"center", "work_id"});
