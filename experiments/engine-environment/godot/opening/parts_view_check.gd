@@ -707,7 +707,7 @@ func hotbar_observation() -> Dictionary:
 func _multitool_grip_distance(body: Node3D, tool: Node3D) -> float:
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
 	var grip: MeshInstance3D = tool.get_node("GripCore")
-	var grip_center: Vector3 = tool.transform * grip.mesh.get_aabb().get_center()
+	var grip_center: Vector3 = tool.transform * grip.transform * grip.mesh.get_aabb().get_center()
 	var hand_pose: Transform3D = skeleton.get_bone_global_pose(skeleton.find_bone("Bip01 R Hand"))
 	var farthest := 0.0
 	for finger in ["Bip01 R Finger12", "Bip01 R Finger22", "Bip01 R Finger32"]:
@@ -759,8 +759,10 @@ func _multitool_presentation() -> void:
 		verify(presenter.eye_multitool != null and presenter.eye_multitool.visible and not presenter.views.P.visible and presenter.views.Q.visible,
 			"Eye-level presentation shows one local tool while retaining the other actor's normal body.")
 		var hand: MeshInstance3D = presenter.eye_multitool.get_node("QualifiedRightHand")
-		verify(hand.mesh.get_surface_count() > 0 and hand.mesh.get_aabb().size.length() < 0.35,
-			"The close view uses a bounded hand extracted from the qualified actor, without the hidden torso.")
+		var arm_bounds: AABB = hand.mesh.get_aabb()
+		verify(hand.mesh.get_surface_count() > 0 and arm_bounds.size.length() > 0.55
+			and arm_bounds.size.length() < 0.85 and arm_bounds.size.y < 0.30,
+			"The close view includes the qualified worker's hand and connected forearm without torso geometry: " + str(arm_bounds))
 		verify(presenter.eye_multitool.get_node("CuttingBlade").mesh == blade.mesh,
 			"First- and third-person presentations use the exact same authored cutter.")
 		var hand_id := hand.mesh.get_instance_id()

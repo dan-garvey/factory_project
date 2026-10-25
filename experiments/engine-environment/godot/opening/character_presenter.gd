@@ -138,7 +138,8 @@ func _hold_multitool(body: Node3D) -> void:
 		if not label.begins_with("Bip01 R Finger"):
 			continue
 		var segment := 0 if label.length() == "Bip01 R Finger1".length() else int(label.right(1))
-		var angle: float = [1.35, 1.15, 0.65][segment]
+		# Leave the knuckles outside the ribbed grip instead of burying them in it.
+		var angle: float = [1.20, 1.00, 0.55][segment]
 		skeleton.set_bone_pose_rotation(index, (finger.base * Quaternion(Vector3.BACK, angle)).normalized())
 
 func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
