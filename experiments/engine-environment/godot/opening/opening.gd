@@ -4690,7 +4690,7 @@ var object_menu_detail_panel: PanelContainer
 var object_menu_desired_extent := Vector2i(500, 400)
 var object_menu_viewport_size := Vector2i.ZERO
 var object_menu_target := ""
-var pause_menu: PopupPanel
+var pause_menu: PanelContainer
 var pause_menu_scrim: ColorRect
 var pause_resume_button: Button
 var pause_exit_button: Button
@@ -10320,7 +10320,7 @@ func _open_pause_menu() -> void:
 		return
 	_release_character_controls()
 	pause_menu_scrim.visible = true
-	pause_menu.popup_centered(Vector2i(380, 390))
+	pause_menu.show()
 	pause_resume_button.grab_focus()
 
 func _build_pause_menu(root: Control) -> void:
@@ -10328,20 +10328,30 @@ func _build_pause_menu(root: Control) -> void:
 	pause_menu_scrim.name = "PauseMenuShade"
 	pause_menu_scrim.color = Color(0.01, 0.02, 0.025, 0.54)
 	pause_menu_scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_menu_scrim.z_index = 100
 	root.add_child(pause_menu_scrim)
 	pause_menu_scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	pause_menu_scrim.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			pause_menu.hide())
 	pause_menu_scrim.visible = false
-	pause_menu = PopupPanel.new()
+	var center := CenterContainer.new()
+	center.name = "PauseMenuCenter"
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.z_index = 101
+	root.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_menu = PanelContainer.new()
 	pause_menu.name = "PauseMenu"
 	pause_menu.theme = root.theme.duplicate()
+	pause_menu.custom_minimum_size = Vector2(380, 390)
+	pause_menu.mouse_filter = Control.MOUSE_FILTER_STOP
 	var surface := StyleBoxFlat.new()
 	surface.bg_color = Color(0.035, 0.06, 0.075, 0.96)
 	surface.set_corner_radius_all(10)
-	pause_menu.theme.set_stylebox("panel", "PopupPanel", surface)
-	root.add_child(pause_menu)
+	pause_menu.theme.set_stylebox("panel", "PanelContainer", surface)
+	center.add_child(pause_menu)
+	pause_menu.hide()
 	var margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 18)
@@ -10367,7 +10377,9 @@ func _build_pause_menu(root: Control) -> void:
 	load_button.reparent(actions)
 	_style_pause_action(load_button, "reopen", "Reopen save", "F9")
 	pause_exit_button = _pause_action(actions, "exit", "Exit workshop", "Q", func(): pause_exit_confirmation.popup_centered())
-	pause_menu.popup_hide.connect(func(): pause_menu_scrim.visible = false)
+	pause_menu.visibility_changed.connect(func() -> void:
+		if not pause_menu.visible:
+			pause_menu_scrim.visible = false)
 	pause_exit_confirmation = ConfirmationDialog.new()
 	pause_exit_confirmation.title = "Exit workshop"
 	pause_exit_confirmation.dialog_text = "Unsaved changes will be lost. Save with F5 before exiting."

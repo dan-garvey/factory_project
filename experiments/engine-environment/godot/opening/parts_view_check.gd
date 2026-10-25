@@ -2460,14 +2460,46 @@ func _workshop_pages() -> void:
 			and view.load_button.get_parent() == view.pause_resume_button.get_parent()
 			and view.save_button.text.is_empty() and view.load_button.text.is_empty(),
 			"Idle Escape opens icon-led worksite actions outside the object panel.")
-		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		await process_frame
+		var resume_rect: Rect2 = view.pause_resume_button.get_global_rect()
+		for frame_index in range(31 if not shared and not image_prefix.is_empty() else 4):
 			await process_frame
+			verify(view.pause_menu.visible and view.pause_resume_button.has_focus()
+				and view.pause_resume_button.get_global_rect() == resume_rect,
+				"The open Resume control keeps its focus and layout across idle frames.")
+			if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless" \
+					and frame_index in [0, 10, 20, 30]:
+				await RenderingServer.frame_post_draw
+				verify(root.get_texture().get_image().save_png(image_prefix + "-escape-%02d.png" % frame_index) == OK,
+					"Retain a timed worksite menu frame.")
+		view.save_button.grab_focus()
+		await process_frame
+		verify(view.save_button.has_focus() and not view.pause_resume_button.has_focus()
+			and view.pause_menu.visible,
+			"Keyboard focus can leave Resume without dismissing the worksite menu.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-escape.png") == OK,
-				"Retain the centered worksite menu over the ordinary scene.")
+			verify(root.get_texture().get_image().save_png(image_prefix + "-escape-save-focus.png") == OK,
+				"Retain the worksite menu with focus on Save.")
+		view.pause_resume_button.grab_focus()
+		verify(view.pause_resume_button.has_focus() and view.pause_menu.visible,
+			"Keyboard focus returns to Resume without rebuilding the menu.")
 		view._input(escape)
 		verify(not view.pause_menu.visible and not view.pause_menu_scrim.visible,
 			"Escape resumes the worksite from the pause menu.")
+		view._open_pause_menu()
+		root.size = Vector2i(900, 600)
+		await process_frame
+		await process_frame
+		verify(view.pause_menu.visible and view.pause_menu_scrim.visible
+			and view.pause_resume_button.has_focus()
+			and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(view.pause_menu.get_global_rect()),
+			"A repeated Escape menu opening stays centered and focused during a window resize.")
+		view.pause_resume_button.pressed.emit()
+		verify(not view.pause_menu.visible and not view.pause_menu_scrim.visible,
+			"The Resume icon closes the worksite menu after resizing.")
+		root.size = Vector2i(1280, 800)
+		await process_frame
 		if failures > 0:
 			view.free()
 			break
