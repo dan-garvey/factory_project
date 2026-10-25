@@ -96,6 +96,7 @@ const char* component_name(Component component) noexcept {
         case Component::wooden_workbench: return "wooden_workbench";
         case Component::wooden_slide: return "wooden_slide";
         case Component::softmetal_slide: return "softmetal_slide";
+        case Component::flat_head: return "flat_head";
     }
     return "invalid_component";
 }
@@ -106,7 +107,7 @@ std::optional<Component> component_from_name(const std::string& name) noexcept {
              Component::sliding_guide, Component::cutting_edge, Component::anvil,
              Component::ram_face, Component::softmetal_shaft, Component::softmetal_cog,
              Component::wooden_workbench, Component::wooden_slide,
-             Component::softmetal_slide})
+             Component::softmetal_slide, Component::flat_head})
         if (name == component_name(component)) return component;
     return std::nullopt;
 }
@@ -127,6 +128,7 @@ std::optional<ComponentCost> component_cost(Component component) noexcept {
         case Component::wooden_workbench: return ComponentCost{4, 0};
         case Component::wooden_slide: return ComponentCost{3, 0};
         case Component::softmetal_slide: return ComponentCost{0, 4};
+        case Component::flat_head: return ComponentCost{0, 1};
     }
     return std::nullopt;
 }
