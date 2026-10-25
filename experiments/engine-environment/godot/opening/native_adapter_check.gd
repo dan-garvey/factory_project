@@ -235,6 +235,19 @@ func _capture_actor_area(path: String, target: Vector3) -> bool:
 	opening._update_camera()
 	return captured
 
+func _aim_actor_at_component(id: String) -> Dictionary:
+	var occupied: Array = opening.model.projection().placed_components[id].occupied.center
+	var target := Vector3(float(occupied[0]), float(occupied[1]), float(occupied[2]))
+	opening.distance = 0.0
+	opening._update_camera()
+	var direction: Vector3 = (target - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-direction.x, -direction.z)
+	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+	opening._update_camera()
+	await physics_frame
+	var screen: Vector2 = opening._pointed_screen_position()
+	return opening._screen_pick(screen)
+
 func _approach(target: Vector2, actor: String = "P") -> bool:
 	if not await _walk_to(target, false, actor):
 		return false
@@ -2383,11 +2396,68 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not _select_inventory_item("component:" + part.kind):
 			return
 		var prior: Dictionary = opening.model.projection().placed_components
-		opening.component_nudge_active = true
-		opening.component_nudge_center = part.center.duplicate()
-		opening._world_click(Vector2i(3, 4))
-		opening.component_nudge_active = false
-		opening.component_nudge_center.clear()
+		if part.kind == "anvil":
+			opening.component_nudge_active = true
+			opening.component_nudge_center = part.center.duplicate()
+			opening._world_click(Vector2i(3, 4))
+			opening.component_nudge_active = false
+			opening.component_nudge_center.clear()
+		else:
+			var lower_id: String = fitted.anvil if part.kind == "flat_head" else fitted.flat_head
+			var hit := await _aim_actor_at_component(lower_id)
+			var screen: Vector2 = opening._pointed_screen_position()
+			var pointed: String = opening._screen_entity(screen)
+			opening._refresh_component_preview()
+			opening._refresh_placement_options()
+			if not _expect(pointed == lower_id and hit.get("collider") != null
+					and absf(hit.get("normal", Vector3.UP).y) < 0.5
+					and opening._component_place_center(opening._screen_cell(screen), pointed) == part.center
+					and opening.component_preview.visible and not opening.component_preview_blocked
+					and opening.placement_options_panel.position.y <= 18.0
+					and opening.status_label.text.contains(
+						"Aim at the anvil" if part.kind == "flat_head" else "Aim at the flat head")
+					and opening.placement_options_hint.text.contains(
+						"Aim at the anvil" if part.kind == "flat_head" else "Aim at the flat head"),
+					"The standing worker points at the lower part side and sees a reachable fitted %s ghost" % part.kind):
+				return
+			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+				await process_frame
+				await RenderingServer.frame_post_draw
+				if not _expect(root.get_texture().get_image().save_png(
+						capture_prefix + "-" + part.kind + "-side-ghost.png") == OK,
+						"Retain the actor-eye fitted %s ghost while aiming at its lower part" % part.kind):
+					return
+				if part.kind == "flat_head":
+					root.size = Vector2i(900, 600)
+					await process_frame
+					opening._refresh_component_preview()
+					opening._refresh_placement_options()
+					if not _expect(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+							opening.placement_options_panel.get_global_rect())
+							and opening.component_preview.visible,
+							"The elevated component cue and ghost remain visible in a narrow window"):
+						return
+					await RenderingServer.frame_post_draw
+					if not _expect(root.get_texture().get_image().save_png(
+							capture_prefix + "-flat_head-narrow-ghost.png") == OK,
+							"Retain the narrow actor-eye head ghost and elevated cue"):
+						return
+					root.size = Vector2i(1280, 800)
+					await process_frame
+					opening._refresh_component_preview()
+					opening._refresh_placement_options()
+			if part.kind == "flat_head":
+				var before_refusal: Dictionary = opening.model.projection()
+				var refused := _issue({"action": "place_component", "component": part.kind,
+					"center": [12, 0, 16]})
+				var after_refusal: Dictionary = opening.model.projection()
+				if not _expect(not refused.get("accepted", false) and refused.get("reason") == "occupied"
+						and after_refusal.cargo == before_refusal.cargo
+						and after_refusal.placed_components == before_refusal.placed_components
+						and opening.component_preview.visible and not opening.component_preview_blocked,
+						"Native refuses a head at the occupied anvil center without spending it; the fitted ghost stays clear: " + str(refused)):
+					return
+			opening._world_click(opening._screen_cell(screen), pointed)
 		var after: Dictionary = opening.model.projection().placed_components
 		if not _expect(after.size() == prior.size() + 1 and after.values().any(
 				func(placed: Variant) -> bool: return placed.component == part.kind and placed.center == part.center),

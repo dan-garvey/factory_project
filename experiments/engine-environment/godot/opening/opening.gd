@@ -6001,6 +6001,12 @@ func _select_tool(tool: String) -> void:
 		instructions["drive"] = "Point at a floor to match its height, a part face to snap beside it, or a belt to add a pulley. Set the shaft axis in its menu."
 		instructions["gear"] = "Point at a floor to match its height or a part face to snap beside it. Set the cogwheel axis in its menu."
 		instructions["foundation"] = "Place a foundation at the displayed world height. Page Up / Page Down move one foundation thickness so stacked blocks touch; Access steps enables smaller walking steps. Machines need whole-tile factory floors. Area chooses two corners; Esc cancels."
+		if tool == "component" and arrival_assembly_controls != null:
+			var component_kind: String = arrival_assembly_controls.selected_name()
+			if component_kind == "flat_head":
+				instructions["component"] = "Aim at the anvil to show the head at press height. Click to fit it; the slide goes above."
+			elif component_kind in ["wooden_slide", "copper_slide"]:
+				instructions["component"] = "Aim at the flat head to show the slide above it. Click to fit the amber ghost; red means blocked."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -9825,7 +9831,8 @@ func _fit_placement_options() -> void:
 	var hotbar_height: float = building_hotbar.size.y if building_hotbar != null else 0.0
 	var footer_height: float = status_footer.size.y if status_footer != null and status_footer.visible else 0.0
 	placement_options_panel.position = Vector2(maxf(18.0, parent.size.x - placement_options_panel.size.x - 18.0),
-		maxf(18.0, parent.size.y - hotbar_height - footer_height - placement_options_panel.size.y - 48.0))
+		18.0 if mode == "component" else maxf(18.0,
+			parent.size.y - hotbar_height - footer_height - placement_options_panel.size.y - 48.0))
 
 func _refresh_machine_preview() -> void:
 	if machine_preview != null:
