@@ -5715,6 +5715,7 @@ func _input(event: InputEvent) -> void:
 					KEY_X: used = _activate_button(actions.collector_cut_button)
 					KEY_R: used = _activate_button(actions.refeed_work_button)
 					KEY_U: used = _activate_button(actions.recover_work_button)
+					KEY_S: used = _open_action_menu(actions.sheet_button)
 			if used:
 				get_viewport().set_input_as_handled()
 		return

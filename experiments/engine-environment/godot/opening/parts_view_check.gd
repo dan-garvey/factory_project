@@ -2382,7 +2382,7 @@ func _workshop_pages() -> void:
 			"work_center": [8, 0, 8], "status": "ready", "parts": {"ram": "press-ram", "shaft": "press-shaft"},
 			"open_feeds": [{"entry": [9, 0, 8], "exit": [7, 0, 8]}]}]
 		view.state.collector_assemblies = [{"status": "ready", "center": [0, 0, 0],
-			"parts": {"frame": "collector-frame", "shaft": "collector-shaft"}}]
+			"parts": {"frame": "collector-frame", "mount": "collector-mount", "shaft": "collector-shaft"}}]
 		view.state.hand_crank = {"id": "pod-hand-crank", "holder": view.client}
 		var before: Dictionary = view.state.duplicate(true)
 		root.add_child(view)
@@ -2526,6 +2526,42 @@ func _workshop_pages() -> void:
 		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
 			"The pointer feed icon sends the selected anvil and route to the native adapter.")
 		view.issued.clear()
+		for offset in [[4, 0, 0], [0, 0, 4], [4, 0, 4]]:
+			var center := [8 + offset[0], offset[1], 8 + offset[2]]
+			view.state.placed_components["broad-anvil-%s" % str(offset)] = {
+				"component": "anvil", "center": center}
+		view.state.broad_press_assemblies = [{"origin": [8, 0, 8], "geometry_status": "missing_ram"}]
+		view.state.cargo[view.client].sheets = 1
+		view.state.cargo[view.client].sheet_items = [{"id": 37, "rotation": 0}]
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(panel.sheet_button.is_visible_in_tree() and not panel.sheet_button.disabled
+			and panel.sheet_button.text.is_empty() and panel.sheet_button.icon != null
+			and panel.sheet_button.tooltip_text.contains("S")
+			and not panel.sheet_button.accessibility_name.is_empty(),
+			"A carried broad sheet exposes one described staging icon on its selected anvil.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-sheet-stage.png") == OK,
+				"Retain the selected anvil panel with its sheet staging icon.")
+		var sheet_key := InputEventKey.new()
+		sheet_key.keycode = KEY_S
+		sheet_key.pressed = true
+		view._input(sheet_key)
+		verify(panel.sheet_button.get_popup().item_count == 1,
+			"The S shortcut opens the exact projected sheet and four-anvil origin.")
+		panel.sheet_button.get_popup().id_pressed.emit(0)
+		panel.sheet_button.get_popup().hide()
+		verify(view.issued == [{"action": "place_sheet", "center": [8, 0, 8], "sheet_id": 37}],
+			"Staging submits the native sheet identity and full-area origin without changing local cargo.")
+		view.issued.clear()
+		view.state.cargo[view.client].sheet_items.clear()
+		panel.sheet_button.get_popup().id_pressed.emit(0)
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(view.issued.is_empty() and not panel.sheet_button.visible,
+			"A stale staging choice cannot submit a sheet the actor no longer carries.")
+		view.state.erase("broad_press_assemblies")
+		view.state.cargo[view.client].erase("sheet_items")
+		view.state.cargo[view.client].erase("sheets")
 		var action_key := InputEventKey.new()
 		action_key.pressed = true
 		action_key.keycode = KEY_F
@@ -2705,7 +2741,7 @@ func _workshop_pages() -> void:
 				"Retain the ordinary collector menu with its two icon controls.")
 		action_key.keycode = KEY_X
 		view._input(action_key)
-		verify(view.issued == [{"action": "turn_hand_crank", "entity": "collector-shaft"}],
+		verify(view.issued == [{"action": "turn_hand_crank", "entity": "collector-mount"}],
 			"X in the collector panel uses its visible cut button and existing request payload.")
 		view.issued.clear()
 		action_key.keycode = KEY_T
