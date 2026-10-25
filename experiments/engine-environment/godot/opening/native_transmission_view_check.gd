@@ -803,6 +803,13 @@ func _verify_press_drive_contact(anchors: Dictionary, state: Dictionary) -> void
 		verify(AABB(box.center - box.size * 0.5, box.size).grow(0.0002).encloses(mesh.global_transform * mesh.mesh.get_aabb()),
 			"The connected drive member remains inside its own native occupied volume.")
 
+func _component_mesh_shapes(anchor: Node3D) -> Array:
+	var shapes := []
+	for node: Node in anchor.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		shapes.append({"transform": mesh.transform, "bounds": mesh.mesh.get_aabb()})
+	return shapes
+
 func _press_component_view() -> void:
 	# Native Host owns these seven occupied records. This fixture inspects only
 	# the existing renderer and actor collision consumer at its projected faces.
@@ -813,7 +820,7 @@ func _press_component_view() -> void:
 			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
 			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 1.10975, 0.0], [0.14, 0.20975, 0.14]),
 			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.587875, 0.0], [0.14, 0.268375, 0.14]),
-			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 2.125625, 0.0], [0.14, 0.269375, 0.14]),
+			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
 			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2075, 0.18, 0.2075]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
 			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
@@ -934,7 +941,7 @@ func _broad_press_component_view() -> void:
 		var entries := [
 			["anvils", "anvil", "anvil", cell, 0.69725, 0.20975, 0.14],
 			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0), 1.175375, 0.268375, 0.14],
-			["guides", "guide", "sliding_guide", cell + Vector3i(0, 3, 0), 2.125625, 0.269375, 0.14],
+			["guides", "guide", "sliding_guide", cell + Vector3i(0, 3, 0), 1.919375, 0.475625, 0.14],
 			["shafts", "shaft", "wooden_shaft", cell + Vector3i(0, 4, 0) + side, 2.475, 0.12, 0.205],
 			["drive_cogs", "cog", "wooden_cog", cell + Vector3i(0, 4, 0) + side * 2, 2.475, 0.14, 0.2075]]
 		for entry in entries:
@@ -964,6 +971,13 @@ func _broad_press_component_view() -> void:
 		if node.has_meta("component_entity"):
 			anchors[node.get_meta("component_entity")] = node
 	verify(anchors.size() == 20, "The broad press does not collapse four native pads into one visual body.")
+	var broad_guide_shapes := _component_mesh_shapes(anchors.guide1)
+	var broad_guide_preview := Node3D.new()
+	root.add_child(broad_guide_preview)
+	view.preview_component(broad_guide_preview, "sliding_guide", parsed.boxes.guide1.size)
+	verify(broad_guide_shapes == _component_mesh_shapes(broad_guide_preview),
+		"A broad pad guide uses the same selected rails as its standalone placement preview.")
+	broad_guide_preview.free()
 	for pad in range(4):
 		var anvil: Node3D = anchors["anvil%d" % pad]
 		var ram: Node3D = anchors["ram%d" % pad]
@@ -1033,8 +1047,39 @@ func _broad_press_component_view() -> void:
 		and remaining["ram0"].get_node_or_null("MovingDie") != null
 		and remaining["shaft2"].get_node_or_null("GuidedBearingSeat") != null,
 		"Losing one pad part leaves the other native identities and fittings in view.")
+	verify(_component_mesh_shapes(remaining.guide1) == broad_guide_shapes,
+		"Removing a broad pad ram does not resize its unchanged guide.")
 	view.free()
 	await process_frame
+
+func _capture_guided_component_view(path: String) -> void:
+	root.size = Vector2i(1280, 800)
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_COLOR
+	environment.background_color = Color("49535d")
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color.WHITE
+	environment.ambient_light_energy = 1.4
+	var world_environment := WorldEnvironment.new()
+	world_environment.environment = environment
+	root.add_child(world_environment)
+	var light := DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-48, -35, 0)
+	light.light_energy = 2.0
+	root.add_child(light)
+	var camera := Camera3D.new()
+	camera.position = Vector3(3.0, 2.8, 4.2)
+	root.add_child(camera)
+	camera.look_at(Vector3(0.0, 1.2, 0.0))
+	camera.fov = 45.0
+	camera.current = true
+	await process_frame
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(path) == OK,
+		"Retain the same camera and lighting for the guide assembly state.")
+	camera.free()
+	light.free()
+	world_environment.free()
 
 func _guided_press_component_view() -> void:
 	var state := {"context": "guided-press-component-view", "revision": 1,
@@ -1045,7 +1090,7 @@ func _guided_press_component_view() -> void:
 		"collector_assemblies": [], "press_assemblies": [], "placed_components": {
 			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.69725, 0.0], [0.14, 0.20975, 0.14]),
 			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 1.175375, 0.0], [0.14, 0.268375, 0.14]),
-			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 2.125625, 0.0], [0.14, 0.269375, 0.14]),
+			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
 			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
 		"guided_press_assemblies": [{"anvil": "anvil", "center": [0, 0, 0], "status": "ready",
@@ -1075,6 +1120,14 @@ func _guided_press_component_view() -> void:
 		"The confirmed anvil, ram and guide render with a floating shaft bearing and no frame crown.")
 	verify(shaft != null and cog != null and shaft.basis.y.x < -0.99 and cog.basis.y.x < -0.99,
 		"The guided shaft and cog point toward the confirmed anvil work column.")
+	var ready_guide_shapes := _component_mesh_shapes(anchors.guide)
+	var guide_preview := Node3D.new()
+	root.add_child(guide_preview)
+	view.preview_component(guide_preview, "sliding_guide", parsed.boxes.guide.size)
+	verify(ready_guide_shapes.size() == 3
+		and ready_guide_shapes == _component_mesh_shapes(guide_preview),
+		"The recognized guide has the same rails, crown and dimensions as its placement preview.")
+	guide_preview.free()
 	var preview_anchor := Node3D.new()
 	root.add_child(preview_anchor)
 	view.preview_component(preview_anchor, "wooden_shaft", Vector3(0.41, 0.24, 0.41))
@@ -1156,35 +1209,12 @@ func _guided_press_component_view() -> void:
 	var west_after: Vector3 = west_mark.global_position - west_shaft.global_position
 	verify(east_winding * west_before.cross(west_after).dot(Vector3.RIGHT) > 0.0,
 		"Mirrored fittings preserve the signed native world-axis winding.")
+	var capture_path := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--capture="):
-			root.size = Vector2i(1280, 800)
-			var environment := Environment.new()
-			environment.background_mode = Environment.BG_COLOR
-			environment.background_color = Color("49535d")
-			environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-			environment.ambient_light_color = Color.WHITE
-			environment.ambient_light_energy = 1.4
-			var world_environment := WorldEnvironment.new()
-			world_environment.environment = environment
-			root.add_child(world_environment)
-			var light := DirectionalLight3D.new()
-			light.rotation_degrees = Vector3(-48, -35, 0)
-			light.light_energy = 2.0
-			root.add_child(light)
-			var camera := Camera3D.new()
-			camera.position = Vector3(3.0, 2.8, 4.2)
-			root.add_child(camera)
-			camera.look_at(Vector3(0.0, 1.2, 0.0))
-			camera.fov = 45.0
-			camera.current = true
-			await process_frame
-			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--capture=")) == OK,
-				"The passive guided-press fixture retains its rendered view.")
-			camera.free()
-			light.free()
-			world_environment.free()
+			capture_path = argument.trim_prefix("--capture=")
+	if not capture_path.is_empty():
+		await _capture_guided_component_view(capture_path)
 	state.guided_press_assemblies[0] = {"anvil": "anvil", "center": [0, 0, 0], "status": "missing_cog"}
 	state.placed_components.erase("cog")
 	state.motion.clear()
@@ -1200,8 +1230,27 @@ func _guided_press_component_view() -> void:
 		and partial.shaft.get_node_or_null("GuidedBearingSeat") == null
 		and loose_shaft.basis.y.y > 0.99,
 		"A partial native assembly loses its drive fitting without inventing a ready press.")
+	verify(_component_mesh_shapes(partial.guide) == ready_guide_shapes,
+		"Removing a neighboring drive part does not resize or reposition the guide rails.")
+	if not capture_path.is_empty():
+		await _capture_guided_component_view(capture_path.get_basename() + "-partial.png")
+	var standalone: Dictionary = initial_state.duplicate(true)
+	standalone.placed_components = {"guide": initial_state.placed_components.guide}
+	standalone.guided_press_assemblies = []
+	standalone.motion = {}
+	standalone.revision = 6
+	host.state = standalone
+	view.refresh()
+	var standalone_guide: Node3D
+	for node: Node in view.get_children():
+		if node.get_meta("component_entity", "") == "guide":
+			standalone_guide = node
+	verify(standalone_guide != null and _component_mesh_shapes(standalone_guide) == ready_guide_shapes,
+		"A guide alone keeps its selected rails and crown before any neighboring assembly exists.")
+	if not capture_path.is_empty():
+		await _capture_guided_component_view(capture_path.get_basename() + "-standalone.png")
 	state = initial_state
-	state.revision = 6
+	state.revision = 7
 	host.state = state
 	view.refresh()
 	var rest_ram: Node3D
@@ -1211,7 +1260,7 @@ func _guided_press_component_view() -> void:
 	var rest_y: float = (rest_ram.get_node("MovingDie") as MeshInstance3D).position.y
 	state.dropped_material = [{"center": [0, 0, 0], "raw": 0, "products": 0,
 		"work_lots": [{"id": 1, "cycle_ticks": 3, "remaining": 1}]}]
-	state.revision = 7
+	state.revision = 8
 	host.state = state
 	view.refresh()
 	var forming_ram: Node3D
@@ -1237,7 +1286,7 @@ func _guided_press_component_view() -> void:
 		and forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * 0.5 <= half + 0.00001,
 		"Confirmed work brings the die to the retained copper crown inside the swept ram box.")
 	state.dropped_material = []
-	state.revision = 8
+	state.revision = 9
 	host.state = state
 	view.refresh()
 	var finished_ram: Node3D

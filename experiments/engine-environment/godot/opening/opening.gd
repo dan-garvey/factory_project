@@ -6886,7 +6886,7 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied.y -= Geometry.HEIGHT_STEP * 0.5
 			half = Vector3(0.21, Geometry.HEIGHT_STEP, 0.21)
 		"sliding_guide":
-			var low := at.y - Geometry.HEIGHT_STEP * 0.5
+			var low := at.y - Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP - 0.08
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
@@ -6919,7 +6919,11 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 			if (kind == "flat_head" and part.component in ["wooden_slide", "copper_slide"]
 					and part_center[1] == center[1] + 1) or \
 					(kind in ["wooden_slide", "copper_slide"] and part.component == "flat_head"
-					and part_center[1] == center[1] - 1):
+					and part_center[1] == center[1] - 1) or \
+				(kind == "sliding_guide" and part.component == "ram_face"
+					and part_center[1] == center[1] - 1) or \
+				(kind == "ram_face" and part.component == "sliding_guide"
+					and part_center[1] == center[1] + 1):
 				paired_ids[id] = true
 		for id: Variant in result.boxes:
 			if not paired_ids.has(id):
@@ -7078,13 +7082,6 @@ func _refresh_component_preview() -> void:
 	var collector_angle := 0.0
 	var collector_support_drop := 0.0
 	var visual_center: Vector3 = box.center
-	var preview_press_role := ""
-	if kind == "sliding_guide":
-		for press: Dictionary in state.get("guided_press_assemblies", []):
-			var work_center: Array = press.get("center", [])
-			if work_center.size() == 3 and center == [work_center[0], work_center[1] + 3, work_center[2]]:
-				preview_press_role = "guided_guide"
-				break
 	if not collector_face.is_empty():
 		var toward: Array = collector_face.toward_ore
 		collector_angle = atan2(float(toward[2]), -float(toward[0]))
@@ -7092,12 +7089,12 @@ func _refresh_component_preview() -> void:
 		visual_center.y = center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT \
 			+ (0.10 if kind == "tool_mount" else -0.015)
 		collector_support_drop = visual_center.y - floor_y
-	var preview_key := "%s:%s:%s:%s" % [kind, collector_angle, collector_support_drop, preview_press_role]
+	var preview_key := "%s:%s:%s" % [kind, collector_angle, collector_support_drop]
 	if preview_key != component_preview_pose_key:
 		for child in component_preview.get_children():
 			child.free()
 		transmission_presenter.preview_component(component_preview, kind, box.size,
-			collector_angle, collector_support_drop, preview_press_role)
+			collector_angle, collector_support_drop)
 		component_preview_kind = kind
 		component_preview_pose_key = preview_key
 		component_preview_material = StandardMaterial3D.new()
