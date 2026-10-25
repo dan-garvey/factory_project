@@ -5740,7 +5740,6 @@ func _input(event: InputEvent) -> void:
 				match event.keycode:
 					KEY_P: used = actions.inventory_shortcut(KEY_P) or _activate_button(actions.pickup_button)
 					KEY_F: used = actions.inventory_shortcut(KEY_F) or _activate_button(actions.feed_button)
-					KEY_Y: used = _activate_button(actions.broad_feed_button)
 					KEY_N: used = _open_action_menu(actions.broad_refeed_button)
 					KEY_T: used = actions.press_turn_key()
 					KEY_X: used = _activate_button(actions.shear_button) or _activate_button(actions.collector_cut_button)

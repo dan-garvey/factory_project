@@ -2724,27 +2724,79 @@ func _workshop_pages() -> void:
 			"parts": {"anvils": ["press-anvil", "broad-anvil-a", "broad-anvil-b", "broad-anvil-c"]}}]
 		view.state.cargo[view.client].raw = 3
 		panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.broad_feed_button.is_visible_in_tree() and not panel.broad_feed_button.disabled
-			and panel.broad_feed_button.text.is_empty() and panel.broad_feed_button.icon != null
-			and panel.broad_feed_button.tooltip_text.contains("Y")
-			and not panel.broad_feed_button.accessibility_name.is_empty(),
-			"A complete four-anvil press and three blanks expose a distinct feed icon.")
+		verify(panel.inventory_section.is_visible_in_tree() and panel._inventory_broad
+			and not panel.feed_button.visible and panel.inventory_counts.player_raw.text == "3"
+			and panel.inventory_workbed_heading.text.contains("FOUR ANVILS")
+			and panel.inventory_slots.workbed_target.icon.resource_path.ends_with("/broad-feed.svg")
+			and panel.inventory_slots.player_raw.tooltip_text.contains("three"),
+			"A complete four-anvil press offers three carried blanks through its supported workbed grid.")
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-feed.png") == OK,
-				"Retain the four-anvil feed icon in the selected anvil panel.")
+			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-workbed.png") == OK,
+				"Retain the four-anvil inventory transfer in the selected anvil panel.")
+			root.size = Vector2i(900, 600)
+			await process_frame
+			await process_frame
+			verify(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(Rect2(
+				Vector2(view.object_menu.position), Vector2(view.object_menu.size)))
+				and panel.inventory_section.is_visible_in_tree(),
+				"The broad workbed transfer remains inside a narrow ordinary window.")
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-workbed-narrow.png") == OK,
+				"Retain the broad workbed grid in a narrow ordinary window.")
+			root.size = Vector2i(1280, 800)
+			await process_frame
+		var broad_blanks: Dictionary = panel.inventory_drag("player_raw")
+		verify(broad_blanks.get("wire", {}) == {"action": "feed_broad_press", "entity": "press-anvil"}
+			and panel.inventory_can_drop("workbed", broad_blanks),
+			"Three carried blanks target the native broad workbed through the same inventory drag contract.")
+		panel.inventory_drop("workbed", broad_blanks)
+		verify(view.issued == [broad_blanks.wire],
+			"Dragging three blanks submits one native broad feed without changing local cargo.")
+		view.issued.clear()
 		var broad_feed_key := InputEventKey.new()
-		broad_feed_key.keycode = KEY_Y
+		broad_feed_key.keycode = KEY_F
 		broad_feed_key.pressed = true
 		view._input(broad_feed_key)
-		verify(view.issued == [{"action": "feed_broad_press", "entity": "press-anvil"}],
-			"Y feeds the projected first anvil through the native broad-press command.")
+		verify(view.issued == [broad_blanks.wire],
+			"F transfers the same three blanks through the ordinary selected-anvil keyboard route.")
 		view.issued.clear()
 		view.state.cargo[view.client].raw = 2
 		panel.refresh(view.state, view.client, view.selected, true)
 		view._input(broad_feed_key)
-		verify(view.issued.is_empty() and panel.broad_feed_button.disabled,
-			"Fewer than three carried blanks cannot issue a broad feed.")
+		verify(view.issued.is_empty() and panel.inventory_drag("player_raw").is_empty()
+			and panel.inventory_slots.player_raw.disabled,
+			"Fewer than three carried blanks disable the workbed transfer without issuing a native command.")
+		view.state.cargo[view.client].raw = 3
+		view.state.dropped_material = [{"center": [8, 0, 8], "raw": 0, "products": 0,
+			"offcuts": 0, "sheets": 0, "sheet_items": [], "work_lots": [
+				{"id": 81, "recipe_input": 3, "output_form": "sheet", "remaining": 2}]}]
+		panel.refresh(view.state, view.client, view.selected, true)
+		var broad_work: Dictionary = panel.inventory_drag("workbed_work")
+		verify(panel.inventory_counts.workbed_work.text == "1"
+			and panel.inventory_slots.workbed_work.tooltip_text.contains("Sheet work")
+			and broad_work.get("wire", {}).get("action") == "pickup_material"
+			and broad_work.wire.center == [8, 0, 8]
+			and panel.inventory_drag("player_raw").is_empty(),
+			"A retained broad lot occupies the four-anvil workbed and blocks another feed.")
+		view.state.dropped_material = [{"center": [8, 0, 8], "raw": 0, "products": 0,
+			"offcuts": 0, "sheets": 1, "sheet_items": [{"id": 82, "rotation": 0}], "work_lots": []}]
+		panel.refresh(view.state, view.client, view.selected, true)
+		var broad_sheet: Dictionary = panel.inventory_drag("workbed_output")
+		verify(panel.inventory_counts.workbed_output.text == "1"
+			and panel.inventory_slots.workbed_output.icon.resource_path.ends_with("/sheet.svg")
+			and broad_sheet.get("wire", {}).get("action") == "pickup_material"
+			and broad_sheet.wire.center == [8, 0, 8]
+			and panel.inventory_drag("workbed_work").is_empty(),
+			"The formed identity-bearing sheet appears on its four supports for direct pickup.")
+		var broad_pickup_key := InputEventKey.new()
+		broad_pickup_key.keycode = KEY_P
+		broad_pickup_key.pressed = true
+		view._input(broad_pickup_key)
+		verify(view.issued == [broad_sheet.wire],
+			"P picks up the confirmed broad sheet through the same workbed inventory path.")
+		view.issued.clear()
+		view.state.dropped_material.clear()
 		view.state.cargo[view.client].work_lots = [
 			{"id": 7, "recipe_input": 1, "remaining": 1},
 			{"id": 41, "recipe_input": 3, "output_form": "sheet", "remaining": 2}]
@@ -2780,8 +2832,8 @@ func _workshop_pages() -> void:
 		view.state.cargo[view.client].raw = 1
 		view.state.broad_press_assemblies = [{"origin": [8, 0, 8], "geometry_status": "missing_ram"}]
 		panel.refresh(view.state, view.client, view.selected, true)
-		verify(not panel.broad_feed_button.visible,
-			"The feed icon disappears when the native broad press is incomplete.")
+		verify(not panel.inventory_section.visible,
+			"The four-anvil workbed transfer disappears when the native broad press is incomplete.")
 		view.state.cargo[view.client].sheets = 1
 		view.state.cargo[view.client].sheet_items = [{"id": 37, "rotation": 0}]
 		panel.refresh(view.state, view.client, view.selected, true)
