@@ -132,14 +132,19 @@ func _hold_multitool(body: Node3D) -> void:
 	# Only the right-hand grip changes. Arm, gait, source pose and native body
 	# remain independent of the carried presentation object.
 	var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
+	for thumb: Dictionary in body.get_meta("tool_thumb"):
+		var segment: int = thumb.segment
+		var opposition := Quaternion(Vector3.UP, -0.60) if segment == 0 else Quaternion.IDENTITY
+		skeleton.set_bone_pose_rotation(thumb.index,
+			(thumb.base * opposition * Quaternion(Vector3.BACK, [-0.20, 1.00, 0.95][segment])).normalized())
 	for finger: Dictionary in body.get_meta("grounded_fingers"):
 		var index: int = finger.index
 		var label := skeleton.get_bone_name(index)
 		if not label.begins_with("Bip01 R Finger"):
 			continue
 		var segment := 0 if label.length() == "Bip01 R Finger1".length() else int(label.right(1))
-		# Leave the knuckles outside the ribbed grip instead of burying them in it.
-		var angle: float = [1.20, 1.00, 0.55][segment]
+		# Close around the near face rather than burying the knuckles in the grip.
+		var angle: float = [1.50, 1.30, 0.80][segment]
 		skeleton.set_bone_pose_rotation(index, (finger.base * Quaternion(Vector3.BACK, angle)).normalized())
 
 func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
@@ -213,7 +218,14 @@ func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
 			builder.index()
 			builder.generate_tangents()
 			builder.commit(result)
-			result.surface_set_material(result.get_surface_count() - 1, mesh.mesh.surface_get_material(surface))
+			var finish: Material = mesh.mesh.surface_get_material(surface)
+			if finish is StandardMaterial3D:
+				# The eye mesh sits close to a strong world light. Keep the source
+				# texture detail while avoiding almost white fingertip highlights.
+				finish = finish.duplicate()
+				finish.albedo_color = Color(0.78, 0.74, 0.70)
+				finish.roughness = maxf(finish.roughness, 0.9)
+			result.surface_set_material(result.get_surface_count() - 1, finish)
 	if result.get_surface_count() == 0:
 		return null
 	multitool_hand_meshes[source] = result
@@ -1200,6 +1212,16 @@ func _prepare_adult_template(asset_root: String = ADULT_ASSETS, second: bool = f
 					"animated": walk_channels.has("%d:%d" % [index, Animation.TYPE_ROTATION_3D]),
 					"base": skeleton.get_bone_pose_rotation(index)})
 	body.set_meta("grounded_fingers", grounded_fingers)
+	var tool_thumb := []
+	for segment in range(3):
+		var name := "Bip01 R Finger0%s" % ("" if segment == 0 else str(segment))
+		var index := skeleton.find_bone(name)
+		if index < 0:
+			body.free()
+			return false
+		tool_thumb.append({"index": index, "segment": segment,
+			"base": skeleton.get_bone_pose_rotation(index)})
+	body.set_meta("tool_thumb", tool_thumb)
 	var bounds := _adult_rest_bounds(skeleton, mesh, to_model)
 	if bounds.size.y < 1.0 or bounds.size.y > 2.2:
 		body.free()

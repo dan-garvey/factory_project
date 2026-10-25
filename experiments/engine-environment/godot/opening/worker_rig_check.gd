@@ -227,6 +227,14 @@ func inspect_second_adult(body: Node3D, first: Node3D, presenter: Node) -> void:
 	verify(tool_attachment != null and tool_attachment.bone_name == "Bip01 R Hand"
 		and tool_attachment.get_child_count() == 1,
 		"The second adult carries the existing presentation tool on its own right hand.")
+	var thumb: int = first_skeleton.find_bone("Bip01 R Finger0")
+	var rest_thumb: Quaternion = first_skeleton.get_bone_pose_rotation(thumb)
+	presenter._hold_multitool(first)
+	var held_thumb: Quaternion = first_skeleton.get_bone_pose_rotation(thumb)
+	presenter._hold_multitool(first)
+	verify(not held_thumb.is_equal_approx(rest_thumb)
+		and first_skeleton.get_bone_pose_rotation(thumb).is_equal_approx(held_thumb),
+		"Repeating the right-hand tool pose retains a stable opposed thumb.")
 	var first_hand: ArrayMesh = presenter._bake_multitool_hand(first)
 	var second_hand: ArrayMesh = presenter._bake_multitool_hand(body)
 	verify(first_hand != null and second_hand != null and first_hand != second_hand
