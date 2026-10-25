@@ -376,23 +376,23 @@ static func stamped_plate(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
 	assembly.set_meta("item_kind", "stamped_plate")
 	parent.add_child(assembly)
 	_part(assembly, "PlateSheet", Visuals.box_mesh(Vector3(0.42, 0.032, 0.50)),
-		Vector3(0.0, -0.014, 0.0), Color("c5ceca"), 0.80, 0.39)
+		Vector3(0.0, -0.014, 0.0), Color("ad633c"), 0.58, 0.48)
 	for side in [-1.0, 1.0]:
 		var x_off: float = float(side) * 0.155
 		var z_off: float = float(side) * 0.195
 		_part(assembly, "StampedRim", Visuals.box_mesh(Vector3(0.044, 0.022, 0.44)),
-			Vector3(x_off, 0.011, 0.0), Color("b6c2bc"), 0.86, 0.32)
+			Vector3(x_off, 0.011, 0.0), Color("ca8356"), 0.62, 0.42)
 		_part(assembly, "StampedRim", Visuals.box_mesh(Vector3(0.26, 0.022, 0.044)),
-			Vector3(0.0, 0.011, z_off), Color("b6c2bc"), 0.86, 0.32)
+			Vector3(0.0, 0.011, z_off), Color("ca8356"), 0.62, 0.42)
 	_part(assembly, "PlateBushing", Visuals.turned_mesh(bushing_profile(), 48),
-		Vector3(0.0, 0.012, 0.0), Color("c89654"), 0.86, 0.32)
+		Vector3(0.0, 0.012, 0.0), Color("8d4e2f"), 0.65, 0.38)
 	var rivet_mesh: ArrayMesh = Visuals.turned_mesh(rivet_profile(), 6)
 	for sx in [-1.0, 1.0]:
 		for sz in [-1.0, 1.0]:
 			var rx: float = float(sx) * 0.155
 			var rz: float = float(sz) * 0.195
 			_part(assembly, "PlateFastener", rivet_mesh,
-				Vector3(rx, 0.022, rz), Color("8d9c9b"), 0.85, 0.36)
+				Vector3(rx, 0.022, rz), Color("925033"), 0.62, 0.44)
 	return assembly
 
 
