@@ -2504,10 +2504,10 @@ Object Host::tick_fields(const world::Snapshot& snapshot) const {
         {"manual_cuts", Value(std::move(manual_cuts))},
         {"cargo", Value(std::move(cargo))},
         {"belt_spans", Value(std::move(belt_spans))}, {"line_belt_raw", Value(belt_raw_units)},
-        {"slide_phases", Value(slide_phase_projection(state))},
         {"dropped_material", Value(std::move(dropped_material))},
         {"stock", Value(std::move(stock_fields))},
         {"remaining", Value(state.material.processing ? state.material.processing->remaining_ticks : 0)}};
+    if (state.landing_pod) fields.emplace("slide_phases", Value(slide_phase_projection(state)));
     if (copper) fields.emplace("material_mass", material_mass_value(state.material, profile_.material));
     if (profile_.material.manual_ore) {
         const auto site_position = [this](const materials::DropPoint& center) {
