@@ -5399,6 +5399,11 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 	if _native_transmission() and action_name == "load_belt_slot" \
 			and outcome.get("reason") == "belt_path_cannot_carry" and not outcome.get("uncertain", false):
 		return "This belt transmits rotation but cannot carry items along this path."
+	if _native_transmission() and action_name == "stroke_broad_shear" and not outcome.get("uncertain", false):
+		var shear_advice: String = {"output_full": "Clear the other anvil squares before cutting the sheet.",
+			"shear_unpowered": "Drive the cutting head forward before cutting."}.get(outcome.get("reason", ""), "")
+		if not shear_advice.is_empty():
+			return shear_advice
 	# Fixed-roster historical payloads may omit the helper or carry its older
 	# API. Formatting must never add a resource requirement or change admission.
 	if recovery_actions != null and recovery_actions.has_method("refusal_text"):
@@ -5712,7 +5717,7 @@ func _input(event: InputEvent) -> void:
 					KEY_P: used = _activate_button(actions.pickup_button)
 					KEY_F: used = _activate_button(actions.feed_button)
 					KEY_T: used = actions.press_turn_key() or _activate_button(actions.collector_crank_button)
-					KEY_X: used = _activate_button(actions.collector_cut_button)
+					KEY_X: used = _activate_button(actions.shear_button) or _activate_button(actions.collector_cut_button)
 					KEY_R: used = _activate_button(actions.refeed_work_button)
 					KEY_U: used = _activate_button(actions.recover_work_button)
 					KEY_V: used = actions.cycle_slide_port()

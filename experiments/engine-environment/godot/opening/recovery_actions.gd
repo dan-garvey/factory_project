@@ -364,6 +364,8 @@ class ArrivalAssemblyControls:
 	var _sheet_menu_actor := ""
 	var _sheet_menu_selected := ""
 	var _sheet_menu_world := ""
+	var shear_button: Button
+	var _shear := {}
 	var collector_section: VBoxContainer
 	var press_section: VBoxContainer
 
@@ -412,6 +414,8 @@ class ArrivalAssemblyControls:
 		sheet_button.get_popup().about_to_popup.connect(_open_sheet_menu)
 		sheet_button.get_popup().id_pressed.connect(_choose_sheet)
 		sheet_actions.add_child(sheet_button)
+		shear_button = host._button(sheet_actions, "", _stroke_sheet)
+		_style_workshop_icon(shear_button, "workshop-cut")
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
 		route_choice.tooltip_text = "Choose the side for the next blank · G"
@@ -583,6 +587,12 @@ class ArrivalAssemblyControls:
 		sheet_button.disabled = not ready
 		sheet_button.tooltip_text = "Stage a carried copper sheet on the selected four-anvil area · S"
 		sheet_button.accessibility_name = "Stage carried sheet on four anvils, shortcut S"
+		_shear = _selected_shear(snapshot, selected)
+		shear_button.visible = not _shear.is_empty()
+		shear_button.disabled = not ready or _shear.get("status") != "ready"
+		shear_button.tooltip_text = ("Cut staged copper sheet (%d/4) · X" % int(_shear.get("strokes", 0)) if _shear.get("status") == "ready" \
+			else "Power the sheet-cutting head · X")
+		shear_button.accessibility_name = "Cut staged copper sheet, shortcut X"
 		if _anvil != _last_anvil:
 			_route_index = 0
 			_slide_port_index = 0
@@ -805,6 +815,29 @@ class ArrivalAssemblyControls:
 				if sheet is Dictionary and typeof(sheet.get("id")) == TYPE_INT and sheet.id > 0:
 					offers.append({"center": origin.duplicate(), "sheet_id": sheet.id})
 		return offers
+
+	func _selected_shear(snapshot: Dictionary, selected: String) -> Dictionary:
+		for assembly: Variant in snapshot.get("broad_shear_assemblies", []):
+			if not assembly is Dictionary or int(assembly.get("sheet_id", 0)) <= 0:
+				continue
+			var anvils: Variant = assembly.get("parts", {}).get("anvils")
+			if anvils is Array and not anvils.is_empty() and anvils.has(selected):
+				return assembly
+		return {}
+
+	func _stroke_sheet() -> void:
+		var host = _host_view()
+		if host == null or shear_button.disabled:
+			return
+		var current: Variant = host.get("state")
+		if not current is Dictionary or host.get("selected") != _selected \
+				or host.get("client") != _actor:
+			return
+		var shear := _selected_shear(current, _selected)
+		if shear.get("status") != "ready":
+			return
+		host.issue({"action": "stroke_broad_shear", "entity": str(shear.parts.anvils[0]),
+			"sheet_id": int(shear.sheet_id)})
 
 	func _open_sheet_menu() -> void:
 		var popup := sheet_button.get_popup()
