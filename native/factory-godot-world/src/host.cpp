@@ -550,6 +550,10 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "turn_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
+    if (*action == "turn_slide_crank")
+        return *original_action == *action && keys(*wire, {"entity", "port"}) &&
+            field<std::string>(*wire, "entity") && field<Array>(*wire, "port") &&
+            same("entity", "target") && same("port", "port");
     if (*action == "feed_press")
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
@@ -1744,6 +1748,21 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
+    } else if (*action == "turn_slide_crank") {
+        if (!keys(wire, {"entity", "port"}) || !field<std::string>(wire, "entity") ||
+            !field<Array>(wire, "port")) return refuse("invalid_command");
+        const auto port = gear_center(*field<Array>(wire, "port"));
+        if (!port) return refuse("invalid_command");
+        if (const auto* refusal = component_site_refusal(snapshot.state, std::nullopt, *port))
+            return refuse(refusal);
+        if (const auto* refusal = component_space_refusal(snapshot.state, std::nullopt, *port))
+            return refuse(refusal);
+        normalized.at("action") = Value(*action);
+        normalized.emplace("target", wire.at("entity"));
+        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
+            Integer{0} : found->second.generation));
+        normalized.emplace("port", wire.at("port"));
     } else if (*action == "feed_broad_press" || *action == "refeed_broad_press_work") {
         const bool refeed = *action == "refeed_broad_press_work";
         if (!keys(wire, refeed ? std::initializer_list<const char*>{"entity", "work_id"} :
@@ -2801,7 +2820,7 @@ Value Host::projection() const {
         Object placed;
         for (const auto& [id, component] : state.placed_components) {
             const auto occupied = component_bounds(profile_, component.kind, component.center);
-            placed.emplace(id, Value(Object{{"component", Value(materials::component_name(component.kind))},
+            Object part{{"component", Value(materials::component_name(component.kind))},
                 {"generation", Value(component.generation)},
                 {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
                     Value(component.center[2])})},
@@ -2810,7 +2829,16 @@ Value Host::projection() const {
                 {"position", Value(Array{
                     Value(component.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
                     Value(component.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
-                    Value(component.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
+                    Value(component.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}};
+            if (component.kind == materials::Component::wooden_slide ||
+                component.kind == materials::Component::copper_slide) {
+                Array ports;
+                for (const Integer direction : {-1, 1})
+                    ports.emplace_back(Array{Value(component.center[0] + direction),
+                        Value(component.center[1]), Value(component.center[2])});
+                part.emplace("input_ports", Value(std::move(ports)));
+            }
+            placed.emplace(id, Value(std::move(part)));
         }
         projection.emplace("placed_components", Value(std::move(placed)));
         projection.emplace("slide_phases", Value(slide_phase_projection(state)));
@@ -3074,6 +3102,15 @@ Host::Decoded Host::decode(const Value& input) const {
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};
         if (!historical_wire(record)) return {nullptr, "inconsistent_wire_history"};
+        if (const auto* action = field<std::string>(record.intent, "action");
+            action && *action == "turn_slide_crank" &&
+            field<bool>(record.result, "accepted") &&
+            *field<bool>(record.result, "accepted")) {
+            const auto* value = field<Array>(record.intent, "port");
+            const auto port = value ? gear_center(*value) : std::nullopt;
+            if (!port || component_site_refusal(snapshot.state, std::nullopt, *port))
+                return {nullptr, "inconsistent_wire_history"};
+        }
         const auto* actor = field<std::string>(record.intent, "actor");
         const auto* client = field<std::string>(record.intent, "client");
         if (!actor || !client || *actor != *client) return {nullptr, "invalid_actor_binding"};

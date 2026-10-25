@@ -69,7 +69,13 @@ void one_piece_slide_custody() {
     const auto placed = get<O>(host.projection(), "placed_components").at(slide_id);
     const auto occupied = get<O>(placed, "occupied");
     const auto half = get<A>(V(occupied), "half");
+    const auto input_ports = get<A>(V(placed), "input_ports");
     check(get<std::string>(placed, "component") == "wooden_slide" &&
+          input_ports.size() == 2 &&
+          !factory::values::typed_difference(input_ports.front(),
+              V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+          !factory::values::typed_difference(input_ports.back(),
+              V(A{V(I{13}), V(I{0}), V(I{8})})) &&
           std::abs(std::get<double>(half[0].storage()) - 0.21) < 1e-8 &&
           std::abs(std::get<double>(half[1].storage()) - 0.4125) < 1e-8 &&
           get<std::string>(V(get<O>(host.projection(), "motion").at(slide_id)), "state") == "unpowered",
@@ -117,6 +123,61 @@ void one_piece_slide_custody() {
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),
           "The exact single-piece slide survives a fresh Host rejoin.");
+    const auto resumed = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("slide-body-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return restored.command("P", wire);
+    };
+    const O turn{{"entity", V(slide_id)},
+        {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
+    check(!get<bool>(resumed("no-crank", "turn_slide_crank", turn), "accepted"),
+          "A worker without the issued crank cannot turn the slide's integral input.");
+    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(5.8)}, 2), "accepted") &&
+          get<bool>(resumed("take-crank", "take_hand_crank",
+              {{"entity", V("pod-hand-crank")}}), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 3), "accepted"),
+          "The same actor takes the finite issued crank and approaches the placed input port.");
+    check(!get<bool>(resumed("wrong-port", "turn_slide_crank",
+              {{"entity", V(slide_id)},
+               {"port", V(A{V(I{12}), V(I{1}), V(I{8})})}}), "accepted"),
+          "The slide's top face is not a rotary input.");
+    const auto turned = resumed("turn-slide", "turn_slide_crank", turn);
+    if (!get<bool>(turned, "accepted"))
+        throw std::runtime_error("Manual slide turn refused: " + get<std::string>(turned, "reason"));
+    check(get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") ==
+              factory::materials::work_subticks_per_tick &&
+          get<O>(restored.projection(), "placed_components").contains(slide_id),
+          "One accepted crank turn advances the same placed slide's native phase by one shaft revolution.");
+    const auto turned_saved = restored.checkpoint();
+    Host turned_restored;
+    check(get<bool>(turned_restored.initialize_arrival("slide-body-site", {"P"}), "accepted") &&
+          get<bool>(turned_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
+          "A fresh Host can reconstruct the same arrival site before manual-turn restore.");
+    const auto turn_restore = turned_restored.restore_checkpoint(turned_saved);
+    if (!get<bool>(turn_restore, "accepted"))
+        throw std::runtime_error("Manual slide checkpoint refused: " +
+            get<std::string>(turn_restore, "reason"));
+    check(get<bool>(turn_restore, "accepted") &&
+          !factory::values::typed_difference(turned_saved, turned_restored.checkpoint()),
+          "Checkpoint replay verifies the actor-held crank and exact slide phase after a manual input.");
+    auto forged_turn = std::get<O>(turned_saved.storage());
+    auto forged_world = get<O>(V(forged_turn), "world");
+    auto forged_history = get<O>(V(forged_world), "history");
+    auto forged_records = get<A>(V(forged_history), "records");
+    auto forged_record = std::get<O>(forged_records.back().storage());
+    auto forged_result = get<O>(V(forged_record), "result");
+    auto forged_phase = get<O>(V(forged_result), "slide_phase");
+    forged_phase.at("subticks") = V(I{0});
+    forged_result.at("slide_phase") = V(std::move(forged_phase));
+    forged_record.at("result") = V(std::move(forged_result));
+    forged_records.back() = V(std::move(forged_record));
+    forged_history.at("records") = V(std::move(forged_records));
+    forged_world.at("history") = V(std::move(forged_history));
+    forged_turn.at("world") = V(std::move(forged_world));
+    check(!get<bool>(turned_restored.validate_checkpoint(V(std::move(forged_turn))), "accepted") &&
+          !factory::values::typed_difference(turned_saved, turned_restored.checkpoint()),
+          "A forged successful turn cannot invent a different carriage phase on restore.");
 }
 
 void flat_head_host_custody() {
@@ -234,6 +295,28 @@ void flat_head_host_custody() {
           get<std::string>(V(fitted), "slide") == slide_id &&
           get<A>(V(press), "open_feeds").size() == 2,
           "Ordinary Host projection names the three finite parts and both open X-axis routes.");
+    check(get<bool>(restored.publish_actor("P", {V(1.65), V(1.0), V(5.8)}, 10), "accepted") &&
+          get<bool>(resumed("take-press-crank", "take_hand_crank",
+              {{"entity", V("pod-hand-crank")}}), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 11), "accepted"),
+          "The worker takes the issued crank and returns within reach of the loaded slide.");
+    const auto loaded_turn = resumed("loaded-slide-turn", "turn_slide_crank",
+        {{"entity", V(slide_id)},
+         {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
+    if (!get<bool>(loaded_turn, "accepted"))
+        throw std::runtime_error("Loaded slide turn refused: " +
+            get<std::string>(loaded_turn, "reason"));
+    check(get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") ==
+              factory::materials::work_subticks_per_tick &&
+          get<O>(restored.projection(), "placed_components").size() == 3,
+          "The unchanged integral slide cycles with the fitted head and passive anvil in place.");
+    const auto loaded_saved = restored.checkpoint();
+    Host loaded_restored;
+    check(get<bool>(loaded_restored.initialize_arrival("flat-head-site", {"P"}), "accepted") &&
+          get<bool>(loaded_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(loaded_restored.restore_checkpoint(loaded_saved), "accepted") &&
+          !factory::values::typed_difference(loaded_saved, loaded_restored.checkpoint()),
+          "The actual finite head, slide and anvil retain their identities and manual phase through restore.");
 }
 
 void shared_fast_setting_and_restore() {

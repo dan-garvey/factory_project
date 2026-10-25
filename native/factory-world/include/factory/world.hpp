@@ -274,6 +274,10 @@ private:
 
 [[nodiscard]] DrivePower drive_power(const stationary::Topology&);
 [[nodiscard]] DrivePower drive_power(const Profile&, const State&);
+// A held crank engages one exposed X-side port for one command. This projects
+// a temporary source into the same native graph; it is never a placed part.
+[[nodiscard]] DrivePower hand_slide_power(const Profile&, const State&,
+    const std::string& slide, const mechanics::Point& port);
 [[nodiscard]] materials::Path material_path(const stationary::Topology&);
 [[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&);
 [[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&, const DrivePower&);

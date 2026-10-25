@@ -127,6 +127,22 @@ bool slide_component(materials::Component kind) {
            kind == materials::Component::copper_slide;
 }
 
+bool slide_input_port_clear(const State& state, const std::string& slide,
+        const mechanics::Point& port) {
+    for (const auto& [id, component] : state.placed_components)
+        if (id != slide && component.center == port) return false;
+    for (const auto& part : state.topology.parts) {
+        const auto& geometry = part.geometry;
+        if (geometry.center[1] == port[1] && geometry.center[2] == port[2] &&
+            (geometry.center == port ||
+             (geometry.kind == mechanics::Kind::shaft &&
+              geometry.axis == mechanics::Axis::x &&
+              std::abs(geometry.center[0] - port[0]) <= geometry.half_span)))
+            return false;
+    }
+    return true;
+}
+
 bool advance_slide_phase_internal(State::SlidePhase& phase, mechanics::Rate rate) {
     if (rate.denominator <= 0 || phase.subticks < 0 ||
         phase.subticks >= slide_cycle_subticks || phase.denominator <= 0 ||
@@ -219,6 +235,10 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "turn_hand_crank")
         return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
             field<Integer>(intent, "generation");
+    if (action == "turn_slide_crank")
+        return keys(intent, {"target", "generation", "port"}) &&
+            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
+            field<Value::Array>(intent, "port");
     if (action == "feed_press")
         return keys(intent, {"target", "generation", "entry"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
@@ -533,6 +553,12 @@ Value lots_value(const std::vector<materials::WorkLot>& lots) {
         output.emplace_back(std::move(item));
     }
     return Value(std::move(output));
+}
+
+Value slide_phase_value(const State::SlidePhase& phase) {
+    return Value(Object{{"subticks", Value(phase.subticks)},
+        {"remainder", Value(phase.remainder)},
+        {"denominator", Value(phase.denominator)}});
 }
 
 std::optional<materials::WorkLot> sheet_lot(const Value& value) {
@@ -930,6 +956,28 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             shaft_center && receiver_center && raw && *raw == 1 &&
             source && *source >= 0 && *source < profile.initial_units &&
             targets.front() == anchor(profile, *shaft_center) && result.size() == 20;
+    }
+    if (action == "turn_slide_crank") {
+        const auto* target = field<std::string>(record.intent, "target");
+        const auto* requested_generation = field<Integer>(record.intent, "generation");
+        const auto* port_value = field<Value::Array>(record.intent, "port");
+        const auto port = port_value ? grid_point(Object{{"center", Value(*port_value)}}) : std::nullopt;
+        const auto* reported_port = field<Value::Array>(result, "port_center");
+        const auto reported = reported_port ?
+            grid_point(Object{{"center", Value(*reported_port)}}) : std::nullopt;
+        const auto* before = field<Object>(result, "prior_phase");
+        const auto* after = field<Object>(result, "slide_phase");
+        const auto phase_shape = [](const Object* value) {
+            return value && value->size() == 3 && field<Integer>(*value, "subticks") &&
+                field<Integer>(*value, "remainder") && field<Integer>(*value, "denominator");
+        };
+        const auto* entity = field<std::string>(result, "entity");
+        const auto* generation = field<Integer>(result, "generation");
+        return profile.landing_pod_center && target && entity && *target == *entity &&
+            requested_generation && generation && *requested_generation == *generation &&
+            *generation > 0 && port && reported && *port == *reported &&
+            phase_shape(before) && phase_shape(after) &&
+            targets.front() == anchor(profile, *port) && result.size() == 19;
     }
     if (action == "feed_broad_press" || action == "refeed_broad_press_work") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -1894,6 +1942,45 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 grid_point(Object{{"center", Value(*receiver)}}) != selected.collector->receiver_center ||
                 grid_point(Object{{"center", Value(*shaft)}}) != selected.collector->shaft_center ||
                 !add(cranked_ore, 1)) return false;
+        }
+        if (*action == "turn_slide_crank") {
+            if (!profile.landing_pod_center || crank_holder != *actor) return false;
+            const auto placed = placed_components.find(*entity);
+            const auto issued = snapshot.state.issued_entities.find(*entity);
+            const auto* generation = field<Integer>(record.result, "generation");
+            const auto* port_value = field<Value::Array>(record.intent, "port");
+            const auto port = port_value ?
+                grid_point(Object{{"center", Value(*port_value)}}) : std::nullopt;
+            const auto phase = historical_slide_phases.find(*entity);
+            if (placed == placed_components.end() || !slide_component(placed->second.first) ||
+                issued == snapshot.state.issued_entities.end() || !generation ||
+                *generation != issued->second || !port || phase == historical_slide_phases.end())
+                return false;
+            const auto* layout_state = layout_at(*result_revision);
+            if (!layout_state) return false;
+            auto at_command = *layout_state;
+            const auto following = drive_commands.upper_bound(*result_revision);
+            const auto preceding = following == drive_commands.begin() ?
+                drive_commands.end() : std::prev(following);
+            at_command.topology.drive_enabled = preceding == drive_commands.end() ?
+                true : preceding->second;
+            if (!slide_input_port_clear(at_command, *entity, *port)) return false;
+            const auto prior_power = drive_power(profile, at_command);
+            const auto prior_motion = prior_power.mechanical.motion.find(*entity);
+            if (!prior_power.mechanical.accepted() ||
+                prior_motion == prior_power.mechanical.motion.end() ||
+                prior_motion->second.state != mechanics::MotionState::unpowered) return false;
+            const auto powered = hand_slide_power(profile, at_command, *entity, *port);
+            const auto motion = powered.mechanical.motion.find(*entity);
+            if (!powered.mechanical.accepted() || motion == powered.mechanical.motion.end() ||
+                motion->second.state != mechanics::MotionState::rotating ||
+                !field<Object>(record.result, "prior_phase") ||
+                !field<Object>(record.result, "slide_phase") ||
+                values::typed_difference(record.result.at("prior_phase"),
+                    slide_phase_value(phase->second))) return false;
+            if (!advance_slide_phase(phase->second, motion->second.rate) ||
+                values::typed_difference(record.result.at("slide_phase"),
+                    slide_phase_value(phase->second))) return false;
         }
         if (*action == "feed_broad_press" || *action == "refeed_broad_press_work") {
             const bool refeed = *action == "refeed_broad_press_work";
@@ -3110,7 +3197,8 @@ mechanics::Axis horizontal_axis(const mechanics::Point& from, const mechanics::P
 
 DrivePower apply_load(const stationary::Topology& topology, mechanics::Result mechanical,
         const std::map<std::string, long double>& ratings,
-        const std::map<std::string, long double>& assembly_impacts) {
+        const std::map<std::string, long double>& assembly_impacts,
+        const std::map<std::string, long double>& manual_sources = {}) {
     DrivePower power{std::move(mechanical), {}};
     if (!power.mechanical.accepted()) return power;
     // Component IDs have already been resolved by mechanics::evaluate. Index
@@ -3138,6 +3226,8 @@ DrivePower apply_load(const stationary::Topology& topology, mechanics::Result me
                 const auto source = sources.find(id);
                 if (source != sources.end()) capacity += wheel_capacity * magnitude(source->second);
             }
+            if (const auto manual = manual_sources.find(id); manual != manual_sources.end())
+                capacity += manual->second * magnitude(power.mechanical.motion.at(id).rate);
             const auto speed = magnitude(power.mechanical.motion.at(id).rate);
             if (item && item->role == Role::collector) impact += collector_impact * speed;
             if (item && item->role == Role::processor) impact += processor_impact * speed;
@@ -3199,8 +3289,14 @@ DrivePower drive_power(const stationary::Topology& topology) {
     return apply_load(topology, stationary::power_view(topology).mechanical, {}, {});
 }
 
+struct ManualSlideInput {
+    std::string slide;
+    mechanics::Point port{};
+};
+
 static DrivePower drive_power_with_layout(const Profile& profile, const State& state,
-        const std::vector<assembly::Part>& placed, const assembly::Layout& layout) {
+        const std::vector<assembly::Part>& placed, const assembly::Layout& layout,
+        const std::optional<ManualSlideInput>& hand_input = std::nullopt) {
     const auto base = stationary::power_view(state.topology);
     if (!base.mechanical.accepted()) return {base.mechanical, {}};
     std::vector<mechanics::Part> parts;
@@ -3223,6 +3319,11 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
             mechanics::Axis::x, 0, 1});
         ratings.emplace(item.id, material_rating(item.kind));
         impacts.emplace(item.id, 4);
+    }
+    for (const auto& item : placed) {
+        if (item.kind != materials::Component::anvil) continue;
+        const auto inspected = layout.inspect_sliding_press(item.center);
+        if (inspected.press) impacts.at(inspected.press->slide) += 4;
     }
     for (const auto& face : profile.collector_faces) {
         const auto inspected = layout.inspect_collector(face);
@@ -3298,6 +3399,25 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
             impacts.emplace(shear.anvils[index], 8);
         }
     }
+    std::map<std::string, long double> manual_sources;
+    if (hand_input) {
+        const auto slide = std::find_if(placed.begin(), placed.end(),
+            [&](const assembly::Part& part) { return part.id == hand_input->slide; });
+        if (slide == placed.end() || !slide_component(slide->kind) ||
+            hand_input->port[1] != slide->center[1] ||
+            hand_input->port[2] != slide->center[2] ||
+            std::abs(hand_input->port[0] - slide->center[0]) != 1) {
+            mechanics::Result result;
+            result.error = mechanics::Error::invalid_drive;
+            return {std::move(result), {}};
+        }
+        std::string hub_id = "manual-slide-input";
+        for (std::size_t index = 0; reserved_ids.contains(hub_id); ++index)
+            hub_id = "manual-slide-input-" + std::to_string(index);
+        append({hub_id, mechanics::Kind::hub, hand_input->port,
+            mechanics::Axis::x, 0, 0});
+        manual_sources.emplace(hub_id, 12);
+    }
     if (parts.size() > mechanics::maximum_parts) {
         mechanics::Result result;
         result.error = mechanics::Error::too_many_parts;
@@ -3306,11 +3426,13 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     auto sources = state.topology.sources;
     if (!state.topology.drive_enabled)
         for (auto& source : sources) source.rate = {0, 1};
+    if (!manual_sources.empty()) sources.push_back({manual_sources.begin()->first, {1, 1}});
     std::vector<mechanics::BeltSpan> spans;
     spans.reserve(state.topology.belt_spans.size());
     for (const auto& span : state.topology.belt_spans) spans.push_back(span.geometry);
     return apply_load(state.topology,
-        mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower), ratings, impacts);
+        mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower),
+        ratings, impacts, manual_sources);
 }
 
 DrivePower drive_power(const Profile& profile, const State& state) {
@@ -3320,6 +3442,13 @@ DrivePower drive_power(const Profile& profile, const State& state) {
     const auto placed = assembly_parts(state);
     const assembly::Layout layout(placed);
     return drive_power_with_layout(profile, state, placed, layout);
+}
+
+DrivePower hand_slide_power(const Profile& profile, const State& state,
+        const std::string& slide, const mechanics::Point& port) {
+    const auto placed = assembly_parts(state);
+    const assembly::Layout layout(placed);
+    return drive_power_with_layout(profile, state, placed, layout, ManualSlideInput{slide, port});
 }
 
 BroadPressDriveIndex::BroadPressDriveIndex(const DrivePower& power) : power_(power) {
@@ -4405,6 +4534,60 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             Value(receiver[1]), Value(receiver[2])}));
         facts.emplace("receiver_raw", Value(Integer{1}));
         facts.emplace("source_remaining", Value(candidate.material.stock.source));
+        return accepted(std::move(candidate), *id, std::move(facts));
+    }
+    if (*action == "turn_slide_crank") {
+        if (!profile_.landing_pod_center) return refused("slide_unavailable");
+        const auto* id = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        const auto* port_value = field<Value::Array>(intent, "port");
+        const auto port = port_value ?
+            grid_point(Object{{"center", Value(*port_value)}}) : std::nullopt;
+        if (!id || !generation || !port) return refused("invalid_target");
+        const auto found = state.placed_components.find(*id);
+        if (found == state.placed_components.end()) return refused("unknown_target", *id);
+        if (found->second.generation != *generation) return refused("stale_generation", *id);
+        if (!slide_component(found->second.kind)) return refused("not_slide", *id);
+        if (!state.hand_crank || state.hand_crank->holder != binding.actor)
+            return refused("not_crank_holder", *id);
+        const auto& center = found->second.center;
+        if ((*port)[1] != center[1] || (*port)[2] != center[2] ||
+            std::abs((*port)[0] - center[0]) != 1)
+            return refused("wrong_input_port", *id);
+        if (!slide_input_port_clear(state, *id, *port))
+            return refused("input_port_occupied", *id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", *id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile_.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, *port)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), *id, std::move(facts));
+        const auto existing = drive_power(profile_, state);
+        if (!existing.mechanical.accepted())
+            return refused("invalid_mechanics", *id, std::move(facts));
+        const auto prior_motion = existing.mechanical.motion.find(*id);
+        if (prior_motion == existing.mechanical.motion.end() ||
+            prior_motion->second.state != mechanics::MotionState::unpowered)
+            return refused("input_already_driven", *id, std::move(facts));
+        const auto powered = hand_slide_power(profile_, state, *id, *port);
+        if (!powered.mechanical.accepted())
+            return refused("invalid_mechanics", *id, std::move(facts));
+        const auto motion = powered.mechanical.motion.find(*id);
+        if (motion == powered.mechanical.motion.end() ||
+            motion->second.state != mechanics::MotionState::rotating)
+            return refused("insufficient_drive", *id, std::move(facts));
+        auto candidate = state;
+        const auto before = candidate.slide_phases.at(*id);
+        if (!advance_slide_phase(candidate.slide_phases.at(*id), motion->second.rate))
+            return refused("invalid_phase", *id, std::move(facts));
+        facts.emplace("generation", Value(*generation));
+        facts.emplace("port_center", Value(Value::Array{Value((*port)[0]),
+            Value((*port)[1]), Value((*port)[2])}));
+        facts.emplace("prior_phase", slide_phase_value(before));
+        facts.emplace("slide_phase", slide_phase_value(candidate.slide_phases.at(*id)));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "feed_broad_press" || *action == "refeed_broad_press_work") {
