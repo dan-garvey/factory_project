@@ -57,13 +57,13 @@ void exact_bill_and_refusals() {
               "A copper recipe consumes only finite ore, never another component.");
         ore_bill += cost->ore;
     }
-    check(timber_bill == 14 && ore_bill == 10 &&
+    check(timber_bill == 15 && ore_bill == 10 &&
           m::component_from_name("flat_head") == m::Component::flat_head,
           "The separate pressing head has one finite copper bill and a stable component identity.");
     for (int cut = 0; cut < 8; ++cut)
         check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none,
               "P harvests the first finite tree.");
-    for (int cut = 0; cut < 6; ++cut)
+    for (int cut = 0; cut < 7; ++cut)
         check(m::harvest_source(state, facts, path, "P", "tree-b") == m::Error::none,
               "P harvests six more units from the next finite tree.");
     for (int cut = 0; cut < 10; ++cut)
@@ -87,7 +87,7 @@ void exact_bill_and_refusals() {
               state.cargo.at("Q").components.at(component) == 1,
               "Each metal component costs its own carried ore.");
     check(state.cargo.at("P").timber == 0 && state.cargo.at("Q").raw_units == 0 &&
-          state.timber_remaining.at("tree-a") == 0 && state.timber_remaining.at("tree-b") == 2 &&
+          state.timber_remaining.at("tree-a") == 0 && state.timber_remaining.at("tree-b") == 1 &&
           state.stock.source == 6 && m::validate(state, facts, path) == m::Error::none,
           "The shaped stock and uncut reserves account for all twenty-four timber and sixteen ore units.");
 

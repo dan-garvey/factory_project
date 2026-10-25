@@ -83,7 +83,6 @@ Inspection Layout::inspect_collector(const OreFace& face) const {
     // The two normals are fixed by a trusted ore face, not a hidden build-order
     // flag. Swapping the signs mirrors the receiver and drive positions.
     const Point side{-face.toward_ore[2], 0, face.toward_ore[0]};
-    const Point back{-face.toward_ore[0], 0, -face.toward_ore[2]};
     bool have_mount = false, have_edge = false, have_receiver = false;
     std::vector<Collector> candidates;
     for (Integer height : {Integer{0}, Integer{1}}) {
@@ -100,14 +99,11 @@ Inspection Layout::inspect_collector(const OreFace& face) const {
             const auto* receiver = at(by_center, receiver_center, materials::Component::receiver_tray);
             if (!receiver) continue;
             have_receiver = true;
-            for (const auto shaft_center : {offset(face.machine_center, back, 1),
-                    offset(face.machine_center, side, -sign)}) {
-                const auto* shaft = shaft_at(by_center, shaft_center);
-                if (!shaft) continue;
-                candidates.push_back({frame->id, mount->id, edge->id, receiver->id, shaft->id,
-                    face.machine_center, face.toward_ore, receiver_center, shaft_center,
-                    height, shaft->kind});
-            }
+            // The mount owns its input spindle. Its shaft is an embodied part
+            // of the mount recipe; independent shafts route power to it.
+            candidates.push_back({frame->id, mount->id, edge->id, receiver->id, mount->id,
+                face.machine_center, face.toward_ore, receiver_center, mount->center,
+                height, materials::Component::wooden_shaft});
         }
     }
     if (candidates.size() == 1) return {Status::ready, candidates.front()};
@@ -115,7 +111,7 @@ Inspection Layout::inspect_collector(const OreFace& face) const {
     if (!have_mount) return {Status::missing_mount, std::nullopt};
     if (!have_edge) return {Status::missing_edge, std::nullopt};
     if (!have_receiver) return {Status::missing_receiver, std::nullopt};
-    return {Status::missing_shaft, std::nullopt};
+    return {Status::invalid_input, std::nullopt};
 }
 
 PressInspection Layout::inspect_press(const Point& center) const {

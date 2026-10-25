@@ -58,7 +58,6 @@ const char* collector_status_name(assembly::Status status) {
         case assembly::Status::missing_mount: return "missing_mount";
         case assembly::Status::missing_edge: return "missing_edge";
         case assembly::Status::missing_receiver: return "missing_receiver";
-        case assembly::Status::missing_shaft: return "missing_shaft";
         case assembly::Status::ambiguous: return "ambiguous";
     }
     return "invalid_input";

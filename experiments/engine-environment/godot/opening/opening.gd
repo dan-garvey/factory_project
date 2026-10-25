@@ -5291,7 +5291,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"reclaim_component": "Component returned to your carried cargo.",
 			"stow_fabrication_hub": "Pod workshop unbolted. Place it on clear ground or a foundation top.",
 			"deploy_fabrication_hub": "Pod workshop installed at its new worksite.",
-			"take_hand_crank": "You have the pod crank. Turn a built shaft nearby.",
+			"take_hand_crank": "You have the pod crank. Turn a fitted input nearby.",
 			"return_hand_crank": "Crank returned to the pod tray.",
 			"turn_hand_crank": "Collector cut one ore blank into its receiver tray.",
 			"feed_press": "One carried blank is now under the press head.",
@@ -5351,7 +5351,7 @@ func issue(action: Dictionary) -> Dictionary:
 				"incomplete_assembly": "Fit the collector's missing component before cutting ore.",
 				"source_depleted": "This ore deposit is depleted.",
 				"output_full": "Clear a loose material drop before cutting more ore.",
-				"out_of_reach": "Move beside the collector's fitted shaft to turn it."}.get(outcome.get("reason", ""), refusal)
+				"out_of_reach": "Move beside the collector mount to turn it."}.get(outcome.get("reason", ""), refusal)
 		elif action.action == "deploy_fabrication_hub" and outcome.get("reason", "") == "unsupported_bench":
 			refusal = "Set the pod workshop on clear ground or a foundation top."
 		elif action.action == "reclaim_component" and outcome.get("reason", "") == "inventory_full":

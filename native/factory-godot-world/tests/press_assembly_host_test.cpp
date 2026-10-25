@@ -143,7 +143,7 @@ void guided_press_host_path() {
           "A fresh arrival has no guided press or gifted frame.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
           "The actor reaches finite timber for the five-part press.");
-    for (int index = 0; index < 5; ++index) {
+    for (int index = 0; index < 6; ++index) {
         auto cut = request("guided-wood-" + std::to_string(index), "harvest_source");
         cut.emplace("target", V("tree-east-south"));
         accepted(host, cut);
@@ -449,14 +449,19 @@ void placed_press_projection() {
         cut.emplace("target", V("tree-east-south"));
         accepted(host, cut);
     }
-    check(get<bool>(host.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(-1.65)}, 2), "accepted"),
+          "The actor reaches another finite tree for the embodied mount input.");
+    auto input_wood = request("mount-input-wood", "harvest_source");
+    input_wood.emplace("target", V("tree-east-upstream"));
+    accepted(host, input_wood);
+    check(get<bool>(host.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 3), "accepted"),
           "The actor approaches the ore deposit.");
     for (int index = 0; index < 6; ++index) {
         auto cut = request("ore-" + std::to_string(index), "harvest_source");
         cut.emplace("target", V("opening-copper"));
         accepted(host, cut);
     }
-    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 4), "accepted"),
           "The actor returns with the first press bill and two real feed blanks.");
     auto take = request("take-pod-crank", "take_hand_crank");
     take.emplace("entity", V("pod-hand-crank"));
@@ -468,7 +473,7 @@ void placed_press_projection() {
         craft.emplace("component", V(name));
         accepted(host, craft);
     }
-    check(get<bool>(host.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 4), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 5), "accepted"),
           "The actor approaches a distinct press workcell.");
     const auto frame = place(host, "wooden_frame", 8, 0, 0, "place-frame");
     check(get<std::string>(inspection(host), "status") == "missing_anvil",
@@ -576,7 +581,7 @@ void placed_press_projection() {
     check(get<bool>(resumed_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(resumed_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(resumed_work.restore_checkpoint(pending), "accepted") &&
-          get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 5), "accepted"),
+          get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 6), "accepted"),
           "A fresh Host resumes the one-turn partial press work near its frame.");
     const auto held_drop = std::get<O>(get<A>(resumed_work.projection(), "dropped_material").front().storage());
     const auto held_lot = std::get<O>(get<A>(V(held_drop), "work_lots").front().storage());
@@ -604,12 +609,12 @@ void placed_press_projection() {
           !factory::values::typed_difference(reinserted_work, resumed_work.checkpoint()) &&
           get<A>(get<O>(resumed_work.projection(), "cargo").at("P"), "work_lots").empty(),
           "Host hand refeed moves the exact partial lot once from actor custody into the press.");
-    check(get<bool>(resumed_work.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 6), "accepted"),
+    check(get<bool>(resumed_work.publish_actor("P", {V(-0.5), V(1.0), V(0.0)}, 7), "accepted"),
           "P walks to the ore deposit for a separate busy-feed control blank.");
     auto harvest_busy_blank = request("harvest-busy-control-blank", "harvest_source");
     harvest_busy_blank.emplace("target", V("opening-copper"));
     accepted(resumed_work, harvest_busy_blank);
-    check(get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
+    check(get<bool>(resumed_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 8), "accepted"),
           "P returns to the occupied press with one genuinely carried blank.");
     const auto busy_projection = resumed_work.projection();
     const auto busy_feed = resumed_work.command("P", feed("feed-occupied-reinserted-work", frame, 9, 1, 0));
@@ -623,7 +628,7 @@ void placed_press_projection() {
     check(get<bool>(restored_work.initialize_arrival("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored_work.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(restored_work.restore_checkpoint(reinserted_work), "accepted") &&
-          get<bool>(restored_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 6), "accepted"),
+          get<bool>(restored_work.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
           "Fresh Host restore retains the manually reinserted partial WorkLot.");
     accepted(restored_work, turn("advance-reinserted-work", frame, mirrored_shaft, 7, 1, 0));
     accepted(restored_work, turn("finish-reinserted-work", frame, mirrored_shaft, 7, 1, 0));
@@ -687,7 +692,7 @@ void placed_press_projection() {
           get<bool>(obstructed.configure_terrain(obstructed_site), "accepted") &&
           get<bool>(obstructed.restore_checkpoint(saved), "accepted"),
           "The saved press can load with a new obstacle limited to one feed mouth.");
-    check(get<bool>(obstructed.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 100), "accepted"),
+    check(get<bool>(obstructed.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 101), "accepted"),
           "The restored actor provides a fresh physical observation for the new worksite.");
     const auto blocked_rock = obstructed.command("P", feed("blocked-rock", frame, 9, 1, 0));
     check(!get<bool>(blocked_rock, "accepted") &&
@@ -714,7 +719,7 @@ void placed_press_projection() {
     foundation.emplace("cell", V(A{V(I{2}), V(I{0})}));
     foundation.emplace("level", V(I{4}));
     accepted(host, foundation);
-    check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 5), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 6), "accepted"),
           "The actor stands within reach of the raised press foundation.");
     place(host, "wooden_frame", 8, 4, 0, "raised-frame");
     place(host, "anvil", 8, 5, 0, "raised-anvil");
@@ -743,7 +748,7 @@ void placed_press_projection() {
           !factory::values::typed_difference(raised, inspection(raised_restored)) &&
           !factory::values::typed_difference(raised_saved, raised_restored.checkpoint()),
           "The raised foundation and fed press cargo survive a fresh Host restore.");
-    check(get<bool>(raised_restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 100), "accepted"),
+    check(get<bool>(raised_restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 101), "accepted"),
           "The restored actor provides a fresh pose at the elevated press.");
     accepted(raised_restored, turn("start-raised-work", raised_frame, raised_shaft, 7, 5, 0));
     accepted(raised_restored, turn("advance-raised-work", raised_frame, raised_shaft, 7, 5, 0));

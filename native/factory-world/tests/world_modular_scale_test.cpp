@@ -32,7 +32,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
     w::Profile profile;
     profile.material = {1, 2, cycle_ticks};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
-    const g::Integer timber_units = std::max<g::Integer>(40, line_count * 15);
+    const g::Integer timber_units = std::max<g::Integer>(40, line_count * 17);
     profile.material.timber_sites = {{"tree", {{12, 0, 12}, timber_units}}};
     profile.material.hand_carry_capacity = std::max<g::Integer>(100, line_count * 20 + 10);
     profile.initial_units = std::max<g::Integer>(100, line_count * 32);
@@ -113,7 +113,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
                 std::to_string(request));
         return *result.result;
     };
-    for (int index = 0; index < line_count * 15; ++index)
+    for (int index = 0; index < line_count * 17; ++index)
         issue("harvest_source", {{"target", V("tree")}});
     for (int index = 0; index < line_count * 5; ++index)
         issue("harvest_source", {{"target", V("ore")}});
@@ -151,8 +151,13 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
     if (!power.mechanical.accepted()) throw std::runtime_error("The modular startup graph was rejected.");
     for (const auto& id : driven_shafts)
         if (!power.mechanical.motion.contains(id) ||
-            power.mechanical.motion.at(id).state != g::MotionState::rotating)
+            power.mechanical.motion.at(id).state != g::MotionState::rotating) {
+            if (power.load.contains(id))
+                std::cerr << "STOP " << id << " load=" << power.load.at(id).impact
+                          << " limit=" << power.load.at(id).capacity
+                          << " by=" << power.load.at(id).limiting_part << '\n';
             throw std::runtime_error("A modular machine shaft stopped: " + id);
+        }
     const auto before = world->snapshot();
     if (world->tick().error != w::TransactionError::none ||
         world->snapshot().state.material.stock.source != before.state.material.stock.source - line_count)
@@ -613,7 +618,7 @@ int main(int argc, char** argv) {
         throw std::runtime_error("The World refused a trusted site with 200 independent collector faces.");
     const auto derived = w::drive_power(profile, state);
     if (!derived.mechanical.accepted() ||
-        derived.mechanical.motion.size() != collectors * 2 + presses * 3)
+        derived.mechanical.motion.size() != collectors * 3 + presses * 3)
         throw std::runtime_error("The mixed modular graph did not preserve each distinct drive part.");
 
     if (argc > 1 && std::string(argv[1]) == "--benchmark") {

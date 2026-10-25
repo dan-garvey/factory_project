@@ -142,6 +142,7 @@ inline constexpr authority::Integer slide_cycle_subticks =
     switch (kind) {
         case materials::Component::wooden_shaft:
         case materials::Component::wooden_cog:
+        case materials::Component::tool_mount:
         case materials::Component::wooden_slide: return 8;
         case materials::Component::copper_shaft:
         case materials::Component::copper_cog:

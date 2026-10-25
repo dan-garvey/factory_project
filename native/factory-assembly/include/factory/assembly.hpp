@@ -34,11 +34,11 @@ struct Collector {
     std::string mount;
     std::string edge;
     std::string receiver;
-    std::string shaft;
+    std::string shaft; // The mount's embodied spindle identity.
     mechanics::Point machine_center{};
     mechanics::Point toward_ore{};
     mechanics::Point receiver_center{};
-    mechanics::Point shaft_center{};
+    mechanics::Point shaft_center{}; // Input port at the placed mount.
     mechanics::Integer cutting_height{}; // 0 or 1 quarter-grid step above frame.
     materials::Component shaft_material{};
     bool operator==(const Collector&) const = default;
@@ -51,7 +51,6 @@ enum class Status {
     missing_mount,
     missing_edge,
     missing_receiver,
-    missing_shaft,
     ambiguous,
 };
 
@@ -61,10 +60,9 @@ struct Inspection {
 };
 
 // Derive a single unambiguous collector arrangement. A receiver may sit on
-// either side of the frame; the shaft may enter opposite the cutter or from
-// the unused side. The head may sit at frame height or one height step above.
-// Extra placed items remain ordinary world items and do not act as recipe
-// tokens. Ambiguous complete arrangements require an explicit later selection.
+// either side of the frame and the head may sit at frame height or one step
+// above. The driven mount embodies its input shaft; independent shafts route
+// power but are not required for readiness. Two receiver routes are ambiguous.
 [[nodiscard]] Inspection inspect_collector(const std::vector<Part>& placed,
                                            const OreFace& face);
 

@@ -1738,7 +1738,7 @@ func _arrival_hotbar() -> void:
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
 		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
-		"tool_mount": {"timber": 1, "copper": 0},
+		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
 		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
@@ -1995,7 +1995,7 @@ func _render_arrival_hotbar() -> void:
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
 		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
-		"tool_mount": {"timber": 1, "copper": 0},
+		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
 		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},

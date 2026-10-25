@@ -61,10 +61,11 @@ void mixed_material_bottleneck_and_isolation() {
     const auto stopped = w::drive_power(fixture.profile, fixture.state);
     check(stopped.mechanical.accepted() && stopped.mechanical.motion.at("press-frame").state ==
               m::MotionState::stalled && stopped.mechanical.motion.at("collector-frame").state ==
-              m::MotionState::stalled && stopped.load.at("press-cog").overloaded &&
-              stopped.load.at("press-cog").limiting_part == "press-cog" &&
-              stopped.load.at("press-cog").capacity == 8 && stopped.load.at("press-cog").impact == 12,
-          "One real wooden cog stalls the connected collector and press at combined load.");
+              m::MotionState::stalled && stopped.load.at("collector-mount").overloaded &&
+              stopped.load.at("collector-mount").limiting_part == "collector-mount" &&
+              stopped.load.at("collector-mount").capacity == 8 &&
+              stopped.load.at("collector-mount").impact == 12,
+          "The collector's embodied wooden shaft limits a shared twelve-load line.");
     check(stopped.mechanical.motion.at("light-frame").state == m::MotionState::rotating &&
               !stopped.load.at("light-shaft").overloaded &&
               stopped.load.at("light-shaft").impact == 4,
@@ -73,21 +74,22 @@ void mixed_material_bottleneck_and_isolation() {
     fixture.state.placed_components.at("press-cog").kind = mat::Component::copper_cog;
     const auto upgraded = w::drive_power(fixture.profile, fixture.state);
     check(upgraded.mechanical.accepted() &&
-              upgraded.mechanical.motion.at("press-frame").state == m::MotionState::rotating &&
-              upgraded.mechanical.motion.at("collector-frame").state == m::MotionState::rotating &&
-              upgraded.load.at("press-cog").capacity == 24 &&
+              upgraded.mechanical.motion.at("press-frame").state == m::MotionState::stalled &&
+              upgraded.mechanical.motion.at("collector-frame").state == m::MotionState::stalled &&
+              upgraded.load.at("press-cog").capacity == 8 &&
               upgraded.load.at("press-cog").impact == 12 &&
-              !upgraded.load.at("press-cog").overloaded,
-          "Replacing only the limiting cog with copper runs the same connected line.");
+              upgraded.load.at("press-cog").limiting_part == "collector-mount",
+          "A copper cog cannot hide the still-overloaded embodied wooden input.");
     check(upgraded.mechanical.motion.at("light-frame") == stopped.mechanical.motion.at("light-frame") &&
               upgraded.load.at("light-shaft") == stopped.load.at("light-shaft"),
           "The separate light branch is unchanged by the main-line substitution.");
 
-    fixture.state.placed_components.at("collector-shaft").kind = mat::Component::wooden_shaft;
-    const auto second_bottleneck = w::drive_power(fixture.profile, fixture.state);
-    check(second_bottleneck.mechanical.motion.at("press-frame").state == m::MotionState::stalled &&
-              second_bottleneck.load.at("collector-shaft").limiting_part == "collector-shaft",
-          "A wooden shaft is a separate real bottleneck even with the upgraded press cog.");
+    fixture.state.placed_components.erase("collector-mount");
+    const auto isolated = w::drive_power(fixture.profile, fixture.state);
+    check(isolated.mechanical.motion.at("press-frame").state == m::MotionState::unpowered &&
+              !isolated.mechanical.motion.contains("collector-frame") &&
+              isolated.mechanical.motion.at("light-frame").state == m::MotionState::rotating,
+          "Removing the embodied input disconnects that route while a separate source keeps turning.");
 }
 
 void collector_and_press_share_one_frame() {

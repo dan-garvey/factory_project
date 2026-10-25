@@ -1164,7 +1164,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		{"point": Vector2(6.0, 3.45), "id": "tree-east-south", "cuts": 8},
 		{"point": Vector2(4.95, 4.95), "cuts": 0},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 6},
+		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 7},
 		{"point": Vector2(4.95, 9.9), "cuts": 0},
 		{"point": Vector2(4.95, 3.3), "cuts": 0},
 		{"point": Vector2(-0.5, 0.0), "id": "opening-copper", "cuts": 3 + ore_for_press},
@@ -1176,7 +1176,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 				return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
-	if not _expect(opening.model.projection().cargo.P.timber == 14
+	if not _expect(opening.model.projection().cargo.P.timber == 15
 			and opening.model.projection().cargo.P.raw == 3 + ore_for_press,
 			"Two finite trees and the outcrop supply the collector route and later press stock"):
 		return
@@ -1206,7 +1206,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 			return
 	if not _expect(opening.model.projection().cargo.P.timber == 0
 			and opening.model.projection().cargo.P.raw == ore_for_press,
-			"The complete collector and three-shaft route spend fourteen timber and three ore"):
+			"The complete collector and three-shaft route spend fifteen timber and three ore"):
 		return
 	panel.crank_button.pressed.emit()
 	if not _expect(opening.model.projection().hand_crank.holder == "P",
@@ -1280,9 +1280,10 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 			"The fitted north receiver meets a powered outward belt mouth in native inspection"):
 		return
 	var drive := ""
-	for id in built.placed_components:
-		if built.placed_components[id].get("component") == "wooden_shaft":
-			drive = id
+	for collector: Dictionary in built.collector_assemblies:
+		if collector.get("status") == "ready":
+			drive = str(collector.parts.mount)
+			break
 	if _construct({"action": "turn_hand_crank", "entity": drive}).is_empty():
 		return
 	var before_tick: Dictionary = opening.model.projection()
@@ -2545,10 +2546,10 @@ func _arrival_run() -> void:
 				and opening.model.projection().cargo.P.components.get(kind, 0) == owned_before + 1,
 				"The panel crafts one native component with exact finite cargo"):
 			return
-	if not _expect(opening.model.projection().cargo.P.timber == 4
+	if not _expect(opening.model.projection().cargo.P.timber == 3
 			and opening.model.projection().cargo.P.raw == 2
 			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == 10,
-			"The frame-free press and collector bills use eleven timber and five ore blanks, retaining two press inputs"):
+			"The frame-free press and collector bills use twelve timber and five ore blanks, retaining two press inputs"):
 		return
 	if raised:
 		var before_floor: Dictionary = opening.model.projection()
@@ -2556,9 +2557,9 @@ func _arrival_run() -> void:
 			return
 		var floor_kit: Dictionary = opening.model.projection()
 		if not _expect(floor_kit.order == before_floor.order + 1
-				and floor_kit.cargo.P.timber == 2
+				and floor_kit.cargo.P.timber == 1
 				and floor_kit.part_kits.P.foundation == before_floor.part_kits.P.foundation + 1,
-				"Two remaining local timber make one raised press floor through the ordinary workshop"):
+				"Two local timber make one raised press floor through the ordinary workshop"):
 			return
 		opening._select_tool("foundation")
 		opening._world_click(Vector2i(3, 4))

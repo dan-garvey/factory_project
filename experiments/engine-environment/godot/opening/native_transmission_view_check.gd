@@ -636,7 +636,7 @@ func _component_view() -> void:
 			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(detail),
 				"South-facing %s/%s stays inside its native occupied box: %s." % [id, piece.name, detail])
 	south.placed_components.erase("shaft")
-	south.collector_assemblies[0].status = "missing_shaft"
+	south.collector_assemblies[0].status = "missing_receiver"
 	host.state = south
 	physical.sync_topology()
 	view.refresh()
