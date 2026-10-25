@@ -71,6 +71,8 @@ const char* press_status_name(assembly::PressStatus status) {
         case assembly::PressStatus::missing_frame: return "missing_frame";
         case assembly::PressStatus::missing_anvil: return "missing_anvil";
         case assembly::PressStatus::missing_ram: return "missing_ram";
+        case assembly::PressStatus::missing_flat_head: return "missing_flat_head";
+        case assembly::PressStatus::missing_slide: return "missing_slide";
         case assembly::PressStatus::missing_guide: return "missing_guide";
         case assembly::PressStatus::missing_mount: return "missing_mount";
         case assembly::PressStatus::missing_shaft: return "missing_shaft";
@@ -2918,6 +2920,34 @@ Value Host::projection() const {
             guided_presses.emplace_back(std::move(entry));
         }
         projection.emplace("guided_press_assemblies", Value(std::move(guided_presses)));
+        Array sliding_presses;
+        for (const auto& anvil : parts) {
+            if (anvil.kind != materials::Component::anvil) continue;
+            const auto inspection = assembly::inspect_sliding_press(parts, anvil.center);
+            Object entry{{"anvil", Value(anvil.id)},
+                {"center", Value(Array{Value(anvil.center[0]), Value(anvil.center[1]),
+                    Value(anvil.center[2])})},
+                {"status", Value(press_status_name(inspection.status))}};
+            if (inspection.press) {
+                const auto& press = *inspection.press;
+                entry.emplace("parts", Value(Object{{"anvil", Value(press.anvil)},
+                    {"head", Value(press.head)}, {"slide", Value(press.slide)}}));
+                entry.emplace("work_center", Value(Array{Value(press.work_center[0]),
+                    Value(press.work_center[1]), Value(press.work_center[2])}));
+                entry.emplace("slide_center", Value(Array{Value(press.slide_center[0]),
+                    Value(press.slide_center[1]), Value(press.slide_center[2])}));
+                entry.emplace("slide_material", Value(materials::component_name(press.slide_material)));
+                Array feeds;
+                for (const auto& feed : press.open_feeds)
+                    feeds.emplace_back(Object{{"entry", Value(Array{Value(feed.entry[0]),
+                        Value(feed.entry[1]), Value(feed.entry[2])})},
+                        {"exit", Value(Array{Value(feed.exit[0]), Value(feed.exit[1]),
+                            Value(feed.exit[2])})}});
+                entry.emplace("open_feeds", Value(std::move(feeds)));
+            }
+            sliding_presses.emplace_back(std::move(entry));
+        }
+        projection.emplace("sliding_press_assemblies", Value(std::move(sliding_presses)));
         Array broad_presses, broad_shears;
         std::set<mechanics::Point> anvil_centers;
         for (const auto& part : parts)

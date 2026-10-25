@@ -204,6 +204,36 @@ void flat_head_host_custody() {
           get<O>(restored.projection(), "placed_components").contains(slide_id) &&
           get<O>(restored.projection(), "placed_components").size() == 2,
           "The head also fits after a slide is already placed at the matching grid center.");
+    const auto resumed = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("flat-head-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return restored.command("P", wire);
+    };
+    check(get<bool>(restored.publish_actor("P", {V(-1.2375), V(1.0), V(0.0)}, 7), "accepted") &&
+          get<bool>(resumed("support-ore-1", "harvest_source",
+              {{"target", V("opening-copper")}}), "accepted") &&
+          get<bool>(resumed("support-ore-2", "harvest_source",
+              {{"target", V("opening-copper")}}), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 8), "accepted") &&
+          get<bool>(resumed("support-craft", "craft_component",
+              {{"entity", V("pod-fabrication-hub")}, {"component", V("anvil")}}), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 9), "accepted"),
+          "Two more finite copper cuts produce the separate passive work support.");
+    const auto support = resumed("support-place", "place_component",
+        {{"component", V("anvil")}, {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}});
+    check(get<bool>(support, "accepted"),
+          "The passive anvil fits directly beneath the already placed die and slide.");
+    const auto assemblies = get<A>(restored.projection(), "sliding_press_assemblies");
+    check(assemblies.size() == 1, "One passive support projects one candidate sliding press.");
+    const auto press = std::get<O>(assemblies.front().storage());
+    const auto fitted = get<O>(V(press), "parts");
+    check(get<std::string>(V(press), "status") == "ready" &&
+          get<std::string>(V(fitted), "anvil") == get<std::string>(support, "entity") &&
+          get<std::string>(V(fitted), "head") == get<std::string>(replaced, "entity") &&
+          get<std::string>(V(fitted), "slide") == slide_id &&
+          get<A>(V(press), "open_feeds").size() == 2,
+          "Ordinary Host projection names the three finite parts and both open X-axis routes.");
 }
 
 void shared_fast_setting_and_restore() {
