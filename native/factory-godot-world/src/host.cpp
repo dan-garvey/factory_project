@@ -1114,6 +1114,8 @@ Value Host::configure_terrain(const Object& input) {
             !overlap(source, *collector_intake_bounds({0, 0, 4}))) return result(false, "invalid_terrain");
     }
     auto next_profile = profile_;
+    if (source_obstacle && next_profile.material.manual_ore)
+        next_profile.manual_ore_contact_bounds = solids[static_cast<std::size_t>(*source_obstacle)];
     if (flow_cells) {
         if (flow_cells->empty() || flow_cells->size() > 65536) return result(false, "invalid_water");
         std::vector<waterflow::Cell> cells;
@@ -1147,7 +1149,7 @@ Value Host::configure_terrain(const Object& input) {
                 return result(false, "invalid_water");
         }
     }
-    if (water || flow_cells) {
+    if (water || flow_cells || (source_obstacle && next_profile.material.manual_ore)) {
         const auto snapshot = owned_->world->snapshot();
         if (snapshot.revision != 0 || snapshot.history.order != 0) return result(false, "terrain_already_bound");
         auto replacement = world::World::create(snapshot.history.context, next_profile, snapshot.state);
@@ -2457,14 +2459,11 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
         const auto tree = profile_.material.timber_sites.find(cut.target);
         if (!ore && tree == profile_.material.timber_sites.end()) return false;
         const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
-        const authority::Point target{
-            center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0],
-            center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1],
-            center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2]};
         const auto sampled = observe()(actor);
         auto actor_cut = sampled.value_or(authority::ActorCut{});
         actor_cut.build_reach = profile_.manual_cut_reach > 0 ?
             profile_.manual_cut_reach : profile_.build_reach;
+        const auto target = world::manual_cut_target(profile_, center, actor_cut.position, ore);
         const bool lost_reach = !sampled || authority::check_reach(actor, actor_cut,
             {target}).error != authority::Error::none;
         const bool interrupted = cut.interrupted_revision != 0 || lost_reach;
@@ -2569,9 +2568,14 @@ Object Host::tick_fields(const world::Snapshot& snapshot) const {
                 {"position", site_position(site.center)}, {"initial", Value(site.initial)},
                 {"remaining", Value(state.material.timber_remaining.at(id))}}));
         const auto& ore = *profile_.material.manual_ore;
-        sources.emplace(ore.id, Value(Object{{"kind", Value("ore_deposit")},
+        Object projected_ore{{"kind", Value("ore_deposit")},
             {"position", site_position(ore.center)}, {"initial", Value(profile_.initial_units)},
-            {"remaining", Value(state.material.stock.source)}}));
+            {"remaining", Value(state.material.stock.source)}};
+        if (profile_.manual_ore_contact_bounds) {
+            const auto& [low, high] = *profile_.manual_ore_contact_bounds;
+            projected_ore.emplace("contact_bounds", Value(Array{point_value(low), point_value(high)}));
+        }
+        sources.emplace(ore.id, Value(std::move(projected_ore)));
         fields.emplace("hand_sources", Value(std::move(sources)));
     }
     return fields;

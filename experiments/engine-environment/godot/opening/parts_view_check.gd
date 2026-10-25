@@ -1045,7 +1045,9 @@ func _multitool_controls() -> void:
 		if shared:
 			view.session = SessionStub.new()
 		view.state = hotbar_observation()
-		view.state.hand_sources = {"ore": {"kind": "ore_deposit", "position": [0.0, 0.825, 0.0], "initial": 16, "remaining": 2},
+		view.state.hand_sources = {"ore": {"kind": "ore_deposit", "position": [0.0, 0.825, 0.0],
+			"contact_bounds": [[-0.25, 0.5, -1.14], [0.25, 1.2, 1.14]],
+			"initial": 16, "remaining": 2},
 			"tree": {"kind": "tree", "position": [1.65, 0.825, 0.0], "initial": 8, "remaining": 1}}
 		view.state.cargo = {"P": {"raw": 1, "timber": 3}, "Q": {"raw": 0, "timber": 0}}
 		view.mode = "inspect"
@@ -1098,13 +1100,13 @@ func _multitool_controls() -> void:
 		view._interact_pointed()
 		verify(view.issued == [{"action": "harvest_source", "target": "tree"}], "The tree keeps its distinct native source identity.")
 		view.issued.clear()
-		view.state.actors.P.position = [2.56, 0.825, 0.0]
+		view.state.actors.P.position = [0.0, 0.825, 3.70]
 		view.hand_pointed = "ore"
 		verify("Move closer" in view._pointed_summary_data(Vector2.ZERO).detail,
 			"The ore prompt omits the harvest key beyond the projected native cut boundary.")
 		view._interact_pointed()
 		verify(view.issued.is_empty(), "A far source pick does not submit a misleading harvest request.")
-		view.state.actors.P.position = [2.54, 0.825, 0.0]
+		view.state.actors.P.position = [0.0, 0.825, 3.68]
 		verify("E Harvest" in view._pointed_summary_data(Vector2.ZERO).detail,
 			"The same ore pick offers the action inside the native cut boundary.")
 		view._interact_pointed()

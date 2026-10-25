@@ -6120,6 +6120,14 @@ func _hand_source(id: String) -> Dictionary:
 			or not Geometry.valid_position(source.get("position")) or typeof(source.get("remaining")) != TYPE_INT \
 			or source.remaining < 0:
 		return {}
+	if source.has("contact_bounds"):
+		var bounds: Variant = source.contact_bounds
+		if not bounds is Array or bounds.size() != 2 or not Geometry.valid_position(bounds[0]) \
+				or not Geometry.valid_position(bounds[1]):
+			return {}
+		for axis in range(3):
+			if float(bounds[0][axis]) >= float(bounds[1][axis]):
+				return {}
 	return source
 
 func _hand_source_in_reach(source: Dictionary) -> bool:
@@ -6128,10 +6136,14 @@ func _hand_source_in_reach(source: Dictionary) -> bool:
 	var radius: Variant = actor.get("capabilities", {}).get("harvest_reach")
 	if not Geometry.valid_position(position) or not (radius is float or radius is int) or radius <= 0:
 		return false
-	var center: Array = source.position
+	var target: Array = source.position.duplicate()
+	if source.has("contact_bounds"):
+		var bounds: Array = source.contact_bounds
+		for axis in range(3):
+			target[axis] = clampf(float(position[axis]), float(bounds[0][axis]), float(bounds[1][axis]))
 	var distance_squared := 0.0
 	for axis in range(3):
-		var difference: float = float(position[axis]) - float(center[axis])
+		var difference: float = float(position[axis]) - float(target[axis])
 		distance_squared += difference * difference
 	return distance_squared <= float(radius) * float(radius)
 

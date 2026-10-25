@@ -754,19 +754,53 @@ void cutter_reach_is_shorter_than_build_reach() {
 
 void ore_outcrop_has_a_standing_cut_boundary() {
     Host host;
+    auto site = factory::godot_world::tests::flat_site();
+    site.insert_or_assign("obstacles", V(A{V(A{
+        V(A{V(-1.4), V(0.0), V(-1.2)}),
+        V(A{V(-0.9), V(1.2), V(1.2)})})}));
+    site.emplace("source_obstacle", V(I{0}));
     check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
-          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(2.56)}, 1), "accepted"),
+          get<bool>(host.configure_terrain(site), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(3.76)}, 1), "accepted"),
           "The actor samples a standing point outside the opening ore reach.");
+    const auto projected = get<O>(host.projection(), "hand_sources").at("opening-copper");
+    check(!factory::values::typed_difference(V(get<A>(projected, "contact_bounds")),
+          V(A{V(A{V(-1.4), V(0.0), V(-1.2)}), V(A{V(-0.9), V(1.2), V(1.2)})})),
+          "The ore projection carries its trusted visible obstacle bounds to the pointed prompt.");
     const auto far = host.command("P", cut("P", "ore-far", "opening-copper"));
     check(!get<bool>(far, "accepted") && get<std::string>(far, "reason") == "out_of_reach" &&
           get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") == 4096,
           "An out-of-range ore pick cannot consume finite source stock.");
-    check(get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(2.54)}, 2), "accepted") &&
+    check(get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(3.74)}, 2), "accepted") &&
+          get<bool>(host.command("P", cut("P", "ore-near", "opening-copper")), "accepted"),
+          "The same actor starts a timed cut 2.54 m beyond the visible ore hull end.");
+    check(get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(3.76)}, 3), "accepted") &&
+          get<O>(host.projection(), "manual_cuts").empty() &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") == 4096,
+          "Leaving the hull-relative cut range interrupts before any ore payout.");
+    check(get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(3.74)}, 4), "accepted") &&
           get<bool>(complete_cut(host, "P", cut("P", "ore-standing", "opening-copper")), "accepted") &&
           get<I>(get<O>(host.projection(), "cargo").at("P"), "raw") == 1 &&
           get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
           "A standing ore cut near the visible outcrop transfers one blank with valid history.");
+    Host restored;
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
+          get<bool>(restored.configure_terrain(site), "accepted") &&
+          get<bool>(restored.restore_checkpoint(host.checkpoint()), "accepted") &&
+          get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 1,
+          "A fresh Host restores the surface-relative harvest history and finite cargo.");
+    auto forged = get<O>(host.checkpoint(), "world");
+    auto profile = get<O>(V(forged), "profile");
+    auto bounds = get<A>(V(profile), "manual_ore_contact_bounds");
+    auto high = std::get<A>(bounds[1].storage());
+    high[2] = V(1.3);
+    bounds[1] = V(std::move(high));
+    profile.at("manual_ore_contact_bounds") = V(std::move(bounds));
+    forged.at("profile") = V(std::move(profile));
+    auto altered = std::get<O>(host.checkpoint().storage());
+    altered.at("world") = V(std::move(forged));
+    check(!get<bool>(host.validate_checkpoint(V(std::move(altered))), "accepted"),
+          "A saved ore contact surface cannot be enlarged without invalidating the native profile.");
 }
 
 void field_wood_uses_physical_actor_and_one_ledger() {

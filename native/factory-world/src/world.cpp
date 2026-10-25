@@ -24,6 +24,20 @@ std::array<mechanics::Point, landing_deck_parts> landing_deck_centers(
     return deck;
 }
 
+authority::Point manual_cut_target(const Profile& profile, const materials::DropPoint& center,
+        const authority::Point& actor_position, bool ore) {
+    if (ore && profile.manual_ore_contact_bounds) {
+        const auto& [low, high] = *profile.manual_ore_contact_bounds;
+        authority::Point contact{};
+        for (std::size_t axis = 0; axis < contact.size(); ++axis)
+            contact[axis] = std::clamp(actor_position[axis], low[axis], high[axis]);
+        return contact;
+    }
+    return {center[0] * profile.meters_per_grid_unit + profile.anchor_offset[0],
+        center[1] * profile.meters_per_grid_unit + profile.anchor_offset[1],
+        center[2] * profile.meters_per_grid_unit + profile.anchor_offset[2]};
+}
+
 mechanics::Point landing_hub_center(const mechanics::Point& pod_center) {
     // The east deck tile is a full global tile from the hatch, not a separate
     // bench origin or a fractional placement grid.
@@ -862,11 +876,13 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const bool starting = action == "harvest_source";
         if (profile.material.manual_ore && *id == profile.material.manual_ore->id)
             return *raw == (starting ? 0 : 1) && *timber == 0 &&
-                targets.front() == anchor(profile, profile.material.manual_ore->center);
+                targets.front() == manual_cut_target(profile,
+                    profile.material.manual_ore->center, *actor_position, true);
         const auto found = profile.material.timber_sites.find(*id);
         return found != profile.material.timber_sites.end() && *raw == 0 &&
             *timber == (starting ? 0 : 1) &&
-            targets.front() == anchor(profile, found->second.center);
+            targets.front() == manual_cut_target(profile,
+                found->second.center, *actor_position, false);
     }
     if (action == "craft_component") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -3760,6 +3776,13 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         !std::isfinite(profile.manual_cut_reach) || profile.manual_cut_reach < 0 ||
         profile.manual_cut_reach > profile.build_reach ||
         profile.foundation_parts < 0 || profile.foundation_parts > 256) return false;
+    if (profile.manual_ore_contact_bounds) {
+        if (!profile.material.manual_ore) return false;
+        const auto& [low, high] = *profile.manual_ore_contact_bounds;
+        for (std::size_t axis = 0; axis < low.size(); ++axis)
+            if (!std::isfinite(low[axis]) || !std::isfinite(high[axis]) || low[axis] >= high[axis])
+                return false;
+    }
     if ((!profile.fabrication_parts.empty() || profile.first_plate_unlock) &&
         !profile.landing_pod_center) return false;
     for (const auto& [spec, cost] : profile.fabrication_parts)
@@ -4207,7 +4230,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
             profile_.manual_cut_reach : profile_.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, center)});
+            {manual_cut_target(profile_, center, checked_cut.position, ore)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), target, std::move(facts));
@@ -4455,7 +4478,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto checked_cut = *cut;
         checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
             profile_.manual_cut_reach : profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut, {anchor(profile_, center)});
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {manual_cut_target(profile_, center, checked_cut.position, ore)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
@@ -4665,7 +4689,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (!cut) return refused("actor_unready", *id);
         auto checked_cut = *cut;
         checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut, {anchor(profile_, center)});
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile_, center)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
@@ -5734,7 +5759,8 @@ Advance World::tick(const ObserveActor& observe) noexcept {
             checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
                 profile_.manual_cut_reach : profile_.build_reach;
             const auto checked = cut ? authority::check_reach(actor, checked_cut,
-                {anchor(profile_, center)}) : authority::ReachResult{authority::Error::actor_unready, {}};
+                {manual_cut_target(profile_, center, checked_cut.position, ore)}) :
+                authority::ReachResult{authority::Error::actor_unready, {}};
             if (depleted || checked.error != authority::Error::none)
                 pending.interrupted_revision = snapshot.revision + 1;
             else if (pending.remaining_ticks > 0)

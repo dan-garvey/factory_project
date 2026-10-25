@@ -93,7 +93,9 @@ func run() -> void:
 	if harvest_reach:
 		host.state.options = {"native": true}
 		host.state.hand_sources = {"ore": {"kind": "ore_deposit",
-			"position": [0.0, 0.825, -2.3], "initial": 4096, "remaining": 4096}}
+			"position": [0.0, 0.825, -2.3],
+			"contact_bounds": [[-0.25, 0.2, -3.44], [0.25, 1.1, -1.16]],
+			"initial": 4096, "remaining": 4096}}
 		host.state.manual_cuts = {"P": {"target": "ore", "remaining_ticks": 15,
 			"interrupted": false}}
 		var rock := MeshInstance3D.new()

@@ -121,6 +121,13 @@ Value profile_value(const Profile& profile) {
     if (profile.first_plate_unlock) output.emplace("first_plate_unlock", Value(true));
     if (profile.manual_cut_reach > 0)
         output.emplace("manual_cut_reach", Value(profile.manual_cut_reach));
+    if (profile.manual_ore_contact_bounds) {
+        const auto& [low, high] = *profile.manual_ore_contact_bounds;
+        const auto point = [](const authority::Point& value) {
+            return Value(Array{Value(value[0]), Value(value[1]), Value(value[2])});
+        };
+        output.emplace("manual_ore_contact_bounds", Value(Array{point(low), point(high)}));
+    }
     if (profile.foundation_parts > 0) {
         output.emplace("foundation_parts", Value(profile.foundation_parts));
         Object starting_kits;

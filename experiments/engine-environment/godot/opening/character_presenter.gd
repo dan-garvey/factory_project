@@ -220,6 +220,13 @@ func _bake_multitool_hand(body: Node3D) -> ArrayMesh:
 	return result
 
 func _cut_contact(view: Node3D, source: Dictionary) -> Vector3:
+	if source.kind == "ore_deposit" and source.get("contact_bounds") is Array:
+		var bounds: Array = source.contact_bounds
+		if bounds.size() == 2 and Geometry.valid_position(bounds[0]) and Geometry.valid_position(bounds[1]):
+			var actor: Vector3 = view.global_position
+			return Vector3(clampf(actor.x, float(bounds[0][0]), float(bounds[1][0])),
+				clampf(actor.y, float(bounds[0][1]), float(bounds[1][1])),
+				clampf(actor.z, float(bounds[0][2]), float(bounds[1][2])))
 	var center: Array = source.position
 	var from_actor := Vector3(center[0] - view.global_position.x, 0.0,
 		center[2] - view.global_position.z).normalized()

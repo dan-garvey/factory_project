@@ -49,6 +49,9 @@ struct Profile {
     // Zero uses build_reach in generic fixtures. Arrival sets the shorter
     // physical cutter reach, independently of construction reach.
     double manual_cut_reach{};
+    // The trusted opening terrain supplies the visible ore hull's world-space
+    // bounds. A cut measures from its nearest contact instead of its midpoint.
+    std::optional<std::pair<authority::Point, authority::Point>> manual_ore_contact_bounds;
     // Separate construction custody; foundations are not mechanical hubs.
     authority::Integer foundation_parts{};
     // Immutable actor allocation before any construction history. A pod deck
@@ -64,6 +67,9 @@ struct Profile {
     // decides which placed assemblies can extract from the finite deposit.
     std::vector<assembly::OreFace> collector_faces;
 };
+
+[[nodiscard]] authority::Point manual_cut_target(const Profile&, const materials::DropPoint& center,
+    const authority::Point& actor_position, bool ore);
 
 struct Foundation {
     mechanics::Point center{}; // X/Z tile centers, Y quarter-pitch top level.
