@@ -5354,7 +5354,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto path = mechanics::belt_path(first->geometry, last->geometry);
         if (!path || static_cast<std::size_t>(*index) >= path->tiles.size()) return refused("invalid_mechanics", *id);
         if (*action == "load_belt_slot" && (path->kind == mechanics::BeltPathKind::vertical ||
-            path->kind == mechanics::BeltPathKind::sideways)) return refused("belt_cannot_carry", *id);
+            path->kind == mechanics::BeltPathKind::sideways)) return refused("belt_path_cannot_carry", *id);
         const auto center = path->tiles[static_cast<std::size_t>(*index)];
         auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready");

@@ -2242,6 +2242,7 @@ func _shared_component_results() -> void:
 		{"action": "field_craft", "accepted": false, "reason": "unavailable_recipe", "text": "Metal components need a workshop."},
 		{"action": "craft_part", "accepted": false, "reason": "out_of_reach", "text": "Move beside the selected workshop to make a transmission kit."},
 		{"action": "load_belt_slot", "accepted": false, "reason": "belt_cannot_carry", "text": "This belt is too narrow for broad work. Carry it to the next machine."},
+		{"action": "load_belt_slot", "accepted": false, "reason": "belt_path_cannot_carry", "text": "This belt transmits rotation but cannot carry items along this path."},
 		{"action": "reclaim_component", "accepted": false, "reason": "inventory_full", "text": "Your component bag is full. Place another carried part before reclaiming."}]
 	for sample: Dictionary in cases:
 		var view := SharedSettlementView.new()

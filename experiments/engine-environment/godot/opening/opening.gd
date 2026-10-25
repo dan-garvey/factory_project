@@ -5396,6 +5396,9 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 	if _native_transmission() and action_name == "load_belt_slot" \
 			and outcome.get("reason") == "belt_cannot_carry" and not outcome.get("uncertain", false):
 		return "This belt is too narrow for broad work. Carry it to the next machine."
+	if _native_transmission() and action_name == "load_belt_slot" \
+			and outcome.get("reason") == "belt_path_cannot_carry" and not outcome.get("uncertain", false):
+		return "This belt transmits rotation but cannot carry items along this path."
 	# Fixed-roster historical payloads may omit the helper or carry its older
 	# API. Formatting must never add a resource requirement or change admission.
 	if recovery_actions != null and recovery_actions.has_method("refusal_text"):
