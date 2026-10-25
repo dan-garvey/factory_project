@@ -2239,7 +2239,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (!prior_power.mechanical.accepted() ||
                 prior_motion == prior_power.mechanical.motion.end() ||
                 !manual_input_available(prior_motion->second)) return false;
-            const auto powered = hand_slide_power(profile, at_command, *entity, *port);
+            const auto powered = hand_crank_power(profile, at_command, *entity, *port);
             const auto motion = powered.mechanical.motion.find(*entity);
             if (!powered.mechanical.accepted() || motion == powered.mechanical.motion.end() ||
                 motion->second.state != mechanics::MotionState::rotating ||
@@ -3860,14 +3860,14 @@ DrivePower drive_power(const stationary::Topology& topology) {
     return apply_load(topology, stationary::power_view(topology).mechanical, {}, {});
 }
 
-struct ManualSlideInput {
-    std::string slide;
+struct ManualCrankInput {
+    std::string input;
     mechanics::Point port{};
 };
 
 static DrivePower drive_power_with_layout(const Profile& profile, const State& state,
         const std::vector<assembly::Part>& placed, const assembly::Layout& layout,
-        const std::optional<ManualSlideInput>& hand_input = std::nullopt) {
+        const std::optional<ManualCrankInput>& hand_input = std::nullopt) {
     const auto base = stationary::power_view(state.topology);
     if (!base.mechanical.accepted()) return {base.mechanical, {}};
     std::vector<mechanics::Part> parts;
@@ -3990,23 +3990,43 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     std::map<std::string, long double> manual_sources;
     mechanics::Rate manual_rate{1, 1};
     if (hand_input) {
-        const auto slide = std::find_if(placed.begin(), placed.end(),
-            [&](const assembly::Part& part) { return part.id == hand_input->slide; });
-        if (slide == placed.end() || !slide_component(slide->kind) ||
-            hand_input->port[1] != slide->center[1] ||
-            hand_input->port[2] != slide->center[2] ||
-            std::abs(hand_input->port[0] - slide->center[0]) != 1) {
+        const auto input = std::find_if(placed.begin(), placed.end(),
+            [&](const assembly::Part& part) { return part.id == hand_input->input; });
+        if (input == placed.end() || !crank_input_port(
+                PlacedComponent{input->kind, input->center, 1}, hand_input->port)) {
             mechanics::Result result;
             result.error = mechanics::Error::invalid_drive;
             return {std::move(result), {}};
         }
-        std::string hub_id = "manual-slide-input";
-        for (std::size_t index = 0; reserved_ids.contains(hub_id); ++index)
-            hub_id = "manual-slide-input-" + std::to_string(index);
-        append({hub_id, mechanics::Kind::hub, hand_input->port,
-            mechanics::Axis::x, 0, 0});
-        manual_sources.emplace(hub_id, 12);
-        manual_rate.numerator = hand_input->port[0] > slide->center[0] ? 1 : -1;
+        if (slide_component(input->kind)) {
+            std::string hub_id = "manual-slide-input";
+            for (std::size_t index = 0; reserved_ids.contains(hub_id); ++index)
+                hub_id = "manual-slide-input-" + std::to_string(index);
+            append({hub_id, mechanics::Kind::hub, hand_input->port,
+                mechanics::Axis::x, 0, 0});
+            manual_sources.emplace(hub_id, 12);
+            manual_rate.numerator = hand_input->port[0] > input->center[0] ? 1 : -1;
+        } else {
+            // A fitted crank presents a temporary source hub coaxial with
+            // the embodied spindle. Native sources attach to hubs, while
+            // the shaft remains the same rated physical graph part.
+            const auto spindle = std::find_if(parts.begin(), parts.end(),
+                [&](const mechanics::Part& part) {
+                    return part.id == input->id && part.kind == mechanics::Kind::shaft;
+                });
+            if (spindle == parts.end()) {
+                mechanics::Result result;
+                result.error = mechanics::Error::invalid_drive;
+                return {std::move(result), {}};
+            }
+            const auto axis = spindle->axis;
+            std::string hub_id = "manual-crank-input";
+            for (std::size_t index = 0; reserved_ids.contains(hub_id); ++index)
+                hub_id = "manual-crank-input-" + std::to_string(index);
+            append({hub_id, mechanics::Kind::hub, hand_input->port,
+                axis, 0, 0});
+            manual_sources.emplace(hub_id, 12);
+        }
     }
     if (parts.size() > mechanics::maximum_parts) {
         mechanics::Result result;
@@ -4034,11 +4054,11 @@ DrivePower drive_power(const Profile& profile, const State& state) {
     return drive_power_with_layout(profile, state, placed, layout);
 }
 
-DrivePower hand_slide_power(const Profile& profile, const State& state,
-        const std::string& slide, const mechanics::Point& port) {
+DrivePower hand_crank_power(const Profile& profile, const State& state,
+        const std::string& input, const mechanics::Point& port) {
     const auto placed = assembly_parts(state);
     const assembly::Layout layout(placed);
-    return drive_power_with_layout(profile, state, placed, layout, ManualSlideInput{slide, port});
+    return drive_power_with_layout(profile, state, placed, layout, ManualCrankInput{input, port});
 }
 
 BroadPressDriveIndex::BroadPressDriveIndex(const DrivePower& power) : power_(power) {
@@ -5470,7 +5490,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (prior_motion == existing.mechanical.motion.end() ||
             !manual_input_available(prior_motion->second))
             return refused("input_already_driven", *id, std::move(facts));
-        const auto powered = hand_slide_power(profile_, state, *id, *port);
+        const auto powered = hand_crank_power(profile_, state, *id, *port);
         if (!powered.mechanical.accepted())
             return refused("invalid_mechanics", *id, std::move(facts));
         const auto motion = powered.mechanical.motion.find(*id);

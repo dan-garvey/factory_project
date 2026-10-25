@@ -135,32 +135,57 @@ void held_crank_uses_slide_input_graph() {
     w::Profile profile;
     w::State state;
     add(state, "slide", mat::Component::wooden_slide, {0, 2, 0});
-    const auto idle = w::hand_slide_power(profile, state, "slide", {1, 2, 0});
+    const auto idle = w::hand_crank_power(profile, state, "slide", {1, 2, 0});
     check(idle.mechanical.accepted() && idle.mechanical.motion.at("slide").state ==
               m::MotionState::rotating && idle.load.at("slide").capacity == 8 &&
           idle.load.at("slide").impact == 4,
           "The held crank engages the unchanged integral shaft through its exposed X port.");
     add(state, "anvil", mat::Component::anvil, {0, 0, 0});
     add(state, "head", mat::Component::flat_head, {0, 1, 0});
-    const auto loaded = w::hand_slide_power(profile, state, "slide", {1, 2, 0});
+    const auto loaded = w::hand_crank_power(profile, state, "slide", {1, 2, 0});
     check(loaded.mechanical.accepted() && loaded.mechanical.motion.at("slide").state ==
               m::MotionState::rotating && loaded.load.at("slide").impact == 8 &&
           loaded.load.at("slide").capacity == 8,
           "Actual flat-head contact consumes the wooden slide's remaining rated load.");
-    check(!w::hand_slide_power(profile, state, "slide", {0, 3, 0}).mechanical.accepted(),
+    check(!w::hand_crank_power(profile, state, "slide", {0, 3, 0}).mechanical.accepted(),
           "A top face cannot impersonate the integral X-axis input.");
     state.placed_components.at("head").center[0] = 1;
-    const auto detached = w::hand_slide_power(profile, state, "slide", {1, 2, 0});
+    const auto detached = w::hand_crank_power(profile, state, "slide", {1, 2, 0});
     check(detached.load.at("slide").impact == 4,
           "A displaced head does not create invisible contact load.");
     state.placed_components.at("head").center[0] = 0;
     add(state, "linked-slide", mat::Component::wooden_slide, {2, 2, 0});
-    const auto overloaded = w::hand_slide_power(profile, state, "slide", {-1, 2, 0});
+    const auto overloaded = w::hand_crank_power(profile, state, "slide", {-1, 2, 0});
     check(overloaded.mechanical.accepted() &&
           overloaded.mechanical.motion.at("slide").state == m::MotionState::stalled &&
           overloaded.load.at("slide").overloaded && overloaded.load.at("slide").impact == 12 &&
           overloaded.load.at("slide").capacity == 8,
           "The issued crank cannot bypass a wooden bottleneck on a second connected load.");
+}
+
+void held_crank_drives_fitted_spindles_and_connected_consumers() {
+    auto fixture = connected_line();
+    fixture.state.topology.sources.clear();
+    const auto overloaded = w::hand_crank_power(fixture.profile, fixture.state,
+        "collector-mount", {-1, 4, 0});
+    check(overloaded.mechanical.accepted() &&
+          overloaded.mechanical.motion.at("collector-frame").state == m::MotionState::stalled &&
+          overloaded.mechanical.motion.at("press-frame").state == m::MotionState::stalled &&
+          overloaded.load.at("collector-mount").overloaded &&
+          overloaded.load.at("collector-mount").impact == 12,
+          "A fitted collector crank reaches the connected press but cannot bypass its wooden bottleneck.");
+    check(overloaded.mechanical.motion.at("light-frame").state == m::MotionState::unpowered,
+          "A disconnected consumer gains no manual power from the crank.");
+    fixture.state.placed_components.erase("collector-mount");
+    const auto isolated = w::hand_crank_power(fixture.profile, fixture.state,
+        "press-shaft", {7, 4, 0});
+    check(isolated.mechanical.accepted() &&
+          isolated.mechanical.motion.at("press-frame").state == m::MotionState::rotating &&
+          isolated.mechanical.motion.at("light-frame").state == m::MotionState::unpowered,
+          "A crank fitted to the press shaft turns its connected cog and press without a wheel.");
+    check(!w::hand_crank_power(fixture.profile, fixture.state,
+              "press-shaft", {8, 4, 0}).mechanical.accepted(),
+          "A neighboring cell cannot impersonate the fitted shaft port.");
 }
 
 void carriage_phase_tracks_signed_fractional_shaft_travel() {
@@ -190,6 +215,7 @@ int main() {
         collector_and_press_share_one_frame();
         unloaded_slide_shaft_is_native_drive_part();
         held_crank_uses_slide_input_graph();
+        held_crank_drives_fitted_spindles_and_connected_consumers();
         carriage_phase_tracks_signed_fractional_shaft_travel();
         std::cout << "material_strength_test: " << checks << " checks passed\n";
         return 0;
