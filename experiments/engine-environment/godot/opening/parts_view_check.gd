@@ -2587,6 +2587,31 @@ func _workshop_pages() -> void:
 			verify(root.get_texture().get_image().save_png(image_prefix + "-standalone-anvil.png") == OK,
 				"Retain the passive standalone work-support panel.")
 		view.object_menu.hide()
+		view.arrival_assembly_controls.select_component_name("anvil")
+		view._select_tool("component")
+		view.building_hotbar.refresh()
+		view.building_hotbar.catalog.hide()
+		verify(view.building_hotbar.footprint_button.visible
+			and view.building_hotbar.footprint_catalog_button.visible
+			and view.building_hotbar.footprint_button.tooltip_text.contains("1x1"),
+			"Local and shared build controls expose an icon-led anvil footprint choice.")
+		var footprint_key := InputEventKey.new()
+		footprint_key.pressed = true
+		footprint_key.keycode = KEY_V
+		view._input(footprint_key)
+		verify(view.component_footprint_size == 2
+			and view._component_footprint_centers("anvil", [12, 0, 0]) == [
+				[12, 0, 0], [16, 0, 0], [12, 0, 4], [16, 0, 4]]
+			and view.building_hotbar.footprint_button.tooltip_text.contains("four carried parts"),
+			"The size control selects four distinct native grid cells and shows their cost.")
+		view.building_hotbar.open_catalog()
+		view.building_hotbar._input(footprint_key)
+		verify(view.component_footprint_size == 1
+			and view.building_hotbar.footprint_catalog_button.icon ==
+				view.building_hotbar.FOOTPRINT_ONE_ICON,
+			"The same V shortcut returns to one cell while the build catalog is open.")
+		view.building_hotbar.catalog.hide()
+		view._select_tool("inspect")
 		view.state = before.duplicate(true)
 		view._refresh_ui()
 		verify(view.state == before and view.issued.is_empty() and view.model == null,

@@ -306,6 +306,8 @@ func _settle_pending() -> void:
 				refusal = {"unavailable_input": "Gather the timber or softmetal shown for this transmission kit.",
 					"out_of_reach": "Move beside the selected workshop to make a transmission kit.",
 					"quantity_overflow": "Too many of this kit are already carried."}.get(result.get("reason", ""), refusal)
+			elif item.action.action == "place_component" and result.get("reason", "") == "no_component":
+				refusal = "Carry another %s." % str(item.action.get("component", "component")).replace("_", " ")
 			elif item.action.action == "turn_hand_crank":
 				refusal = {"not_crank_holder": _crank_turn_refusal("collector"),
 					"incomplete_assembly": "Fit the collector's missing component before cutting ore.",

@@ -201,6 +201,27 @@ func _capture_guided_close(ram_id: String, path: String) -> bool:
 	close.queue_free()
 	return captured
 
+func _capture_actor_area(path: String, target: Vector3) -> bool:
+	var prior_distance: float = opening.distance
+	var prior_yaw: float = opening.orbit_yaw
+	var prior_pitch: float = opening.orbit_pitch
+	opening.distance = 0.0
+	opening._update_camera()
+	var direction: Vector3 = (target - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-direction.x, -direction.z)
+	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+	opening._update_camera()
+	if opening.mode == "component":
+		opening._refresh_component_preview()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var captured: bool = root.get_texture().get_image().save_png(path) == OK
+	opening.distance = prior_distance
+	opening.orbit_yaw = prior_yaw
+	opening.orbit_pitch = prior_pitch
+	opening._update_camera()
+	return captured
+
 func _approach(target: Vector2, actor: String = "P") -> bool:
 	if not await _walk_to(target, false, actor):
 		return false
@@ -2323,7 +2344,7 @@ func _arrival_run() -> void:
 		await _arrival_slide_run(panel, capture_prefix)
 		return
 	if mode == "arrival-broad-pad":
-		await _arrival_broad_pad_run(panel)
+		await _arrival_broad_pad_run(panel, capture_prefix)
 		return
 	if mode == "arrival-broad-drive":
 		await _arrival_broad_drive_run(panel)
@@ -2865,7 +2886,7 @@ func _arrival_run() -> void:
 
 
 ## Finite actor-built broad-pad ground and raised layouts.
-func _arrival_broad_pad_run(panel) -> void:
+func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 	deadline = Time.get_ticks_msec() + 240000
 	facts.evidence = "ordinary_finite_broad_pad_assembly"
 	var base_level := 4 if "--broad-raised" in OS.get_cmdline_user_args() else 0
@@ -2926,24 +2947,108 @@ func _arrival_broad_pad_run(panel) -> void:
 	if not await _approach_points([Vector2(4.95, 4.95), Vector2(6.6, 4.95),
 			Vector2(6.6, 2.5), Vector2(5.8, -1.2)]):
 		return
+	if not _select_inventory_item("component:anvil"):
+		return
+	opening.component_nudge_active = true
+	opening.component_nudge_center = [12, base_level, 0]
+	opening._refresh_component_preview()
+	if not _expect(opening.component_preview.visible and opening.component_preview.get_child_count() > 0,
+			"The original single-cell anvil ghost remains visible before size selection"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-one-anvil.png",
+				Vector3(4.95, 0.7 + base_level * OpeningGeometry.HEIGHT_STEP, 0.0)),
+				"Retain the actor-eye single-anvil ghost before choosing the larger footprint"):
+			return
+	opening._toggle_component_footprint()
+	if not _expect(opening.component_footprint_size == 2
+			and opening.building_hotbar.footprint_button.visible,
+			"The ordinary build bar selects a four-cell anvil footprint"):
+		return
 	for index in range(4):
 		if base_level > 0 and index == 2 and not await _approach(Vector2(5.8, 1.65)):
 			return
 		var x: int = 12 + (index % 2) * 4
 		var z: int = (index / 2) * 4
-		if _construct({"action": "place_component", "component": "anvil",
-				"center": [x, base_level, z]}).is_empty():
+		opening.component_nudge_active = true
+		opening.component_nudge_center = [x, base_level, z]
+		opening._refresh_component_preview()
+		if index == 0 and not _expect(opening.component_preview.visible
+				and opening.component_preview.get_child_count() == 4,
+				"The first anvil click previews all four charged native cells"):
 			return
+		if index == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			if not _expect(await _capture_actor_area(capture_prefix + "-four-anvil-ghost.png",
+					Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+					"Retain the actor-eye four-cell anvil ghost with its build control"):
+				return
+		var before_anvil: Dictionary = opening.model.projection()
+		opening._world_click(Vector2i.ZERO)
+		var after_anvil: Dictionary = opening.model.projection()
+		if not _expect(after_anvil.order == before_anvil.order + 1
+				and int(after_anvil.cargo.P.components.get("anvil", 0)) == int(before_anvil.cargo.P.components.get("anvil", 0)) - 1
+				and after_anvil.placed_components.size() == before_anvil.placed_components.size() + 1,
+				"Each area click charges and places one reachable anvil with its own identity"):
+			return
+		if index < 3:
+			opening._refresh_component_preview()
+			if not _expect(opening.component_area_anchor == [12, base_level, 0]
+					and opening.component_preview.get_child_count() == 3 - index,
+					"The selected area retains its unplaced native cells across separate clicks"):
+				return
 	var supported: Dictionary = opening.model.projection()
 	if not _expect(supported.broad_press_assemblies.size() == 1
 			and supported.broad_press_assemblies[0].geometry_status == "missing_ram",
 			"Four placed anvils define one incomplete area, not four presses"):
 		return
+	opening._toggle_component_footprint()
+	opening._toggle_component_footprint()
+	opening.component_nudge_center = [12, base_level, 0]
+	var occupied_before: Dictionary = opening.model.projection()
+	opening._world_click(Vector2i.ZERO)
+	if not _expect(opening.model.projection().order == occupied_before.order
+			and opening.status_label.text == "That part is already placed.",
+			"Clicking an occupied area cell keeps all four charged native anvils"):
+		return
+	opening.component_nudge_center = [20, base_level, 0]
+	var empty_before: Dictionary = opening.model.projection()
+	opening._world_click(Vector2i.ZERO)
+	if not _expect(opening.model.projection().placed_components.size() == empty_before.placed_components.size()
+			and opening.model.projection().cargo.P.components == empty_before.cargo.P.components
+			and opening.status_label.text == "Carry another anvil.",
+			"An exhausted carried stack refuses a new area cell without hidden partial placement"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening._select_tool("inspect")
+		if not _expect(await _capture_actor_area(capture_prefix + "-four-anvil-built.png",
+				Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+				"Retain the actor-eye installed four-anvil work area"):
+			return
+	if not _select_inventory_item("component:ram_face"):
+		return
 	for index in range(4):
 		var x: int = 12 + (index % 2) * 4
 		var z: int = (index / 2) * 4
+		opening.component_nudge_active = true
+		opening.component_nudge_center = [x, base_level + 1, z]
+		opening._refresh_component_preview()
+		if index == 0 and not _expect(opening.component_preview.visible
+				and opening.component_preview.get_child_count() == 4,
+				"The matching ram footprint shows four heads before the first placement"):
+			return
+		if index == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			if not _expect(await _capture_actor_area(capture_prefix + "-four-ram-ghost.png",
+					Vector3(5.775, 1.45 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+					"Retain the actor-eye matching ram footprint before placement"):
+				return
+		var before_ram: Dictionary = opening.model.projection()
+		opening._world_click(Vector2i.ZERO)
+		var after_ram: Dictionary = opening.model.projection()
+		if not _expect(after_ram.order == before_ram.order + 1
+				and after_ram.placed_components.size() == before_ram.placed_components.size() + 1,
+				"Each ram-face click charges one independent part on the broad work area"):
+			return
 		for part in [
-			{"kind": "ram_face", "center": [x, base_level + 1, z]},
 			{"kind": "sliding_guide", "center": [x, base_level + 3, z]},
 			{"kind": "wooden_shaft", "center": [x + (-1 if index % 2 == 0 else 1), base_level + 4, z]},
 			{"kind": "wooden_cog", "center": [x + (-2 if index % 2 == 0 else 2), base_level + 4, z]},
