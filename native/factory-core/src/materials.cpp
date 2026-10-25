@@ -118,7 +118,7 @@ std::optional<ComponentCost> component_cost(Component component) noexcept {
         case Component::wooden_shaft: return ComponentCost{1, 0};
         case Component::wooden_cog: return ComponentCost{2, 0};
         case Component::receiver_tray: return ComponentCost{2, 0};
-        case Component::tool_mount: return ComponentCost{1, 0};
+        case Component::tool_mount: return ComponentCost{2, 0};
         case Component::sliding_guide: return ComponentCost{1, 0};
         case Component::cutting_edge: return ComponentCost{0, 1};
         case Component::anvil: return ComponentCost{0, 2};

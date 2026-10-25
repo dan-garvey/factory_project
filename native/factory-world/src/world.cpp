@@ -517,11 +517,11 @@ struct CollectorMatch {
     bool ambiguous{};
 };
 
-CollectorMatch collector_for_shaft(const Profile& profile,
-        const std::vector<assembly::Part>& parts, const std::string& shaft) {
+CollectorMatch collector_for_input(const Profile& profile,
+        const std::vector<assembly::Part>& parts, const std::string& input) {
     CollectorMatch found;
     const auto selected = std::find_if(parts.begin(), parts.end(),
-        [&](const auto& part) { return part.id == shaft; });
+        [&](const auto& part) { return part.id == input; });
     if (selected == parts.end()) return found;
     const assembly::Layout layout(parts);
     for (const auto& face : profile.collector_faces) {
@@ -532,7 +532,7 @@ CollectorMatch collector_for_shaft(const Profile& profile,
             std::abs(at[2] - center[2]) == 1;
         if (inspected.status == assembly::Status::ambiguous && adjacent)
             found.ambiguous = true;
-        if (!inspected.collector || inspected.collector->shaft != shaft) continue;
+        if (!inspected.collector || inspected.collector->mount != input) continue;
         if (found.collector) found.ambiguous = true;
         found.collector = *inspected.collector;
     }
@@ -1963,7 +1963,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 if (issued == snapshot.state.issued_entities.end()) return false;
                 parts.push_back({id, placed.first, placed.second, issued->second});
             }
-            const auto selected = collector_for_shaft(profile, parts, *entity);
+            const auto selected = collector_for_input(profile, parts, *entity);
             const auto* receiver = field<Value::Array>(record.result, "receiver_center");
             const auto* shaft = field<Value::Array>(record.result, "shaft_center");
             if (!selected.collector || !receiver || !shaft ||
@@ -3459,6 +3459,7 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     for (const auto& part : state.topology.parts) reserved_ids.insert(part.geometry.id);
     for (const auto& part : placed) reserved_ids.insert(part.id);
     std::set<std::string> projected_hub_ids;
+    std::set<std::string> projected_collector_shafts;
     const auto append = [&](mechanics::Part projected) {
         parts.push_back(std::move(projected));
     };
@@ -3484,9 +3485,25 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         const auto axis = horizontal_axis(found.machine_center, found.shaft_center);
         append({found.frame, mechanics::Kind::hub, found.machine_center, axis, 0, 0});
         projected_hub_ids.insert(found.frame);
-        append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
-        ratings.emplace(found.shaft, material_rating(found.shaft_material));
+        append({found.mount, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
+        ratings.emplace(found.mount, material_rating(found.shaft_material));
         impacts.emplace(found.frame, 4);
+        // Independent shafts at the exposed frame sides are optional routing.
+        // They must remain real graph parts even though readiness and crank
+        // custody belong to the mount's embodied spindle.
+        for (const auto& routed : placed) {
+            if (routed.kind != materials::Component::wooden_shaft &&
+                routed.kind != materials::Component::copper_shaft) continue;
+            const auto& center = routed.center;
+            if (center[1] != found.machine_center[1] ||
+                std::abs(center[0] - found.machine_center[0]) +
+                    std::abs(center[2] - found.machine_center[2]) != 1 ||
+                center == found.shaft_center ||
+                !projected_collector_shafts.insert(routed.id).second) continue;
+            const auto routed_axis = horizontal_axis(found.machine_center, center);
+            append({routed.id, mechanics::Kind::shaft, center, routed_axis, 0, 1});
+            ratings.emplace(routed.id, material_rating(routed.kind));
+        }
     }
     for (const auto& item : placed) {
         if (item.kind != materials::Component::wooden_frame) continue;
@@ -4671,12 +4688,11 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto found = state.placed_components.find(*id);
         if (found == state.placed_components.end()) return refused("unknown_target", *id);
         if (found->second.generation != *generation) return refused("stale_generation", *id);
-        if (found->second.kind != materials::Component::wooden_shaft &&
-            found->second.kind != materials::Component::copper_shaft)
-            return refused("not_drive_shaft", *id);
+        if (found->second.kind != materials::Component::tool_mount)
+            return refused("not_collector_input", *id);
         if (!state.hand_crank || state.hand_crank->holder != binding.actor)
             return refused("not_crank_holder", *id);
-        const auto assembly = collector_for_shaft(profile_, assembly_parts(state), *id);
+        const auto assembly = collector_for_input(profile_, assembly_parts(state), *id);
         if (assembly.ambiguous) return refused("ambiguous_assembly", *id);
         if (!assembly.collector) return refused("incomplete_assembly", *id);
         const auto cut = observe ? observe(binding.actor) : std::nullopt;

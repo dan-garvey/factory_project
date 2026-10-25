@@ -144,7 +144,7 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
                     center[2] - 4 * direction[2]};
     wheel.axis = direction[0] ? g::Axis::x : g::Axis::z;
     Runner run(source);
-    for (int index = 0; index < 5; ++index) {
+    for (int index = 0; index < 6; ++index) {
         auto harvest = request("P", "guided-timber-" + std::to_string(index), "harvest_source");
         harvest.emplace("target", V("tree"));
         run.accept("P", harvest);
@@ -547,6 +547,8 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
 
 void actor_feed_is_physical_custody() {
     auto source = site();
+    source.profile.material.timber_sites.at("tree").initial = 12;
+    source.state.material.timber_remaining.at("tree") = 12;
     source.profile.finite_parts[{s::Role::waterwheel, 0, 0}] = 2;
     source.profile.finite_parts[{s::Role::shaft, 0, 2}] = 3;
     source.profile.finite_parts[{s::Role::belt, 0, 0}] = 1;
@@ -564,7 +566,7 @@ void actor_feed_is_physical_custody() {
         source.state.issued_entities.emplace(part.geometry.id, part.generation);
     source.state.issued_entities.emplace("press-output-belt", 1);
     Runner run(source);
-    for (int n = 0; n < 8; ++n) {
+    for (int n = 0; n < 12; ++n) {
         auto cut = request("P", "wood-" + std::to_string(n), "harvest_source");
         cut.emplace("target", V("tree"));
         run.accept("P", cut);
@@ -1339,7 +1341,7 @@ void two_placed_presses_advance_distinct_powered_work() {
         harvest.emplace("target", V("tree"));
         run.accept("P", harvest);
     }
-    for (int index = 0; index < 2; ++index) {
+    for (int index = 0; index < 4; ++index) {
         auto harvest = request("P", "two-press-branch-" + std::to_string(index), "harvest_source");
         harvest.emplace("target", V("tree-branch"));
         run.accept("P", harvest);

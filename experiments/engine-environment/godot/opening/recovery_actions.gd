@@ -321,8 +321,7 @@ class ArrivalAssemblyControls:
 		"missing_mount": "Fit a tool mount toward the ore deposit.",
 		"missing_edge": "Fit a cutting edge beyond the mount.",
 		"missing_receiver": "Fit a receiver tray beside the frame.",
-		"missing_shaft": "Fit a shaft beside the receiver or behind the frame.",
-		"ambiguous": "Remove the extra fitting so this collector has one shaft and receiver.",
+		"ambiguous": "Keep one receiver beside this collector.",
 	}
 	const TURN_REPEAT_SECONDS := 0.33
 
@@ -517,7 +516,7 @@ class ArrivalAssemblyControls:
 		if collector_status.visible:
 			var collector_state := str(collector.get("status", ""))
 			collector_status.text = "Collector receiver holds an ore blank. Pick it up before another cut." if receiver_full else \
-				"Collector ready. Turn its fitted shaft to cut one ore blank." if collector_state == "ready" else \
+				"Collector ready. Turn its mounted input to cut one ore blank." if collector_state == "ready" else \
 				"Collector: %s" % COLLECTOR_NEXT.get(collector_state, "Choose a clear ore-deposit frame.")
 			if collector_state == "ready":
 				collector_status.text += "\n" + _receiver_route_status(snapshot)
@@ -528,7 +527,7 @@ class ArrivalAssemblyControls:
 			collector_crank_button.accessibility_name = "%s, shortcut T" % crank_action if crank_holder in [actor, "pod"] else crank_action
 			collector_crank_button.disabled = not ready or (crank.get("holder", "") != "pod" and crank.get("holder", "") != actor)
 			collector_cut_button.disabled = not ready or collector_state != "ready" or receiver_full \
-				or crank.get("holder") != actor or not collector_parts.has("shaft")
+				or crank.get("holder") != actor or not collector_parts.has("mount")
 			var cut_hint := "Cut one ore blank"
 			if not ready:
 				cut_hint = "Wait for the character"
@@ -777,9 +776,9 @@ class ArrivalAssemblyControls:
 		var host = _host_view()
 		var collector: Dictionary = _selected_collector(_snapshot, _selected)
 		var parts: Dictionary = collector.get("parts", {})
-		if host != null and collector.get("status") == "ready" and parts.has("shaft") \
+		if host != null and collector.get("status") == "ready" and parts.has("mount") \
 				and _snapshot.get("hand_crank", {}).get("holder") == _actor:
-			host.issue({"action": "turn_hand_crank", "entity": parts.shaft})
+			host.issue({"action": "turn_hand_crank", "entity": parts.mount})
 
 	func _feed() -> void:
 		var host = _host_view()

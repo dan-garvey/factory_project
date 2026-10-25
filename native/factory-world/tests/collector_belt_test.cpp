@@ -27,7 +27,7 @@ Fixture fixture(g::Integer rate = 1) {
     auto& [profile, state] = result;
     profile.material = {1, 2, 2};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
-    profile.material.timber_sites = {{"tree", {{12, 0, 12}, 7}}};
+    profile.material.timber_sites = {{"tree", {{12, 0, 12}, 8}}};
     profile.initial_units = 2;
     profile.actors = {"P"};
     profile.foundation_parts = 9;
@@ -41,7 +41,7 @@ Fixture fixture(g::Integer rate = 1) {
     state.material.initial_units = 2;
     state.material.stock.source = 2;
     state.material.cargo = {{"P", {}}};
-    state.material.timber_remaining = {{"tree", 7}};
+    state.material.timber_remaining = {{"tree", 8}};
     state.kits = {{"P", {}}};
     state.landing_pod = w::LandingPod{"landing-pod", *profile.landing_pod_center, 1};
     state.fabrication_hub = w::FabricationHub{"pod-fabrication-hub", w::landing_hub_center(*profile.landing_pod_center), 1};
@@ -99,7 +99,7 @@ V::Object accepted(w::World& world, const V::Object& intent) {
 
 std::unique_ptr<w::World> prepared(const Fixture& fixture) {
     auto world = create(fixture);
-    for (int n = 0; n < 7; ++n) {
+    for (int n = 0; n < 8; ++n) {
         auto wire = request("wood-" + std::to_string(n), "harvest_source");
         wire.emplace("target", V("tree"));
         accepted(*world, wire);
@@ -122,7 +122,7 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture) {
         place.emplace("component", V(part.name));
         place.emplace("center", V(V::Array{V(part.center[0]), V(part.center[1]), V(part.center[2])}));
         const auto placed = accepted(*world, place);
-        if (std::string(part.name) == "wooden_shaft") drive = std::get<std::string>(placed.at("entity").storage());
+        if (std::string(part.name) == "tool_mount") drive = std::get<std::string>(placed.at("entity").storage());
     }
     auto take = request("take-crank", "take_hand_crank");
     take.emplace("target", V("pod-hand-crank"));
@@ -130,7 +130,7 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture) {
     accepted(*world, take);
     auto turn = request("cut-blank", "turn_hand_crank");
     turn.emplace("target", V(drive));
-    turn.emplace("generation", V(g::Integer{5}));
+    turn.emplace("generation", V(g::Integer{2}));
     accepted(*world, turn);
     check(world->snapshot().state.material.dropped_material.contains({0, 0, 1}),
           "The real crank command leaves one raw blank in the assembled receiver.");
@@ -257,8 +257,8 @@ void builds_powered_route_from_finite_arrival_stock() {
     f.profile.finite_parts.clear();
     f.profile.fabrication_parts = {{{s::Role::shaft, 0, 2}, {1, 0}},
         {{s::Role::belt, 0, 0}, {2, 1}}, {{s::Role::waterwheel, 0, 0}, {2, 1}}};
-    f.profile.material.timber_sites.at("tree").initial = 14;
-    f.state.material.timber_remaining.at("tree") = 14;
+    f.profile.material.timber_sites.at("tree").initial = 15;
+    f.state.material.timber_remaining.at("tree") = 15;
     f.profile.initial_units = f.state.material.initial_units = f.state.material.stock.source = 4;
     f.profile.material.hand_carry_capacity = 24;
     f.state.topology.parts.clear();
@@ -335,8 +335,8 @@ void builds_powered_route_from_finite_arrival_stock() {
 void powers_two_modular_collectors_with_distinct_custody() {
     auto f = fixture();
     f.profile.collector_faces.push_back({{8, 0, 0}, {-1, 0, 0}});
-    f.profile.material.timber_sites.at("tree").initial = 16;
-    f.state.material.timber_remaining.at("tree") = 16;
+    f.profile.material.timber_sites.at("tree").initial = 18;
+    f.state.material.timber_remaining.at("tree") = 18;
     f.profile.initial_units = f.state.material.initial_units = f.state.material.stock.source = 8;
     f.profile.material.hand_carry_capacity = 24;
     f.profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}};
@@ -346,7 +346,7 @@ void powers_two_modular_collectors_with_distinct_custody() {
     f.state.material.belt_lanes.clear();
     for (const auto& id : {"inlet", "far", "span"}) f.state.issued_entities.erase(id);
     auto world = prepared(f);
-    for (int index = 0; index < 7; ++index) {
+    for (int index = 0; index < 8; ++index) {
         auto harvest = request("second-wood-" + std::to_string(index), "harvest_source");
         harvest.emplace("target", V("tree"));
         accepted(*world, harvest);
@@ -444,18 +444,20 @@ void powers_two_modular_collectors_with_distinct_custody() {
     duplicate.collector_faces.push_back(duplicate.collector_faces.front());
     check(w::World::restore("collector-belt", duplicate, saved) == nullptr,
           "A duplicate trusted face cannot create a second claim on the same collector.");
-    auto harvest = request("wood-for-ambiguous-shaft", "harvest_source");
-    harvest.emplace("target", V("tree"));
-    accepted(*world, harvest);
+    for (int index = 0; index < 2; ++index) {
+        auto harvest = request("wood-for-ambiguous-tray-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("tree"));
+        accepted(*world, harvest);
+    }
     pickup.at("request") = V("empty-first-before-ambiguity");
     accepted(*world, pickup);
-    auto craft = request("craft-ambiguous-shaft", "craft_component");
+    auto craft = request("craft-ambiguous-tray", "craft_component");
     craft.emplace("target", V("pod-fabrication-hub"));
     craft.emplace("generation", V(g::Integer{1}));
-    craft.emplace("component", V("wooden_shaft"));
+    craft.emplace("component", V("receiver_tray"));
     accepted(*world, craft);
-    auto place = request("place-ambiguous-shaft", "place_component");
-    place.emplace("component", V("wooden_shaft"));
+    auto place = request("place-ambiguous-tray", "place_component");
+    place.emplace("component", V("receiver_tray"));
     place.emplace("center", V(V::Array{V(g::Integer{0}), V(g::Integer{0}), V(g::Integer{-1})}));
     accepted(*world, place);
     const auto ambiguous = world->snapshot();
@@ -463,7 +465,7 @@ void powers_two_modular_collectors_with_distinct_custody() {
           !world->snapshot().state.material.dropped_material.contains({0, 0, 1}) &&
           world->snapshot().state.material.dropped_material.contains({8, 0, 1}) &&
           world->snapshot().state.material.stock.source == ambiguous.state.material.stock.source,
-          "Two candidate collector shafts make that face inert while the other tray retains its item.");
+          "Two candidate receiver routes make that face inert while the other tray retains its item.");
 }
 
 } // namespace

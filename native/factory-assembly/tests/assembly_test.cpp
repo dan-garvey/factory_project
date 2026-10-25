@@ -29,32 +29,30 @@ void west_face_and_alternate_routes() {
         part("mount", m::Component::tool_mount, {-1, 0, 0}),
         part("edge", m::Component::cutting_edge, {-2, 0, 0}),
         part("tray", m::Component::receiver_tray, {0, 0, 1}),
-        part("drive", m::Component::wooden_shaft, {1, 0, 0}),
         part("spare-cog", m::Component::wooden_cog, {8, 0, 8}),
     };
     const auto first = a::inspect_collector(placed, face);
     check(first.status == a::Status::ready && first.collector &&
           first.collector->frame == "frame" && first.collector->mount == "mount" &&
           first.collector->edge == "edge" && first.collector->receiver == "tray" &&
-          first.collector->shaft == "drive" && first.collector->cutting_height == 0 &&
+          first.collector->shaft == "mount" &&
+          first.collector->shaft_center == g::Point{-1, 0, 0} &&
+          first.collector->cutting_height == 0 &&
           first.collector->shaft_material == m::Component::wooden_shaft,
-          "A cutter, mount, receiver and light shaft form one exact west-facing candidate.");
+          "A cutter, mount and receiver expose the mount's embodied input spindle.");
     placed[3].center = {0, 0, -1};
-    placed[4].center = {0, 0, 1};
-    placed[4].kind = m::Component::copper_shaft;
     const auto mirrored = a::inspect_collector(placed, face);
     check(mirrored.status == a::Status::ready && mirrored.collector &&
           mirrored.collector->receiver_center == g::Point{0, 0, -1} &&
-          mirrored.collector->shaft_center == g::Point{0, 0, 1} &&
-          mirrored.collector->shaft_material == m::Component::copper_shaft,
-          "A mirrored receiver and side-fed metal shaft are also accepted.");
+          mirrored.collector->shaft_center == g::Point{-1, 0, 0} &&
+          mirrored.collector->shaft_material == m::Component::wooden_shaft,
+          "Mirroring the receiver keeps the same finite driven mount and input port.");
     placed.push_back(part("second-tray", m::Component::receiver_tray, {0, 0, 1}));
+    check(a::inspect_collector(placed, face).status == a::Status::ambiguous,
+          "Two supported receiver routes require an explicit choice instead of a hidden winner.");
+    placed.back().center = {0, 0, -1};
     check(a::inspect_collector(placed, face).status == a::Status::invalid_input,
           "Two components cannot claim the same world-grid location.");
-    placed.back().center = {0, 0, -2};
-    placed.push_back(part("back-shaft", m::Component::wooden_shaft, {1, 0, 0}));
-    check(a::inspect_collector(placed, face).status == a::Status::ambiguous,
-          "Two complete drive routes require an explicit choice instead of a hidden winner.");
 }
 
 void raised_rotated_face_and_missing_parts() {
@@ -84,8 +82,8 @@ void raised_rotated_face_and_missing_parts() {
           "A press anvil cannot substitute for the metal cutting edge.");
     placed[2].kind = m::Component::cutting_edge;
     placed[4].center = {12, 4, 8};
-    check(a::inspect_collector(placed, face).status == a::Status::missing_shaft,
-          "A distant shaft does not drive a collector merely because it exists.");
+    check(a::inspect_collector(placed, face).status == a::Status::ready,
+          "A distant independent shaft is optional routing, not a collector recipe token.");
     placed.pop_back();
     placed.pop_back();
     check(a::inspect_collector(placed, face).status == a::Status::missing_receiver,

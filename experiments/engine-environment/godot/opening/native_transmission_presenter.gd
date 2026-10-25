@@ -1257,6 +1257,20 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				clamp.position = Basis(Vector3.UP, collector_angle) * jaw_seat
 				clamp.rotation.y = PI * 0.5 + collector_angle
 				anchor.add_child(clamp)
+				# The native drive belongs to this mount. Keep the keyed socket
+				# within its admitted occupied box, even before the receiver is fit.
+				var input_port := Node3D.new()
+				input_port.name = "IntegralRotaryInput"
+				input_port.rotation.y = collector_angle
+				anchor.add_child(input_port)
+				var spindle := _support_cylinder(input_port, "EmbodiedWoodenSpindle", 0.045, 0.12, timber)
+				spindle.position = Vector3(0.10, 0.12, 0)
+				spindle.rotation.z = PI * 0.5
+				var socket := _support_cylinder(input_port, "CrankSocket", 0.052, 0.015, dark)
+				socket.position = Vector3(0.17, 0.12, 0)
+				socket.rotation.z = PI * 0.5
+				_support_box(input_port, "SocketKey", Vector3(0.18, 0.12, 0),
+					Vector3(0.012, 0.014, 0.038), worked)
 		"anvil":
 			var bottom := -occupied_size.y * 0.5
 			_support_box(anchor, "CastPedestalFoot", Vector3(0, bottom + 0.03, 0),
@@ -1566,13 +1580,13 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		for assembly: Variant in assemblies:
 			if not assembly is Dictionary:
 				continue
-			# Native trusted ore faces exist before all five parts are ready.
+			# Native trusted ore faces exist before all four parts are ready.
 			# Exact face-relative cells orient only parts already placed there;
 			# no visual angle is a new work or connection decision.
 			var center: Variant = assembly.get("center")
 			var toward: Variant = assembly.get("toward_ore")
 			if assembly.get("status") in ["ready", "missing_frame", "missing_mount",
-					"missing_edge", "missing_receiver", "missing_shaft"] \
+					"missing_edge", "missing_receiver"] \
 					and center is Array and center.size() == 3 and toward is Array and toward.size() == 3 \
 					and typeof(center[0]) == TYPE_INT and typeof(center[1]) == TYPE_INT \
 					and typeof(center[2]) == TYPE_INT and typeof(toward[0]) == TYPE_INT \
