@@ -192,7 +192,7 @@ Plan prepare(const fs::path& root, const GitReader& git, const std::string& inte
             const auto result = git({"config", "--local", "--get", key});
             const auto value = stripped(result.output);
             require(result.exit_code == 0 && !value.empty(),
-                    "Staged GDScript needs repository-local " + key + "; see CONTRIBUTING.md.");
+                    "Staged GDScript needs repository-local " + key + "; see docs/engineering/native-builds.md.");
             return value;
         };
         const auto binary = local("factory.godotExecutable");
@@ -201,7 +201,7 @@ Plan prepare(const fs::path& root, const GitReader& git, const std::string& inte
         const auto extension_value = stripped(extension.output);
         require(extension.exit_code == 1 || (extension.exit_code == 0 &&
                 (extension_value == "true" || extension_value == "false")),
-                "Cannot read the repository worktree configuration extension; see CONTRIBUTING.md.");
+                "Cannot read the repository worktree configuration extension; see docs/engineering/native-builds.md.");
         // Git 2.34 refuses --worktree without the extension in a linked repository.
         auto artifact_config = extension.exit_code == 0 && extension_value == "true"
             ? git({"config", "--worktree", "--get", "factory.godotArtifacts"})
@@ -210,7 +210,7 @@ Plan prepare(const fs::path& root, const GitReader& git, const std::string& inte
             artifact_config = git({"config", "--local", "--get", "factory.godotArtifacts"});
         const auto artifacts = stripped(artifact_config.output);
         require(artifact_config.exit_code == 0 && !artifacts.empty(),
-                "Staged GDScript needs a worktree or common local factory.godotArtifacts; see CONTRIBUTING.md.");
+                "Staged GDScript needs a worktree or common local factory.godotArtifacts; see docs/engineering/native-builds.md.");
         require(digest.size() == 64 && digest.find_first_not_of("0123456789abcdef") == std::string::npos,
                 "factory.godotSHA256 must pin the verified executable with 64 lowercase hex digits.");
         plan.command.insert(plan.command.end(), {"--parse-gdscript", "--godot", binary,

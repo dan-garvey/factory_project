@@ -1,159 +1,34 @@
-# Geometric transmission kernel
+# Geometric transmission
 
-This C++ component derives engagement from actual part geometry. The native
-stationary topology evaluates it for the World used by the opening. The kernel
-accepts no user-supplied edge list and owns no world, stock, kit, request history,
-phase clock or save file. Its tests alone are not a native-body witness.
+The kernel derives engagement and exact signed rational rates from part centers,
+axes, tooth counts, spans and physical source observations. World owns finite
+parts, actor admission, topology mutation and checkpoints. No client may insert
+an arbitrary transmission edge.
 
-## Geometry and signed motion
+Gears mesh through compatible geometry; coaxial shafts couple through their
+ends. Gearboxes expose their declared axes/faces; chain drives have separate
+shaft and relay axes. Read the public headers and geometry tests for exact
+integer predicates and bounds. These are kinematic rules, not simulated tooth
+contact, inertia or torque distribution.
 
-A part is a stable identifier, a hub/gear/shaft kind, an exact integer center and
-a canonical positive X, Y or Z axis. Gears additionally have a tooth count;
-shafts have an axial half-span. Other shape fields must be zero.
+Prescribed-rate mode requires every observation to hold. Physical-source mode
+uses compatible sources in the same direction and permits back-driving a stopped
+source. Opposing sources or inconsistent loops stall that connected component;
+unrelated components continue. Source rates use checked signed rational
+arithmetic; invalid geometry/rates return no partial motion.
 
-The pitch unit is an explicit profile unit, with pitch radius equal to tooth
-count. Equivalently, one unit is half the selected module. The World supplies
-its construction geometry; the library does not round engine coordinates or
-choose a permanent game scale.
+Belt paths connect parallel full-tile shafts horizontally, vertically, sideways
+or on equal-step 45-degree inclines. Paths cannot run along the axle, exceed
+twenty tiles or overlap occupied belt paths; intermediate aligned shafts act as
+pulleys. Horizontal/inclined paths carry cargo; vertical/sideways paths transmit
+power only. Path admission is not complete terrain/actor clearance.
 
-Parallel-axis gears engage only in the same axial plane and at exactly the sum
-of their pitch radii. Their signed relation is minus the first tooth count
-divided by the second. A 20-tooth source driving a 40-tooth gear yields -1/2;
-an inserted idler changes parity to +1/2. Tooth counts here are fixture examples,
-not a selected starter inventory.
+World separately applies source capacity and machine/component loads.
+Provisional ratings are source tuning, not permanent design. Presentation may
+interpolate confirmed motion but never decide transmission or advance stock.
 
-The experimental small/large pair (tooth counts 2 and 4) is an exception to
-the generic pitch-distance rule: on matching axes and in one axial plane, its
-centers must differ by one four-unit construction cell in both radial
-directions. Its signed ratio is -1/2 from small to large and -2 in reverse.
-Adjacent mixed-size cogs and parallel large cogs can occupy separate tiles but
-do not mesh. The old six-unit pitch-radius spacing does not connect the mixed
-pair. This discrete placement follows Create's large-to-small cog connection; it is not a claim
-that pitch circles physically touch at that distance.
-
-For the experimental large-cog profile (tooth count 4, construction cell 4
-grid units), two cogs on perpendicular axes also engage when their centers
-are one cell apart along each cog's axis and share the third coordinate. They
-transmit at equal speed; the signed rate is the same when the two axial offsets
-have equal signs and reversed otherwise. This follows the corner relation in
-[Create's rotation propagator](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/RotationPropagator.java).
-This is a discrete gameplay connection, not a calculation of physical tooth
-contact. The opening's finite kit and construction rules are owned by the World
-and Host, not by this kernel.
-
-A shaft couples only coaxial parts whose axial spans touch or overlap. Two
-coaxial hubs or cogs also connect through their facing axle ends when their
-centers are exactly one construction cell (four grid units) apart along their
-shared axis. A one-cell shaft also connects to an adjacent hub or cog at its
-facing tile boundary. These connections carry the same signed rate; the direct
-hub-to-hub or cog-to-hub contact consumes no separate shaft. A greater gap or lateral offset does not connect them. Touching
-shaft endpoints couple; a gap does not. Different gear axes or planes do not
-create an external spur mesh. Coplanar overlapping pitch disks refuse.
-
-The one-tile relay geometry also accepts gearboxes and encased chain drives.
-For a gearbox, `axis` identifies its closed pair of faces. A Y-axis gearbox
-has four horizontal ports; an X- or Z-axis vertical gearbox has two vertical
-and two horizontal ports. Opposite output faces reverse the signed axis rate,
-and the adjacent-axis signs follow Create's directional gearbox modifier at
-equal speed. A chain drive has a shaft `axis` and a different `relay_axis`:
-coaxial shaft faces couple normally, while adjacent chain drives connect
-along their matching relay axis at equal signed speed. Other side neighbors do
-not connect. The native World and Host apply these rules to construction,
-custody and checkpoints, and expose the parts to scene controls.
-
-The kernel solves exact signed rational rates. Its prescribed-rate mode requires
-every supplied observation to hold, for mechanism and puzzle constraints. The
-stationary World uses physical-source mode: compatible sources turning the same
-way follow the strongest source, and a stationary source can be back-driven.
-An incompatible driven loop, opposing physical sources or conflicting
-prescribed observations stall only the connected component, with zero derived
-rates. A separate component can continue. Without a source the component is
-unpowered; sources that are all zero are stopped. This models kinematic
-consistency, not torque distribution, native contact, inertia or a new damage
-rule. The World separately derives experimental component load: each waterwheel
-supplies 32 units per unit of its generated speed, while the collector and press
-consume 4 and 8 units per unit of their respective theoretical speeds. If load
-exceeds capacity, the connected component stalls without damage and resumes
-when capacity or load changes. These provisional values support the opening and
-are not Create's configured values or a permanent progression decision.
-
-## Authority and presentation interface
-
-The native World owns placements and registered source rates; stationary
-topology evaluates their geometry through this kernel. World and Host perform
-finite-kit accounting, actor/reach admission, request replay and atomic commit.
-Construction can validate a candidate without changing the live world. No scene
-node or client can insert a transmission edge through this API.
-
-The view can render the same centers, axes, tooth counts and shaft spans,
-with engagement kind and exact signed rate from the authority. Assets must match
-those facts. Rotation phase is deliberately absent here: the authority must own
-and publish it before motion is claimed. Cosmetic interpolation cannot advance
-material or decide whether a mechanism transmits.
-
-This package does not own recovery, topology or part custody and does not
-silently migrate old saves or discard their links.
-
-## Bounds and validation
-
-This kernel accepts at most 256 parts, identifiers of 1 to 128 bytes
-without null bytes, coordinates within plus or minus 1,000,000 pitch units,
-and tooth counts/shaft half-spans from 1 to 4,096. Shaft endpoints must also
-remain in bounds. These keep squared geometry arithmetic exact in signed
-64-bit integers. They are explicit fixture limits, not game-scale acceptance.
-
-The same identifier policy applies to source hubs. Refusals retain a diagnostic
-subject only when that identifier is valid and within the byte bound; malformed
-or oversized identities are omitted rather than copied or truncated.
-
-Source rates use signed 64-bit numerators and strictly positive denominators.
-Cross-cancellation precedes checked multiplication; INT64_MIN is never negated.
-An invalid shape, identity, source or unrepresentable rate returns an error
-without publishing partial motion or engagement. Input values are unchanged.
-Allocation exceptions can propagate before the authority commits anything.
-
-The pure solver accepts explicit belt spans between parallel one-tile shafts,
-including horizontal, vertical, 45-degree inclined and sideways paths. Each
-span validates aligned grid centers, a maximum of twenty
-tiles, unobstructed tile centers and exclusive belt occupancy. Aligned shafts
-within the span are pulleys; their signed angular rates match, including when
-the drive enters at either end. Stationary placement refuses a new belt if any
-already rotating pulley on its path has a different rate. Stationary plans
-account for a carried belt, the World stores spans
-and cargo lanes, and ordinary controls can place and remove spans. This geometry
-check is not full terrain or body collision clearance.
-
-The separate `belt_path` primitive derives ordered global tile centers for
-horizontal, vertical, 45-degree inclined and sideways paths. It rejects paths
-along the axle, unequal diagonal steps, off-grid endpoints and paths longer
-than twenty tiles. The native World and Godot Host accept all four paths, and
-the opening controls can select their shaft endpoints. The presenter and actor
-collision adapter represent the resulting path geometry. Inclined belts can
-carry material and actors; vertical and sideways belts transmit power only.
-These implementations have detached automated coverage, not human-play
-validation. See Create's
-[belt connector](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/belt/item/BeltConnectorItem.java)
-for the referenced axle and path constraints.
-
-`belt_cargo_direction` returns a signed lane direction for horizontal and
-inclined paths, matching shaft sign and endpoint order. Vertical and sideways
-paths carry rotation but cannot carry objects, as in Create's
-[belt block](https://github.com/Creators-of-Create/Create/blob/mc1.21.1/dev/src/main/java/com/simibubi/create/content/kinetics/belt/BeltBlock.java).
-This rule does not itself admit cargo or provide physical collision.
-
-Full collision clearance, arbitrary bevel gears, clutches, tooth phase/contact,
-material feed direction, persisted phase and actual gameplay remain unfinished.
-A solver result cannot establish physical clearance for perpendicular parts.
-
-## Build and evidence
-
-Bazel is canonical. The explicit targets are
-`//native/factory-mechanics:mechanics` and
-`//native/factory-mechanics:mechanics_test`, using the Ops-owned root/toolchain.
-No competing root workspace or CMake entry point is added. Follow the existing
-[admission contract](../../docs/engineering/local-resources.md) and
-[native migration contract](../../docs/engineering/native-migration.md), including
-the current mandatory checks.
-
-The kernel tests use invented kinematic fixtures; they are not engine, ordinary
-input, shared-play or save evidence. Those consumers require their own checks.
+Build/test `//native/factory-mechanics:mechanics` and
+`//native/factory-mechanics:mechanics_test` through
+[native builds](../../docs/engineering/native-builds.md).
+Invented solver fixtures do not establish physical, ordinary-input or shared-play
+acceptance. Keep measurements and implementation status in Beads.
