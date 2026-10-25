@@ -5428,7 +5428,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             const auto* kind = field<std::string>(intent, "item");
             const auto* work_id = field<Integer>(intent, "work_id");
             if (!kind || !work_id || ((*kind == "raw" || *kind == "product") && *work_id != 0) ||
-                (*kind == "work" && *work_id <= 0) || (*kind != "raw" && *kind != "product" && *kind != "work"))
+                ((*kind == "work" || *kind == "sheet") && *work_id <= 0) ||
+                (*kind != "raw" && *kind != "product" && *kind != "work" && *kind != "sheet"))
                 return refused("invalid_cargo", *id, std::move(facts));
             auto candidate = state;
             auto& cargo = candidate.material.cargo.at(binding.actor);
@@ -5444,6 +5445,16 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                     return refused("belt_cannot_carry", *id, std::move(facts));
                 moved.work_lots.push_back(*lot);
                 cargo.work_lots.erase(lot);
+            } else if (*kind == "sheet") {
+                const auto sheet = std::find_if(cargo.sheets.begin(), cargo.sheets.end(),
+                    [&](const auto& value) { return value.id == *work_id; });
+                if (sheet == cargo.sheets.end()) return refused("unavailable_cargo", *id, std::move(facts));
+                // The existing belt slot owns one supported workcell. A sheet
+                // must keep its four-cell footprint and its actor custody.
+                if (!materials::fits_supported_workcells(center,
+                        materials::sheet_footprint(), sheet->rotation, {center}))
+                    return refused("belt_cannot_carry", *id, std::move(facts));
+                return refused("invalid_mechanics", *id, std::move(facts));
             } else return refused("unavailable_cargo", *id, std::move(facts));
             candidate.material.belt_lanes.at(*id).slots.at(static_cast<std::size_t>(*index)) = moved;
             facts.emplace("generation", Value(*generation));

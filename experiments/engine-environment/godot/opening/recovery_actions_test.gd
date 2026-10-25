@@ -3,6 +3,7 @@ extends SceneTree
 
 const RecoveryActions = preload("res://opening/recovery_actions.gd")
 const LARGE_ID: int = 9007199254740993
+const SHEET_ID: int = LARGE_ID + 1
 
 class TestHost extends RefCounted:
 	var data: Dictionary
@@ -208,16 +209,30 @@ func _belt_loading() -> void:
 	_new_fixture()
 	fixture.selected = "span"
 	fixture.snapshot.cargo.P = {"raw": 1, "products": 1, "work_lots": [
-		{"id": LARGE_ID, "recipe_input": 1, "cycle_ticks": 4, "remaining": 2}]}
+		{"id": LARGE_ID, "recipe_input": 1, "cycle_ticks": 4, "remaining": 2}],
+		"sheet_items": [{"id": SHEET_ID, "rotation": 2}]}
 	fixture.snapshot.transmission_parts = {"a": {"axis": 2, "center": [0, 4, 0]}, "b": {"axis": 2, "center": [4, 4, 0]}}
 	fixture.snapshot.belt_spans = {"span": {"from": "a", "to": "b", "slots": [null, null]}}
 	controls.refresh()
 	var popup := _open()
-	_expect(controls.visible and popup.item_count == 6, "Each empty horizontal position offers each carried material form.")
+	_expect(controls.visible and popup.item_count == 8
+		and "1 sheet" in controls.action_button.tooltip_text,
+		"Each empty horizontal position offers the carried sheet as one identified broad item.")
 	_choose("load_belt_slot", LARGE_ID)
 	_expect(sent == [{"action": "load_belt_slot", "entity": "span", "slot": 0, "item": "work", "work_id": LARGE_ID}],
 		"The selected workpiece identity is sent without rounding or prediction.")
 	sent.clear()
+	_open()
+	_choose("load_belt_slot", SHEET_ID)
+	_expect(sent == [{"action": "load_belt_slot", "entity": "span", "slot": 0,
+		"item": "sheet", "work_id": SHEET_ID}],
+		"Attempting the narrow belt preserves the finished sheet identity for native fit refusal.")
+	sent.clear()
+	_open()
+	fixture.snapshot.cargo.P.sheet_items.clear()
+	_choose("load_belt_slot", SHEET_ID)
+	_expect(sent.is_empty(), "A sheet removed after menu opening cannot retarget another carried item.")
+	fixture.snapshot.cargo.P.sheet_items = [{"id": SHEET_ID, "rotation": 2}]
 	_open()
 	fixture.snapshot.belt_spans.span.slots[0] = {"raw": 1, "products": 0, "work_lots": []}
 	_choose("load_belt_slot", LARGE_ID)
@@ -231,6 +246,18 @@ func _belt_loading() -> void:
 	controls.refresh()
 	popup = _open()
 	_expect(popup.item_count == 1, "A sideways power-only belt offers no loading.")
+	fixture.snapshot.transmission_parts.a.axis = 2
+	fixture.snapshot.cargo.P.raw = 0
+	fixture.snapshot.cargo.P.products = 0
+	fixture.snapshot.cargo.P.work_lots.clear()
+	controls.refresh()
+	popup = _open()
+	_expect(controls.visible and not controls.action_button.disabled and popup.item_count == 2,
+		"A sheet-only actor can inspect the occupied slot and attempt the one clear belt position.")
+	_choose("load_belt_slot", SHEET_ID)
+	_expect(sent == [{"action": "load_belt_slot", "entity": "span", "slot": 1,
+		"item": "sheet", "work_id": SHEET_ID}],
+		"The sheet-only menu keeps the original identity and the selected open position.")
 
 func _run() -> void:
 	_collector_recovery()
