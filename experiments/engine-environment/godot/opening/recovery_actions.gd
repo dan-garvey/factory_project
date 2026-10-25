@@ -360,6 +360,13 @@ class ArrivalAssemblyControls:
 	var pickup_button: Button
 	var recover_work_button: Button
 	var sheet_button: MenuButton
+	var broad_feed_button: Button
+	var broad_refeed_button: MenuButton
+	var _broad_press := {}
+	var _broad_refeed_offers: Array[Dictionary] = []
+	var _broad_refeed_actor := ""
+	var _broad_refeed_selected := ""
+	var _broad_refeed_world := ""
 	var _sheet_offers: Array[Dictionary] = []
 	var _sheet_menu_actor := ""
 	var _sheet_menu_selected := ""
@@ -403,9 +410,19 @@ class ArrivalAssemblyControls:
 		column.add_child(press_section)
 		press_status = host._label(press_section, "Select an anvil with E", 13, Color("bfd1cc"))
 		press_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		var sheet_actions := HBoxContainer.new()
-		sheet_actions.alignment = BoxContainer.ALIGNMENT_CENTER
-		press_section.add_child(sheet_actions)
+		var broad_actions := HBoxContainer.new()
+		broad_actions.alignment = BoxContainer.ALIGNMENT_CENTER
+		press_section.add_child(broad_actions)
+		broad_feed_button = host._button(broad_actions, "", _feed_broad)
+		_style_workshop_icon(broad_feed_button, "broad-feed")
+		broad_refeed_button = MenuButton.new()
+		broad_refeed_button.icon = load("res://opening/assets/build-icons/broad-refeed.svg")
+		broad_refeed_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		broad_refeed_button.custom_minimum_size = Vector2(44, 37)
+		broad_refeed_button.focus_mode = Control.FOCUS_ALL
+		broad_refeed_button.get_popup().about_to_popup.connect(_open_broad_refeed_menu)
+		broad_refeed_button.get_popup().id_pressed.connect(_choose_broad_refeed)
+		broad_actions.add_child(broad_refeed_button)
 		sheet_button = MenuButton.new()
 		sheet_button.icon = load("res://opening/assets/build-icons/sheet.svg")
 		sheet_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -413,8 +430,8 @@ class ArrivalAssemblyControls:
 		sheet_button.focus_mode = Control.FOCUS_ALL
 		sheet_button.get_popup().about_to_popup.connect(_open_sheet_menu)
 		sheet_button.get_popup().id_pressed.connect(_choose_sheet)
-		sheet_actions.add_child(sheet_button)
-		shear_button = host._button(sheet_actions, "", _stroke_sheet)
+		broad_actions.add_child(sheet_button)
+		shear_button = host._button(broad_actions, "", _stroke_sheet)
 		_style_workshop_icon(shear_button, "workshop-cut")
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
@@ -582,6 +599,17 @@ class ArrivalAssemblyControls:
 		var selected_kind: String = str(snapshot.get("placed_components", {}).get(selected, {}).get("component", ""))
 		if _anvil.is_empty() and selected_kind == "anvil":
 			_anvil = selected
+		_broad_press = _selected_broad_press(snapshot, selected)
+		broad_feed_button.visible = not _broad_press.is_empty()
+		broad_feed_button.disabled = not ready or int(cargo.get("raw", 0)) < 3
+		broad_feed_button.tooltip_text = ("Feed three carried blanks into this four-anvil press · Y" \
+			if int(cargo.get("raw", 0)) >= 3 else "Carry three ore blanks to feed this four-anvil press · Y")
+		broad_feed_button.accessibility_name = "Feed three blanks into four-anvil press, shortcut Y"
+		_broad_refeed_offers = _broad_work_offers(snapshot, actor, selected)
+		broad_refeed_button.visible = not _broad_refeed_offers.is_empty()
+		broad_refeed_button.disabled = not ready
+		broad_refeed_button.tooltip_text = "Reinsert carried broad work into this four-anvil press · N"
+		broad_refeed_button.accessibility_name = "Reinsert broad sheet work, shortcut N"
 		_sheet_offers = _sheet_stage_offers(snapshot, actor, selected)
 		sheet_button.visible = not _sheet_offers.is_empty()
 		sheet_button.disabled = not ready
@@ -631,7 +659,7 @@ class ArrivalAssemblyControls:
 		_held_work_ids.clear()
 		held_work_choice.clear()
 		for lot in cargo.get("work_lots", []):
-			if lot is Dictionary and int(lot.get("id", 0)) > 0:
+			if lot is Dictionary and int(lot.get("id", 0)) > 0 and lot.get("output_form") != "sheet":
 				var work_id := int(lot.id)
 				_held_work_ids.append(work_id)
 				held_work_choice.add_item("Work #%d · %d ticks remain" % [work_id, int(lot.get("remaining", 0))])
@@ -815,6 +843,74 @@ class ArrivalAssemblyControls:
 				if sheet is Dictionary and typeof(sheet.get("id")) == TYPE_INT and sheet.id > 0:
 					offers.append({"center": origin.duplicate(), "sheet_id": sheet.id})
 		return offers
+
+	func _selected_broad_press(snapshot: Dictionary, selected: String) -> Dictionary:
+		for assembly: Variant in snapshot.get("broad_press_assemblies", []):
+			if not assembly is Dictionary or assembly.get("geometry_status") != "ready":
+				continue
+			var anvils: Variant = assembly.get("parts", {}).get("anvils")
+			if anvils is Array and not anvils.is_empty() and anvils.has(selected):
+				return assembly
+		return {}
+
+	func _broad_work_offers(snapshot: Dictionary, actor: String, selected: String) -> Array[Dictionary]:
+		var offers: Array[Dictionary] = []
+		var press := _selected_broad_press(snapshot, selected)
+		if press.is_empty():
+			return offers
+		var lots: Variant = snapshot.get("cargo", {}).get(actor, {}).get("work_lots")
+		if not lots is Array:
+			return offers
+		for lot: Variant in lots:
+			if lot is Dictionary and lot.get("output_form") == "sheet" \
+					and typeof(lot.get("recipe_input")) == TYPE_INT and lot.recipe_input == 3 \
+					and typeof(lot.get("id")) == TYPE_INT and lot.id > 0 \
+					and typeof(lot.get("remaining")) == TYPE_INT and lot.remaining >= 0:
+				offers.append({"entity": str(press.parts.anvils[0]), "work_id": int(lot.id),
+					"remaining": int(lot.get("remaining", 0))})
+		return offers
+
+	func _open_broad_refeed_menu() -> void:
+		var popup := broad_refeed_button.get_popup()
+		popup.clear()
+		_broad_refeed_actor = _actor
+		_broad_refeed_selected = _selected
+		_broad_refeed_world = str(_snapshot.get("context", ""))
+		_broad_refeed_offers = _broad_work_offers(_snapshot, _actor, _selected)
+		for index: int in _broad_refeed_offers.size():
+			var offer: Dictionary = _broad_refeed_offers[index]
+			popup.add_item("Sheet work #%d · %d contacts remain" % [offer.work_id, offer.remaining], index)
+
+	func _choose_broad_refeed(index: int) -> void:
+		var host = _host_view()
+		if host == null or index < 0 or index >= _broad_refeed_offers.size() \
+				or broad_refeed_button.disabled:
+			return
+		var current: Variant = host.get("state")
+		if not current is Dictionary or host.get("client") != _broad_refeed_actor \
+				or host.get("selected") != _broad_refeed_selected \
+				or str(current.get("context", "")) != _broad_refeed_world \
+				or current.get("actors", {}).get(_broad_refeed_actor, {}).get("ready") != true \
+				or host.get("explanation_open") == true or host.get("startup_save_pending") == true \
+				or (host.has_method("_can_mutate") and host.call("_can_mutate") != true):
+			return
+		var chosen: Dictionary = _broad_refeed_offers[index]
+		if _broad_work_offers(current, _broad_refeed_actor, _broad_refeed_selected).has(chosen):
+			host.issue({"action": "refeed_broad_press_work", "entity": chosen.entity,
+				"work_id": chosen.work_id})
+
+	func _feed_broad() -> void:
+		var host = _host_view()
+		if host == null or broad_feed_button.disabled:
+			return
+		var current: Variant = host.get("state")
+		if not current is Dictionary or host.get("selected") != _selected \
+				or host.get("client") != _actor \
+				or int(current.get("cargo", {}).get(_actor, {}).get("raw", 0)) < 3:
+			return
+		var press := _selected_broad_press(current, _selected)
+		if not press.is_empty():
+			host.issue({"action": "feed_broad_press", "entity": str(press.parts.anvils[0])})
 
 	func _selected_shear(snapshot: Dictionary, selected: String) -> Dictionary:
 		for assembly: Variant in snapshot.get("broad_shear_assemblies", []):
