@@ -9542,10 +9542,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			next_work = "Place a carried part [B]."
 		elif int(carried.get("timber", 0)) >= 3:
 			next_work = "Craft a part in Build [B]."
-		var order_heading := "FORM A PLATE · KEEP IT"
-		if workshop_complete:
-			order_heading = "PLATE IN INVENTORY"
-		goal_label.text = "%s\n%s" % [order_heading, next_work] if snapshot_ready else "Connect to the worksite."
+		goal_label.text = (next_work if workshop_complete else "FORM A PLATE · KEEP IT\n" + next_work) \
+			if snapshot_ready else "Connect to the worksite."
 	else:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)

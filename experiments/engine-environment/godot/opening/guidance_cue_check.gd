@@ -373,6 +373,7 @@ func check_inventory_goal_view() -> void:
 	shared.state = view.state.duplicate(true)
 	shared._refresh_ui()
 	verify("FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
+		and "Open Work log [J]" in view.goal_label.text
 		and view.manager_log_completion_entry.visible
 		and view.manager_log_projects.visible
 		and view.workshop_completion_cue_count == 1
@@ -388,6 +389,8 @@ func check_inventory_goal_view() -> void:
 	view.state.cargo.P.products = 0
 	view._refresh_ui()
 	verify("FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
+		and "Open Work log [J]" in view.goal_label.text
+		and not view.goal_label.text.contains("PLATE IN INVENTORY")
 		and view.manager_log_completion_entry.visible
 		and view.workshop_completion_cue_count == 1,
 		"Using the carried plate later does not erase the completed workshop.")
@@ -400,6 +403,7 @@ func check_inventory_goal_view() -> void:
 	reopened._build_interface()
 	reopened._refresh_ui()
 	verify(reopened.manager_log_completion_entry.visible
+		and "Open Work log [J]" in reopened.goal_label.text
 		and reopened.workshop_completion_cue_count == 0,
 		"A reopened projection shows completion without replaying the acquisition sound.")
 	for argument: String in OS.get_cmdline_user_args():

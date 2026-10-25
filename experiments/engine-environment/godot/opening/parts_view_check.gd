@@ -1819,7 +1819,7 @@ func _arrival_hotbar() -> void:
 	verify(bar.carried_label.text == "CARRIED · CRANK WITH YOU" and bar.material_buttons.hand_crank.visible,
 		"The inventory identifies the issued crank when this actor carries it.")
 	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
-		and view.goal_label.text.contains("PLATE IN INVENTORY"),
+		and view.goal_label.text.contains("Open Work log [J]"),
 		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_label.text)
 	bar.open_catalog(7)
 	bar.material_buttons.timber.grab_focus()
