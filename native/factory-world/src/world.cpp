@@ -177,6 +177,23 @@ bool advance_slide_phase_internal(State::SlidePhase& phase, mechanics::Rate rate
     return true;
 }
 
+std::optional<bool> hand_slide_contact(const State::SlidePhase& before,
+        const State::SlidePhase& after, mechanics::Rate rate) {
+    // The issued crank supplies one shaft turn. The die touches its work only
+    // when the native carriage crosses the bottom of its reciprocal stroke.
+    // A different graph ratio cannot be inferred from these two endpoints.
+    if (rate.denominator <= 0 ||
+        (rate.numerator != rate.denominator && rate.numerator != -rate.denominator))
+        return std::nullopt;
+    constexpr Integer bottom = slide_cycle_subticks / 2;
+    if (rate.numerator > 0)
+        return before.subticks < bottom && after.subticks >= bottom;
+    return (before.subticks > bottom ||
+            (before.subticks == bottom && before.remainder > 0)) &&
+        (after.subticks < bottom ||
+            (after.subticks == bottom && after.remainder == 0));
+}
+
 bool weighted_add(Integer& total, Integer count, Integer unit) {
     if (count < 0 || unit < 0 || (unit > 0 && count > std::numeric_limits<Integer>::max() / unit))
         return false;
@@ -975,6 +992,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             grid_point(Object{{"center", Value(*reported_port)}}) : std::nullopt;
         const auto* before = field<Object>(result, "prior_phase");
         const auto* after = field<Object>(result, "slide_phase");
+        const auto* contact = field<bool>(result, "contact");
         const auto phase_shape = [](const Object* value) {
             return value && value->size() == 3 && field<Integer>(*value, "subticks") &&
                 field<Integer>(*value, "remainder") && field<Integer>(*value, "denominator");
@@ -984,8 +1002,9 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         return profile.landing_pod_center && target && entity && *target == *entity &&
             requested_generation && generation && *requested_generation == *generation &&
             *generation > 0 && port && reported && *port == *reported &&
-            phase_shape(before) && phase_shape(after) &&
-            targets.front() == anchor(profile, *port) && result.size() == 19;
+            phase_shape(before) && phase_shape(after) && contact &&
+            targets.front() == anchor(profile, *port) &&
+            result.size() == (*contact ? 29 : 20);
     }
     if (action == "feed_broad_press" || action == "refeed_broad_press_work") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -1987,9 +2006,118 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 !field<Object>(record.result, "slide_phase") ||
                 values::typed_difference(record.result.at("prior_phase"),
                     slide_phase_value(phase->second))) return false;
+            const auto before = phase->second;
             if (!advance_slide_phase(phase->second, motion->second.rate) ||
                 values::typed_difference(record.result.at("slide_phase"),
                     slide_phase_value(phase->second))) return false;
+            const auto reaches_bottom = hand_slide_contact(before, phase->second,
+                motion->second.rate);
+            const auto* contact = field<bool>(record.result, "contact");
+            if (!reaches_bottom || !contact) return false;
+            const mechanics::Point work{placed->second.second[0],
+                placed->second.second[1] - 2, placed->second.second[2]};
+            const auto route = historical_slide_routes.find(work);
+            const auto at_parts = assembly_parts(at_command);
+            const auto inspected = route != historical_slide_routes.end() ?
+                assembly::Layout(at_parts).inspect_sliding_press(work) :
+                assembly::SlidingPressInspection{};
+            if (*reaches_bottom && route != historical_slide_routes.end() &&
+                inspected.status == assembly::PressStatus::blocked_feed) return false;
+            const bool ready_contact = *reaches_bottom && route != historical_slide_routes.end() &&
+                inspected.press && inspected.press->slide == *entity;
+            if (*contact != ready_contact) return false;
+            if (ready_contact) {
+                const auto selected_exit = route->second;
+                if (std::none_of(inspected.press->open_feeds.begin(),
+                        inspected.press->open_feeds.end(), [&](const assembly::PressFeed& feed) {
+                            return feed.exit == selected_exit;
+                        })) return false;
+                const auto* reported_work = field<Value::Array>(record.result, "work_center");
+                const auto* reported_exit = field<Value::Array>(record.result, "exit_center");
+                const auto* prior_raw = field<Integer>(record.result, "prior_work_raw");
+                const auto* prior_lots = field<Value::Array>(record.result, "prior_work_lots");
+                const auto* prior_auto = field<Integer>(record.result, "prior_auto_remaining_ticks");
+                const auto* work_raw = field<Integer>(record.result, "work_raw");
+                const auto* lots = field<Value::Array>(record.result, "work_lots");
+                const auto* products = field<Integer>(record.result, "formed_products");
+                const auto* formed_id = field<Integer>(record.result, "formed_work_id");
+                auto active = press_work.find(work);
+                if (!reported_work || !reported_exit || !prior_raw || !prior_lots ||
+                    !prior_auto || !work_raw || !lots || !products || !formed_id ||
+                    grid_point(Object{{"center", Value(*reported_work)}}) != work ||
+                    grid_point(Object{{"center", Value(*reported_exit)}}) != selected_exit ||
+                    active == press_work.end() || active->second.automatic_exit != selected_exit ||
+                    *prior_auto != (active->second.id > 0 ?
+                        witnessed_auto_before(active->second.id, *result_revision).value_or(-1) : 0))
+                    return false;
+                auto& entry = active->second;
+                if (entry.id == 0) {
+                    if (*prior_raw != 1 || !prior_lots->empty() || *work_raw != 0 ||
+                        *products != 0 || *formed_id != 0 || lots->size() != 1) return false;
+                    const auto* lot = std::get_if<Object>(&lots->front().storage());
+                    const auto* id = lot ? field<Integer>(*lot, "id") : nullptr;
+                    if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
+                        !press_work_ids.insert(*id).second ||
+                        values::typed_difference(lots->front(), Value(Object{
+                            {"id", Value(*id)},
+                            {"input_units_per_product", Value(profile.material.input_units_per_product)},
+                            {"cycle_ticks", Value(profile.material.cycle_ticks)},
+                            {"remaining_ticks", Value(profile.material.cycle_ticks)},
+                            {"completed_subticks", Value(Integer{0})},
+                            {"work_remainder", Value(Integer{0})},
+                            {"work_remainder_denominator", Value(Integer{1})}}))) return false;
+                    entry.id = *id;
+                    entry.remaining = profile.material.cycle_ticks;
+                    manually_advanced_ids.insert(*id);
+                } else {
+                    if (*prior_raw != 0 || prior_lots->size() != 1 || *work_raw != 0 ||
+                        (*products != 0 && *products != 1)) return false;
+                    const auto* prior = std::get_if<Object>(&prior_lots->front().storage());
+                    const auto* id = prior ? field<Integer>(*prior, "id") : nullptr;
+                    const auto* remaining = prior ? field<Integer>(*prior, "remaining_ticks") : nullptr;
+                    const auto* completed = prior ? field<Integer>(*prior, "completed_subticks") : nullptr;
+                    const auto* remainder = prior ? field<Integer>(*prior, "work_remainder") : nullptr;
+                    const auto* denominator = prior ? field<Integer>(*prior, "work_remainder_denominator") : nullptr;
+                    if (!prior || prior->size() != 7 || !id || *id != entry.id ||
+                        !remaining || *remaining < 0 || *remaining > entry.remaining ||
+                        *remaining > profile.material.cycle_ticks || !completed ||
+                        *completed < 0 || *completed >= materials::work_subticks_per_tick ||
+                        !remainder || !denominator || *denominator <= 0 ||
+                        *remainder < 0 || *remainder >= *denominator ||
+                        (*remaining == 0 && (*completed != 0 || *remainder != 0)) ||
+                        *prior_auto < entry.automatic_remaining_ticks_seen ||
+                        entry.remaining - *remaining !=
+                            *prior_auto - entry.automatic_remaining_ticks_seen ||
+                        values::typed_difference(prior_lots->front(), Value(Object{
+                            {"id", Value(*id)},
+                            {"input_units_per_product", Value(profile.material.input_units_per_product)},
+                            {"cycle_ticks", Value(profile.material.cycle_ticks)},
+                            {"remaining_ticks", Value(*remaining)},
+                            {"completed_subticks", Value(*completed)},
+                            {"work_remainder", Value(*remainder)},
+                            {"work_remainder_denominator", Value(*denominator)}}))) return false;
+                    materials::WorkLot next{*id,
+                        {profile.material.input_units_per_product, profile.material.cycle_ticks},
+                        *remaining, *completed, *remainder, *denominator};
+                    materials::advance_work_lot(next, materials::work_subticks_per_tick, 0, 1);
+                    if (*products == 1) {
+                        if (next.remaining_ticks != 0 || *formed_id != *id || !lots->empty() ||
+                            !record_offcut(work) || !add(press_products[selected_exit], 1)) return false;
+                        historical_slide_routes.erase(route);
+                        press_work.erase(active);
+                    } else {
+                        if (*formed_id != 0 || lots->size() != 1) return false;
+                        const auto expected = lots_value({next});
+                        const auto* expected_lots = std::get_if<Value::Array>(&expected.storage());
+                        if (!expected_lots || values::typed_difference(lots->front(),
+                                expected_lots->front())) return false;
+                        entry.remaining = next.remaining_ticks;
+                        entry.automatic_remaining_ticks_seen = *prior_auto;
+                    }
+                    if (*remaining > 0) ++manual_reductions[*id];
+                    manually_advanced_ids.insert(*id);
+                }
+            }
         }
         if (*action == "feed_broad_press" || *action == "refeed_broad_press_work") {
             const bool refeed = *action == "refeed_broad_press_work";
@@ -4625,7 +4753,83 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto before = candidate.slide_phases.at(*id);
         if (!advance_slide_phase(candidate.slide_phases.at(*id), motion->second.rate))
             return refused("invalid_phase", *id, std::move(facts));
+        const auto reaches_bottom = hand_slide_contact(before,
+            candidate.slide_phases.at(*id), motion->second.rate);
+        if (!reaches_bottom) return refused("invalid_crank_rate", *id, std::move(facts));
+        bool formed_contact = false;
+        if (*reaches_bottom) {
+            const mechanics::Point work{center[0], center[1] - 2, center[2]};
+            const auto route = state.slide_press_routes.find(work);
+            if (route != state.slide_press_routes.end()) {
+                const auto placed_for_inspection = assembly_parts(state);
+                const auto inspected = assembly::Layout(placed_for_inspection).inspect_sliding_press(work);
+                if (inspected.status == assembly::PressStatus::blocked_feed)
+                    return refused("blocked_exit", *id, std::move(facts));
+                if (inspected.press && inspected.press->slide == *id) {
+                    const auto selected_exit = route->second;
+                    if (std::none_of(inspected.press->open_feeds.begin(),
+                            inspected.press->open_feeds.end(), [&](const assembly::PressFeed& feed) {
+                                return feed.exit == selected_exit;
+                            })) return refused("blocked_exit", *id, std::move(facts));
+                    const auto previous = state.material.dropped_material.find(work);
+                    if (previous == state.material.dropped_material.end())
+                        return refused("unavailable_input", *id, std::move(facts));
+                    Integer prior_auto = 0;
+                    const auto completed_id = previous->second.work_lots.size() == 1 ?
+                        previous->second.work_lots.front().id : materials::WorkId{0};
+                    if (completed_id > 0) {
+                        const auto witness = state.press_progress.find(completed_id);
+                        if (witness != state.press_progress.end())
+                            prior_auto = witness->second.automatic_remaining_ticks;
+                    }
+                    const bool receiver = std::any_of(state.placed_components.begin(),
+                        state.placed_components.end(), [&](const auto& entry) {
+                            return entry.second.kind == materials::Component::receiver_tray &&
+                                entry.second.center == selected_exit;
+                        });
+                    const auto error = materials::turn_press(candidate.material, profile_.material,
+                        material_path(candidate.topology), work, selected_exit, receiver);
+                    if (error != materials::Error::none)
+                        return refused(materials::error_name(error), *id, std::move(facts));
+                    const auto current = candidate.material.dropped_material.find(work);
+                    const bool finished = completed_id > 0 &&
+                        (current == candidate.material.dropped_material.end() ||
+                         (current->second.offcuts == profile_.material.raw_mass -
+                              profile_.material.plate_mass && current->second.raw_units == 0 &&
+                          current->second.products == 0 && current->second.sheets.empty() &&
+                          current->second.work_lots.empty()));
+                    if (completed_id > 0)
+                        candidate.press_progress[completed_id].manual_seen = true;
+                    else if (current != candidate.material.dropped_material.end() &&
+                             current->second.work_lots.size() == 1)
+                        candidate.press_progress[current->second.work_lots.front().id].manual_seen = true;
+                    if (finished) {
+                        if (receiver) {
+                            if (!candidate.press_output_at_receiver[selected_exit].insert(completed_id).second)
+                                return refused("invalid_press_output", *id, std::move(facts));
+                        } else if (!candidate.press_output_at_exit.emplace(selected_exit, completed_id).second)
+                            return refused("invalid_press_output", *id, std::move(facts));
+                        candidate.slide_press_routes.erase(work);
+                    }
+                    facts.emplace("work_center", Value(Value::Array{Value(work[0]),
+                        Value(work[1]), Value(work[2])}));
+                    facts.emplace("exit_center", Value(Value::Array{Value(selected_exit[0]),
+                        Value(selected_exit[1]), Value(selected_exit[2])}));
+                    facts.emplace("prior_work_raw", Value(previous->second.raw_units));
+                    facts.emplace("prior_work_lots", lots_value(previous->second.work_lots));
+                    facts.emplace("prior_auto_remaining_ticks", Value(prior_auto));
+                    facts.emplace("work_raw", Value(current == candidate.material.dropped_material.end() ?
+                        Integer{0} : current->second.raw_units));
+                    facts.emplace("work_lots", current == candidate.material.dropped_material.end() ?
+                        Value(Value::Array{}) : lots_value(current->second.work_lots));
+                    facts.emplace("formed_products", Value(finished ? Integer{1} : Integer{0}));
+                    facts.emplace("formed_work_id", Value(finished ? completed_id : materials::WorkId{0}));
+                    formed_contact = true;
+                }
+            }
+        }
         facts.emplace("generation", Value(*generation));
+        facts.emplace("contact", Value(formed_contact));
         facts.emplace("port_center", Value(Value::Array{Value((*port)[0]),
             Value((*port)[1]), Value((*port)[2])}));
         facts.emplace("prior_phase", slide_phase_value(before));

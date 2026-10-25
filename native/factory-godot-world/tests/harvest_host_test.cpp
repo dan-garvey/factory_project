@@ -1,8 +1,10 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 namespace {
 using V = factory::values::Value;
@@ -416,6 +418,189 @@ void flat_head_host_custody() {
                   "sliding_press_assemblies").front().storage())), "selected_exit")),
               V(A{V(I{11}), V(I{0}), V(I{8})})),
           "Refitting the head restores a ready assembly while the chosen output remains fixed.");
+    const auto first_contact = resumed("first-slide-contact", "turn_slide_crank",
+        {{"entity", V(slide_id)}, {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
+    if (!get<bool>(first_contact, "accepted"))
+        throw std::runtime_error("First slide contact refused: " +
+            get<std::string>(first_contact, "reason"));
+    const auto partial_drop = get<A>(restored.projection(), "dropped_material");
+    const auto partial_work = std::get<O>(partial_drop.front().storage());
+    const auto partial_lots = get<A>(V(partial_work), "work_lots");
+    check(get<bool>(first_contact, "contact") && partial_lots.size() == 1 &&
+          get<I>(V(partial_work), "raw") == 0 &&
+          get<I>(V(std::get<O>(partial_lots.front().storage())), "remaining") > 0,
+          "The bottom crossing converts one native blank into identified, unfinished plate work.");
+    const auto partial_saved = restored.checkpoint();
+    Host partial_restored;
+    check(get<bool>(partial_restored.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(partial_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(partial_restored.restore_checkpoint(partial_saved), "accepted") &&
+          !factory::values::typed_difference(partial_saved, partial_restored.checkpoint()),
+          "A fresh Host replays the exact first physical contact, partial work identity and slide phase.");
+    auto forged_contact = std::get<O>(partial_saved.storage());
+    auto contact_world = get<O>(V(forged_contact), "world");
+    auto contact_history = get<O>(V(contact_world), "history");
+    auto contact_records = get<A>(V(contact_history), "records");
+    auto contact_record = std::get<O>(contact_records.back().storage());
+    auto contact_result = get<O>(V(contact_record), "result");
+    auto contact_lots = get<A>(V(contact_result), "work_lots");
+    auto forged_lot = std::get<O>(contact_lots.front().storage());
+    forged_lot.at("remaining_ticks") = V(I{0});
+    contact_lots.front() = V(std::move(forged_lot));
+    contact_result.at("work_lots") = V(std::move(contact_lots));
+    contact_record.at("result") = V(std::move(contact_result));
+    contact_records.back() = V(std::move(contact_record));
+    contact_history.at("records") = V(std::move(contact_records));
+    contact_world.at("history") = V(std::move(contact_history));
+    forged_contact.at("world") = V(std::move(contact_world));
+    check(!get<bool>(partial_restored.validate_checkpoint(V(std::move(forged_contact))), "accepted"),
+          "History replay refuses a forged work reduction at the first slide contact.");
+    check(get<bool>(partial_restored.publish_actor("Q", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "A second worker can approach the saved partial work from a separate actor sample.");
+    auto shared_work = std::get<O>(get<A>(partial_restored.projection(),
+        "dropped_material").front().storage());
+    shared_work.erase("center");
+    const auto shared_work_id = get<I>(V(std::get<O>(get<A>(V(shared_work),
+        "work_lots").front().storage())), "id");
+    const auto second_pickup = partial_restored.command("Q", O{
+        {"context", V("flat-head-site")}, {"client", V("Q")},
+        {"request", V("shared-partial-pickup")}, {"action", V("pickup_material")},
+        {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}, {"expected", V(shared_work)}});
+    check(get<bool>(second_pickup, "accepted") &&
+          get<A>(get<O>(partial_restored.projection(), "cargo").at("Q"), "work_lots").size() == 1,
+          "Q recovers P's identified unfinished work without converting it back to raw stock.");
+    const auto second_refeed = partial_restored.command("Q", O{
+        {"context", V("flat-head-site")}, {"client", V("Q")},
+        {"request", V("shared-partial-refeed")}, {"action", V("refeed_press_work")},
+        {"entity", V(get<std::string>(support, "entity"))},
+        {"entry", V(A{V(I{13}), V(I{0}), V(I{8})})}, {"work_id", V(shared_work_id)}});
+    check(get<bool>(second_refeed, "accepted") &&
+          get<A>(get<O>(partial_restored.projection(), "cargo").at("Q"), "work_lots").empty(),
+          "Q returns the same unfinished WorkId to the retained west-exit route.");
+    const auto shared_partial_saved = partial_restored.checkpoint();
+    check(get<bool>(partial_restored.validate_checkpoint(shared_partial_saved), "accepted"),
+          "The second client's pickup and refeed preserve one exact native work identity.");
+    check(get<bool>(partial_restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "The original crank holder can resume the second client's reinserted work.");
+    for (int index = 0; index < 4; ++index) {
+        const auto shared_stroke = partial_restored.command("P", O{
+            {"context", V("flat-head-site")}, {"client", V("P")},
+            {"request", V("shared-resume-" + std::to_string(index))},
+            {"action", V("turn_slide_crank")}, {"entity", V(slide_id)},
+            {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
+        check(get<bool>(shared_stroke, "accepted") &&
+              get<bool>(shared_stroke, "contact") == (index == 3),
+              "The shared partial lot advances only on the next actual lower crossing.");
+    }
+    check(get<I>(V(std::get<O>(get<A>(V(std::get<O>(get<A>(
+              partial_restored.projection(), "dropped_material").front().storage())),
+              "work_lots").front().storage())), "id") == shared_work_id &&
+          get<bool>(partial_restored.validate_checkpoint(partial_restored.checkpoint()), "accepted"),
+          "The same WorkId survives a second-client refeed, resumed stroke and replay.");
+    auto forged_progress = std::get<O>(partial_restored.checkpoint().storage());
+    auto progress_world = get<O>(V(forged_progress), "world");
+    auto progress_history = get<O>(V(progress_world), "history");
+    auto progress_records = get<A>(V(progress_history), "records");
+    auto progress_record = std::get<O>(progress_records.back().storage());
+    auto progress_result = get<O>(V(progress_record), "result");
+    auto progress_lots = get<A>(V(progress_result), "prior_work_lots");
+    auto progress_lot = std::get<O>(progress_lots.front().storage());
+    progress_lot.at("remaining_ticks") = V(get<I>(V(progress_lot), "remaining_ticks") - 1);
+    progress_lots.front() = V(std::move(progress_lot));
+    progress_result.at("prior_work_lots") = V(std::move(progress_lots));
+    progress_record.at("result") = V(std::move(progress_result));
+    progress_records.back() = V(std::move(progress_record));
+    progress_history.at("records") = V(std::move(progress_records));
+    progress_world.at("history") = V(std::move(progress_history));
+    forged_progress.at("world") = V(std::move(progress_world));
+    check(!get<bool>(partial_restored.validate_checkpoint(V(std::move(forged_progress))), "accepted"),
+          "Replay rejects a saved slide contact that skips an unwitnessed work reduction.");
+    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 14), "accepted"),
+          "The crank holder can walk to a finite timber site without losing the work lot.");
+    for (const char* request : {"blocker-tree-1", "blocker-tree-2", "blocker-tree-3"})
+        check(get<bool>(resumed(request, "harvest_source",
+                  {{"target", V("tree-east-south")}}), "accepted"),
+              "Three more finite timber units supply an actual output obstruction.");
+    check(get<bool>(resumed("shape-exit-blocker", "field_craft",
+              {{"component", V("wooden_frame")}}), "accepted") &&
+          get<bool>(restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 15), "accepted"),
+          "The worker brings one crafted frame back to the selected outlet.");
+    const auto blocker = resumed("block-slide-exit", "place_component",
+        {{"component", V("wooden_frame")},
+         {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+    if (!get<bool>(blocker, "accepted"))
+        throw std::runtime_error("Slide outlet blocker refused: " +
+            get<std::string>(blocker, "reason"));
+    const auto turn = [&](const std::string& request) {
+        return resumed(request.c_str(), "turn_slide_crank",
+            {{"entity", V(slide_id)}, {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
+    };
+    for (int index = 0; index < 3; ++index) {
+        const auto idle_turn = turn("blocked-approach-" + std::to_string(index));
+        check(get<bool>(idle_turn, "accepted") && !get<bool>(idle_turn, "contact") &&
+              get<A>(V(std::get<O>(get<A>(restored.projection(),
+                  "dropped_material").front().storage())), "work_lots").size() == 1,
+              "Only a lower crossing can change the retained copper work.");
+    }
+    const auto phase_before_blocked = get<O>(restored.projection(), "slide_phases").at(slide_id);
+    const auto blocked = turn("blocked-slide-contact");
+    check(!get<bool>(blocked, "accepted") &&
+          get<std::string>(blocked, "reason") == "blocked_exit" &&
+          !factory::values::typed_difference(phase_before_blocked,
+              get<O>(restored.projection(), "slide_phases").at(slide_id)) &&
+          get<A>(V(std::get<O>(get<A>(restored.projection(),
+              "dropped_material").front().storage())), "work_lots").size() == 1,
+          "A real blocked outlet refuses the impact without moving phase or spending partial work.");
+    check(get<bool>(resumed("clear-slide-exit", "reclaim_component",
+              {{"entity", V(get<std::string>(blocker, "entity"))}}), "accepted"),
+          "Reclaiming the blocker reopens the originally selected physical outlet.");
+    const auto resumed_contact = turn("resume-slide-contact");
+    check(get<bool>(resumed_contact, "accepted") && get<bool>(resumed_contact, "contact"),
+          "The same pending downstroke advances the retained work after its outlet clears.");
+    const auto remaining = get<I>(V(std::get<O>(partial_lots.front().storage())), "remaining");
+    for (I cycle = 1; cycle < remaining; ++cycle) {
+        for (int turn_index = 0; turn_index < 4; ++turn_index) {
+            const auto stroke = turn("form-slide-" + std::to_string(cycle) + "-" +
+                std::to_string(turn_index));
+            if (!get<bool>(stroke, "accepted"))
+                throw std::runtime_error("Sliding plate stroke refused: " +
+                    get<std::string>(stroke, "reason"));
+            check(get<bool>(stroke, "contact") == (turn_index == 3),
+                  "Each four-turn cycle has exactly one native lower contact.");
+        }
+    }
+    const auto formed = get<A>(restored.projection(), "dropped_material");
+    check(formed.size() == 2 &&
+          std::any_of(formed.begin(), formed.end(), [](const V& value) {
+              const auto& item = std::get<O>(value.storage());
+              return get<I>(V(item), "products") == 1 &&
+                  get<A>(V(item), "center").size() == 3;
+          }) && !std::get<O>(get<A>(restored.projection(),
+              "sliding_press_assemblies").front().storage()).contains("selected_exit"),
+          "Repeated actual downstrokes form one native plate and release the feed route.");
+    const auto finished_saved = restored.checkpoint();
+    Host finished_restored;
+    check(get<bool>(finished_restored.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(finished_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(finished_restored.restore_checkpoint(finished_saved), "accepted") &&
+          !factory::values::typed_difference(finished_saved, finished_restored.checkpoint()),
+          "Fresh replay retains the formed plate, offcut and exact slide phase with no live route.");
+    const auto product = std::find_if(formed.begin(), formed.end(), [](const V& value) {
+        return get<I>(value, "products") == 1;
+    });
+    auto plate_expected = std::get<O>(product->storage());
+    plate_expected.erase("center");
+    check(get<bool>(finished_restored.publish_actor("Q", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "The second worker reaches the actual completed plate after restore.");
+    const auto plate_pickup = finished_restored.command("Q", O{
+        {"context", V("flat-head-site")}, {"client", V("Q")},
+        {"request", V("shared-slide-plate")}, {"action", V("pickup_material")},
+        {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}, {"expected", V(plate_expected)}});
+    check(get<bool>(plate_pickup, "accepted") &&
+          get<I>(get<O>(finished_restored.projection(), "cargo").at("Q"), "products") == 1 &&
+          get<I>(get<O>(finished_restored.projection(), "cargo").at("P"), "products") == 0 &&
+          get<bool>(finished_restored.validate_checkpoint(finished_restored.checkpoint()), "accepted"),
+          "A different actor picks up the saved first plate without duplicating its native identity.");
 }
 
 void shared_fast_setting_and_restore() {
