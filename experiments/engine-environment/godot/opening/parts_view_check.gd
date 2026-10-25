@@ -129,6 +129,9 @@ func _initialize() -> void:
 	if "--slide-controls-only" in OS.get_cmdline_user_args():
 		call_deferred("_slide_controls_check")
 		return
+	if "--slide-inventory-render-only" in OS.get_cmdline_user_args():
+		call_deferred("_slide_inventory_render_check")
+		return
 	if "--workshop-pages-only" in OS.get_cmdline_user_args():
 		call_deferred("_workshop_pages")
 		return
@@ -3319,6 +3322,9 @@ func _slide_controls_check() -> void:
 	snapshot.cargo.P.raw = 1
 	snapshot.dropped_material = [{"center": [12, 0, 8], "raw": 1, "products": 0,
 		"offcuts": 0, "work_lots": []}]
+	view.state = snapshot
+	view.client = "P"
+	view.selected = "slide"
 	panel.refresh(snapshot, "P", "slide", true)
 	panel.open_context()
 	verify(panel.press_anvil_for("head") == "anvil" and panel.press_anvil_for("slide") == "anvil",
@@ -3326,6 +3332,22 @@ func _slide_controls_check() -> void:
 	verify(panel.press_section.visible and panel.route_choice.disabled and panel._route_index == 1
 		and panel.slide_port_choice.item_count == 2 and panel.turn_button.visible,
 		"The E-menu exposes the retained output route and both actual slide input sides.")
+	verify(panel.inventory_section.visible and not panel.feed_button.visible
+		and not panel.refeed_work_button.visible and not panel.pickup_button.visible
+		and not panel.recover_work_button.visible
+		and panel.inventory_counts.workbed_work.text == "1"
+		and panel.inventory_slots.workbed_work.icon != null,
+		"A fitted slide shows supported material on the workbed instead of separate Feed and pickup icons.")
+	var retained_blank: Dictionary = panel.inventory_drag("workbed_work")
+	verify(retained_blank.get("wire", {}).get("action") == "pickup_material"
+		and panel.inventory_can_drop("player", retained_blank)
+		and not panel.inventory_can_drop("workbed", retained_blank),
+		"A workbed blank can be dragged into carried inventory only.")
+	panel.inventory_drop("player", retained_blank)
+	verify(view.issued.back() == {"action": "pickup_material", "center": [12, 0, 8],
+		"expected": {"raw": 1, "products": 0, "offcuts": 0, "work_lots": []}},
+		"Click and drag recovery submits the exact supported work snapshot.")
+	view.issued.clear()
 	panel._turn()
 	verify(view.issued.back() == {"action": "turn_slide_crank", "entity": "slide",
 		"port": [11, 2, 8]}, "The turn icon sends the selected native input port.")
@@ -3344,7 +3366,8 @@ func _slide_controls_check() -> void:
 	snapshot.sliding_press_assemblies[0].open_feeds.clear()
 	panel.refresh(snapshot, "P", "slide", true)
 	verify(panel.press_status.text == "No clear through-feed route. Close [Esc], press F, then click the blocking part."
-		and panel.feed_button.disabled,
+		and panel.feed_button.disabled and panel.inventory_section.visible
+		and panel.inventory_drag("player_raw").is_empty(),
 		"One side obstruction blocks every through-feed route without implying blockers on both sides.")
 	snapshot.sliding_press_assemblies[0].status = "ready"
 	snapshot.sliding_press_assemblies[0].open_feeds.append({"entry": [13, 0, 8],
@@ -3354,8 +3377,85 @@ func _slide_controls_check() -> void:
 	snapshot.dropped_material.clear()
 	snapshot.sliding_press_assemblies[0].erase("selected_exit")
 	panel.refresh(snapshot, "P", "anvil", true)
+	view.selected = "anvil"
 	verify(panel.cycle_feed_route() and panel._route_index == 1,
 		"G changes the next feed direction after the retained route is released.")
+	var carried_blank: Dictionary = panel.inventory_drag("player_raw")
+	verify(panel.inventory_can_drop("workbed", carried_blank)
+		and carried_blank.get("wire", {}) == {"action": "feed_press", "entity": "anvil",
+			"entry": [11, 0, 8]},
+		"The selected carried blank targets the clear workbed route.")
+	panel.inventory_drop("workbed", carried_blank)
+	verify(view.issued.back() == carried_blank.wire,
+		"Dragging a carried blank to the workbed sends one native feed command.")
+	view.issued.clear()
+	verify(panel.inventory_shortcut(KEY_F) and view.issued.back() == carried_blank.wire,
+		"F transfers the same selected blank through the workbed inventory.")
+	view.issued.clear()
+	snapshot.revision = 2
+	verify(not panel.inventory_can_drop("workbed", carried_blank),
+		"A stale drag cannot transfer after the native projection advances.")
+	panel.refresh(snapshot, "P", "anvil", true)
+	snapshot.cargo.P.work_lots = [{"id": 7, "remaining": 2, "cycle_ticks": 3,
+		"recipe_input": 1}]
+	panel.refresh(snapshot, "P", "anvil", true)
+	var carried_work: Dictionary = panel.inventory_drag("player_work")
+	verify(carried_work.get("wire", {}).get("action") == "refeed_press_work"
+		and carried_work.wire.work_id == 7 and panel.inventory_can_drop("workbed", carried_work),
+		"The selected partial workpiece has its own workbed transfer.")
+	view.issued.clear()
+	verify(panel.inventory_shortcut(KEY_R) and view.issued.back() == carried_work.wire,
+		"R transfers the selected partial workpiece through the workbed inventory.")
+	view.issued.clear()
+	snapshot.dropped_material = [{"center": [13, 0, 8], "raw": 0, "products": 1,
+		"offcuts": 0, "work_lots": []}]
+	panel.refresh(snapshot, "P", "anvil", true)
+	var formed_plate: Dictionary = panel.inventory_drag("workbed_output")
+	verify(panel.inventory_can_drop("player", formed_plate)
+		and not panel.inventory_can_drop("workbed", formed_plate)
+		and panel.inventory_counts.workbed_output.text == "1",
+		"A blocked outlet keeps its formed plate visible until it is carried.")
+	verify(panel.inventory_shortcut(KEY_P) and view.issued.back() == formed_plate.wire,
+		"P recovers the exact outlet plate through the workbed inventory.")
+	view.issued.clear()
+	snapshot.dropped_material.append({"center": [12, 0, 8], "raw": 0,
+		"products": 0, "offcuts": 1, "work_lots": []})
+	panel.refresh(snapshot, "P", "anvil", true)
+	verify(panel.inventory_counts.workbed_work.text == "1"
+		and panel.inventory_slots.workbed_work.tooltip_text.contains("offcut")
+		and panel.inventory_drag("player_raw").is_empty()
+		and panel.inventory_drag("workbed_work").get("wire", {}).get("expected", {}).get("offcuts") == 1,
+		"A retained offcut occupies the work face and must be recovered before another blank.")
+	snapshot.dropped_material.pop_back()
+	panel.refresh(snapshot, "P", "anvil", true)
+	panel.refresh(snapshot, "P", "anvil", false)
+	verify(panel.inventory_drag("workbed_output").is_empty()
+		and not panel.inventory_shortcut(KEY_P) and view.issued.is_empty(),
+		"An unready actor can inspect workbed custody but cannot transfer it.")
+	panel.refresh(snapshot, "P", "anvil", true)
+	var shared := SharedWorkshopWidgets.new()
+	shared.session = SessionStub.new()
+	shared.state = snapshot
+	shared.client = "P"
+	shared.selected = "anvil"
+	get_root().add_child(shared)
+	var shared_panel := RecoveryActions.ArrivalAssemblyControls.new()
+	shared_panel.configure(shared)
+	shared.add_child(shared_panel)
+	shared_panel.refresh(snapshot, "P", "anvil", true)
+	shared_panel.open_context()
+	verify(not shared_panel.inventory_drag("workbed_output").is_empty(),
+		"A connected shared actor reads the same confirmed outlet custody.")
+	shared.pending_actions = {"waiting": {}}
+	shared_panel.inventory_drop("player", formed_plate)
+	verify(shared_panel.inventory_drag("workbed_output").is_empty() and shared.issued.is_empty(),
+		"An unsettled shared request makes workbed transfer read-only.")
+	shared.pending_actions.clear()
+	shared.session.ready = false
+	shared_panel.inventory_drop("player", formed_plate)
+	verify(shared_panel.inventory_drag("workbed_output").is_empty() and shared.issued.is_empty(),
+		"A disconnected shared actor can inspect the workbed without submitting pickup.")
+	shared.free()
 	panel._feed()
 	verify(view.issued.back() == {"action": "feed_press", "entity": "anvil",
 		"entry": [11, 0, 8]}, "The chosen feed side still sends the native anvil route.")
@@ -3376,6 +3476,70 @@ func _slide_controls_check() -> void:
 		"An incomplete slide candidate cannot hide a ready guided press on the same anvil.")
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "scope": "invented projection and ordinary E-menu command mapping"}))
+	quit(0 if failures == 0 else 1)
+
+func _slide_inventory_render_check() -> void:
+	var destination := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--slide-inventory-image-prefix="):
+			destination = argument.trim_prefix("--slide-inventory-image-prefix=")
+	var scene_root := get_root()
+	scene_root.gui_embed_subwindows = true
+	scene_root.size = Vector2i(1280, 800)
+	var view := ObjectMenuWidgets.new()
+	view.state = _object_menu_snapshot()
+	view.state.placed_components = {
+		"anvil": {"component": "anvil", "center": [12, 0, 8]},
+		"head": {"component": "flat_head", "center": [12, 1, 8]},
+		"slide": {"component": "wooden_slide", "center": [12, 2, 8],
+			"input_ports": [[11, 2, 8], [13, 2, 8]]}}
+	view.state.sliding_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
+		"status": "ready", "work_center": [12, 0, 8], "parts": {"anvil": "anvil",
+			"head": "head", "slide": "slide"},
+		"open_feeds": [{"entry": [11, 0, 8], "exit": [13, 0, 8]}]}]
+	view.state.cargo.P = {"raw": 2, "products": 0, "offcuts": 1,
+		"work_lots": [{"id": 9, "remaining": 2, "cycle_ticks": 3, "recipe_input": 1}]}
+	view.state.dropped_material = [{"center": [13, 0, 8], "raw": 0,
+		"products": 1, "offcuts": 0, "work_lots": []}]
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	view.selection_ring = MeshInstance3D.new()
+	view.add_child(view.selection_ring)
+	scene_root.add_child(view)
+	view._build_interface()
+	view._refresh_ui()
+	view._open_object_menu_for("slide")
+	await process_frame
+	var panel = view.arrival_assembly_controls
+	verify(view.object_menu.visible and panel.inventory_section.is_visible_in_tree()
+		and not panel.feed_button.visible and panel.inventory_counts.workbed_output.text == "1",
+		"The ordinary selected slide renders workbed and outlet custody without a Feed icon.")
+	var player_bounds: Rect2 = panel.inventory_player_row.get_global_rect()
+	var workbed_bounds: Rect2 = panel.inventory_workbed_row.get_global_rect()
+	var operations: Rect2 = view.object_menu_operations.get_global_rect()
+	verify(player_bounds.position.x >= operations.position.x and player_bounds.end.x <= operations.end.x
+		and workbed_bounds.position.x >= operations.position.x and workbed_bounds.end.x <= operations.end.x,
+		"The workbed rows fit in the ordinary press panel.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-wide.png") == OK,
+			"Retain the passive workbed inventory panel at 1280 by 800.")
+	scene_root.size = Vector2i(640, 480)
+	view._fit_object_menu(Vector2i(640, 480))
+	await process_frame
+	player_bounds = panel.inventory_player_row.get_global_rect()
+	workbed_bounds = panel.inventory_workbed_row.get_global_rect()
+	operations = view.object_menu_operations.get_global_rect()
+	verify(player_bounds.position.x >= operations.position.x and player_bounds.end.x <= operations.end.x
+		and workbed_bounds.position.x >= operations.position.x and workbed_bounds.end.x <= operations.end.x,
+		"The workbed rows fit at a 640 by 480 view.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().get_region(Rect2i(0, 0, 640, 480))
+			.save_png(destination + "-narrow.png") == OK,
+			"Retain the passive workbed inventory panel at 640 by 480.")
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"failures": failures, "scope": "ordinary slide E-panel rendered over an invented projection"}))
 	quit(0 if failures == 0 else 1)
 
 func _object_menu_check() -> void:

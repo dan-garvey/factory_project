@@ -314,8 +314,8 @@ func check_slide_manager_cue() -> void:
 	view.state.sliding_press_assemblies[0].status = "ready"
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(view.goal_label.text.contains("Open the working press [E] to feed or turn.")
-		and view.manager_log_current.text.ends_with("Open the working press [E] to feed or turn."),
+	verify(view.goal_label.text.contains("Open the fitted press [E]. Move a blank to the workbed, then crank.")
+		and view.manager_log_current.text.ends_with("Open the fitted press [E]. Move a blank to the workbed, then crank."),
 		"The ordinary first-shift cue and replayable log recognize a ready slide press.")
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--slide-manager-screenshot="):
@@ -331,8 +331,8 @@ func check_slide_manager_cue() -> void:
 	shared._build_interface()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(shared.goal_label.text.contains("Open the working press [E] to feed or turn.")
-		and shared.manager_log_current.text.ends_with("Open the working press [E] to feed or turn."),
+	verify(shared.goal_label.text.contains("Open the fitted press [E]. Move a blank to the workbed, then crank.")
+		and shared.manager_log_current.text.ends_with("Open the fitted press [E]. Move a blank to the workbed, then crank."),
 		"The shared worker receives the same ready-slide cue without creating local authority.")
 	view.state.first_plate_unlock = true
 	view.state.placed_components = {"anvil": {"component": "anvil", "center": [0, 0, 0]},
@@ -357,7 +357,7 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_label.text.contains("Open the fitted press [E]. Feed one blank and crank by hand.")
+	verify(view.goal_label.text.contains("Open the fitted press [E]. Move a blank to the workbed, then crank.")
 		and shared.goal_label.text == view.goal_label.text
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"Clearing one native feed route restores the first-plate press cue for ordinary and shared workers.")
