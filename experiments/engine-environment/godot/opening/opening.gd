@@ -9691,6 +9691,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		var next_work := "Gather 3 timber and 4 copper blanks with the multitool [E]."
 		var press_ready := false
 		var sliding_press_ready := false
+		var ready_slide_has_crank := false
 		var sliding_feed_blocked := false
 		var collector_ready := false
 		for press: Dictionary in state.get("guided_press_assemblies", []):
@@ -9699,23 +9700,33 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			sliding_press_ready = sliding_press_ready or press.get("status") == "ready"
 			sliding_feed_blocked = sliding_feed_blocked or press.get("status") == "blocked_feed"
 			press_ready = press_ready or press.get("status") == "ready"
+			if press.get("status") == "ready":
+				var slide_id: String = str(press.get("parts", {}).get("slide", ""))
+				for crank: Dictionary in state.get("crank_items", {}).values():
+					ready_slide_has_crank = ready_slide_has_crank or (
+						not slide_id.is_empty() and crank.get("attached_to", "") == slide_id)
 		for collector: Dictionary in state.get("collector_assemblies", []):
 			collector_ready = collector_ready or collector.get("status") == "ready"
 		if snapshot_ready:
 			_notice_workshop_completion(workshop_complete)
 		if workshop_complete:
 			next_work = "Open Work log [J] for optional projects, or keep building."
-		elif sliding_press_ready:
+		elif sliding_press_ready and ready_slide_has_crank:
 			next_work = "Open the fitted press [E]. Move a blank to the workbed, then crank."
+		elif sliding_press_ready:
+			next_work = "Fit your carried crank at a slide input [B], then open the press [E]." \
+				if int(carried.get("components", {}).get("hand_crank", 0)) > 0 else \
+				"Craft a hand crank [B], fit it at a slide input, then open the press [E]."
 		elif state.get("first_plate_unlock", false) and sliding_feed_blocked:
 			next_work = "Clear an X-side feed path [F], then open the press [E]."
 		elif press_ready:
 			next_work = "Open the working press [E] to feed or turn."
+		elif state.get("first_plate_unlock", false) and not state.get("placed_components", {}).is_empty():
+			next_work = "Inspect placed parts [E] and use Build [B] for what the press still needs."
 		elif state.get("first_plate_unlock", false) and (
-				not state.get("placed_components", {}).is_empty() or
 				not carried.get("components", {}).is_empty() or
 				int(carried.get("timber", 0)) >= 3 or int(carried.get("raw", 0)) >= 4):
-			next_work = "Craft anvil, flat head, wooden slide and hand crank [B]. Fit the crank to a slide input."
+			next_work = "Use Build [B] to craft and fit press parts from carried stock."
 		elif collector_ready and int(state.get("line_belt_raw", 0)) > 0:
 			next_work = "Blank on belt. Inspect its outlet [E] or recover it."
 		elif collector_ready:
