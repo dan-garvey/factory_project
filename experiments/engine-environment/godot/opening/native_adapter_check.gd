@@ -269,7 +269,8 @@ func _capture_slide_shaft(slide_id: String, path: String) -> bool:
 	var shaft_half: float = (shaft.mesh as CylinderMesh).height * 0.5
 	var spindle_half: float = (spindle.mesh as CylinderMesh).height * 0.5
 	var overlap: float = minf(shaft_half, along + spindle_half) - maxf(-shaft_half, along - spindle_half)
-	facts["shaft_probe"] = {"axial_overlap_m": overlap, "center_offset_m": transverse,
+	facts["shaft_probe"] = {"axial_overlap_m": overlap, "axis_offset_m": along,
+		"center_offset_m": transverse,
 		"shaft_radius_m": (shaft.mesh as CylinderMesh).top_radius,
 		"spindle_radius_m": (spindle.mesh as CylinderMesh).top_radius,
 		"parallel": absf(axis.dot(spindle.global_basis.y.normalized()))}
@@ -281,8 +282,8 @@ func _capture_slide_shaft(slide_id: String, path: String) -> bool:
 	var camera := Camera3D.new()
 	close.add_child(camera)
 	camera.fov = 28.0
-	camera.position = shaft.global_position + Vector3(0.0, 0.06, 0.62)
-	camera.look_at(shaft.global_position)
+	camera.position = spindle.global_position + Vector3(0.0, 0.06, 0.62)
+	camera.look_at(spindle.global_position)
 	camera.make_current()
 	for frame in range(3):
 		await process_frame
