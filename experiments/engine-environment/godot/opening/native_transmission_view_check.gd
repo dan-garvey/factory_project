@@ -2727,7 +2727,7 @@ func _slide_material_seat() -> void:
 	state.placed_components = {
 		"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.20625, 0.0], [0.2025, 0.20625, 0.14]),
 		"head": _component_record("flat_head", [0, 1, 0], [0.0, 0.928125, 0.0], [0.14, 0.515625, 0.14]),
-		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.134375, 0.0], [0.21, 0.721875, 0.21])}
+		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.44375, 0.0], [0.21, 0.4125, 0.21])}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
 		"status": "ready", "work_center": [0, 0, 0],
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"}}]
@@ -2742,12 +2742,12 @@ func _slide_material_seat() -> void:
 		if child.has_meta("component_entity") and child.get_meta("component_entity") == "anvil":
 			anvil = child
 	var seat: MeshInstance3D = anvil.get_node_or_null("OpenAnvilSeat") if anvil != null else null
-	var edge: MeshInstance3D = anvil.get_node_or_null("AnvilEdge") if anvil != null else null
+	var die_plate: MeshInstance3D = anvil.get_node_or_null("ReplaceableDiePlate") if anvil != null else null
 	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")
 	var crown: float = 0.4125
-	verify(seat != null and edge != null and blank != null
-		and is_equal_approx(seat.global_position.y + 0.025, crown)
-		and is_equal_approx(edge.global_position.y + 0.055, crown)
+	verify(seat != null and die_plate != null and blank != null
+		and is_equal_approx(seat.global_position.y + 0.0275, crown)
+		and is_equal_approx(die_plate.global_position.y + 0.003, crown)
 		and is_equal_approx(blank.position.y - 0.04, crown - 0.02),
 		"The admitted anvil crown, visible seat and native-confirmed blank share one work surface.")
 	var raw_label: Label3D
