@@ -7253,12 +7253,13 @@ func _refresh_component_preview() -> void:
 			press_snap_target.visible = true
 			var camera_right: Vector3 = camera.global_transform.basis.x
 			camera_right.y = 0.0
-			var guide_bottom: float = target_box.center.y + target_box.half.y + 0.025
+			var guide_bottom: float = target_box.center.y - target_box.half.y + 0.10 \
+				if pointed_kind == "flat_head" else target_box.center.y + target_box.half.y + 0.025
 			var guide_top: float = box.center.y + box.half.y - 0.025
 			press_snap_lift.scale.y = maxf(0.35, (guide_top - guide_bottom) / 0.82)
 			press_snap_lift.position = Vector3(target_box.center.x,
 				guide_bottom + press_snap_lift.scale.y * 0.365, target_box.center.z) \
-				+ camera_right.normalized() * 0.22
+				+ camera_right.normalized() * (0.28 if pointed_kind == "flat_head" else 0.22)
 			press_snap_lift_material.albedo_color = press_snap_material.albedo_color
 			press_snap_lift.visible = true
 	else:
