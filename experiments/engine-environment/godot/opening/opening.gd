@@ -4627,6 +4627,7 @@ var component_preview: Node3D
 var press_snap_target: MeshInstance3D
 var press_snap_material: StandardMaterial3D
 var press_snap_lift: Node3D
+var press_snap_lift_tip: MeshInstance3D
 var press_snap_lift_material: StandardMaterial3D
 var component_preview_kind := ""
 var component_preview_pose_key := ""
@@ -7253,10 +7254,12 @@ func _refresh_component_preview() -> void:
 			press_snap_target.visible = true
 			var camera_right: Vector3 = camera.global_transform.basis.x
 			camera_right.y = 0.0
-			var guide_bottom: float = target_box.center.y - target_box.half.y + 0.10 \
+			var guide_bottom: float = target_box.center.y - target_box.half.y + 0.02 \
 				if pointed_kind == "flat_head" else target_box.center.y + target_box.half.y + 0.025
 			var guide_top: float = box.center.y + box.half.y - 0.025
 			press_snap_lift.scale.y = maxf(0.35, (guide_top - guide_bottom) / 0.82)
+			press_snap_lift_tip.scale.y = 0.5 / press_snap_lift.scale.y
+			press_snap_lift_tip.position.y = 0.455 - 0.0375 / press_snap_lift.scale.y
 			press_snap_lift.position = Vector3(target_box.center.x,
 				guide_bottom + press_snap_lift.scale.y * 0.365, target_box.center.z) \
 				+ camera_right.normalized() * (0.28 if pointed_kind == "flat_head" else 0.22)
@@ -7542,16 +7545,16 @@ func _build_world() -> void:
 		dash.material_override = press_snap_lift_material
 		dash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		press_snap_lift.add_child(dash)
-	var tip := MeshInstance3D.new()
+	press_snap_lift_tip = MeshInstance3D.new()
 	var cone := CylinderMesh.new()
 	cone.top_radius = 0.0
 	cone.bottom_radius = 0.045
 	cone.height = 0.15
-	tip.mesh = cone
-	tip.position.y = 0.38
-	tip.material_override = press_snap_lift_material
-	tip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	press_snap_lift.add_child(tip)
+	press_snap_lift_tip.mesh = cone
+	press_snap_lift_tip.position.y = 0.38
+	press_snap_lift_tip.material_override = press_snap_lift_material
+	press_snap_lift_tip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	press_snap_lift.add_child(press_snap_lift_tip)
 	press_snap_lift.visible = false
 	add_child(press_snap_lift)
 	item_root = Node3D.new()
