@@ -897,13 +897,17 @@ void nonhorizontal_span_host() {
         install.at("request") = V("3d-clear");
         const auto span = create(host, install);
         check(field<O>(host.projection(), "belt_spans").contains(span), "The Host admits the nonhorizontal span.");
-        const auto pulley = create(host, shaft(example.x / 2, (example.start_y + example.y) / 2,
+        auto pulley = create(host, shaft(example.x / 2, (example.start_y + example.y) / 2,
                                                 example.z / 2, "3d-add-pulley", example.axis));
         if (std::string(example.axis) == "z" && example.x == 8 && example.start_y == 4) {
             const auto obstruction = host.command("P", gear(4, 8, 0, "3d-cog-intersection", "z"));
             check(!accepted(obstruction) && field<std::string>(obstruction, "reason") == "occupied",
                   "A later cog cannot intersect the inclined body.");
+            const auto before = V(field<O>(field<O>(host.projection(), "transmission_parts").at(pulley), "support"));
             create(host, gear(4, 0, 0, "3d-cog-below", "z"));
+            const auto after = V(field<O>(field<O>(host.projection(), "transmission_parts").at(pulley), "support"));
+            check(!factory::values::typed_difference(before, after),
+                  "A lower cog fits without moving the raised pulley's physical stand.");
         }
         const auto checkpoint = host.checkpoint();
         Host loaded;

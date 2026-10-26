@@ -4631,7 +4631,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"input_full": "Recover or process the existing copper first.",
 			"unavailable_input": "Carry copper or feed the selected press first.",
 			"site_occupied": "Rock or scenery blocks that placement or press route.",
-			"stand_in_use": "This support holds a neighboring machine. Reclaim that machine first.",
+			"stand_in_use": "A neighboring stand occupies that space. Reclaim its machine, then try again.",
 			"unsupported_bench": "Set the workbench on clear ground or a foundation top.",
 			"not_holder": "Only the worker carrying the pod workshop can place it.",
 			"already_stowed": "The pod workshop is already carried.",
