@@ -403,8 +403,10 @@ func _component_placement_check() -> void:
 	slide_sample.position = slide_box.center
 	view.add_child(slide_sample)
 	presenter.preview_component(slide_sample, "copper_slide", slide_box.size)
-	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace") and slide_sample.has_node("SlideCarriage"),
-		"The separate flat die and unchanged powered carriage both have visible meshes.")
+	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace")
+		and head_sample.has_node("FlatHeadMovingDie/FlatHeadStem")
+		and slide_sample.has_node("SlideCarriage/CarriageDieRod"),
+		"The fitted flat die and slide carriage have a visible shaft connection.")
 	var stroke_phase := {"subticks": 2048, "remainder": 0, "denominator": 1,
 		"cycle_subticks": 4096}
 	var stroked_head := Node3D.new()
@@ -421,10 +423,24 @@ func _component_placement_check() -> void:
 		- head_sample.get_node("FlatHeadMovingDie").position.y
 	var carriage_drop: float = stroked_slide.get_node("SlideCarriage").position.y \
 		- slide_sample.get_node("SlideCarriage").position.y
-	verify(absf(head_drop + head_box.size.y - 0.175) < 0.0001
-		and absf(carriage_drop + slide_box.size.y - Geometry.HEIGHT_STEP - 0.175) < 0.0001
-		and head_drop < carriage_drop and carriage_drop < 0.0,
-		"The die reaches the lower work face while its driven carriage stays within the slide rails.")
+	var anvil_top: float = workbed_box.center.y + workbed_box.half.y
+	var resting_face_bottom: float = head_sample.position.y \
+		+ head_sample.get_node("FlatHeadMovingDie").position.y - 0.05
+	var working_face_bottom: float = stroked_head.position.y \
+		+ stroked_head.get_node("FlatHeadMovingDie").position.y - 0.05
+	var working_carriage_face_bottom: float = stroked_slide.position.y \
+		+ stroked_slide.get_node("SlideCarriage").position.y - 0.1025
+	var resting_stem_top: float = head_sample.position.y \
+		+ head_sample.get_node("FlatHeadMovingDie").position.y + 0.55
+	var resting_carriage_face_bottom: float = slide_sample.position.y \
+		+ slide_sample.get_node("SlideCarriage").position.y - 0.1025
+	verify(absf(head_drop + 0.20) < 0.0001 and absf(carriage_drop - head_drop) < 0.0001
+		and absf(resting_face_bottom - anvil_top - 0.24) < 0.0001
+		and absf(working_face_bottom - anvil_top - 0.04) < 0.0001
+		and absf(working_carriage_face_bottom - (slide_box.center.y - slide_box.half.y) - 0.02) < 0.0001
+		and absf(resting_stem_top - resting_carriage_face_bottom) < 0.002
+		and resting_stem_top < head_box.center.y + head_box.half.y,
+		"Head and carriage share a short stroke; their faces meet within the admitted boxes above the lowered anvil.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		camera.position = head_box.center + Vector3(1.1, 0.45, 2.4)
 		camera.look_at(head_box.center - Vector3(0, 0.18, 0))
@@ -4279,6 +4295,32 @@ func _slide_controls_check() -> void:
 		and reclaim_model.sent[0].action == "pickup_material",
 		"A refused native material pickup leaves the component in place.")
 	reclaim_view.free()
+	var broad_snapshot := snapshot.duplicate(true)
+	broad_snapshot.placed_components = {
+		"broad-bed": {"component": "broad_anvil", "center": [20, 0, 8]},
+		"broad-head": {"component": "broad_flat_head", "center": [20, 1, 8]},
+		"broad-slide": {"component": "copper_slide", "center": [20, 2, 8]}}
+	broad_snapshot.broad_press_assemblies = [{"origin": [20, 0, 8],
+		"parts": {"anvils": ["broad-bed"], "heads": ["broad-head"], "slide": "broad-slide"}}]
+	broad_snapshot.dropped_material = [{"center": [20, 0, 8], "sheets": 1},
+		{"center": [24, 0, 8], "raw": 1}]
+	var broad_reclaim := ReclaimOrderView.new()
+	var broad_model := ReclaimOrderModel.new()
+	broad_model.projected = broad_snapshot
+	broad_reclaim.model = broad_model
+	broad_reclaim.state = broad_snapshot
+	broad_reclaim.client = "P"
+	for broad_part in ["broad-bed", "broad-head", "broad-slide"]:
+		verify(broad_reclaim._reclaim_owned_drops(broad_part) == [broad_snapshot.dropped_material[0]],
+			"Each broad press part owns its origin material without collecting loose stock beside the workbed.")
+	broad_reclaim.issue({"action": "reclaim_component", "entity": "broad-head"})
+	verify(broad_model.sent.size() == 2
+		and broad_model.sent[0].action == "pickup_material"
+		and broad_model.sent[0].center == [20, 0, 8]
+		and broad_model.sent[0].expected == {"sheets": 1}
+		and broad_model.sent[1].action == "reclaim_component",
+		"Broad head reclaim submits exact native sheet pickup before part removal.")
+	broad_reclaim.free()
 	snapshot.sliding_press_assemblies[0] = {"anvil": "anvil", "center": [12, 0, 8],
 		"status": "missing_head"}
 	snapshot.guided_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
