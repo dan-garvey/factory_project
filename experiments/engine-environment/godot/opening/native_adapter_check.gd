@@ -3922,7 +3922,7 @@ func _arrival_run() -> void:
 				"Every collector and press part is available in the inventory recipes"):
 			return
 		var bill: Dictionary = opening.model.projection().component_recipes[kind]
-		var bill_text := "%d timber + %d ore" % [bill.timber, bill.copper]
+		var bill_text := "%d timber + %d copper" % [bill.timber, bill.copper]
 		if not _expect(bill_text in inventory.recipe_buttons["component:" + kind].tooltip_text,
 				"The ordinary inventory shows the native hub recipe bill"):
 			return
