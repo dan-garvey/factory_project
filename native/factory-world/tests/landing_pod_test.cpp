@@ -619,6 +619,60 @@ void unbounded_component_reclaim_keeps_history() {
           "Restore replays the uncapped actor's exact finite custody and component history.");
 }
 
+void loose_shaft_cannot_hold_an_unusable_crank() {
+    auto [profile, state] = seed();
+    profile.material.timber_sites = {{"tree", {{8, 0, 8}, 4}}};
+    state.material.timber_remaining = {{"tree", 4}};
+    auto world = w::World::create("loose-crank", profile, state);
+    check(world != nullptr, "A finite site initializes for the loose-shaft crank sequence.");
+    const w::ObserveActor observe = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {8, 0, 8}, 1, true, 10};
+    };
+    const auto send = [&](O command) {
+        command.emplace("context", V("loose-crank"));
+        command.emplace("client", V("P-client"));
+        command.emplace("actor", V("P"));
+        return world->command({"P", "P-client"}, command, observe);
+    };
+    for (int cut = 0; cut < 3; ++cut) {
+        O command{{"request", V("wood-" + std::to_string(cut))},
+            {"action", V("harvest_source")}, {"target", V("tree")},
+            {"context", V("loose-crank")}, {"client", V("P-client")},
+            {"actor", V("P")}};
+        const auto result = w::tests::complete_manual_cut(*world,
+            {"P", "P-client"}, command, observe);
+        check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
+            "Finite timber pays for a shaft and a separate crank.");
+    }
+    const auto shaft_craft = send({{"request", V("craft-shaft")},
+        {"action", V("field_craft")}, {"component", V("wooden_shaft")}});
+    const auto crank_craft = send({{"request", V("craft-crank")},
+        {"action", V("field_craft")}, {"component", V("hand_crank")}});
+    check(shaft_craft.completed() && crank_craft.completed() &&
+          std::get<bool>(shaft_craft.result->at("accepted").storage()) &&
+          std::get<bool>(crank_craft.result->at("accepted").storage()),
+          "The shaft and crank have separate paid identities.");
+    const auto placed = send({{"request", V("place-shaft")},
+        {"action", V("place_component")}, {"component", V("wooden_shaft")},
+        {"center", V(V::Array{V(I{4}), V(I{0}), V(I{12})})}});
+    check(placed.completed() && std::get<bool>(placed.result->at("accepted").storage()),
+          "The loose shaft occupies a real supported component cell.");
+    const auto fitted = send({{"request", V("fit-loose-shaft")},
+        {"action", V("attach_hand_crank")}, {"target", placed.result->at("entity")},
+        {"generation", placed.result->at("generation")},
+        {"crank", crank_craft.result->at("crank_id")},
+        {"crank_generation", crank_craft.result->at("crank_generation")},
+        {"port", V(V::Array{V(I{4}), V(I{0}), V(I{12})})}});
+    check(fitted.completed() &&
+          !std::get<bool>(fitted.result->at("accepted").storage()) &&
+          std::get<std::string>(fitted.result->at("reason").storage()) == "not_rotary_input" &&
+          world->snapshot().state.crank_items.at(
+              std::get<std::string>(crank_craft.result->at("crank_id").storage())).holder == "P",
+          "A loose shaft cannot take custody of a crank until it has a native drive identity.");
+    check(std::holds_alternative<V>(w::encode_checkpoint(profile, world->snapshot())),
+          "Refused loose-shaft attachment keeps exact paid custody saveable.");
+}
+
 void portable_bench_crafts_with_finite_shared_stock() {
     auto [profile, state] = seed();
     profile.build_reach = 6;
@@ -974,6 +1028,7 @@ int main() {
         reachable_craft_uses_one_hub_and_owned_ingredients();
         placed_components_keep_custody_and_history();
         unbounded_component_reclaim_keeps_history();
+        loose_shaft_cannot_hold_an_unusable_crank();
         portable_bench_crafts_with_finite_shared_stock();
         powered_slide_ticks_and_restores();
         first_plate_gate_admits_only_starter_parts();
