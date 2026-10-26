@@ -3231,11 +3231,26 @@ Value Host::projection() const {
         }
         projection.emplace("guided_press_assemblies", Value(std::move(guided_presses)));
         Array sliding_presses;
-        const bool manual_auto_route = profile_.first_plate_unlock &&
-            state.topology.belt_spans.empty();
         for (const auto& anvil : parts) {
             if (anvil.kind != materials::Component::anvil) continue;
             const auto inspection = assembly::inspect_sliding_press(parts, anvil.center);
+            // A belt elsewhere in the site cannot change this workbed's
+            // manual route. Native belt transfer uses the mouths one full tile
+            // east or west of the slide anchor.
+            const bool mouth_has_belt = std::any_of(state.topology.belt_spans.begin(),
+                state.topology.belt_spans.end(), [&](const auto& span) {
+                    const auto* first = find(state, span.geometry.first_shaft);
+                    const auto* last = find(state, span.geometry.last_shaft);
+                    if (!first || !last) return false;
+                    const auto path = mechanics::belt_path(first->geometry, last->geometry);
+                    if (!path) return false;
+                    return std::any_of(path->tiles.begin(), path->tiles.end(),
+                        [&](const mechanics::Point& tile) {
+                            return tile[1] == anvil.center[1] && tile[2] == anvil.center[2] &&
+                                (tile[0] == anvil.center[0] - 4 || tile[0] == anvil.center[0] + 4);
+                        });
+                });
+            const bool manual_auto_route = profile_.first_plate_unlock && !mouth_has_belt;
             Object entry{{"anvil", Value(anvil.id)},
                 {"center", Value(Array{Value(anvil.center[0]), Value(anvil.center[1]),
                     Value(anvil.center[2])})},
