@@ -40,6 +40,11 @@ rather than omitting unreadable cache directories.
 Use a relevant package target for focused work. Host-tagged tests need explicit
 fixtures; for `//native/tooling:local_resources_test`, supply
 `--test_arg=/absolute/linked/checkout --test_arg=/absolute/owned/artifacts`.
+Run `//native/gameplay-build:launch_refresh_guard_test` explicitly with
+`--test_tag_filters=host` in an admitted host lane to exercise the isolated
+gameplay-library freshness guard; the documented
+`--test_tag_filters=-host` suite excludes it. This test uses temporary Git repos
+and fake build children, without starting Godot or a desktop.
 The old `//:native_tests` alias covers only the bootstrap subset.
 
 Keep Bazel in `--batch` mode inside admission. Reuse caches within the verified

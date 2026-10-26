@@ -23,3 +23,12 @@ cc_test(
     tags = ["host"],
     size = "small",
 )
+
+cc_test(
+    name = "launch_refresh_guard_test",
+    srcs = ["launch_guard_tests.cpp"],
+    data = ["//:scripts/tests/ensure-gameplay-library.sh", "//:scripts/ensure-gameplay-library.sh"],
+    deps = ["//native/factory-launch:capture"],
+    tags = ["host"],
+    size = "small",
+)

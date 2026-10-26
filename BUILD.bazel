@@ -6,6 +6,7 @@ exports_files([
     "scripts/check_engine_environment.py",
     "scripts/ensure-gameplay-library.sh",
     "scripts/ensure-startup-launcher.sh",
+    "scripts/tests/ensure-gameplay-library.sh",
 ])
 
 test_suite(
