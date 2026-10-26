@@ -2891,8 +2891,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		for id: String in opening.model.projection().crank_items:
 			if opening.model.projection().crank_items[id].get("attached_to") == fitted.wooden_slide:
 				loaded_crank_id = id
-		if not _expect(not opening.object_menu.visible and not loaded_crank_id.is_empty(),
-			"Closing the loaded workbed returns to the fitted exterior crank"):
+		facts["loaded_workbed_close"] = {"object_menu_visible": opening.object_menu.visible,
+			"pause_menu_visible": opening.pause_menu.visible,
+			"window_focused": DisplayServer.window_is_focused()}
+		if not _expect(not opening.object_menu.visible and not opening.pause_menu.visible
+				and not loaded_crank_id.is_empty(),
+			"One Escape closes the loaded workbed without opening Worksite pause"):
 			return
 		var loaded_hit := await _aim_actor_at_crank(loaded_crank_id)
 		opening._refresh_pointed_summary()
