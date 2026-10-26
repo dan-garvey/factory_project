@@ -442,9 +442,8 @@ func _resume() -> void:
 	for _plate: int in range(3):
 		if not (await _until(func() -> bool: return opening.model.projection().stock.output == 1, "The reopened line produces the next plate")): return
 		if not _retrieve(press): return
-	var before: Dictionary = opening.model.checkpoint().world
-	opening._confirm_goal()
-	if not _expect(opening.goal_confirmed and opening.model.projection().inventories.P == 4 and _same(before, opening.model.checkpoint().world), "Four real plates confirm the objective without consuming them"): return
+	if not _expect(opening.model.projection().inventories.P == 4,
+		"Four collected plates remain in the actor's inventory without a separate confirmation step"): return
 	if not _expect(opening._save_worksite().accepted and FileAccess.get_sha256(prior.original_save) == prior.original_save_sha256 and opening.save_slot != prior.original_save, "The fresh output saves the finished inventory without overwriting the original"): return
 	facts["restored_checkpoint"] = opening.startup_resume_checkpoint
 	facts["original_save_sha256"] = prior.original_save_sha256

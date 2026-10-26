@@ -3858,7 +3858,6 @@ const FIRST_COLLECTOR_HINT := "Choose Collector [1] on the ore-colored ground be
 var mode := "inspect"
 var pending_link := ""
 var selected := ""
-var goal_confirmed := false
 var explanation_open := false
 var help_close_button: Button
 var elapsed := 0.0
@@ -3936,10 +3935,9 @@ var footer_snapshot_ready := false
 var footer_fit_pending := false
 var stock_label: Label
 var parts_label: Label
-var goal_label: Label
-var objective_heading: Label
-var objective_separator: HSeparator
-var manager_log_button: Button
+var goal_text := ""
+var goal_detail := ""
+var objective_title := "FIRST SHIFT  /  01"
 var manager_log_layer: CanvasLayer
 var manager_log_panel: PanelContainer
 var manager_log_current: Label
@@ -3949,8 +3947,6 @@ var manager_log_open := false
 var workshop_completion_observed: Variant = null
 var workshop_completion_audio: AudioStreamPlayer
 var workshop_completion_cue_count := 0
-var help_button: Button
-var goal_progress: ProgressBar
 var power_label: Label
 var inspector: Label
 var inspector_title: Label
@@ -3984,7 +3980,6 @@ var transmission_presenter
 var construction_audio
 var engineering_presenter
 var mechanical_ambience
-var confirm_button: Button
 var retrieve_button: Button
 var remove_button: Button
 var save_button: Button
@@ -3994,7 +3989,6 @@ var help_title: Label
 var help_body: Label
 var tool_buttons: Dictionary = {}
 var building_hotbar
-var build_column: VBoxContainer
 var foundation_level := Geometry.HEIGHT_DENOMINATOR
 var foundation_steps := false
 var foundation_steps_toggle: CheckButton
@@ -4250,7 +4244,7 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 	if report.is_empty():
 		if engineering_presenter != null:
 			engineering_presenter.visible = false
-		goal_label.tooltip_text = ""
+		goal_detail = ""
 		return
 	if engineering_presenter == null:
 		var path := "res://opening/upstream_drive_challenge.gd"
@@ -4265,25 +4259,22 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 	if engineering_presenter.target_wheel_cell != cell:
 		engineering_presenter.set_target_wheel_cell(cell)
 	engineering_presenter.refresh()
-	# Confirmation only dismisses the introductory view. All challenge facts,
-	# including eligibility after reopen, come from the native projection.
-	var active: bool = goal_confirmed and report.phase != "first_shift"
+	# Challenge eligibility and progress come from the native projection.
+	var active: bool = report.phase != "first_shift"
 	engineering_presenter.visible = active
 	if not active:
-		goal_label.tooltip_text = ""
+		goal_detail = ""
 		return
-	goal_progress.max_value = maxi(1, int(report.target))
-	goal_progress.value = clampi(int(report.products), 0, int(report.target))
 	var step: String = {
 		"move_source": "Move power upstream.",
 		"restore_drive": "Restore the drive.",
 		"deliver_more": "Collect four more plates.",
 		"ready": "Upstream drive restored.",
 	}[report.phase]
-	goal_label.text = "UPSTREAM DRIVE\n%s\n%d / %d collected" % [step, report.products, report.target]
+	objective_title = "UPSTREAM DRIVE"
+	goal_text = "%s\n%d / %d collected" % [step, report.products, report.target]
 	var details: Dictionary = engineering_presenter.evaluate()
-	goal_label.tooltip_text = str(details.get("diagnostic_text", "")) + "\n" + str(details.get("tradeoff_text", ""))
-	confirm_button.visible = false
+	goal_detail = str(details.get("diagnostic_text", "")) + "\n" + str(details.get("tradeoff_text", ""))
 
 # A local read-only picker for the same site triangles shown by the view.
 # Shared clients have no authority or character floor body of their own.
@@ -4538,7 +4529,6 @@ func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
 		elapsed = 0.0
 		request_sequence = 0
 		request_namespace = "opening-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
-		goal_confirmed = false
 		# A restored completed order is already known; reopening is not a new receipt.
 		workshop_completion_observed = null
 		_refresh()
@@ -5172,7 +5162,7 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_J \
-			and _native_transmission() and not explanation_open and not _catalog_open():
+			and not explanation_open and not _catalog_open():
 		_toggle_manager_log()
 		get_viewport().set_input_as_handled()
 		return
@@ -5226,7 +5216,6 @@ func _input(event: InputEvent) -> void:
 			handled = true
 		elif event.ctrl_pressed:
 			match event.keycode:
-				KEY_ENTER, KEY_KP_ENTER: handled = _activate_button(confirm_button)
 				KEY_R: handled = _activate_button(retrieve_button)
 				KEY_M: handled = _open_action_menu(recovery_actions.action_button if recovery_actions != null else null)
 				KEY_L: handled = _open_action_menu(loose_material_controls)
@@ -6121,23 +6110,19 @@ func _remove_selected() -> void:
 				object_menu.hide()
 			_refresh_ui()
 
-func _confirm_goal() -> void:
-	if explanation_open or state.has("hand_sources"):
-		return
-	if int(model.projection().inventories.get(client, 0)) >= 4:
-		goal_confirmed = true
-		_message("Four plates ready. Your first production line is working.")
-		_refresh_ui()
-
 func _toggle_explanation() -> void:
 	explanation_open = not explanation_open
 	help_panel.visible = explanation_open
 	if explanation_open:
 		_release_character_controls()
-		help_title.text = objective_heading.text
-		help_body.text = goal_label.text + "\n\n" + controls_label.text
+		help_title.text = objective_title
+		help_body.text = _help_goal_text()
 	_update_cursor()
 	_refresh_ui()
+
+func _help_goal_text() -> String:
+	var detail := "\n\n" + goal_detail if not goal_detail.is_empty() else ""
+	return goal_text + detail + "\n\n" + controls_label.text
 
 func _screen_cell(screen: Vector2) -> Vector2i:
 	if _native_transmission() and mode != "foundation":
@@ -8872,7 +8857,7 @@ func _native_ui_key() -> Array:
 	return [model.get_instance_id(), state.get("context"), state.get("revision"),
 		state.get("actors", {}).get(client, {}).get("ready", false),
 		selected, mode, explanation_open, startup_save_pending, save_slot_ready, save_slot_owned,
-		goal_confirmed, building_rotation, foundation_level, wheel_level, wheel_tiles,
+		building_rotation, foundation_level, wheel_level, wheel_tiles,
 		transmission_controls.active_tool if transmission_controls != null else "",
 		transmission_controls.selected_axis if transmission_controls != null else ""]
 
@@ -8942,12 +8927,8 @@ func _refresh_ui() -> void:
 		return
 	_refresh_transmission()
 	var inventory := int(state.inventories.get(client, 0))
-	goal_progress.max_value = 4
-	goal_progress.value = clampi(inventory, 0, 4)
 	parts_label.text = "BUILD / INVENTORY"
-	goal_label.text = "FIRST SHIFT\nBring back 4 plates\n%d / 4 collected" % inventory
-	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
-	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates  [Ctrl+Enter]"
+	goal_text = "FIRST SHIFT\nBring back 4 plates\n%d / 4 collected" % inventory
 	var belt_raw: int = int(state.get("line_belt_raw", 0)) if _native_transmission() else state.stock.belt
 	stock_label.text = "ORE DEPOSIT  %d copper\nIN THE LINE  %d copper\nPRESS OUTLET  %d copper plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
@@ -8966,12 +8947,6 @@ func _refresh_ui() -> void:
 		developer_mode_label.tooltip_text = "Developer conveniences %s. F3 toggles fast manual harvesting." % (
 			"enabled" if fast_enabled else "disabled")
 		developer_mode_label.accessibility_name = developer_mode_label.tooltip_text
-	for tool in ["flow"]:
-		var button: Button = tool_buttons[tool]
-		button.disabled = explanation_open
-		button.button_pressed = mode == tool
-		if transmission_controls != null and not transmission_controls.active_tool.is_empty():
-			button.button_pressed = false
 	retrieve_button.disabled = explanation_open or state.stock.output < 1 or not state.entities.has(selected) or state.entities[selected].kind != "processor"
 	remove_button.disabled = explanation_open or not _contains_target(state, selected)
 	selection_ring.visible = mode in ["inspect", "flow", "drive"] and state.entities.has(selected)
@@ -9042,7 +9017,7 @@ func _catalog_open() -> bool:
 	return building_hotbar != null and building_hotbar.catalog.visible
 
 func _refresh_manager_log() -> void:
-	if manager_log_current == null or goal_label == null:
+	if manager_log_current == null:
 		return
 	var complete: bool = state.get("workshop_completed_actors", []).has(client)
 	manager_log_completion_entry.visible = complete
@@ -9052,7 +9027,9 @@ func _refresh_manager_log() -> void:
 		maxf(180.0, (viewport_height - 32.0) * 0.5))
 	manager_log_panel.offset_top = -half_height
 	manager_log_panel.offset_bottom = half_height
-	manager_log_current.text = "CURRENT FIELD CUE\n" + objective_heading.text + "\n" + goal_label.text
+	manager_log_current.text = "CURRENT FIELD CUE\n" + objective_title + "\n" + goal_text
+	if not goal_detail.is_empty():
+		manager_log_current.text += "\n\n" + goal_detail
 
 func _notice_workshop_completion(complete: bool) -> void:
 	var previously_complete: Variant = workshop_completion_observed
@@ -9172,10 +9149,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			else:
 				button.remove_theme_color_override(color_name)
 	var inventory := int(state.get("inventories", {}).get(client, 0))
-	goal_progress.value = clampi(inventory, 0, 4)
-	goal_progress.visible = not arrival
 	var workshop_complete: bool = arrival and state.get("workshop_completed_actors", []).has(client)
-	objective_heading.text = ("FIRST WORKSHOP  /  COMPLETE" if workshop_complete else "FIRST WORKSHOP  /  01") \
+	objective_title = ("FIRST WORKSHOP  /  COMPLETE" if workshop_complete else "FIRST WORKSHOP  /  01") \
 		if arrival else "FIRST SHIFT  /  01"
 	if arrival:
 		var carried: Dictionary = state.get("cargo", {}).get(client, {})
@@ -9233,24 +9208,17 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 			next_work = "Place a carried part [B]."
 		elif int(carried.get("timber", 0)) >= 3:
 			next_work = "Craft a part in Build [B]."
-		goal_label.text = (next_work if workshop_complete else "FORM A PLATE · KEEP IT\n" + next_work) \
+		goal_text = (next_work if workshop_complete else "FORM A PLATE · KEEP IT\n" + next_work) \
 			if snapshot_ready else "Connect to the worksite."
 	else:
-		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
-	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
-	objective_heading.visible = not arrival
-	goal_label.visible = not arrival
-	objective_separator.visible = not arrival
-	manager_log_button.get_parent().visible = not arrival
-	manager_log_button.visible = not arrival
-	help_button.visible = not arrival
+		goal_text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	actor_label.visible = true
-	controls_label.text = "WASD move · E interact · B build · F remove · J log · H help" if arrival \
-		else "B catalog · 1–8 build · E open · F remove · J log · H help"
-	if explanation_open:
-		help_title.text = objective_heading.text
-		help_body.text = goal_label.text + "\n\n" + controls_label.text
+	controls_label.text = "WASD move · E interact · B build · F remove · C link · J log · H help" if arrival \
+		else "B catalog · 1–8 build · E open · F remove · C link · J log · H help"
 	_refresh_engineering(snapshot_ready)
+	if explanation_open:
+		help_title.text = objective_title
+		help_body.text = _help_goal_text()
 	var target_selected: bool = _contains_target(state, selected)
 	inspector_title.visible = object_menu == null and (target_selected or not snapshot_ready or not _can_choose_tool())
 	inspector.visible = target_selected if object_menu != null else target_selected \
@@ -9620,10 +9588,8 @@ func _guided_span_routes() -> Dictionary:
 	return result
 
 func _guided_step(kinds: Dictionary) -> Dictionary:
-	if goal_confirmed:
-		return {"text": "Four plates confirmed. Keep building or try another layout.", "tool": "inspect"}
 	if int(state.get("inventories", {}).get(client, 0)) >= 4:
-		return {"text": "Four plates ready. Confirm when you are ready.", "tool": "inspect"}
+		return {"text": "Four plates collected. Keep building or try another layout.", "tool": "inspect"}
 	if int(state.get("stock", {}).get("output", 0)) > 0:
 		return {"text": "Plate ready. Point at the press and open [E], then collect [R].", "tool": "inspect"}
 	if not kinds.has("collector"):
@@ -9785,17 +9751,9 @@ func _footer_above_view() -> bool:
 
 func _fit_guided_footer() -> void:
 	footer_fit_pending = false
-	var arrival := _native_transmission() and state.has("hand_sources")
-	var action_row: Control = tool_buttons.flow.get_parent()
-	var has_left_action := false
-	for action in action_row.get_children():
-		if action is Control and action.visible:
-			has_left_action = true
-			break
-	build_column.get_parent().visible = not arrival or has_left_action
 	# Wrapped text settles after its container width. Fit again at that
 	# boundary, rather than retaining an early oversized minimum height.
-	var columns_to_fit := [build_column] if object_menu != null else [build_column, inspector.get_parent() if inspector != null else null]
+	var columns_to_fit := [] if object_menu != null else [inspector.get_parent() if inspector != null else null]
 	for column in columns_to_fit:
 		if column != null:
 			var panel: Control = column.get_parent()
@@ -9809,11 +9767,10 @@ func _fit_guided_footer() -> void:
 			var height: float = panel.get_combined_minimum_size().y
 			if not is_equal_approx(panel.size.y, height):
 				panel.size.y = height
-	# Keep repeated guidance on the objective card instead of a second message panel.
-	var repeated_goal: bool = not status_label.text.is_empty() and goal_label.text.contains(status_label.text)
+	# The current objective is available in Help and the Work log.
 	var can_omit_instruction: bool = footer_snapshot_ready and _placement_ready() \
 		and not status_refused and not _catalog_open() and not explanation_open
-	var redundant_intro: bool = can_omit_instruction and (repeated_goal or _native_transmission() \
+	var redundant_intro: bool = can_omit_instruction and (_native_transmission() \
 		and mode in ["inspect", "collector"] \
 		and state.get("entities", {}).is_empty() and state.get("transmission_parts", {}).is_empty() \
 		and _guided_step({}).tool == "collector" \
@@ -10268,32 +10225,6 @@ func _build_interface() -> void:
 	fps_style.outline_size = 4
 	fps_style.outline_color = Color("16242a")
 	fps_label.label_settings = fps_style
-	var build := _panel(root, Vector2(18, 18), Vector2(260, 0))
-	_hud_surface(build, 0.58)
-	build_column = build
-	build.add_theme_constant_override("separation", 6)
-	objective_heading = _label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
-	goal_label = _label(build, "", 16, Color("f4f5eb"))
-	goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	manager_log_button = _button(build, "Work log  J", _toggle_manager_log)
-	manager_log_button.custom_minimum_size.y = 30
-	goal_progress = ProgressBar.new()
-	goal_progress.max_value = 4
-	goal_progress.show_percentage = false
-	goal_progress.custom_minimum_size.y = 7
-	var track := StyleBoxFlat.new()
-	track.bg_color = Color("293a3d")
-	track.set_corner_radius_all(3)
-	goal_progress.add_theme_stylebox_override("background", track)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = Color("e6ae64")
-	fill.set_corner_radius_all(3)
-	goal_progress.add_theme_stylebox_override("fill", fill)
-	build.add_child(goal_progress)
-	confirm_button = _button(build, "Confirm four plates  [Ctrl+Enter]", _confirm_goal)
-	_accent_button(confirm_button)
-	objective_separator = HSeparator.new()
-	build.add_child(objective_separator)
 	building_hotbar = BuildingHotbar.new()
 	building_hotbar.configure(self, root)
 	tool_buttons.merge(building_hotbar.catalog_buttons)
@@ -10337,21 +10268,6 @@ func _build_interface() -> void:
 		foundation_area_started = false)
 	placement_options_column.add_child(foundation_area_toggle)
 	foundation_area_toggle.visible = false
-	var selection_tools := HBoxContainer.new()
-	build.add_child(selection_tools)
-	tool_buttons.flow = _button(selection_tools, "Link  C", _select_tool.bind("flow"))
-	tool_buttons.flow.toggle_mode = true
-	tool_buttons.flow.custom_minimum_size.y = 30
-	help_button = _button(build, "Help  H", _toggle_explanation)
-	help_button.tooltip_text = "Show the current task and controls. H opens Help; H or Escape closes it."
-	help_button.custom_minimum_size.y = 30
-	manager_log_button.text = "Log  J"
-	var quick_actions := HBoxContainer.new()
-	quick_actions.add_theme_constant_override("separation", 4)
-	build.add_child(quick_actions)
-	for action in [manager_log_button, help_button]:
-		action.get_parent().remove_child(action)
-		quick_actions.add_child(action)
 	var right := _panel(root, Vector2(932, 18), Vector2(255, 0))
 	_hud_surface(right, 0.58)
 	var right_panel: Control = right.get_parent()
@@ -10402,7 +10318,6 @@ func _build_interface() -> void:
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	_build_object_menu(root, right_panel as PanelContainer)
 	if loose_material_controls != null:
-		loose_material_controls.reparent(selection_tools)
 		loose_material_controls.text = "DEBUG material"
 		loose_material_controls.accessibility_name = "Developer material commands, shortcut Control L"
 	_build_pause_menu(root)
@@ -10417,12 +10332,12 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 14)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H help", 12, Color("bfd1cc"))
+	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · C link · J log · H help", 12, Color("bfd1cc"))
 	developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
 	developer_mode_label.focus_mode = Control.FOCUS_ALL
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
-	for column: Control in [build, right]:
+	for column: Control in [right]:
 		column.minimum_size_changed.connect(_queue_footer_fit)
 	var lesson_column := _panel(root, Vector2(346, 18), Vector2(600, 192))
 	help_panel = lesson_column.get_parent()
