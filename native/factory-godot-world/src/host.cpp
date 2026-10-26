@@ -3118,6 +3118,8 @@ Value Host::projection() const {
                     Value(component.center[0]), Value(component.center[1]),
                     Value(component.center[2])})}));
             }
+            if (const auto axis = power.crank_axes.find(id); axis != power.crank_axes.end())
+                part.emplace("crank_axis", Value(static_cast<Integer>(axis->second)));
             placed.emplace(id, Value(std::move(part)));
         }
         projection.emplace("placed_components", Value(std::move(placed)));

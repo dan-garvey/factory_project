@@ -261,6 +261,8 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
         {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
     const auto fitted = resumed("attach-first", "attach_hand_crank", attach);
     check(get<bool>(fitted, "accepted") && get<std::string>(fitted, "entity") == first_id &&
+          get<I>(get<O>(restored.projection(), "placed_components").at(slide_id),
+              "crank_axis") == 0 &&
           get<std::string>(get<O>(restored.projection(), "crank_items").at(first_id),
               "attached_to") == slide_id &&
           !factory::values::typed_difference(
