@@ -2,12 +2,16 @@
 
 #include <algorithm>
 #include <chrono>
+#include <csignal>
 #include <filesystem>
+#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -126,6 +130,47 @@ int main(int argc, char** argv) {
         require(graphical_failure.exit_code != 0 &&
                 graphical_failure.output.find("graphical engine exited 1") != std::string::npos,
                 "A failed graphical child must report its exit and retain the session.");
+        const auto marker = root / "graphical child.pid";
+        write(admission, "#!/bin/sh\nsleep 60 &\nprintf '%s' \"$!\" > '" + marker.string() +
+                         "'\nwait\n", true);
+        const pid_t launcher = ::fork();
+        require(launcher >= 0, "Cannot start the owned cancellation fixture.");
+        if (launcher == 0) {
+            const int quiet = ::open("/dev/null", O_WRONLY);
+            if (quiet >= 0) { ::dup2(quiet, STDOUT_FILENO); ::dup2(quiet, STDERR_FILENO); ::close(quiet); }
+            std::vector<char*> arguments;
+            for (auto& value : graphical) arguments.push_back(value.data());
+            arguments.push_back(nullptr);
+            ::execv(graphical.front().c_str(), arguments.data());
+            ::_exit(127);
+        }
+        bool child_started = false;
+        for (int attempt = 0; attempt < 120; ++attempt) {
+            if (fs::exists(marker)) { child_started = true; break; }
+            std::this_thread::sleep_for(50ms);
+        }
+        if (!child_started) { ::kill(launcher, SIGTERM); ::waitpid(launcher, nullptr, 0); }
+        require(child_started, "The graphical child did not reach its owned process group.");
+        const auto sleep_pid = static_cast<pid_t>(std::stoi(read(marker)));
+        require(::kill(launcher, SIGTERM) == 0, "Cannot cancel the native launcher.");
+        int status = 0;
+        bool launcher_stopped = false;
+        for (int attempt = 0; attempt < 140; ++attempt) {
+            if (::waitpid(launcher, &status, WNOHANG) == launcher) { launcher_stopped = true; break; }
+            std::this_thread::sleep_for(50ms);
+        }
+        if (!launcher_stopped) { ::kill(launcher, SIGKILL); ::waitpid(launcher, nullptr, 0); ::kill(sleep_pid, SIGTERM); }
+        require(launcher_stopped && WIFEXITED(status) && WEXITSTATUS(status) == 143,
+                "The cancelled native launcher did not report SIGTERM.");
+        const auto child_status = fs::path("/proc") / std::to_string(sleep_pid) / "stat";
+        if (fs::exists(child_status)) {
+            const auto state = read(child_status);
+            const auto end = state.rfind(')');
+            if (end == std::string::npos || end + 2 >= state.size() || state[end + 2] != 'Z')
+                ::kill(sleep_pid, SIGTERM);
+            require(end != std::string::npos && end + 2 < state.size() && state[end + 2] == 'Z',
+                    "A graphical descendant survived native launcher cancellation.");
+        }
         write(script, "#!/bin/sh\nprintf 'fake child failed\\n'\nexit 23\n", true);
         git(repo, {"add", "."});
         git(repo, {"-c", "user.name=Factory Test", "-c", "user.email=test@factory.invalid", "commit", "-m", "failure"});

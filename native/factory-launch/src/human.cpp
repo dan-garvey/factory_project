@@ -118,13 +118,15 @@ int graphical(const std::vector<std::string>& command) {
         ~Child() {
             if (pid <= 0) return;
             ::kill(-pid, SIGTERM);
-            std::this_thread::sleep_for(100ms);
+            // The admission wrapper and engine inherit this group. Give the
+            // engine its shutdown window before enforcing the final stop.
+            std::this_thread::sleep_for(3s);
             ::kill(-pid, SIGKILL);
             int status = 0;
             while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
         }
     } child{pid};
-    const auto deadline = std::chrono::steady_clock::now() + 1830s;
+    const auto deadline = std::chrono::steady_clock::now() + 1800s;
     while (true) {
         require(cancelled == 0, "The graphical launch was cancelled.");
         siginfo_t info{};
@@ -218,7 +220,7 @@ int human_launch(int argc, char** argv) {
             return 0;
         }
         std::vector<std::string> command{admission.string(), "--root", repo.string(), "heavy", "--",
-            "/usr/bin/timeout", "--kill-after=3s", "1800", engine.string(), "--path",
+            engine.string(), "--path",
             (session / "native/runtime/project").string(), "res://opening/opening.tscn", "--",
             "--save-slot=" + (session / "player.factory").string()};
         if (options.count("--resume"))
