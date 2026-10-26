@@ -3,11 +3,16 @@
 `factory-commit-check --root CHECKOUT` captures the exact staged tree and obtains
 one native check/heavy permit. The existing immutable staged checker still owns
 source tests, raw-blob export, index guards and required Godot parsing. For a
-native or shared Bazel input change, the admitted worker then exports raw Git
+native, shared Bazel or root-package Bazel data change, the admitted worker then exports raw Git
 objects into a private bounded snapshot and runs offline Bazel reverse-dependency
 queries, affected builds and tests from that snapshot. It requires one passing
 Build Event Protocol summary per selected test. A temporary `GIT_INDEX_FILE`
 remains effective throughout.
+
+The coordinator reads the root `BUILD.bazel` from the staged tree before
+admission. A changed file named as a root-package Bazel input seeds its exact
+label, so the launcher guard scripts reach their native host consumers.
+Unreferenced scripts and ordinary prose do not select the native lane.
 
 [Configuration and limits](../../docs/engineering/native-builds.md#checks-and-local-hooks)
 are shared with the legacy coordinator. Optional repository-local

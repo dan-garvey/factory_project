@@ -17,7 +17,8 @@ struct NativeSelection {
 
 // Cheap path-only decision before resource admission. The full package graph
 // still comes from the immutable staged snapshot after admission.
-bool requires_native_validation(const std::vector<std::string>& changed_paths);
+bool requires_native_validation(const std::vector<std::string>& changed_paths,
+                                std::string_view root_build);
 
 // Map the exact staged delta to Bazel package seeds. Bazel itself expands
 // transitive reverse dependencies from this immutable source snapshot.

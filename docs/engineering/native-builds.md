@@ -142,7 +142,8 @@ git config --worktree factory.nativeOutputBase /absolute/owned/this-worktree/nat
 ```
 
 The gate queries the staged Bazel graph for reverse dependencies of changed
-native packages, builds every selected C++ target and requires a passing Bazel
+native packages or root-package file data declared in the staged root BUILD,
+builds every selected C++ target and requires a passing Bazel
 event summary for every selected test, including cached and host-tagged tests.
 A host test needing undeclared runtime arguments will fail this lane until its
 target contract is repaired; it is not silently excluded.

@@ -191,7 +191,10 @@ Plan prepare(const fs::path& root, const GitReader& git, const std::string& inte
     }
     Plan plan{tree, game, {interpreter, "-B", (root / "scripts/check.py").string(), "--staged", "--expected-tree", tree},
               std::move(changed_paths), false};
-    plan.validate_native = requires_native_validation(plan.changed_paths);
+    const auto root_build = checked(git, {"show", tree + ":BUILD.bazel"});
+    require(root_build.size() <= 1024 * 1024,
+            "The staged root BUILD file exceeds the native selector bound.");
+    plan.validate_native = requires_native_validation(plan.changed_paths, root_build);
     if (game) {
         const auto local = [&](const std::string& key) {
             const auto result = git({"config", "--local", "--get", key});
