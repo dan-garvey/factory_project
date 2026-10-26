@@ -40,6 +40,15 @@ It checks first-person capture policy, relative camera motion, menu release and
 held-key refusal in a headless view. It does not establish actual OS focus or
 human mouse control.
 
+`native_adapter_check.gd` requires exactly one nonempty `--native-check-mode`
+and `--native-check-output`. It refuses unknown, repeated or empty arguments
+before constructing the scene. Its optional event routes are checked against
+the selected mode before the scene starts. At most one anvil stage may accompany
+an arrival press mode. `--native-check-prior` belongs only to `arrival-channel-small-resume`;
+`--arrival-reveal-probe` belongs only to `arrival-resume`. The script also accepts
+the existing `--resume-input`, `--save-slot`, `--arrival-capture-prefix` and
+`--test-purpose` arguments where their selected consumer uses them.
+
 Build `//native/godot-fixture:factory-godot-fixture` with the verified Bazel
 8.4.2 toolchain described in [native builds](../../docs/engineering/native-builds.md).
 Then run from a linked checkout, substituting existing absolute paths, the
