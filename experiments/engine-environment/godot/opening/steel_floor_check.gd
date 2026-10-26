@@ -1,7 +1,8 @@
 extends SceneTree
+const ProductionEnvironment = preload("res://opening/production_environment.gd").ProductionEnvironment
 ## Real image/material and foundation assembly checks; no game authority.
 const Opening = preload("res://opening/opening.gd")
-const Steel = Opening.ProductionSteelFloor
+const Steel = preload("res://opening/production_surfaces.gd").ProductionSteelFloor
 
 class VisualWorld extends Opening:
 	func _ready() -> void:
@@ -102,9 +103,9 @@ func check_foundation() -> void:
 	for node in view.get_children():
 		if node is MeshInstance3D and node.get_meta("surface_role", "") == "foundation":
 			panels += 1
-	verify(panels == 0 and Opening.ProductionEnvironment.Surface.pad_panels().is_empty(),
+	verify(panels == 0 and ProductionEnvironment.Surface.pad_panels().is_empty(),
 		"The current site has no invisible flat floor panels over its stream.")
-	verify(view.get_node("ProductionScenery/GroundSurface").material_override == Opening.ProductionEnvironment.ground_material()
+	verify(view.get_node("ProductionScenery/GroundSurface").material_override == ProductionEnvironment.ground_material()
 		and view.get_meta("foundation_surface") == "ready",
 		"The continuous terrain consumes the shared rocky-ground surface.")
 	verify(view.model == null and view.actor_world == null and view.state.is_empty() and view.request_sequence == 0,

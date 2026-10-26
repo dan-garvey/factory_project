@@ -1,4 +1,5 @@
 extends SceneTree
+const ProductionConveyorArt = preload("res://opening/production_conveyors.gd").ProductionConveyorArt
 ## Actual render transforms over invented observations. No Model or game starts.
 const Opening = preload("res://opening/opening.gd")
 const Shared = preload("res://opening/shared_opening.gd")
@@ -140,9 +141,9 @@ func check_conveyor_motion(shared: bool) -> void:
 	view._animate_wheel(0.1)
 	var positive := conveyor_offset(view, "reverse")
 	var negative := conveyor_offset(view, "forward")
-	var length_value := 4.0 * Opening.ProductionConveyorArt.HALF_SPAN + TAU * Opening.ProductionConveyorArt.RADIUS
-	var repeats := maxi(1, roundi(length_value / Opening.ProductionConveyorArt.SOURCE_METRES))
-	var expected := expected_rotation(0.1) * Opening.ProductionConveyorArt.RADIUS * repeats / length_value
+	var length_value := 4.0 * ProductionConveyorArt.HALF_SPAN + TAU * ProductionConveyorArt.RADIUS
+	var repeats := maxi(1, roundi(length_value / ProductionConveyorArt.SOURCE_METRES))
+	var expected := expected_rotation(0.1) * ProductionConveyorArt.RADIUS * repeats / length_value
 	verify(is_equal_approx(positive, expected) and is_equal_approx(negative, 1.0 - expected),
 		"Opposite spindle signs move the top texture in opposite world directions at pulley surface speed.")
 	view._rebuild_machines()
@@ -232,9 +233,9 @@ func check_batched_collector_motion() -> void:
 		"The topology rebuild emits one render-batch root for its machines.")
 	var first := machine(view, "collector")
 	var second := machine(view, "collector-0")
-	var first_slot: Dictionary = view.machine_cutter_batch_slots.get(first.get_instance_id(), {})
-	var second_slot: Dictionary = view.machine_cutter_batch_slots.get(second.get_instance_id(), {})
-	verify(view.machine_cutter_batch_slots.size() == 12 and not first_slot.is_empty()
+	var first_slot: Dictionary = view.machine_batches.machine_cutter_batch_slots.get(first.get_instance_id(), {})
+	var second_slot: Dictionary = view.machine_batches.machine_cutter_batch_slots.get(second.get_instance_id(), {})
+	verify(view.machine_batches.machine_cutter_batch_slots.size() == 12 and not first_slot.is_empty()
 		and not second_slot.is_empty() and first_slot.mesh == second_slot.mesh
 		and first_slot.index != second_slot.index,
 		"Twelve collectors share one complete moving assembly while retaining distinct instance slots.")
@@ -273,15 +274,15 @@ func check_batched_collector_motion() -> void:
 			row.node.set(property, different)
 		var groups: Dictionary = {}
 		var skipped: Dictionary = {}
-		view._batch_collector_cutters(groups, skipped)
+		view.machine_batches._batch_collector_cutters(groups, skipped)
 		verify(groups.is_empty() and skipped.is_empty(),
 			"Collectors with distinct %s retain their own artwork below the compatible batch threshold." % property)
 		for index in cutter_rows.size():
 			cutter_rows[index].node.set(property, originals[index])
 	view._rebuild_machines()
 	var replacement := machine(view, "collector")
-	var replacement_slot: Dictionary = view.machine_cutter_batch_slots.get(replacement.get_instance_id(), {})
-	verify(replacement != first and view.machine_cutter_batch_slots.size() == 12
+	var replacement_slot: Dictionary = view.machine_batches.machine_cutter_batch_slots.get(replacement.get_instance_id(), {})
+	verify(replacement != first and view.machine_batches.machine_cutter_batch_slots.size() == 12
 		and not replacement_slot.is_empty() and replacement_slot.mesh != first_slot.mesh,
 		"A topology rebuild replaces stale cutter render slots with the new anchors.")
 	view.free()
@@ -335,6 +336,8 @@ func check_static_composite_render_flags() -> void:
 		view.free()
 
 func _initialize() -> void:
+	if not Opening.apply_test_window_title(self):
+		return
 	if "--clearance-only" in OS.get_cmdline_user_args():
 		check_held_workpiece_clearance()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,

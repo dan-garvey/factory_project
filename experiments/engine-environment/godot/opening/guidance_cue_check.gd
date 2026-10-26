@@ -1,4 +1,5 @@
 extends SceneTree
+const ProductionEnvironment = preload("res://opening/production_environment.gd").ProductionEnvironment
 ## Default/camera modes use detached views. Footer mode mounts only real UI
 ## containers, without a Model, body, network or game world.
 
@@ -190,7 +191,7 @@ func check_foundation_view() -> void:
 		await physics_frame
 		await process_frame
 	verify(view.model == null and view.actor_world == null, "Client picking creates no authority or local physical character.")
-	var terrain_point := Vector3(8.25, Opening.ProductionEnvironment.Surface.height_at(8.25, 3.3), 3.3)
+	var terrain_point := Vector3(8.25, ProductionEnvironment.Surface.height_at(8.25, 3.3), 3.3)
 	var screen := view.camera.unproject_position(terrain_point)
 	verify(view._screen_cell(screen) == Vector2i(5, 2), "The client requests a tile beyond the retired build rectangle.")
 	view.mode = "foundation"

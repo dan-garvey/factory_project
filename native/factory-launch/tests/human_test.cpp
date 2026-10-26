@@ -78,6 +78,8 @@ int main(int argc, char** argv) {
         write(repo / "experiments/engine-environment/godot/project.godot", "config_version=5\n");
         write(repo / "experiments/engine-environment/godot/opening/shared_opening.tscn", "[gd_scene]\n");
         write(repo / "experiments/engine-environment/godot/opening/parts_view_check.gd", "extends SceneTree\n");
+        write(repo / "experiments/engine-environment/godot/opening/machine_body_motion_check.gd", "extends SceneTree\n");
+        write(repo / "experiments/engine-environment/godot/opening/machine_visual_test.gd", "extends SceneTree\n");
         write(repo / "experiments/engine-environment/godot/opening/shared_opening.gd", "extends Node\n");
         write(repo / "experiments/engine-environment/godot/opening/native_transmission_view_check.gd",
             "extends SceneTree\n");
@@ -195,6 +197,25 @@ int main(int argc, char** argv) {
         }
         require(installed_fixtures == 1,
             "Only the selected fixture runtime gains its checked-main script.");
+        for (const std::string fixture : {"machine_body_motion_check.gd", "machine_visual_test.gd"}) {
+            auto motion_window = window_base;
+            motion_window.insert(motion_window.end(), {"--script", "res://opening/" + fixture,
+                "--test-purpose", "Machine motion validation"});
+            require(run(motion_window).exit_code == 0,
+                "Machine motion checks can exercise actual renderer readback in a labeled window.");
+            std::size_t installed = 0;
+            for (const auto& entry : fs::directory_iterator(sessions)) {
+                const auto project = entry.path() / "native/runtime/project";
+                if (!fs::exists(project / "opening" / fixture)) continue;
+                ++installed;
+                require(read(project / "opening" / fixture) == "extends SceneTree\n",
+                    "The motion fixture comes from checked main.");
+                if (fixture == "machine_body_motion_check.gd")
+                    require(read(project / "opening/shared_opening.gd") == "extends Node\n",
+                        "Body motion also receives its shared view dependency.");
+            }
+            require(installed == 1, "Only the selected runtime receives each motion fixture.");
+        }
         fs::remove(launched);
         auto transmission_window = window_base;
         transmission_window.insert(transmission_window.end(), {"--script",

@@ -347,6 +347,8 @@ int agent_window_launch(int argc, char** argv) {
         const bool script = options.count("--script");
         const auto target = options.at(script ? "--script" : "--scene");
         require(script ? (target == "res://opening/parts_view_check.gd" ||
+                          target == "res://opening/machine_body_motion_check.gd" ||
+                          target == "res://opening/machine_visual_test.gd" ||
                           target == "res://opening/native_adapter_check.gd" ||
                           target == "res://opening/native_transmission_view_check.gd" ||
                           target == "res://opening/worker_wardrobe_view_check.gd") :
@@ -396,6 +398,7 @@ int agent_window_launch(int argc, char** argv) {
             // checked-main source closure to its private runtime.
             std::vector<fs::path> fixture_sources{relative};
             if (target == "res://opening/parts_view_check.gd" ||
+                    target == "res://opening/machine_body_motion_check.gd" ||
                     target == "res://opening/native_transmission_view_check.gd")
                 fixture_sources.emplace_back("opening/shared_opening.gd");
             if (target == "res://opening/native_transmission_view_check.gd") {
