@@ -65,6 +65,30 @@ class OfflineWidgets:
 	func _screen_hand_source(_screen: Vector2) -> String:
 		return hand_pointed
 
+class ReclaimOrderModel:
+	extends RefCounted
+	var projected: Dictionary
+	var sent: Array[Dictionary] = []
+	var fail_pickup := false
+	func projection() -> Dictionary:
+		return projected
+	func command(intent: Dictionary) -> Dictionary:
+		sent.append(intent.duplicate(true))
+		if fail_pickup and intent.action == "pickup_material":
+			return {"accepted": false, "reason": "inventory_full"}
+		return {"accepted": true}
+
+class ReclaimOrderView:
+	extends "res://opening/opening.gd"
+	func _ready() -> void:
+		set_process(false)
+	func _refresh() -> void:
+		state = model.projection()
+	func _message(_words: String, _refused: bool = false) -> void:
+		pass
+	func _construction_feedback(_intent: Dictionary, _outcome: Dictionary) -> void:
+		pass
+
 class SharedWidgets:
 	extends "res://opening/shared_opening.gd"
 	var issued: Array = []
@@ -331,8 +355,8 @@ func _component_placement_check() -> void:
 	verify(snapped == [0, 1, 0], "The anvil snaps one height step above a pointed frame top.")
 	view._refresh_component_preview()
 	verify(view.component_preview.visible and view.component_preview_kind == "anvil"
-		and view.component_preview.has_node("CastAnvilWaist")
-		and view.component_preview.has_node("TaperedAnvilHorn")
+		and view.component_preview.has_node("WorkbedWeb")
+		and view.component_preview.has_node("OpenAnvilSeat")
 		and not view.component_preview_blocked,
 		"The frame-top anvil ghost uses the placed anvil mesh and is initially clear.")
 	verify(view.component_preview_snap == "Above wooden frame"
@@ -479,7 +503,7 @@ func _component_placement_check() -> void:
 	verify(view._component_place_center(Vector2i.ZERO, "sample-head") == [12, 2, 8]
 		and view.component_preview.visible and not view.component_preview_blocked
 		and view.component_preview_snap == "Slide over head"
-		and "Aim at the flat head to place the slide above" in view._component_placement_hint(),
+		and "Aim at the anvil or flat head to place the slide above" in view._component_placement_hint(),
 		"A standing side-face aim on the head shows a clear fitted slide and names the target.")
 	view._world_click(Vector2i.ZERO, "sample-head")
 	verify(view.issued.back().center == [12, 2, 8],
@@ -496,6 +520,40 @@ func _component_placement_check() -> void:
 		verify(root.get_texture().get_image().save_png(prefix + "-slide-side-snap.png") == OK,
 			"Retain the actor-eye slide ghost from a head side aim.")
 	view.state.placed_components.erase("sample-head")
+	choice.kind = "wooden_slide"
+	view.state.cargo.P.components.wooden_slide = 1
+	view.aimed = "workbed"
+	body.set_meta("component_entity", "workbed")
+	body.position = workbed_box.center
+	press_shape.size = workbed_box.size
+	camera.look_at(workbed_box.center)
+	await physics_frame
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "workbed") == [12, 2, 8]
+		and view.component_preview.visible and not view.component_preview_blocked
+		and view.component_preview_snap == "Slide over workbed",
+		"Slide-first placement uses the same native slide center as head-first placement.")
+	view._world_click(Vector2i.ZERO, "workbed")
+	verify(view.issued.back().center == [12, 2, 8],
+		"Clicking the anvil submits the displayed slide center to Host.")
+	view.state.placed_components["sample-slide"] = {"component": "wooden_slide", "center": [12, 2, 8],
+		"generation": 2, "occupied": {"center": [slide_box.center.x, slide_box.center.y,
+			slide_box.center.z], "half": [slide_box.half.x, slide_box.half.y, slide_box.half.z]}}
+	choice.kind = "flat_head"
+	view.aimed = "sample-slide"
+	body.set_meta("component_entity", "sample-slide")
+	body.position = slide_box.center
+	press_shape.size = slide_box.size
+	camera.look_at(slide_box.center)
+	await physics_frame
+	view._refresh_component_preview()
+	verify(view._component_place_center(Vector2i.ZERO, "sample-slide") == [12, 1, 8]
+		and view.component_preview.visible and not view.component_preview_blocked,
+		"A head aimed at a slide-first build fits between the slide and lowered anvil.")
+	view._world_click(Vector2i.ZERO, "sample-slide")
+	verify(view.issued.back().center == [12, 1, 8],
+		"Slide-first head placement sends the same native center as anvil-first placement.")
+	view.state.placed_components.erase("sample-slide")
 	view.state.placed_components.erase("workbed")
 	view.issued.clear()
 	choice.kind = "anvil"
@@ -3064,7 +3122,7 @@ func _workshop_pages() -> void:
 		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree() and not panel.collector_section.visible
 			and panel.feed_button.is_visible_in_tree() and not panel.feed_button.disabled,
 			"Ordinary E on a confirmed press exposes its existing feed controls.")
-		var press_icons := [panel.feed_button, panel.refeed_work_button, panel.turn_button,
+		var press_icons := [panel.feed_button, panel.refeed_work_button,
 			panel.compact_button, panel.pickup_button, panel.recover_work_button]
 		var icons_described := true
 		for button: Button in press_icons:
@@ -3072,14 +3130,10 @@ func _workshop_pages() -> void:
 				and not button.tooltip_text.is_empty() and not button.accessibility_name.is_empty() \
 				and button.focus_mode == Control.FOCUS_ALL
 		verify(icons_described, "Press actions use focusable icons with an action description and shortcut.")
-		verify(panel.feed_button.tooltip_text.contains("F") and panel.turn_button.tooltip_text.contains("T")
+		verify(panel.feed_button.tooltip_text.contains("F")
 			and panel.pickup_button.tooltip_text.contains("P")
 			and panel.recover_work_button.tooltip_text.contains("U"),
 			"Press action tooltips retain their keyboard routes.")
-		view.state.crank_items.crank = {"holder": view.client, "attached_to": "", "port": []}
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.turn_button.disabled and panel.turn_button.tooltip_text.contains("Fit a crafted crank"),
-			"A carried crank must be fitted before the press offers a turn.")
 		view.state.crank_items.crank = {"holder": "", "attached_to": "press-shaft", "port": [9, 4, 8]}
 		panel.refresh(view.state, view.client, view.selected, true)
 		panel.feed_button.pressed.emit()
@@ -3358,80 +3412,13 @@ func _workshop_pages() -> void:
 		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
 			"F in the press panel uses its visible feed button and existing request payload.")
 		view.issued.clear()
-		if not shared:
-			view.state.dropped_material = [{"center": [8, 0, 8], "work_id": 1}]
-			panel.refresh(view.state, view.client, view.selected, true)
-			var turn_payload := {"action": "turn_press_crank", "entity": "press-anvil",
-				"drive": "press-shaft", "exit": [7, 0, 8]}
-			verify(not panel.turn_button.disabled and "Hold T" in panel.turn_button.tooltip_text,
-				"Retained work enables the described held crank action.")
-			panel.turn_button.button_down.emit()
-			panel.turn_button.pressed.emit()
-			await create_timer(0.40).timeout
-			verify(view.issued.size() >= 2 and view.issued.all(func(action: Variant) -> bool:
-				return action == turn_payload),
-				"Holding the pointer sends repeated exact native turn requests after one immediate turn.")
-			panel.turn_button.button_up.emit()
-			var pointer_turn_count: int = view.issued.size()
-			await create_timer(0.40).timeout
-			verify(view.issued.size() == pointer_turn_count and panel.turn_hold_source.is_empty(),
-				"Pointer release stops the crank without a trailing request.")
-			view.issued.clear()
-			var turn_key := InputEventKey.new()
-			turn_key.keycode = KEY_T
-			turn_key.pressed = true
-			view._input(turn_key)
-			turn_key.echo = true
-			view._input(turn_key)
-			verify(view.issued == [turn_payload],
-				"T starts with one exact turn and ignores keyboard auto-repeat.")
-			await create_timer(0.40).timeout
-			verify(view.issued.size() >= 2 and view.issued.all(func(action: Variant) -> bool:
-				return action == turn_payload),
-				"Holding T advances retained work through the same native payload.")
-			turn_key.echo = false
-			turn_key.pressed = false
-			view._input(turn_key)
-			var key_turn_count: int = view.issued.size()
-			await create_timer(0.40).timeout
-			verify(view.issued.size() == key_turn_count and panel.turn_hold_source.is_empty(),
-				"T release stops the crank without a trailing request.")
-			view.issued.clear()
-			view.accept_press_turn = false
-			panel.turn_button.button_down.emit()
-			panel.turn_button.pressed.emit()
-			verify(view.issued == [turn_payload] and panel.turn_hold_source.is_empty()
-				and panel.turn_repeat_timer.is_stopped(),
-				"A refused first pointer turn cancels its hold immediately.")
-			await create_timer(0.40).timeout
-			verify(view.issued == [turn_payload],
-				"A refused pointer turn never sends a second native request.")
-			panel.turn_button.button_up.emit()
-			view.issued.clear()
-			turn_key.pressed = true
-			view._input(turn_key)
-			verify(view.issued == [turn_payload] and panel.turn_hold_source.is_empty()
-				and panel.turn_repeat_timer.is_stopped(),
-				"A refused first T turn cancels its hold immediately.")
-			await create_timer(0.40).timeout
-			verify(view.issued == [turn_payload],
-				"A refused T turn never sends a second native request.")
-			turn_key.pressed = false
-			view._input(turn_key)
-			view.accept_press_turn = true
-			view.issued.clear()
-			panel.turn_button.button_down.emit()
-			panel.turn_button.pressed.emit()
-			panel.turn_button.focus_exited.emit()
-			verify(panel.turn_hold_source.is_empty() and panel.turn_repeat_timer.is_stopped(),
-				"Leaving the turn control cancels a pointer hold.")
-			view.issued.clear()
-			view.state.dropped_material = [{"center": [8, 0, 8], "offcuts": 1}]
-			panel.refresh(view.state, view.client, view.selected, true)
-			verify(panel.turn_button.disabled and "Pick up the copper offcut" in panel.turn_button.tooltip_text,
-				"A retained offcut blocks held turns until it is recovered.")
-			view.state.erase("dropped_material")
-			panel.refresh(view.state, view.client, view.selected, true)
+		var turn_key := InputEventKey.new()
+		turn_key.keycode = KEY_T
+		turn_key.pressed = true
+		view._input(turn_key)
+		verify(view.issued.is_empty() and panel.feed_actions.get_child_count() == 3
+			and not panel.has_method("_turn"),
+			"The inspector has no Turn shortcut or control; power is operated at its fitted world crank.")
 		panel.refresh(view.state, view.client, view.selected, false)
 		verify(panel.press_section.is_visible_in_tree() and panel.feed_button.disabled
 			and panel.feed_button.tooltip_text.contains("Wait for the character")
@@ -3509,18 +3496,10 @@ func _workshop_pages() -> void:
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-guided-ram-menu.png") == OK,
 				"Retain the passive guided ram action panel.")
-		if not shared:
-			view.state.dropped_material = [{"center": [8, 0, 8], "work_id": 2}]
-			panel.refresh(view.state, view.client, view.selected, true)
-			panel.turn_button.button_down.emit()
-			panel.turn_button.pressed.emit()
 		view.object_menu.hide()
 		await process_frame
 		if not shared:
-			verify(panel.turn_hold_source.is_empty() and panel.turn_repeat_timer.is_stopped(),
-				"Closing the object menu cancels a held crank before another request.")
 			view.issued.clear()
-			view.state.erase("dropped_material")
 		verify(not panel.press_section.is_visible_in_tree(),
 			"Closing a press panel removes its actions from the game view.")
 		view.state.crank_items.crank = {"holder": "", "attached_to": "collector-mount", "port": [-1, 0, 0]}
@@ -3996,9 +3975,9 @@ func _slide_controls_check() -> void:
 	verify(panel.press_anvil_for("head") == "anvil" and panel.press_anvil_for("slide") == "anvil",
 		"The fitted head and slide resolve to the same native work support.")
 	verify(panel.press_section.visible and panel.route_choice.disabled and panel._route_index == 1
-		and not panel.slide_port_choice.visible and panel.turn_button.visible
-		and not panel.turn_button.disabled,
-		"The E-menu turns the fitted slide input without a side selector.")
+		and not panel.feed_heading.visible and not panel.feed_actions.visible
+		and not panel.has_method("_turn") and panel.get_node_or_null("SlideCrankPort") == null,
+		"The slide inspector has no Turn row or side selector; the fitted world crank owns power.")
 	verify(panel.inventory_section.visible and not panel.feed_button.visible
 		and not panel.refeed_work_button.visible and not panel.pickup_button.visible
 		and not panel.recover_work_button.visible
@@ -4020,20 +3999,14 @@ func _slide_controls_check() -> void:
 		"expected": {"raw": 1, "products": 0, "offcuts": 0, "work_lots": []}},
 		"Click and drag recovery submits the exact supported work snapshot.")
 	view.issued.clear()
-	panel._turn()
-	verify(view.issued.back() == {"action": "turn_slide_crank", "entity": "slide",
-		"port": [11, 2, 8]}, "The turn icon sends the fitted native input port.")
-	verify(not panel.cycle_slide_port(),
-		"The workbed has no crank-side cycling control.")
 	snapshot.crank_items["crank-1"].port = [13, 2, 8]
 	panel.refresh(snapshot, "P", "slide", true)
-	panel._turn()
-	verify(view.issued.back().port == [13, 2, 8],
-		"Refitting the crank on the other side changes the actual drive port.")
+	verify(view.issued.is_empty() and not panel.feed_actions.visible,
+		"Changing the fitted crank side never adds a machine-menu turn action.")
 	snapshot.sliding_press_assemblies[0].open_feeds = [{"entry": [13, 0, 8],
 		"exit": [11, 0, 8]}]
 	panel.refresh(snapshot, "P", "slide", true)
-	verify(panel.turn_button.disabled and panel.route_choice.disabled
+	verify(not panel.feed_actions.visible and panel.route_choice.disabled
 		and panel.press_status.text.contains("Selected outlet blocked"),
 		"A different clear outlet cannot silently replace the route owned by the work.")
 	snapshot.sliding_press_assemblies[0].status = "blocked_feed"
@@ -4190,13 +4163,46 @@ func _slide_controls_check() -> void:
 	verify(view.issued.back().action == "pickup_material"
 		and view.issued.back().center == [13, 0, 8],
 		"After route release, the E-menu finds the formed plate at either native outlet.")
+	snapshot.dropped_material = [{"center": [13, 0, 8], "products": 1},
+		{"center": [12, 0, 8], "raw": 1}, {"center": [16, 0, 8], "raw": 1}]
+	var slide_custody: Array[Dictionary] = view._reclaim_owned_drops("slide")
+	verify(slide_custody.size() == 2 and slide_custody[0].center == [13, 0, 8]
+		and slide_custody[1].center == [12, 0, 8]
+		and view._reclaim_owned_drops("head") == slide_custody,
+		"Reclaiming either press upper part picks the witnessed outlet and retained work before removal.")
+	verify(view._reclaim_owned_drops("anvil") == slide_custody
+		and view._reclaim_owned_drops("unknown").is_empty(),
+		"The anvil shares press custody while unrelated loose material is left alone.")
+	var reclaim_view := ReclaimOrderView.new()
+	var reclaim_model := ReclaimOrderModel.new()
+	reclaim_model.projected = snapshot
+	reclaim_view.model = reclaim_model
+	reclaim_view.state = snapshot
+	reclaim_view.client = "P"
+	reclaim_view.issue({"action": "reclaim_component", "entity": "slide"})
+	verify(reclaim_model.sent.size() == 3
+		and reclaim_model.sent[0].action == "pickup_material"
+		and reclaim_model.sent[0].center == [13, 0, 8]
+		and reclaim_model.sent[0].expected == {"products": 1}
+		and reclaim_model.sent[1].action == "pickup_material"
+		and reclaim_model.sent[1].center == [12, 0, 8]
+		and reclaim_model.sent[2].action == "reclaim_component"
+		and reclaim_model.sent[2].entity == "slide",
+		"One ordinary reclaim collects exact native outlet and work drops before removing the part.")
+	reclaim_model.sent.clear()
+	reclaim_model.fail_pickup = true
+	var refused_reclaim: Dictionary = reclaim_view.issue({"action": "reclaim_component", "entity": "slide"})
+	verify(not refused_reclaim.accepted and reclaim_model.sent.size() == 1
+		and reclaim_model.sent[0].action == "pickup_material",
+		"A refused native material pickup leaves the component in place.")
+	reclaim_view.free()
 	snapshot.sliding_press_assemblies[0] = {"anvil": "anvil", "center": [12, 0, 8],
 		"status": "missing_head"}
 	snapshot.guided_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
 		"status": "ready", "parts": {"anvil": "anvil", "shaft": "old-shaft"},
 		"open_feeds": [{"entry": [13, 0, 8], "exit": [11, 0, 8]}]}]
 	panel.refresh(snapshot, "P", "anvil", true)
-	verify(panel._press.get("parts", {}).has("shaft") and panel.turn_button.visible,
+	verify(panel._press.get("parts", {}).has("shaft") and not panel.has_method("_turn"),
 		"An incomplete slide candidate cannot hide a ready guided press on the same anvil.")
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "scope": "invented projection and ordinary E-menu command mapping"}))
