@@ -26,9 +26,6 @@ class SessionStub extends RefCounted:
 	var ready := true
 	func is_ready() -> bool: return ready
 
-class HelpStub extends RefCounted:
-	func pan(_delta: float) -> void: pass
-
 var checks := 0
 var failed := false
 
@@ -53,7 +50,6 @@ func check_frames(view, shared: bool) -> void:
 	view.mode = "belt"
 	view.auto_advance = false
 	view.transmission_controls = ControlsStub.new()
-	view.example_presenter = HelpStub.new()
 	view.camera = Camera3D.new()
 	view.add_child(view.camera)
 	root.add_child(view)

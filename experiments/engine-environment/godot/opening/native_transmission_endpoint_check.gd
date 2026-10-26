@@ -111,16 +111,6 @@ func check_transmission_guidance(shared: bool) -> void:
 	view.transmission_controls._tool_selected(6)
 	verify("part face" in view.status_label.text and "belt" in view.status_label.text,
 		"The transmission menu gives the same usable shaft targets.")
-	view.lesson_title = Label.new()
-	view.lesson_body = Label.new()
-	view.add_child(view.lesson_title)
-	view.add_child(view.lesson_body)
-	view._set_lesson(1)
-	verify("matching axes" in view.lesson_body.text and "diagonally" in view.lesson_body.text
-		and "reverse rotation" in view.lesson_body.text and "change speed" in view.lesson_body.text,
-		"The native drive lesson explains the supported cog placement, direction and speed relationship.")
-	verify("Two large cogs" in view.lesson_body.text and "perpendicular axes" in view.lesson_body.text,
-		"The drive lesson explains the large-cog corner connection.")
 	var motion := {"state": "rotating", "numerator": -2, "denominator": 3}
 	for spec in [["gear", 2, "Small Cogwheel"], ["gear", 4, "Large Cogwheel"], ["shaft", 0, "Shaft"]]:
 		var part := {"kind": spec[0], "teeth": spec[1], "axis": 2, "center": [4, 8, -4]}

@@ -205,10 +205,8 @@ def run_ui_cases(exchange, *, frozen_clock, wait_role_absent, observe_server,
         authority_before = server("before Help")
         key((role,), "H")
         opened = send((role,), {"action": "observe"}, "actual Help open")[role]
-        require(opened["explanation_open"] and opened["example"]["separate_model"]
-                and opened["example"]["separate_world"], "Legitimate example is isolated from shared authority")
-        for _ in range(3):
-            button((role,), "lesson_next")
+        require(opened["explanation_open"] and opened["help_title"] == "CURRENT TASK"
+                and opened["goal"] in opened["help_body"], "Help shows the current shared objective")
         key((role,), "F5")
         key((role,), "F9")
         send((role,), {"action": "view_delta", "seconds": 120}, "presentation-only delta during Help")
@@ -222,7 +220,7 @@ def run_ui_cases(exchange, *, frozen_clock, wait_role_absent, observe_server,
             live = server("live Help with other participant")
             require(live["tick_count"] > authority_before["tick_count"], "Server alone advances real live time")
             require(live["snapshot"]["inventories"].get("Q", 0) == 1, "Other participant collects its own plate during Help")
-        button((role,), "lesson_return")
+        button((role,), "help_close_button")
         after = send((role,), {"action": "observe"}, "after Help")[role]
         require(not after["explanation_open"] and local(before) == local(after),
                 "Help/navigation/save shortcuts preserve all exposed local player/request/save facts")

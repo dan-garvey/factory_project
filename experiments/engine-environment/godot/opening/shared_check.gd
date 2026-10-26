@@ -10,7 +10,7 @@ const KEYS := {"1": KEY_1, "2": KEY_2, "3": KEY_3, "4": KEY_4,
 const BUTTONS := ["confirm_button", "retrieve_button", "remove_button",
 	"save_button", "load_button", "reconnect_button", "disconnect_button",
 	"catalog_button",
-	"lesson_next", "lesson_previous", "lesson_return"]
+	"help_close_button"]
 var scene
 var control_root := ""
 var last_id := 0
@@ -368,7 +368,8 @@ func facts() -> Dictionary:
 		"model_is_session": scene.model == scene.session, "client_world_is_null": scene.session.get("world") == null,
 		"model_script": scene.model.get_script().resource_path,
 		"scene_path": str(scene.get_path()), "session_path": str(scene.session.get_path()),
-		"explanation_open": scene.explanation_open, "lesson": scene.lesson_index}
+		"explanation_open": scene.explanation_open,
+		"help_title": scene.help_title.text, "help_body": scene.help_body.text}
 	result["physical_view"] = {"legacy_fixture": scene.legacy_fixture,
 		"has_local_actor_world": scene.actor_world != null,
 		"has_presenter": scene.character_presenter != null,
@@ -383,10 +384,6 @@ func facts() -> Dictionary:
 				"is_physics_body": proxy is PhysicsBody3D}
 		result.physical_view["proxies"] = proxies
 		result.physical_view["held_keys"] = scene.character_presenter.held_keys.keys()
-	if scene.example_presenter != null:
-		result["example"] = {"projection": scene.example_presenter.model.projection(),
-			"separate_model": scene.example_presenter.model != scene.model,
-			"separate_world": scene.example_presenter.world.get_world_3d() != scene.get_world_3d()}
 	return result
 
 func fail(reason: String) -> void:

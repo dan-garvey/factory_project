@@ -2,7 +2,6 @@ extends SceneTree
 ## Synthetic projection unit test for the native-authoritative challenge presenter.
 
 const Challenge = preload("res://opening/upstream_drive_challenge.gd")
-const Geometry = preload("res://opening/site_geometry.gd")
 var checks := 0
 var failures := 0
 
@@ -47,9 +46,6 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	if "--native-example-only" in OS.get_cmdline_user_args():
-		_run_native_example()
-		return
 	var host := HostStub.new()
 	host.state = fixture()
 	var before := host.state.duplicate(true)
@@ -109,85 +105,4 @@ func _run() -> void:
 	challenge.free()
 	var ok := failures == 0 and checks >= 17
 	print("UPSTREAM_DRIVE_CHALLENGE_%s %d" % ["PASS" if ok else "FAIL", checks])
-	quit(0 if ok else 1)
-
-
-func _run_native_example() -> void:
-	# Isolated Help component against the production native authority; no
-	# game scene, player input, foreground acquisition or desktop interaction.
-	var native_model = load("res://opening/native_model.gd")
-	var example_script = load("res://opening/example_presenter.gd")
-	var player = native_model.new("separate-player", ["P"])
-	verify(player.boot_result.get("accepted", false), "Independent native player world starts.")
-	var original: Dictionary = player.checkpoint()
-	var example = example_script.new()
-	root.add_child(example)
-	var first: Dictionary = example.model.projection()
-	verify(first.get("options", {}).get("native", false), "Example uses the native worksite rules.")
-	verify(first.get("belt_spans", {}).size() == 1 and first.get("entities", {}).size() == 3,
-		"The example constructs a span and three machines without a belt machine.")
-	verify(first.get("transmission_parts", {}).size() == 12 and first.stock.source == first.initial_feed,
-		"The finite kit places seven cogs and five shafts before production.")
-	if failures > 0:
-		example.free()
-		print("NATIVE_EXAMPLE_FAIL %d" % checks)
-		quit(1)
-		return
-	var source_posts := 0
-	for part: Dictionary in first.transmission_parts.values():
-		if part.center in [[0, 4, 0], [0, 4, -4]]:
-			source_posts += 1
-			verify(part.support.foot[1] >= Geometry.PITCH and part.support.bearing[1] > part.support.foot[1],
-				"The native source-side stand begins above the outcrop on its factory floor.")
-	verify(source_posts == 2 and first.foundations.size() == 4 and first.part_kits.P.foundation == 20,
-		"Four aligned foundations and the remaining carried parts retain the finite native kit.")
-	var has_belt := false
-	for child in example.world.transmission_presenter.get_children():
-		if child.get_meta("kind", "") == "belt_span":
-			has_belt = true
-	verify(has_belt, "The confirmed transmission presenter draws the shaft span.")
-	verify(not first.powered and example.step_button.disabled, "First lesson leaves the drive off.")
-	example.set_lesson(1)
-	var running: Dictionary = example.model.projection()
-	verify(running.powered and not example.step_button.disabled, "Drive lesson starts the actual waterwheel.")
-	var belt: Dictionary = running.belt_spans.values()[0]
-	var moving_shaft := str(belt.from)
-	var start: Dictionary = running.transmission_parts[moving_shaft]
-	var end: Dictionary = running.transmission_parts[str(belt.to)]
-	var rate: Dictionary = running.motion[moving_shaft]
-	verify(start.axis == 2 and end.axis == 2 and start.center == [4, 4, 4] and end.center == [8, 4, 4],
-		"The working example's one-tile shaft axles cross its +X material path.")
-	verify(rate.state == "rotating" and rate.numerator < 0 and rate.denominator > 0,
-		"The confirmed -Z shaft rotation moves the belt top toward the press.")
-	example.world._process(0.05)
-	verify(example.world.transmission_presenter.visual_rotation(moving_shaft) != 0.0,
-		"The example animates the belt from its confirmed native shaft rate.")
-	var before_step: int = running.revision
-	example._step()
-	verify(example.model.projection().revision > before_step and example.ticks == 1, "One example step advances its native clock.")
-	var saw_belt_blank := false
-	for turn in range(64):
-		var current: Dictionary = example.model.projection()
-		for slot: Variant in current.belt_spans.values()[0].slots:
-			if slot is Dictionary and int(slot.get("raw", 0)) > 0:
-				saw_belt_blank = true
-		if saw_belt_blank:
-			break
-		example._step()
-	verify(saw_belt_blank, "A real collected blank enters the illustrated shaft-driven belt before the lesson reset.")
-	example.set_lesson(2)
-	var working: Dictionary = example.model.projection()
-	verify(working.stock.held > 0 and example.ticks > 0, "The work lesson contains an actual in-progress lot.")
-	example.set_lesson(3)
-	var full: Dictionary = example.model.projection()
-	verify(full.stock.output > 0 and full.stock.held > 0 and not example.recover_button.disabled,
-		"The blocked lesson has a finished plate and retained work.")
-	example._recover()
-	var resumed: Dictionary = example.model.projection()
-	verify(resumed.inventories.P == 1 and resumed.stock.source <= full.stock.source,
-		"Retrieving the plate credits only the example and resumes its clock.")
-	verify(player.checkpoint() == original, "Lesson setup, ticks and retrieval do not mutate the player's native state.")
-	example.queue_free()
-	var ok := failures == 0 and checks >= 16
-	print("NATIVE_EXAMPLE_%s %d" % ["PASS" if ok else "FAIL", checks])
 	quit(0 if ok else 1)

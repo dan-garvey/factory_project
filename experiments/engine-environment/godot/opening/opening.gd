@@ -4562,12 +4562,6 @@ const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation", "pod_workshop": "Pod workshop"}
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
-const LESSONS := [
-	["01  /  BUILD THE PATH", "Place a collector at the ore deposit and a press nearby. Put two one-tile shafts between them with parallel axles, then connect the shafts with a belt. Foundations provide level building surfaces."],
-	["02  /  CARRY ROTATION", "Use a waterwheel in flowing water. Small cogs with matching axes mesh side by side; mixed sizes mesh diagonally. Two large cogs on perpendicular axes meet one tile along each axle. Meshes reverse rotation; sizes change speed. Shafts carry rotation. Horizontal and vertical gearboxes turn it through side ports; matching encased chain cases link sideways."],
-	["03  /  FOLLOW ONE COPPER PIECE", "The collector removes copper from the finite ore deposit. The belt carries it to the press. Advance the example one tick at a time. The held copper stays in the press until its copper plate can leave."],
-	["04  /  MAKE ROOM", "A full press outlet holds up the line. Collect the example copper plate below: the held copper finishes without being lost. Stopping the drive keeps the parts and unfinished work where they are."]
-]
 
 var model
 var legacy_fixture := false
@@ -4594,11 +4588,7 @@ var pending_link := ""
 var selected := ""
 var goal_confirmed := false
 var explanation_open := false
-var lesson_index := 0
-var example_presenter
-var lesson_next: Button
-var lesson_previous: Button
-var lesson_return: Button
+var help_close_button: Button
 var elapsed := 0.0
 var orbit_yaw := 0.68
 var orbit_pitch := 0.82
@@ -4690,7 +4680,7 @@ var manager_log_open := false
 var workshop_completion_observed: Variant = null
 var workshop_completion_audio: AudioStreamPlayer
 var workshop_completion_cue_count := 0
-var lesson_button: Button
+var help_button: Button
 var goal_progress: ProgressBar
 var power_label: Label
 var inspector: Label
@@ -4729,9 +4719,9 @@ var retrieve_button: Button
 var remove_button: Button
 var save_button: Button
 var load_button: Button
-var lesson_panel: PanelContainer
-var lesson_title: Label
-var lesson_body: Label
+var help_panel: PanelContainer
+var help_title: Label
+var help_body: Label
 var tool_buttons: Dictionary = {}
 var building_hotbar
 var build_column: VBoxContainer
@@ -4816,7 +4806,7 @@ func _ready() -> void:
 	_build_world()
 	_build_interface()
 	for menu: Node in [object_menu, pause_menu, pause_exit_confirmation,
-			building_hotbar.catalog, manager_log_layer, lesson_panel]:
+			building_hotbar.catalog, manager_log_layer, help_panel]:
 		if menu != null:
 			menu.connect("visibility_changed", _on_mouse_menu_visibility_changed)
 	_refresh()
@@ -5511,7 +5501,6 @@ func _process(delta: float) -> void:
 	_refresh_mechanical_audio()
 	_animate_wheel(delta)
 	if explanation_open:
-		example_presenter.pan(delta)
 		return
 	_update_camera()
 	_advance_arrival_reveal(delta)
@@ -5889,22 +5878,8 @@ func _input(event: InputEvent) -> void:
 	if explanation_open:
 		if event is InputEventKey:
 			if event.pressed and not event.echo:
-				match event.keycode:
-					KEY_H, KEY_ESCAPE: _toggle_explanation()
-					KEY_RIGHT: _set_lesson(lesson_index + 1)
-					KEY_LEFT: _set_lesson(lesson_index - 1)
-					KEY_HOME: example_presenter.recenter()
-					KEY_SPACE:
-						if example_presenter != null and not example_presenter.step_button.disabled:
-							example_presenter.step_button.pressed.emit()
-					KEY_BACKSPACE:
-						if example_presenter != null:
-							example_presenter.set_lesson(lesson_index)
-					KEY_ENTER, KEY_KP_ENTER:
-						if example_presenter != null and not example_presenter.recover_button.disabled:
-							example_presenter.recover_button.pressed.emit()
-			get_viewport().set_input_as_handled()
-		elif example_presenter.handle_pointer(event):
+				if event.keycode in [KEY_H, KEY_ESCAPE]:
+					_toggle_explanation()
 			get_viewport().set_input_as_handled()
 		return
 	if _catalog_open():
@@ -6846,38 +6821,14 @@ func _confirm_goal() -> void:
 		_refresh_ui()
 
 func _toggle_explanation() -> void:
-	if state.has("hand_sources"):
-		return
 	explanation_open = not explanation_open
-	lesson_panel.visible = explanation_open
+	help_panel.visible = explanation_open
 	if explanation_open:
 		_release_character_controls()
-		if example_presenter == null:
-			# Lazy loading avoids a static cycle with the geometry-only subclass.
-			example_presenter = load("res://opening/example_presenter.gd").new()
-			lesson_panel.get_parent().add_child(example_presenter)
-			# Set the far anchor first so the near anchor is not clamped.
-			example_presenter.set_anchor_and_offset(SIDE_RIGHT, 0.5, 340)
-			example_presenter.set_anchor_and_offset(SIDE_LEFT, 0.5, -330)
-			example_presenter.set_anchor_and_offset(SIDE_TOP, 0.0, 238)
-			example_presenter.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -128)
-		example_presenter.show()
-		example_presenter.viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-		example_presenter.world.set_process(true)
-		_set_lesson(0)
-	else:
-		example_presenter.hide()
-		example_presenter.viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
-		example_presenter.world.set_process(false)
+		help_title.text = "CURRENT TASK"
+		help_body.text = goal_label.text + "\n\n" + controls_label.text
 	_update_cursor()
 	_refresh_ui()
-
-func _set_lesson(index: int) -> void:
-	lesson_index = posmod(index, LESSONS.size())
-	lesson_title.text = LESSONS[lesson_index][0]
-	lesson_body.text = LESSONS[lesson_index][1]
-	if example_presenter != null:
-		example_presenter.set_lesson(lesson_index)
 
 func _screen_cell(screen: Vector2) -> Vector2i:
 	if _native_transmission() and mode != "foundation":
@@ -10071,10 +10022,12 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	else:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
-	lesson_button.visible = not arrival
+	help_button.visible = true
 	actor_label.visible = true
-	controls_label.text = "WASD move · E interact · B build · F remove" if arrival \
-		else "B catalog · 1–8 build · E open · F remove · H guide"
+	controls_label.text = "WASD move · E interact · B build · F remove · H help" if arrival \
+		else "B catalog · 1–8 build · E open · F remove · H help"
+	if explanation_open:
+		help_body.text = goal_label.text + "\n\n" + controls_label.text
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
 	inspector_title.visible = object_menu == null and (target_selected or not snapshot_ready or not _can_choose_tool())
@@ -11158,14 +11111,15 @@ func _build_interface() -> void:
 	tool_buttons.flow.toggle_mode = true
 	if not legacy_fixture:
 		tool_buttons.flow.custom_minimum_size.y = 30
-	lesson_button = _button(build, "Guide  H", _toggle_explanation)
+	help_button = _button(build, "Help  H", _toggle_explanation)
+	help_button.tooltip_text = "Show the current task and controls. H opens Help; H or Escape closes it."
 	if not legacy_fixture:
-		lesson_button.custom_minimum_size.y = 30
+		help_button.custom_minimum_size.y = 30
 		manager_log_button.text = "Log  J"
 		var quick_actions := HBoxContainer.new()
 		quick_actions.add_theme_constant_override("separation", 4)
 		build.add_child(quick_actions)
-		for action in [manager_log_button, lesson_button]:
+		for action in [manager_log_button, help_button]:
 			action.get_parent().remove_child(action)
 			quick_actions.add_child(action)
 	var right := _panel(root, Vector2(932, 18), Vector2(255 if not legacy_fixture else 330, 490 if legacy_fixture else 0))
@@ -11243,7 +11197,7 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H guide", 11, Color("bfd1cc"))
+	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H help", 11, Color("bfd1cc"))
 	if not legacy_fixture:
 		developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
 		developer_mode_label.focus_mode = Control.FOCUS_ALL
@@ -11252,18 +11206,15 @@ func _build_interface() -> void:
 	for column: Control in [build, right]:
 		column.minimum_size_changed.connect(_queue_footer_fit)
 	var lesson_column := _panel(root, Vector2(346, 18), Vector2(600, 192))
-	lesson_panel = lesson_column.get_parent()
-	lesson_panel.set_anchor_and_offset(SIDE_RIGHT, 0.5, 306)
-	lesson_panel.set_anchor_and_offset(SIDE_LEFT, 0.5, -294)
-	lesson_title = _label(lesson_column, "", 17, Color("edcc8d"))
-	lesson_body = _label(lesson_column, "", 16)
-	lesson_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var row := HBoxContainer.new()
-	lesson_column.add_child(row)
-	lesson_previous = _button(row, "Previous  [←]", func(): _set_lesson(lesson_index - 1))
-	lesson_next = _button(row, "Next  [→]", func(): _set_lesson(lesson_index + 1))
-	lesson_return = _button(row, "Return to building  [H]", _toggle_explanation)
-	lesson_panel.visible = false
+	help_panel = lesson_column.get_parent()
+	help_panel.set_anchor_and_offset(SIDE_RIGHT, 0.5, 306)
+	help_panel.set_anchor_and_offset(SIDE_LEFT, 0.5, -294)
+	help_title = _label(lesson_column, "", 17, Color("edcc8d"))
+	help_body = _label(lesson_column, "", 16)
+	help_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	help_close_button = _button(lesson_column, "Return to work  [H / Esc]", _toggle_explanation)
+	help_close_button.tooltip_text = "Close Help and return to the worksite."
+	help_panel.visible = false
 	if not legacy_fixture:
 		_build_manager_log()
 
