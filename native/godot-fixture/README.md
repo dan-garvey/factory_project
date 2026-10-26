@@ -42,9 +42,9 @@ human mouse control.
 
 `native_adapter_check.gd` requires exactly one nonempty `--native-check-mode`
 and `--native-check-output`. It refuses unknown, repeated or empty arguments
-before constructing the scene. Its optional event routes apply only to their
-named modes below, and at most one anvil stage may accompany an arrival press
-mode. `--native-check-prior` belongs only to `arrival-channel-small-resume`;
+before constructing the scene. Its optional event routes are checked against
+the selected mode before the scene starts. At most one anvil stage may accompany
+an arrival press mode. `--native-check-prior` belongs only to `arrival-channel-small-resume`;
 `--arrival-reveal-probe` belongs only to `arrival-resume`. The script also accepts
 the existing `--resume-input`, `--save-slot`, `--arrival-capture-prefix` and
 `--test-purpose` arguments where their selected consumer uses them.

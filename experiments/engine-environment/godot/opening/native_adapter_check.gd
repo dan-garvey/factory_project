@@ -56,11 +56,6 @@ func _init() -> void:
 		push_error("Select one native adapter fixture mode and a fresh output")
 		quit(2)
 		return
-	if (event_route_loose and (event_route_pointer or mode not in ["arrival-channel-small", "arrival-channel-small-resume"])) \
-			or (event_route_pointer and mode != "arrival-first-plate"):
-		push_error("The selected event route does not apply to this fixture mode")
-		quit(2)
-		return
 	var anvil_options := int(anvil_seat_only) + int(anvil_deck_only) + int(anvil_ready_only)
 	if anvil_options > 1 or (anvil_options > 0 and mode not in ["arrival-press", "arrival-guide-geometry", "arrival-raised-press"]):
 		push_error("Select at most one anvil stage for an arrival press fixture")
