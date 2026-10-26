@@ -80,6 +80,8 @@ void plans() {
     docs.names = nul({"README.md", "fixture.GD", ".gd"});
     const auto cheap = docs.plan();
     check(!cheap.compile_gdscript && docs.calls == 3, "Documentation does not query runtime config or compile unchanged scripts.");
+    check(!cheap.validate_native && cheap.changed_paths.size() == 3,
+          "A documentation candidate retains exact changed paths without native work.");
     check(cheap.command == std::vector<std::string>{"/usr/bin/python3", "-B", "/fixture checkout/scripts/check.py", "--staged", "--expected-tree", docs.tree},
           "The existing checker receives exactly one pinned staged-tree invocation.");
     for (const auto& paths : {nul({"experiments/engine-environment/godot/opening/file.gd"}),
@@ -92,6 +94,12 @@ void plans() {
             "--parse-gdscript", "--godot", "/fixture engine/godot", "--godot-sha256", std::string(64, 'a'), "--prototype-artifacts", "/fixture artifacts/compiler"};
         check(heavy.command == expected, "Pinned compiler arguments and paths remain separate, with no shell or nested wrapper.");
     }
+    Reader native;
+    native.names = nul({"native/factory-core/src/materials.cpp"});
+    const auto native_plan = native.plan();
+    check(native_plan.validate_native && !native_plan.compile_gdscript &&
+              native_plan.changed_paths == std::vector<std::string>{"native/factory-core/src/materials.cpp"},
+          "A native staged change selects heavy validation from the exact index path.");
     Reader initial; initial.head_exit = 1; initial.names = nul({"experiments/engine-environment/godot/initial.gd"});
     check(initial.plan().compile_gdscript, "An unborn HEAD enumerates the complete staged tree.");
     Reader sha256; sha256.tree = std::string(64, 'c'); sha256.head = std::string(64, 'd');

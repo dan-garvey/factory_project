@@ -82,6 +82,18 @@ NativeSelection select_native_changes(const fs::path& staged_root,
     return result;
 }
 
+bool requires_native_validation(const std::vector<std::string>& changed_paths) {
+    bool required = false;
+    for (const auto& path : changed_paths) {
+        if (shared_build_input(path) ||
+            (path.starts_with("native/") && fs::path(path).extension() != ".md")) {
+            safe_path(path);
+            required = true;
+        }
+    }
+    return required;
+}
+
 std::vector<std::string> native_labels_from_query(std::string_view log) {
     std::set<std::string> labels;
     for (std::size_t offset = 0; offset < log.size();) {

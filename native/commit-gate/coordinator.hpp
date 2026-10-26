@@ -12,6 +12,8 @@ struct Plan {
     std::string tree;
     bool compile_gdscript;
     std::vector<std::string> command;
+    std::vector<std::string> changed_paths;
+    bool validate_native{};
 };
 
 // Capture the index before admission. The unchanged staged checker owns raw

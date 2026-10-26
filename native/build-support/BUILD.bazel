@@ -6,7 +6,7 @@ cc_library(
     name = "runner",
     srcs = ["runner.cpp"],
     hdrs = ["runner.hpp"],
-    visibility = ["//native/factory-launch:__pkg__", "//native/gameplay-build:__pkg__", "//native/godot-fixture:__pkg__"],
+    visibility = ["//native/commit-gate:__pkg__", "//native/factory-launch:__pkg__", "//native/gameplay-build:__pkg__", "//native/godot-fixture:__pkg__"],
 )
 
 cc_binary(
