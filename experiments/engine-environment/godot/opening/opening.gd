@@ -10992,7 +10992,7 @@ func _build_interface() -> void:
 		_build_pointed_summary(root)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
 	if not legacy_fixture:
-		_hud_surface(bottom, 0.43, 7)
+		_hud_surface(bottom, 0.64, 7)
 	var bottom_panel: Control = bottom.get_parent()
 	status_footer = bottom_panel
 	bottom_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
@@ -11001,7 +11001,7 @@ func _build_interface() -> void:
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H help", 11, Color("bfd1cc"))
+	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H help", 12, Color("bfd1cc"))
 	if not legacy_fixture:
 		developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
 		developer_mode_label.focus_mode = Control.FOCUS_ALL
