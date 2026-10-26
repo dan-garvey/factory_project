@@ -2071,6 +2071,8 @@ func _arrival_hotbar() -> void:
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
 		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
+		"wooden_cog": {"timber": 1, "copper": 0, "load_rating": 8},
+		"receiver_tray": {"timber": 2, "copper": 0},
 		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
@@ -2128,6 +2130,8 @@ func _arrival_hotbar() -> void:
 		and not bar.recipe_buttons.has("component:receiver_tray")
 		and not bar.recipe_buttons.has("foundation"),
 		"Before the first carried plate, the inventory exposes only the four required press recipes.")
+	verify(not bar.collector_focus_button.visible and bar.recipe_tip_label.visible,
+		"The post-plate project choices do not crowd the starter build view.")
 	var initial: Dictionary = view.state.duplicate(true)
 	view.state.cargo.P.components = {"wooden_frame": 2, "copper_cog": 1,
 		"anvil": 1, "ram_face": 1, "hand_crank": 1}
@@ -2161,7 +2165,25 @@ func _arrival_hotbar() -> void:
 	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
 		and view.goal_label.text.contains("Open Work log [J]"),
 		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_label.text)
+	verify(bar.collector_focus_button.visible and bar.recipe_focus == "collector"
+		and bar.recipe_buttons["component:wooden_frame"].visible
+		and bar.recipe_buttons["component:cutting_edge"].visible
+		and bar.recipe_buttons["component:receiver_tray"].visible
+		and bar.recipe_buttons["component:wooden_cog"].visible
+		and bar.recipe_buttons["part:0"].visible
+		and not bar.recipe_buttons["component:anvil"].visible
+		and not bar.recipe_buttons.foundation.visible,
+		"The post-plate Build view offers the collector kit while retaining full native availability.")
 	bar.open_catalog(7)
+	bar.all_focus_button.grab_focus()
+	await settle_widgets()
+	verify(bar.focus_description.text.contains("All parts")
+		and bar.all_focus_button.accessibility_name == "All unlocked recipes",
+		"Keyboard focus describes the way to every earned recipe.")
+	bar.all_focus_button.pressed.emit()
+	verify(bar.recipe_focus == "all" and bar.recipe_buttons["component:anvil"].visible
+		and bar.recipe_buttons.foundation.visible,
+		"All parts restores the complete earned recipe list without changing cargo.")
 	bar.material_buttons.timber.grab_focus()
 	await settle_widgets()
 	verify("Timber · 5 carried" in bar.focus_description.text,
@@ -2348,6 +2370,8 @@ func _render_arrival_hotbar() -> void:
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
 		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
+		"wooden_cog": {"timber": 1, "copper": 0, "load_rating": 8},
+		"receiver_tray": {"timber": 2, "copper": 0},
 		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
@@ -2383,6 +2407,16 @@ func _render_arrival_hotbar() -> void:
 	verify(bar.recipe_buttons.has("component:wooden_frame") and
 		bar.recipe_buttons.has("component:anvil") and bar.recipe_buttons.has("part:0"),
 		"The item inventory presents field and bench recipes beside carried stock.")
+	verify(bar.recipe_focus == "collector" and bar.recipe_buttons["component:wooden_frame"].visible
+		and not bar.recipe_buttons["component:anvil"].visible,
+		"The first post-plate catalog shows a collector-sized recipe group.")
+	bar.all_focus_button.pressed.emit()
+	await settle_widgets()
+	verify(bar.recipe_buttons["component:anvil"].visible and bar.recipe_buttons.foundation.visible,
+		"All parts reveals the full set of native-unlocked recipes.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-all-recipes.png") == OK,
+		"Retain the full unlocked recipe view reached from the project group.")
 	var stocked_cargo: Dictionary = view.state.cargo.P.duplicate(true)
 	view.state.cargo.P = {"components": {}}
 	view.state.crank_items.clear()
@@ -2410,9 +2444,19 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-components.png") == OK,
 		"Retain the visible component icon grid after scrolling.")
+	root.size = Vector2i(900, 600)
+	bar.catalog.hide()
+	await settle_widgets()
+	bar.collector_focus_button.pressed.emit()
+	bar.open_catalog(7)
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-project-narrow.png") == OK,
+		"Retain the project recipe group in a narrow actor viewport.")
 	root.size = Vector2i(640, 480)
 	bar.catalog.hide()
 	await settle_widgets()
+	bar.all_focus_button.pressed.emit()
 	bar.open_catalog(7)
 	await settle_widgets()
 	var catalog_surface: StyleBoxFlat = bar.catalog.get_theme_stylebox("panel", "PopupPanel") as StyleBoxFlat
@@ -3464,15 +3508,20 @@ func _field_craft_widget() -> void:
 	view._build_interface()
 	var inventory = view.building_hotbar
 	inventory.open_catalog()
+	verify(inventory.recipe_focus == "collector"
+		and inventory.recipe_buttons["component:wooden_frame"].visible
+		and not inventory.recipe_buttons["component:flat_head"].visible,
+		"Post-plate Build opens on a small next project instead of every advanced part.")
+	inventory.all_focus_button.pressed.emit()
 	var frame: Button = inventory.recipe_buttons["component:wooden_frame"]
 	var edge: Button = inventory.recipe_buttons["component:cutting_edge"]
 	var head: Button = inventory.recipe_buttons["component:flat_head"]
 	var foundation: Button = inventory.recipe_buttons["foundation"]
 	verify(inventory.catalog.visible and frame.visible and edge.visible and head.visible and foundation.visible
 		and frame.icon != null and edge.icon != null and head.icon != null and foundation.icon != null
-		and "3 timber + 0 ore" in frame.tooltip_text and "Field or bench" in frame.tooltip_text
+		and "3 timber + 0 copper" in frame.tooltip_text and "Field or bench" in frame.tooltip_text
 		and "Bench" in edge.tooltip_text and "Flat pressing head" in head.tooltip_text
-		and "1 ore" in head.tooltip_text and "2 timber + 0 copper" in foundation.tooltip_text,
+		and "1 copper" in head.tooltip_text and "2 timber + 0 copper" in foundation.tooltip_text,
 		"The shared inventory shows described field and bench recipes with native bills.")
 	frame.grab_focus()
 	verify(inventory.focus_description.text == frame.tooltip_text and not frame.accessibility_name.is_empty(),
@@ -3513,7 +3562,7 @@ func _field_craft_widget() -> void:
 	view.state.part_specifications = {"P": [{"kind": "belt", "teeth": 0, "half_span": 0, "count": 1}]}
 	inventory.refresh()
 	var belt_recipe: Button = inventory.recipe_buttons["part:0"]
-	verify("2 timber + 1 ore" in belt_recipe.tooltip_text and belt_recipe.icon != null
+	verify("2 timber + 1 copper" in belt_recipe.tooltip_text and belt_recipe.icon != null
 		and "rated for 8 load" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text
 		and "rated for 24 load" in inventory.recipe_buttons["component:copper_shaft"].tooltip_text,
 		"The recipe grid shows actual drive bills and load ratings.")

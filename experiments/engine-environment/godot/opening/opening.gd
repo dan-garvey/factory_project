@@ -9880,7 +9880,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if snapshot_ready:
 			_notice_workshop_completion(workshop_complete)
 		if workshop_complete:
-			next_work = "Open Work log [J] for optional projects, or keep building."
+			next_work = "Open Work log [J] for the collector project, or keep building."
 		elif sliding_plate_waiting:
 			next_work = "Plate at outlet. Open the press [E], then collect it [P]."
 		elif sliding_press_ready and ready_slide_has_crank:
@@ -11163,8 +11163,8 @@ func _build_manager_log() -> void:
 	manager_log_projects.add_theme_constant_override("separation", 6)
 	column.add_child(manager_log_projects)
 	for project in [
-		["belt", "Route collector copper by belt to a powered press."],
-		["gear", "Compare wood and copper drive parts under load."]]:
+		["collector", "Assemble a finite ore collector: frame, mount, edge, receiver and drive."],
+		["belt", "Then route its copper by belt to a powered press."]]:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		manager_log_projects.add_child(row)

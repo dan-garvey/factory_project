@@ -549,9 +549,10 @@ func check_inventory_goal_view() -> void:
 	shared.state = view.state.duplicate(true)
 	shared._refresh_ui()
 	verify("FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
-		and "Open Work log [J]" in view.goal_label.text
+		and "Open Work log [J] for the collector project" in view.goal_label.text
 		and view.manager_log_completion_entry.visible
 		and view.manager_log_projects.visible
+		and "finite ore collector" in (view.manager_log_projects.get_child(0).get_child(1) as Label).text
 		and view.workshop_completion_cue_count == 1
 		and "Plate collected" in view.status_label.text,
 		"One native-projected product in the local inventory completes the first workshop.")

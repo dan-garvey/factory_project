@@ -2975,12 +2975,55 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and inventory.material_counts.products.text == "1",
 				"The exact formed plate enters the full carried inventory and reveals advanced recipes"):
 			return
+		if not _expect(inventory.recipe_focus == "collector"
+				and inventory.collector_focus_button.visible
+				and inventory.recipe_buttons["component:wooden_frame"].visible
+				and inventory.recipe_buttons["component:receiver_tray"].visible
+				and not inventory.recipe_buttons["component:anvil"].visible,
+			"The native first-plate milestone opens a focused collector project"):
+			return
+		inventory.all_focus_button.grab_focus()
+		await process_frame
+		if not _expect(inventory.focus_description.text.contains("All parts")
+				and inventory.all_focus_button.accessibility_name == "All unlocked recipes",
+			"Keyboard focus describes the route to every earned recipe"):
+			return
+		inventory.all_focus_button.pressed.emit()
+		if not _expect(inventory.recipe_buttons["component:anvil"].visible
+				and inventory.recipe_buttons["foundation"].visible,
+			"All parts reveals the complete native-unlocked recipe list"):
+			return
+		inventory.collector_focus_button.pressed.emit()
+		inventory.collector_focus_button.grab_focus()
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			if not _expect(root.get_texture().get_image().save_png(
 					capture_prefix + "-unlocked-catalog.png") == OK,
-					"Retain the advanced catalog after native plate pickup in a passive frame"):
+					"Retain the focused collector group after native plate pickup"):
 				return
+			var original_size: Vector2i = root.size
+			root.size = Vector2i(900, 600)
+			await process_frame
+			inventory.catalog.hide()
+			await process_frame
+			inventory.open_catalog()
+			await process_frame
+			inventory._place_catalog()
+			await RenderingServer.frame_post_draw
+			var narrow_rect := Rect2(Vector2(inventory.catalog.position),
+				Vector2(inventory.catalog.size))
+			var narrow_capture: Error = root.get_texture().get_image().save_png(
+				capture_prefix + "-unlocked-catalog-narrow.png")
+			if not _expect(inventory.catalog.visible
+					and inventory.recipe_focus == "collector"
+					and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(narrow_rect)
+					and narrow_capture == OK,
+					"The ordinary collector recipes fit the narrow actor viewport: " +
+					str({"popup": narrow_rect, "viewport": root.size})):
+				return
+			root.size = original_size
+			await process_frame
+			inventory._place_catalog()
 		inventory.catalog.hide()
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		var frame_name := "-first-plate.png" if mode == "arrival-first-plate" else "-starter-press.png"
