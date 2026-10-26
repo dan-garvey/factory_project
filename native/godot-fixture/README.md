@@ -58,7 +58,8 @@ revision-matched check count on success and exits nonzero on failure.
 Among direct suites, `--capture` and `--crank-capture-prefix` belong only to
 the guided press mode; `--broad-capture` belongs to either broad press mode;
 `--channel-capture` and `--channel-after-capture` belong to a channel mode; and
-`--slide-material-image` belongs only to slide material. Use
+`--slide-material-image` belongs only to slide material; `--loose-material-image`
+belongs only to loose material and captures its pointed E pickup cue. Use
 `--test-purpose=TEXT` on agent graphical launches through
 the tracked launcher. Passive capture output is rendered evidence only.
 
@@ -149,7 +150,9 @@ to 128 MiB. It never accepts or prints the log contents as a PASS receipt.
 ## Chapter 1 scene event selection
 
 The following named `native_adapter_check.gd` selections exercise Godot event
-routing through the ordinary arrival scene and assert native outcomes. Run each
+routing through the arrival scene and assert native outcomes. Channel cases
+explicitly enable developer material tools; their push/popup routes are diagnostic
+coverage, not the ordinary player interaction contract. Run each
 with `factory-godot-fixture` above, replacing `--script` and `--pass-line` with
 the listed `--case` and passing its arguments after `--`. The runner supplies
 the exact line and deadline shown, and rejects omitted, duplicate or unexpected
@@ -174,5 +177,7 @@ pickup. The first case uses pointer events for two fitted placements and checks
 that a click while the Escape menu is open cannot place a part. The second
 uses Ctrl+L, popup focus, arrow keys and Enter for three custody attempts,
 including refusal across a missing rail. The third uses the same keyboard
-path to pick up the restored plate. Scene tests still substitute scripted
+path to pick up the restored plate. Ordinary players point at material and press
+E; the old material menu is available only with `--debug-material-tools`.
+Scene tests still substitute scripted
 actor movement and choices; they do not establish human play or desktop input.

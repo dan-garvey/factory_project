@@ -55,6 +55,7 @@ const COMPONENT_ICONS := {
 	"wooden_cog": "wooden_cog.svg", "receiver_tray": "receiver_tray.svg",
 	"tool_mount": "tool_mount.svg", "sliding_guide": "sliding_guide.svg",
 	"cutting_edge": "cutting_edge.svg", "anvil": "anvil.svg",
+	"broad_anvil": "anvil.svg", "broad_flat_head": "flat_head.svg",
 	"ram_face": "ram_face.svg", "copper_shaft": "copper_shaft.svg",
 	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
 	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg",
@@ -475,8 +476,13 @@ func _count(tool: String, parts: Dictionary) -> int:
 		return _material_count("fabrication_hub", hub_host) if hub_host != null else 0
 	if tool.begins_with(COMPONENT_PREFIX):
 		var host = _view()
-		return maxi(0, int(host.state.get("cargo", {}).get(host.client, {}).get("components", {}).get(
-			tool.trim_prefix(COMPONENT_PREFIX), 0))) if host != null else 0
+		if host == null:
+			return 0
+		var kind := tool.trim_prefix(COMPONENT_PREFIX)
+		var components: Dictionary = host.state.get("cargo", {}).get(host.client, {}).get("components", {})
+		if kind in ["broad_anvil", "broad_flat_head"]:
+			return maxi(0, int(components.get("anvil" if kind == "broad_anvil" else "flat_head", 0)) / 4)
+		return maxi(0, int(components.get(kind, 0)))
 	return maxi(0, int(parts.get("shaft" if tool == "drive" else tool, 0)))
 
 func _material_count(kind: String, host) -> int:
@@ -506,7 +512,8 @@ func _offered(tool: String, host) -> bool:
 	if tool == "pod_workshop":
 		return _arrival_active
 	if _arrival_active and not _plate_unlocked(host):
-		return tool in ["component:anvil", "component:flat_head", "component:wooden_slide",
+		return tool in ["component:anvil", "component:flat_head", "component:broad_anvil",
+			"component:broad_flat_head", "component:wooden_slide",
 			"component:hand_crank"]
 	return not (_arrival_active and tool in ["collector", "processor"]) \
 		and not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
@@ -814,11 +821,16 @@ func refresh(snapshot_ready: bool = true) -> void:
 	var active: String = host.mode
 	if active == "component" and host.arrival_assembly_controls != null:
 		active = COMPONENT_PREFIX + host.arrival_assembly_controls.selected_name()
-	var sized_part := active in ["component:anvil", "component:ram_face"]
-	var area_size: int = host.component_footprint_size
-	var area_icon: Texture2D = FOOTPRINT_FOUR_ICON if area_size == 2 else FOOTPRINT_ONE_ICON
-	var area_tip := "2x2 footprint · four carried parts · V" if area_size == 2 else \
-		"1x1 footprint · one carried part · V"
+	var sized_part := active in ["component:anvil", "component:broad_anvil",
+		"component:flat_head", "component:broad_flat_head"]
+	var broad_size := active in ["component:broad_anvil", "component:broad_flat_head"]
+	var area_icon: Texture2D = FOOTPRINT_FOUR_ICON if broad_size else FOOTPRINT_ONE_ICON
+	var area_tip := "2x2 joined face · one click · uses four carried flat heads · V" \
+		if active == "component:broad_flat_head" else \
+		"2x2 joined workbed · one click · uses four carried anvils · V" \
+		if active == "component:broad_anvil" else \
+		"1x1 flat head · one carried part · V for 2x2" if active == "component:flat_head" else \
+		"1x1 workbed · one carried part · V for 2x2"
 	for area_button: Button in [footprint_button, footprint_catalog_button]:
 		area_button.visible = sized_part
 		area_button.disabled = not usable
@@ -866,10 +878,12 @@ func refresh(snapshot_ready: bool = true) -> void:
 			component_counts[component].text = str(count)
 			part_button.disabled = not usable or count < 1
 			part_button.visible = count > 0 and _offered(COMPONENT_PREFIX + component, host)
-			part_button.tooltip_text = "%s · %d carried · drag to hotbar or hover and press 1–8 · click to place" % [
-				_component_labels[component], count]
-			part_button.accessibility_name = "%s, %d carried; drag to hotbar or focus and press a number to bind; click to place" % [
-				_component_labels[component], count]
+			var quantity := "%d buildable from four carried parts each" % count \
+				if component in ["broad_anvil", "broad_flat_head"] else "%d carried" % count
+			part_button.tooltip_text = "%s · %s · drag to hotbar or hover and press 1–8 · click to place" % [
+				_component_labels[component], quantity]
+			part_button.accessibility_name = "%s, %s; drag to hotbar or focus and press a number to bind; click to place" % [
+				_component_labels[component], quantity]
 	var shown := 0
 	for tile in material_grid.get_children():
 		if tile is Button and tile.visible:

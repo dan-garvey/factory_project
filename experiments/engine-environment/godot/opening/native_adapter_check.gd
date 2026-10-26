@@ -3574,8 +3574,6 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 		elif tool == "component":
 			opening.component_nudge_active = true
 			opening.component_nudge_center = [0, 4, 0]
-			opening.component_area_anchor = [0, 4, 0]
-			opening.component_area_kind = "anvil"
 		elif tool == "flow":
 			opening.pending_link = "pending-machine"
 		elif tool == "foundation":
@@ -3601,7 +3599,7 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 				and opening.transmission_controls.active_tool.is_empty()
 				and opening.transmission_controls._belt_start.is_empty()
 				and not opening.foundation_area_started and opening.foundation_area_start == Vector2i.ZERO
-				and opening.component_area_anchor.is_empty() and not opening.component_nudge_active
+				and not opening.component_nudge_active
 				and opening.component_nudge_center.is_empty() and opening.pending_link.is_empty()
 				and opening.transmission_preview_point.is_empty()
 				and _placement_ghosts_hidden()
@@ -3614,7 +3612,6 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 					"belt_start": opening.transmission_controls._belt_start,
 					"area_started": opening.foundation_area_started,
 					"area_start": opening.foundation_area_start,
-					"component_anchor": opening.component_area_anchor,
 					"nudge": opening.component_nudge_active,
 					"nudge_center": opening.component_nudge_center,
 					"pending_link": opening.pending_link,
@@ -3747,6 +3744,9 @@ func _arrival_run() -> void:
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
 	var advanced_fixture := mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-reveal", "arrival-reveal-skip"]
+	# Channel command fixtures deliberately exercise developer diagnostics.
+	# Ordinary players pick up pointed material with E and never issue pushes.
+	opening.developer_material_tools = mode.begins_with("arrival-channel-")
 	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
@@ -4742,33 +4742,26 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 				"Retain the actor-eye single-anvil ghost before choosing the larger footprint"):
 			return
 	opening._toggle_component_footprint()
-	if not _expect(opening.component_footprint_size == 2
+	if not _expect(opening.arrival_assembly_controls.selected_name() == "broad_anvil"
 			and opening.building_hotbar.footprint_button.visible,
-			"The ordinary build bar selects a four-cell anvil footprint"):
+			"The ordinary build bar selects one joined four-part workbed"):
 		return
 	var edge := floori((OpeningGeometry.DISPLAY_TERRAIN_SIZE * 0.5 -
 		OpeningGeometry.HEIGHT_STEP * 0.5) / OpeningGeometry.HEIGHT_STEP)
 	opening.component_nudge_center = [edge, base_level, 0]
-	opening.component_area_anchor = opening.component_nudge_center.duplicate()
-	opening.component_area_kind = "anvil"
 	opening._refresh_component_preview()
-	var edge_inside: Array = opening.component_area_anchor
-	var edge_outside := [edge + OpeningGeometry.HEIGHT_DENOMINATOR, base_level, 0]
-	var inside_material: StandardMaterial3D = opening.component_preview_cell_materials[str(edge_inside)]
-	var outside_material: StandardMaterial3D = opening.component_preview_cell_materials[str(edge_outside)]
-	if not _expect(inside_material.albedo_color.g > outside_material.albedo_color.g,
-			"The ordinary broad ghost distinguishes an interior cell from its out-of-terrain neighbor"):
+	if not _expect(opening.component_preview.visible and opening.component_preview_blocked
+			and not opening._component_area_bounds_allowed("broad_anvil", [edge, base_level, 0]),
+			"The joined workbed ghost refuses its whole out-of-terrain footprint"):
 		return
 	var edge_before: Dictionary = opening.model.projection()
-	var edge_reply: Dictionary = opening.issue({"action": "place_component", "component": "anvil",
-		"center": edge_outside})
+	var edge_reply: Dictionary = opening.issue({"action": "place_component", "component": "broad_anvil",
+		"center": [edge, base_level, 0]})
 	var edge_after: Dictionary = opening.model.projection()
 	if not _expect(not edge_reply.accepted and edge_after.cargo.P.components == edge_before.cargo.P.components
 			and edge_after.placed_components == edge_before.placed_components,
-			"Native authority refuses the red out-of-terrain cell without spending a carried anvil"):
+			"Native authority refuses the red broad footprint without spending four anvils"):
 		return
-	opening.component_area_anchor.clear()
-	opening.component_area_kind = ""
 	var obstructed_center := [16, base_level, 0]
 	var obstacle_before: Dictionary = opening.model.projection()
 	var obstacle_reply: Dictionary = opening.issue({"action": "place_component",
@@ -4779,29 +4772,34 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 			"A real carried ram face can temporarily occupy one neighboring anvil cell"):
 		return
 	opening.component_nudge_center = [12, base_level, 0]
-	opening.component_area_anchor = opening.component_nudge_center.duplicate()
-	opening.component_area_kind = "anvil"
 	opening._refresh_component_preview()
-	var free_material: StandardMaterial3D = opening.component_preview_cell_materials[str([12, base_level, 0])]
-	var occupied_material: StandardMaterial3D = opening.component_preview_cell_materials[str(obstructed_center)]
-	if not _expect(free_material.albedo_color.g > occupied_material.albedo_color.g
-			and not opening.component_preview_blocked,
-			"The actual neighboring ram turns only its own anvil ghost red"):
+	if not _expect(opening.component_preview.visible and opening.component_preview_blocked,
+			"An obstruction turns the entire joined workbed ghost red"):
+		return
+	var blocked_before: Dictionary = opening.model.projection()
+	var blocked_reply: Dictionary = opening.issue({"action": "place_component",
+		"component": "broad_anvil", "center": [12, base_level, 0]})
+	if not _expect(not blocked_reply.accepted
+			and opening.model.projection().cargo.P.components == blocked_before.cargo.P.components
+			and opening.model.projection().placed_components == blocked_before.placed_components,
+			"A blocked joined workbed placement keeps all four carried anvils"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-		if not _expect(await _capture_actor_area(capture_prefix + "-mixed-anvil-ghost.png",
+		if not _expect(await _capture_actor_area(capture_prefix + "-blocked-workbed-ghost.png",
 				Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
-				"Retain the actor-eye mixed-validity anvil ghost beside a real placed part"):
+				"Retain the actor-eye blocked joined workbed ghost beside a real placed part"):
 			return
 	var reclaimed: Dictionary = opening.issue({"action": "reclaim_component",
 		"entity": str(obstacle_reply.entity)})
 	if not _expect(reclaimed.accepted
 			and opening.model.projection().cargo.P.components == obstacle_before.cargo.P.components
 			and opening.model.projection().placed_components == obstacle_before.placed_components,
-			"Removing the temporary obstruction restores the same four available broad-pad parts"):
+			"Removing the temporary obstruction restores the four available anvils"):
 		return
-	opening.component_area_anchor.clear()
-	opening.component_area_kind = ""
+	opening._toggle_component_footprint()
+	if not _expect(opening.arrival_assembly_controls.selected_name() == "anvil",
+			"The legacy pad scenario explicitly returns to one small anvil per click"):
+		return
 	for index in range(4):
 		if base_level > 0 and index == 2 and not await _approach(Vector2(5.8, 1.65)):
 			return
@@ -4811,13 +4809,13 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 		opening.component_nudge_center = [x, base_level, z]
 		opening._refresh_component_preview()
 		if index == 0 and not _expect(opening.component_preview.visible
-				and opening.component_preview.get_child_count() == 4,
-				"The first anvil click previews all four charged native cells"):
+				and opening.component_preview_kind == "anvil",
+			"The legacy pad route previews one small anvil per click"):
 			return
 		if index == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-			if not _expect(await _capture_actor_area(capture_prefix + "-four-anvil-ghost.png",
+			if not _expect(await _capture_actor_area(capture_prefix + "-small-anvil-ghost.png",
 					Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
-					"Retain the actor-eye four-cell anvil ghost with its build control"):
+					"Retain the actor-eye small anvil ghost for the legacy pad route"):
 				return
 		var before_anvil: Dictionary = opening.model.projection()
 		opening._world_click(Vector2i.ZERO)
@@ -4825,27 +4823,19 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 		if not _expect(after_anvil.order == before_anvil.order + 1
 				and int(after_anvil.cargo.P.components.get("anvil", 0)) == int(before_anvil.cargo.P.components.get("anvil", 0)) - 1
 				and after_anvil.placed_components.size() == before_anvil.placed_components.size() + 1,
-				"Each area click charges and places one reachable anvil with its own identity"):
+				"Each separate legacy click charges one reachable small anvil"):
 			return
-		if index < 3:
-			opening._refresh_component_preview()
-			if not _expect(opening.component_area_anchor == [12, base_level, 0]
-					and opening.component_preview.get_child_count() == 3 - index,
-					"The selected area retains its unplaced native cells across separate clicks"):
-				return
 	var supported: Dictionary = opening.model.projection()
 	if not _expect(supported.broad_press_assemblies.size() == 1
 			and supported.broad_press_assemblies[0].geometry_status == "missing_ram",
 			"Four placed anvils define one incomplete area, not four presses"):
 		return
-	opening._toggle_component_footprint()
-	opening._toggle_component_footprint()
 	opening.component_nudge_center = [12, base_level, 0]
 	var occupied_before: Dictionary = opening.model.projection()
 	opening._world_click(Vector2i.ZERO)
-	if not _expect(opening.model.projection().order == occupied_before.order
-			and opening.status_label.text == "That part is already placed.",
-			"Clicking an occupied area cell keeps all four charged native anvils"):
+	if not _expect(opening.model.projection().placed_components == occupied_before.placed_components
+			and opening.model.projection().cargo.P.components == occupied_before.cargo.P.components,
+			"A fifth small anvil refuses the occupied legacy pad without losing parts"):
 		return
 	opening.component_nudge_center = [20, base_level, 0]
 	var empty_before: Dictionary = opening.model.projection()
@@ -4853,7 +4843,7 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 	if not _expect(opening.model.projection().placed_components.size() == empty_before.placed_components.size()
 			and opening.model.projection().cargo.P.components == empty_before.cargo.P.components
 			and opening.status_label.text == "Carry another anvil.",
-			"An exhausted carried stack refuses a new area cell without hidden partial placement"):
+			"An exhausted carried stack refuses another small anvil without hidden partial placement"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
@@ -4870,8 +4860,9 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 		opening.component_nudge_center = [x, base_level + 1, z]
 		opening._refresh_component_preview()
 		if index == 0 and not _expect(opening.component_preview.visible
-				and opening.component_preview.get_child_count() == 4,
-				"The matching ram footprint shows four heads before the first placement"):
+				and opening.component_preview_kind == "ram_face"
+				and not opening.building_hotbar.footprint_button.visible,
+			"The legacy ram face has one small ghost and no misleading size control"):
 			return
 		if index == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			if not _expect(await _capture_actor_area(capture_prefix + "-four-ram-ghost.png",
