@@ -1,7 +1,9 @@
 # Godot C API value boundary
 
 This package converts owned portable values to engine Variants and back. The
-native World bridge uses it for commands, projections and typed checkpoints.
+native World bridge is its only external Bazel consumer; local table checks and
+the ABI fixture remain support targets in this package. The bridge uses it for
+commands, projections and typed checkpoints.
 It contains no quantity owner, command cache, mutable world or fallback authority.
 The offline bridge and shared Session have separate adoption scopes.
 

@@ -67,10 +67,13 @@ inventory, and changing it invalidates both installed components.
   --install-root "$OWNED_INSTALL_ROOT"
 ```
 
-Build the tool with `//native/gameplay-build:factory-gameplay-build`. Its focused
-publication controls are `//native/gameplay-build:install_test`; this explicit
-host test uses isolated temporary Git repositories and invented ELF headers,
-never a game, the real launcher or a real library loader.
+Build the public tool with `//native/gameplay-build:factory-gameplay-build`.
+The implementation library, freshness inventory and host controls are local to
+this Bazel package; the tracked guards and installer read the inventory from
+its committed path. The focused publication control
+`//native/gameplay-build:install_test` is a host test using isolated temporary
+Git repositories and invented ELF headers. It never starts the game, the real
+launcher or a real library loader.
 
 The tool snapshots the selected component's committed source inventory and launcher before building.
 It refuses if the build checkout changes, production on main advances, launcher

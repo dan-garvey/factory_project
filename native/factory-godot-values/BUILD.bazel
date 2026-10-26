@@ -2,6 +2,8 @@ load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
+package(default_visibility = ["//visibility:private"])
+
 cc_library(
     name = "godot_values",
     srcs = ["src/godot_value.cpp"],
@@ -12,7 +14,7 @@ cc_library(
     includes = ["include", "vendor"],
     copts = ["-std=c++20", "-Wall", "-Wextra", "-Wpedantic", "-Werror"],
     deps = ["//native/factory-value:value"],
-    visibility = ["//visibility:public"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
 )
 
 cc_test(
