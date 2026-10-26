@@ -12,6 +12,9 @@ gameplay library.
 The Bazel production extension is public. Only the opening-engineering package
 may depend on the Host library and test-site helper; local tests, ABI fixture
 and runtime configuration target are private to this package.
+The extension and its ABI fixture consume the opening-engineering challenge
+library. That library admits only this Godot World adapter package; its own
+challenge and projection tests remain local to opening-engineering.
 
 ## Build and consume
 

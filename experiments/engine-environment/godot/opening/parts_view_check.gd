@@ -4291,6 +4291,32 @@ func _slide_controls_check() -> void:
 		and reclaim_model.sent[0].action == "pickup_material",
 		"A refused native material pickup leaves the component in place.")
 	reclaim_view.free()
+	var broad_snapshot := snapshot.duplicate(true)
+	broad_snapshot.placed_components = {
+		"broad-bed": {"component": "broad_anvil", "center": [20, 0, 8]},
+		"broad-head": {"component": "broad_flat_head", "center": [20, 1, 8]},
+		"broad-slide": {"component": "copper_slide", "center": [20, 2, 8]}}
+	broad_snapshot.broad_press_assemblies = [{"origin": [20, 0, 8],
+		"parts": {"anvils": ["broad-bed"], "heads": ["broad-head"], "slide": "broad-slide"}}]
+	broad_snapshot.dropped_material = [{"center": [20, 0, 8], "sheets": 1},
+		{"center": [24, 0, 8], "raw": 1}]
+	var broad_reclaim := ReclaimOrderView.new()
+	var broad_model := ReclaimOrderModel.new()
+	broad_model.projected = broad_snapshot
+	broad_reclaim.model = broad_model
+	broad_reclaim.state = broad_snapshot
+	broad_reclaim.client = "P"
+	for broad_part in ["broad-bed", "broad-head", "broad-slide"]:
+		verify(broad_reclaim._reclaim_owned_drops(broad_part) == [broad_snapshot.dropped_material[0]],
+			"Each broad press part owns its origin material without collecting loose stock beside the workbed.")
+	broad_reclaim.issue({"action": "reclaim_component", "entity": "broad-head"})
+	verify(broad_model.sent.size() == 2
+		and broad_model.sent[0].action == "pickup_material"
+		and broad_model.sent[0].center == [20, 0, 8]
+		and broad_model.sent[0].expected == {"sheets": 1}
+		and broad_model.sent[1].action == "reclaim_component",
+		"Broad head reclaim submits exact native sheet pickup before part removal.")
+	broad_reclaim.free()
 	snapshot.sliding_press_assemblies[0] = {"anvil": "anvil", "center": [12, 0, 8],
 		"status": "missing_head"}
 	snapshot.guided_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
