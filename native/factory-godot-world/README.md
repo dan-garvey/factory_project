@@ -9,6 +9,9 @@ Build `//native/factory-godot-world:factory-native-world.so` through
 [native builds](../../docs/engineering/native-builds.md). The separately named
 ABI-test library is an invented test fixture and must never be installed as the
 gameplay library.
+The Bazel production extension is public. Only the opening-engineering package
+may depend on the Host library and test-site helper; local tests, ABI fixture
+and runtime configuration target are private to this package.
 
 ## Build and consume
 
