@@ -56,6 +56,13 @@ func _init() -> void:
 		push_error("Select one native adapter fixture mode and a fresh output")
 		quit(2)
 		return
+	var resumes_worksite := mode.ends_with("-resume") or mode in ["resume",
+		"arrival-broad-drive", "arrival-broad-form", "arrival-channel-broad",
+		"arrival-channel-small"]
+	if seen.has("--resume-input=") != resumes_worksite:
+		push_error("The selected native adapter fixture mode requires exactly its declared worksite input")
+		quit(2)
+		return
 	var anvil_options := int(anvil_seat_only) + int(anvil_deck_only) + int(anvil_ready_only)
 	if anvil_options > 1 or (anvil_options > 0 and mode not in ["arrival-press", "arrival-guide-geometry", "arrival-raised-press"]):
 		push_error("Select at most one anvil stage for an arrival press fixture")

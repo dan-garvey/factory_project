@@ -54,9 +54,12 @@ and `--native-check-output`. It refuses unknown, repeated or empty arguments
 before constructing the scene. Its optional event routes are checked against
 the selected mode before the scene starts. At most one anvil stage may accompany
 an arrival press mode. `--native-check-prior` belongs only to `arrival-channel-small-resume`;
-`--arrival-reveal-probe` belongs only to `arrival-resume`. The script also accepts
-the existing `--resume-input`, `--save-slot`, `--arrival-capture-prefix` and
-`--test-purpose` arguments where their selected consumer uses them.
+`--arrival-reveal-probe` belongs only to `arrival-resume`. `--resume-input`
+is required for `resume`, modes ending in `-resume`, `arrival-broad-drive`,
+`arrival-broad-form`, `arrival-channel-broad` and `arrival-channel-small`.
+Fresh modes refuse it before scene startup. The existing `--save-slot`,
+`--arrival-capture-prefix` and `--test-purpose` options remain available
+where their selected consumer uses them.
 
 Build `//native/godot-fixture:factory-godot-fixture` with the verified Bazel
 8.4.2 toolchain described in [native builds](../../docs/engineering/native-builds.md).
