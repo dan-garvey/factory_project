@@ -4,6 +4,8 @@ extends SceneTree
 ## sets a body pose, edits a projection, creates stock or calls advance().
 const NativeModel = preload("res://opening/native_model.gd")
 const OpeningScene = preload("res://opening/opening.gd")
+const ConstructionAudio = preload("res://opening/construction_audio.gd")
+const MechanicalAmbience = preload("res://opening/mechanical_ambience.gd")
 
 var opening
 var mode := ""
@@ -64,10 +66,10 @@ func _finish(status: String, reason: String = "") -> void:
 	output.store_buffer(var_to_bytes(facts))
 	output.close()
 	var audio_refs: Array[WeakRef] = []
-	for kind in OpeningScene.MechanicalAmbience.loops:
-		audio_refs.append(weakref(OpeningScene.MechanicalAmbience.loops[kind]))
-	for cue in OpeningScene.ConstructionAudio.streams:
-		audio_refs.append(weakref(OpeningScene.ConstructionAudio.streams[cue]))
+	for kind in MechanicalAmbience.loops:
+		audio_refs.append(weakref(MechanicalAmbience.loops[kind]))
+	for cue in ConstructionAudio.streams:
+		audio_refs.append(weakref(ConstructionAudio.streams[cue]))
 	if opening != null:
 		if opening.mechanical_ambience != null:
 			opening.mechanical_ambience.silence()
@@ -82,9 +84,9 @@ func _finish(status: String, reason: String = "") -> void:
 			opening.construction_audio.stream = null
 		opening.free()
 		opening = null
-	OpeningScene.ConstructionAudio.streams.clear()
-	OpeningScene.ConstructionAudio.source_status = "uninitialized"
-	OpeningScene.MechanicalAmbience.loops.clear()
+	ConstructionAudio.streams.clear()
+	ConstructionAudio.source_status = "uninitialized"
+	MechanicalAmbience.loops.clear()
 	# The dummy audio driver may release stopped voices after scene removal.
 	# Observe the retained resources before ending this consumer.
 	var audio_deadline := Time.get_ticks_msec() + 2000
