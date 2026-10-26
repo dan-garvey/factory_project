@@ -3938,6 +3938,7 @@ var stock_label: Label
 var parts_label: Label
 var goal_label: Label
 var objective_heading: Label
+var objective_separator: HSeparator
 var manager_log_button: Button
 var manager_log_layer: CanvasLayer
 var manager_log_panel: PanelContainer
@@ -6124,7 +6125,7 @@ func _toggle_explanation() -> void:
 	help_panel.visible = explanation_open
 	if explanation_open:
 		_release_character_controls()
-		help_title.text = "CURRENT TASK"
+		help_title.text = objective_heading.text
 		help_body.text = goal_label.text + "\n\n" + controls_label.text
 	_update_cursor()
 	_refresh_ui()
@@ -9042,9 +9043,7 @@ func _refresh_manager_log() -> void:
 		maxf(180.0, (viewport_height - 32.0) * 0.5))
 	manager_log_panel.offset_top = -half_height
 	manager_log_panel.offset_bottom = half_height
-	var lines := goal_label.text.split("\n")
-	var current := lines[lines.size() - 1] if not lines.is_empty() else "Inspect the worksite."
-	manager_log_current.text = "CURRENT FIELD CUE\n" + current
+	manager_log_current.text = "CURRENT FIELD CUE\n" + objective_heading.text + "\n" + goal_label.text
 
 func _notice_workshop_completion(complete: bool) -> void:
 	var previously_complete: Variant = workshop_completion_observed
@@ -9230,11 +9229,17 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	else:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
-	help_button.visible = true
+	objective_heading.visible = not arrival
+	goal_label.visible = not arrival
+	objective_separator.visible = not arrival
+	manager_log_button.get_parent().visible = not arrival
+	manager_log_button.visible = not arrival
+	help_button.visible = not arrival
 	actor_label.visible = true
-	controls_label.text = "WASD move · E interact · B build · F remove · H help" if arrival \
-		else "B catalog · 1–8 build · E open · F remove · H help"
+	controls_label.text = "WASD move · E interact · B build · F remove · J log · H help" if arrival \
+		else "B catalog · 1–8 build · E open · F remove · J log · H help"
 	if explanation_open:
+		help_title.text = objective_heading.text
 		help_body.text = goal_label.text + "\n\n" + controls_label.text
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
@@ -9771,6 +9776,14 @@ func _footer_above_view() -> bool:
 
 func _fit_guided_footer() -> void:
 	footer_fit_pending = false
+	var arrival := _native_transmission() and state.has("hand_sources")
+	var action_row: Control = tool_buttons.flow.get_parent()
+	var has_left_action := false
+	for action in action_row.get_children():
+		if action is Control and action.visible:
+			has_left_action = true
+			break
+	build_column.get_parent().visible = not arrival or has_left_action
 	# Wrapped text settles after its container width. Fit again at that
 	# boundary, rather than retaining an early oversized minimum height.
 	var columns_to_fit := [build_column] if object_menu != null else [build_column, inspector.get_parent() if inspector != null else null]
@@ -10270,7 +10283,8 @@ func _build_interface() -> void:
 	build.add_child(goal_progress)
 	confirm_button = _button(build, "Confirm four plates  [Ctrl+Enter]", _confirm_goal)
 	_accent_button(confirm_button)
-	build.add_child(HSeparator.new())
+	objective_separator = HSeparator.new()
+	build.add_child(objective_separator)
 	building_hotbar = BuildingHotbar.new()
 	building_hotbar.configure(self, root)
 	tool_buttons.merge(building_hotbar.catalog_buttons)
