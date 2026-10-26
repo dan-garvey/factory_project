@@ -15,9 +15,9 @@ const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
 const FOOTPRINT_ONE_ICON = preload("res://opening/assets/build-icons/footprint-one.svg")
 const FOOTPRINT_FOUR_ICON = preload("res://opening/assets/build-icons/footprint-four.svg")
 const MATERIALS := {
-	"timber": ["Timber", "timber.svg"], "raw": ["Ore blank", "ore.svg"],
-	"products": ["Plate", "plate.svg"], "offcuts": ["Offcut", "offcut.svg"],
-	"sheets": ["Broad sheet", "sheet.svg"], "work_lots": ["Workpiece", "press-feed.svg"],
+	"timber": ["Timber", "timber.svg"], "raw": ["Copper", "ore.svg"],
+	"products": ["Copper plate", "plate.svg"], "offcuts": ["Copper offcut", "offcut.svg"],
+	"sheets": ["Copper sheet", "sheet.svg"], "work_lots": ["Copper workpiece", "workpiece.svg"],
 	"fabrication_hub": ["Pod workshop", "workshop-pod.svg"]}
 const COMPONENT_ICONS := {
 	"wooden_frame": "wooden_frame.svg", "wooden_shaft": "wooden_shaft.svg",
@@ -209,7 +209,7 @@ func configure(host, ui: Control) -> void:
 	recipe_side.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	catalog_columns.add_child(recipe_side)
 	host._label(recipe_side, "CRAFT / BUILD", 13)
-	host._label(recipe_side, "T timber · O ore · choose an icon to craft", 11)
+	host._label(recipe_side, "T timber · Cu copper · choose an icon to craft", 11)
 	recipe_scroll = ScrollContainer.new()
 	recipe_scroll.name = "CraftRecipes"
 	recipe_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -486,8 +486,8 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 	var tile := _recipe_tile(key, icon)
 	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
 	var timber := int(cost.get("timber", 0))
-	var ore := int(cost.get("copper", 0))
-	var affordable := int(cargo.get("timber", 0)) >= timber and int(cargo.get("raw", 0)) >= ore
+	var copper := int(cost.get("copper", 0))
+	var affordable := int(cargo.get("timber", 0)) >= timber and int(cargo.get("raw", 0)) >= copper
 	var at_bench := _valid_bench(host.state, context_bench)
 	var station := "Field or bench" if field_allowed else "Bench"
 	var rating := int(cost.get("load_rating", 0))
@@ -506,12 +506,12 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 		var surface := tile.get_theme_stylebox(state_name, "Button") as StyleBoxFlat
 		surface.border_color = Color("e7b875")
 		surface.border_width_bottom = 2 if craftable else 0
-	tile.tooltip_text = "%s · %d timber + %d ore · %s%s · %s" % [
-		label, timber, ore, station, rating_detail, reason]
-	tile.accessibility_name = "%s recipe, needs %d timber and %d ore, %s%s, %s" % [
-		label, timber, ore, station, rating_detail, reason]
+	tile.tooltip_text = "%s · %d timber + %d copper · %s%s · %s" % [
+		label, timber, copper, station, rating_detail, reason]
+	tile.accessibility_name = "%s recipe, needs %d timber and %d copper, %s%s, %s" % [
+		label, timber, copper, station, rating_detail, reason]
 	recipe_names[key].text = label
-	recipe_costs[key].text = "%dT · %dO" % [timber, ore]
+	recipe_costs[key].text = "%dT · %dCu" % [timber, copper]
 
 func _refresh_recipes(host, ready: bool) -> void:
 	for tile: Button in recipe_buttons.values():
@@ -535,7 +535,7 @@ func _refresh_recipes(host, ready: bool) -> void:
 	context_label.text = "Fabrication bench · choose a recipe" if not context_bench.is_empty() else \
 		"Field recipes can be made anywhere · E opens a bench"
 	if not _plate_unlocked(host):
-		context_label.text = "First plate: build a press with a hand crank. Feed a blank, turn the crank, collect the plate."
+		context_label.text = "First plate: build a press with a hand crank. Feed copper, turn the crank, collect the plate."
 	var recipes: Dictionary = host.state.get("component_recipes", {})
 	var recipe_names: Array[String] = []
 	if _plate_unlocked(host):

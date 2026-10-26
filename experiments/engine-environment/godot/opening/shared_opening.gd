@@ -279,14 +279,14 @@ func _settle_pending() -> void:
 				"craft_component": "Component crafted from carried material.", "field_craft": "Wooden component shaped with your multitool.",
 				"craft_part": "Transmission kit made from carried timber and copper.",
 				"place_component": "Component placed on the shared grid.", "reclaim_component": "Component returned to your carried cargo.",
-				"turn_hand_crank": "Collector cut one ore blank into its receiver tray.",
+				"turn_hand_crank": "Collector cut a piece of copper into its receiver tray.",
 				"retrieve": "Plate collected into your inventory.", "pickup_material": "Loose material collected into your inventory.", "load_belt_slot": "Material placed on the belt.",
 				"remove": "Part returned."}.get(item.action.action, "Action accepted."))
 		else:
 			var refusal: String = _material_refusal_message(result, "Not applied: " + {"occupied": "that square is occupied.", "no_part": "that part is already placed.",
 				"not_at_seam": "place the collector over the ore deposit beside the rock.",
 				"not_at_stream": "place the waterwheel beside the stream bank.",
-				"unavailable_output": "there is no finished plate to collect.", "not_stopped": "stop the drive before editing.",
+				"unavailable_output": "there is no finished copper plate to collect.", "not_stopped": "stop the drive before editing.",
 				"out_of_reach": "move closer to the target before building or interacting.",
 				"not_crank_holder": _crank_turn_refusal("press"),
 				"actor_unready": "your character is not ready yet; wait a moment.",
@@ -309,7 +309,7 @@ func _settle_pending() -> void:
 			elif item.action.action == "turn_hand_crank":
 				refusal = {"not_crank_holder": _crank_turn_refusal("collector"),
 					"incomplete_assembly": "Fit the collector's missing component before cutting ore.",
-					"receiver_full": "Pick up the ore blank in the collector receiver before cutting again.",
+					"receiver_full": "Pick up the copper in the collector receiver before cutting again.",
 					"source_depleted": "This ore deposit is depleted.",
 					"output_full": "Clear a loose material drop before cutting more ore.",
 					"out_of_reach": "Move beside the collector's fitted shaft to turn it."}.get(result.get("reason", ""), refusal)
@@ -430,6 +430,11 @@ func _refresh_ui() -> void:
 		recovery_actions.refresh()
 	if loose_material_controls != null:
 		loose_material_controls.refresh()
+	if arrival_assembly_controls != null and arrival_assembly_controls.inventory_section.is_visible_in_tree():
+		if recovery_actions != null:
+			recovery_actions.visible = false
+		if loose_material_controls != null:
+			loose_material_controls.visible = false
 	_refresh_transmission()
 	# Shared pending/reconnect notices replace the base goal after its refresh.
 	# Keep the personal log's current cue on that final confirmed view.

@@ -267,14 +267,14 @@ func check_shared_manager_log() -> void:
 	view._build_world()
 	view._build_interface()
 	view._refresh_ui()
-	verify("Gather 5 timber and 4 copper blanks" in view.manager_log_current.text,
+	verify("Gather 5 timber and 4 copper pieces" in view.manager_log_current.text,
 		"A confirmed shared arrival shows the live material cue in its replayable manager log.")
 	var adjusted: Dictionary = unchanged.duplicate(true)
 	adjusted.component_recipes.hand_crank.timber = 4
 	adjusted.cargo.P.timber = 1
 	view.state = adjusted
 	view._refresh_ui()
-	verify("Gather 6 timber and 4 copper blanks" in view.manager_log_current.text,
+	verify("Gather 6 timber and 4 copper pieces" in view.manager_log_current.text,
 		"The shared cue reads projected recipe costs and accounts for material already carried.")
 	view.state = unchanged
 	view._refresh_ui()
@@ -403,8 +403,8 @@ func check_slide_manager_cue() -> void:
 	view.state.crank_items = {"crank-1": {"holder": "", "attached_to": "slide", "port": [1, 2, 0]}}
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(view.goal_label.text.contains("Open the fitted press [E]. Move a blank to the workbed, then point at the crank and hold E.")
-		and view.manager_log_current.text.ends_with("Open the fitted press [E]. Move a blank to the workbed, then point at the crank and hold E."),
+	verify(view.goal_label.text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
+		and view.manager_log_current.text.ends_with("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."),
 		"The ordinary first-shift cue and replayable log recognize a ready slide with its fitted crank.")
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--slide-manager-screenshot="):
@@ -420,8 +420,8 @@ func check_slide_manager_cue() -> void:
 	shared._build_interface()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(shared.goal_label.text.contains("Open the fitted press [E]. Move a blank to the workbed, then point at the crank and hold E.")
-		and shared.manager_log_current.text.ends_with("Open the fitted press [E]. Move a blank to the workbed, then point at the crank and hold E."),
+	verify(shared.goal_label.text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
+		and shared.manager_log_current.text.ends_with("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."),
 		"The shared worker receives the same ready-slide cue without creating local authority.")
 	view.state.sliding_press_assemblies[0].open_feeds = [
 		{"entry": [-1, 0, 0], "exit": [1, 0, 0]},
@@ -429,7 +429,7 @@ func check_slide_manager_cue() -> void:
 	view.state.sliding_press_assemblies[0].selected_exit = [1, 0, 0]
 	view.state.dropped_material = [{"center": [9, 0, 0], "products": 1}]
 	view._refresh_guided_tools()
-	verify(view.goal_label.text.contains("Move a blank to the workbed"),
+	verify(view.goal_label.text.contains("Move copper to the workbed"),
 		"A plate elsewhere in the world does not replace the press feed cue.")
 	view.state.dropped_material.append({"center": [1, 0, 0], "products": 1})
 	shared.state = view.state.duplicate(true)
@@ -461,7 +461,7 @@ func check_slide_manager_cue() -> void:
 			root.size = Vector2i(1280, 800)
 	view.state.sliding_press_assemblies[0].selected_exit = [2, 0, 0]
 	view._refresh_guided_tools()
-	verify(view.goal_label.text.contains("Move a blank to the workbed"),
+	verify(view.goal_label.text.contains("Move copper to the workbed"),
 		"The cue follows the native selected exit rather than an occupied alternate route.")
 	view.state.dropped_material.clear()
 	view.state.first_plate_unlock = true
@@ -505,7 +505,7 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_label.text.contains("Open the fitted press [E]. Move a blank to the workbed, then point at the crank and hold E.")
+	verify(view.goal_label.text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
 		and shared.goal_label.text == view.goal_label.text
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"Clearing one native feed route restores the first-plate press cue for ordinary and shared workers.")

@@ -63,10 +63,10 @@ func refresh() -> void:
 	# Keep this inspector addition to one action row, including expanded Details.
 	# The exact carried forms remain available without another wrapping label.
 	var summary: String = "%s, %s and %s carried." % [
-		_count(cargo.raw, "blank", "blanks"), _count(cargo.products, "plate", "plates"),
-		_count(lots.size(), "workpiece", "workpieces")]
+		_count(cargo.raw, "copper piece", "copper pieces"), _count(cargo.products, "copper plate", "copper plates"),
+		_count(lots.size(), "copper workpiece", "copper workpieces")]
 	if context.kind == "belt_span" and not sheets.is_empty():
-		summary += " %s still carried as one broad item." % _count(sheets.size(), "sheet", "sheets")
+		summary += " %s still carried as one broad item." % _count(sheets.size(), "copper sheet", "copper sheets")
 	action_button.tooltip_text = summary + "\nMove material near the selected machine or belt position."
 	action_button.text = ("Move materials…" if occupied and carrying else "Recover contents…" if occupied else "Insert carried material…") + "  [Ctrl+M]"
 	action_button.disabled = not context.usable or _offers(context).is_empty()
@@ -187,16 +187,16 @@ func _offers(context: Dictionary) -> Array[Dictionary]:
 					for id: int in ids:
 						var label: String
 						match kind:
-							"raw": label = "blank"
-							"product": label = "plate"
-							"sheet": label = "broad sheet %d" % id
-							_: label = "workpiece %d" % id
+							"raw": label = "copper"
+							"product": label = "copper plate"
+							"sheet": label = "copper sheet %d" % id
+							_: label = "copper workpiece %d" % id
 						offers.append({"text": "Put %s on belt position %d" % [label, index + 1],
 							"wire": {"action": "load_belt_slot", "entity": context.target, "slot": index, "item": kind, "work_id": id}})
 				continue
 			if not item is Dictionary or _quantity(item, "raw") < 0 or _quantity(item, "products") < 0 or not item.get("work_lots") is Array:
 				continue
-			var label: String = "blank" if item.raw > 0 else "plate" if item.products > 0 else "workpiece"
+			var label: String = "copper" if item.raw > 0 else "copper plate" if item.products > 0 else "copper workpiece"
 			offers.append({"text": "Recover %s from belt position %d" % [label, index + 1],
 				"wire": {"action": "recover_belt_slot", "entity": context.target, "slot": index, "expected": item.duplicate(true)}})
 		return offers
@@ -205,13 +205,13 @@ func _offers(context: Dictionary) -> Array[Dictionary]:
 	if _has_contents(context):
 		offers.append({"text": "Recover this machine's contents", "wire": {"action": "recover", "entity": context.target}})
 	if context.cargo.raw > 0:
-		offers.append({"text": "Put one carried blank here", "wire": {"action": "insert_raw", "entity": context.target, "amount": 1}})
+		offers.append({"text": "Put one carried copper piece here", "wire": {"action": "insert_raw", "entity": context.target, "amount": 1}})
 	if context.kind == "processor":
 		var index: int = 0
 		for lot: Dictionary in context.cargo.work_lots:
 			index += 1
 			var phase: String = "ready" if lot.remaining == 0 else "%d ticks remaining" % lot.remaining
-			offers.append({"text": "Put workpiece %d here (%s)" % [index, phase],
+			offers.append({"text": "Put copper workpiece %d here (%s)" % [index, phase],
 				"wire": {"action": "insert_work", "entity": context.target, "work_id": lot.id}})
 	return offers
 
@@ -306,9 +306,9 @@ class LooseMaterialControls:
 			var point: Array = drop.center
 			if typeof(point[0]) != TYPE_INT or typeof(point[1]) != TYPE_INT or typeof(point[2]) != TYPE_INT:
 				continue
-			var label := "%d blank(s), %d plate(s), %d workpiece(s)" % [drop.raw, drop.products, drop.work_lots.size()]
+			var label := "%d copper, %d copper plates, %d copper workpieces" % [drop.raw, drop.products, drop.work_lots.size()]
 			if drop.has("offcuts"):
-				label += ", %d offcut(s), %d sheet(s)" % [drop.offcuts, drop.sheets]
+				label += ", %d copper offcuts, %d copper sheets" % [drop.offcuts, drop.sheets]
 			get_popup().add_item("%s at %s" % [label, str(point)], _offers.size())
 			var expected: Dictionary = drop.duplicate(true)
 			expected.erase("center")
@@ -344,7 +344,7 @@ class LooseMaterialControls:
 						{"name": "north", "dx": 0, "dz": -z_offset}]
 				for direction: Dictionary in directions:
 					var target: Array = [point[0] + direction.dx, point[1], point[2] + direction.dz]
-					var material_name: String = {"raw": "blank", "plate": "plate", "offcut": "offcut"}[small_form]
+					var material_name: String = {"raw": "copper", "plate": "copper plate", "offcut": "copper offcut"}[small_form]
 					get_popup().add_item("Push %s %s → %s" % [material_name,
 						direction.name, str(target)], _offers.size())
 					_offers.append({"drop": drop.duplicate(true), "wire": {
@@ -362,7 +362,7 @@ class LooseMaterialControls:
 				{"name": "south", "dx": 0, "dz": 4},
 				{"name": "north", "dx": 0, "dz": -4}]:
 				var target: Array = [point[0] + direction.dx, point[1], point[2] + direction.dz]
-				get_popup().add_item("Push sheet #%d %s → %s" % [sheets[0].id,
+				get_popup().add_item("Push copper sheet #%d %s → %s" % [sheets[0].id,
 					direction.name, str(target)], _offers.size())
 				_offers.append({"drop": drop.duplicate(true), "wire": {
 					"action": "push_channel_sheet", "from": point.duplicate(),
@@ -579,7 +579,7 @@ class ArrivalAssemblyControls:
 		_style_workshop_icon(shear_button, "workshop-cut")
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
-		route_choice.tooltip_text = "Choose the side for the next blank · G"
+		route_choice.tooltip_text = "Choose the side for the next copper piece · G"
 		route_choice.accessibility_name = "Press feed direction, shortcut G"
 		route_choice.item_selected.connect(func(index: int) -> void: _route_index = index)
 		press_section.add_child(route_choice)
@@ -643,7 +643,7 @@ class ArrivalAssemblyControls:
 		compact_button.icon = load("res://opening/assets/menu-icons/compact-offcuts.svg")
 		compact_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		compact_button.custom_minimum_size = Vector2(46, 37)
-		compact_button.accessibility_name = "Compact four copper offcuts into one stock blank"
+		compact_button.accessibility_name = "Compact four copper offcuts into one copper piece"
 		compact_button.focus_mode = Control.FOCUS_ALL
 		var compact_shortcut := Shortcut.new()
 		var compact_key := InputEventKey.new()
@@ -771,8 +771,8 @@ class ArrivalAssemblyControls:
 		collector_cut_button.visible = collector_status.visible
 		if collector_status.visible:
 			var collector_state := str(collector.get("status", ""))
-			collector_status.text = "Collector receiver holds an ore blank. Pick it up before another cut." if receiver_full else \
-				"Collector ready. Turn its mounted input to cut one ore blank." if collector_state == "ready" else \
+			collector_status.text = "Collector receiver holds copper. Pick it up before another cut." if receiver_full else \
+				"Collector ready. Turn its mounted input to cut one copper piece." if collector_state == "ready" else \
 				"Collector: %s" % COLLECTOR_NEXT.get(collector_state, "Choose a clear ore-deposit frame.")
 			if collector_state == "ready":
 				collector_status.text += "\n" + _receiver_route_status(snapshot)
@@ -785,7 +785,7 @@ class ArrivalAssemblyControls:
 					break
 			collector_cut_button.disabled = not ready or collector_state != "ready" or receiver_full \
 				or not crank_fitted or not collector_parts.has("mount")
-			var cut_hint := "Cut one ore blank"
+			var cut_hint := "Cut one copper piece"
 			if not ready:
 				cut_hint = "Wait for the character"
 			elif receiver_full:
@@ -795,7 +795,7 @@ class ArrivalAssemblyControls:
 			elif collector_state != "ready":
 				cut_hint = COLLECTOR_NEXT.get(collector_state, "Complete the collector")
 			collector_cut_button.tooltip_text = "%s · X" % cut_hint
-			collector_cut_button.accessibility_name = "Cut one ore blank at the selected collector, shortcut X"
+			collector_cut_button.accessibility_name = "Cut one copper piece at the selected collector, shortcut X"
 		_press = _selected_press(snapshot, selected)
 		_anvil = str(_press.get("anvil", ""))
 		var selected_kind: String = str(snapshot.get("placed_components", {}).get(selected, {}).get("component", ""))
@@ -807,12 +807,12 @@ class ArrivalAssemblyControls:
 		broad_refeed_button.visible = not _broad_refeed_offers.is_empty()
 		broad_refeed_button.disabled = not ready
 		broad_refeed_button.tooltip_text = "Reinsert carried broad work into this four-anvil press · N"
-		broad_refeed_button.accessibility_name = "Reinsert broad sheet work, shortcut N"
+		broad_refeed_button.accessibility_name = "Reinsert copper sheet work, shortcut N"
 		_sheet_offers = _sheet_stage_offers(snapshot, actor, selected)
 		sheet_button.visible = not _sheet_offers.is_empty()
 		sheet_button.disabled = not ready
 		sheet_button.tooltip_text = "Stage a carried copper sheet on the selected four-anvil area · S"
-		sheet_button.accessibility_name = "Stage carried sheet on four anvils, shortcut S"
+		sheet_button.accessibility_name = "Stage carried copper sheet on four anvils, shortcut S"
 		_shear = _selected_shear(snapshot, selected)
 		shear_button.visible = not _shear.is_empty()
 		shear_button.disabled = not ready or _shear.get("status") != "ready"
@@ -867,13 +867,13 @@ class ArrivalAssemblyControls:
 		if status == "ready":
 			var work := _work_drop()
 			var exit_drop := _exit_drop()
-			var advice := "Reinsert carried work or feed a blank." if not _held_work_ids.is_empty() \
-				else "Feed one carried ore blank." if int(cargo.get("raw", 0)) > 0 \
-				else "Compact four carried copper offcuts here to recover a blank." if int(cargo.get("offcuts", 0)) >= 4 \
+			var advice := "Reinsert carried copper work or feed copper." if not _held_work_ids.is_empty() \
+				else "Feed one carried copper piece." if int(cargo.get("raw", 0)) > 0 \
+				else "Compact four carried copper offcuts here to recover copper." if int(cargo.get("offcuts", 0)) >= 4 \
 				else "Cut ore with the multitool or build a collector."
 			if not work.is_empty():
 				advice = "Pick up the copper offcut beneath the %s before feeding again." % work_face if int(work.get("offcuts", 0)) > 0 \
-					else "Exit holds a plate; pick it up, then turn again." if int(exit_drop.get("products", 0)) > 0 \
+					else "Exit holds a copper plate; pick it up, then turn again." if int(exit_drop.get("products", 0)) > 0 \
 					else "Turn the crank to advance retained work."
 				var work_lots: Array = work.get("work_lots", [])
 				if int(work.get("offcuts", 0)) == 0 and not work_lots.is_empty() and work_lots[0] is Dictionary:
@@ -884,11 +884,11 @@ class ArrivalAssemblyControls:
 							advice = "Work stroke: %d / %d contacts. Hold T or the turn icon." % [cycle - remaining, cycle] if sliding else \
 								"Work stroke: %d / %d steps. Hold T or the turn icon." % [cycle - remaining, cycle]
 						else:
-							advice = "Exit holds a plate; stroke %d / %d steps. Pick it up before the final step." % [cycle - remaining, cycle]
+							advice = "Exit holds a copper plate; stroke %d / %d steps. Pick it up before the final step." % [cycle - remaining, cycle]
 			if sliding and work.is_empty():
 				advice = "Move selected carried work onto the workbed." if not _held_work_ids.is_empty() else \
-					"Move one carried blank onto the workbed." if int(cargo.get("raw", 0)) > 0 else \
-					"Cut ore with the multitool, then carry a blank here."
+					"Move one carried copper piece onto the workbed." if int(cargo.get("raw", 0)) > 0 else \
+					"Cut ore with the multitool, then carry copper here."
 			press_status.text = "Selected outlet blocked. Clear it before the next stroke." if not selected_route_available else \
 				"%s ready · %d clear feed routes. %s" % [
 					"Slide press" if sliding else "Press", routes.size(), advice]
@@ -904,7 +904,7 @@ class ArrivalAssemblyControls:
 				if int(broad_work.get("sheets", 0)) > 0 else \
 				"Four-anvil workbed · sheet work retained. Drive or recover it." \
 				if not broad_work.get("work_lots", []).is_empty() else \
-				"Four-anvil workbed · move three carried blanks here [F]."
+			"Four-anvil workbed · move three carried copper pieces here [F]."
 		var active_press := status == "ready"
 		feed_heading.visible = active_press and not _inventory_broad
 		feed_heading.text = "TURN THE SLIDE" if sliding else "FEED & STROKE"
@@ -922,16 +922,16 @@ class ArrivalAssemblyControls:
 			"Clear the selected outlet" if not selected_route_available else \
 			"Complete the press and choose a clear feed route"
 		feed_button.tooltip_text = "%s · F" % (operate_cause if not can_operate else \
-			"Carry an ore blank" if int(cargo.get("raw", 0)) < 1 else \
+			"Carry copper" if int(cargo.get("raw", 0)) < 1 else \
 			"Clear the work face beneath the %s" % work_face if not _work_drop().is_empty() else \
-			"Feed one carried ore blank")
-		feed_button.accessibility_name = "Feed one carried ore blank, shortcut F"
+			"Feed one carried copper piece")
+		feed_button.accessibility_name = "Feed one carried copper piece, shortcut F"
 		compact_button.visible = not sliding and not _anvil.is_empty() and int(cargo.get("offcuts", 0)) > 0
 		compact_button.disabled = not can_operate or int(cargo.get("offcuts", 0)) < 4 \
 			or fitted_crank.is_empty() or not _work_drop().is_empty() \
 			or not _press.get("parts", {}).has("shaft")
-		compact_button.tooltip_text = "Compact four carried copper offcuts into one stock blank at this press. Fit a crank and clear the work face. [%d/4]  B" % mini(4, int(cargo.get("offcuts", 0)))
-		compact_button.accessibility_name = "Compact four carried copper offcuts into one blank, shortcut B"
+		compact_button.tooltip_text = "Compact four carried copper offcuts into one copper piece at this press. Fit a crank and clear the work face. [%d/4]  B" % mini(4, int(cargo.get("offcuts", 0)))
+		compact_button.accessibility_name = "Compact four carried copper offcuts into one copper piece, shortcut B"
 		held_work_choice.visible = active_press and not _held_work_ids.is_empty() \
 			and (not sliding or _held_work_ids.size() > 1)
 		refeed_work_button.visible = active_press and not _held_work_ids.is_empty() and not sliding
@@ -1005,7 +1005,7 @@ class ArrivalAssemblyControls:
 				var slots: Array = span.get("slots", [])
 				var inlet_slot: int = 0 if inlet_first else slots.size() - 1
 				if inlet_slot >= 0 and inlet_slot < slots.size() and slots[inlet_slot] is Dictionary:
-					return "Receiver mouth: belt inlet occupied. Move or recover its blank before another transfer."
+					return "Receiver mouth: belt inlet occupied. Move or recover its copper before another transfer."
 				if speed.get("state") != "rotating" or int(speed.get("numerator", 0)) == 0:
 					return "Receiver mouth linked; power the belt shafts with the stream wheel."
 				var first_grid: Array = first.get("center", [])
@@ -1089,7 +1089,7 @@ class ArrivalAssemblyControls:
 		_broad_refeed_offers = _broad_work_offers(_snapshot, _actor, _selected)
 		for index: int in _broad_refeed_offers.size():
 			var offer: Dictionary = _broad_refeed_offers[index]
-			popup.add_item("Sheet work #%d · %d contacts remain" % [offer.work_id, offer.remaining], index)
+			popup.add_item("Copper sheet work #%d · %d contacts remain" % [offer.work_id, offer.remaining], index)
 
 	func _choose_broad_refeed(index: int) -> void:
 		var host = _host_view()
@@ -1141,7 +1141,7 @@ class ArrivalAssemblyControls:
 		_sheet_offers = _sheet_stage_offers(_snapshot, _actor, _selected)
 		for index: int in _sheet_offers.size():
 			var offer: Dictionary = _sheet_offers[index]
-			popup.add_item("Sheet #%d → %s" % [offer.sheet_id, str(offer.center)], index)
+			popup.add_item("Copper sheet #%d → %s" % [offer.sheet_id, str(offer.center)], index)
 
 	func _choose_sheet(index: int) -> void:
 		var host = _host_view()
@@ -1239,8 +1239,8 @@ class ArrivalAssemblyControls:
 		var inputs: Array[Dictionary] = []
 		var raw_count: int = int(cargo.get("raw", 0))
 		if raw_supported and raw_count > 0:
-			var raw_hint := "Carry %d ore blanks. Select or drag three to the four-anvil workbed · F" % raw_count \
-				if _inventory_broad else "Carry %d ore blanks. Select or drag one to the workbed · F" % raw_count
+			var raw_hint := "Copper ×%d. Select or drag three to the four-anvil workbed · F" % raw_count \
+				if _inventory_broad else "Copper ×%d. Select or drag one to the workbed · F" % raw_count
 			if _inventory_broad and raw_count < 3:
 				raw_hint += " (three needed)"
 			elif not input_clear:
@@ -1248,10 +1248,10 @@ class ArrivalAssemblyControls:
 			inputs.append({"key": "player_raw", "count": raw_count, "icon": "ore", "hint": raw_hint,
 				"enabled": ready and input_clear and (not _inventory_broad or raw_count >= 3)})
 		if work_supported and not _held_work_ids.is_empty():
-			var work_hint := "Work #%d selected. Select or drag to the workbed · R" % _held_work_id
+			var work_hint := "Copper workpiece #%d selected. Select or drag to the workbed · R" % _held_work_id
 			if not input_clear:
 				work_hint += " (clear the workbed or choose a clear feed route)"
-			inputs.append({"key": "player_work", "count": _held_work_ids.size(), "icon": "plate",
+			inputs.append({"key": "player_work", "count": _held_work_ids.size(), "icon": "workpiece",
 				"hint": work_hint, "enabled": ready and input_clear})
 		if _inventory_broad:
 			for offer: Dictionary in _broad_refeed_offers:
@@ -1292,20 +1292,20 @@ class ArrivalAssemblyControls:
 		inventory_workbed_heading.text = "ON FOUR ANVILS  →  SHEET" if _inventory_broad else "ON THE WORKBED  →  OUTLET"
 		var work_icon := "offcut" if int(work.get("offcuts", 0)) > 0 else \
 			"ore" if int(work.get("raw", 0)) > 0 else \
-			"sheet" if _inventory_broad else "plate"
+			"sheet" if _inventory_broad else "workpiece"
 		inventory_slots.workbed_work.icon = load("res://opening/assets/build-icons/%s.svg" % work_icon) \
 			if counts.workbed_work > 0 else null
 		inventory_slots.workbed_output.icon = load("res://opening/assets/build-icons/%s.svg" % \
 			("sheet" if _inventory_broad else "plate")) if counts.workbed_output > 0 else null
-		var work_label := "Sheet work, %d contacts remain" % int(bench_lots[0].get("remaining", 0)) \
+		var work_label := "Copper sheet work, %d contacts remain" % int(bench_lots[0].get("remaining", 0)) \
 			if _inventory_broad and not bench_lots.is_empty() and bench_lots[0] is Dictionary else \
-			"%d offcut" % int(work.get("offcuts", 0)) if int(work.get("offcuts", 0)) > 0 else \
-			"%d blank" % int(work.get("raw", 0)) if int(work.get("raw", 0)) > 0 else \
-			"Work, %d strokes remain" % int(bench_lots[0].get("remaining", 0)) if not bench_lots.is_empty() and bench_lots[0] is Dictionary else "Empty work face"
+			"%d copper offcut" % int(work.get("offcuts", 0)) if int(work.get("offcuts", 0)) > 0 else \
+			"Copper ×%d" % int(work.get("raw", 0)) if int(work.get("raw", 0)) > 0 else \
+			"Copper workpiece, %d strokes remain" % int(bench_lots[0].get("remaining", 0)) if not bench_lots.is_empty() and bench_lots[0] is Dictionary else "Empty work face"
 		inventory_slots.workbed_work.tooltip_text = "%s. Select or drag to carry · U" % work_label
 		inventory_slots.workbed_work.accessibility_name = inventory_slots.workbed_work.tooltip_text
-		inventory_slots.workbed_output.tooltip_text = "%d sheets on four anvils. Select or drag to carry · P" % counts.workbed_output \
-			if _inventory_broad else "%d plates at outlet. Select or drag to carry · P" % counts.workbed_output
+		inventory_slots.workbed_output.tooltip_text = "Copper sheet ×%d on four anvils. Select or drag to carry · P" % counts.workbed_output \
+			if _inventory_broad else "Copper plate ×%d at outlet. Select or drag to carry · P" % counts.workbed_output
 		inventory_slots.workbed_output.accessibility_name = inventory_slots.workbed_output.tooltip_text
 
 	func _inventory_can_issue() -> bool:

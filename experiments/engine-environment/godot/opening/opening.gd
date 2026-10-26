@@ -4566,8 +4566,8 @@ const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "process
 const LESSONS := [
 	["01  /  BUILD THE PATH", "Place a collector at the ore deposit and a press nearby. Put two one-tile shafts between them with parallel axles, then connect the shafts with a belt. Foundations provide level building surfaces."],
 	["02  /  CARRY ROTATION", "Use a waterwheel in flowing water. Small cogs with matching axes mesh side by side; mixed sizes mesh diagonally. Two large cogs on perpendicular axes meet one tile along each axle. Meshes reverse rotation; sizes change speed. Shafts carry rotation. Horizontal and vertical gearboxes turn it through side ports; matching encased chain cases link sideways."],
-	["03  /  FOLLOW ONE BLANK", "The collector removes a blank from the finite ore deposit. The belt carries it to the press. Advance the example one tick at a time. The held blank stays in the press until its plate can leave."],
-	["04  /  MAKE ROOM", "A full press outlet holds up the line. Collect the example plate below: the held blank finishes without being lost. Stopping the drive keeps the parts and unfinished work where they are."]
+	["03  /  FOLLOW ONE COPPER PIECE", "The collector removes copper from the finite ore deposit. The belt carries it to the press. Advance the example one tick at a time. The held copper stays in the press until its copper plate can leave."],
+	["04  /  MAKE ROOM", "A full press outlet holds up the line. Collect the example copper plate below: the held copper finishes without being lost. Stopping the drive keeps the parts and unfinished work where they are."]
 ]
 
 var model
@@ -5308,8 +5308,8 @@ func issue(action: Dictionary) -> Dictionary:
 			"reclaim_component": "Component returned to your carried cargo.",
 			"stow_fabrication_hub": "Pod workshop unbolted. Place it on clear ground or a foundation top.",
 			"deploy_fabrication_hub": "Pod workshop installed at its new worksite.",
-			"turn_hand_crank": "Collector cut one ore blank into its receiver tray.",
-			"feed_press": "One carried blank is now under the press head.",
+			"turn_hand_crank": "Collector cut a piece of copper into its receiver tray.",
+			"feed_press": "One carried copper piece is now under the press head.",
 			"turn_press_crank": "Plate formed at outlet. Collect it [P]." if int(outcome.get("formed_products", 0)) > 0 else "Press work advanced. Turn again to finish the plate.",
 			"place_foundation": "Foundation placed. Its surface shares the machine grid.",
 			"place_foundations": "Foundation area placed on the world grid.",
@@ -5326,7 +5326,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"invalid_belt_axis": "The belt's drive shaft runs across the belt, perpendicular to material travel.",
 			"missing_entity": "Choose a placed machine at each end.",
 			"already_connected": "Those ports are already connected.",
-			"unavailable_output": "There is no finished plate to collect yet.",
+			"unavailable_output": "There is no finished copper plate to collect yet.",
 			"out_of_reach": "Move closer to the target before building or interacting.",
 			"crank_not_attached": "Fit a crafted hand crank to the input before turning it.",
 			"input_port_occupied": "That input already holds a crank or another part.",
@@ -5334,11 +5334,11 @@ func issue(action: Dictionary) -> Dictionary:
 			"attached_crank": "Remove the fitted crank before reclaiming its input.",
 			"wrong_drive_shaft": "Use this press's fitted drive shaft.",
 			"incomplete_assembly": "The press still needs the indicated component.",
-			"receiver_full": "Pick up the ore blank in the collector receiver before cutting again.",
+			"receiver_full": "Pick up the copper in the collector receiver before cutting again.",
 			"blocked_feed": "Choose a clear feed face.",
 			"blocked_exit": "Choose a clear lower exit.",
-			"input_full": "Recover or process the existing blank first.",
-			"unavailable_input": "Carry an ore blank or feed the selected press first.",
+			"input_full": "Recover or process the existing copper first.",
+			"unavailable_input": "Carry copper or feed the selected press first.",
 			"site_occupied": "Rock or scenery blocks that placement or press route.",
 			"unsupported_bench": "Set the workbench on clear ground or a foundation top.",
 			"not_holder": "Only the worker carrying the pod workshop can place it.",
@@ -5383,7 +5383,7 @@ func _harvest_result_text(outcome: Dictionary) -> String:
 	var raw: int = outcome.get("moved_raw", 0)
 	if raw == 0:
 		return "Cutting…"
-	return "Collected %d copper %s." % [raw, "blank" if raw == 1 else "blanks"]
+	return "Collected %d copper %s." % [raw, "piece" if raw == 1 else "pieces"]
 
 func _press_contact_refusal(entity: String) -> String:
 	for assembly: Variant in state.get("guided_press_assemblies", []):
@@ -5422,13 +5422,13 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 		var channel_advice: String = {
 			"unavailable_input": "That item is no longer at the chosen square. Inspect the loose material again.",
 			"partial_shear": "A partly cut sheet must be finished or recovered before moving.",
-			"missing_channel": "Build a narrow or broad channel in the direction of travel before pushing this item." if small_item else "Build a broad channel in the direction of travel before pushing this sheet.",
-			"blocked_channel": "The item needs a supported square and a clear receiver. Clear or extend the channel." if small_item else "The full sheet needs two supported squares and a clear swept route. Clear or extend the channel.",
+			"missing_channel": "Build a narrow or broad channel in the direction of travel before pushing this item." if small_item else "Build a broad channel in the direction of travel before pushing this copper sheet.",
+			"blocked_channel": "The item needs a supported square and a clear receiver. Clear or extend the channel." if small_item else "The full copper sheet needs two supported squares and a clear swept route. Clear or extend the channel.",
 			"invalid_channel_target": "Push toward the next channel cell along X or Z at the item's current height." if small_item else "Push one whole tile along X or Z at the sheet's current height."}.get(outcome.get("reason", ""), "")
 		if not channel_advice.is_empty():
 			return channel_advice
 	if _native_transmission() and action_name == "stroke_broad_shear" and not outcome.get("uncertain", false):
-		var shear_advice: String = {"output_full": "Clear the other anvil squares before cutting the sheet.",
+		var shear_advice: String = {"output_full": "Clear the other anvil squares before cutting the copper sheet.",
 			"shear_unpowered": "Drive the cutting head forward before cutting."}.get(outcome.get("reason", ""), "")
 		if not shear_advice.is_empty():
 			return shear_advice
@@ -6191,7 +6191,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 func _retrieve() -> void:
 	var target := selected
 	if target.is_empty() or not state.entities.has(target) or state.entities[target].kind != "processor":
-		_message("Point at the press and press E, then collect its finished plate.", true)
+		_message("Point at the press and press E, then collect its finished copper plate.", true)
 		return
 	issue({"action": "retrieve", "amount": 1, "entity": target})
 
@@ -9568,7 +9568,7 @@ func _refresh_ui() -> void:
 	confirm_button.disabled = inventory < 4 or goal_confirmed or explanation_open
 	confirm_button.text = "Objective confirmed" if goal_confirmed else "Confirm four plates  [Ctrl+Enter]"
 	var belt_raw: int = int(state.get("line_belt_raw", 0)) if _native_transmission() else state.stock.belt
-	stock_label.text = "ORE DEPOSIT  %d blanks\nIN THE LINE  %d blanks\nPRESS OUTLET  %d plate" % [state.stock.source,
+	stock_label.text = "ORE DEPOSIT  %d copper\nIN THE LINE  %d copper\nPRESS OUTLET  %d copper plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
 	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE NEEDS CONNECTIONS"
 	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or (not legacy_fixture and not state.get("actors", {}).get(client, {}).get("ready", false))
@@ -9652,7 +9652,7 @@ func _refresh_ui() -> void:
 		recovery_actions.refresh()
 	if loose_material_controls != null:
 		loose_material_controls.refresh()
-	if arrival_assembly_controls != null and arrival_assembly_controls.inventory_section.visible:
+	if arrival_assembly_controls != null and arrival_assembly_controls.inventory_section.is_visible_in_tree():
 		# The selected slide's workbed shows the same finite material at its actual
 		# work face and outlet. Keep one transfer surface in this object panel.
 		if recovery_actions != null:
@@ -9723,17 +9723,17 @@ func _first_plate_material_cue(carried: Dictionary) -> String:
 	for part: String in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
 		var cost: Dictionary = recipes.get(part, {})
 		if cost.is_empty():
-			return "Gather timber and copper blanks with the multitool [E]."
+			return "Gather timber and copper with the multitool [E]."
 		timber_needed += int(cost.get("timber", 0))
 		copper_needed += int(cost.get("copper", 0))
 	var timber_left := maxi(0, timber_needed - int(carried.get("timber", 0)))
 	var copper_left := maxi(0, copper_needed - int(carried.get("raw", 0)))
 	if timber_left > 0 and copper_left > 0:
-		return "Gather %d timber and %d copper blanks with the multitool [E]." % [timber_left, copper_left]
+		return "Gather %d timber and %d copper pieces with the multitool [E]." % [timber_left, copper_left]
 	if timber_left > 0:
 		return "Gather %d timber with the multitool [E] for the first plate." % timber_left
 	if copper_left > 0:
-		return "Gather %d copper blank%s with the multitool [E]." % [
+		return "Gather %d copper piece%s with the multitool [E]." % [
 			copper_left, "" if copper_left == 1 else "s"]
 	return "Use Build [B] to craft and fit press parts from carried stock."
 
@@ -9836,7 +9836,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		elif sliding_plate_waiting:
 			next_work = "Plate at outlet. Open the press [E], then collect it [P]."
 		elif sliding_press_ready and ready_slide_has_crank:
-			next_work = "Open the fitted press [E]. Move a blank to the workbed, then point at the crank and hold E."
+			next_work = "Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."
 		elif sliding_press_ready:
 			next_work = "Fit your carried crank at a slide input [B], then open the press [E]." \
 				if int(carried.get("components", {}).get("hand_crank", 0)) > 0 else \
@@ -10275,22 +10275,22 @@ func _guided_step(kinds: Dictionary) -> Dictionary:
 			if part.get("kind", "") in ["collector", "belt", "processor"] and motion.get(id, {}).get("state", "") != "rotating":
 				return {"text": "Use cogs and shafts to bring rotation to each machine. The belt shaft crosses its direction of travel.", "tool": "drive"}
 			if part.get("kind", "") == "belt" and motion.get(id, {}).get("state", "") == "rotating" and int(motion.get(id, {}).get("numerator", 0)) > 0:
-				return {"text": "The belt is carrying blanks away from the press. Change the cog route to reverse its rotation.", "tool": "drive"}
+				return {"text": "The belt is carrying copper away from the press. Change the cog route to reverse its rotation.", "tool": "drive"}
 		if span_route.physical and not span_route.powered and not legacy_route:
-			return {"text": "Power the belt shafts, check their direction toward the press, and check branches for diverted blanks.", "tool": "drive"}
+			return {"text": "Power the belt shafts, check their direction toward the press, and check branches for diverted copper.", "tool": "drive"}
 	elif not state.get("powered", false):
 		return {"text": "Bring power to the line. Help [H] shows the current setup.", "tool": "drive"}
 	var stock: Dictionary = state.get("stock", {})
 	if _native_transmission() and not span_route.cargo and state.get("dropped_material", []).any(func(drop: Variant): return drop is Dictionary and int(drop.get("raw", 0)) > 0) and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
-		return {"text": "Pick up loose blanks nearby, then insert them into the press.", "tool": "inspect"}
+		return {"text": "Pick up loose copper nearby, then insert it into the press.", "tool": "inspect"}
 	if not span_route.cargo and int(stock.get("source", 0)) + int(stock.get("collector", 0)) + int(stock.get("belt", 0)) + int(stock.get("input", 0)) + int(stock.get("held", 0)) == 0:
 		if _native_transmission():
 			var cargo: Dictionary = state.get("cargo", {}).get(client, {})
 			if not cargo.get("work_lots", []).is_empty():
-				return {"text": "Point at the press and open [E] to insert a carried workpiece.", "tool": "inspect"}
+				return {"text": "Point at the press and open [E] to insert a carried copper workpiece.", "tool": "inspect"}
 			if int(cargo.get("raw", 0)) > 0:
-				return {"text": "Point at the press and open [E] to insert a carried blank.", "tool": "inspect"}
-		return {"text": "No blanks remain here. Open Build to try another layout.", "tool": "inspect"}
+				return {"text": "Point at the press and open [E] to insert carried copper.", "tool": "inspect"}
+		return {"text": "No copper remains here. Open Build to try another layout.", "tool": "inspect"}
 	return {"text": "Follow the material toward the press. Point at a machine and open it [E].", "tool": "inspect"}
 
 func _inspection_hint() -> String:
@@ -10301,11 +10301,11 @@ func _inspection_hint() -> String:
 	if _native_transmission():
 		rotating = state.get("motion", {}).get(selected, {}).get("state", "") == "rotating"
 	if kind == "processor" and state.stock.output > 0:
-		return "Outlet full; plate ready.\n[R] collect to make room."
+		return "Outlet full; copper plate ready.\n[R] collect to make room."
 	if kind == "processor" and state.stock.held > 0 and rotating:
 		if state.remaining == 0:
-			return "Work done; blank retained.\nNext drive tick releases plate."
-		return "Working: %d ticks remaining.\nHeld blank stays in the press." % state.remaining
+			return "Work done; copper retained.\nNext drive tick releases a copper plate."
+		return "Working: %d ticks remaining.\nHeld copper stays in the press." % state.remaining
 	if kind in ["belt", "processor"] and not _has_material_connection(true):
 		return "No material inlet linked.\n" + ("[C]" if _native_transmission() else "[F]") + " link " + ("Collector → Belt." if kind == "belt" else "Belt → Press.")
 	if kind in ["collector", "belt"] and not _has_material_connection(false):
@@ -10318,16 +10318,16 @@ func _inspection_hint() -> String:
 		return "Drive needs connections.\n[G] link wheel + all machines."
 	if kind == "processor":
 		if state.stock.input > 0:
-			return "Blank ready to press.\nNext drive tick starts work."
-		return "Waiting for a blank.\nInspect the Belt upstream."
+			return "Copper ready to press.\nNext drive tick starts work."
+		return "Waiting for copper.\nInspect the Belt upstream."
 	if kind == "collector":
 		if state.stock.source == 0:
-			return "Ore deposit depleted.\nNo blanks remain to collect."
+			return "Ore deposit depleted.\nNo copper remains to collect."
 		if state.stock.collector > 0:
 			return "Collector outlet occupied.\nInspect the Belt downstream."
-		return "Collecting finite ore blanks.\nBelt takes the next blank."
+		return "Cutting copper from the finite deposit.\nBelt takes the next piece."
 	if kind == "belt":
-		return "Belt carrying a blank.\nInspect the Press downstream." if state.stock.belt > 0 else "Waiting for a blank.\nInspect the Collector upstream."
+		return "Belt carrying copper.\nInspect the Press downstream." if state.stock.belt > 0 else "Waiting for copper.\nInspect the Collector upstream."
 	return "Wheel rotates in the stream.\nConnected parts receive its motion."
 
 func _has_material_connection(incoming: bool) -> bool:
@@ -11107,7 +11107,7 @@ func _build_manager_log() -> void:
 	manager_log_projects.add_theme_constant_override("separation", 6)
 	column.add_child(manager_log_projects)
 	for project in [
-		["belt", "Route collector blanks by belt to a powered press."],
+		["belt", "Route collector copper by belt to a powered press."],
 		["gear", "Compare wood and copper drive parts under load."]]:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
