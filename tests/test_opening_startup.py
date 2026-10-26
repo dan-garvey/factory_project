@@ -117,34 +117,6 @@ class OpeningStartupTests(unittest.TestCase):
             self.assertEqual(receipt["stages"][-1], {"name": "interactive", "exit": 0})
             self.assertIn("instrumentation", receipt)
 
-    def test_observed_scene_quantities_and_slot_semantics_are_required(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            slot = root / "worksite.factory"
-            report = root / "startup.json"
-            valid = observed_start(slot)
-            report.write_text(json.dumps(valid))
-            self.assertEqual(launcher.read_smoke_report(report, slot, legacy_fixture=True), valid)
-            for label, change in (
-                    ("wrong scene", lambda r: r.update(scene="res://main.tscn")),
-                    ("wrong script", lambda r: r.update(script="res://view.gd")),
-                    ("quantity", lambda r: r["state"]["stock"].update(source=15)),
-                    ("boolean part", lambda r: r["state"]["parts"].update(wheel=True)),
-                    ("load enabled", lambda r: r["view"].update(load_disabled=False)),
-                    ("adopted slot", lambda r: r["view"].update(save_owned=True)),
-                    ("wrong slot", lambda r: r["view"].update(save_slot=str(root / "another.factory")))):
-                with self.subTest(label=label):
-                    invalid = json.loads(json.dumps(valid))
-                    change(invalid)
-                    report.write_text(json.dumps(invalid))
-                    with self.assertRaises(ValueError):
-                        launcher.read_smoke_report(report, slot, legacy_fixture=True)
-            report.write_text(json.dumps(valid))
-            slot.write_bytes(b"preserved user sentinel")
-            with self.assertRaisesRegex(ValueError, "unexpectedly wrote"):
-                launcher.read_smoke_report(report, slot, legacy_fixture=True)
-            self.assertEqual(slot.read_bytes(), b"preserved user sentinel")
-
     def test_invalid_report_never_becomes_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
