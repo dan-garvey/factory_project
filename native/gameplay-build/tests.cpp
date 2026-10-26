@@ -58,6 +58,10 @@ struct Fixture {
         git(options.checkout, {"init", "-b", "main"});
         write(options.checkout / "native/factory-world/src/world.cpp", "original\n");
         write(options.checkout / "native/factory-world/BUILD.bazel", "# original graph\n");
+        const auto* runfiles = std::getenv("TEST_SRCDIR");
+        check(runfiles != nullptr, "Use declared dependency manifest test data.");
+        write(options.checkout / "native/gameplay-build/production-paths.txt",
+            read(fs::path(runfiles) / "_main/native/gameplay-build/production-paths.txt"));
         write(options.checkout / "README.md", "documentation\n");
         commit(options.checkout);
         write(options.launcher, original);
@@ -261,6 +265,43 @@ void unknown_cli_option_refuses() {
     check(result.exit_code == 1 && result.output.find("Unknown build option: --componet") != std::string::npos,
           "A misspelled startup selector refuses during parsing before build or installation.");
 }
+void dependency_query_coverage() {
+    const std::vector<std::string> paths{ ".bazelrc", "native/factory-world/src", "native/factory-world/BUILD.bazel" };
+    gb::validate_query_coverage(paths, "INFO: queried\n//native/factory-world:BUILD.bazel\n"
+        "//native/factory-world:src/world.cpp\n@@external//:ignored\n");
+    ++checks;
+    refuses([&] { gb::validate_query_coverage(paths,
+        "//native/new-component:BUILD.bazel\n//native/factory-world:src/world.cpp\n"); },
+        "A newly introduced transitive package must be declared before installation.");
+    refuses([&] { gb::validate_query_coverage(paths, "//native/factory-world:../escape.cpp\n"); },
+        "Unsafe dependency labels refuse installation.");
+    refuses([&] { gb::validate_query_coverage(paths, "INFO: no local labels\n"); },
+        "Empty local query results cannot validate the manifest.");
+}
+void manifest_advances(const fs::path& base) {
+    Fixture f(base);
+    const auto clone = f.root / "build-checkout";
+    command({"/usr/bin/git", "clone", "--no-hardlinks", f.options.main_checkout.string(), clone.string()});
+    f.options.checkout = clone;
+    const auto before = gb::snapshot(f.options);
+    const auto manifest = f.options.main_checkout / "native/gameplay-build/production-paths.txt";
+    write(manifest, read(manifest) + "gameplay native/new-component/src\n");
+    commit(f.options.main_checkout);
+    refuses([&] { gb::complete(f.options, before, 0, f.binary); },
+        "A declared dependency change on main refuses a stale build.");
+    auto main_options = f.options;
+    main_options.checkout = f.options.main_checkout;
+    const auto guard = fs::path(std::getenv("TEST_SRCDIR")) / "_main/scripts/ensure-gameplay-library.sh";
+    const auto result = factory_launch::run_process({"/usr/bin/bash", guard.string(), "check",
+        f.options.main_checkout.string(), before.revision,
+        gb::snapshot(main_options).revision,
+        f.binary.string(), factory_launch::sha256(read(f.binary))}, 10s, 65536);
+    check(result.exit_code == 1, "The launcher guard treats manifest changes as stale production.");
+    fs::remove(manifest);
+    commit(f.options.main_checkout);
+    refuses([&] { gb::snapshot(main_options); },
+        "A missing committed manifest fails closed.");
+}
 } // namespace
 int main() {
     try {
@@ -269,6 +310,7 @@ int main() {
         const auto root = fs::canonical(temp);
         success_and_failure(root); refusals(root); main_advances(root); retain_unowned_temporary(root); dependency_advances(root);
         launcher_dependency_guard(root); startup_install_and_guard(root); unknown_cli_option_refuses();
+        dependency_query_coverage(); manifest_advances(root);
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"game_launches\":0}\n";
         return 0;
     } catch (const std::exception& error) {

@@ -12,6 +12,8 @@ struct Options {
 struct Snapshot {
     std::string revision, production, launcher;
 };
+// Refuse a Bazel source/buildfile closure that escapes the committed production paths.
+void validate_query_coverage(const std::vector<std::string>& paths, const std::string& query_output);
 // Snapshot before compilation; publication checks these same source inputs.
 Snapshot snapshot(const Options&);
 // A failed build returns its original exit without reading or installing output.

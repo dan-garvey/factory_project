@@ -2,6 +2,8 @@ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["production-paths.txt"])
+
 cc_library(
     name = "build",
     srcs = ["build.cpp"],
@@ -18,7 +20,7 @@ cc_binary(
 cc_test(
     name = "install_test",
     srcs = ["tests.cpp"],
-    data = [":factory-gameplay-build", "//:scripts/ensure-gameplay-library.sh", "//:scripts/ensure-startup-launcher.sh"],
+    data = [":factory-gameplay-build", ":production-paths.txt", "//:scripts/ensure-gameplay-library.sh", "//:scripts/ensure-startup-launcher.sh"],
     deps = [":build", "//native/factory-launch:capture"],
     tags = ["host"],
     size = "small",

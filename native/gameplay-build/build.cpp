@@ -1,10 +1,13 @@
 #include "build.hpp"
 #include "factory/capture.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <fcntl.h>
 #include <fstream>
+#include <set>
+#include <sstream>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -12,38 +15,14 @@
 namespace factory::gameplay_build {
 namespace {
 using namespace std::chrono_literals;
-void require(bool value, const char* message) {
+void require(bool value, const std::string& message) {
     if (!value) throw std::runtime_error(message);
 }
 struct Descriptor {
     int value;
     ~Descriptor() { if (value >= 0) ::close(value); }
 };
-// This is the production closure guarded by the human launcher, plus its build
-// definitions. Tests, assets and unrelated native prototypes do not stale it.
-const std::vector<std::string> gameplay_paths{
-    ".bazelrc", "MODULE.bazel", "MODULE.bazel.lock",
-    "native/factory-godot-world/src", "native/factory-godot-world/include", "native/factory-godot-world/BUILD.bazel",
-    "native/opening-engineering/src", "native/opening-engineering/include", "native/opening-engineering/BUILD.bazel",
-    "native/factory-godot-values/src", "native/factory-godot-values/include", "native/factory-godot-values/vendor", "native/factory-godot-values/BUILD.bazel",
-    "native/factory-value/src", "native/factory-value/include", "native/factory-value/BUILD.bazel",
-    "native/factory-world/src", "native/factory-world/include", "native/factory-world/BUILD.bazel",
-    "native/factory-assembly/src", "native/factory-assembly/include", "native/factory-assembly/BUILD.bazel",
-    "native/mineral-site/src", "native/mineral-site/include", "native/mineral-site/BUILD.bazel",
-    "native/waterwheel/src", "native/waterwheel/include", "native/waterwheel/BUILD.bazel",
-    "native/waterflow/src", "native/waterflow/include", "native/waterflow/BUILD.bazel",
-    "native/factory-core/src", "native/factory-core/include", "native/factory-core/BUILD.bazel",
-    "native/factory-stationary/src", "native/factory-stationary/include", "native/factory-stationary/BUILD.bazel",
-    "native/factory-authority/src", "native/factory-authority/include", "native/factory-authority/BUILD.bazel",
-    "native/factory-mechanics/src", "native/factory-mechanics/include", "native/factory-mechanics/BUILD.bazel"};
-const std::vector<std::string> startup_paths{
-    ".bazelrc", "MODULE.bazel", "MODULE.bazel.lock",
-    "native/factory-launch/src", "native/factory-launch/include", "native/factory-launch/BUILD.bazel",
-    "native/build-support/runner.cpp", "native/build-support/runner.hpp", "native/build-support/BUILD.bazel"};
-
-const std::vector<std::string>& paths(Component component) {
-    return component == Component::startup ? startup_paths : gameplay_paths;
-}
+constexpr const char* dependency_manifest = "native/gameplay-build/production-paths.txt";
 
 std::string git(const fs::path& root, std::vector<std::string> arguments) {
     arguments.insert(arguments.begin(), {"/usr/bin/git", "-C", root.string()});
@@ -58,9 +37,36 @@ std::string revision(const fs::path& root) {
             "Expected a full committed SHA-1 revision.");
     return value;
 }
+std::vector<std::string> paths(const fs::path& root, const std::string& source, Component component) {
+    const auto manifest = git(root, {"show", source + ":" + dependency_manifest});
+    require(manifest.size() <= 16384 && !manifest.empty() && manifest.back() == '\n',
+            "The committed production dependency manifest is invalid.");
+    const std::string selected = component == Component::startup ? "startup " : "gameplay ";
+    std::vector<std::string> result;
+    std::set<std::string> seen;
+    for (std::size_t start = 0; start < manifest.size();) {
+        const auto end = manifest.find('\n', start);
+        require(end != std::string::npos && end > start, "The dependency manifest has an invalid line.");
+        const auto line = manifest.substr(start, end - start);
+        const auto divider = line.find(' ');
+        require(divider != std::string::npos && (line.substr(0, divider) == "startup" ||
+                line.substr(0, divider) == "gameplay"), "The dependency manifest has an unknown component.");
+        const auto path = line.substr(divider + 1);
+        require(!path.empty() && path.size() <= 256 && path.find_first_not_of(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-") == std::string::npos &&
+            !fs::path(path).is_absolute() && fs::path(path).lexically_normal() == fs::path(path) &&
+            path.find("..") == std::string::npos && seen.insert(line).second,
+            "The dependency manifest has an unsafe or duplicate path.");
+        if (line.starts_with(selected)) result.push_back(path);
+        start = end + 1;
+    }
+    require(!result.empty(), "The dependency manifest omits the selected component.");
+    result.emplace_back(dependency_manifest);
+    return result;
+}
 std::string production(const fs::path& root, const std::string& source, Component component) {
     std::vector<std::string> args{"ls-tree", "-r", "-z", "--full-tree", source, "--"};
-    const auto& selected = paths(component);
+    const auto selected = paths(root, source, component);
     args.insert(args.end(), selected.begin(), selected.end());
     return factory_launch::sha256(git(root, args));
 }
@@ -145,6 +151,30 @@ void validate(const Options& options) {
     require(git(options.main_checkout, {"branch", "--show-current"}) == "main\n", "The publication checkout must be main.");
 }
 } // namespace
+
+void validate_query_coverage(const std::vector<std::string>& selected, const std::string& output) {
+    std::istringstream lines(output);
+    std::string line;
+    std::size_t local = 0;
+    while (std::getline(lines, line)) {
+        if (!line.starts_with("//")) continue; // External repository labels and Bazel progress.
+        const auto colon = line.find(':', 2);
+        require(colon != std::string::npos && line.find(':', colon + 1) == std::string::npos,
+                "Bazel returned an invalid local dependency label.");
+        const std::string path = colon == 2 ? line.substr(3) :
+            line.substr(2, colon - 2) + "/" + line.substr(colon + 1);
+        require(!path.empty() && path.find_first_not_of(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-") == std::string::npos &&
+            fs::path(path).lexically_normal() == fs::path(path),
+            "Bazel returned an unsafe local dependency label.");
+        ++local;
+        const bool covered = std::any_of(selected.begin(), selected.end(), [&](const std::string& prefix) {
+            return path == prefix || path.starts_with(prefix + "/");
+        });
+        require(covered, "Production dependency is missing from the committed manifest: " + path);
+    }
+    require(local > 0, "Bazel returned no local production dependencies.");
+}
 
 Snapshot snapshot(const Options& options) {
     validate(options);
@@ -251,6 +281,23 @@ int run(const Options& options) {
     const auto old_cwd = fs::current_path();
     struct Restore { fs::path path; ~Restore() { std::error_code ignored; fs::current_path(path, ignored); } } restore{old_cwd};
     fs::current_path(options.checkout);
+    const auto target = options.component == Component::startup ?
+        "//native/factory-launch:factory-opening-startup" :
+        "//native/factory-godot-world:factory-native-world.so";
+    auto query_runner = options.runner;
+    query_runner.log = options.runner.log.parent_path() / "dependency-query.log";
+    query_runner.timeout = std::chrono::seconds(60);
+    const std::vector<std::string> query{options.bazel.string(), "--nosystem_rc", "--nohome_rc", "--batch",
+        "--host_jvm_args=-Xmx1024m", "--output_user_root=" + (root / "output").string(), "query",
+        "--repository_cache=" + (root / "repository-cache").string(), "--lockfile_mode=error",
+        "--repository_disable_download", "--registry=https://bcr.bazel.build",
+        "--downloader_config=" + (options.checkout / "native/build-support/offline-downloader.cfg").string(),
+        "--output=label", "kind(\"source file\", deps(" + std::string(target) + ")) union buildfiles(deps(" +
+            std::string(target) + "))"};
+    const int query_exit = build_support::run(query_runner, query);
+    if (query_exit != 0) return query_exit;
+    validate_query_coverage(paths(options.checkout, before.revision, options.component),
+        read(query_runner.log, 8 * 1024 * 1024));
     const int exit = build_support::run(options.runner, command);
     if (exit != 0) return exit;
     const auto binary = fs::canonical(root / (options.component == Component::startup ?
