@@ -70,7 +70,9 @@ The integration owner maintains the separate authorized unlisted-gist
   resort. Provide tooltips, keyboard focus descriptions and keyboard routes.
 - Use [resource admission](docs/engineering/local-resources.md) for checks,
   builds and measurements. Never nest wrappers, unlink live locks, delete
-  unrelated evidence or lower floors without a documented resource decision.
+  active files or lower floors without a documented resource decision. Follow
+  that document's artifact lifecycle: Beads references do not require permanent
+  retention of generated files, screenshots or incompatible development saves.
 - Run relevant consumer checks and the installed hook. Reuse passing checks
   for unchanged inputs. Never bypass a failure, auto-stage fixes or turn a
   rerun into a fix. Distinguish source, native, rendered, performance and human

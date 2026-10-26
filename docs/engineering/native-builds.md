@@ -76,9 +76,11 @@ hosted runner; the local admission floors and bounded runner below still
 govern developer-host checks.
 
 Keep Bazel in `--batch` mode inside admission. Reuse caches within the verified
-toolchain boundary; separate concurrent workspaces/output bases. Never clean
-another owner's outputs or evidence. Before replacing a sequential build
-workspace, retain needed source, seals, results, binaries and runtime libraries.
+toolchain boundary; separate concurrent workspaces/output bases. Follow the
+[artifact lifecycle](local-resources.md#artifact-lifecycle) when retiring inactive
+outputs. Keep compact source/result records and any binaries, shared libraries
+and runfiles still needed by installed tools or an active investigation/review;
+completed build workspaces and duplicate caches need not be preserved.
 Distinguish cached test success from executed tests and analysis from compilation.
 Runner ceilings remain 300 seconds, 2 GiB artifacts, 8 MiB logs and eight jobs;
 a specific case can require less.
@@ -86,8 +88,9 @@ a specific case can require less.
 Raw build-event/execution records may expose environment or arguments. Keep
 them private with restrictive permissions; do not print or upload them.
 Share only an allowlisted, hashed view of source identities, status, timings,
-actions/cache counts and approved paths. Preserve original failures and exact
-source/toolchain provenance without recasting later hashes as earlier evidence.
+actions/cache counts and approved paths. Preserve the recorded failure outcomes
+and source/toolchain provenance without recasting later hashes as earlier evidence.
+Raw logs and bulky captures may expire under the artifact lifecycle.
 
 ## Gameplay installation
 
