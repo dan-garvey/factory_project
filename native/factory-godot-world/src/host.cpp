@@ -1618,7 +1618,8 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
     return result;
 }
 
-const char* Host::support_change_refusal(const world::State& before, const world::State& after) const {
+const char* Host::support_change_refusal(const world::State& before, const world::State& after,
+        bool preserve_surviving_stands) const {
     const auto previous = transmission_supports(before);
     const auto next = transmission_supports(after);
     for (const auto& part : after.topology.parts)
@@ -1627,6 +1628,9 @@ const char* Host::support_change_refusal(const world::State& before, const world
         const auto old = previous.find(id);
         if (old != previous.end() && old->second.foot == support.foot &&
             old->second.bearing == support.bearing && old->second.boxes == support.boxes) continue;
+        // Reclaiming a cog must not silently move a different, surviving stand.
+        // Reclaim that dependent part first, then retry this removal.
+        if (preserve_surviving_stands && old != previous.end()) return "stand_in_use";
         for (const auto& [center, half] : support.boxes)
             if (placement_blocked(center, half)) return "actor_occupied";
     }
@@ -2709,7 +2713,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 *field<std::string>(normalized, "target"), *field<std::string>(normalized, "to")}, 0});
         }
         if (const auto* refusal = supplied_space_refusal(geometry)) return refuse(refusal);
-        if (const auto* refusal = support_change_refusal(snapshot.state, geometry)) return refuse(refusal);
+        const auto* removed = edit == "remove" ?
+            find(snapshot.state, *field<std::string>(normalized, "target")) : nullptr;
+        if (const auto* refusal = support_change_refusal(snapshot.state, geometry,
+                removed && removed->role == Role::gear)) return refuse(refusal);
     }
     auto delivered = owned_->world->command({bound_actor, *client}, normalized, observe());
     if (edit == "operate_hand_crank") return complete_crank_pulse(std::move(delivered));
