@@ -4745,6 +4745,8 @@ var state: Dictionary = {}
 var consumed_shortcut_keys: Dictionary = {}
 var held_crank := ""
 var held_crank_seconds := 0.0
+var held_crank_context := ""
+var held_crank_request := ""
 var catalog_button: Button
 var controls_label: Label
 var building_rotation := 0
@@ -6212,20 +6214,32 @@ func _crank_at_screen(screen: Vector2) -> String:
 func _stop_held_crank() -> void:
 	held_crank = ""
 	held_crank_seconds = 0.0
+	held_crank_context = ""
+	held_crank_request = ""
+
+func _settle_held_crank_request(request: String, accepted: bool) -> void:
+	if request != held_crank_request:
+		return
+	if accepted:
+		held_crank_request = ""
+	else:
+		_stop_held_crank()
 
 func _advance_held_crank(delta: float) -> void:
 	if held_crank.is_empty():
 		return
-	if not _crank_hold_allowed() \
+	if not _crank_hold_allowed() or str(state.get("context", "")) != held_crank_context \
 			or mode != "inspect" or _pointed_crank() != held_crank:
 		_stop_held_crank()
 		return
-	held_crank_seconds += delta
-	if held_crank_seconds < STEP_SECONDS:
+	held_crank_seconds = minf(STEP_SECONDS, held_crank_seconds + delta)
+	if not held_crank_request.is_empty() or held_crank_seconds < STEP_SECONDS:
 		return
 	held_crank_seconds = 0.0
 	var outcome := issue({"action": "operate_hand_crank", "entity": held_crank})
-	if not outcome.get("accepted", false):
+	if outcome.get("queued", false) and not str(outcome.get("request", "")).is_empty():
+		held_crank_request = str(outcome.request)
+	elif not outcome.get("accepted", false):
 		_stop_held_crank()
 
 func _crank_hold_allowed() -> bool:
@@ -6620,6 +6634,8 @@ func _interact_pointed() -> void:
 	var attached_crank := _pointed_crank() if mode == "inspect" else ""
 	if not attached_crank.is_empty():
 		held_crank = attached_crank
+		held_crank_context = str(state.get("context", ""))
+		held_crank_request = ""
 		held_crank_seconds = STEP_SECONDS
 		_advance_held_crank(0.0)
 		return

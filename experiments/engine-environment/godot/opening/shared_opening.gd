@@ -148,6 +148,7 @@ func _disconnect() -> void:
 
 func _welcomed(actor: String, namespace_value: String, _snapshot: Dictionary) -> void:
 	_release_character_controls()
+	_stop_held_crank()
 	if _snapshot.get("options", {}).get("physical", false) == legacy_fixture or (not legacy_fixture and not _snapshot.get("actors", {}).has(actor)):
 		push_error("Shared opening profile must match its declared authority and actor; no unrestricted fallback")
 		session.close()
@@ -192,6 +193,7 @@ func _has_unknown_actions() -> bool:
 
 func _disconnected(reason: String) -> void:
 	_release_character_controls()
+	_stop_held_crank()
 	if transmission_controls != null:
 		transmission_controls.clear_belt_selection()
 	connecting = false
@@ -265,6 +267,8 @@ func _settle_pending() -> void:
 			_message("Server decision received. Waiting for the current worksite…")
 			continue
 		pending_actions.erase(request)
+		if item.action.action == "operate_hand_crank":
+			_settle_held_crank_request(request, result.accepted)
 		if result.accepted:
 			var feedback: Dictionary = item.action.duplicate(true)
 			feedback.merge({"context": result.context, "client": client, "request": request}, true)
