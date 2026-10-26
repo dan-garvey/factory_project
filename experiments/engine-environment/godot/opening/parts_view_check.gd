@@ -9,6 +9,7 @@ const SiteSurface = preload("res://opening/site_surface.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const ComponentPresenter = preload("res://opening/native_transmission_presenter.gd")
 const RecoveryActions = preload("res://opening/recovery_actions.gd")
+const BuildingHotbar = preload("res://opening/building_hotbar.gd")
 var checks := 0
 var failures := 0
 
@@ -1247,7 +1248,7 @@ func _multitool_controls() -> void:
 		verify(view.state == before and view.model == null and view.request_sequence == 0,
 			"Presentation and request selection do not debit local stock or create a Model.")
 		verify(view._harvest_result_text({"moved_timber": 1, "moved_raw": 0}) == "Collected 1 timber."
-			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 1}) == "Collected 1 copper blank."
+			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 1}) == "Collected 1 copper piece."
 			and view._harvest_result_text({"moved_timber": 0, "moved_raw": 0}) == "Cutting…",
 			"The start receipt is not mislabeled as collected stock; contact reports actual moved quantities.")
 		verify("depleted" in view._material_refusal_message({"reason": "unavailable_source"}, "fallback")
@@ -1971,6 +1972,14 @@ func _arrival_hotbar() -> void:
 		and bar.component_counts.hand_crank.text == "1"
 		and "5 carried" in bar.material_buttons.timber.accessibility_name,
 		"Carried material icons read the active actor's confirmed cargo and hand tools.")
+	verify(bar.material_buttons.raw.tooltip_text == "Copper · 3 carried"
+		and bar.material_buttons.raw.accessibility_name == "Copper, 3 carried"
+		and bar.material_buttons.products.tooltip_text == "Copper plate · 1 carried"
+		and bar.material_buttons.work_lots.tooltip_text == "Copper workpiece · 1 carried"
+		and bar.material_buttons.work_lots.icon.resource_path.ends_with("/workpiece.svg")
+		and bar.material_buttons.raw.icon.resource_path.ends_with("/ore.svg")
+		and bar.material_buttons.products.icon.resource_path.ends_with("/plate.svg"),
+		"Copper stock, partial work and plate use literal item icons with matching pointer and focus names.")
 	verify(bar.carried_label.text == "CARRIED" and bar.component_buttons.hand_crank.visible,
 		"The inventory shows the crafted crank as carried component stock.")
 	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
@@ -2348,9 +2357,9 @@ func _carried_guidance() -> void:
 				view.state.cargo[actor] = {"raw": sample.raw, "products": 0, "work_lots": lots}
 				var before: Dictionary = view.state.duplicate(true)
 				view._refresh_ui()
-				var form: String = "carried blank" if lots.is_empty() else "carried workpiece"
+				var form: String = "carried copper" if lots.is_empty() else "carried copper workpiece"
 				verify(view.goal_label.text.contains(form) and view.goal_label.text.contains("press")
-					and not view.goal_label.text.contains("No blanks"),
+					and not view.goal_label.text.contains("No copper"),
 					"The real %s goal points %s's %s back to the press." % ["shared" if shared else "offline", actor, form])
 				view.recovery_actions._open_menu()
 				var offered: Array = []
@@ -2368,7 +2377,7 @@ func _carried_guidance() -> void:
 			view.state.cargo[peer] = {"raw": 3, "products": 0, "work_lots": [{"id": 9,
 				"recipe_input": 1, "cycle_ticks": 4, "remaining": 1}]}
 			view._refresh_ui()
-			verify(view.goal_label.text.contains("No blanks") and not view.recovery_actions.visible,
+			verify(view.goal_label.text.contains("No copper") and not view.recovery_actions.visible,
 				"A peer's carried material does not become the active actor's continuation route.")
 		view.state.cargo[view.client] = {"raw": 1, "products": 0, "work_lots": []}
 		view.state.stock.output = 1
@@ -2389,7 +2398,7 @@ func _carried_guidance() -> void:
 		view.state.motion.collector.state = "rotating"
 		view.state.options.native = false
 		view._refresh_ui()
-		verify(view.goal_label.text.contains("No blanks"), "Historical guidance ignores native carried-material fields.")
+		verify(view.goal_label.text.contains("No copper"), "Historical guidance ignores native carried-material fields.")
 		view.state.options.native = true
 		if shared:
 			view.pending_actions = {"waiting": {}}
@@ -2642,7 +2651,7 @@ func _workshop_pages() -> void:
 			and not view.save_button.is_visible_in_tree() and not view.load_button.is_visible_in_tree(),
 			"Ordinary E shows pod crafting directly in the shared inventory.")
 		verify(inventory.recipe_buttons["foundation"].visible
-			and "2 timber + 0 ore" in inventory.recipe_buttons["foundation"].tooltip_text,
+			and "2 timber + 0 copper" in inventory.recipe_buttons["foundation"].tooltip_text,
 			"The foundation recipe keeps its native name and cost beside the icon.")
 		verify("Horizontal gearbox" in inventory.recipe_buttons["part:0"].tooltip_text
 			and "Vertical gearbox" in inventory.recipe_buttons["part:1"].tooltip_text
@@ -2800,7 +2809,7 @@ func _workshop_pages() -> void:
 		var broad_work: Dictionary = panel.inventory_drag("workbed_work")
 		verify(panel.inventory_counts.workbed_work.text == "1"
 			and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/sheet.svg")
-			and panel.inventory_slots.workbed_work.tooltip_text.contains("Sheet work")
+			and panel.inventory_slots.workbed_work.tooltip_text.contains("sheet work")
 			and broad_work.get("wire", {}).get("action") == "pickup_material"
 			and broad_work.wire.center == [8, 0, 8]
 			and panel.inventory_drag("player_raw").is_empty(),
@@ -2819,10 +2828,12 @@ func _workshop_pages() -> void:
 			and panel.inventory_player_region._can_drop_data(Vector2.ZERO, broad_sheet),
 			"The formed sheet has a literal output tile and can drop onto the whole carried region.")
 		var sheet_preview := TextureRect.new()
+		sheet_preview.texture = panel.inventory_slots.workbed_output.icon
 		panel.inventory_slots.workbed_output.force_drag(broad_sheet, sheet_preview)
 		await process_frame
 		verify(root.gui_is_dragging() and panel.inventory_player_region.highlighted
-			and not panel.inventory_workbed_region.highlighted,
+			and not panel.inventory_workbed_region.highlighted
+			and sheet_preview.texture.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.sheets[1]),
 			"Dragging a supported output highlights the entire carried-inventory region.")
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 			await RenderingServer.frame_post_draw
@@ -3159,7 +3170,7 @@ func _workshop_pages() -> void:
 			and panel.collector_cut_button.is_visible_in_tree(),
 			"Ordinary E on a collector shows its cutting controls without unrelated crafting.")
 		verify(panel.collector_cut_button.text.is_empty() and panel.collector_cut_button.icon != null
-			and "Cut one ore blank" in panel.collector_cut_button.tooltip_text
+			and "Cut one copper piece" in panel.collector_cut_button.tooltip_text
 			and "shortcut X" in panel.collector_cut_button.accessibility_name,
 			"The collector exposes a described cutting icon when a crank is fitted.")
 		view.state.crank_items.crank = {"holder": "P" if shared else "Q", "attached_to": "", "port": []}
@@ -3285,7 +3296,7 @@ func _field_craft_widget() -> void:
 		and frame.icon != null and edge.icon != null and head.icon != null and foundation.icon != null
 		and "3 timber + 0 ore" in frame.tooltip_text and "Field or bench" in frame.tooltip_text
 		and "Bench" in edge.tooltip_text and "Flat pressing head" in head.tooltip_text
-		and "1 ore" in head.tooltip_text and "2 timber + 0 ore" in foundation.tooltip_text,
+		and "1 ore" in head.tooltip_text and "2 timber + 0 copper" in foundation.tooltip_text,
 		"The shared inventory shows described field and bench recipes with native bills.")
 	frame.grab_focus()
 	verify(inventory.focus_description.text == frame.tooltip_text and not frame.accessibility_name.is_empty(),
@@ -3571,6 +3582,11 @@ func _slide_controls_check() -> void:
 		and panel.inventory_counts.workbed_work.text == "1"
 		and panel.inventory_slots.workbed_work.icon != null,
 		"A fitted slide shows supported material on the workbed instead of separate Feed and pickup icons.")
+	verify(panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.raw[1])
+		and panel.inventory_slots.player_raw.icon == panel.inventory_slots.workbed_work.icon
+		and panel.inventory_slots.workbed_work.tooltip_text.contains(BuildingHotbar.MATERIALS.raw[0])
+		and not panel.inventory_slots.has("player_offcut"),
+		"Carried copper and retained copper use one literal stock icon and name without an unsupported offcut input.")
 	var retained_blank: Dictionary = panel.inventory_drag("workbed_work")
 	verify(retained_blank.get("wire", {}).get("action") == "pickup_material"
 		and panel.inventory_can_drop("player", retained_blank)
@@ -3616,6 +3632,8 @@ func _slide_controls_check() -> void:
 	verify(panel.cycle_feed_route() and panel._route_index == 1,
 		"G changes the next feed direction after the retained route is released.")
 	var carried_blank: Dictionary = panel.inventory_drag("player_raw")
+	verify(panel.inventory_slots.player_raw.icon.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.raw[1]),
+		"A carried copper tile uses the same stock icon as copper retained on the workbed.")
 	verify(panel.inventory_can_drop("workbed", carried_blank)
 		and carried_blank.get("wire", {}) == {"action": "feed_press", "entity": "anvil",
 			"entry": [11, 0, 8]},
@@ -3635,6 +3653,9 @@ func _slide_controls_check() -> void:
 		"recipe_input": 1}]
 	panel.refresh(snapshot, "P", "anvil", true)
 	var carried_work: Dictionary = panel.inventory_drag("player_work")
+	verify(panel.inventory_slots.player_work.icon.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.work_lots[1])
+		and panel.inventory_slots.player_work.tooltip_text.contains(BuildingHotbar.MATERIALS.work_lots[0]),
+		"Carried partial work keeps its copper workpiece identity and puts remaining strokes in the tooltip.")
 	verify(carried_work.get("wire", {}).get("action") == "refeed_press_work"
 		and carried_work.wire.work_id == 7 and panel.inventory_can_drop("workbed", carried_work),
 		"The selected partial workpiece has its own workbed transfer.")
@@ -3646,6 +3667,9 @@ func _slide_controls_check() -> void:
 		"offcuts": 0, "work_lots": []}]
 	panel.refresh(snapshot, "P", "anvil", true)
 	var formed_plate: Dictionary = panel.inventory_drag("workbed_output")
+	verify(panel.inventory_slots.workbed_output.icon.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.products[1])
+		and panel.inventory_slots.workbed_output.tooltip_text.contains(BuildingHotbar.MATERIALS.products[0]),
+		"The outlet uses the full inventory's copper plate art and name.")
 	verify(panel.inventory_can_drop("player", formed_plate)
 		and not panel.inventory_can_drop("workbed", formed_plate)
 		and panel.inventory_counts.workbed_output.text == "1",
@@ -3658,6 +3682,7 @@ func _slide_controls_check() -> void:
 	panel.refresh(snapshot, "P", "anvil", true)
 	verify(panel.inventory_counts.workbed_work.text == "1"
 		and panel.inventory_slots.workbed_work.tooltip_text.contains("offcut")
+		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.offcuts[1])
 		and panel.inventory_drag("player_raw").is_empty()
 		and panel.inventory_drag("workbed_work").get("wire", {}).get("expected", {}).get("offcuts") == 1,
 		"A retained offcut occupies the work face and must be recovered before another blank.")
@@ -3759,6 +3784,20 @@ func _slide_inventory_render_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(scene_root.get_texture().get_image().save_png(destination + "-wide.png") == OK,
 			"Retain the passive workbed inventory panel at 1280 by 800.")
+	var output_drag: Dictionary = panel.inventory_drag("workbed_output")
+	var output_preview := TextureRect.new()
+	output_preview.texture = panel.inventory_slots.workbed_output.icon
+	panel.inventory_slots.workbed_output.force_drag(output_drag, output_preview)
+	await process_frame
+	verify(scene_root.gui_is_dragging() and panel.inventory_player_region.highlighted
+		and output_preview.texture.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.products[1]),
+		"A copper plate drag keeps its literal item art and highlights the carried drop region.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-plate-drag.png") == OK,
+			"Retain the plate drag and carried drop region at 1280 by 800.")
+	scene_root.gui_cancel_drag()
+	await process_frame
 	view.state.cargo.P.raw = 0
 	view.state.cargo.P.work_lots.clear()
 	view._refresh_ui()

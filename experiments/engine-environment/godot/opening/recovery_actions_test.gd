@@ -98,7 +98,7 @@ func _raw_and_whole_work() -> void:
 	controls.refresh()
 	var popup: PopupMenu = _open()
 	_expect(popup.item_count == 4, "Raw, partial work, ready work and machine recovery remain separate choices.")
-	_expect("2 blanks" in controls.action_button.tooltip_text and "1 plate" in controls.action_button.tooltip_text and "2 workpieces" in controls.action_button.tooltip_text, "Carried forms remain separate in the compact control's tooltip.")
+	_expect("2 copper pieces" in controls.action_button.tooltip_text and "1 copper plate" in controls.action_button.tooltip_text and "2 copper workpieces" in controls.action_button.tooltip_text, "Carried forms remain separate in the compact control's tooltip.")
 	_expect("2 ticks remaining" in popup.get_item_text(2) and "ready" in popup.get_item_text(3), "Partial and blocked-ready work remain distinguishable.")
 	_choose("insert_raw")
 	_choose("insert_work", LARGE_ID)
@@ -216,7 +216,7 @@ func _belt_loading() -> void:
 	controls.refresh()
 	var popup := _open()
 	_expect(controls.visible and popup.item_count == 8
-		and "1 sheet" in controls.action_button.tooltip_text,
+		and "1 copper sheet" in controls.action_button.tooltip_text,
 		"Each empty horizontal position offers the carried sheet as one identified broad item.")
 	_choose("load_belt_slot", LARGE_ID)
 	_expect(sent == [{"action": "load_belt_slot", "entity": "span", "slot": 0, "item": "work", "work_id": LARGE_ID}],
