@@ -5273,6 +5273,11 @@ func _construction_feedback(intent: Dictionary, outcome: Dictionary) -> void:
 func _crank_turn_refusal(machine: String) -> String:
 	return "Fit a crafted hand crank to this %s's input before turning it." % machine
 
+func _confirm_hand_crank_visual(action: Dictionary, outcome: Dictionary) -> void:
+	if action.get("action") == "operate_hand_crank" and outcome.get("accepted", false) \
+			and transmission_presenter != null:
+		transmission_presenter.confirmed_hand_crank_pulse(str(action.get("entity", "")), outcome)
+
 func issue(action: Dictionary) -> Dictionary:
 	if explanation_open:
 		return {"accepted": false, "reason": "explanation_open"}
@@ -5376,6 +5381,7 @@ func issue(action: Dictionary) -> Dictionary:
 			refusal = "Set the pod workshop on clear ground or a foundation top."
 		_message(refusal, true)
 	_refresh()
+	_confirm_hand_crank_visual(action, outcome)
 	return outcome
 
 func _harvest_result_text(outcome: Dictionary) -> String:
