@@ -583,10 +583,13 @@ bool historical_wire(const authority::Record& record) {
             field<Integer>(*wire, "half_span") && same("entity", "target") &&
             same("role", "role") && same("half_span", "half_span");
     if (*action == "attach_hand_crank")
-        return *original_action == *action && keys(*wire, {"entity", "crank", "port"}) &&
+        return *original_action == *action &&
+            (keys(*wire, {"entity", "crank", "port"}) ||
+             keys(*wire, {"entity", "crank", "port", "face"})) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "crank") &&
             field<Array>(*wire, "port") && same("entity", "target") &&
-            same("crank", "crank") && same("port", "port");
+            same("crank", "crank") && same("port", "port") &&
+            (wire->contains("face") ? same("face", "face") : !intent.contains("face"));
     if (*action == "detach_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
@@ -1923,9 +1926,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("role", wire.at("role"));
         normalized.emplace("half_span", wire.at("half_span"));
     } else if (*action == "attach_hand_crank") {
-        if (!keys(wire, {"entity", "crank", "port"}) ||
+        if (!(keys(wire, {"entity", "crank", "port"}) ||
+                keys(wire, {"entity", "crank", "port", "face"})) ||
             !field<std::string>(wire, "entity") || !field<std::string>(wire, "crank") ||
-            !field<Array>(wire, "port") || !gear_center(*field<Array>(wire, "port")))
+            !field<Array>(wire, "port") || !gear_center(*field<Array>(wire, "port")) ||
+            (wire.contains("face") &&
+                (!field<Array>(wire, "face") || !gear_center(*field<Array>(wire, "face")))))
             return refuse("invalid_command");
         const auto slide = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "crank"));
@@ -1937,6 +1943,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("crank_generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
         normalized.emplace("port", wire.at("port"));
+        if (wire.contains("face")) normalized.emplace("face", wire.at("face"));
     } else if (*action == "detach_hand_crank") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -1966,6 +1973,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("crank_generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
         normalized.emplace("port", Value(port));
+        if (crank != snapshot.state.crank_items.end() && crank->second.face) {
+            const auto& face = *crank->second.face;
+            normalized.emplace("face", Value(Array{
+                Value(face[0]), Value(face[1]), Value(face[2])}));
+        }
     } else if (*action == "turn_hand_crank") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -3075,7 +3087,9 @@ Value Host::projection() const {
                 {"holder", Value(item.holder.value_or(""))},
                 {"attached_to", Value(item.attached_to.value_or(""))},
                 {"port", Value(item.port ? Array{Value((*item.port)[0]),
-                    Value((*item.port)[1]), Value((*item.port)[2])} : Array{})}}));
+                    Value((*item.port)[1]), Value((*item.port)[2])} : Array{})},
+                {"face", Value(item.face ? Array{Value((*item.face)[0]),
+                    Value((*item.face)[1]), Value((*item.face)[2])} : Array{})}}));
         projection.emplace("crank_items", Value(std::move(crank_items)));
         Object placed;
         for (const auto& [id, component] : state.placed_components) {

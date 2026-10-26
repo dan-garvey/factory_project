@@ -1194,7 +1194,7 @@ func _channel_component_view() -> void:
 	physical.free()
 	await process_frame
 
-func _capture_guided_component_view(path: String) -> void:
+func _capture_guided_component_view(path: String, crank_detail := false) -> void:
 	root.size = Vector2i(1280, 800)
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
@@ -1210,9 +1210,9 @@ func _capture_guided_component_view(path: String) -> void:
 	light.light_energy = 2.0
 	root.add_child(light)
 	var camera := Camera3D.new()
-	camera.position = Vector3(3.0, 2.8, 4.2)
+	camera.position = Vector3(1.2, 2.8, 2.2) if crank_detail else Vector3(3.0, 2.8, 4.2)
 	root.add_child(camera)
-	camera.look_at(Vector3(0.0, 1.2, 0.0))
+	camera.look_at(Vector3(0.45, 2.35, 0.0) if crank_detail else Vector3(0.0, 1.2, 0.0))
 	camera.fov = 45.0
 	camera.current = true
 	await process_frame
@@ -1437,6 +1437,32 @@ func _guided_press_component_view() -> void:
 			finished_ram = node
 	verify(absf((finished_ram.get_node("MovingDie") as MeshInstance3D).position.y - rest_y) < 0.001,
 		"Removing the confirmed workpiece returns the guided tool to its raised rest pose.")
+	var crank_capture_prefix := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--crank-capture-prefix="):
+			crank_capture_prefix = argument.trim_prefix("--crank-capture-prefix=")
+	state = initial_state.duplicate(true)
+	state.crank_items = {"fitted-crank": {"attached_to": "shaft", "port": [1, 4, 0],
+		"face": [1, 0, 0]}}
+	state.revision = 10
+	host.state = state
+	view.refresh()
+	var crank_east := view.get_node_or_null("AttachedHandCrank") as Node3D
+	verify(crank_east != null and crank_east.position.x > 0.4125
+		and absf(crank_east.rotation.y) < 0.001,
+		"The fitted crank seats outward on the confirmed positive X spindle face.")
+	if not crank_capture_prefix.is_empty():
+		await _capture_guided_component_view(crank_capture_prefix + "-east.png", true)
+	state.crank_items["fitted-crank"].face = [-1, 0, 0]
+	state.revision = 11
+	host.state = state
+	view.refresh()
+	var crank_west := view.get_node_or_null("AttachedHandCrank") as Node3D
+	verify(crank_west != null and crank_west.position.x < 0.4125
+		and absf(absf(crank_west.rotation.y) - PI) < 0.001,
+		"Mirroring the fitted face moves and turns the visible grip with its shaft.")
+	if not crank_capture_prefix.is_empty():
+		await _capture_guided_component_view(crank_capture_prefix + "-west.png", true)
 	view.free()
 	await process_frame
 
