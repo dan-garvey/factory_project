@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/crank_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
@@ -561,6 +562,9 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "adapter_refusal") return !*accepted;
     const auto* original_action = field<std::string>(*wire, "action");
     if (!original_action) return false;
+    if (const auto crank = crank_commands::parse(*action);
+        crank != crank_commands::Action::none)
+        return crank_commands::historical_wire(*wire, intent, crank);
     const auto same = [&](const char* original, const char* normalized) {
         const auto left = wire->find(original);
         const auto right = intent.find(normalized);
@@ -634,27 +638,6 @@ bool historical_wire(const authority::Record& record) {
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "role") &&
             field<Integer>(*wire, "half_span") && same("entity", "target") &&
             same("role", "role") && same("half_span", "half_span");
-    if (*action == "attach_hand_crank")
-        return *original_action == *action &&
-            (keys(*wire, {"entity", "crank", "port"}) ||
-             keys(*wire, {"entity", "crank", "port", "face"})) &&
-            field<std::string>(*wire, "entity") && field<std::string>(*wire, "crank") &&
-            field<Array>(*wire, "port") && same("entity", "target") &&
-            same("crank", "crank") && same("port", "port") &&
-            (wire->contains("face") ? same("face", "face") : !intent.contains("face"));
-    if (*action == "detach_hand_crank")
-        return *original_action == *action && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target");
-    if (*action == "operate_hand_crank")
-        return *original_action == *action && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "crank");
-    if (*action == "turn_hand_crank")
-        return *original_action == *action && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target");
-    if (*action == "turn_slide_crank")
-        return *original_action == *action && keys(*wire, {"entity", "port"}) &&
-            field<std::string>(*wire, "entity") && field<Array>(*wire, "port") &&
-            same("entity", "target") && same("port", "port");
     if (*action == "feed_press")
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
@@ -1870,6 +1853,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     };
     const auto* action = field<std::string>(wire, "action");
     if (!action) return refuse("invalid_action");
+    const auto crank_action = crank_commands::parse(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
         if (!id) return false;
@@ -1991,13 +1975,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             *field<std::string>(wire, "entity"))));
         normalized.emplace("role", wire.at("role"));
         normalized.emplace("half_span", wire.at("half_span"));
-    } else if (*action == "attach_hand_crank") {
-        if (!(keys(wire, {"entity", "crank", "port"}) ||
-                keys(wire, {"entity", "crank", "port", "face"})) ||
-            !field<std::string>(wire, "entity") || !field<std::string>(wire, "crank") ||
-            !field<Array>(wire, "port") || !gear_center(*field<Array>(wire, "port")) ||
+    } else if (crank_action == crank_commands::Action::attach) {
+        if (!crank_commands::valid_wire(wire, crank_action) ||
+            !gear_center(*field<Array>(wire, "port")) ||
             (wire.contains("face") &&
-                (!field<Array>(wire, "face") || !gear_center(*field<Array>(wire, "face")))))
+                !gear_center(*field<Array>(wire, "face"))))
             return refuse("invalid_command");
         const auto slide = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "crank"));
@@ -2010,16 +1992,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             Integer{0} : crank->second.generation));
         normalized.emplace("port", wire.at("port"));
         if (wire.contains("face")) normalized.emplace("face", wire.at("face"));
-    } else if (*action == "detach_hand_crank") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+    } else if (crank_action == crank_commands::Action::detach) {
+        if (!crank_commands::valid_wire(wire, crank_action))
             return refuse("invalid_command");
         const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "entity"));
         normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
-    } else if (*action == "operate_hand_crank") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+    } else if (crank_action == crank_commands::Action::operate) {
+        if (!crank_commands::valid_wire(wire, crank_action))
             return refuse("invalid_command");
         const auto crank_id = *field<std::string>(wire, "entity");
         const auto crank = snapshot.state.crank_items.find(crank_id);
@@ -2044,17 +2026,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             normalized.emplace("face", Value(Array{
                 Value(face[0]), Value(face[1]), Value(face[2])}));
         }
-    } else if (*action == "turn_hand_crank") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+    } else if (crank_action == crank_commands::Action::turn) {
+        if (!crank_commands::valid_wire(wire, crank_action))
             return refuse("invalid_command");
         normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
-    } else if (*action == "turn_slide_crank") {
-        if (!keys(wire, {"entity", "port"}) || !field<std::string>(wire, "entity") ||
-            !field<Array>(wire, "port")) return refuse("invalid_command");
+    } else if (crank_action == crank_commands::Action::turn_slide) {
+        if (!crank_commands::valid_wire(wire, crank_action)) return refuse("invalid_command");
         const auto port = gear_center(*field<Array>(wire, "port"));
         if (!port) return refuse("invalid_command");
         if (const auto* refusal = component_site_refusal(snapshot.state, std::nullopt, *port))
