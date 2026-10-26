@@ -1,12 +1,16 @@
 # Focused Godot fixture runner
 
 `factory-godot-fixture` runs one headless project script through the existing
-native build-support supervisor. It requires the pinned Godot executable, an
+native build-support supervisor. Generic runs supply `--script` and
+`--pass-line`; the registered Chapter 1 cases below supply both and their
+deadline through `--case`. It requires the pinned Godot executable, an
 exact complete PASS line, exit zero, and a retained log without `SCRIPT ERROR:`,
 `ERROR:`, parse/compile errors, or failed script loads. A partial PASS count is
 insufficient. The supervisor retains combined output in a fresh bounded log and
 keeps its existing process cleanup and resource checks. This command is an
 opt-in focused fixture entry point, not another commit or landing gate.
+`--list-cases` prints every registered name, script, completion line, timeout
+and required arguments without starting Godot.
 
 Import project resources before a normal fixture run. A missing import sidecar
 is a setup failure: keep its log and import the unchanged project before trying
@@ -58,26 +62,31 @@ FACTORY_ADMISSION="$(git rev-parse --path-format=absolute --git-common-dir)/fact
 ```
 
 Create the artifact directory before the command with owner-only permissions
-(`install -d -m 700`). `--seconds` may set a deadline from 1 to 300 seconds;
-the default is 180. Arguments after `--` reach the Godot fixture as user
+(`install -d -m 700`). Generic runs may set `--seconds` from 1 to 300 seconds;
+their default is 180. Named cases own their deadline, so they reject
+`--script`, `--pass-line` and `--seconds` overrides. Arguments after `--` reach the Godot fixture as user
 arguments. The executable limits its log to 2 MiB and its owned artifact family
 to 128 MiB. It never accepts or prints the log contents as a PASS receipt.
 
 ## Chapter 1 scene event selection
 
-The following `native_adapter_check.gd` selections exercise Godot event routing
-through the ordinary arrival scene and assert native outcomes. Run each with
-`factory-godot-fixture` above, setting `--pass-line` to the exact line shown and
-passing the listed arguments after `--`. Give every run a fresh `--log` and
+The following named `native_adapter_check.gd` selections exercise Godot event
+routing through the ordinary arrival scene and assert native outcomes. Run each
+with `factory-godot-fixture` above, replacing `--script` and `--pass-line` with
+the listed `--case` and passing its arguments after `--`. The runner supplies
+the exact line and deadline shown, and rejects omitted, duplicate or unexpected
+case arguments before starting Godot. Named case input paths must be absolute;
+their result and save-slot paths must be fresh files inside the canonical owned
+artifact directory. Give every run a fresh `--log` and
 `--native-check-output` inside an owner-only artifact family. The runner rejects
 engine errors, nonzero exits, missing completion lines and oversized logs. The
 fixture rejects a selected route if its required actions were skipped.
 
-| Selection | Godot arguments | Exact completion line | Maximum time |
+| `--case` selection | Godot arguments | Exact completion line | Maximum time |
 | --- | --- | --- | --- |
-| First plate placement and focus guard | `--native-check-mode=arrival-first-plate --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate` | 180 seconds |
-| Narrow channel custody and blocked gap | `--native-check-mode=arrival-channel-small --event-route-loose --resume-input=BROAD_CUT_WORKSITE --save-slot=FRESH_WORKSITE --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small` | 300 seconds |
-| Fresh-process recovery | `--native-check-mode=arrival-channel-small-resume --event-route-loose --resume-input=PREVIOUS_WORKSITE --save-slot=FRESH_WORKSITE --native-check-prior=PREVIOUS_RESULT --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume` | 180 seconds |
+| `arrival-first-plate` (placement and focus guard) | `--native-check-mode=arrival-first-plate --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate` | 180 seconds |
+| `arrival-channel-small` (custody and blocked gap) | `--native-check-mode=arrival-channel-small --event-route-loose --resume-input=BROAD_CUT_WORKSITE --save-slot=FRESH_WORKSITE --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small` | 300 seconds |
+| `arrival-channel-small-resume` (fresh-process recovery) | `--native-check-mode=arrival-channel-small-resume --event-route-loose --resume-input=PREVIOUS_WORKSITE --save-slot=FRESH_WORKSITE --native-check-prior=PREVIOUS_RESULT --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume` | 180 seconds |
 
 `BROAD_CUT_WORKSITE` is the retained passing output of
 `arrival-broad-cut-resume` from the same native revision. Feed the narrow
