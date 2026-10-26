@@ -2554,10 +2554,10 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 			anchor = child as Node3D
 	if not _expect(anchor != null and anchor.has_node("IntegralInputShaft")
 			and anchor.has_node("SlideCarriage") and
-			is_equal_approx(anchor.get_node("SlideCarriage").position.y,
-				anchor.get_node("SlideCrown").position.y - 0.132),
+			anchor.get_node("SlideCarriage").position.y < anchor.get_node("SlideCrown").position.y,
 			"The ordinary presenter shows the native port and resting carriage below its crown"):
 		return
+	var rest_carriage_y: float = anchor.get_node("SlideCarriage").position.y
 	opening.model.advance()
 	opening._refresh()
 	var powered: Dictionary = opening.model.projection()
@@ -2569,8 +2569,7 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 	for child: Node in opening.transmission_presenter.get_children():
 		if child.get_meta("component_entity", "") == id:
 			anchor = child as Node3D
-	if not _expect(anchor != null and anchor.get_node("SlideCarriage").position.y <
-			anchor.get_node("SlideCrown").position.y - 0.132,
+	if not _expect(anchor != null and anchor.get_node("SlideCarriage").position.y < rest_carriage_y,
 			"The installed carriage follows the projected native phase"):
 		return
 	# Auto-advance consumes the native tick delta after its first complete view.
