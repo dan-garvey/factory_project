@@ -3938,6 +3938,7 @@ var stock_label: Label
 var parts_label: Label
 var goal_label: Label
 var objective_heading: Label
+var objective_separator: HSeparator
 var manager_log_button: Button
 var manager_log_layer: CanvasLayer
 var manager_log_panel: PanelContainer
@@ -4563,12 +4564,56 @@ func _confirm_hand_crank_visual(action: Dictionary, outcome: Dictionary) -> void
 			and transmission_presenter != null:
 		transmission_presenter.confirmed_hand_crank_pulse(str(action.get("entity", "")), outcome)
 
+func _reclaim_owned_drops(entity: String) -> Array[Dictionary]:
+	var part: Dictionary = state.get("placed_components", {}).get(entity, {})
+	if part.is_empty():
+		return []
+	var centers: Array = []
+	if part.get("component", "") in ["anvil", "receiver_tray"]:
+		centers.append(part.get("center", []))
+	for key in ["sliding_press_assemblies", "guided_press_assemblies"]:
+		for press: Dictionary in state.get(key, []):
+			if not press.get("parts", {}).values().has(entity):
+				continue
+			var work: Array = press.get("work_center", press.get("center", []))
+			if work.size() != 3:
+				continue
+			centers.append(work)
+			var exits: Array = []
+			if key == "sliding_press_assemblies":
+				exits = [[int(work[0]) - 1, work[1], work[2]],
+					[int(work[0]) + 1, work[1], work[2]]]
+			else:
+				for route: Dictionary in press.get("open_feeds", []):
+					exits.append(route.get("exit", []))
+			for exit_center: Array in exits:
+				for drop: Dictionary in state.get("dropped_material", []):
+					if drop.get("center", []) == exit_center and int(drop.get("products", 0)) > 0:
+						centers.push_front(exit_center)
+	var result: Array[Dictionary] = []
+	for center: Array in centers:
+		if result.any(func(item: Dictionary) -> bool: return item.center == center):
+			continue
+		for drop: Dictionary in state.get("dropped_material", []):
+			if drop.get("center", []) == center:
+				result.append(drop)
+				break
+	return result
+
 func issue(action: Dictionary) -> Dictionary:
 	if explanation_open:
 		return {"accepted": false, "reason": "explanation_open"}
 	if startup_save_pending:
 		_message("Finishing the saved worksite's opening. Wait a moment.")
 		return {"accepted": false, "reason": "worksite_starting"}
+	if action.get("action", "") == "reclaim_component":
+		for drop: Dictionary in _reclaim_owned_drops(str(action.get("entity", ""))):
+			var expected := drop.duplicate(true)
+			expected.erase("center")
+			var pickup := issue({"action": "pickup_material", "center": drop.center,
+				"expected": expected})
+			if not pickup.get("accepted", false):
+				return pickup
 	if actor_world != null:
 		for actor in model.projection().actors:
 			actor_world.ensure_actor(actor)
@@ -5057,11 +5102,6 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if _object_menu_open():
-		if event is InputEventKey and event.keycode == KEY_T and not event.pressed \
-				and arrival_assembly_controls != null:
-			arrival_assembly_controls.stop_turn_hold("key")
-			get_viewport().set_input_as_handled()
-			return
 		if event is InputEventKey and event.pressed and not event.echo:
 			var used := false
 			if event.keycode in [KEY_ESCAPE, KEY_E]:
@@ -5089,11 +5129,9 @@ func _input(event: InputEvent) -> void:
 					KEY_P: used = actions.inventory_shortcut(KEY_P) or _activate_button(actions.pickup_button)
 					KEY_F: used = actions.inventory_shortcut(KEY_F) or _activate_button(actions.feed_button)
 					KEY_N: used = _open_action_menu(actions.broad_refeed_button)
-					KEY_T: used = actions.press_turn_key()
 					KEY_X: used = _activate_button(actions.shear_button) or _activate_button(actions.collector_cut_button)
 					KEY_R: used = actions.inventory_shortcut(KEY_R) or _activate_button(actions.refeed_work_button)
 					KEY_U: used = actions.inventory_shortcut(KEY_U) or _activate_button(actions.recover_work_button)
-					KEY_V: used = actions.cycle_slide_port()
 					KEY_G: used = actions.cycle_feed_route()
 					KEY_S: used = _open_action_menu(actions.sheet_button)
 			if used:
@@ -5356,7 +5394,7 @@ func _select_tool(tool: String) -> void:
 			elif component_kind == "broad_flat_head":
 				instructions["component"] = "Aim at the 2×2 workbed. Click to fit four carried flat heads as one face."
 			elif component_kind in ["wooden_slide", "copper_slide"]:
-				instructions["component"] = "Aim at a flat head to show the slide above it. Click to fit the amber ghost; red means blocked."
+				instructions["component"] = "Aim at the anvil or flat head to show the slide at press height. Click to fit the amber ghost; red means blocked."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -6087,7 +6125,7 @@ func _toggle_explanation() -> void:
 	help_panel.visible = explanation_open
 	if explanation_open:
 		_release_character_controls()
-		help_title.text = "CURRENT TASK"
+		help_title.text = objective_heading.text
 		help_body.text = goal_label.text + "\n\n" + controls_label.text
 	_update_cursor()
 	_refresh_ui()
@@ -6148,6 +6186,8 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 	# part the player can actually point at to expose its next fitted socket.
 	if kind == "flat_head" and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
+	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "anvil":
+		return {"center": [center[0], center[1] + 2, center[2]], "label": "Slide over workbed"}
 	if kind == "broad_flat_head" and pointed_kind == "broad_anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "2×2 head over workbed"}
 	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
@@ -6493,7 +6533,7 @@ func _refresh_component_preview() -> void:
 			else "Beside %s" % pointed_kind.replace("_", " "))
 		if press_snap_target != null and not press_snap.is_empty() \
 				and (kind in ["flat_head", "broad_flat_head"] and pointed_kind in ["anvil", "broad_anvil"] \
-				or kind in ["wooden_slide", "copper_slide"] and pointed_kind in ["flat_head", "broad_flat_head"]):
+				or kind in ["wooden_slide", "copper_slide"] and pointed_kind in ["anvil", "flat_head", "broad_flat_head"]):
 			var target_box := _component_candidate_box(pointed_kind, state.placed_components[pointed].center)
 			press_snap_target.position = target_box.center + Vector3.UP * (target_box.half.y + 0.015)
 			press_snap_target.scale = Vector3(target_box.half.x / 0.77, 1.0, target_box.half.z / 0.77)
@@ -6565,7 +6605,7 @@ func _component_placement_hint() -> String:
 		"Aim at the 2×2 workbed; uses four flat heads" if kind == "broad_flat_head" else \
 		"Aim at a floor or built surface" if kind == "anvil" else \
 		"Aim at the anvil to place the head above" if kind == "flat_head" else \
-		"Aim at the flat head to place the slide above" if kind in ["wooden_slide", "copper_slide"] else \
+		"Aim at the anvil or flat head to place the slide above" if kind in ["wooden_slide", "copper_slide"] else \
 		"Aim at the anvil top" if kind == "ram_face" else \
 		"Aim at the anvil or ram top" if kind == "sliding_guide" else \
 		"Press drive: aim at anvil side or guide side" if kind in ["wooden_shaft", "copper_shaft"] else \
@@ -9003,9 +9043,7 @@ func _refresh_manager_log() -> void:
 		maxf(180.0, (viewport_height - 32.0) * 0.5))
 	manager_log_panel.offset_top = -half_height
 	manager_log_panel.offset_bottom = half_height
-	var lines := goal_label.text.split("\n")
-	var current := lines[lines.size() - 1] if not lines.is_empty() else "Inspect the worksite."
-	manager_log_current.text = "CURRENT FIELD CUE\n" + current
+	manager_log_current.text = "CURRENT FIELD CUE\n" + objective_heading.text + "\n" + goal_label.text
 
 func _notice_workshop_completion(complete: bool) -> void:
 	var previously_complete: Variant = workshop_completion_observed
@@ -9191,11 +9229,17 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	else:
 		goal_label.text = "Make 4 plates  ·  %d / 4\n%s" % [inventory, step.text] if snapshot_ready else "Connect to the worksite."
 	confirm_button.visible = not arrival and snapshot_ready and (inventory >= 4 or goal_confirmed)
-	help_button.visible = true
+	objective_heading.visible = not arrival
+	goal_label.visible = not arrival
+	objective_separator.visible = not arrival
+	manager_log_button.get_parent().visible = not arrival
+	manager_log_button.visible = not arrival
+	help_button.visible = not arrival
 	actor_label.visible = true
-	controls_label.text = "WASD move · E interact · B build · F remove · H help" if arrival \
-		else "B catalog · 1–8 build · E open · F remove · H help"
+	controls_label.text = "WASD move · E interact · B build · F remove · J log · H help" if arrival \
+		else "B catalog · 1–8 build · E open · F remove · J log · H help"
 	if explanation_open:
+		help_title.text = objective_heading.text
 		help_body.text = goal_label.text + "\n\n" + controls_label.text
 	_refresh_engineering(snapshot_ready)
 	var target_selected: bool = _contains_target(state, selected)
@@ -9732,6 +9776,14 @@ func _footer_above_view() -> bool:
 
 func _fit_guided_footer() -> void:
 	footer_fit_pending = false
+	var arrival := _native_transmission() and state.has("hand_sources")
+	var action_row: Control = tool_buttons.flow.get_parent()
+	var has_left_action := false
+	for action in action_row.get_children():
+		if action is Control and action.visible:
+			has_left_action = true
+			break
+	build_column.get_parent().visible = not arrival or has_left_action
 	# Wrapped text settles after its container width. Fit again at that
 	# boundary, rather than retaining an early oversized minimum height.
 	var columns_to_fit := [build_column] if object_menu != null else [build_column, inspector.get_parent() if inspector != null else null]
@@ -10033,8 +10085,6 @@ func _style_pause_action(button: Button, icon_name: String, action_name: String,
 
 func _on_object_menu_closed() -> void:
 	object_menu_closed_frame = Engine.get_process_frames()
-	if arrival_assembly_controls != null:
-		arrival_assembly_controls.stop_turn_hold()
 	object_menu_scrim.visible = false
 	object_menu_target = ""
 	selected = ""
@@ -10233,7 +10283,8 @@ func _build_interface() -> void:
 	build.add_child(goal_progress)
 	confirm_button = _button(build, "Confirm four plates  [Ctrl+Enter]", _confirm_goal)
 	_accent_button(confirm_button)
-	build.add_child(HSeparator.new())
+	objective_separator = HSeparator.new()
+	build.add_child(objective_separator)
 	building_hotbar = BuildingHotbar.new()
 	building_hotbar.configure(self, root)
 	tool_buttons.merge(building_hotbar.catalog_buttons)

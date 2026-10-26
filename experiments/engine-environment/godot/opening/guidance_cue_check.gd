@@ -551,6 +551,22 @@ func check_inventory_goal_view() -> void:
 	view._refresh_ui()
 	verify(view.loose_material_controls == null,
 		"The constructed ordinary player interface has no diagnostic loose-material or Push menu.")
+	await process_frame
+	verify(not view.build_column.get_parent().visible
+		and not view.objective_heading.visible and not view.goal_label.visible
+		and not view.manager_log_button.visible and not view.help_button.visible
+		and "J log" in view.controls_label.text and "H help" in view.controls_label.text,
+		"The arrival HUD leaves the workshop text and menu buttons offscreen while showing both shortcuts on the status strip.")
+	view._toggle_explanation()
+	verify(view.help_panel.visible and view.help_title.text == view.objective_heading.text
+		and view.help_body.text.contains(view.goal_label.text),
+		"Help contains the current workshop heading and instructions after the HUD card is hidden.")
+	view._toggle_explanation()
+	view._toggle_manager_log()
+	verify(view.manager_log_layer.visible and view.manager_log_current.text.contains(view.objective_heading.text)
+		and view.manager_log_current.text.contains(view.goal_label.text),
+		"The Work log keeps the current workshop objective available through J.")
+	view._toggle_manager_log()
 	verify(view.get_node_or_null("ShipmentMarker") == null
 		and "FORM A PLATE · KEEP IT" in view.goal_label.text
 		and not view.manager_log_completion_entry.visible,
@@ -565,6 +581,11 @@ func check_inventory_goal_view() -> void:
 	shared._refresh_ui()
 	verify(shared.loose_material_controls == null,
 		"The constructed shared player interface also excludes diagnostic material commands.")
+	await process_frame
+	verify(not shared.build_column.get_parent().visible
+		and not shared.objective_heading.visible and not shared.goal_label.visible
+		and "J log" in shared.controls_label.text,
+		"A shared worker gets the same clear arrival view and visible Work log shortcut.")
 	view.state = view.state.duplicate(true)
 	view.state.cargo.P.products = 1
 	view.state.workshop_completed_actors = ["P"]

@@ -523,7 +523,6 @@ class ArrivalAssemblyControls:
 		"missing_receiver": "Fit a receiver tray beside the frame.",
 		"ambiguous": "Keep one receiver beside this collector.",
 	}
-	const TURN_REPEAT_SECONDS := 0.33
 
 	var selected_component := "wooden_frame"
 	var _host: WeakRef
@@ -533,7 +532,6 @@ class ArrivalAssemblyControls:
 	var _press := {}
 	var _anvil := ""
 	var _route_index := 0
-	var _slide_port_index := 0
 	var _held_work_id := 0
 	var _held_work_ids: Array[int] = []
 	var _inventory_ready := false
@@ -552,14 +550,10 @@ class ArrivalAssemblyControls:
 	var route_choice: OptionButton
 	var flow_diagram: SlideFlowDiagram
 	var auto_route_cue: Label
-	var slide_port_choice: OptionButton
 	var held_work_choice: OptionButton
 	var feed_button: Button
 	var compact_button: Button
 	var refeed_work_button: Button
-	var turn_button: Button
-	var turn_repeat_timer: Timer
-	var turn_hold_source := ""
 	var pickup_button: Button
 	var recover_work_button: Button
 	var inventory_section: VBoxContainer
@@ -586,9 +580,6 @@ class ArrivalAssemblyControls:
 	var _shear := {}
 	var collector_section: VBoxContainer
 	var press_section: VBoxContainer
-
-	func _ready() -> void:
-		get_window().focus_exited.connect(stop_turn_hold)
 
 	func configure(host) -> void:
 		_host = weakref(host)
@@ -652,12 +643,6 @@ class ArrivalAssemblyControls:
 		auto_route_cue = host._label(press_section, "", 12, Color("f4bf75"))
 		auto_route_cue.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		auto_route_cue.visible = false
-		slide_port_choice = OptionButton.new()
-		slide_port_choice.name = "SlideCrankPort"
-		slide_port_choice.tooltip_text = "Choose a clear side of the slide's built-in input · V"
-		slide_port_choice.accessibility_name = "Slide crank input side, shortcut V"
-		slide_port_choice.item_selected.connect(func(index: int) -> void: _slide_port_index = index)
-		press_section.add_child(slide_port_choice)
 		held_work_choice = OptionButton.new()
 		held_work_choice.name = "HeldPressWorkChoice"
 		held_work_choice.item_selected.connect(func(index: int) -> void:
@@ -697,17 +682,6 @@ class ArrivalAssemblyControls:
 		_style_workshop_icon(feed_button, "press-feed")
 		refeed_work_button = host._button(feed_actions, "", _refeed_work)
 		_style_workshop_icon(refeed_work_button, "press-refeed")
-		turn_button = host._button(feed_actions, "", _turn)
-		_style_workshop_icon(turn_button, "press-turn")
-		turn_button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
-		turn_button.button_down.connect(_start_turn_hold.bind("pointer"))
-		turn_button.button_up.connect(stop_turn_hold.bind("pointer"))
-		turn_button.focus_exited.connect(stop_turn_hold)
-		turn_repeat_timer = Timer.new()
-		turn_repeat_timer.wait_time = TURN_REPEAT_SECONDS
-		turn_repeat_timer.one_shot = true
-		turn_repeat_timer.timeout.connect(_repeat_turn)
-		add_child(turn_repeat_timer)
 		compact_button = host._button(feed_actions, "", _compact_offcuts)
 		compact_button.icon = load("res://opening/assets/menu-icons/compact-offcuts.svg")
 		compact_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -890,7 +864,6 @@ class ArrivalAssemblyControls:
 		shear_button.accessibility_name = "Cut staged copper sheet, shortcut X"
 		if _anvil != _last_anvil:
 			_route_index = 0
-			_slide_port_index = 0
 			_last_anvil = _anvil
 		var routes: Array = _press.get("open_feeds", [])
 		route_choice.clear()
@@ -966,8 +939,8 @@ class ArrivalAssemblyControls:
 					var remaining: int = int(work_lots[0].get("remaining", 0))
 					if cycle > 0 and remaining > 0 and remaining <= cycle:
 						if exit_drop.is_empty():
-							advice = "Work stroke: %d / %d contacts. Hold T or the turn icon." % [cycle - remaining, cycle] if sliding else \
-								"Work stroke: %d / %d steps. Hold T or the turn icon." % [cycle - remaining, cycle]
+							advice = "Work stroke: %d / %d contacts. Turn the fitted crank in the world." % [cycle - remaining, cycle] if sliding else \
+								"Work stroke: %d / %d steps. Turn the fitted crank in the world." % [cycle - remaining, cycle]
 						else:
 							advice = "Exit holds a copper plate; stroke %d / %d steps. Pick it up before the final step." % [cycle - remaining, cycle]
 			if sliding and work.is_empty():
@@ -997,15 +970,14 @@ class ArrivalAssemblyControls:
 				if not broad_work.get("work_lots", []).is_empty() else \
 			"2×2 workbed · move three carried copper pieces here [F]."
 		var active_press := status == "ready"
-		feed_heading.visible = active_press and not _inventory_broad
-		feed_heading.text = "TURN THE SLIDE" if sliding else "FEED & STROKE"
-		feed_actions.visible = active_press and not _inventory_broad
+		feed_heading.visible = active_press and not sliding and not _inventory_broad
+		feed_heading.text = "FEED & RECYCLE"
+		feed_actions.visible = feed_heading.visible
 		output_heading.visible = active_press and not sliding and not _inventory_broad
 		output_heading.text = "CRANK CUSTODY" if sliding else "OUTPUT & RECOVERY"
 		output_actions.visible = output_heading.visible
 		route_choice.visible = active_press and not _inventory_broad and not auto_route \
 			and not routes.is_empty() and (not sliding or routes.size() > 1)
-		slide_port_choice.visible = false
 		var can_operate := ready and status == "ready" and not _route().is_empty() \
 			and selected_route_available
 		feed_button.visible = not _inventory_broad and not _anvil.is_empty() and not sliding
@@ -1032,19 +1004,6 @@ class ArrivalAssemblyControls:
 			"Clear the work face beneath the %s" % work_face if not _work_drop().is_empty() else \
 			"Reinsert the selected held work")
 		refeed_work_button.accessibility_name = "Reinsert selected held work, shortcut R"
-		turn_button.visible = not _anvil.is_empty()
-		turn_button.disabled = not can_operate or fitted_crank.is_empty() \
-			or _work_drop().is_empty() \
-			or int(_work_drop().get("offcuts", 0)) > 0
-		if changed_target or turn_button.disabled or not turn_button.visible:
-			stop_turn_hold()
-		turn_button.tooltip_text = "Fit a crafted crank on the input · T" if fitted_crank.is_empty() else "%s · T" % (operate_cause if not can_operate else \
-			"Feed or reinsert work beneath the %s" % work_face if _work_drop().is_empty() else \
-			"Pick up the copper offcut beneath the %s" % work_face if int(_work_drop().get("offcuts", 0)) > 0 else \
-			"Exit holds a plate; turn until blocked, then pick it up" if not _exit_drop().is_empty() else \
-			"Hold T or the icon to turn the crank; release to stop")
-		turn_button.accessibility_name = "Fit a crafted crank to the input before turning" if fitted_crank.is_empty() else \
-			"Hold to turn the slide crank, shortcut T" if sliding else "Hold to turn the press crank, shortcut T"
 		pickup_button.visible = not _anvil.is_empty() and not sliding
 		pickup_button.disabled = not ready or int(_exit_drop().get("products", 0)) < 1
 		pickup_button.tooltip_text = "%s · P" % ("Wait for the character" if not ready else \
@@ -1526,74 +1485,12 @@ class ArrivalAssemblyControls:
 			host.issue({"action": "refeed_press_work", "entity": _anvil,
 				"entry": route.entry, "work_id": _held_work_id})
 
-	func _turn() -> bool:
-		var host = _host_view()
-		var route := _route()
-		var parts: Dictionary = _press.get("parts", {})
-		if host != null and parts.has("slide"):
-			var slide: Dictionary = _snapshot.get("placed_components", {}).get(parts.slide, {})
-			var ports: Array = slide.get("input_ports", [])
-			for item: Dictionary in _snapshot.get("crank_items", {}).values():
-				if item.get("attached_to", "") == parts.slide and ports.has(item.get("port", [])):
-					var slide_outcome: Dictionary = host.issue({"action": "turn_slide_crank",
-						"entity": parts.slide, "port": item.port})
-					if slide_outcome.get("accepted", false):
-						return true
-					break
-			stop_turn_hold()
-			return false
-		if host != null and not route.is_empty() and parts.has("shaft"):
-			var outcome: Dictionary = host.issue({"action": "turn_press_crank", "entity": _anvil,
-				"drive": parts.shaft, "exit": route.exit})
-			if outcome.get("accepted", false):
-				return true
-		stop_turn_hold()
-		return false
-
-	func press_turn_key() -> bool:
-		if not turn_button.is_visible_in_tree() or turn_button.disabled:
-			return false
-		if turn_hold_source.is_empty():
-			_start_turn_hold("key")
-			turn_button.pressed.emit()
-		return true
-
-	func cycle_slide_port() -> bool:
-		if not slide_port_choice.is_visible_in_tree() or slide_port_choice.item_count < 2:
-			return false
-		_slide_port_index = (_slide_port_index + 1) % slide_port_choice.item_count
-		slide_port_choice.select(_slide_port_index)
-		return true
-
 	func cycle_feed_route() -> bool:
 		if not route_choice.is_visible_in_tree() or route_choice.disabled or route_choice.item_count < 2:
 			return false
 		_route_index = (_route_index + 1) % route_choice.item_count
 		route_choice.select(_route_index)
 		return true
-
-	func _start_turn_hold(source: String) -> void:
-		if not turn_hold_source.is_empty() or not turn_button.is_visible_in_tree() or turn_button.disabled:
-			return
-		turn_hold_source = source
-		turn_repeat_timer.start()
-
-	func stop_turn_hold(source: String = "") -> void:
-		if not source.is_empty() and turn_hold_source != source:
-			return
-		turn_hold_source = ""
-		if turn_repeat_timer != null:
-			turn_repeat_timer.stop()
-
-	func _repeat_turn() -> void:
-		if turn_hold_source.is_empty() or not turn_button.is_visible_in_tree() or turn_button.disabled:
-			stop_turn_hold()
-			return
-		if not _turn():
-			stop_turn_hold()
-			return
-		if not turn_hold_source.is_empty() and turn_button.is_visible_in_tree() and not turn_button.disabled:
-			turn_repeat_timer.start()
 
 	func _pickup_at(drop: Dictionary) -> void:
 		var host = _host_view()
