@@ -343,7 +343,7 @@ func check_channel_hotbar_icons() -> void:
 			view.building_hotbar._close_catalog()
 			await settle_footer()
 			root.size = Vector2i(900, 600)
-			view.building_hotbar.open_catalog(0)
+			view.building_hotbar.open_catalog()
 			view.building_hotbar.inventory_scroll.scroll_vertical = 10000
 			await settle_footer()
 			verify(view.building_hotbar.catalog.visible and root.get_texture().get_image().save_png(
