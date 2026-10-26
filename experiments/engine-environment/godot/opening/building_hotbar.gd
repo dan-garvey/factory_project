@@ -1,14 +1,42 @@
 extends PanelContainer
 ## Local slot assignments over the host's confirmed carried kit.
+class PlaceableTile:
+	extends Button
+	var owner_view: WeakRef
+	var tool := ""
+
+	func _get_drag_data(_position: Vector2) -> Variant:
+		if owner_view == null or owner_view.get_ref() == null:
+			return null
+		var payload: Dictionary = owner_view.get_ref()._drag_payload(tool)
+		if payload.is_empty():
+			return null
+		var preview := TextureRect.new()
+		preview.texture = icon
+		preview.custom_minimum_size = Vector2(42, 42)
+		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		set_drag_preview(preview)
+		return payload
+
+class HotbarSlot:
+	extends Button
+	var owner_view: WeakRef
+	var index := -1
+
+	func _can_drop_data(_position: Vector2, data: Variant) -> bool:
+		return owner_view != null and owner_view.get_ref() != null \
+			and owner_view.get_ref()._can_bind(index, data)
+
+	func _drop_data(_position: Vector2, data: Variant) -> void:
+		if _can_drop_data(Vector2.ZERO, data):
+			owner_view.get_ref().bind_slot(index, str(data.tool))
+
 const TOOLS := {"collector": "Collector", "foundation": "Foundation", "belt": "Belt",
 	"processor": "Press", "wheel": "Waterwheel", "gear": "Cogwheel", "drive": "Shaft",
 	"gearbox": "Horizontal gearbox", "vertical_gearbox": "Vertical gearbox", "chain_drive": "Chain drive"}
 const CATALOG_KEYS := {KEY_C: "collector", KEY_F: "foundation", KEY_B: "belt",
 	KEY_P: "processor", KEY_W: "wheel", KEY_G: "gear", KEY_S: "drive",
 	KEY_H: "gearbox", KEY_V: "vertical_gearbox", KEY_N: "chain_drive"}
-const TOOL_KEYS := {"collector": "C", "foundation": "F", "belt": "B",
-	"processor": "P", "wheel": "W", "gear": "G", "drive": "S",
-	"gearbox": "H", "vertical_gearbox": "V", "chain_drive": "N"}
 const COMPONENT_PREFIX := "component:"
 const ARRIVAL_SLOTS: Array[String] = ["", "", "", "", "", "", "", ""]
 const COLLECTOR_PROJECT_COMPONENTS := ["wooden_frame", "tool_mount", "cutting_edge",
@@ -65,12 +93,11 @@ var recipe_focus := "collector"
 var recipe_scroll: ScrollContainer
 var inventory_scroll: ScrollContainer
 var catalog_columns: BoxContainer
-var slot_targets: Array[Button] = []
+var catalog_slots: Array[Button] = []
 var context_label: Label
 var carried_label: Label
 var context_action: Button
 var context_bench := ""
-var target_slot := 0
 var parts_label: Label
 var focus_description: Label
 var selected_slot := 0
@@ -111,7 +138,11 @@ func configure(host, ui: Control) -> void:
 	_style_slot(footprint_button)
 	footprint_button.visible = false
 	for index in range(slots.size()):
-		var button: Button = host._button(row, "", select_slot.bind(index))
+		var button := HotbarSlot.new()
+		button.owner_view = weakref(self)
+		button.index = index
+		button.pressed.connect(select_slot.bind(index))
+		row.add_child(button)
 		button.toggle_mode = true
 		button.custom_minimum_size = Vector2(54, 54)
 		_style_slot(button)
@@ -189,7 +220,11 @@ func configure(host, ui: Control) -> void:
 	material_grid.add_theme_constant_override("v_separation", 6)
 	inventory_scroll.add_child(material_grid)
 	for kind: String in MATERIALS:
-		var tile := Button.new()
+		var tile: Button = PlaceableTile.new() if kind == "fabrication_hub" else Button.new()
+		if kind == "fabrication_hub":
+			var hub_tile := tile as PlaceableTile
+			hub_tile.owner_view = weakref(self)
+			hub_tile.tool = "pod_workshop"
 		material_grid.add_child(tile)
 		_style_inventory_tile(tile, load("res://opening/assets/build-icons/" + MATERIALS[kind][1]))
 		material_buttons[kind] = tile
@@ -197,7 +232,11 @@ func configure(host, ui: Control) -> void:
 		tile.focus_entered.connect(_describe_focus.bind(tile))
 	material_buttons.fabrication_hub.pressed.connect(_select_hub_tool)
 	for tool: String in TOOLS:
-		var button: Button = host._button(material_grid, "", assign.bind(tool))
+		var button := PlaceableTile.new()
+		button.owner_view = weakref(self)
+		button.tool = tool
+		button.pressed.connect(_select_inventory_tool.bind(tool))
+		material_grid.add_child(button)
 		_style_inventory_tile(button, load("res://opening/assets/build-icons/" + tool + ".svg"))
 		catalog_buttons[tool] = button
 		catalog_counts[tool] = _count_badge(button)
@@ -250,12 +289,17 @@ func configure(host, ui: Control) -> void:
 	recipe_grid.add_theme_constant_override("h_separation", 6)
 	recipe_grid.add_theme_constant_override("v_separation", 6)
 	recipe_scroll.add_child(recipe_grid)
-	host._label(column, "HOTBAR TARGET · choose 1–8, then choose a carried part", 11)
+	host._label(column, "HOTBAR · drag a carried part here, or hover it and press 1–8", 11)
 	var targets := HBoxContainer.new()
 	targets.add_theme_constant_override("separation", 4)
 	column.add_child(targets)
 	for index in slots.size():
-		var target: Button = host._button(targets, "", _select_target.bind(index))
+		var target := HotbarSlot.new()
+		target.owner_view = weakref(self)
+		target.index = index
+		target.pressed.connect(select_slot.bind(index))
+		target.gui_input.connect(_slot_input.bind(index))
+		targets.add_child(target)
 		target.custom_minimum_size = Vector2(42, 39)
 		_style_slot(target)
 		target.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -268,7 +312,7 @@ func configure(host, ui: Control) -> void:
 		target_key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		target.add_child(target_key)
 		target.focus_entered.connect(_describe_focus.bind(target))
-		slot_targets.append(target)
+		catalog_slots.append(target)
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
 	context_action = host._button(actions, "", _use_context_action)
@@ -279,8 +323,8 @@ func configure(host, ui: Control) -> void:
 	context_action.visible = false
 	var clear: Button = host._button(actions, "", clear_slot)
 	clear.icon = load("res://opening/assets/build-icons/slot-clear.svg")
-	clear.tooltip_text = "Clear target slot · Delete"
-	clear.accessibility_name = "Clear target slot, shortcut Delete"
+	clear.tooltip_text = "Clear hovered or focused hotbar slot · Delete"
+	clear.accessibility_name = "Clear hovered or focused hotbar slot, shortcut Delete"
 	var close: Button = host._button(actions, "", _close_catalog)
 	close.icon = load("res://opening/assets/menu-icons/close.svg")
 	close.tooltip_text = "Close build and inventory · Esc"
@@ -334,7 +378,8 @@ func _input(event: InputEvent) -> void:
 	if event.ctrl_pressed or event.alt_pressed:
 		return
 	if event.keycode >= KEY_1 and event.keycode <= KEY_8:
-		_select_target(event.keycode - KEY_1)
+		if not bind_number_key(event.keycode - KEY_1, get_viewport().get_mouse_position()):
+			return
 	elif event.keycode == KEY_DELETE:
 		clear_slot()
 	elif event.keycode == KEY_ESCAPE:
@@ -348,7 +393,7 @@ func _input(event: InputEvent) -> void:
 	elif event.keycode == KEY_P and _arrival_active and _material_count("fabrication_hub", _view()) > 0:
 		_select_hub_tool()
 	elif CATALOG_KEYS.has(event.keycode):
-		assign(CATALOG_KEYS[event.keycode])
+		_select_inventory_tool(CATALOG_KEYS[event.keycode])
 	else:
 		return
 	get_viewport().set_input_as_handled()
@@ -419,6 +464,9 @@ func _view():
 	return _host.get_ref() if _host != null else null
 
 func _count(tool: String, parts: Dictionary) -> int:
+	if tool == "pod_workshop":
+		var hub_host = _view()
+		return _material_count("fabrication_hub", hub_host) if hub_host != null else 0
 	if tool.begins_with(COMPONENT_PREFIX):
 		var host = _view()
 		return maxi(0, int(host.state.get("cargo", {}).get(host.client, {}).get("components", {}).get(
@@ -434,10 +482,23 @@ func _material_count(kind: String, host) -> int:
 	return maxi(0, int(cargo.get(kind, 0)))
 
 func _tool_label(tool: String) -> String:
+	if tool == "pod_workshop":
+		return "Pod workshop"
 	return str(_component_labels.get(tool.trim_prefix(COMPONENT_PREFIX), "Component")) \
 		if tool.begins_with(COMPONENT_PREFIX) else str(TOOLS.get(tool, "Empty"))
 
+func _tool_icon(tool: String) -> Texture2D:
+	if tool.is_empty():
+		return null
+	if tool == "pod_workshop":
+		return material_buttons.fabrication_hub.icon
+	if tool.begins_with(COMPONENT_PREFIX):
+		return component_textures[tool.trim_prefix(COMPONENT_PREFIX)]
+	return catalog_buttons[tool].icon
+
 func _offered(tool: String, host) -> bool:
+	if tool == "pod_workshop":
+		return _arrival_active
 	if _arrival_active and not _plate_unlocked(host):
 		return tool in ["component:anvil", "component:flat_head", "component:wooden_slide",
 			"component:hand_crank"]
@@ -471,8 +532,11 @@ func _sync_arrival(host) -> void:
 			var component: String = str(item[0])
 			_component_names.append(component)
 			_component_labels[component] = str(item[1])
-			var button: Button = host._button(component_grid, "",
-				_assign_to_slot.bind(COMPONENT_PREFIX + component))
+			var button := PlaceableTile.new()
+			button.owner_view = weakref(self)
+			button.tool = COMPONENT_PREFIX + component
+			button.pressed.connect(_select_inventory_tool.bind(button.tool))
+			component_grid.add_child(button)
 			_style_inventory_tile(button, component_textures[component])
 			component_buttons[component] = button
 			component_counts[component] = _count_badge(button)
@@ -732,8 +796,9 @@ func refresh(snapshot_ready: bool = true) -> void:
 		material_buttons[kind].tooltip_text = "%s · %d carried" % [label, amount]
 		material_buttons[kind].accessibility_name = "%s, %d carried" % [label, amount]
 		if kind == "fabrication_hub" and amount > 0:
-			material_buttons[kind].tooltip_text += " · select placement · P"
-			material_buttons[kind].accessibility_name += ", select placement, shortcut P"
+			material_buttons[kind].tooltip_text += " · drag to hotbar or hover and press 1–8 · click to place"
+			material_buttons[kind].accessibility_name += "; drag to hotbar or focus and press a number to bind; click to place"
+		material_buttons[kind].disabled = kind == "fabrication_hub" and (not usable or amount < 1)
 		material_buttons[kind].visible = amount > 0 if _arrival_active else true
 	catalog_button.disabled = host.explanation_open
 	if host.explanation_open:
@@ -762,27 +827,27 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var amount := _count(tool, parts)
 		var offered: bool = _offered(tool, host)
 		buttons[index].visible = true
-		slot_icons[index].texture = component_textures[tool.trim_prefix(COMPONENT_PREFIX)] if tool.begins_with(COMPONENT_PREFIX) else \
-			catalog_buttons[tool].icon if not tool.is_empty() else null
+		slot_icons[index].texture = _tool_icon(tool)
 		slot_icons[index].visible = not tool.is_empty()
 		slot_counts[index].text = str(amount) if not tool.is_empty() else "+"
-		buttons[index].tooltip_text = "%s · %d %s · slot %d" % [label, amount, scope, index + 1] if not tool.is_empty() else "Assign slot %d · B opens catalog" % (index + 1)
-		buttons[index].accessibility_name = "%s, %d %s, slot %d" % [label, amount, scope, index + 1] if not tool.is_empty() else "Assign slot %d, shortcut B opens inventory" % (index + 1)
-		buttons[index].disabled = host.explanation_open or (not tool.is_empty() and (not usable or amount < 1 or not offered))
+		buttons[index].tooltip_text = "%s · %d %s · key %d · drag a carried part to rebind" % [label, amount, scope, index + 1] if not tool.is_empty() else "Empty key %d · B opens inventory · drag a carried part here" % (index + 1)
+		buttons[index].accessibility_name = "%s, %d %s, key %d; drag a carried part to rebind" % [label, amount, scope, index + 1] if not tool.is_empty() else "Empty hotbar key %d; open inventory with B and drag a carried part here" % (index + 1)
+		buttons[index].disabled = host.explanation_open or not usable
+		buttons[index].modulate = Color(0.65, 0.70, 0.72) if not tool.is_empty() and (amount < 1 or not offered) else Color.WHITE
 		buttons[index].button_pressed = selected_slot == index and active == tool
-		var target := slot_targets[index]
+		var target := catalog_slots[index]
 		target.icon = slot_icons[index].texture
-		target.tooltip_text = "Hotbar %d: %s · %d %s. Choose this slot, then a carried item." % [
-			index + 1, label, amount, scope]
-		target.accessibility_name = "Hotbar slot %d, %s, %d %s" % [index + 1, label, amount, scope]
-		target.add_theme_color_override("font_color", Color("f6e5c5") if index == target_slot else Color("a5bab9"))
+		target.tooltip_text = "Key %d: %s · %d %s. Drag a carried part here, or hover its tile and press %d." % [
+			index + 1, label, amount, scope, index + 1]
+		target.accessibility_name = "Hotbar key %d, %s, %d %s; drop a carried part or focus its tile and press %d" % [index + 1, label, amount, scope, index + 1]
+		target.add_theme_color_override("font_color", Color("f6e5c5") if index == selected_slot else Color("a5bab9"))
 	for tool: String in catalog_buttons:
 		var button: Button = catalog_buttons[tool]
 		var amount := _count(tool, parts)
 		button.text = ""
 		catalog_counts[tool].text = str(amount)
-		button.tooltip_text = "%s · %d %s · %s" % [TOOLS[tool], amount, scope, TOOL_KEYS[tool]]
-		button.accessibility_name = "%s, %d %s, shortcut %s" % [TOOLS[tool], amount, scope, TOOL_KEYS[tool]]
+		button.tooltip_text = "%s · %d %s · drag to hotbar or hover and press 1–8 · click to place" % [TOOLS[tool], amount, scope]
+		button.accessibility_name = "%s, %d %s; drag to hotbar or focus and press a number to bind; click to place" % [TOOLS[tool], amount, scope]
 		button.disabled = not usable or amount < 1 or not _offered(tool, host)
 		button.visible = _offered(tool, host) and (not _arrival_active or amount > 0)
 	if _arrival_active:
@@ -793,10 +858,10 @@ func refresh(snapshot_ready: bool = true) -> void:
 			component_counts[component].text = str(count)
 			part_button.disabled = not usable or count < 1
 			part_button.visible = count > 0 and _offered(COMPONENT_PREFIX + component, host)
-			part_button.tooltip_text = "%s · %d carried · assign to hotbar %d" % [
-				_component_labels[component], count, target_slot + 1]
-			part_button.accessibility_name = "%s, %d carried, assign to hotbar %d" % [
-				_component_labels[component], count, target_slot + 1]
+			part_button.tooltip_text = "%s · %d carried · drag to hotbar or hover and press 1–8 · click to place" % [
+				_component_labels[component], count]
+			part_button.accessibility_name = "%s, %d carried; drag to hotbar or focus and press a number to bind; click to place" % [
+				_component_labels[component], count]
 	var shown := 0
 	for tile in material_grid.get_children():
 		if tile is Button and tile.visible:
@@ -805,22 +870,21 @@ func refresh(snapshot_ready: bool = true) -> void:
 		inventory_empty[index].visible = index < maxi(0, 8 - shown)
 	_refresh_recipes(host, usable)
 
-func open_catalog(index: int = -1) -> void:
+func open_catalog() -> void:
 	var host = _view()
 	if host == null or host.explanation_open:
 		return
-	if (catalog.visible or _catalog_resize_pending) and index < 0:
+	if catalog.visible or _catalog_resize_pending:
 		_close_catalog()
 		return
 	_catalog_session += 1
 	_catalog_resize_pending = false
 	context_bench = ""
 	refresh()
-	_select_target(index if index >= 0 and index < slots.size() else maxi(0, selected_slot))
 	var viewport_size: Vector2 = get_parent().size
 	_configure_catalog_layout(viewport_size)
 	catalog.popup_centered(_catalog_dimensions(viewport_size))
-	slot_targets[target_slot].grab_focus()
+	_focus_inventory_item()
 	host._refresh_guided_tools()
 	_place_catalog.call_deferred()
 
@@ -836,52 +900,106 @@ func open_at_bench(bench_id: String) -> void:
 	var viewport_size: Vector2 = get_parent().size
 	_configure_catalog_layout(viewport_size)
 	catalog.popup_centered(_catalog_dimensions(viewport_size))
-	slot_targets[target_slot].grab_focus()
+	_focus_inventory_item()
 	_place_catalog.call_deferred()
 
-func _select_target(index: int) -> void:
-	if index < 0 or index >= slots.size():
-		return
-	target_slot = index
-	refresh()
+func _focus_inventory_item() -> void:
+	# Focus a drop slot first. Keyboard users can Tab to an item before binding it.
+	catalog_slots[0].grab_focus()
 
 func _slot_input(event: InputEvent, index: int) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-		open_catalog(index)
+		if catalog.visible:
+			clear_slot(index)
+		else:
+			open_catalog()
 		get_viewport().set_input_as_handled()
 
-func assign(tool: String) -> void:
-	if not catalog_buttons.has(tool) or catalog_buttons[tool].disabled:
-		return
-	_assign_to_slot(tool)
+func _placeable_tile(tool: String) -> PlaceableTile:
+	if tool == "pod_workshop":
+		return material_buttons.fabrication_hub as PlaceableTile
+	if tool.begins_with(COMPONENT_PREFIX):
+		return component_buttons.get(tool.trim_prefix(COMPONENT_PREFIX)) as PlaceableTile
+	return catalog_buttons.get(tool) as PlaceableTile
 
-func _assign_to_slot(tool: String) -> void:
-	var index := target_slot
+func _binding_available(tool: String) -> bool:
+	var host = _view()
+	var tile := _placeable_tile(tool)
+	return host != null and tile != null and tile.visible and not tile.disabled \
+		and host._can_choose_tool() and _offered(tool, host) and _count(tool, host._display_parts()) > 0
+
+func _drag_payload(tool: String) -> Dictionary:
+	return {"hotbar_owner": get_instance_id(), "tool": tool} if _binding_available(tool) else {}
+
+func _can_bind(index: int, data: Variant) -> bool:
+	return index >= 0 and index < slots.size() and data is Dictionary \
+		and data.get("hotbar_owner", -1) == get_instance_id() \
+		and _binding_available(str(data.get("tool", "")))
+
+func bind_slot(index: int, tool: String) -> bool:
+	if index < 0 or index >= slots.size() or not _binding_available(tool):
+		return false
 	slots[index] = tool
+	refresh()
 	_close_catalog()
-	select_slot(index)
+	return true
 
-func clear_slot() -> void:
+func _placeable_at(pointer: Vector2) -> String:
+	if not catalog.visible or not inventory_scroll.get_global_rect().has_point(pointer):
+		return ""
+	for tile: PlaceableTile in catalog_buttons.values() + component_buttons.values() + [material_buttons.fabrication_hub]:
+		if tile.get_global_rect().has_point(pointer) and _binding_available(tile.tool):
+			return tile.tool
+	return ""
+
+func bind_number_key(index: int, pointer: Vector2) -> bool:
+	if not catalog.visible:
+		return false
+	var pointed := _placeable_at(pointer)
+	if not pointed.is_empty():
+		return bind_slot(index, pointed)
+	var focused: Control = catalog.gui_get_focus_owner()
+	if focused is PlaceableTile and _binding_available(focused.tool):
+		return bind_slot(index, focused.tool)
+	return false
+
+func _clear_index() -> int:
+	var hovered: Control = get_viewport().gui_get_hovered_control()
+	if hovered is HotbarSlot and catalog.is_ancestor_of(hovered):
+		return hovered.index
+	var focused: Control = catalog.gui_get_focus_owner()
+	if focused is HotbarSlot:
+		return focused.index
+	return selected_slot
+
+func clear_slot(index: int = -1) -> void:
 	var host = _view()
 	if host == null or host.explanation_open:
 		return
-	var index := target_slot
+	if index < 0:
+		index = _clear_index()
+	if index < 0 or index >= slots.size() or slots[index].is_empty():
+		return
 	slots[index] = ""
-	_close_catalog()
 	if selected_slot == index:
 		host._select_tool("inspect")
 	refresh()
+
+func _select_inventory_tool(tool: String) -> void:
+	if not _binding_available(tool):
+		return
+	_close_catalog()
+	_select_tool(tool, -1)
 
 func select_slot(index: int) -> void:
 	if index < 0 or index >= slots.size():
 		return
 	refresh()
-	if buttons[index].disabled:
+	if buttons[index].disabled or slots[index].is_empty() or not _binding_available(slots[index]):
 		return
-	var tool := slots[index]
-	if tool.is_empty():
-		open_catalog(index)
-		return
+	_select_tool(slots[index], index)
+
+func _select_tool(tool: String, index: int) -> void:
 	var host = _view()
 	if tool.begins_with(COMPONENT_PREFIX):
 		if host.arrival_assembly_controls == null or not host.arrival_assembly_controls.select_component_name(

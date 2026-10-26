@@ -3389,15 +3389,21 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 	if not _expect(opening.mode == "inspect" and not opening.pause_menu.visible,
 			"The ordinary actor starts with no construction or pause overlay"):
 		return
-	inventory.open_catalog(0)
+	inventory.open_catalog()
 	if not _expect(inventory.catalog.visible and not inventory.catalog_buttons.foundation.disabled,
-			"The carried foundation is available through the ordinary hotbar catalog"):
+			"The carried foundation is available through the ordinary inventory"):
 		return
-	inventory.catalog_buttons.foundation.pressed.emit()
+	var foundation_drag: Dictionary = inventory._drag_payload("foundation")
+	if not _expect(inventory.catalog_slots[0]._can_drop_data(Vector2.ZERO, foundation_drag),
+			"The carried foundation can be dragged onto hotbar key 1"):
+		return
+	inventory.catalog_slots[0]._drop_data(Vector2.ZERO, foundation_drag)
+	inventory._close_catalog()
+	inventory.select_slot(0)
 	await process_frame
 	if not _expect(opening.mode == "foundation" and inventory.slots[0] == "foundation"
 			and inventory.selected_slot == 0 and inventory.buttons[0].button_pressed,
-			"Choosing the carried foundation arms its real hotbar slot"):
+			"Dragging and selecting the carried foundation arms its real hotbar slot"):
 		return
 	for tool in ["foundation", "collector", "processor", "wheel", "gear", "drive",
 			"belt", "gearbox", "vertical_gearbox", "chain_drive", "component",
@@ -3747,18 +3753,28 @@ func _arrival_run() -> void:
 			return
 	if DisplayServer.get_name() != "headless":
 		opening.building_hotbar.select_slot(1)
+		if not _expect(not opening.building_hotbar.catalog.visible
+				and opening.building_hotbar.slots[1].is_empty(),
+				"An empty hotbar key leaves the inventory closed until B opens it"):
+			return
+		opening.building_hotbar.open_catalog()
 		if not _expect(opening.building_hotbar.catalog.visible
-				and opening.building_hotbar.target_slot == 1
 				and opening.building_hotbar.catalog_buttons.foundation.visible
 				and not opening.building_hotbar.catalog_buttons.foundation.disabled,
-				"An empty hotbar slot opens the build catalog with a carried foundation"):
+				"The inventory exposes the carried foundation for binding"):
 			return
-		opening.building_hotbar.catalog_buttons.foundation.pressed.emit()
+		opening.building_hotbar.catalog_buttons.foundation.grab_focus()
+		var bind_key := InputEventKey.new()
+		bind_key.keycode = KEY_2
+		bind_key.pressed = true
+		opening.building_hotbar._input(bind_key)
+		opening.building_hotbar._close_catalog()
+		opening.building_hotbar.select_slot(1)
 		if not _expect(opening.building_hotbar.slots[1] == "foundation"
 				and not opening.building_hotbar.catalog.visible
 				and opening.mode == "foundation" and opening.machine_preview != null
 				and opening.placement_options_panel.visible == opening.machine_preview.visible,
-				"The catalog assigns a foundation to the hotbar and shows options only with its valid ghost"):
+				"Focused inventory item plus number key binds a foundation and shows its valid ghost"):
 			return
 		opening._select_tool("inspect")
 	if mode == "arrival-resume":
