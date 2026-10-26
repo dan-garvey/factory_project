@@ -48,4 +48,9 @@ Component tests do not prove every shared or moving-world continuation.
 Use `//native/factory-world:all` through
 [native builds](../../docs/engineering/native-builds.md). The
 [Godot bridge](../factory-godot-world/README.md) is the ordinary scene consumer.
-Headers and tests define current APIs and schemas; dated results belong in Beads.
+The Bazel package is private by default. The Godot Host consumes `checkpoint`
+for the playable opening, `repair-scenarios` consumes `world` for active repair
+research, and the `factory-core` recovery transaction test consumes
+`transactions`. Local tests remain directly selectable; these three package
+edges are the only external implementation access. Headers and tests define
+current APIs and schemas; dated results belong in Beads.
