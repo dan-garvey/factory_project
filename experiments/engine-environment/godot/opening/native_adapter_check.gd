@@ -8,6 +8,11 @@ const ARRIVAL_INITIAL_MASS := 4096 * 4
 var opening
 var destination := ""
 var prior_result_path := ""
+var event_route_loose := false
+var event_route_pointer := false
+var event_route_loose_activations := 0
+var event_route_pointer_placements := 0
+var event_route_pointer_suppressed := 0
 var mode := ""
 var checks := 0
 var deadline := 0
@@ -20,6 +25,10 @@ func _init() -> void:
 			destination = argument.trim_prefix("--native-check-output=")
 		if argument.begins_with("--native-check-prior="):
 			prior_result_path = argument.trim_prefix("--native-check-prior=")
+		if argument == "--event-route-loose":
+			event_route_loose = true
+		if argument == "--event-route-pointer":
+			event_route_pointer = true
 		if argument.begins_with("--native-check-mode="):
 			mode = argument.trim_prefix("--native-check-mode=")
 	deadline = Time.get_ticks_msec() + (45000 if mode == "foundations" else 60000)
@@ -47,9 +56,20 @@ func _same(expected: Variant, actual: Variant, depth: int = 0) -> bool:
 func _record(status: String, reason: String = "") -> void:
 	if written:
 		return
+	if status == "pass" and event_route_loose and event_route_loose_activations != (
+			1 if mode == "arrival-channel-small-resume" else 3):
+		status = "fail"
+		reason = "The selected keyboard popup route did not execute every custody transfer"
+	if status == "pass" and event_route_pointer and (event_route_pointer_placements != 2
+			or event_route_pointer_suppressed != 1):
+		status = "fail"
+		reason = "The selected pointer route did not execute both placements and its pause-menu refusal"
 	written = true
 	facts.merge({"status": status, "reason": reason, "mode": mode, "checks": checks,
-		"process_id": OS.get_process_id(), "physics_frames": Engine.get_physics_frames()})
+		"process_id": OS.get_process_id(), "physics_frames": Engine.get_physics_frames(),
+		"event_route_loose_activations": event_route_loose_activations,
+		"event_route_pointer_placements": event_route_pointer_placements,
+		"event_route_pointer_suppressed": event_route_pointer_suppressed})
 	if opening != null and opening.model != null:
 		facts["final_projection"] = opening.model.projection()
 		facts["final_checkpoint"] = opening.model.checkpoint()
@@ -115,6 +135,8 @@ func _record(status: String, reason: String = "") -> void:
 		await process_frame
 	print(JSON.stringify({"status": status, "evidence": facts.evidence, "mode": mode, "checks": checks, "reason": reason,
 		"failure_step": facts.steps[-1] if status == "fail" and not facts.steps.is_empty() else {}}))
+	if status == "pass" and (event_route_loose or event_route_pointer):
+		print("CHAPTER 1 SCENE EVENTS PASS: " + mode)
 	quit(0 if status == "pass" else 1)
 
 func _expect(condition: bool, message: String) -> bool:
@@ -791,6 +813,11 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
+	if event_route_loose and mode not in ["arrival-channel-small", "arrival-channel-small-resume"] \
+			or event_route_pointer and mode != "arrival-first-plate":
+		push_error("The selected event route does not apply to this fixture mode")
+		quit(1)
+		return
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
@@ -2537,7 +2564,26 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 						and opening.component_preview.visible and not opening.component_preview_blocked,
 						"Native refuses a head at the occupied anvil center without spending it; the fitted ghost stays clear: " + str(refused)):
 					return
-			opening._world_click(opening._screen_cell(screen), pointed)
+			if event_route_pointer:
+				if part.kind == "flat_head":
+					var blocked_before: Dictionary = _construction_custody()
+					opening._open_pause_menu()
+					if not _expect(opening.pause_menu.visible,
+							"Pause menu opens over the aimed head placement"):
+						return
+					await _ordinary_left_click(screen)
+					if not _expect(_construction_custody() == blocked_before,
+							"A left click over the pause menu cannot place the held head"):
+						return
+					event_route_pointer_suppressed += 1
+					await _ordinary_key(KEY_ESCAPE)
+					if not _expect(not opening.pause_menu.visible,
+							"Escape closes the pause menu before placement"):
+						return
+				await _ordinary_left_click(screen)
+				event_route_pointer_placements += 1
+			else:
+				opening._world_click(opening._screen_cell(screen), pointed)
 		var after: Dictionary = opening.model.projection().placed_components
 		if not _expect(after.size() == prior.size() + 1 and after.values().any(
 				func(placed: Variant) -> bool: return placed.component == part.kind and placed.center == part.center),
@@ -3021,6 +3067,40 @@ func _ordinary_key(code: Key, repeat: bool = false, ctrl: bool = false) -> void:
 	Input.parse_input_event(key)
 	await process_frame
 
+func _ordinary_left_click(screen: Vector2) -> void:
+	var click := InputEventMouseButton.new()
+	click.position = screen
+	click.global_position = screen
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	Input.parse_input_event(click)
+	await process_frame
+	click = click.duplicate()
+	click.pressed = false
+	Input.parse_input_event(click)
+	await process_frame
+
+func _activate_popup_choice_with_keys(popup: PopupMenu, choice: int) -> bool:
+	if not _expect(popup.visible and choice >= 0 and choice < popup.get_item_count(),
+			"Keyboard activation has a visible popup and valid native offer"):
+		return false
+	await _ordinary_key(KEY_HOME)
+	if popup.get_focused_item() < 0:
+		await _ordinary_key(KEY_DOWN)
+	if not _expect(popup.get_focused_item() == 0,
+			"Popup keyboard navigation starts at its first native offer"):
+		return false
+	for step in range(choice):
+		await _ordinary_key(KEY_DOWN)
+	if not _expect(popup.get_focused_item() == choice,
+			"Popup keyboard navigation reaches the selected native offer: %s" % str({
+			"focused": popup.get_focused_item(), "choice": choice,
+			"items": popup.get_item_count()})):
+		return false
+	await _ordinary_key(KEY_ENTER)
+	event_route_loose_activations += 1
+	return true
+
 func _push_loose_from_menu(source: Array, target: Array, item_name: String) -> bool:
 	if opening.object_menu.visible:
 		opening.object_menu.hide()
@@ -3049,7 +3129,11 @@ func _push_loose_from_menu(source: Array, target: Array, item_name: String) -> b
 					"offers": controls._offers.size(), "items": popup.get_item_count(),
 					"mode": opening.mode, "drops": opening.model.projection().dropped_material.size()})]):
 		return false
-	popup.id_pressed.emit(choice)
+	if event_route_loose:
+		if not await _activate_popup_choice_with_keys(popup, choice):
+			return false
+	else:
+		popup.id_pressed.emit(choice)
 	popup.hide()
 	return true
 
@@ -3072,7 +3156,11 @@ func _pickup_loose_from_menu(center: Array, item_name: String) -> bool:
 	if not _expect(choice >= 0 and controls.is_visible_in_tree() and not controls.disabled,
 			"Ctrl+L offers recovery of the actual %s at %s" % [item_name, str(center)]):
 		return false
-	popup.id_pressed.emit(choice)
+	if event_route_loose:
+		if not await _activate_popup_choice_with_keys(popup, choice):
+			return false
+	else:
+		popup.id_pressed.emit(choice)
 	popup.hide()
 	return true
 
