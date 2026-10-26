@@ -80,6 +80,8 @@ cc_library(
         "src/belt_planner.hpp",
         "src/fabrication_planner.cpp",
         "src/fabrication_planner.hpp",
+        "src/foundation_planner.cpp",
+        "src/foundation_planner.hpp",
         "src/harvest_planner.cpp",
         "src/harvest_planner.hpp",
         "src/plan_common.cpp",

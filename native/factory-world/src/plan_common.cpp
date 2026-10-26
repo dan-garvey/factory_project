@@ -1,10 +1,44 @@
 #include "plan_common.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <utility>
 
 namespace factory::world {
+
+std::optional<mechanics::Point> grid_point(const authority::Object& intent,
+        authority::Integer limit) {
+    const auto* array = field<values::Value::Array>(intent, "center");
+    if (!array || array->size() != 3) return std::nullopt;
+    mechanics::Point point;
+    for (std::size_t index = 0; index < point.size(); ++index) {
+        const auto* value = std::get_if<authority::Integer>(&array->at(index).storage());
+        if (!value || *value < -limit || *value > limit)
+            return std::nullopt;
+        point[index] = *value;
+    }
+    return point;
+}
+
+// A rectangle uses the same absolute quarter-pitch coordinates as every part.
+// Bound the complete request before enumerating it or changing any custody.
+std::vector<mechanics::Point> foundation_area(const authority::Object& intent) {
+    const auto start = grid_point(intent);
+    const auto* end = field<values::Value::Array>(intent, "end");
+    if (!start || !end) return {};
+    const auto finish = grid_point(authority::Object{{"center", values::Value(*end)}});
+    if (!finish || (*start)[1] != (*finish)[1] || (*start)[0] % 4 || (*start)[2] % 4 ||
+        (*finish)[0] % 4 || (*finish)[2] % 4) return {};
+    const auto width = std::abs((*start)[0] - (*finish)[0]) / 4 + 1;
+    const auto depth = std::abs((*start)[2] - (*finish)[2]) / 4 + 1;
+    if (width > 256 || depth > 256 || width * depth > 256) return {};
+    std::vector<mechanics::Point> points;
+    for (auto x = std::min((*start)[0], (*finish)[0]); x <= std::max((*start)[0], (*finish)[0]); x += 4)
+        for (auto z = std::min((*start)[2], (*finish)[2]); z <= std::max((*start)[2], (*finish)[2]); z += 4)
+            points.push_back({x, (*start)[1], z});
+    return points;
+}
 
 bool add(authority::Integer& total, authority::Integer count) {
     if (count < 0 || total > std::numeric_limits<authority::Integer>::max() - count)

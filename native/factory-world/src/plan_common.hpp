@@ -13,6 +13,7 @@ namespace factory::world {
 
 inline constexpr std::size_t maximum_issued_entities = 4096;
 inline constexpr std::string_view allocated_prefix = "native-part-";
+inline constexpr authority::Integer foundation_depth_levels = 2;
 
 template<class T> const T* field(const authority::Object& object, const char* name) {
     const auto found = object.find(name);
@@ -20,6 +21,9 @@ template<class T> const T* field(const authority::Object& object, const char* na
 }
 
 [[nodiscard]] values::Value point_value(const authority::Point& point);
+[[nodiscard]] std::optional<mechanics::Point> grid_point(
+    const authority::Object&, authority::Integer limit = mechanics::maximum_coordinate);
+[[nodiscard]] std::vector<mechanics::Point> foundation_area(const authority::Object&);
 [[nodiscard]] bool add(authority::Integer& total, authority::Integer count);
 [[nodiscard]] std::optional<stationary::Role> role(const std::string& value);
 [[nodiscard]] const stationary::PlacedPart* part(const stationary::Topology&, const std::string& id);
