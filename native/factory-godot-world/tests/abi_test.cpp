@@ -274,8 +274,9 @@ void run() {
         auto insert = target("insert_work", "insert-original", rebuilt); insert.emplace("work_id", Value(work_id));
         check(accepted(issue(host, insert)), "Insertion moves the original ready lot.");
         const auto saved = host.call("checkpoint", {});
-        check(field<Integer>(saved, "schema") == 3 && !field<Object>(saved, "actors").contains("native_epoch"),
-              "The physical checkpoint contains seeds, not a saved native registration.");
+        check(field<Integer>(saved, "schema") == 4 && field<Object>(saved, "support_routes").empty() &&
+                  !field<Object>(saved, "actors").contains("native_epoch"),
+              "The physical checkpoint contains native route choices and seeds, not a saved registration.");
         check(accepted(host.call("validate_checkpoint", {saved})), "The class exposes detached complete checkpoint validation.");
         check(!accepted(host.call("restore_checkpoint", {saved})), "An already observed host refuses an in-place body reset.");
 

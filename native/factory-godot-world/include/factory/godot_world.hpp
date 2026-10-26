@@ -2,6 +2,7 @@
 
 #include "factory/checkpoint.hpp"
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <optional>
@@ -58,6 +59,9 @@ private:
     struct Owned {
         std::unique_ptr<world::World> world;
         std::map<std::string, Actor> actors;
+        // Native construction choices, keyed by World-issued part identity.
+        // The World topology owns the parts; Godot receives only the projection.
+        std::map<std::string, std::size_t> support_routes;
         bool native_started{};
     };
     struct Decoded {
@@ -67,6 +71,7 @@ private:
     struct TransmissionSupport {
         authority::Point foot, bearing;
         std::vector<std::pair<authority::Point, authority::Point>> boxes;
+        std::size_t route{};
     };
 
     [[nodiscard]] world::ObserveActor observe() const;
@@ -95,9 +100,10 @@ private:
         std::optional<materials::Component> kind, const mechanics::Point& center,
         const std::string* current_id = nullptr) const;
     [[nodiscard]] const char* supplied_space_refusal(const world::State& state) const;
-    [[nodiscard]] std::map<std::string, TransmissionSupport> transmission_supports(const world::State&) const;
+    [[nodiscard]] std::map<std::string, TransmissionSupport> transmission_supports(const world::State&,
+        const std::map<std::string, std::size_t>* preferred_routes = nullptr) const;
     [[nodiscard]] const char* support_change_refusal(const world::State& before,
-        const world::State& after, bool preserve_surviving_stands = false) const;
+        const world::State& after) const;
     [[nodiscard]] const char* transmission_site_refusal(const world::State&, const mechanics::Point& center,
         mechanics::Axis axis, bool gear) const;
     [[nodiscard]] const char* wheel_site_refusal(const mechanics::Point& center, mechanics::Axis axis, mechanics::Integer tiles) const;
