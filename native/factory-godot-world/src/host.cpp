@@ -3215,6 +3215,8 @@ Value Host::projection() const {
         }
         projection.emplace("guided_press_assemblies", Value(std::move(guided_presses)));
         Array sliding_presses;
+        const bool manual_auto_route = profile_.first_plate_unlock &&
+            state.topology.belt_spans.empty();
         for (const auto& anvil : parts) {
             if (anvil.kind != materials::Component::anvil) continue;
             const auto inspection = assembly::inspect_sliding_press(parts, anvil.center);
@@ -3222,6 +3224,9 @@ Value Host::projection() const {
                 {"center", Value(Array{Value(anvil.center[0]), Value(anvil.center[1]),
                     Value(anvil.center[2])})},
                 {"status", Value(press_status_name(inspection.status))}};
+            if (manual_auto_route && (inspection.status == assembly::PressStatus::ready ||
+                    inspection.status == assembly::PressStatus::blocked_feed))
+                entry.emplace("auto_route", Value(true));
             if (inspection.press) {
                 const auto& press = *inspection.press;
                 entry.emplace("parts", Value(Object{{"anvil", Value(press.anvil)},
@@ -3236,11 +3241,22 @@ Value Host::projection() const {
                     entry.emplace("selected_exit", Value(Array{Value(selected->second[0]),
                         Value(selected->second[1]), Value(selected->second[2])}));
                 Array feeds;
-                for (const auto& feed : press.open_feeds)
-                    feeds.emplace_back(Object{{"entry", Value(Array{Value(feed.entry[0]),
+                const auto selected = state.slide_press_routes.find(press.work_center);
+                for (const auto& feed : press.open_feeds) {
+                    Object route{{"entry", Value(Array{Value(feed.entry[0]),
                         Value(feed.entry[1]), Value(feed.entry[2])})},
                         {"exit", Value(Array{Value(feed.exit[0]), Value(feed.exit[1]),
-                            Value(feed.exit[2])})}});
+                            Value(feed.exit[2])})}};
+                    // The first manual slide has an integral X input. While
+                    // this opening has no belts, its east outlet is the stable
+                    // preferred side. Retained work keeps its original outlet.
+                    if (manual_auto_route && (selected != state.slide_press_routes.end() ?
+                            feed.exit == selected->second :
+                            feed.exit == mechanics::Point{press.work_center[0] + 1,
+                                press.work_center[1], press.work_center[2]}))
+                        entry.emplace("auto_feed", Value(route));
+                    feeds.emplace_back(std::move(route));
+                }
                 entry.emplace("open_feeds", Value(std::move(feeds)));
             }
             sliding_presses.emplace_back(std::move(entry));
