@@ -15,6 +15,7 @@ const UNIT := Geometry.PITCH / 4.0
 const VISUAL_RADIANS_PER_SECOND := Geometry.PITCH / (Assets.SPAN_OUTER_RADIUS * 0.45)
 const BELT_SUBTICKS_PER_TILE := 4096.0 # Matches the native material lane's fixed-point denominator.
 const CARGO_TICK_SECONDS := 0.45
+const CRANK_PULSE_SECONDS := 0.45
 const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal tile of surface distance.
 const GEAR_BATCH_THRESHOLD := 4
 const LIVE_GEAR_BATCH_THRESHOLD := 1
@@ -41,6 +42,9 @@ var _gear_batches: Dictionary = {}
 var _batched_gear_ids: Dictionary = {}
 var _gear_anchor_cache: Dictionary = {}
 var _moving_anchors: Array[Node3D] = []
+var _crank_rotors: Dictionary = {}
+var _crank_turns: Dictionary = {}
+var _crank_context := ""
 var _direction_meshes: Dictionary = {}
 var _support_components: Dictionary = {}
 var _unit_support_box: BoxMesh
@@ -68,6 +72,7 @@ func _clear(retained_nodes: Dictionary = {}) -> void:
 	_native_view_context = ""
 	_native_view_revision = null
 	_moving_anchors.clear()
+	_crank_rotors.clear()
 	for child in get_children():
 		if not retained_nodes.has(child.get_instance_id()):
 			child.free()
@@ -75,6 +80,8 @@ func _clear(retained_nodes: Dictionary = {}) -> void:
 func _clear_motion() -> void:
 	_motion_context = ""
 	_motion_revision = null
+	_crank_context = ""
+	_crank_turns.clear()
 	_generations.clear()
 	_visual_rates.clear()
 	_visual_angles.clear()
@@ -219,6 +226,7 @@ func advance_visual_motion(delta: float) -> void:
 	var snapshot: Variant = host.get("state")
 	if not snapshot is Dictionary or not snapshot.get("motion") is Dictionary:
 		return
+	_advance_crank_visuals(delta, snapshot)
 	var native_motion := host.get("model") is NativeModel
 	# Native World changes revision with each projection. Scripted fixtures can
 	# rebuild their identity dictionary in place before a presenter refresh.
@@ -260,6 +268,41 @@ func advance_visual_motion(delta: float) -> void:
 		_apply_angles(changed_gears)
 	if not _cargo_anchors.is_empty():
 		_advance_belt_cargo(delta, snapshot)
+
+func confirmed_hand_crank_pulse(id: String, outcome: Dictionary) -> void:
+	# The accepted native pulse is the only trigger. This angle is visual only;
+	# native World has already advanced the connected consumers and material.
+	if not outcome.get("accepted", false) or typeof(outcome.get("rate_numerator")) != TYPE_INT \
+			or typeof(outcome.get("rate_denominator")) != TYPE_INT \
+			or int(outcome.rate_denominator) <= 0 or int(outcome.rate_numerator) == 0 \
+			or _host == null or not is_instance_valid(_host.get_ref()):
+		return
+	var snapshot: Variant = _host.get_ref().get("state")
+	var item: Dictionary = snapshot.get("crank_items", {}).get(id, {}) if snapshot is Dictionary else {}
+	if item.is_empty() or str(item.get("attached_to", "")).is_empty() or not _crank_rotors.has(id):
+		return
+	var pose: Dictionary = _crank_turns.get(id, {})
+	if pose.get("generation") != item.get("generation"):
+		pose = {"generation": item.get("generation"), "angle": 0.0, "remaining": 0.0}
+	pose["remaining"] = float(pose.remaining) + CRANK_PULSE_SECONDS
+	pose["direction"] = 1.0 if int(outcome.rate_numerator) > 0 else -1.0
+	_crank_turns[id] = pose
+
+func _advance_crank_visuals(delta: float, snapshot: Dictionary) -> void:
+	for id: String in _crank_turns.keys():
+		var item: Dictionary = snapshot.get("crank_items", {}).get(id, {})
+		var rotor: Variant = _crank_rotors.get(id)
+		var pose: Dictionary = _crank_turns[id]
+		if item.is_empty() or item.get("generation") != pose.get("generation") \
+				or str(item.get("attached_to", "")).is_empty() or not is_instance_valid(rotor):
+			_crank_turns.erase(id)
+			continue
+		var step: float = minf(delta, float(pose.remaining))
+		pose["angle"] = wrapf(float(pose.angle) + TAU * step * float(pose.direction) \
+			/ CRANK_PULSE_SECONDS, -PI, PI)
+		pose["remaining"] = maxf(0.0, float(pose.remaining) - step)
+		(rotor as Node3D).rotation.x = float(pose.angle)
+		_crank_turns[id] = pose
 
 static func axis_basis(axis: int) -> Basis:
 	match axis:
@@ -1199,9 +1242,12 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			# A removable hand grip seats on the slide's actual horizontal input.
 			var spindle := _support_cylinder(anchor, "CrankSpindle", 0.027, 0.15, worked)
 			spindle.rotation.z = PI * 0.5
-			_support_box(anchor, "CrankArm", Vector3(0.045, 0.065, 0),
+			var rotor := Node3D.new()
+			rotor.name = "CrankRotor"
+			anchor.add_child(rotor)
+			_support_box(rotor, "CrankArm", Vector3(0.045, 0.065, 0),
 				Vector3(0.055, 0.16, 0.035), dark, true)
-			var grip := _support_cylinder(anchor, "CrankGrip", 0.025, 0.11, timber)
+			var grip := _support_cylinder(rotor, "CrankGrip", 0.025, 0.11, timber)
 			grip.position = Vector3(0.05, 0.145, 0)
 			grip.rotation.z = PI * 0.5
 		"wooden_workbench":
@@ -1896,6 +1942,13 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		add_child(crank)
 		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.15, 0.2, 0.15),
 			"", 0.0, 0.0, Vector3.ZERO)
+		var rotor := crank.get_node("CrankRotor") as Node3D
+		_crank_rotors[id] = rotor
+		var pose: Dictionary = _crank_turns.get(id, {})
+		if not pose.is_empty() and pose.get("generation") == item.get("generation"):
+			rotor.rotation.x = float(pose.angle)
+		else:
+			_crank_turns.erase(id)
 		var pick := StaticBody3D.new()
 		pick.name = "AttachedCrankPick"
 		pick.set_meta("crank_entity", id)
@@ -1997,6 +2050,9 @@ func refresh() -> void:
 	var native_model: bool = _host.get_ref().get("model") is NativeModel
 	var native_revision: Variant = snapshot.get("revision")
 	var native_context: String = str(snapshot.get("context", ""))
+	if native_context != _crank_context:
+		_crank_turns.clear()
+		_crank_context = native_context
 	# Native World increments revision for every changed snapshot. Reuse the
 	# already-rendered topology between cuts without walking hundreds of parts.
 	if native_model and typeof(native_revision) == TYPE_INT and native_context == _native_view_context and native_revision == _native_view_revision:

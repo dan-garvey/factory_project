@@ -270,6 +270,7 @@ func _settle_pending() -> void:
 		if item.action.action == "operate_hand_crank":
 			_settle_held_crank_request(request, result.accepted)
 		if result.accepted:
+			_confirm_hand_crank_visual(item.action, result)
 			var feedback: Dictionary = item.action.duplicate(true)
 			feedback.merge({"context": result.context, "client": client, "request": request}, true)
 			_construction_feedback(feedback, result)

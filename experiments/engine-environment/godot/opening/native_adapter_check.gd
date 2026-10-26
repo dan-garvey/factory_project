@@ -273,6 +273,23 @@ func _aim_actor_at_component(id: String) -> Dictionary:
 	var screen: Vector2 = opening._pointed_screen_position()
 	return opening._screen_pick(screen)
 
+func _aim_actor_at_crank(id: String) -> Dictionary:
+	var item: Dictionary = opening.model.projection().crank_items.get(id, {})
+	var port: Array = item.get("port", [])
+	if port.size() != 3:
+		return {}
+	var target := Vector3(float(port[0]) * OpeningGeometry.HEIGHT_STEP,
+		float(port[1]) * OpeningGeometry.HEIGHT_STEP + OpeningGeometry.ANCHOR_HEIGHT + 0.07,
+		float(port[2]) * OpeningGeometry.HEIGHT_STEP)
+	opening.distance = 0.0
+	opening._update_camera()
+	var direction: Vector3 = (target - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-direction.x, -direction.z)
+	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+	opening._update_camera()
+	await physics_frame
+	return opening._screen_pick(opening._pointed_screen_position())
+
 func _approach(target: Vector2, actor: String = "P") -> bool:
 	if not await _walk_to(target, false, actor):
 		return false
@@ -2714,6 +2731,73 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				Vector3(float(slide_position[0]) + OpeningGeometry.HEIGHT_STEP,
 					float(slide_position[1]), float(slide_position[2]))),
 				"Retain the fitted exterior crank in the ordinary scene view"):
+			return
+	if mode == "arrival-first-plate":
+		var crank_id := ""
+		for id: String in attached.crank_items:
+			if attached.crank_items[id].get("attached_to") == fitted.wooden_slide:
+				crank_id = id
+		if not _expect(not crank_id.is_empty(), "The fitted slide keeps its finite crank identity"):
+			return
+		opening._select_tool("inspect")
+		if not await _approach(Vector2(6.6, 6.6)):
+			return
+		var crank_hit := await _aim_actor_at_crank(crank_id)
+		opening._refresh_pointed_summary()
+		if not _expect(crank_hit.get("collider") != null and opening._pointed_crank() == crank_id
+				and opening.pointed_summary.visible
+				and opening.pointed_detail.text.contains("Hold E"),
+			"A standing worker can point at the fitted exterior crank and read its direct hold cue"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-crank-world-cue.png") == OK,
+				"Retain the actor-eye direct crank cue before operating it"):
+				return
+		var before_direct: Dictionary = opening.model.projection()
+		var press_key := InputEventKey.new()
+		press_key.keycode = KEY_E
+		press_key.pressed = true
+		opening._unhandled_input(press_key)
+		var after_direct: Dictionary = opening.model.projection()
+		var focused_world_input: bool = int(after_direct.order) == int(before_direct.order) + 1
+		if not focused_world_input:
+			if not _expect(not DisplayServer.window_is_focused()
+					and after_direct.order == before_direct.order
+					and opening.held_crank.is_empty() and not opening.object_menu.visible,
+				"An unfocused passive window refuses E without leaving a held source"):
+				return
+			var visual_pulse: Dictionary = opening.issue({"action": "operate_hand_crank", "entity": crank_id})
+			after_direct = opening.model.projection()
+			if not _expect(visual_pulse.get("accepted", false),
+				"A confirmed native pulse can still supply the passive motion capture"):
+				return
+		facts["crank_visual_input"] = "focused_world_e" if focused_world_input else "native_after_unfocused_e"
+		if not _expect(after_direct.order == before_direct.order + 1
+				and after_direct.slide_phases[fitted.wooden_slide].subticks >
+					before_direct.slide_phases[fitted.wooden_slide].subticks
+				and (opening.held_crank == crank_id if focused_world_input else opening.held_crank.is_empty())
+				and not opening.object_menu.visible,
+			"The direct native crank pulse drives the unloaded slide once without opening a machine menu"):
+			return
+		var rotor: Node3D = opening.transmission_presenter._crank_rotors.get(crank_id)
+		var initial_angle: float = rotor.rotation.x if rotor != null else NAN
+		await create_timer(0.15).timeout
+		if not _expect(rotor != null and absf(wrapf(rotor.rotation.x - initial_angle, -PI, PI)) > 0.1,
+			"The accepted native pulse visibly turns the fitted arm around its spindle"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-crank-world-turn.png") == OK,
+				"Retain a mid-pulse actor-eye crank motion pose"):
+				return
+		var release_key := InputEventKey.new()
+		release_key.keycode = KEY_E
+		release_key.pressed = false
+		opening._input(release_key)
+		if not _expect(opening.held_crank.is_empty(), "Releasing E ends the direct crank hold"):
 			return
 	var panel = opening.arrival_assembly_controls
 	if mode == "arrival-first-plate":
