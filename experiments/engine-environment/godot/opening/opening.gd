@@ -5804,6 +5804,13 @@ func _input(event: InputEvent) -> void:
 		return
 	if _catalog_open():
 		return
+	if event is InputEventKey and event.keycode == KEY_ESCAPE and event.pressed and not event.echo:
+		if _cancel_active_construction():
+			consumed_shortcut_keys[KEY_ESCAPE] = true
+		else:
+			_open_pause_menu()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.keycode == KEY_ALT and mode == "component":
 		if event.pressed and not component_nudge_active:
 			component_nudge_center = _component_pointed_center()
@@ -5958,11 +5965,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E:
 				if _native_transmission():
 					_interact_pointed()
-			KEY_ESCAPE:
-				if legacy_fixture:
-					_select_tool("inspect")
-				else:
-					_open_pause_menu()
 			KEY_R:
 				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
 					_rotate_building()
@@ -6019,6 +6021,22 @@ func _select_tool(tool: String) -> void:
 				instructions["component"] = "Aim at the flat head to show the slide above it. Click to fit the amber ghost; red means blocked."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
+
+func _cancel_active_construction() -> bool:
+	if mode == "inspect" and pending_link.is_empty() and not foundation_area_started \
+			and component_area_anchor.is_empty() and not component_nudge_active \
+			and transmission_preview_point.is_empty() \
+			and (transmission_controls == null or transmission_controls.active_tool.is_empty()):
+		return false
+	component_area_anchor.clear()
+	component_area_kind = ""
+	component_preview_snap = ""
+	component_preview_blocked = false
+	component_preview_pose_key = ""
+	component_preview_kind = ""
+	foundation_area_start = Vector2i.ZERO
+	_select_tool("inspect")
+	return true
 
 func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 	if explanation_open:

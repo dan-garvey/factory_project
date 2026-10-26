@@ -791,7 +791,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -2748,7 +2748,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and not panel.inventory_drag("workbed_output").is_empty(),
 			"The fitted press exposes the formed plate in its workbed outlet"):
 			return
-		panel.inventory_slots.workbed_output.pressed.emit()
+		var output_drag: Dictionary = panel.inventory_drag("workbed_output")
+		if not _expect(panel.inventory_player_region._can_drop_data(Vector2.ZERO, output_drag),
+				"The whole carried-inventory region accepts the formed plate without an input tile"):
+			return
+		panel.inventory_player_region._drop_data(Vector2(230, 30), output_drag)
 		var completed: Dictionary = opening.model.projection()
 		if not _expect(completed.cargo.P.products == 1
 				and completed.workshop_completed_actors.has("P")
@@ -2759,8 +2763,10 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		inventory.open_catalog()
 		if not _expect(inventory.recipe_buttons.has("component:wooden_cog")
 				and inventory.recipe_buttons.has("component:receiver_tray")
-				and inventory.recipe_buttons.has("foundation"),
-				"Carrying the formed plate reveals advanced component and foundation recipes"):
+				and inventory.recipe_buttons.has("foundation")
+				and inventory.material_buttons.products.visible
+				and inventory.material_counts.products.text == "1",
+				"The exact formed plate enters the full carried inventory and reveals advanced recipes"):
 			return
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
@@ -2967,6 +2973,159 @@ func _arrival_mature_tree_resume_run(capture_prefix: String) -> void:
 			return
 	_record("pass")
 
+func _ordinary_key(code: Key, repeat: bool = false) -> void:
+	var key := InputEventKey.new()
+	key.keycode = code
+	key.physical_keycode = code
+	key.pressed = true
+	Input.parse_input_event(key)
+	await process_frame
+	if repeat:
+		var echo_key: InputEventKey = key.duplicate()
+		echo_key.echo = true
+		Input.parse_input_event(echo_key)
+		await process_frame
+	key = key.duplicate()
+	key.pressed = false
+	Input.parse_input_event(key)
+	await process_frame
+
+func _placement_ghosts_hidden() -> bool:
+	return (opening.machine_preview == null or not opening.machine_preview.visible) \
+		and (opening.component_preview == null or not opening.component_preview.visible) \
+		and not opening.placement_options_panel.visible
+
+func _construction_custody() -> Dictionary:
+	var projection: Dictionary = opening.model.projection()
+	var result := {}
+	for field in ["cargo", "part_kits", "foundation_kits", "placed_components",
+			"transmission_parts", "belt_spans", "foundations", "entities",
+			"hand_sources", "stock", "material_mass"]:
+		result[field] = projection.get(field)
+	return result.duplicate(true)
+
+func _arrival_cancel_placement_run(capture_prefix: String) -> void:
+	var inventory = opening.building_hotbar
+	var before: Dictionary = _construction_custody()
+	if not _expect(opening.mode == "inspect" and not opening.pause_menu.visible,
+			"The ordinary actor starts with no construction or pause overlay"):
+		return
+	inventory.open_catalog(0)
+	if not _expect(inventory.catalog.visible and not inventory.catalog_buttons.foundation.disabled,
+			"The carried foundation is available through the ordinary hotbar catalog"):
+		return
+	inventory.catalog_buttons.foundation.pressed.emit()
+	await process_frame
+	if not _expect(opening.mode == "foundation" and inventory.slots[0] == "foundation"
+			and inventory.selected_slot == 0 and inventory.buttons[0].button_pressed,
+			"Choosing the carried foundation arms its real hotbar slot"):
+		return
+	for tool in ["foundation", "collector", "processor", "wheel", "gear", "drive",
+			"belt", "gearbox", "vertical_gearbox", "chain_drive", "component",
+			"flow", "deconstruct", "pod_workshop"]:
+		if tool == "deconstruct":
+			await _ordinary_key(KEY_F)
+		elif tool != "foundation":
+			opening._select_tool(tool)
+		if tool == "belt":
+			opening.transmission_controls._belt_start = {"id": "pending-shaft", "pending": false}
+		elif tool == "component":
+			opening.component_nudge_active = true
+			opening.component_nudge_center = [0, 4, 0]
+			opening.component_area_anchor = [0, 4, 0]
+			opening.component_area_kind = "anvil"
+		elif tool == "flow":
+			opening.pending_link = "pending-machine"
+		elif tool == "foundation":
+			opening.foundation_area_mode = true
+			var corner := Vector2i(5, 5)
+			if not _expect(opening._build_cell_allowed(corner),
+					"The ordinary first area corner lies on a constructable cell"):
+				return
+			opening._world_click(corner)
+			if not _expect(opening.foundation_area_started,
+					"The first foundation-area click starts one pending placement stage"):
+				return
+		if not _expect(opening.mode == tool and not opening.pause_menu.visible,
+				"The selected %s construction operation is active before Escape" % tool):
+			return
+		if tool == "foundation" and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-placement.png") == OK,
+					"Retain the actual foundation placement view before Escape"):
+				return
+		await _ordinary_key(KEY_ESCAPE, tool == "foundation")
+		if not _expect(opening.mode == "inspect" and not opening.pause_menu.visible
+				and opening.transmission_controls.active_tool.is_empty()
+				and opening.transmission_controls._belt_start.is_empty()
+				and not opening.foundation_area_started and opening.foundation_area_start == Vector2i.ZERO
+				and opening.component_area_anchor.is_empty() and not opening.component_nudge_active
+				and opening.component_nudge_center.is_empty() and opening.pending_link.is_empty()
+				and opening.transmission_preview_point.is_empty()
+				and _placement_ghosts_hidden()
+				and _construction_custody() == before
+				and inventory.selected_slot == -1 and not inventory.buttons[0].button_pressed
+				and inventory.slots[0] == "foundation",
+				"One Escape cancels %s without opening pause, reviving a ghost or changing native custody: %s" %
+				[tool, {"mode": opening.mode, "pause": opening.pause_menu.visible,
+					"active_tool": opening.transmission_controls.active_tool,
+					"belt_start": opening.transmission_controls._belt_start,
+					"area_started": opening.foundation_area_started,
+					"area_start": opening.foundation_area_start,
+					"component_anchor": opening.component_area_anchor,
+					"nudge": opening.component_nudge_active,
+					"nudge_center": opening.component_nudge_center,
+					"pending_link": opening.pending_link,
+					"preview_point": opening.transmission_preview_point,
+					"ghosts_hidden": _placement_ghosts_hidden(),
+					"custody_same": _construction_custody() == before,
+					"selected_slot": inventory.selected_slot,
+					"slot_pressed": inventory.buttons[0].button_pressed}]):
+			return
+		await process_frame
+		if not _expect(_placement_ghosts_hidden()
+				and _construction_custody() == before,
+				"Canceled %s construction stays neutral on the next frame" % tool):
+			return
+		if tool == "foundation" and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-neutral.png") == OK,
+					"Retain the same scene after the foundation ghost and prompt clear"):
+				return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(opening.pause_menu.visible and opening.mode == "inspect"
+			and _construction_custody() == before,
+			"The next Escape from neutral interaction opens the worksite menu"):
+		return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(not opening.pause_menu.visible and _construction_custody() == before,
+			"Escape closes the worksite menu without entering construction"):
+		return
+	opening._select_tool("foundation")
+	inventory.open_catalog()
+	if not _expect(inventory.catalog.visible and opening.mode == "foundation",
+			"The catalog can open over a pending foundation operation"):
+		return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(not inventory.catalog.visible and opening.mode == "foundation"
+			and not opening.pause_menu.visible and _construction_custody() == before,
+			"Escape closes the focused catalog while preserving the underlying construction selection"):
+		return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(opening.mode == "inspect" and not opening.pause_menu.visible
+			and _construction_custody() == before,
+			"The next Escape cancels construction after the catalog closes"):
+		return
+	inventory.open_catalog()
+	if not _expect(inventory.catalog.visible, "The inventory catalog opens independently of construction"):
+		return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(not inventory.catalog.visible and not opening.pause_menu.visible
+			and _construction_custody() == before,
+			"Escape closes the focused catalog before any worksite menu"):
+		return
+	_record("pass")
+
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
 	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-craft-capacity"]:
@@ -2975,7 +3134,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -3052,6 +3211,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-cancel-placement":
+		await _arrival_cancel_placement_run(capture_prefix)
+		return
 	if mode in ["arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue"]:
 		await _arrival_starter_assembly_run(capture_prefix)
 		return
