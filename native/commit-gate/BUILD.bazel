@@ -3,10 +3,30 @@ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
+    name = "git_reader",
+    hdrs = ["git_reader.hpp"],
+)
+
+cc_library(
     name = "coordinator",
     srcs = ["coordinator.cpp"],
     hdrs = ["coordinator.hpp"],
-    deps = ["//native/tooling:local_resources"],
+    deps = [":git_reader", "//native/tooling:local_resources"],
+)
+
+cc_library(
+    name = "staged_tree",
+    srcs = ["staged_tree.cpp"],
+    hdrs = ["staged_tree.hpp"],
+    deps = [":git_reader", "//native/validation:tree_manifest"],
+)
+
+cc_test(
+    name = "staged_tree_test",
+    srcs = ["staged_tree_tests.cpp"],
+    deps = [":staged_tree", "//native/factory-launch:capture"],
+    size = "small",
+    tags = ["host"],
 )
 
 cc_binary(
