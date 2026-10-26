@@ -154,6 +154,9 @@ func _initialize() -> void:
 	if "--interaction-only" in OS.get_cmdline_user_args():
 		call_deferred("_interaction_controls")
 		return
+	if "--shared-crank-hold-only" in OS.get_cmdline_user_args():
+		call_deferred("_shared_crank_hold_check")
+		return
 	if "--building-rotation-only" in OS.get_cmdline_user_args():
 		call_deferred("_building_rotation")
 		return
@@ -1766,6 +1769,90 @@ func _interaction_controls() -> void:
 	crank_view.free()
 	print("%d placement-interaction view checks" % checks)
 	quit(1 if failures else 0)
+
+func _shared_crank_hold_check() -> void:
+	var session := CrankSessionStub.new()
+	var view := SharedCrankInteractionView.new()
+	view.session = session
+	view.client = "P"
+	view.mode = "inspect"
+	view.state = _object_menu_snapshot()
+	view.state.crank_items = {"fitted-crank": {"attached_to": "shaft", "port": [0, 0, 0]}}
+	root.add_child(view)
+	var pick := StaticBody3D.new()
+	pick.set_meta("crank_entity", "fitted-crank")
+	view.add_child(pick)
+	view.hit_body = pick
+	view._interact_pointed()
+	var first_request := session.request_namespace + "1"
+	verify(session.sent == [{"action": "operate_hand_crank", "entity": "fitted-crank"}]
+		and view.pending_actions.has(first_request) and view.held_crank_request == first_request,
+		"A queued shared crank pulse retains its unique request and live E hold without claiming acceptance.")
+	view._advance_held_crank(view.STEP_SECONDS * 2.0)
+	verify(session.sent.size() == 1 and view.held_crank == "fitted-crank",
+		"Holding E cannot submit a second pulse while the first server decision is pending.")
+	view._outcome_received({"request": first_request, "client": "P",
+		"context": view.state.context, "revision": 2, "order": 0, "accepted": true})
+	verify(view.pending_actions.has(first_request) and session.sent.size() == 1,
+		"A server acceptance alone cannot release the hold barrier before its projected revision arrives.")
+	view.state.revision = 2
+	view._settle_pending()
+	view._advance_held_crank(0.0)
+	var second_request := session.request_namespace + "2"
+	verify(session.sent.size() == 2 and view.pending_actions.has(second_request)
+		and view.held_crank_request == second_request and first_request != second_request,
+		"A fresh confirmed projection permits exactly one new native request during the same hold.")
+	var release := InputEventKey.new()
+	release.keycode = KEY_E
+	release.pressed = false
+	view._input(release)
+	view._outcome_received({"request": second_request, "client": "P",
+		"context": view.state.context, "revision": 2, "order": 0, "accepted": true})
+	view._advance_held_crank(view.STEP_SECONDS)
+	verify(view.held_crank.is_empty() and view.held_crank_request.is_empty()
+		and session.sent.size() == 2 and view.pending_actions.is_empty(),
+		"Releasing E prevents another pulse even when an earlier shared request later succeeds.")
+	view._interact_pointed()
+	var focus_request := session.request_namespace + "3"
+	view.allow_hold = false
+	view._advance_held_crank(view.STEP_SECONDS)
+	view._outcome_received({"request": focus_request, "client": "P",
+		"context": view.state.context, "revision": 2, "order": 0, "accepted": true})
+	verify(view.held_crank.is_empty() and session.sent.size() == 3,
+		"Focus loss stops a queued shared hold before the next pulse.")
+	view.allow_hold = true
+	view._interact_pointed()
+	var target_request := session.request_namespace + "4"
+	view.hit_body = null
+	view._advance_held_crank(view.STEP_SECONDS)
+	view.hit_body = pick
+	view._outcome_received({"request": target_request, "client": "P",
+		"context": view.state.context, "revision": 2, "order": 0, "accepted": true})
+	verify(view.held_crank.is_empty() and session.sent.size() == 4,
+		"Leaving the fitted crank target cancels repetition without canceling its already submitted request.")
+	view._interact_pointed()
+	var refusal_request := session.request_namespace + "5"
+	view._outcome_received({"request": refusal_request, "client": "P",
+		"context": view.state.context, "revision": 2, "order": 0,
+		"accepted": false, "reason": "out_of_reach"})
+	view._advance_held_crank(view.STEP_SECONDS)
+	verify(view.held_crank.is_empty() and session.sent.size() == 5,
+		"A confirmed native refusal stops the shared hold and does not mint a sixth request.")
+	view._interact_pointed()
+	view.state.context = "reopened-worksite"
+	view._advance_held_crank(view.STEP_SECONDS)
+	verify(view.held_crank.is_empty() and session.sent.size() == 6,
+		"Reopening a different world context stops a queued hold even if the crank ID is reused.")
+	view._disconnected("closed")
+	view._welcomed("P", "reconnected-", view.state)
+	view._advance_held_crank(view.STEP_SECONDS)
+	verify(view.pending_actions.is_empty() and view.held_crank.is_empty()
+		and session.sent.size() == 6,
+		"Disconnect and reconnect never resume an uncertain crank request from the old binding.")
+	view.free()
+	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
+		"scope": "shared queued crank hold over invented confirmed projections", "desktop_operations": 0}))
+	quit(0 if failures == 0 else 1)
 
 func _hotbar() -> void:
 	root.gui_embed_subwindows = true
@@ -3588,6 +3675,45 @@ class CrankInteractionView:
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
 		return {"accepted": accept_pulse}
+
+class CrankSessionStub:
+	extends RefCounted
+	var ready := true
+	var request_namespace := "shared-crank-"
+	var request_sequence := 0
+	var sent: Array[Dictionary] = []
+	func is_ready() -> bool:
+		return ready
+	func submit(action: Dictionary) -> Dictionary:
+		request_sequence += 1
+		sent.append(action.duplicate(true))
+		return {"queued": true, "accepted": false,
+			"request": request_namespace + str(request_sequence)}
+	func set_control(_direction: Vector2, _jump: bool) -> void:
+		pass
+
+class SharedCrankInteractionView:
+	extends "res://opening/shared_opening.gd"
+	var hit_body: StaticBody3D
+	var allow_hold := true
+	func _ready() -> void:
+		set_process(false)
+	func _pointed_screen_position() -> Vector2:
+		return Vector2.ZERO
+	func _screen_pick(_screen: Vector2) -> Dictionary:
+		return {"collider": hit_body} if hit_body != null else {}
+	func _crank_hold_allowed() -> bool:
+		return allow_hold and _can_control_character()
+	func _refresh() -> void:
+		_settle_pending()
+	func _refresh_ui() -> void:
+		pass
+	func _message(_words: String, _refused: bool = false) -> void:
+		pass
+	func _construction_feedback(_intent: Dictionary, _outcome: Dictionary) -> void:
+		pass
+	func _update_cursor() -> void:
+		pass
 
 func _object_menu_snapshot() -> Dictionary:
 	return {"context": "object-menu-fixture", "revision": 1, "order": 0,
