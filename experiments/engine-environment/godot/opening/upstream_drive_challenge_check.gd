@@ -8,7 +8,6 @@ var failures := 0
 class HostStub extends RefCounted:
 	var state: Dictionary
 	var client := "P"
-	var legacy_fixture := false
 
 func verify(condition: bool, message: String) -> void:
 	checks += 1

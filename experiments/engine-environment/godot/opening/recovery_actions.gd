@@ -37,8 +37,6 @@ func refusal_text(outcome: Dictionary) -> String:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		return ""
 	var host: Object = _host.get_ref()
-	if host.get("legacy_fixture") != false:
-		return ""
 	var snapshot: Variant = host.get("state")
 	if not snapshot is Dictionary:
 		return ""
@@ -84,8 +82,6 @@ func _context() -> Dictionary:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		return {}
 	var host: Object = _host.get_ref()
-	if host.get("legacy_fixture") != false:
-		return {}
 	var snapshot: Variant = host.get("state")
 	if not snapshot is Dictionary:
 		return {}
@@ -273,7 +269,7 @@ class LooseMaterialControls:
 			return {}
 		var host: Object = _host.get_ref()
 		var snapshot: Variant = host.get("state")
-		if host.get("legacy_fixture") != false or not snapshot is Dictionary:
+		if not snapshot is Dictionary:
 			return {}
 		var options: Variant = snapshot.get("options")
 		var drops: Variant = snapshot.get("dropped_material")

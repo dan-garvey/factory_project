@@ -2130,11 +2130,11 @@ func run() -> void:
 		"The terrain uses the qualified cached stochastic ground surface without a generated fallback.")
 	var water: StandardMaterial3D = stream.material_override
 	var ripples: Image = water.normal_texture.get_image()
-	verify(ripples.get_width() == 128 and ripples.get_height() == 128 and ripples.has_mipmaps()
+	verify(ripples.get_width() == 256 and ripples.get_height() == 256 and ripples.has_mipmaps()
 		and water.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA and water.detail_enabled,
 		"Water uses the explicit translucent layered-ripple finish.")
-	for y in range(0, 128, 16):
-		for x in range(0, 128, 16):
+	for y in range(0, 256, 32):
+		for x in range(0, 256, 32):
 			var pixel := ripples.get_pixel(x, y)
 			var normal := Vector3(pixel.r, pixel.g, pixel.b) * 2.0 - Vector3.ONE
 			verify(normal.is_finite() and absf(normal.length() - 1.0) < 0.02 and normal.z > 0.9,

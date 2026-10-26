@@ -370,8 +370,7 @@ func facts() -> Dictionary:
 		"scene_path": str(scene.get_path()), "session_path": str(scene.session.get_path()),
 		"explanation_open": scene.explanation_open,
 		"help_title": scene.help_title.text, "help_body": scene.help_body.text}
-	result["physical_view"] = {"legacy_fixture": scene.legacy_fixture,
-		"has_local_actor_world": scene.actor_world != null,
+	result["physical_view"] = {"has_local_actor_world": scene.actor_world != null,
 		"has_presenter": scene.character_presenter != null,
 		"actor_label": scene.actor_label.text,
 		"camera": {"position": [scene.camera.position.x, scene.camera.position.y, scene.camera.position.z],

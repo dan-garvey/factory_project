@@ -116,7 +116,7 @@ def run_ui_cases(exchange, *, frozen_clock, wait_role_absent, observe_server, tr
         need(response['status'] == 'pass' and facts['model_is_session'] and facts['client_world_is_null']
              and not facts['auto_advance'], 'Actual projection-only client, no local authority or production clock')
         if facts['ready']:
-            need(facts['actor'] == role and not facts['physical_view']['legacy_fixture'], 'Actual bound physical consumer')
+            need(facts['actor'] == role and facts['physical_view']['has_presenter'], 'Actual bound physical consumer')
         return facts
 
     def observe(label=None):

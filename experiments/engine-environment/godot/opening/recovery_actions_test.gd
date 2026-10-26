@@ -8,7 +8,6 @@ const SHEET_ID: int = LARGE_ID + 1
 class TestHost extends RefCounted:
 	var data: Dictionary
 	var commands: Array[Dictionary]
-	var legacy_fixture: bool = false
 	var explanation_open: bool = false
 	var startup_save_pending: bool = false
 	var state: Dictionary:

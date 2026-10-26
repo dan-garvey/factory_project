@@ -24,7 +24,7 @@ func set_target_wheel_cell(wheel_cell: Vector2i) -> void:
 
 
 func _native_enabled() -> bool:
-	if host == null or not (host.get("state") is Dictionary) or bool(host.get("legacy_fixture")):
+	if host == null or not (host.get("state") is Dictionary):
 		return false
 	var options: Variant = host.state.get("options", {})
 	return options is Dictionary and options.get("native", false) == true

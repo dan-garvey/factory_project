@@ -4365,7 +4365,6 @@ const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", 
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 
 var model
-var legacy_fixture := false
 var actor_world
 var character_presenter
 var actor_label: Label
@@ -4617,7 +4616,7 @@ func _ready() -> void:
 		else:
 			_prime_machine_visuals()
 	if not _native_transmission():
-		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; a wheel in the stream drives connected parts.")
+		_message("WASD walks. Build nearby; a wheel in the stream drives connected parts.")
 	elif not state.has("hand_sources"):
 		_message(FIRST_COLLECTOR_HINT)
 	for argument in OS.get_cmdline_user_args():
@@ -4628,19 +4627,14 @@ func _ready() -> void:
 				get_tree().quit(1)
 				return
 			startup_resume_checkpoint = model.checkpoint()
-			if legacy_fixture and not _save_worksite().accepted:
-				push_error("Resumed worksite could not publish its new session slot")
-				get_tree().quit(1)
-				return
-			startup_save_pending = not legacy_fixture
+			startup_save_pending = true
 			_message("Worksite reopened in this session. Your original save is kept.")
-	if not legacy_fixture:
-		if not _start_character_world():
-			return
-		_start_character_presenter()
-		if model is NativeWorldModel and state.has("landing_pod") and startup_resume_checkpoint.is_empty() \
-				and (auto_advance or arrival_reveal_probe):
-			_maybe_start_arrival_reveal.call_deferred()
+	if not _start_character_world():
+		return
+	_start_character_presenter()
+	if model is NativeWorldModel and state.has("landing_pod") and startup_resume_checkpoint.is_empty() \
+			and (auto_advance or arrival_reveal_probe):
+		_maybe_start_arrival_reveal.call_deferred()
 
 func _start_character_world() -> bool:
 	actor_world = ActorWorld.new()
@@ -4707,7 +4701,7 @@ func _can_control_character() -> bool:
 		and DisplayServer.window_get_active_popup() == DisplayServer.INVALID_WINDOW_ID
 
 func _actor_ready_for_actions() -> bool:
-	return not legacy_fixture and not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
+	return not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
 		and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
 
 func _can_use_object_actions() -> bool:
@@ -4716,10 +4710,10 @@ func _can_use_object_actions() -> bool:
 func _can_choose_tool() -> bool:
 	# The catalog holds movement while keeping its own choices available.
 	return not arrival_reveal_active and not manager_log_open and not explanation_open and not startup_save_pending and not _object_menu_open() and not _pause_menu_open() \
-		and (legacy_fixture or state.get("actors", {}).get(client, {}).get("ready", false))
+		and state.get("actors", {}).get(client, {}).get("ready", false)
 
 func _native_transmission() -> bool:
-	return not legacy_fixture and state.get("options", {}).get("native", false)
+	return state.get("options", {}).get("native", false)
 
 func _can_present_confirmed_motion() -> bool:
 	return _native_transmission() and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
@@ -4826,7 +4820,7 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 const TRANSMISSION_TERRAIN_PICK_LAYER := 32
 
 func _install_transmission_terrain_picker() -> void:
-	if legacy_fixture or ProductionEnvironment.Surface == null or has_node("TransmissionTerrainPicker"):
+	if ProductionEnvironment.Surface == null or has_node("TransmissionTerrainPicker"):
 		return
 	var terrain := StaticBody3D.new()
 	terrain.name = "TransmissionTerrainPicker"
@@ -5042,22 +5036,19 @@ func _save_worksite() -> Dictionary:
 	elif not save_slot_owned and _path_exists(save_slot):
 		last_save_result = {"accepted": false, "reason": "existing_destination"}
 	else:
-		var physical := {"accepted": true}
-		if not legacy_fixture:
-			physical = actor_world.checkpoint_status() if actor_world != null else {"accepted": false, "reason": "actor_unready"}
+		var physical: Dictionary = actor_world.checkpoint_status() if actor_world != null else {"accepted": false, "reason": "actor_unready"}
 		last_save_result = Store.write(model, save_slot) if physical.accepted else {"accepted": false, "reason": physical.reason}
-		if not legacy_fixture:
-			last_save_result["native_preflight"] = physical.duplicate(true)
+		last_save_result["native_preflight"] = physical.duplicate(true)
 	if last_save_result.accepted:
 		save_slot_owned = true
-		_message("Worksite saved. Load returns to this moment." if legacy_fixture else "Worksite saved. Reopen this save through the launcher in a new session.")
+		_message("Worksite saved. Reopen this save through the launcher in a new session.")
 	else:
 		_message("Save unavailable. Your current worksite and previous save are kept.", true)
 	_refresh_ui()
 	return last_save_result
 
 func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
-	if not legacy_fixture and not startup_resume:
+	if not startup_resume:
 		last_load_result = {"accepted": false, "reason": "load_requires_restart"}
 		_message("Reopen the saved worksite through the launcher in a new session. The live worksite is kept.", true)
 		return last_load_result
@@ -5109,7 +5100,7 @@ func issue(action: Dictionary) -> Dictionary:
 	if startup_save_pending:
 		_message("Finishing the saved worksite's opening. Wait a moment.")
 		return {"accepted": false, "reason": "worksite_starting"}
-	if not legacy_fixture and actor_world != null:
+	if actor_world != null:
 		for actor in model.projection().actors:
 			actor_world.ensure_actor(actor)
 	request_sequence += 1
@@ -5117,7 +5108,7 @@ func issue(action: Dictionary) -> Dictionary:
 	intent.merge({"context": model.projection().context, "client": client,
 		"request": request_namespace + str(request_sequence)}, true)
 	var outcome: Dictionary = model.command(intent)
-	if not legacy_fixture and actor_world != null:
+	if actor_world != null:
 		actor_world.sync_topology()
 	if outcome.accepted:
 		if action.action in ["place_gear", "place_shaft"]:
@@ -5308,14 +5299,6 @@ func _process(delta: float) -> void:
 	if _object_menu_open() and Vector2i(get_viewport().get_visible_rect().size) != object_menu_viewport_size:
 		_fit_object_menu()
 	_refresh_pointed_summary()
-	if not legacy_fixture:
-		return
-	var pan := Vector2(float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
-		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W)))
-	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-		focus += Vector3(pan.x, 0, pan.y) * delta * 4.0
-		focus.x = clampf(focus.x, -4, 6)
-		focus.z = clampf(focus.z, -4, 6)
 
 func _update_fps_counter(delta: float) -> void:
 	if fps_label == null or not is_finite(delta) or delta <= 0.0:
@@ -5329,7 +5312,7 @@ func _water_time_seconds() -> float:
 	return float(Time.get_ticks_msec()) * 0.001
 
 func _refresh_water() -> void:
-	if not legacy_fixture and ProductionEnvironment.Surface != null:
+	if ProductionEnvironment.Surface != null:
 		ProductionEnvironment.animate_water(_water_time_seconds())
 
 func _refresh_mechanical_audio() -> void:
@@ -5535,7 +5518,7 @@ func _exit_tree() -> void:
 	_release_mouse_capture()
 
 func _mouse_capture_allowed(window_focused: bool, popup_open: bool) -> bool:
-	return not legacy_fixture and distance <= 0.0 and window_focused and not popup_open \
+	return distance <= 0.0 and window_focused and not popup_open \
 		and _can_control_character() and (pause_exit_confirmation == null or not pause_exit_confirmation.visible)
 
 func _wants_mouse_capture() -> bool:
@@ -5571,7 +5554,7 @@ func _sync_mouse_capture() -> void:
 func _rotate_camera_from_mouse(relative: Vector2) -> void:
 	orbit_yaw -= relative.x * 0.007
 	orbit_pitch = clampf(orbit_pitch + relative.y * 0.005,
-		-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
+		-1.25 if distance == 0.0 else 0.35, 1.25)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and mouse_capture_owned and _wants_mouse_capture():
@@ -5820,10 +5803,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_update_cursor()
 	elif event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			distance = maxf(10 if legacy_fixture else 0, distance - 1)
+			distance = maxf(0, distance - 1)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			distance = minf(28 if legacy_fixture else 24, distance + 1)
-			if not legacy_fixture and distance > 0.0:
+			distance = minf(24, distance + 1)
+			if distance > 0.0:
 				orbit_pitch = maxf(orbit_pitch, 0.35)
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			var entity_id := _screen_entity(event.position)
@@ -5856,10 +5839,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				else:
 					_retrieve()
 			KEY_H: _toggle_explanation()
-			KEY_HOME:
-				if legacy_fixture:
-					focus = Vector3(1.3, 0, 1.1)
-				distance = 18.5 if legacy_fixture else 14.0
+			KEY_HOME: distance = 14.0
 	_update_camera()
 
 func _select_tool(tool: String) -> void:
@@ -7234,7 +7214,7 @@ func _assemble_foundation(parent: Node3D, neighbor_mask: int = 0) -> void:
 
 func _update_camera() -> void:
 	var back := Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch))
-	var eye_offset := 0.0 if legacy_fixture else FIRST_PERSON_EYE_OFFSET * (1.0 - clampf(distance / FIRST_PERSON_BLEND_DISTANCE, 0.0, 1.0))
+	var eye_offset := FIRST_PERSON_EYE_OFFSET * (1.0 - clampf(distance / FIRST_PERSON_BLEND_DISTANCE, 0.0, 1.0))
 	camera.position = focus + Vector3.UP * eye_offset + back * distance
 	# At zero distance look along the same orbit ray instead of looking at the
 	# camera's own position. The local mesh remains real but cannot fill the view.
@@ -7252,95 +7232,41 @@ func _update_camera() -> void:
 		_update_arrival_reveal_camera()
 
 func _build_world() -> void:
-	if not legacy_fixture and ProductionEnvironment.Surface == null:
+	if ProductionEnvironment.Surface == null:
 		push_error("Opening requires authored site geometry")
 		if is_inside_tree():
 			get_tree().quit(1)
 		return
-	if not legacy_fixture and ProductionEnvironment.Surface != null:
-		ProductionEnvironment.build(self)
-	else:
-		var environment := WorldEnvironment.new()
-		var settings := Environment.new()
-		var sky_material := ProceduralSkyMaterial.new()
-		sky_material.sky_top_color = Color("536f86")
-		sky_material.sky_horizon_color = Color("d8cbb2")
-		sky_material.ground_bottom_color = Color("394641")
-		sky_material.ground_horizon_color = Color("b5b8a1")
-		var sky := Sky.new()
-		sky.sky_material = sky_material
-		settings.background_mode = Environment.BG_SKY
-		settings.sky = sky
-		settings.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		settings.ambient_light_energy = 0.5
-		settings.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-		environment.environment = settings
-		add_child(environment)
-		var sun := DirectionalLight3D.new()
-		sun.rotation_degrees = Vector3(-48, -30, 0)
-		sun.light_color = Color("fff1d6")
-		sun.light_energy = 1.35
-		sun.shadow_enabled = true
-		add_child(sun)
-		# Keep the back of machinery readable without adding a second shadow map.
-		var fill := DirectionalLight3D.new()
-		fill.rotation_degrees = Vector3(-32, 135, 0)
-		fill.light_color = Color("b9d2ea")
-		fill.light_energy = 0.35
-		fill.shadow_enabled = false
-		add_child(fill)
-	if legacy_fixture or ProductionEnvironment.Surface == null:
-		_box(self, Vector3(1.65, -0.55, 1.65), Vector3(13.4, 0.8, 13.4), Color("394641"))
-		var foundation_finish: StandardMaterial3D = ProductionSteelFloor.material() if not legacy_fixture else null
-		set_meta("foundation_surface", "legacy")
-		for x in range(-2, 5):
-			for z in range(-2, 5):
-				# Subtle panel variation replaces the debug checkerboard. Existing
-				# seams, grid dimensions and physical ground stay unchanged.
-				var tint := Color("74766b").darkened(float(posmod(x * 17 + z * 31, 5)) * 0.018)
-				var panel := _machine_box(self, "FoundationPanel", Vector3(x * PITCH, -0.08, z * PITCH),
-					Vector3(PITCH - 0.035, 0.12, PITCH - 0.035), tint, 0.0, 0.95)
-				panel.set_meta("surface_role", "foundation")
-				if foundation_finish != null:
-					panel.material_override = foundation_finish
-		_box(self, Vector3(-2.7, 0.0, 1.65), Vector3(1.2, 0.06, 13.4), Color("396c76"))
-		for z in range(-3, 6):
-			_box(self, Vector3(-2.7, 0.04, z * 1.3), Vector3(0.85, 0.018, 0.035), Color("72a5a7"))
-		_box(self, Vector3(0, 0.005, 1.65), Vector3(0.12, 0.035, 13.4), Color("a58c59"))
-		for z in [-1.8, -1.4, -1.0]:
-			_box(self, Vector3(-3.75, 0.02, z), Vector3(0.12, 0.08, 0.22), Color("be9957"))
-		var arrow := _text(self, "MATERIAL  →", Vector3(1.6, 0.08, -4.15), Color("e4bc70"), 0.005)
-		arrow.rotation_degrees.x = -90
-	else:
-		var surface = ProductionEnvironment.Surface
-		var natural_ground: ShaderMaterial = ProductionEnvironment.ground_material()
-		if natural_ground == null:
-			if is_inside_tree():
-				get_tree().quit(1)
-			return
-		var natural_stone: StandardMaterial3D = ProductionEnvironment.stone_material()
-		set_meta("foundation_surface", ProductionEnvironment.ground_source_status)
-		var groups := {"": self}
-		var headwall := Node3D.new()
-		headwall.name = "NorthSeamOutcrop"
-		headwall.position = surface.group_origin("NorthSeamOutcrop")
-		add_child(headwall)
-		groups.NorthSeamOutcrop = headwall
-		for spec in surface.foundation_boxes():
-			var part := _machine_box(groups[spec.group], spec.label,
-				spec.center - surface.group_origin(spec.group), spec.size, spec.tint, spec.metallic, spec.roughness)
-			part.set_meta("site_solid_id", spec.id)
-			if spec.label in ["EastBedrockShelf", "WestBankBedrockShelf"] and natural_ground != null:
-				part.material_override = natural_ground
-			elif spec.label in ["EastBedrockRim", "WestBedrockRim", "EastShelfOutcrop", "WestShelfOutcrop", "StreamBankLedge"] and natural_stone != null:
-				part.material_override = natural_stone
-		for spec in surface.pad_panels():
-			var tint := Color("74766b").darkened(float(posmod(spec.cell.x * 17 + spec.cell.y * 31, 5)) * 0.018)
-			var panel := _machine_box(self, "BedrockTerracePanel", spec.center, spec.size, tint, 0.0, 0.94)
-			panel.set_meta("surface_role", "foundation")
-			panel.set_meta("site_solid_id", spec.id)
-			if natural_ground != null:
-				panel.material_override = natural_ground
+	ProductionEnvironment.build(self)
+	var surface = ProductionEnvironment.Surface
+	var natural_ground: ShaderMaterial = ProductionEnvironment.ground_material()
+	if natural_ground == null:
+		if is_inside_tree():
+			get_tree().quit(1)
+		return
+	var natural_stone: StandardMaterial3D = ProductionEnvironment.stone_material()
+	set_meta("foundation_surface", ProductionEnvironment.ground_source_status)
+	var groups := {"": self}
+	var headwall := Node3D.new()
+	headwall.name = "NorthSeamOutcrop"
+	headwall.position = surface.group_origin("NorthSeamOutcrop")
+	add_child(headwall)
+	groups.NorthSeamOutcrop = headwall
+	for spec in surface.foundation_boxes():
+		var part := _machine_box(groups[spec.group], spec.label,
+			spec.center - surface.group_origin(spec.group), spec.size, spec.tint, spec.metallic, spec.roughness)
+		part.set_meta("site_solid_id", spec.id)
+		if spec.label in ["EastBedrockShelf", "WestBankBedrockShelf"] and natural_ground != null:
+			part.material_override = natural_ground
+		elif spec.label in ["EastBedrockRim", "WestBedrockRim", "EastShelfOutcrop", "WestShelfOutcrop", "StreamBankLedge"] and natural_stone != null:
+			part.material_override = natural_stone
+	for spec in surface.pad_panels():
+		var tint := Color("74766b").darkened(float(posmod(spec.cell.x * 17 + spec.cell.y * 31, 5)) * 0.018)
+		var panel := _machine_box(self, "BedrockTerracePanel", spec.center, spec.size, tint, 0.0, 0.94)
+		panel.set_meta("surface_role", "foundation")
+		panel.set_meta("site_solid_id", spec.id)
+		if natural_ground != null:
+			panel.material_override = natural_ground
 	_install_transmission_terrain_picker()
 	machine_root = Node3D.new()
 	add_child(machine_root)
@@ -9291,7 +9217,7 @@ func _rebuild_machines() -> void:
 	machine_cutter_batch_slots.clear()
 	var foundation_masks := ProductionFoundationArt.neighbor_masks(state.get("foundations", {}))
 	var scenery := get_node_or_null("ProductionScenery")
-	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
+	if scenery != null and ProductionEnvironment.Surface != null:
 		ProductionEnvironment.refresh_vegetation(scenery, state)
 	for child in machine_root.get_children():
 		child.free()
@@ -9531,17 +9457,12 @@ func _refresh_ui() -> void:
 	stock_label.text = "ORE DEPOSIT  %d copper\nIN THE LINE  %d copper\nPRESS OUTLET  %d copper plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
 	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE NEEDS CONNECTIONS"
-	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or (not legacy_fixture and not state.get("actors", {}).get(client, {}).get("ready", false))
-	load_button.disabled = explanation_open or not save_slot_ready or (legacy_fixture and not save_slot_owned)
-	if legacy_fixture:
-		load_button.text = "Load worksite  [F9]"
-		for button in [save_button, load_button]:
-			button.tooltip_text = "" if save_slot_ready else "Launch a fresh worksite session to enable saving."
-	else:
-		save_button.tooltip_text = "Save worksite  [F5]" if save_slot_ready else "Saving needs a fresh worksite session."
-		load_button.tooltip_text = "How to reopen save  [F9]"
+	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or not state.get("actors", {}).get(client, {}).get("ready", false)
+	load_button.disabled = explanation_open or not save_slot_ready
+	save_button.tooltip_text = "Save worksite  [F5]" if save_slot_ready else "Saving needs a fresh worksite session."
+	load_button.tooltip_text = "How to reopen save  [F9]"
 	if actor_label != null:
-		actor_label.visible = not legacy_fixture
+		actor_label.visible = true
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
 	if developer_mode_label != null:
 		var fast_enabled: bool = state.get("options", {}).get("developer_conveniences", false)
@@ -9656,7 +9577,7 @@ func _notice_workshop_completion(complete: bool) -> void:
 	workshop_completion_cue_count += 1
 
 func _toggle_manager_log() -> void:
-	if legacy_fixture or manager_log_layer == null or arrival_reveal_active or explanation_open or _catalog_open():
+	if manager_log_layer == null or arrival_reveal_active or explanation_open or _catalog_open():
 		return
 	_release_character_controls()
 	manager_log_open = not manager_log_open
@@ -9722,8 +9643,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	_queue_footer_fit()
 	if building_hotbar != null:
 		building_hotbar.refresh(snapshot_ready)
-	if legacy_fixture:
-		return
 	# This is a view of confirmed facts, not persistent progression or admission.
 	var kinds: Dictionary = {}
 	for entity in state.get("entities", {}).values():
@@ -9950,7 +9869,7 @@ func _fit_placement_options() -> void:
 func _refresh_machine_preview() -> void:
 	if machine_preview != null:
 		machine_preview.visible = false
-	if legacy_fixture or explanation_open or not _placement_ready() or not _preview_pointer_clear():
+	if explanation_open or not _placement_ready() or not _preview_pointer_clear():
 		return
 	if _native_transmission() and transmission_controls != null \
 			and transmission_controls.active_tool in ["gear", "place_shaft"]:
@@ -10363,7 +10282,7 @@ func _queue_footer_fit() -> void:
 func _footer_above_view() -> bool:
 	# A nearby third-person worker fills the lower centre of the view. Use the
 	# free lane above the worker; Help keeps its own upper reading space.
-	return not legacy_fixture and distance > 1.0 and distance <= 6.0 and not explanation_open
+	return distance > 1.0 and distance <= 6.0 and not explanation_open
 
 func _fit_guided_footer() -> void:
 	footer_fit_pending = false
@@ -10833,22 +10752,15 @@ func _build_interface() -> void:
 	fps_style.outline_size = 4
 	fps_style.outline_color = Color("16242a")
 	fps_label.label_settings = fps_style
-	var build := _panel(root, Vector2(18, 18), Vector2(260, 620 if legacy_fixture else 0))
-	if not legacy_fixture:
-		_hud_surface(build, 0.58)
+	var build := _panel(root, Vector2(18, 18), Vector2(260, 0))
+	_hud_surface(build, 0.58)
 	build_column = build
-	if not legacy_fixture:
-		build.add_theme_constant_override("separation", 6)
+	build.add_theme_constant_override("separation", 6)
 	objective_heading = _label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
-	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
-	tagline.visible = legacy_fixture
-	if legacy_fixture:
-		build.add_child(HSeparator.new())
-	goal_label = _label(build, "", 19 if legacy_fixture else 16, Color("f4f5eb"))
-	if not legacy_fixture:
-		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		manager_log_button = _button(build, "Work log  J", _toggle_manager_log)
-		manager_log_button.custom_minimum_size.y = 30
+	goal_label = _label(build, "", 16, Color("f4f5eb"))
+	goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	manager_log_button = _button(build, "Work log  J", _toggle_manager_log)
+	manager_log_button.custom_minimum_size.y = 30
 	goal_progress = ProgressBar.new()
 	goal_progress.max_value = 4
 	goal_progress.show_percentage = false
@@ -10871,8 +10783,7 @@ func _build_interface() -> void:
 	parts_label = building_hotbar.parts_label
 	catalog_button = building_hotbar.catalog_button
 	placement_options_column = _panel(root, Vector2.ZERO, Vector2(302, 0))
-	if not legacy_fixture:
-		_hud_surface(placement_options_column, 0.66)
+	_hud_surface(placement_options_column, 0.66)
 	placement_options_panel = placement_options_column.get_parent() as PanelContainer
 	placement_options_panel.name = "PlacementOptions"
 	placement_options_panel.visible = false
@@ -10911,42 +10822,35 @@ func _build_interface() -> void:
 	foundation_area_toggle.visible = false
 	var selection_tools := HBoxContainer.new()
 	build.add_child(selection_tools)
-	tool_buttons.flow = _button(selection_tools, "Link [F]" if legacy_fixture else "Link  C", _select_tool.bind("flow"))
+	tool_buttons.flow = _button(selection_tools, "Link  C", _select_tool.bind("flow"))
 	tool_buttons.flow.toggle_mode = true
-	if not legacy_fixture:
-		tool_buttons.flow.custom_minimum_size.y = 30
+	tool_buttons.flow.custom_minimum_size.y = 30
 	help_button = _button(build, "Help  H", _toggle_explanation)
 	help_button.tooltip_text = "Show the current task and controls. H opens Help; H or Escape closes it."
-	if not legacy_fixture:
-		help_button.custom_minimum_size.y = 30
-		manager_log_button.text = "Log  J"
-		var quick_actions := HBoxContainer.new()
-		quick_actions.add_theme_constant_override("separation", 4)
-		build.add_child(quick_actions)
-		for action in [manager_log_button, help_button]:
-			action.get_parent().remove_child(action)
-			quick_actions.add_child(action)
-	var right := _panel(root, Vector2(932, 18), Vector2(255 if not legacy_fixture else 330, 490 if legacy_fixture else 0))
-	if not legacy_fixture:
-		_hud_surface(right, 0.58)
+	help_button.custom_minimum_size.y = 30
+	manager_log_button.text = "Log  J"
+	var quick_actions := HBoxContainer.new()
+	quick_actions.add_theme_constant_override("separation", 4)
+	build.add_child(quick_actions)
+	for action in [manager_log_button, help_button]:
+		action.get_parent().remove_child(action)
+		quick_actions.add_child(action)
+	var right := _panel(root, Vector2(932, 18), Vector2(255, 0))
+	_hud_surface(right, 0.58)
 	var right_panel: Control = right.get_parent()
 	# Set the far anchor first so the near anchor is not clamped.
 	right_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
-	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -273 if not legacy_fixture else -348)
+	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -273)
 	right_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	if legacy_fixture:
-		_label(right, "WORKSITE", 13, Color("b0c4c0"))
-	else:
-		# The actor/connection rows identify the physical worksite. Leave room
-		# for a selected press and pending-server advice above the status panel.
-		right.add_theme_constant_override("separation", 6)
-		inspector_title = _label(right, "SELECTED", 12, Color("f4bf75"))
+	# The actor/connection rows identify the physical worksite. Leave room
+	# for a selected press and pending-server advice above the status panel.
+	right.add_theme_constant_override("separation", 6)
+	inspector_title = _label(right, "SELECTED", 12, Color("f4bf75"))
 	actor_label = _label(right, "", 11, Color("a3b8b4"))
-	actor_label.visible = not legacy_fixture
 	power_label = _label(right, "", 14, Color("dfbc76"))
 	stock_label = _label(right, "", 16)
-	inspector = _label(right, "", 13 if not legacy_fixture else 15)
-	inspector.custom_minimum_size.x = 195 if not legacy_fixture else 238
+	inspector = _label(right, "", 13)
+	inspector.custom_minimum_size.x = 195
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	inspection_actions = HBoxContainer.new()
 	inspection_actions.add_theme_constant_override("separation", 5)
@@ -10978,33 +10882,30 @@ func _build_interface() -> void:
 	right.add_child(HSeparator.new())
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
-	if not legacy_fixture:
-		_build_object_menu(root, right_panel as PanelContainer)
-		# Loose work belongs to the world, so its action menu must stay reachable
-		# while the selected-object panel is closed.
-		loose_material_controls.reparent(selection_tools)
-		loose_material_controls.text = "Loose"
-		loose_material_controls.icon = load("res://opening/assets/build-icons/ore.svg")
-		loose_material_controls.custom_minimum_size = Vector2(82, 30)
-		loose_material_controls.focus_mode = Control.FOCUS_ALL
-		loose_material_controls.accessibility_name = "Handle loose material, shortcut Control L"
-		_build_pause_menu(root)
-		_build_pointed_summary(root)
+	_build_object_menu(root, right_panel as PanelContainer)
+	# Loose work belongs to the world, so its action menu must stay reachable
+	# while the selected-object panel is closed.
+	loose_material_controls.reparent(selection_tools)
+	loose_material_controls.text = "Loose"
+	loose_material_controls.icon = load("res://opening/assets/build-icons/ore.svg")
+	loose_material_controls.custom_minimum_size = Vector2(82, 30)
+	loose_material_controls.focus_mode = Control.FOCUS_ALL
+	loose_material_controls.accessibility_name = "Handle loose material, shortcut Control L"
+	_build_pause_menu(root)
+	_build_pointed_summary(root)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
-	if not legacy_fixture:
-		_hud_surface(bottom, 0.64, 7)
+	_hud_surface(bottom, 0.64, 7)
 	var bottom_panel: Control = bottom.get_parent()
 	status_footer = bottom_panel
 	bottom_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
 	bottom_panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -128)
 	bottom_panel.set_anchor_and_offset(SIDE_TOP, 1.0, -216)
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
+	status_label = _label(bottom, "", 14)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H help", 12, Color("bfd1cc"))
-	if not legacy_fixture:
-		developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
-		developer_mode_label.focus_mode = Control.FOCUS_ALL
+	developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
+	developer_mode_label.focus_mode = Control.FOCUS_ALL
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:
@@ -11019,8 +10920,7 @@ func _build_interface() -> void:
 	help_close_button = _button(lesson_column, "Return to work  [H / Esc]", _toggle_explanation)
 	help_close_button.tooltip_text = "Close Help and return to the worksite."
 	help_panel.visible = false
-	if not legacy_fixture:
-		_build_manager_log()
+	_build_manager_log()
 
 func _build_manager_log() -> void:
 	manager_log_layer = CanvasLayer.new()

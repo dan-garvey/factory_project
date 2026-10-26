@@ -5627,7 +5627,6 @@ func render_buildable_resources() -> void:
 			return
 	for subject in subjects:
 		var view := Opening.new()
-		view.legacy_fixture = false
 		view.state = {"context": "resource-studio", "options": {"native": true, "physical": true},
 			"actors": {"P": {"ready": true}}, "parts": {}, "inventories": {"P": 0},
 			"stock": {"source": 0, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0}, "remaining": 0,
@@ -5704,7 +5703,7 @@ func render_buildable_resources() -> void:
 					child.free()
 		var counts := {"meshes": 0, "triangles": 0, "active_nodes": 0}
 		resource_render_counts(model, counts)
-		if view.legacy_fixture or not view._native_transmission() or counts.meshes == 0 \
+		if not view._native_transmission() or counts.meshes == 0 \
 			or counts.active_nodes != 0 or view.state != before or view.model != null \
 			or view.actor_world != null or view.request_sequence != 0 or view.is_inside_tree():
 			report.status = "fail"
@@ -5877,7 +5876,7 @@ func render_buildable_resources() -> void:
 				"cutaway": subject.get("cutaway", false),
 				"sample_only": subject.get("sample_only", false),
 				"sha256": FileAccess.get_sha256(image_path), "pixels": pixels, "geometry": counts,
-				"profile": {"legacy_fixture": view.legacy_fixture, "native_transmission": view._native_transmission(),
+				"profile": {"native_transmission": view._native_transmission(),
 					"native_options": view.state.options.native, "request_sequence": view.request_sequence},
 				"camera_position": [camera.position.x, camera.position.y, camera.position.z],
 				"camera_target": [centre.x, centre.y, centre.z], "orthographic_size": camera.size if not perspective else null,

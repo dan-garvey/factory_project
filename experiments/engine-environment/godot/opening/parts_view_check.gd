@@ -1754,6 +1754,9 @@ func _interaction_controls() -> void:
 		key.ctrl_pressed = false
 		key.keycode = KEY_ESCAPE
 		view._input(key)
+		# A second physical press arrives after the menu's same-frame close guard.
+		while Engine.get_process_frames() == view.object_menu_closed_frame:
+			await process_frame
 		view.issued.clear()
 		key.keycode = KEY_F
 		view._unhandled_input(key)

@@ -10,6 +10,29 @@ const Assets = preload("res://opening/native_transmission_assets.gd")
 const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
 const Session = preload("res://opening-session/session.gd")
 const Opening = preload("res://opening/opening.gd")
+const DIRECT_MODES := [
+	"--supplied-hardware-only", "--component-boxes-only", "--press-components-only",
+	"--guided-press-components-only", "--broad-press-components-only", "--broad-press-raised-only",
+	"--channel-components-only", "--channel-z-only", "--channel-sheet-only",
+	"--physical-topology-cache-only", "--physical-actor-bridge-only", "--advance-projection-only",
+	"--native-actor-view-only", "--native-view-cache-only", "--support-frame-only",
+	"--finish-only", "--tool-guidance-only", "--refresh-cache-only", "--belt-surface-only",
+	"--direction-basis-only", "--loose-material-only", "--slide-material-only",
+	"--mechanical-collision-only", "--collision-lifecycle-only", "--cog-axle-collision-only",
+	"--river-pier-collision-only", "--belt-actor-only", "--inclined-belt-actor-only",
+	"--nonhorizontal-presentation-only", "--belt-picking-only", "--cog-axles-only",
+	"--belt-spans-only", "--belt-spans-missing-only"]
+const BENCHMARK_FLAGS := ["--supports", "--varied-supports", "--close", "--cycle-axes",
+	"--verify-only", "--whole-opening", "--stopped", "--refresh-every-frame", "--trusted-revision"]
+const VALUE_MODES := {
+	"--broad-capture=": ["--broad-press-components-only", "--broad-press-raised-only"],
+	"--channel-capture=": ["--channel-components-only", "--channel-z-only", "--channel-sheet-only"],
+	"--channel-after-capture=": ["--channel-components-only", "--channel-z-only", "--channel-sheet-only"],
+	"--capture=": ["--guided-press-components-only", "--scale-benchmark"],
+	"--crank-capture-prefix=": ["--guided-press-components-only"],
+	"--slide-material-image=": ["--slide-material-only"],
+	"--count=": ["--scale-benchmark"],
+	"--large-every=": ["--scale-benchmark"]}
 var checks := 0
 var failures := 0
 
@@ -76,7 +99,6 @@ class HostStub extends RefCounted:
 	var state: Dictionary
 	var model: Variant = null
 	var client := "P"
-	var legacy_fixture := false
 	var explanation_open := false
 	var startup_save_pending := false
 	var mutate_allowed := true
@@ -1505,8 +1527,46 @@ func _guided_press_component_view() -> void:
 	view.free()
 	await process_frame
 
+func _fixture_arguments_valid() -> bool:
+	var mode := ""
+	var seen: Dictionary = {}
+	for argument: String in OS.get_cmdline_user_args():
+		if DIRECT_MODES.has(argument) or argument == "--scale-benchmark":
+			if not mode.is_empty():
+				return false
+			mode = argument
+			continue
+		if BENCHMARK_FLAGS.has(argument):
+			if seen.has(argument):
+				return false
+			seen[argument] = true
+			continue
+		var option := ""
+		var value := ""
+		for prefix: String in VALUE_MODES.keys() + ["--test-purpose="]:
+			if argument.begins_with(prefix):
+				option = prefix
+				value = argument.trim_prefix(prefix)
+				break
+		if option.is_empty() or value.is_empty() or seen.has(option):
+			return false
+		if option in ["--count=", "--large-every="] and not value.is_valid_int():
+			return false
+		seen[option] = true
+	for option: String in seen:
+		if BENCHMARK_FLAGS.has(option):
+			if mode != "--scale-benchmark":
+				return false
+		elif option != "--test-purpose=" and not VALUE_MODES[option].has(mode):
+			return false
+	return true
+
 func _initialize() -> void:
 	if not Opening.apply_test_window_title(self):
+		return
+	if not _fixture_arguments_valid():
+		push_error("Unknown, repeated or incompatible native transmission fixture argument")
+		quit(2)
 		return
 	call_deferred("_run")
 
@@ -1938,7 +1998,6 @@ func _belt_retry() -> void:
 
 func _span_guidance() -> void:
 	var view := SharedSettlement.new()
-	view.legacy_fixture = false
 	view.client = "P"
 	view.state = fixture()
 	view.state.entities = {
@@ -2441,7 +2500,9 @@ func _tool_guidance() -> void:
 	var view := Controls.new()
 	view.configure(host)
 	var before: Dictionary = host.state.duplicate(true)
-	for choice in [[1, "cogwheel"], [6, "shaft tile"], [7, "parallel shafts"], [4, "remove"], [5, "construction tool"]]:
+	verify(view.get_popup().get_item_index(4) == -1,
+		"The transmission menu leaves dismantling to the F world tool instead of offering a stale remove item.")
+	for choice in [[1, "cogwheel"], [6, "shaft tile"], [7, "parallel shafts"], [5, "construction tool"]]:
 		var count: int = host.messages.size()
 		view.get_popup().id_pressed.emit(choice[0])
 		verify(host.messages.size() == count + 1 and str(host.messages.back()).contains(choice[1]),
