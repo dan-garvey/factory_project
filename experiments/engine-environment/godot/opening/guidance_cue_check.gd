@@ -341,7 +341,8 @@ func check_channel_hotbar_icons() -> void:
 	for kind in ["channel_narrow_x", "channel_narrow_z", "channel_broad_x", "channel_broad_z"]:
 		var button: Button = view.building_hotbar.component_buttons[kind]
 		verify(button.visible and button.icon != null and button.focus_mode == Control.FOCUS_ALL
-			and button.tooltip_text.contains("1 carried") and button.accessibility_name.contains("assign to hotbar"),
+			and button.tooltip_text.contains("1 carried")
+			and button.accessibility_name.contains("focus and press a number to bind"),
 			"A carried %s channel has a usable icon tile and keyboard description." % kind)
 		if button.icon != null:
 			icon_paths[button.icon.resource_path] = true
