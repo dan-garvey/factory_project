@@ -337,7 +337,14 @@ int run_native_worker(const fs::path& checkout, const std::string& expected_tree
     const auto plan = prepare(checkout);
     require(plan.tree == expected_tree && plan.validate_native,
             "The native staged candidate changed before admission.");
-    const auto checked = factory_launch::run_process(plan.command, 300s, 8 * 1024 * 1024,
+    auto checker = plan.command;
+    // The bounded utility runner clears Git environment variables. Restore only
+    // the index selected by the outer hook, so partial commits check that tree.
+    if (const char* index = std::getenv("GIT_INDEX_FILE")) {
+        checker.insert(checker.begin(), "GIT_INDEX_FILE=" + std::string(index));
+        checker.insert(checker.begin(), "/usr/bin/env");
+    }
+    const auto checked = factory_launch::run_process(checker, 300s, 8 * 1024 * 1024,
                                                       nullptr, true);
     std::cout << checked.output << std::flush;
     require(checked.exit_code == 0, "The staged source or GDScript checker failed.");
