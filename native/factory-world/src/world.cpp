@@ -5,6 +5,7 @@
 #include "factory/fabrication_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
+#include "belt_planner.hpp"
 #include "fabrication_planner.hpp"
 #include "harvest_planner.hpp"
 #include "plan_common.hpp"
@@ -285,12 +286,6 @@ bool weighted_add(Integer& total, Integer count, Integer unit) {
     return add(total, count * unit);
 }
 
-const stationary::PlacedPart* part(const stationary::Topology& topology, const std::string& id) {
-    const auto found = std::find_if(topology.parts.begin(), topology.parts.end(),
-        [&](const auto& item) { return item.geometry.id == id; });
-    return found == topology.parts.end() ? nullptr : &*found;
-}
-
 bool keys(const Object& object, std::initializer_list<const char*> extra) {
     constexpr const char* base[] = {"context", "client", "request", "actor", "action"};
     const auto wire = object.find("wire");
@@ -506,11 +501,6 @@ std::optional<stationary::PlacedPart> removed_part(const Value& value,
     return part;
 }
 
-Value removed_span_value(const stationary::PlacedBeltSpan& span) {
-    return Value(Object{{"first_shaft", Value(span.geometry.first_shaft)},
-        {"last_shaft", Value(span.geometry.last_shaft)}});
-}
-
 std::optional<stationary::PlacedBeltSpan> removed_span(const Value& value,
         const std::string& entity, Integer generation) {
     const auto* saved = std::get_if<Object>(&value.storage());
@@ -621,21 +611,6 @@ std::optional<materials::ResolvedTarget> material_target(
     return target;
 }
 
-Value lots_value(const std::vector<materials::WorkLot>& lots) {
-    Value::Array output;
-    for (const auto& lot : lots) {
-        Object item{
-        {"id", Value(lot.id)}, {"input_units_per_product", Value(lot.recipe.input_units_per_product)},
-        {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining_ticks", Value(lot.remaining_ticks)},
-        {"completed_subticks", Value(lot.completed_subticks)}, {"work_remainder", Value(lot.work_remainder)},
-        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}};
-        if (lot.recipe.output == materials::WorkOutput::sheet)
-            item.emplace("output_form", Value("sheet"));
-        output.emplace_back(std::move(item));
-    }
-    return Value(std::move(output));
-}
-
 Value slide_phase_value(const State::SlidePhase& phase) {
     return Value(Object{{"subticks", Value(phase.subticks)},
         {"remainder", Value(phase.remainder)},
@@ -657,38 +632,6 @@ std::optional<materials::WorkLot> sheet_lot(const Value& value) {
         !denominator || !output || *output != "sheet") return std::nullopt;
     return materials::WorkLot{*id, {*input, *cycle, materials::WorkOutput::sheet},
         *remaining, *completed, *remainder, *denominator};
-}
-
-bool copper_profile(const materials::Config& config) {
-    return config.raw_mass != 1 || config.plate_mass != 0 || config.sheet_mass != 0;
-}
-
-Value belt_cargo_value(const materials::Cargo& cargo, bool copper = false) {
-    Value::Array lots;
-    for (const auto& lot : cargo.work_lots) {
-        Object item{
-        {"id", Value(lot.id)}, {"recipe_input", Value(lot.recipe.input_units_per_product)},
-        {"cycle_ticks", Value(lot.recipe.cycle_ticks)}, {"remaining", Value(lot.remaining_ticks)},
-        {"completed_subticks", Value(lot.completed_subticks)}, {"work_remainder", Value(lot.work_remainder)},
-        {"work_remainder_denominator", Value(lot.work_remainder_denominator)}};
-        if (lot.recipe.output == materials::WorkOutput::sheet)
-            item.emplace("output_form", Value("sheet"));
-        lots.emplace_back(std::move(item));
-    }
-    Object output{{"raw", Value(cargo.raw_units)}, {"products", Value(cargo.products)},
-                  {"work_lots", Value(std::move(lots))}};
-    if (copper) {
-        output.emplace("offcuts", Value(cargo.offcuts));
-        output.emplace("sheets", Value(static_cast<Integer>(cargo.sheets.size())));
-        if (!cargo.sheets.empty()) {
-            Value::Array sheet_items;
-            for (const auto& sheet : cargo.sheets)
-                sheet_items.emplace_back(Object{{"id", Value(sheet.id)},
-                    {"rotation", Value(sheet.rotation)}});
-            output.emplace("sheet_items", Value(std::move(sheet_items)));
-        }
-    }
-    return Value(std::move(output));
 }
 
 using PlacedHistory = std::map<std::string, std::pair<materials::Component, mechanics::Point>>;
@@ -4967,24 +4910,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         *action != "cancel_harvest") return refused("actor_busy", pending->second.target);
     if (const auto harvest = harvest_command(*action, intent))
         return plan_harvest(profile_, binding, snapshot, *harvest, observe);
-    if (*action == "select_belt_shaft") {
-        const auto* id = field<std::string>(intent, "target");
-        const auto* generation = field<Integer>(intent, "generation");
-        if (!id || !generation) return refused("invalid_target");
-        const auto* selected = part(state.topology, *id);
-        if (!selected) return refused("unknown_target", *id);
-        if (selected->generation != *generation) return refused("stale_generation", *id);
-        if (selected->role != Role::shaft) return refused("invalid_belt_geometry", *id);
-        auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready");
-        cut->build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, *cut, {anchor(profile_, selected->geometry.center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        facts.emplace("generation", Value(*generation));
-        return accepted(state, *id, std::move(facts));
-    }
+    if (const auto belt = belt_command(*action, intent))
+        return plan_belt(profile_, binding, snapshot, *belt, observe);
     if (*action == "pickup_material") {
         const auto point = grid_point(intent, materials::maximum_drop_coordinate);
         if (!point) return refused("invalid_center");
@@ -6266,209 +6193,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                     return refused("foundation_in_use", entity, std::move(facts));
             candidate.foundations.erase(entity);
             ++candidate.foundation_kits.at(binding.actor);
-        }
-        facts.emplace("generation", Value(generation));
-        return accepted(std::move(candidate), entity, std::move(facts));
-    }
-    if (*action == "recover_belt_slot" || *action == "load_belt_slot") {
-        const auto* id = field<std::string>(intent, "target");
-        const auto* generation = field<Integer>(intent, "generation");
-        const auto* index = field<Integer>(intent, "slot");
-        const auto* expected = field<Object>(intent, "expected");
-        if (!id || !generation || !index || (*action == "recover_belt_slot" && !expected)) return refused("invalid_target");
-        const auto span = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
-            [&](const auto& item) { return item.geometry.id == *id; });
-        if (span == state.topology.belt_spans.end()) return refused("unknown_target", *id);
-        if (span->generation != *generation) return refused("stale_generation", *id);
-        const auto first = part(state.topology, span->geometry.first_shaft);
-        const auto last = part(state.topology, span->geometry.last_shaft);
-        const auto lane = state.material.belt_lanes.find(*id);
-        if (!first || !last || lane == state.material.belt_lanes.end()) return refused("invalid_mechanics", *id);
-        if (*index < 0 || static_cast<std::size_t>(*index) >= lane->second.slots.size()) return refused("invalid_slot", *id);
-        const auto path = mechanics::belt_path(first->geometry, last->geometry);
-        if (!path || static_cast<std::size_t>(*index) >= path->tiles.size()) return refused("invalid_mechanics", *id);
-        if (*action == "load_belt_slot" && (path->kind == mechanics::BeltPathKind::vertical ||
-            path->kind == mechanics::BeltPathKind::sideways)) return refused("belt_path_cannot_carry", *id);
-        const auto center = path->tiles[static_cast<std::size_t>(*index)];
-        auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready");
-        cut->build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, *cut, {anchor(profile_, center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none) return refused(authority::error_name(checked.error), *id, std::move(facts));
-        const auto& item = lane->second.slots.at(static_cast<std::size_t>(*index));
-        if (*action == "load_belt_slot") {
-            if (item) return refused("slot_changed", *id, std::move(facts));
-            const auto* kind = field<std::string>(intent, "item");
-            const auto* work_id = field<Integer>(intent, "work_id");
-            if (!kind || !work_id || ((*kind == "raw" || *kind == "product") && *work_id != 0) ||
-                ((*kind == "work" || *kind == "sheet") && *work_id <= 0) ||
-                (*kind != "raw" && *kind != "product" && *kind != "work" && *kind != "sheet"))
-                return refused("invalid_cargo", *id, std::move(facts));
-            auto candidate = state;
-            auto& cargo = candidate.material.cargo.at(binding.actor);
-            materials::Cargo moved;
-            if (*kind == "raw" && cargo.raw_units > 0) { --cargo.raw_units; moved.raw_units = 1; }
-            else if (*kind == "product" && cargo.products > 0) { --cargo.products; moved.products = 1; }
-            else if (*kind == "work") {
-                const auto lot = std::find_if(cargo.work_lots.begin(), cargo.work_lots.end(),
-                    [&](const auto& value) { return value.id == *work_id; });
-                if (lot == cargo.work_lots.end()) return refused("unavailable_cargo", *id, std::move(facts));
-                if (!materials::fits_supported_workcells(center,
-                        materials::work_footprint(lot->recipe.output), 0, {center}))
-                    return refused("belt_cannot_carry", *id, std::move(facts));
-                moved.work_lots.push_back(*lot);
-                cargo.work_lots.erase(lot);
-            } else if (*kind == "sheet") {
-                const auto sheet = std::find_if(cargo.sheets.begin(), cargo.sheets.end(),
-                    [&](const auto& value) { return value.id == *work_id; });
-                if (sheet == cargo.sheets.end()) return refused("unavailable_cargo", *id, std::move(facts));
-                // The existing belt slot owns one supported workcell. A sheet
-                // must keep its four-cell footprint and its actor custody.
-                if (!materials::fits_supported_workcells(center,
-                        materials::sheet_footprint(), sheet->rotation, {center}))
-                    return refused("belt_cannot_carry", *id, std::move(facts));
-                return refused("invalid_mechanics", *id, std::move(facts));
-            } else return refused("unavailable_cargo", *id, std::move(facts));
-            candidate.material.belt_lanes.at(*id).slots.at(static_cast<std::size_t>(*index)) = moved;
-            facts.emplace("generation", Value(*generation));
-            facts.emplace("moved_raw", Value(moved.raw_units));
-            facts.emplace("moved_products", Value(moved.products));
-            facts.emplace("moved_work", lots_value(moved.work_lots));
-            facts.emplace("slot_center", Value(Value::Array{Value(center[0]), Value(center[1]), Value(center[2])}));
-            return accepted(std::move(candidate), *id, std::move(facts));
-        }
-        if (!item || values::typed_difference(Value(*expected),
-                belt_cargo_value(*item, copper_profile(profile_.material))))
-            return refused("slot_changed", *id, std::move(facts));
-        auto candidate = state;
-        auto& cargo = candidate.material.cargo.at(binding.actor);
-        if (!add(cargo.raw_units, item->raw_units) || !add(cargo.products, item->products) ||
-            cargo.work_lots.size() + item->work_lots.size() > maximum_current_work)
-            return refused("quantity_overflow", *id, std::move(facts));
-        cargo.work_lots.insert(cargo.work_lots.end(), item->work_lots.begin(), item->work_lots.end());
-        candidate.material.belt_lanes.at(*id).slots.at(static_cast<std::size_t>(*index)).reset();
-        facts.emplace("generation", Value(*generation));
-        facts.emplace("moved_raw", Value(item->raw_units));
-        facts.emplace("moved_products", Value(item->products));
-        facts.emplace("moved_work", lots_value(item->work_lots));
-        facts.emplace("slot_center", Value(Value::Array{Value(center[0]), Value(center[1]), Value(center[2])}));
-        return accepted(std::move(candidate), *id, std::move(facts));
-    }
-    if (*action == "place_belt_span" || *action == "place_selected_belt_span" || *action == "remove_belt_span") {
-        const bool placing = *action != "remove_belt_span";
-        const auto* id = field<std::string>(intent, "target");
-        const auto* expected = field<Integer>(intent, "generation");
-        if (!id || !expected) return refused("invalid_target");
-        const stationary::PlacedPart* first = nullptr;
-        const stationary::PlacedPart* last = nullptr;
-        if (placing) {
-            first = part(state.topology, *id);
-            const auto* to = field<std::string>(intent, "to");
-            const auto* to_generation = field<Integer>(intent, "to_generation");
-            if (!to || !to_generation) return refused("invalid_target");
-            last = part(state.topology, *to);
-            if (!first || !last) return refused("unknown_target");
-            if (first->generation != *expected || last->generation != *to_generation)
-                return refused("stale_generation");
-            const auto path = mechanics::belt_path(first->geometry, last->geometry);
-            if (!path)
-                return refused("invalid_belt_geometry");
-            if (*action == "place_selected_belt_span") {
-                const auto* selection = field<std::string>(intent, "selection");
-                const authority::Record* selected = nullptr;
-                bool used = false;
-                for (const auto& record : snapshot.history.records) {
-                    const auto* actor = field<std::string>(record.intent, "actor");
-                    const auto* client = field<std::string>(record.intent, "client");
-                    const auto* recorded_action = field<std::string>(record.intent, "action");
-                    const auto* request = field<std::string>(record.intent, "request");
-                    const auto* ok = field<bool>(record.result, "accepted");
-                    if (!actor || *actor != binding.actor || !client || *client != binding.client || !recorded_action || !ok || !*ok) continue;
-                    if (*recorded_action == "select_belt_shaft" && request && selection && *request == *selection) selected = &record;
-                    if (*recorded_action == "place_selected_belt_span") {
-                        const auto* prior = field<std::string>(record.intent, "selection");
-                        if (prior && selection && *prior == *selection) used = true;
-                    }
-                }
-                const auto* selected_target = selected ? field<std::string>(selected->intent, "target") : nullptr;
-                const auto* selected_generation = selected ? field<Integer>(selected->intent, "generation") : nullptr;
-                const auto* selected_points = selected ? field<Value::Array>(selected->result, "targets") : nullptr;
-                if (!selection || !selected_target || *selected_target != first->geometry.id || !selected_generation ||
-                    *selected_generation != first->generation || !selected_points || selected_points->size() != 1 ||
-                    values::typed_difference(selected_points->front(), point_value(anchor(profile_, first->geometry.center))) || used)
-                    return refused("invalid_belt_selection");
-            }
-        } else {
-            const auto found = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
-                [&](const auto& span) { return span.geometry.id == *id; });
-            if (found == state.topology.belt_spans.end()) return refused("unknown_target", *id);
-            if (found->generation != *expected) return refused("stale_generation", *id);
-            first = part(state.topology, found->geometry.first_shaft);
-            last = part(state.topology, found->geometry.last_shaft);
-            if (!first || !last) return refused("invalid_mechanics", *id);
-        }
-        auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready");
-        cut->build_reach = profile_.build_reach;
-        std::optional<mechanics::Point> removal_center;
-        if (*action == "remove_belt_span") {
-            const auto path = mechanics::belt_path(first->geometry, last->geometry);
-            if (!path || path->tiles.empty()) return refused("invalid_mechanics", *id);
-            removal_center = *std::min_element(path->tiles.begin(), path->tiles.end(), [&](const auto& a, const auto& b) {
-                const auto squared = [&](const auto& tile) {
-                    const auto position = anchor(profile_, tile);
-                    double distance = 0;
-                    for (std::size_t i = 0; i < position.size(); ++i) distance += (position[i] - cut->position[i]) * (position[i] - cut->position[i]);
-                    return distance;
-                };
-                return squared(a) < squared(b);
-            });
-        }
-        const auto checked = authority::check_reach(binding.actor, *cut,
-            removal_center ? std::vector<authority::Point>{anchor(profile_, *removal_center)} :
-            *action == "place_selected_belt_span" ? std::vector<authority::Point>{anchor(profile_, last->geometry.center)} :
-                std::vector<authority::Point>{anchor(profile_, first->geometry.center), anchor(profile_, last->geometry.center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        auto candidate = state;
-        auto entity = *id;
-        auto generation = *expected;
-        if (placing) {
-            if (candidate.issued_entities.size() == maximum_issued_entities ||
-                candidate.next_entity_serial == std::numeric_limits<Integer>::max()) return refused("identity_limit");
-            generation = candidate.next_entity_serial++;
-            entity = std::string(allocated_prefix) + std::to_string(generation);
-            if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
-            const stationary::PlacedBeltSpan span{{entity, first->geometry.id, last->geometry.id}, generation};
-            auto proposal = stationary::prepare_belt_placement(state.topology, state.kits.at(binding.actor), state.material, span);
-            if (const auto* error = std::get_if<stationary::PlacementRefusal>(&proposal))
-                return refused(stationary::placement_error_name(error->reason), "", std::move(facts));
-            auto& ready = std::get<stationary::PreparedPlacement>(proposal);
-            candidate.topology = std::move(ready.candidate);
-            candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
-            const auto path = mechanics::belt_path(first->geometry, last->geometry);
-            if (!path) return refused("invalid_belt_geometry");
-            candidate.material.belt_lanes.emplace(entity, materials::BeltLane{
-                std::vector<std::optional<materials::Cargo>>(path->tiles.size()), 0});
-            candidate.issued_entities.emplace(entity, generation);
-            facts.emplace("first_center", Value(Value::Array{Value(first->geometry.center[0]), Value(first->geometry.center[1]), Value(first->geometry.center[2])}));
-            facts.emplace("last_center", Value(Value::Array{Value(last->geometry.center[0]), Value(last->geometry.center[1]), Value(last->geometry.center[2])}));
-        } else {
-            const auto removed = std::find_if(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
-                [&](const auto& span) { return span.geometry.id == entity; });
-            if (removed == state.topology.belt_spans.end()) return refused("unknown_target", entity);
-            facts.emplace("removed_span", removed_span_value(*removed));
-            auto proposal = stationary::prepare_belt_removal(state.topology, state.kits.at(binding.actor), state.material,
-                                                             {entity, generation});
-            if (const auto* error = std::get_if<stationary::RemovalRefusal>(&proposal))
-                return refused(stationary::removal_error_name(error->reason), entity, std::move(facts));
-            auto& ready = std::get<stationary::PreparedRemoval>(proposal);
-            candidate.topology = std::move(ready.candidate);
-            candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
-            candidate.material.belt_lanes.erase(entity);
-            facts.emplace("belt_center", Value(Value::Array{Value((*removal_center)[0]), Value((*removal_center)[1]), Value((*removal_center)[2])}));
         }
         facts.emplace("generation", Value(generation));
         return accepted(std::move(candidate), entity, std::move(facts));
