@@ -483,10 +483,6 @@ func check_gates(view, shared: bool) -> void:
 	view._refresh_machine_preview()
 	verify(not view.machine_preview.visible, "A startup save barrier hides the form.")
 	view.startup_save_pending = false
-	view.legacy_fixture = true
-	view._refresh_machine_preview()
-	verify(not view.machine_preview.visible, "The legacy fixture keeps its original cursor.")
-	view.legacy_fixture = false
 	view.transmission_controls = ControlsStub.new()
 	view.transmission_controls.active_tool = "shaft"
 	view._refresh_machine_preview()
@@ -553,7 +549,6 @@ func check_inspection_cursor(view) -> void:
 
 func check_selection_marker() -> void:
 	var view := MarkerView.new()
-	view.legacy_fixture = true
 	view._build_world()
 	var marker: MeshInstance3D = view.selection_ring
 	var covered := false

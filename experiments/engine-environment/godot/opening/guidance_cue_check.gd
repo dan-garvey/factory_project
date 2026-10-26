@@ -848,18 +848,6 @@ func check_footer_layout() -> void:
 	await check_close_camera_footer(shared)
 	shared.session = null
 	shared.free()
-	var legacy := FooterView.new()
-	legacy.legacy_fixture = true
-	legacy.state = fixture()
-	root.add_child(legacy)
-	legacy._build_interface()
-	legacy._message(intro)
-	await settle_footer()
-	var historical: Control = legacy.status_label.get_parent().get_parent()
-	verify(legacy.status_label.visible and historical.get_global_rect().encloses(legacy.controls_label.get_global_rect()) \
-		and historical.get_global_rect().end.y <= legacy.building_hotbar.position.y - 12.0,
-		"Every observation profile uses the current readable layout above the hotbar.")
-	legacy.free()
 	finish_checks()
 
 class CameraProjection extends RefCounted:
@@ -936,14 +924,13 @@ func check_camera_profiles() -> void:
 		verify_camera(projection.snapshot == facts and view.actor_world == null and view.request_sequence == 0,
 			"The view does not mutate confirmed facts, create physical authority or submit requests.")
 		view.free()
-	for legacy_profile in [false, true]:
-		var view = camera_view(false)
-		var projection = view.model
-		projection.snapshot.options = {"native": legacy_profile}
-		view.legacy_fixture = legacy_profile
-		view._refresh()
-		verify_camera(view.orbit_pitch == 0.82, "Historical and nonnative profiles retain their earlier starting pitch.")
-		view.free()
+	var scripted_view = camera_view(false)
+	var scripted_projection = scripted_view.model
+	scripted_projection.snapshot.options = {"native": false}
+	scripted_view._refresh()
+	verify_camera(scripted_view.orbit_pitch == 0.82,
+		"The scripted physical profile keeps its starting pitch.")
+	scripted_view.free()
 	var view = camera_view(true)
 	var projection = view.model
 	view.orbit_pitch = 1.01
