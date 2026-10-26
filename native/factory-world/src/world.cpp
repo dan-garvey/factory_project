@@ -3,6 +3,7 @@
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
+#include "factory/press_command_contract.hpp"
 #include "fabrication_planner.hpp"
 #include "harvest_planner.hpp"
 #include "plan_common.hpp"
@@ -300,6 +301,8 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
+    if (const auto press = press_commands::parse(action); press != press_commands::Action::none)
+        return press_commands::valid_intent(intent, press);
     if (const auto component = component_commands::parse(action);
         component != component_commands::Action::none)
         return component_commands::valid_intent(intent, component);
@@ -313,10 +316,6 @@ bool shape(const Object& intent, const std::string& action) {
         return material == material_commands::Action::pickup ?
             material_commands::valid_pickup_intent_before_geometry(intent) :
             material_commands::valid_intent(intent, material);
-    if (action == "stroke_broad_shear")
-        return keys(intent, {"target", "generation", "sheet_id"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<Integer>(intent, "sheet_id");
     if (action == "harvest_source" || action == "fast_harvest_source")
         return keys(intent, {"target"}) && field<std::string>(intent, "target");
     if (action == "finish_harvest" || action == "cancel_harvest") return keys(intent, {});
@@ -329,29 +328,6 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "center"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "center");
-    if (action == "feed_press")
-        return keys(intent, {"target", "generation", "entry"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<Value::Array>(intent, "entry");
-    if (action == "feed_broad_press")
-        return keys(intent, {"target", "generation"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation");
-    if (action == "refeed_broad_press_work")
-        return keys(intent, {"target", "generation", "work_id"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<Integer>(intent, "work_id");
-    if (action == "compact_offcuts")
-        return keys(intent, {"target", "generation", "entry", "drive"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<Value::Array>(intent, "entry") && field<std::string>(intent, "drive");
-    if (action == "refeed_press_work")
-        return keys(intent, {"target", "generation", "entry", "work_id"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<Value::Array>(intent, "entry") && field<Integer>(intent, "work_id");
-    if (action == "turn_press_crank")
-        return keys(intent, {"target", "generation", "drive", "exit"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<std::string>(intent, "drive") && field<Value::Array>(intent, "exit");
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});

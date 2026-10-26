@@ -436,6 +436,39 @@ void guided_press_host_path() {
     check(get<bool>(host.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 6), "accepted"),
           "The worker returns with the crafted crank to the guided shaft.");
     fit_crank(host, crank, shaft, 9, 4, 0, "guided-fit-crank");
+    const auto before_bad_press_shapes = host.projection();
+    const auto malformed_press = [&](const char* id, const char* action, O fields) {
+        auto wire = request(id, action);
+        wire.emplace("entity", V(anvil));
+        wire.insert(fields.begin(), fields.end());
+        const auto refused = host.command("P", wire);
+        check(!get<bool>(refused, "accepted") &&
+              get<std::string>(refused, "reason") == "invalid_command",
+              "Malformed press work requests refuse before changing the worksite.");
+    };
+    malformed_press("bad-press-feed", "feed_press", {{"entry", V(false)}});
+    malformed_press("bad-broad-feed", "feed_broad_press", {{"entry", V(A{})}});
+    malformed_press("bad-broad-refeed", "refeed_broad_press_work", {{"work_id", V(1.0)}});
+    malformed_press("bad-offcut-compact", "compact_offcuts",
+        {{"entry", V(A{})}, {"drive", V(false)}});
+    malformed_press("bad-press-refeed", "refeed_press_work",
+        {{"entry", V(A{})}, {"work_id", V(false)}});
+    malformed_press("bad-press-turn", "turn_press_crank",
+        {{"drive", V(shaft)}, {"exit", V(false)}});
+    malformed_press("bad-broad-shear", "stroke_broad_shear", {{"sheet_id", V(1.0)}});
+    const auto after_bad_press_shapes = host.projection();
+    check(get<I>(before_bad_press_shapes, "revision") ==
+              get<I>(after_bad_press_shapes, "revision") &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_press_shapes, "placed_components")),
+              V(get<O>(after_bad_press_shapes, "placed_components"))) &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_press_shapes, "material_mass")),
+              V(get<O>(after_bad_press_shapes, "material_mass"))) &&
+          !factory::values::typed_difference(
+              V(get<A>(before_bad_press_shapes, "dropped_material")),
+              V(get<A>(after_bad_press_shapes, "dropped_material"))),
+          "All seven malformed press requests preserve revision, installed parts and material stock.");
     accepted(host, feed("guided-feed", anvil, 9, 0, 0));
     check(!get<bool>(host.command("P", turn("guided-wrong-drive", anvil, cog, 7, 0, 0)),
               "accepted"), "A nearby cog cannot impersonate the guided press drive shaft.");

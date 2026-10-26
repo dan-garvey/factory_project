@@ -3,6 +3,7 @@
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
+#include "factory/press_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
@@ -565,6 +566,8 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "adapter_refusal") return !*accepted;
     const auto* original_action = field<std::string>(*wire, "action");
     if (!original_action) return false;
+    if (const auto press = press_commands::parse(*action); press != press_commands::Action::none)
+        return press_commands::historical_wire(*wire, intent, press);
     if (const auto component = component_commands::parse(*action);
         component != component_commands::Action::none)
         return component_commands::historical_wire(*wire, intent, component);
@@ -593,12 +596,6 @@ bool historical_wire(const authority::Record& record) {
         return left != wire->end() && right != intent.end() &&
             !values::typed_difference(left->second, right->second);
     };
-    if (*action == "stroke_broad_shear")
-        return *original_action == "stroke_broad_shear" &&
-            keys(*wire, {"entity", "sheet_id"}) &&
-            field<std::string>(*wire, "entity") &&
-            field<Integer>(*wire, "sheet_id") &&
-            same("entity", "target") && same("sheet_id", "sheet_id");
     if (*action == "harvest_source")
         return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
             field<std::string>(*wire, "target") && same("target", "target");
@@ -617,33 +614,6 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "deploy_fabrication_hub" && keys(*wire, {"entity", "center"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "center") &&
             same("entity", "target") && same("center", "center");
-    if (*action == "feed_press")
-        return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
-            field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
-            same("entity", "target") && same("entry", "entry");
-    if (*action == "feed_broad_press" || *action == "refeed_broad_press_work")
-        return *original_action == *action &&
-            keys(*wire, *action == "feed_broad_press" ?
-                std::initializer_list<const char*>{"entity"} :
-                std::initializer_list<const char*>{"entity", "work_id"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target") &&
-            (*action == "feed_broad_press" ||
-                (field<Integer>(*wire, "work_id") && same("work_id", "work_id")));
-    if (*action == "compact_offcuts")
-        return *original_action == *action && keys(*wire, {"entity", "entry", "drive"}) &&
-            field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
-            field<std::string>(*wire, "drive") && same("entity", "target") &&
-            same("entry", "entry") && same("drive", "drive");
-    if (*action == "refeed_press_work")
-        return *original_action == *action && keys(*wire, {"entity", "entry", "work_id"}) &&
-            field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
-            field<Integer>(*wire, "work_id") && same("entity", "target") &&
-            same("entry", "entry") && same("work_id", "work_id");
-    if (*action == "turn_press_crank")
-        return *original_action == *action && keys(*wire, {"entity", "drive", "exit"}) &&
-            field<std::string>(*wire, "entity") && field<std::string>(*wire, "drive") &&
-            field<Array>(*wire, "exit") && same("entity", "target") &&
-            same("drive", "drive") && same("exit", "exit");
     if (*action == "place_foundations") {
         const auto* cell = field<Array>(*wire, "cell");
         const auto* end = field<Array>(*wire, "end_cell");
@@ -1844,6 +1814,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     };
     const auto* action = field<std::string>(wire, "action");
     if (!action) return refuse("invalid_action");
+    const auto press_action = press_commands::parse(*action);
     const auto component_action = component_commands::parse(*action);
     const auto crank_action = crank_commands::parse(*action);
     const auto fabrication_action = fabrication_commands::parse(*action);
@@ -2041,28 +2012,22 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
         normalized.emplace("port", wire.at("port"));
-    } else if (*action == "feed_broad_press" || *action == "refeed_broad_press_work") {
-        const bool refeed = *action == "refeed_broad_press_work";
-        if (!keys(wire, refeed ? std::initializer_list<const char*>{"entity", "work_id"} :
-                std::initializer_list<const char*>{"entity"}) ||
-            !field<std::string>(wire, "entity") ||
-            (refeed && !field<Integer>(wire, "work_id"))) return refuse("invalid_command");
+    } else if (press_action == press_commands::Action::feed_broad ||
+               press_action == press_commands::Action::refeed_broad) {
+        const bool refeed = press_action == press_commands::Action::refeed_broad;
+        if (!press_commands::valid_wire(wire, press_action)) return refuse("invalid_command");
         normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
         if (refeed) normalized.emplace("work_id", wire.at("work_id"));
-    } else if (*action == "feed_press" || *action == "refeed_press_work" ||
-               *action == "compact_offcuts") {
-        const bool refeed_work = *action == "refeed_press_work";
-        const bool compacting = *action == "compact_offcuts";
-        if (!keys(wire, refeed_work ? std::initializer_list<const char*>{"entity", "entry", "work_id"} :
-                compacting ? std::initializer_list<const char*>{"entity", "entry", "drive"} :
-                std::initializer_list<const char*>{"entity", "entry"}) ||
-            !field<std::string>(wire, "entity") || !field<Array>(wire, "entry") ||
-            (refeed_work && !field<Integer>(wire, "work_id")) ||
-            (compacting && !field<std::string>(wire, "drive"))) return refuse("invalid_command");
+    } else if (press_action == press_commands::Action::feed ||
+               press_action == press_commands::Action::refeed ||
+               press_action == press_commands::Action::compact) {
+        const bool refeed_work = press_action == press_commands::Action::refeed;
+        const bool compacting = press_action == press_commands::Action::compact;
+        if (!press_commands::valid_wire(wire, press_action)) return refuse("invalid_command");
         const auto& entry = *field<Array>(wire, "entry");
         if (entry.size() == 3) {
             mechanics::Point center{};
@@ -2084,10 +2049,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("entry", wire.at("entry"));
         if (refeed_work) normalized.emplace("work_id", wire.at("work_id"));
         if (compacting) normalized.emplace("drive", wire.at("drive"));
-    } else if (*action == "turn_press_crank") {
-        if (!keys(wire, {"entity", "drive", "exit"}) ||
-            !field<std::string>(wire, "entity") || !field<std::string>(wire, "drive") ||
-            !field<Array>(wire, "exit")) return refuse("invalid_command");
+    } else if (press_action == press_commands::Action::turn) {
+        if (!press_commands::valid_wire(wire, press_action)) return refuse("invalid_command");
         const auto& exit = *field<Array>(wire, "exit");
         if (exit.size() == 3) {
             mechanics::Point center{};
@@ -2189,10 +2152,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("to", wire.at("to"));
         if (sheet_move) normalized.emplace("sheet_id", wire.at("sheet_id"));
         else normalized.emplace("form", wire.at("form"));
-    } else if (*action == "stroke_broad_shear") {
-        if (!keys(wire, {"entity", "sheet_id"}) ||
-            !field<std::string>(wire, "entity") || !field<Integer>(wire, "sheet_id"))
-            return refuse("invalid_command");
+    } else if (press_action == press_commands::Action::stroke_shear) {
+        if (!press_commands::valid_wire(wire, press_action)) return refuse("invalid_command");
         normalized.at("action") = Value("stroke_broad_shear");
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("sheet_id", wire.at("sheet_id"));
