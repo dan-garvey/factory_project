@@ -149,9 +149,24 @@ void harvest_and_restore() {
     const auto tree = command("P", "P-client", "tree-cut", "tree-a");
     const auto first = world->command({"P", "P-client"}, tree, nearby);
     check(first.completed() && std::get<bool>(first.result->at("accepted").storage()) &&
+          std::get<I>(first.result->at("moved_timber").storage()) == 0 &&
+          std::get<I>(first.result->at("moved_raw").storage()) == 0 &&
           world->snapshot().state.material.timber_remaining.at("tree-a") == 8 &&
           world->snapshot().state.material.cargo.at("P").timber == 0,
           "A physical P cut starts without transferring timber before tool contact.");
+    const auto pending_state = world->snapshot().state;
+    const auto early = world->command({"P", "P-client"},
+        finish("P", "P-client", "early-contact"), nearby);
+    check(early.completed() && !std::get<bool>(early.result->at("accepted").storage()) &&
+          std::get<std::string>(early.result->at("reason").storage()) == "cut_in_progress" &&
+          world->snapshot().state == pending_state,
+          "An early finish keeps the exact pending cut and finite stock unchanged.");
+    const auto busy = world->command({"P", "P-client"},
+        command("P", "P-client", "busy-source", "tree-b"), nearby);
+    check(busy.completed() && !std::get<bool>(busy.result->at("accepted").storage()) &&
+          std::get<std::string>(busy.result->at("reason").storage()) == "actor_busy" &&
+          world->snapshot().state == pending_state,
+          "A worker already cutting cannot start another source before finishing.");
     for (I tick = 1; tick < w::manual_cut_ticks; ++tick)
         check(world->tick(nearby).changed, "Trusted native ticks advance the active cut.");
     check(world->snapshot().state.material.timber_remaining.at("tree-a") == 8 &&
@@ -161,15 +176,31 @@ void harvest_and_restore() {
     const auto first_contact = world->command({"P", "P-client"},
         finish("P", "P-client", "tree-contact"), nearby);
     check(first_contact.completed() && std::get<bool>(first_contact.result->at("accepted").storage()) &&
+          std::get<I>(first_contact.result->at("moved_timber").storage()) == 1 &&
+          std::get<I>(first_contact.result->at("moved_raw").storage()) == 0 &&
           world->snapshot().state.material.timber_remaining.at("tree-a") == 7 &&
           world->snapshot().state.material.cargo.at("P").timber == 1,
           "Only the authenticated finish transfers one timber from the targeted tree.");
     const auto before_retry = world->snapshot();
+    const auto contact_retry = world->command({"P", "P-client"},
+        finish("P", "P-client", "tree-contact"),
+        [](const std::string&) -> std::optional<a::ActorCut> { return std::nullopt; });
+    check(contact_retry.completed() &&
+          std::get<bool>(contact_retry.result->at("duplicate").storage()) &&
+          world->snapshot().state == before_retry.state &&
+          world->snapshot().revision == before_retry.revision,
+          "A repeated finish returns the cached decision before a new actor observation.");
     const auto retry = world->command({"P", "P-client"}, tree,
         [](const std::string&) -> std::optional<a::ActorCut> { return std::nullopt; });
     check(retry.completed() && std::get<bool>(retry.result->at("duplicate").storage()) &&
           world->snapshot().state == before_retry.state && world->snapshot().revision == before_retry.revision,
           "A cached retry is decided before observation and cannot duplicate wood.");
+    const auto no_cut = world->command({"P", "P-client"},
+        cancel("P", "P-client", "no-active-cut"), {});
+    check(no_cut.completed() && !std::get<bool>(no_cut.result->at("accepted").storage()) &&
+          std::get<std::string>(no_cut.result->at("reason").storage()) == "no_active_cut" &&
+          world->snapshot().state == before_retry.state,
+          "A fresh cancel without a pending cut refuses without changing custody.");
     const auto ore = world->command({"Q", "Q-client"}, command("Q", "Q-client", "ore-cut", "ore"), nearby);
     check(ore.completed() && std::get<bool>(ore.result->at("accepted").storage()) &&
           world->snapshot().state.material.stock.source == 16,
