@@ -157,14 +157,18 @@ int main(int argc, char** argv) {
         }
         const std::vector<std::string> window_base{fs::canonical(argv[1]).string(), "--agent-window",
             "--repo", repo.string(), "--tree", tree, "--engine", engine.string(),
-            "--engine-sha256", engine_hash, "--admission", admission.string()};
+            "--engine-sha256", engine_hash, "--library", library.string(),
+            "--library-sha256", library_hash, "--sessions", sessions.string(),
+            "--admission", admission.string()};
         auto scene_window = window_base;
         scene_window.insert(scene_window.end(), {"--scene", "res://opening/shared_opening.tscn",
             "--test-purpose", "Shared client — vérification", "--", "--session-port=13200"});
         require(run(scene_window).exit_code == 0 &&
                 read(launched).find("--test-purpose=Shared client — vérification") != std::string::npos &&
-                read(launched).find("--session-port=13200") != std::string::npos,
-                "A shared-client window forwards Unicode purpose and user arguments.");
+                read(launched).find("--session-port=13200") != std::string::npos &&
+                read(launched).find("/native/runtime/project") != std::string::npos &&
+                read(launched).find("--path\n" + (repo / "experiments/engine-environment/godot").string()) == std::string::npos,
+                "A shared-client window forwards Unicode purpose into a separately prepared runtime.");
         fs::remove(launched);
         auto script_window = window_base;
         script_window.insert(script_window.end(), {"--script", "res://opening/parts_view_check.gd",

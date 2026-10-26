@@ -161,7 +161,8 @@ fi
 if [[ $mode == agent-window ]]; then
     exec "$startup" --agent-window --repo "$project" --tree "$revision" \
         --engine "$engine" --engine-sha256 "$engine_sha256" \
-        --admission "$admission" "${agent_window[@]}"
+        --library "$library" --library-sha256 "$library_sha256" \
+        --sessions "$sessions" --admission "$admission" "${agent_window[@]}"
 fi
 exec "$startup" --human-launch --repo "$project" --tree "$revision" \
     --engine "$engine" --engine-sha256 "$engine_sha256" \

@@ -295,6 +295,7 @@ int human_launch(int argc, char** argv) {
 }
 
 int agent_window_launch(int argc, char** argv) {
+    fs::path session;
     try {
         install_handlers();
         std::map<std::string, std::string> options;
@@ -307,12 +308,14 @@ int agent_window_launch(int argc, char** argv) {
             }
             require(i + 1 < argc && (name == "--repo" || name == "--tree" ||
                     name == "--engine" || name == "--engine-sha256" ||
-                    name == "--admission" || name == "--test-purpose" ||
+                    name == "--library" || name == "--library-sha256" ||
+                    name == "--sessions" || name == "--admission" || name == "--test-purpose" ||
                     name == "--scene" || name == "--script") &&
                     options.emplace(name, argv[++i]).second,
                     "Usage: --agent-window needs one scene or script and --test-purpose TEXT.");
         }
         for (const auto* name : {"--repo", "--tree", "--engine", "--engine-sha256",
+                                  "--library", "--library-sha256", "--sessions",
                                   "--admission", "--test-purpose"})
             require(options.count(name), "Usage: --agent-window needs source, engine and --test-purpose TEXT.");
         require(options.count("--scene") + options.count("--script") == 1,
@@ -325,12 +328,16 @@ int agent_window_launch(int argc, char** argv) {
                     !argument.starts_with("--test-purpose="),
                     "Agent window arguments must be single-line and bounded.");
         const fs::path repo(options.at("--repo")), engine(options.at("--engine"));
-        const fs::path admission(options.at("--admission"));
+        const fs::path library(options.at("--library")), admission(options.at("--admission"));
+        const fs::path root(options.at("--sessions"));
         const auto tree = options.at("--tree");
         require(repo.is_absolute() && fs::canonical(repo) == repo && digest(tree, 40),
                 "Use a canonical committed main checkout.");
+        require(root != repo && root.string().rfind(repo.string() + "/", 0) != 0,
+                "Keep native sessions outside the source checkout.");
         current(repo, tree);
         sealed(engine, options.at("--engine-sha256"), 512 * 1024 * 1024, true);
+        sealed(library, options.at("--library-sha256"), 64 * 1024 * 1024, false);
         require(admission.is_absolute() && fs::is_regular_file(admission) &&
                 ::access(admission.c_str(), X_OK) == 0,
                 "The resource admission helper is unavailable.");
@@ -355,9 +362,35 @@ int agent_window_launch(int argc, char** argv) {
                 }) && fs::is_regular_file(project / relative) &&
                 fs::canonical(project / relative) == project / relative,
                 "The selected scene or script is not a tracked project file.");
+        session = make_session(root);
+        const auto descriptor_bytes = git(repo, {"show", tree + ":native/factory-godot-world/native-world.gdextension"},
+                                          1024 * 1024);
+        const auto descriptor = session / "native-world.gdextension";
+        write_new(descriptor, descriptor_bytes);
+        const auto descriptor_digest = sha256(descriptor_bytes);
         current(repo, tree);
+        const auto self = fs::canonical("/proc/self/exe");
+        std::vector<std::string> startup{(repo / "scripts/run-human-startup.sh").string(),
+            repo.string(), admission.string(), self.string()};
+        startup.insert(startup.end(), {"--repo", repo.string(), "--tree", tree,
+            "--output", (session / "native").string(), "--godot", engine.string(),
+            "--engine-sha256", options.at("--engine-sha256"),
+            "--admission", admission.parent_path().string(),
+            "--native-descriptor", descriptor.string(),
+            "--native-descriptor-sha256", descriptor_digest,
+            "--native-descriptor-relative", "native-world.gdextension",
+            "--native-library", library.string(),
+            "--native-library-sha256", options.at("--library-sha256"),
+            "--native-library-relative", "factory-native-world.so"});
+        std::cout << "Preparing agent window project: " << session << std::endl;
+        const auto result = run_process(startup, 360s, 8 * 1024 * 1024, &cancelled, true);
+        std::cout << result.output << std::flush;
+        require(result.exit_code == 0, "Native startup failed; inspect the retained session logs.");
+        current(repo, tree);
+        sealed(engine, options.at("--engine-sha256"), 512 * 1024 * 1024, true);
+        sealed(library, options.at("--library-sha256"), 64 * 1024 * 1024, false);
         std::vector<std::string> command{admission.string(), "--root", repo.string(), "heavy", "--",
-            engine.string(), "--path", project.string()};
+            engine.string(), "--path", (session / "native/runtime/project").string()};
         if (script) command.push_back("--script");
         command.insert(command.end(), {target, "--", "--test-purpose=" + options.at("--test-purpose")});
         command.insert(command.end(), user_arguments.begin(), user_arguments.end());
@@ -367,6 +400,7 @@ int agent_window_launch(int argc, char** argv) {
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Agent window refused: " << error.what() << '\n';
+        if (!session.empty()) std::cerr << "Retained session: " << session << '\n';
         return cancelled ? 128 + cancelled : 1;
     }
 }
