@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/component_command_contract.hpp"
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
@@ -564,6 +565,9 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "adapter_refusal") return !*accepted;
     const auto* original_action = field<std::string>(*wire, "action");
     if (!original_action) return false;
+    if (const auto component = component_commands::parse(*action);
+        component != component_commands::Action::none)
+        return component_commands::historical_wire(*wire, intent, component);
     if (const auto crank = crank_commands::parse(*action);
         crank != crank_commands::Action::none)
         return crank_commands::historical_wire(*wire, intent, crank);
@@ -640,13 +644,6 @@ bool historical_wire(const authority::Record& record) {
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "drive") &&
             field<Array>(*wire, "exit") && same("entity", "target") &&
             same("drive", "drive") && same("exit", "exit");
-    if (*action == "place_component")
-        return *original_action == "place_component" && keys(*wire, {"component", "center"}) &&
-            field<std::string>(*wire, "component") && field<Array>(*wire, "center") &&
-            same("component", "component") && same("center", "center");
-    if (*action == "reclaim_component")
-        return *original_action == "reclaim_component" && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target");
     if (*action == "place_foundations") {
         const auto* cell = field<Array>(*wire, "cell");
         const auto* end = field<Array>(*wire, "end_cell");
@@ -1847,6 +1844,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     };
     const auto* action = field<std::string>(wire, "action");
     if (!action) return refuse("invalid_action");
+    const auto component_action = component_commands::parse(*action);
     const auto crank_action = crank_commands::parse(*action);
     const auto fabrication_action = fabrication_commands::parse(*action);
     const auto material_action = material_commands::parse(*action);
@@ -2110,9 +2108,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             Integer{0} : found->second.generation));
         normalized.emplace("drive", wire.at("drive"));
         normalized.emplace("exit", wire.at("exit"));
-    } else if (*action == "place_component") {
-        if (!keys(wire, {"component", "center"}) || !field<std::string>(wire, "component") ||
-            !field<Array>(wire, "center")) return refuse("invalid_command");
+    } else if (component_action == component_commands::Action::place) {
+        if (!component_commands::valid_wire(wire, component_action)) return refuse("invalid_command");
         const auto& point = *field<Array>(wire, "center");
         if (point.size() != 3) return refuse("invalid_center");
         mechanics::Point center{};
@@ -2138,8 +2135,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.at("action") = Value("place_component");
         normalized.emplace("component", wire.at("component"));
         normalized.emplace("center", wire.at("center"));
-    } else if (*action == "reclaim_component") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity")) return refuse("invalid_command");
+    } else if (component_action == component_commands::Action::reclaim) {
+        if (!component_commands::valid_wire(wire, component_action)) return refuse("invalid_command");
         normalized.at("action") = Value("reclaim_component");
         normalized.emplace("target", wire.at("entity"));
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));

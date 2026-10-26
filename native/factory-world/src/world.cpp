@@ -1,4 +1,5 @@
 #include "factory/world.hpp"
+#include "factory/component_command_contract.hpp"
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
@@ -299,6 +300,9 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
+    if (const auto component = component_commands::parse(action);
+        component != component_commands::Action::none)
+        return component_commands::valid_intent(intent, component);
     if (const auto crank = crank_commands::parse(action); crank != crank_commands::Action::none)
         return crank_commands::valid_intent(intent, crank);
     if (const auto fabrication = fabrication_commands::parse(action);
@@ -348,10 +352,6 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "drive", "exit"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<std::string>(intent, "drive") && field<Value::Array>(intent, "exit");
-    if (action == "place_component") return keys(intent, {"component", "center"}) &&
-        field<std::string>(intent, "component") && field<Value::Array>(intent, "center");
-    if (action == "reclaim_component") return keys(intent, {"target", "generation"}) &&
-        field<std::string>(intent, "target") && field<Integer>(intent, "generation");
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
