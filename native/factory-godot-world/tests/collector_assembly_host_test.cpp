@@ -268,6 +268,43 @@ void collector_readiness_tracks_real_parts() {
     const auto removed_tray = restored.command("P", take_tray);
     check(get<bool>(removed_tray, "accepted"),
           "The original receiver is recovered without losing its material.");
+    const auto without_tray = restored.checkpoint();
+    check(get<bool>(restored.validate_checkpoint(without_tray), "accepted") &&
+          get<std::string>(get<O>(restored.projection(), "crank_items")
+              .at(crank_items.begin()->first), "attached_to") == remount,
+          "The incomplete collector retains its fitted crank and validates for save.");
+    Host resumed_without_tray;
+    check(get<bool>(resumed_without_tray.initialize_arrival_advanced_fixture(
+              "assembly-site", {"P", "Q"}), "accepted") &&
+          get<bool>(resumed_without_tray.configure_terrain(source_contact_site()), "accepted") &&
+          get<bool>(resumed_without_tray.restore_checkpoint(without_tray), "accepted") &&
+          get<std::string>(ground_inspection(resumed_without_tray), "status") ==
+              "missing_receiver" &&
+          get<std::string>(get<O>(resumed_without_tray.projection(), "crank_items")
+              .at(crank_items.begin()->first), "attached_to") == remount,
+          "A fresh Host restores the same fitted input while the receiver is absent.");
+    check(get<bool>(resumed_without_tray.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 9),
+              "accepted"),
+          "The restored actor can inspect the incomplete collector without cutting ore.");
+    auto saved_incomplete_turn = request("saved-no-tray-turn", "turn_hand_crank");
+    saved_incomplete_turn.emplace("entity", V(remount));
+    const auto saved_refusal = resumed_without_tray.command("P", saved_incomplete_turn);
+    check(!get<bool>(saved_refusal, "accepted") &&
+          get<std::string>(saved_refusal, "reason") == "incomplete_assembly" &&
+          get<I>(get<O>(resumed_without_tray.projection(), "hand_sources")
+              .at("opening-copper"), "remaining") == 4094,
+          "A saved crank cannot cut ore without the receiver or debit finite stock.");
+    const auto resumed_tray = place(resumed_without_tray, "receiver_tray", 0, 0, -1,
+        "resumed-tray");
+    auto resumed_turn = request("resumed-tray-turn", "turn_hand_crank");
+    resumed_turn.emplace("entity", V(remount));
+    check(get<std::string>(ground_inspection(resumed_without_tray), "status") == "ready" &&
+          get<std::string>(V(get<O>(ground_inspection(resumed_without_tray), "parts")),
+              "receiver") == resumed_tray &&
+          get<bool>(resumed_without_tray.command("P", resumed_turn), "accepted") &&
+          get<I>(get<O>(resumed_without_tray.projection(), "hand_sources")
+              .at("opening-copper"), "remaining") == 4093,
+          "The original crank resumes finite extraction after a real receiver is replaced.");
     auto no_tray_turn = request("no-tray-turn", "turn_hand_crank");
     no_tray_turn.emplace("entity", V(remount));
     const auto incomplete = restored.command("P", no_tray_turn);

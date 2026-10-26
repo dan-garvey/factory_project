@@ -4093,6 +4093,27 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         const auto inspected = layout.inspect_sliding_press(item.center);
         if (inspected.press) impacts.at(inspected.press->slide) += 4;
     }
+    // A placed collector mount owns its spindle even while its cutter or
+    // receiver is missing. Readiness controls ore cutting, not crank custody.
+    std::map<mechanics::Point, std::optional<mechanics::Axis>> collector_mount_axes;
+    for (const auto& face : profile.collector_faces) {
+        const auto axis = face.toward_ore[0] != 0 ? mechanics::Axis::x : mechanics::Axis::z;
+        for (Integer height : {Integer{0}, Integer{1}}) {
+            const mechanics::Point center{
+                face.machine_center[0] + face.toward_ore[0],
+                face.machine_center[1] + height,
+                face.machine_center[2] + face.toward_ore[2]};
+            const auto [found, inserted] = collector_mount_axes.emplace(center, axis);
+            if (!inserted && found->second != axis) found->second.reset();
+        }
+    }
+    for (const auto& item : placed) {
+        if (item.kind != materials::Component::tool_mount) continue;
+        const auto found = collector_mount_axes.find(item.center);
+        if (found == collector_mount_axes.end() || !found->second) continue;
+        append({item.id, mechanics::Kind::shaft, item.center, *found->second, 0, 1});
+        ratings.emplace(item.id, material_rating(item.kind));
+    }
     for (const auto& face : profile.collector_faces) {
         const auto inspected = layout.inspect_collector(face);
         if (!inspected.collector) continue;
@@ -4100,8 +4121,6 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         const auto axis = horizontal_axis(found.machine_center, found.shaft_center);
         append({found.frame, mechanics::Kind::hub, found.machine_center, axis, 0, 0});
         projected_hub_ids.insert(found.frame);
-        append({found.mount, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
-        ratings.emplace(found.mount, material_rating(found.shaft_material));
         impacts.emplace(found.frame, 4);
         // Independent shafts at the exposed frame sides are optional routing.
         // They must remain real graph parts even though readiness and crank
