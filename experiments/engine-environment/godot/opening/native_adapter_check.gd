@@ -5,6 +5,10 @@ const OpeningGeometry = preload("res://opening/site_geometry.gd")
 const OpeningScene = preload("res://opening/opening.gd")
 const TransmissionPresenter = preload("res://opening/native_transmission_presenter.gd")
 const ARRIVAL_INITIAL_MASS := 4096 * 4
+const VALUE_OPTIONS := ["--native-check-output=", "--native-check-prior=", "--native-check-mode=",
+	"--arrival-capture-prefix=", "--resume-input=", "--save-slot=", "--test-purpose="]
+const FLAG_OPTIONS := ["--event-route-loose", "--event-route-pointer", "--anvil-seat-only",
+	"--anvil-deck-only", "--anvil-ready-only", "--arrival-reveal-probe"]
 var opening
 var destination := ""
 var prior_result_path := ""
@@ -23,23 +27,50 @@ var facts: Dictionary = {"steps": [], "evidence": "native_offline_scene_consumer
 var written := false
 
 func _init() -> void:
-	for argument in OS.get_cmdline_user_args():
-		if argument.begins_with("--native-check-output="):
-			destination = argument.trim_prefix("--native-check-output=")
-		if argument.begins_with("--native-check-prior="):
-			prior_result_path = argument.trim_prefix("--native-check-prior=")
-		if argument == "--event-route-loose":
-			event_route_loose = true
-		if argument == "--event-route-pointer":
-			event_route_pointer = true
-		if argument == "--anvil-seat-only":
-			anvil_seat_only = true
-		if argument == "--anvil-deck-only":
-			anvil_deck_only = true
-		if argument == "--anvil-ready-only":
-			anvil_ready_only = true
-		if argument.begins_with("--native-check-mode="):
-			mode = argument.trim_prefix("--native-check-mode=")
+	var seen: Dictionary = {}
+	for argument: String in OS.get_cmdline_user_args():
+		var option := ""
+		var value := ""
+		for prefix: String in VALUE_OPTIONS:
+			if argument.begins_with(prefix):
+				option = prefix
+				value = argument.trim_prefix(prefix)
+				break
+		if option.is_empty() and FLAG_OPTIONS.has(argument):
+			option = argument
+		if option.is_empty() or seen.has(option) or (VALUE_OPTIONS.has(option) and value.is_empty()):
+			push_error("Unknown, duplicate or empty native adapter fixture argument: " + argument)
+			quit(2)
+			return
+		seen[option] = true
+		match option:
+			"--native-check-output=": destination = value
+			"--native-check-prior=": prior_result_path = value
+			"--native-check-mode=": mode = value
+			"--event-route-loose": event_route_loose = true
+			"--event-route-pointer": event_route_pointer = true
+			"--anvil-seat-only": anvil_seat_only = true
+			"--anvil-deck-only": anvil_deck_only = true
+			"--anvil-ready-only": anvil_ready_only = true
+	if mode.is_empty() or destination.is_empty():
+		push_error("Select one native adapter fixture mode and a fresh output")
+		quit(2)
+		return
+	if (event_route_loose and (event_route_pointer or mode not in ["arrival-channel-small", "arrival-channel-small-resume"])) \
+			or (event_route_pointer and mode != "arrival-first-plate"):
+		push_error("The selected event route does not apply to this fixture mode")
+		quit(2)
+		return
+	var anvil_options := int(anvil_seat_only) + int(anvil_deck_only) + int(anvil_ready_only)
+	if anvil_options > 1 or (anvil_options > 0 and mode not in ["arrival-press", "arrival-guide-geometry", "arrival-raised-press"]):
+		push_error("Select at most one anvil stage for an arrival press fixture")
+		quit(2)
+		return
+	if (not prior_result_path.is_empty() and mode != "arrival-channel-small-resume") \
+			or (seen.has("--arrival-reveal-probe") and mode != "arrival-resume"):
+		push_error("The selected native adapter fixture mode does not use this companion argument")
+		quit(2)
+		return
 	deadline = Time.get_ticks_msec() + (45000 if mode == "foundations" else 60000)
 	call_deferred("_run")
 
