@@ -19,15 +19,13 @@ import check_engine_environment as bounds
 
 PROJECT = Path(__file__).resolve().parents[1] / "experiments/engine-environment/godot"
 FILES = bounds.FILES + tuple("opening/" + name for name in (
-    "opening.gd", "opening.tscn", "opening_check.gd", "model_check.gd",
-    "checkpoint_check.gd", "integration_check.gd", "example_presenter.gd",
-    "example_world.gd", "explanation_check.gd", "actor_body.gd", "actor_world.gd",
+    "opening.gd", "opening.tscn", "actor_body.gd", "actor_world.gd",
     "character_presenter.gd", "character_check.gd")) + ("save-tests/checkpoint_file.gd",)
 MAX_BYTES = 256 * 1024**2
 SMOKE_OBSERVER = "opening/startup_observer.gd"
 SMOKE_SCENE = "res://opening/opening.tscn"
 RESUME_LIMIT = 2 * 1024**2  # Local input allowance; Store owns format/1 MiB validation.
-RESUME_SCRIPTS = ("opening/resume_prepare.gd", "opening/resume_observer.gd", "opening/resume_check.gd")
+RESUME_SCRIPTS = ("opening/resume_prepare.gd", "opening/resume_observer.gd")
 
 
 def git_provenance():
@@ -94,7 +92,7 @@ def _native_actor(state, native, initial, seed):
         raise ValueError("Physical observation differs from registered native authority or original seed")
 
 
-def read_resume_report(path, expected, save_slot, *, legacy_fixture=False):
+def read_resume_report(path, expected, save_slot):
     if path.stat().st_size > 8 * 1024**2:
         raise ValueError("Resume observer report exceeds its allowance")
     report = json.loads(path.read_text())
@@ -107,7 +105,7 @@ def read_resume_report(path, expected, save_slot, *, legacy_fixture=False):
     view = report.get("view", {})
     if not isinstance(state, dict) or any(not _same_value(state.get(key), value)
             for key, value in expected["state"].items() if key not in (
-                "revision", "stock", "remaining", *(('actors',) if not legacy_fixture else ()))):
+                "revision", "stock", "remaining", "actors")):
         raise ValueError("Resumed observer topology, ownership or inventory changed before input")
     stock = state.get("stock", {})
     if (not isinstance(stock, dict) or any(type(stock.get(key)) is not int or stock[key] < 0
@@ -128,11 +126,10 @@ def read_resume_report(path, expected, save_slot, *, legacy_fixture=False):
             or view.get("confirm_disabled") is not (expected["state"]["inventories"].get("P", 0) < 4)
             or not save_slot.is_file() or Path(str(save_slot) + ".pending").exists()):
         raise ValueError("Resume view, goal or new-slot ownership differs from restored state")
-    if not legacy_fixture:
-        if report.get("profile") != "physical":
-            raise ValueError("Resume needs explicit physical-profile evidence")
-        _native_actor(state, report.get("native", {}), report.get("initial_native", {}),
-                      expected["state"]["actors"]["P"]["position"])
+    if report.get("profile") != "physical":
+        raise ValueError("Resume needs explicit physical-profile evidence")
+    _native_actor(state, report.get("native", {}), report.get("initial_native", {}),
+                  expected["state"]["actors"]["P"]["position"])
     return report
 
 
@@ -163,7 +160,7 @@ def _same_value(actual, expected):
     return actual == expected
 
 
-def read_smoke_report(path, save_slot, *, legacy_fixture=False):
+def read_smoke_report(path, save_slot):
     try:
         if path.stat().st_size > 64 * 1024:
             raise ValueError("Startup observer report exceeds its small allowance")
@@ -180,22 +177,21 @@ def read_smoke_report(path, save_slot, *, legacy_fixture=False):
         "stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0, "player": 0},
         "parts": {"collector": 1, "belt": 1, "processor": 1, "wheel": 1, "shaft": 3},
         "remaining": 0, "powered": False, "power_enabled": True,
-        "options": {"opening": True} if legacy_fixture else {"opening": True, "physical": True}}
+        "options": {"opening": True, "physical": True}}
     state = report.get("state")
     if (not isinstance(state, dict) or any(not _same_value(state.get(k), v) for k, v in expected.items())
             or type(state.get("revision")) is not int or state["revision"] < 0):
         raise ValueError("Smoke startup quantities, identities, parts or power differ from the fresh fixture")
     view = {"save_slot": str(save_slot), "save_ready": True, "save_owned": False,
-            "save_disabled": False, "load_disabled": legacy_fixture, "confirmed": False,
+            "save_disabled": False, "load_disabled": False, "confirmed": False,
             "request_sequence": 0, "namespace_nonempty": True, "machines": 0, "items": 16}
     if not _same_value(report.get("view"), view):
         raise ValueError("Smoke startup view or save/load ownership differs from the fresh session")
     if any(path.exists() or path.is_symlink() for path in (save_slot, Path(str(save_slot) + ".pending"))):
         raise ValueError("Smoke startup unexpectedly wrote its save slot")
-    if not legacy_fixture:
-        if report.get("profile") != "physical":
-            raise ValueError("Smoke needs explicit physical-profile evidence")
-        _native_actor(state, report.get("native", {}), report.get("initial_native", {}), [-1.65, 1.0, 3.3])
+    if report.get("profile") != "physical":
+        raise ValueError("Smoke needs explicit physical-profile evidence")
+    _native_actor(state, report.get("native", {}), report.get("initial_native", {}), [-1.65, 1.0, 3.3])
     return report
 
 
@@ -265,38 +261,6 @@ def read_character_report(path, *, resumed=False):
     return report
 
 
-def check_explanation_report(report):
-    # Independent finite ledger: source, collector, belt, input, held, output, player.
-    ledgers = ([16, 0, 0, 0, 0, 0, 0], [16, 0, 0, 0, 0, 0, 0],
-               [12, 1, 1, 1, 1, 0, 0], [11, 1, 1, 1, 1, 1, 0])
-    stages = report.get("lessons")
-    if not isinstance(stages, list) or len(stages) != 4:
-        raise ValueError("Explanation needs all four actually observed lesson states")
-    checks = list(zip(stages, ledgers, (False, True, True, True), (0, 0, 2, 0)))
-    checks += [(report.get("step"), [15, 1, 0, 0, 0, 0, 0], True, 0),
-               (report.get("blocked_retained"), ledgers[3], True, 0),
-               (report.get("recovery"), [10, 1, 1, 1, 1, 1, 1], True, 2)]
-    for state, ledger, powered, remaining in checks:
-        if not isinstance(state, dict):
-            raise ValueError("Explanation state missing")
-        stock = dict(zip(("source", "collector", "belt", "input", "held", "output", "player"), ledger))
-        expected = {"context": "opening-example-1", "initial_feed": 16, "recipe_input": 1,
-                    "stock": stock, "remaining": remaining, "powered": powered,
-                    "power_enabled": True, "options": {"opening": True},
-                    "inventories": {"EXAMPLE": 1} if ledger[-1] else {},
-                    "parts": {"collector": 0, "belt": 0, "processor": 0, "wheel": 0,
-                              "shaft": 0 if powered else 3},
-                    "entities": {kind + "-1": {"kind": kind, "cell": [cell, 0]}
-                                 for kind, cell in (("wheel", -1), ("collector", 0), ("belt", 1), ("processor", 2))},
-                    "links": [["collector-1", "belt-1"], ["belt-1", "processor-1"]],
-                    "drive_links": [["wheel-1", "collector-1"], ["collector-1", "belt-1"],
-                                    ["belt-1", "processor-1"]] if powered else []}
-        if any(not _same_value(state.get(k), v) for k, v in expected.items()):
-            raise ValueError("Actual explanation differs from independent finite ownership/phase oracle")
-    if report.get("isolation") is not True or report.get("live_clock") is not True:
-        raise ValueError("Explanation needs isolation and normal live-time evidence")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", type=Path, required=True)
@@ -305,7 +269,6 @@ def main():
     parser.add_argument("--render", action="store_true", help="capture the real rendered check viewport")
     parser.add_argument("--smoke", action="store_true", help="observe fresh opening scene/state and exit after 60 frames")
     parser.add_argument("--resume", type=Path, help="reopen an explicitly selected compatible save in a new session")
-    parser.add_argument("--legacy-fixture", action="store_true", help="explicit historical unrestricted profile; no physical-character evidence")
     args = parser.parse_args()
     if args.render and not args.check:
         parser.error("--render selects the rendered automated check; normal launch already opens a window")
@@ -328,7 +291,7 @@ def main():
     save_slot = session / "worksite.factory"
     environment = os.environ.copy()
     receipt = {"status": "running", "mode": "check" if args.check else "startup_smoke" if args.smoke else "interactive",
-               "profile": "legacy_fixture" if args.legacy_fixture else "physical",
+               "profile": "physical",
                "engine": {"path": str(args.godot), "sha256": hashlib.sha256(args.godot.read_bytes()).hexdigest()},
                "git": git_provenance(),
                "started": datetime.now(timezone.utc).isoformat(), "source_hashes": {}, "stages": [],
@@ -337,7 +300,7 @@ def main():
                "save_slot": str(save_slot), "user_play": "not_assessed"}
     deadline = time.monotonic() + 1800
     bounds.MAX_ARTIFACT_BYTES = MAX_BYTES
-    print(f"Opening session: {session}\nSave: F5. " + ("Load: F9." if args.legacy_fixture else "Reopen with --resume PATH in a fresh session.") + " Close the window to finish.", flush=True)
+    print(f"Opening session: {session}\nSave: F5. Reopen with --resume PATH in a fresh session. Close the window to finish.", flush=True)
     try:
         if args.resume is not None:
             incoming = capture_resume(args.resume)
@@ -390,17 +353,16 @@ def main():
         if not version.startswith("4.7.2.stable."):
             raise ValueError("This experiment uses the separately verified Godot 4.7.2 stable")
         execute("import", ["--headless", "--editor", "--path", str(project), "--import"], timeout=180)
-        profile_arguments = ["--legacy-fixture"] if args.legacy_fixture else []
         resume_arguments = []
         if args.resume is not None:
             expected_path = session / "resume-expected.json"
             resume_arguments = ["--resume-input=" + str(incoming_path)]
             execute("resume-prepare", ["--headless", "--path", str(project), "--script", "res://opening/resume_prepare.gd",
-                                      "--", *profile_arguments, *resume_arguments, "--resume-report=" + str(expected_path)], "OPENING_RESUME_VALID")
+                                      "--", *resume_arguments, "--resume-report=" + str(expected_path)], "OPENING_RESUME_VALID")
             expected_resume = json.loads(expected_path.read_text())
             if expected_resume.get("accepted") is not True:
                 raise ValueError("Selected save was refused by the actual Model/Store")
-        if args.check and not args.legacy_fixture:
+        if args.check:
             character_report = session / "character.json"
             wall_save = session / "wall.factory"
             negative_save = session / "deep-overlap.factory"
@@ -473,67 +435,10 @@ def main():
                     raise ValueError("Deep-overlap native refusal must precede readiness/save and preserve inputs")
                 receipt["deep_refusal"] = {"report": str(failed_report), "reason": refused["reason"],
                                             "source_unchanged": True, "output_unwritten": True}
-        elif args.check:
-            checks = (("resume-input", "opening/resume_check.gd", "OPENING_RESUME_INPUT_PASS"),) if args.resume is not None else (
-                    ("neutral", "tests.gd", "FACTORY_HEADLESS_PASS"),
-                    ("opening-model", "opening/model_check.gd", "OPENING_MODEL_PASS"),
-                    ("checkpoint", "opening/checkpoint_check.gd", "CHECKPOINT_REGRESSION_PASS"),
-                    ("opening-input", "opening/opening_check.gd", "OPENING_INPUT_PASS"),
-                    ("save-load-input", "opening/integration_check.gd", "OPENING_SAVE_LOAD_PASS"),
-                    ("explanation-input", "opening/explanation_check.gd", "OPENING_EXPLANATION_PASS"))
-            for name, script, marker in checks:
-                arguments = ["--path", str(project), "--script", "res://" + script]
-                stage_slot = session / "example-unwritten.factory" if name == "explanation-input" else save_slot
-                if args.render and name in ("opening-input", "save-load-input", "explanation-input", "resume-input"):
-                    capture = session / (name + ".png")
-                    arguments += ["--rendering-method", "gl_compatibility", "--audio-driver", "Dummy",
-                                  "--", *profile_arguments, "--capture=" + str(capture), "--save-slot=" + str(stage_slot), *resume_arguments]
-                else:
-                    arguments = ["--headless", *arguments, "--", *profile_arguments, "--save-slot=" + str(stage_slot), *resume_arguments]
-                output = execute(name, arguments, marker,
-                                 timeout=180 if args.render and name in ("opening-input", "save-load-input", "explanation-input", "resume-input") else 30)
-                if name == "resume-input":
-                    prefix = "OPENING_RESUME_STATE "
-                    report = json.loads(next(line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)))
-                    final = report["final"]
-                    inventories = dict(expected_resume["state"]["inventories"])
-                    inventories["P"] = inventories.get("P", 0) + 1
-                    stock = final["stock"]
-                    if (not _same_value(report.get("loaded"), expected_resume["checkpoint"])
-                            or report.get("failures") != [] or report.get("checks", 0) < 10
-                            or not _same_value(final["inventories"], inventories)
-                            or any(not _same_value(final[k], expected_resume["state"][k])
-                                   for k in ("initial_feed", "recipe_input", "entities", "links", "drive_links", "parts"))
-                            or sum(stock[k] for k in ("source", "collector", "belt", "input", "held"))
-                            + final["recipe_input"] * (stock["output"] + sum(inventories.values())) != final["initial_feed"]):
-                        raise ValueError("Actual resumed input differs from saved state and independent material/identity oracle")
-                    receipt["resume_consumer"] = report
-                if name == "save-load-input":
-                    prefix = "OPENING_SAVE_LOAD_STATE "
-                    report = json.loads(next(line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)))
-                    final = report["final"]
-                    stock = final["stock"]
-                    raw = sum(stock[key] for key in ("source", "collector", "belt", "input", "held"))
-                    if (final["initial_feed"] != 16 or final["inventories"] != {"P": 4}
-                            or raw + stock["output"] + sum(final["inventories"].values()) != 16
-                            or not report["confirmed"] or report["paused"]["remaining"] != 2
-                            or report["paused"]["restored_remaining"] != report["paused"]["remaining"]
-                            or report["paused"]["power_enabled"] or report["paused"]["stock"]["held"] != 1
-                            or report["blocked"]["stock"]["output"] != 1 or report["blocked"]["stock"]["held"] != 1):
-                        raise ValueError("Actual consumer quantities/phase/goal differ from the independent fixture oracle")
-                    (session / "consumer.json").write_text(json.dumps(report, indent=2) + "\n")
-                if name == "explanation-input":
-                    prefix = "OPENING_EXPLANATION_STATE "
-                    report = json.loads(next(line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)))
-                    check_explanation_report(report)
-                    (session / "explanation.json").write_text(json.dumps(report, indent=2) + "\n")
-                if args.render and name in ("opening-input", "save-load-input", "explanation-input", "resume-input"):
-                    if not capture.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
-                        raise ValueError("Missing actual rendered viewport capture")
         else:
             arguments = ["--path", str(project), SMOKE_SCENE,
                          "--rendering-method", "gl_compatibility"]
-            user_arguments = [*profile_arguments, "--save-slot=" + str(save_slot), *resume_arguments]
+            user_arguments = ["--save-slot=" + str(save_slot), *resume_arguments]
             if args.smoke:
                 if args.resume is None:
                     receipt["instrumentation"] = instrument_smoke(project, receipt["source_hashes"]["project.godot"])
@@ -553,8 +458,8 @@ def main():
             execute("interactive", [*arguments, "--", *user_arguments],
                     timeout=30 if args.smoke else 1800)
             if args.smoke:
-                receipt["startup"] = (read_smoke_report(startup_report, save_slot, legacy_fixture=args.legacy_fixture) if args.resume is None
-                                      else read_resume_report(startup_report, expected_resume, save_slot, legacy_fixture=args.legacy_fixture))
+                receipt["startup"] = (read_smoke_report(startup_report, save_slot) if args.resume is None
+                                      else read_resume_report(startup_report, expected_resume, save_slot))
         receipt["status"] = "pass"
     except Exception as error:
         receipt["status"] = "fail"

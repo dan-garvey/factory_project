@@ -4805,12 +4805,10 @@ static func apply_test_window_title(tree: SceneTree) -> bool:
 func _ready() -> void:
 	if not apply_test_window_title(get_tree()):
 		return
-	for argument in OS.get_cmdline_user_args():
-		if argument == "--legacy-fixture":
-			legacy_fixture = true
 	if model == null:
-		model = load("res://model.gd").new(16, "opening-local-1", 1,
-			{"opening": true} if legacy_fixture else {"opening": true, "physical": true})
+		push_error("Opening requires an assigned native or shared model")
+		get_tree().quit(1)
+		return
 	if save_slot.is_empty():
 		for argument in OS.get_cmdline_user_args():
 			if argument.begins_with("--save-slot="):

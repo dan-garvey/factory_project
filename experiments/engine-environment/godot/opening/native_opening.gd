@@ -5,10 +5,6 @@ const NativeModel = preload("res://opening/native_model.gd")
 func _ready() -> void:
 	if not apply_test_window_title(get_tree()):
 		return
-	if "--legacy-fixture" in OS.get_cmdline_user_args():
-		# Explicit historical entry only. Missing native resources never select it.
-		super._ready()
-		return
 	model = NativeModel.new("opening-native-" + Crypto.new().generate_random_bytes(16).hex_encode(), ["P"], true)
 	mode = "inspect"
 	if not model.boot_result.get("accepted", false):
