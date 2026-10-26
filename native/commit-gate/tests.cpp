@@ -85,8 +85,9 @@ void plans() {
           "A staged root Bazel data file selects native validation before admission.");
     Reader unrelated;
     unrelated.names = nul({"scripts/unrelated.sh"});
+    unrelated.root_build += "# \"scripts/unrelated.sh\"\n";
     check(!unrelated.plan().validate_native,
-          "An unreferenced script does not force the native lane.");
+          "A script named only in a staged BUILD comment does not force the native lane.");
     check(cheap.command == std::vector<std::string>{"/usr/bin/python3", "-B", "/fixture checkout/scripts/check.py", "--staged", "--expected-tree", docs.tree},
           "The existing checker receives exactly one pinned staged-tree invocation.");
     for (const auto& paths : {nul({"experiments/engine-environment/godot/opening/file.gd"}),

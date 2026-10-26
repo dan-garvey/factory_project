@@ -36,10 +36,41 @@ bool shared_build_input(const std::string& path) {
 
 bool root_data_path(const std::string& path, std::string_view root_build) {
     if (path.starts_with("native/")) return false;
-    // The staged root BUILD is the authority for first-party files exported
-    // from its package. Bazel itself validates the exact seed label below.
-    return root_build.find('"' + path + '"') != std::string_view::npos ||
-           root_build.find('\'' + path + '\'') != std::string_view::npos;
+    // Only quoted tokens in executable Starlark can reference root-package data.
+    // A comment that mentions a file must not seed an undeclared Bazel label.
+    for (std::size_t position = 0; position < root_build.size();) {
+        const char current = root_build[position];
+        if (current == '#') {
+            const auto end = root_build.find('\n', position);
+            position = end == std::string_view::npos ? root_build.size() : end + 1;
+            continue;
+        }
+        if (current != '"' && current != '\'') {
+            ++position;
+            continue;
+        }
+        const auto delimiter = position + 2 < root_build.size() &&
+            root_build[position + 1] == current && root_build[position + 2] == current
+            ? 3u : 1u;
+        position += delimiter;
+        const auto begin = position;
+        bool escaped = false;
+        while (position < root_build.size()) {
+            if (root_build[position] == '\\') {
+                escaped = true;
+                position += std::min<std::size_t>(2, root_build.size() - position);
+            } else if (root_build[position] == current &&
+                       (delimiter == 1 ||
+                        (position + 2 < root_build.size() &&
+                         root_build[position + 1] == current &&
+                         root_build[position + 2] == current))) {
+                break;
+            } else ++position;
+        }
+        if (!escaped && root_build.substr(begin, position - begin) == path) return true;
+        position += std::min<std::size_t>(delimiter, root_build.size() - position);
+    }
+    return false;
 }
 
 std::string staged_root_build(const fs::path& staged_root) {
