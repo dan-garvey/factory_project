@@ -5477,7 +5477,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		var outcome := issue({"action": "place_component",
 			"component": component_name, "center": center})
 		if outcome.accepted:
-			selected = selected_anvil if component_name != "anvil" and not selected_anvil.is_empty() \
+			selected = selected_anvil if component_name not in ["anvil", "broad_anvil"] and not selected_anvil.is_empty() \
 				else str(outcome.get("entity", ""))
 		_refresh_ui()
 		return
