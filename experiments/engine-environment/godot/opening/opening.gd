@@ -6103,7 +6103,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 				"crank": carried_id, "port": center}
 			var crank_face := _crank_face_for_input(input_id, center)
 			if crank_face.size() == 3:
-				attach_wire.face = crank_face
+				attach_wire["face"] = crank_face
 			var attached := issue(attach_wire)
 			if attached.accepted:
 				selected = input_id
