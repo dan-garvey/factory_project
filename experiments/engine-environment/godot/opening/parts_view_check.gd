@@ -3871,21 +3871,28 @@ func _slide_controls_check() -> void:
 	var auto_blank: Dictionary = panel.inventory_drag("player_raw")
 	verify(not panel.route_choice.visible and panel.auto_route_cue.visible
 		and panel.auto_route_cue.text.contains("WEST → EAST")
+		and panel.flow_diagram.visible and panel.flow_diagram.route == auto_snapshot.sliding_press_assemblies[0].auto_feed
+		and panel.flow_diagram.accessibility_name.contains("WEST → EAST")
+		and panel.flow_diagram.focus_mode == Control.FOCUS_ALL
 		and not panel.cycle_feed_route()
 		and auto_blank.get("wire", {}).get("entry", []) == [11, 0, 8],
-		"The projected Auto route feeds carried copper without a G selector, even when the manual index differs.")
+		"The native Auto route drives the focused material diagram and carried feed without a G selector.")
 	auto_snapshot.sliding_press_assemblies[0].auto_feed = {
 		"entry": [13, 0, 8], "exit": [11, 0, 8]}
 	panel.refresh(auto_snapshot, "P", "anvil", true)
 	var connected_blank: Dictionary = panel.inventory_drag("player_raw")
 	verify(not panel.route_choice.visible and panel.auto_route_cue.text.contains("EAST → WEST")
+		and panel.flow_diagram.route == auto_snapshot.sliding_press_assemblies[0].auto_feed
+		and panel.flow_diagram.accessibility_name.contains("EAST → WEST")
 		and connected_blank.get("wire", {}).get("entry", []) == [13, 0, 8],
-		"A reversed native Auto projection changes the visible cue and carried-copper entry together.")
+		"A reversed native Auto projection changes the diagram and carried-copper entry together.")
 	auto_snapshot.sliding_press_assemblies[0].erase("auto_feed")
 	panel.refresh(auto_snapshot, "P", "anvil", true)
 	verify(panel.auto_route_cue.text.contains("ROUTE BLOCKED")
+		and panel.flow_diagram.route.is_empty()
+		and panel.flow_diagram.accessibility_name.contains("ROUTE BLOCKED")
 		and panel.inventory_drag("player_raw").is_empty(),
-		"A blocked native Auto route does not fall through to the other clear route.")
+		"A blocked native Auto route shows no inferred arrow or alternate feed.")
 	panel.refresh(snapshot, "P", "anvil", true)
 	verify(panel.cycle_feed_route() and panel._route_index == 1,
 		"G changes the next feed direction after the retained route is released.")
@@ -4057,8 +4064,11 @@ func _slide_inventory_render_check() -> void:
 	projected_press.auto_feed = {"entry": [13, 0, 8], "exit": [11, 0, 8]}
 	view._refresh_ui()
 	verify(panel.auto_route_cue.visible and panel.auto_route_cue.text.contains("EAST → WEST")
+		and panel.flow_diagram.is_visible_in_tree()
+		and panel.flow_diagram.route == projected_press.auto_feed
+		and panel.flow_diagram.accessibility_name.contains("Blue arrow")
 		and not panel.route_choice.visible,
-		"The ordinary workbed renders the connected east-to-west Auto cue without a route selector.")
+		"The ordinary workbed renders a focusable connected material diagram without a route selector.")
 	if not destination.is_empty():
 		await RenderingServer.frame_post_draw
 		verify(scene_root.get_texture().get_image().save_png(destination + "-connected-auto.png") == OK,
@@ -4131,6 +4141,33 @@ func _slide_inventory_render_check() -> void:
 		verify(scene_root.get_texture().get_image().get_region(Rect2i(0, 0, 640, 480))
 			.save_png(destination + "-narrow.png") == OK,
 			"Retain the passive workbed inventory panel at 640 by 480.")
+	projected_press.auto_route = true
+	projected_press.auto_feed = {"entry": [13, 0, 8], "exit": [11, 0, 8]}
+	view._refresh_ui()
+	await process_frame
+	var diagram_bounds: Rect2 = panel.flow_diagram.get_global_rect()
+	operations = view.object_menu_operations.get_global_rect()
+	verify(panel.flow_diagram.is_visible_in_tree()
+		and diagram_bounds.position.x >= operations.position.x
+		and diagram_bounds.end.x <= operations.end.x
+		and diagram_bounds.position.y >= operations.position.y
+		and diagram_bounds.end.y <= operations.end.y,
+		"The connected native material diagram fits within the narrow workbed panel.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().get_region(Rect2i(0, 0, 640, 480))
+			.save_png(destination + "-connected-auto-narrow.png") == OK,
+			"Retain the narrow connected material diagram.")
+	projected_press.erase("auto_feed")
+	view._refresh_ui()
+	verify(panel.flow_diagram.route.is_empty()
+		and panel.flow_diagram.accessibility_name.contains("ROUTE BLOCKED"),
+		"The ordinary blocked view removes directional arrows with no invented feed.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().get_region(Rect2i(0, 0, 640, 480))
+			.save_png(destination + "-blocked-auto-narrow.png") == OK,
+			"Retain the narrow blocked material diagram.")
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "scope": "ordinary slide E-panel rendered over an invented projection"}))
 	quit(0 if failures == 0 else 1)

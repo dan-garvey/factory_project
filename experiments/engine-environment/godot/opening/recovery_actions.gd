@@ -439,6 +439,67 @@ class WorkbedInventoryRegion:
 		panel.set_content_margin_all(6)
 		add_theme_stylebox_override("panel", panel)
 
+class SlideFlowDiagram:
+	extends Control
+	## North is up. Arrows follow native entry/exit cells, not slide input ports.
+	const INPUT_COLOR := Color("69bbef")
+	const OUTPUT_COLOR := Color("f1aa65")
+	const QUIET_COLOR := Color("687f7a")
+	var work_center: Array = []
+	var route: Dictionary = {}
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(160, 68)
+		focus_mode = Control.FOCUS_ALL
+		mouse_filter = Control.MOUSE_FILTER_STOP
+
+	func show_flow(center: Array, native_route: Dictionary) -> void:
+		work_center = center.duplicate()
+		route = native_route.duplicate(true)
+		queue_redraw()
+
+	func _direction(cell: Array) -> Vector2:
+		if cell.size() != 3 or work_center.size() != 3:
+			return Vector2.ZERO
+		var offset := Vector2(float(cell[0] - work_center[0]),
+			float(cell[2] - work_center[2]))
+		return offset.normalized() if offset.length_squared() > 0.0 else Vector2.ZERO
+
+	func _arrow(from: Vector2, to: Vector2, color: Color) -> void:
+		draw_line(from, to, color, 3.0, true)
+		var direction := (to - from).normalized()
+		var sideways := Vector2(-direction.y, direction.x)
+		draw_colored_polygon(PackedVector2Array([to, to - direction * 9.0 + sideways * 5.0,
+			to - direction * 9.0 - sideways * 5.0]), color)
+
+	func _draw() -> void:
+		var middle := size * 0.5
+		var input := _direction(route.get("entry", []))
+		var output := _direction(route.get("exit", []))
+		var rail_axis := input if input != Vector2.ZERO else Vector2.RIGHT
+		draw_line(middle - rail_axis * 54.0, middle + rail_axis * 54.0,
+			QUIET_COLOR, 2.0)
+		draw_rect(Rect2(middle - Vector2(10, 10), Vector2(20, 20)),
+			Color("a6b9ad"), false, 2.0)
+		draw_circle(middle, 3.0, Color("d8e4d9"))
+		var font: Font = ThemeDB.fallback_font
+		draw_string(font, Vector2(13, 14), "N", HORIZONTAL_ALIGNMENT_LEFT,
+			-1, 10, Color("c9d8ce"))
+		if input == Vector2.ZERO or output == Vector2.ZERO:
+			return
+		_arrow(middle + input * 48.0, middle + input * 14.0, INPUT_COLOR)
+		_arrow(middle + output * 14.0, middle + output * 48.0, OUTPUT_COLOR)
+		var input_label := middle + input * 54.0 + Vector2(-9, 17)
+		var output_label := middle + output * 54.0 + Vector2(-12, 17)
+		input_label.x = clampf(input_label.x, 2.0, size.x - 23.0)
+		input_label.y = clampf(input_label.y, 12.0, size.y - 2.0)
+		output_label.x = clampf(output_label.x, 2.0, size.x - 25.0)
+		output_label.y = clampf(output_label.y, 12.0, size.y - 2.0)
+		draw_string(font, input_label, "IN", HORIZONTAL_ALIGNMENT_LEFT,
+			-1, 10, INPUT_COLOR)
+		draw_string(font, output_label, "OUT", HORIZONTAL_ALIGNMENT_LEFT,
+			-1, 10, OUTPUT_COLOR)
+
 class ArrivalAssemblyControls:
 	extends PanelContainer
 	## Views the native arrival cargo and sends exact component and press commands.
@@ -491,6 +552,7 @@ class ArrivalAssemblyControls:
 	var output_heading: Label
 	var output_actions: HBoxContainer
 	var route_choice: OptionButton
+	var flow_diagram: SlideFlowDiagram
 	var auto_route_cue: Label
 	var slide_port_choice: OptionButton
 	var held_work_choice: OptionButton
@@ -584,6 +646,11 @@ class ArrivalAssemblyControls:
 		route_choice.accessibility_name = "Press feed direction, shortcut G"
 		route_choice.item_selected.connect(func(index: int) -> void: _route_index = index)
 		press_section.add_child(route_choice)
+		flow_diagram = SlideFlowDiagram.new()
+		flow_diagram.name = "SlideMaterialFlow"
+		flow_diagram.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		press_section.add_child(flow_diagram)
+		flow_diagram.visible = false
 		auto_route_cue = host._label(press_section, "", 12, Color("f4bf75"))
 		auto_route_cue.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		auto_route_cue.visible = false
@@ -849,15 +916,19 @@ class ArrivalAssemblyControls:
 		var auto_route: bool = _press.get("auto_route", false)
 		var auto_feed: Dictionary = _press.get("auto_feed", {})
 		auto_route_cue.visible = auto_route and not _anvil.is_empty()
+		flow_diagram.visible = auto_route_cue.visible
+		flow_diagram.show_flow(work_center, auto_feed)
 		var route_description := "AUTO  ·  ROUTE BLOCKED"
 		if not auto_feed.is_empty():
 			route_description = "AUTO  ·  %s → %s" % [
 				_bearing(auto_feed.entry, work_center).to_upper(),
 				_bearing(auto_feed.exit, work_center).to_upper()]
 		auto_route_cue.text = route_description
-		auto_route_cue.tooltip_text = "The fitted slide sets this workbed route. Clear the blocked side to continue." \
-			if auto_feed.is_empty() else "The fitted slide sets this workbed route. Select or drag carried copper to feed it."
+		auto_route_cue.tooltip_text = "No supported material path is open. Clear the blocked feed or outlet." \
+			if auto_feed.is_empty() else "Blue arrow: copper enters the workbed. Orange arrow: copper leaves it. North is up."
 		auto_route_cue.accessibility_name = route_description + ". " + auto_route_cue.tooltip_text
+		flow_diagram.tooltip_text = auto_route_cue.tooltip_text
+		flow_diagram.accessibility_name = "Workbed material flow. " + auto_route_cue.accessibility_name
 		inventory_section.visible = _inventory_broad or (sliding and not _anvil.is_empty())
 		var work_face := "flat head" if sliding else "ram"
 		var input_id: String = str(_press.get("parts", {}).get("slide" if sliding else "shaft", ""))
