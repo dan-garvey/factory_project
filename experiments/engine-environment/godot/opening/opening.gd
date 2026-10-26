@@ -4787,7 +4787,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		elif state.get("first_plate_unlock", false) and sliding_feed_blocked:
 			next_work = "Clear an X-side feed path [F], then open the press [E]."
 		elif press_ready:
-			next_work = "Open the working press [E] to feed or turn."
+			next_work = "Feed copper at the press [E], then hold E on its fitted crank in the world."
 		elif state.get("first_plate_unlock", false) and not state.get("placed_components", {}).is_empty():
 			next_work = "Inspect placed parts [E] and use Build [B] for what the press still needs."
 		elif state.get("first_plate_unlock", false) and (
