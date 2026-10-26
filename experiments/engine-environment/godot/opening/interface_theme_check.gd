@@ -1,4 +1,5 @@
 extends SceneTree
+const Widgets = preload("res://opening/production_widgets.gd")
 ## Presentation styles and layout metrics only. No game or desktop input.
 const Opening = preload("res://opening/opening.gd")
 const Styles = preload("res://opening/production_interface.gd")
@@ -78,10 +79,10 @@ func check_buttons() -> void:
 				fresh.disabled = state == 2
 				verify(old.get_combined_minimum_size() == fresh.get_combined_minimum_size(),
 					"Literal ordinary/native menu text keeps its baseline width and height in every state.")
-	var old_column := view._panel(old_root, Vector2(18, 18), Vector2(275, 620))
-	var new_column := view._panel(new_root, Vector2(18, 18), Vector2(275, 620))
-	var old_button := view._button(old_column, "Confirm four plates", clicked)
-	var new_button := view._button(new_column, "Confirm four plates", clicked)
+	var old_column := Widgets.panel(old_root, Vector2(18, 18), Vector2(275, 620))
+	var new_column := Widgets.panel(new_root, Vector2(18, 18), Vector2(275, 620))
+	var old_button := Widgets.button(old_column, "Confirm four plates", clicked)
+	var new_button := Widgets.button(new_column, "Confirm four plates", clicked)
 	verify(old_button.custom_minimum_size == Vector2(0, 37)
 		and old_button.get_combined_minimum_size() == new_button.get_combined_minimum_size(),
 		"The actual worksite button helper retains its 37-pixel control contract through inheritance.")

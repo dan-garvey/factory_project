@@ -1,9 +1,16 @@
 extends SceneTree
+const ProductionConveyorArt = preload("res://opening/production_conveyors.gd").ProductionConveyorArt
+const ProductionEnvironment = preload("res://opening/production_environment.gd").ProductionEnvironment
+const ProductionFoundationArt = preload("res://opening/production_foundations.gd").ProductionFoundationArt
+const ProductionSteelFloor = preload("res://opening/production_surfaces.gd").ProductionSteelFloor
+const ProductionTransmissionFinish = preload("res://opening/production_surfaces.gd").ProductionTransmissionFinish
+const ProductionVisuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
+const ProductionPaddleArt = preload("res://opening/production_waterwheels.gd").ProductionPaddleArt
+const ProductionWheelArt = preload("res://opening/production_waterwheels.gd").ProductionWheelArt
 ## Fitted transmission geometry only. No World, input, network or desktop.
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Finish = Assets.Finish
-const Opening = preload("res://opening/opening.gd")
 const WORKED_SIZE := 256
 const WORKED_RELIEF_METRES := 0.00001
 # The presenter fits every gear in one 1.65 m tile; native ratio units change
@@ -28,11 +35,11 @@ func check_resource_images() -> void:
 	var records: Array[Dictionary] = []
 	for relative: String in paths:
 		var path := "res://" + relative
-		verify(Opening.ProductionVisuals.image_exists(path), "Imported project images remain available: " + relative)
+		verify(ProductionVisuals.image_exists(path), "Imported project images remain available: " + relative)
 		if packed:
 			verify(not FileAccess.file_exists(path), "The packed control excludes the original image file: " + relative)
 		var expected := Image.load_from_file(family.path_join("reference").path_join(relative))
-		var actual := Opening.ProductionVisuals.read_image(path)
+		var actual := ProductionVisuals.read_image(path)
 		if not verify(actual != null and expected != null, "Both independent image paths decode: " + relative):
 			continue
 		verify(actual.get_size() == expected.get_size(), "Imported image dimensions are unchanged: " + relative)
@@ -43,17 +50,17 @@ func check_resource_images() -> void:
 		# Material preparation may convert formats and generate mipmaps, so it
 		# must receive its own image rather than mutate the cached resource.
 		actual.resize(1, 1)
-		var again := Opening.ProductionVisuals.read_image(path)
+		var again := ProductionVisuals.read_image(path)
 		verify(again != null and again.get_size() == expected.get_size(), "Preparing one image does not mutate its cached resource: " + relative)
 		records.append({"path": relative, "pixels_equal": equal, "format": expected.get_format(),
 			"size": [expected.get_width(), expected.get_height()]})
-	verify(not Opening.ProductionVisuals.image_exists("res://opening/assets/missing-material.webp")
-		and Opening.ProductionVisuals.read_image("res://opening/assets/missing-material.webp") == null,
+	verify(not ProductionVisuals.image_exists("res://opening/assets/missing-material.webp")
+		and ProductionVisuals.read_image("res://opening/assets/missing-material.webp") == null,
 		"An absent resource remains an explicit absence without raw-file fallback.")
-	verify(Opening.ProductionVisuals.read_image(family.path_join("reference").path_join(paths[0])) != null,
+	verify(ProductionVisuals.read_image(family.path_join("reference").path_join(paths[0])) != null,
 		"External preparation inputs retain filesystem decoding.")
-	for source in [Opening.ProductionTransmissionFinish, Opening.ProductionPaddleArt,
-			Opening.ProductionSteelFloor, Opening.ProductionFoundationArt, Opening.ProductionConveyorArt]:
+	for source in [ProductionTransmissionFinish, ProductionPaddleArt,
+			ProductionSteelFloor, ProductionFoundationArt, ProductionConveyorArt]:
 		verify(source.read_images().status == "ready", "The complete runtime material set uses imported resources.")
 	var cast: StandardMaterial3D = Finish.material("cast", Color("76644d"), 0.8, 0.7)
 	verify(cast != null and cast.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED
@@ -61,12 +68,12 @@ func check_resource_images() -> void:
 		and cast.normal_texture == Finish.textures.cast_normal,
 		"The transmission still binds the original normal and red-channel roughness maps.")
 	verify(cast == Finish.material("cast", Color("76644d"), 0.8, 0.7), "Imported material preparation preserves finish reuse.")
-	Opening.ProductionWheelArt._prepare()
-	verify(Opening.ProductionWheelArt.source_status == "ready", "The rotor still receives its complete imported material.")
-	var sky: Dictionary = Opening.ProductionEnvironment.read_sky()
+	ProductionWheelArt._prepare()
+	verify(ProductionWheelArt.source_status == "ready", "The rotor still receives its complete imported material.")
+	var sky: Dictionary = ProductionEnvironment.read_sky()
 	verify(sky.status == "ready" and sky.image.get_format() == Image.FORMAT_RGBF,
 		"Imported sky preparation preserves floating HDR radiance.")
-	var presenter := Opening.CharacterPresenter.new()
+	var presenter := preload("res://opening/character_presenter.gd").new()
 	for role: String in ["body", "head", "opacity"]:
 		var material: StandardMaterial3D = presenter._adult_material("f001_" + role)
 		if not verify(material != null, "The adult material uses imported images: " + role):

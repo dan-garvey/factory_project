@@ -1,9 +1,11 @@
 extends SceneTree
+const ProductionVisuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
+const ProductionSteelFloor = preload("res://opening/production_surfaces.gd").ProductionSteelFloor
 ## Isolated visual resources and 3D world assembly. No gameplay or desktop input.
 const Opening = preload("res://opening/opening.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const NativeModel = preload("res://opening/native_model.gd")
-const Scenery = Opening.ProductionEnvironment
+const Scenery = preload("res://opening/production_environment.gd").ProductionEnvironment
 var checks := 0
 var failed := false
 var error_count := 0
@@ -799,7 +801,7 @@ func check_ground_material() -> void:
 		"The ordinary ground material loads the complete sourced bitmap set.")
 	if ground == null:
 		return
-	verify(ground == Scenery.ground_material() and Opening.ProductionSteelFloor.source_status == "uninitialized",
+	verify(ground == Scenery.ground_material() and ProductionSteelFloor.source_status == "uninitialized",
 		"Terrain material reuse does not consume or poison the independent steel cache.")
 	var albedo: Texture2D = ground.get_shader_parameter("albedo_map")
 	var normal: Texture2D = ground.get_shader_parameter("normal_map")
@@ -823,7 +825,7 @@ func check_ground_material() -> void:
 		and stone.normal_texture.get_image().has_mipmaps()
 		and stone.roughness_texture.get_image().has_mipmaps(),
 		"Steep-bank sampling retains every qualified rock mip chain.")
-	var packed := Image.load_from_file(Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.arm))
+	var packed := ProductionVisuals.read_image(Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.arm))
 	var actual := scalars.get_image()
 	for pixel in [Vector2i(0, 0), Vector2i(117, 239), Vector2i(511, 511)]:
 		verify(actual.get_pixelv(pixel) == packed.get_pixelv(pixel), "Material construction preserves decoded scalar channels without a color transform.")
@@ -840,13 +842,13 @@ func check_ground_material() -> void:
 		if not verify(not DirAccess.dir_exists_absolute(directory) and DirAccess.make_dir_absolute(directory) == OK,
 			"Negative material cases preserve existing outputs."):
 			return
-	var missing := Opening.ProductionSteelFloor.read_images(empty, Scenery.GROUND_FILES, Vector2i(512, 512))
+	var missing := ProductionSteelFloor.read_images(empty, Scenery.GROUND_FILES, Vector2i(512, 512))
 	verify(missing.status == "missing" and missing.images.is_empty(), "An absent bitmap set cannot masquerade as a qualified surface.")
 	var albedo_path: String = Scenery.GROUND_ROOT.path_join(Scenery.GROUND_FILES.albedo)
 	if not verify(DirAccess.copy_absolute(albedo_path, partial.path_join(Scenery.GROUND_FILES.albedo)) == OK,
 		"Retain the real partial-set negative input."):
 		return
-	var incomplete := Opening.ProductionSteelFloor.read_images(partial, Scenery.GROUND_FILES, Vector2i(512, 512))
+	var incomplete := ProductionSteelFloor.read_images(partial, Scenery.GROUND_FILES, Vector2i(512, 512))
 	verify(incomplete.status == "invalid" and incomplete.reason == "incomplete_material_set" and incomplete.images.is_empty(),
 		"A partial set is never labelled as a sourced ready material.")
 	for role in Scenery.GROUND_FILES:
@@ -857,10 +859,10 @@ func check_ground_material() -> void:
 	if not verify(tiny.save_webp(wrong.path_join(Scenery.GROUND_FILES.normal), false, 1.0) == OK,
 		"Replace only the disposable negative normal map with a valid wrong-size image."):
 		return
-	var invalid := Opening.ProductionSteelFloor.read_images(wrong, Scenery.GROUND_FILES, Vector2i(512, 512))
+	var invalid := ProductionSteelFloor.read_images(wrong, Scenery.GROUND_FILES, Vector2i(512, 512))
 	verify(invalid.status == "invalid" and invalid.reason == "invalid_normal" and invalid.images.is_empty(),
 		"A valid image with the wrong normal extent fails the declared material contract.")
-	verify(Opening.ProductionSteelFloor.read_images().status == "ready",
+	verify(ProductionSteelFloor.read_images().status == "ready",
 		"The shared decoder's original default filenames still load the unchanged steel set.")
 
 
@@ -1652,7 +1654,7 @@ func check_sourced_sky() -> void:
 	view.free()
 
 func count_material_users(node: Node, material: Material) -> int:
-	var total := 1 if node is MeshInstance3D and node.material_override == material else 0
+	var total := 1 if node is GeometryInstance3D and node.material_override == material else 0
 	for child in node.get_children():
 		total += count_material_users(child, material)
 	return total
@@ -1683,24 +1685,25 @@ func check_stone_material() -> void:
 	check_rock_shapes(rocks.multimesh)
 	for index in range(64):
 		for channel in range(3):
-			verify(rocks.multimesh.buffer[index * 16 + 12 + channel] >= 0.8,
-				"The photo is not multiplied by the former dark generated-rock tint.")
-	var steel := Opening.ProductionSteelFloor.read_images()
-	var ground := Opening.ProductionSteelFloor.read_images(Scenery.GROUND_ROOT, Scenery.GROUND_FILES, Vector2i(512, 512))
+			var tint: float = rocks.multimesh.buffer[index * 16 + 12 + channel]
+			verify(tint >= 0.6 and tint <= 1.0,
+				"The authored geological tint preserves a majority of the photographed surface brightness.")
+	var steel := ProductionSteelFloor.read_images()
+	var ground := ProductionSteelFloor.read_images(Scenery.GROUND_ROOT, Scenery.GROUND_FILES, Vector2i(512, 512))
 	verify(steel.status == "ready" and ground.status == "ready",
 		"The extended scalar-extent argument preserves existing steel and ground decoder defaults.")
-	verify(Scenery.ground_material() != material and Opening.ProductionSteelFloor.material() != material,
+	verify(Scenery.ground_material() != material and ProductionSteelFloor.material() != material,
 		"Surface roles keep separate material caches.")
-	var missing := Opening.ProductionSteelFloor.read_images(fixture_directory.path_join("missing-stone"), Scenery.STONE_FILES, Vector2i(512, 512), Vector2i(256, 256))
+	var missing := ProductionSteelFloor.read_images(fixture_directory.path_join("missing-stone"), Scenery.STONE_FILES, Vector2i(512, 512), Vector2i(256, 256))
 	verify(missing.status == "missing", "Historical absent stone maps retain an explicit status.")
 	var partial_path := fixture_directory.path_join("partial-stone")
 	if verify(DirAccess.make_dir_absolute(partial_path) == OK, "The negative input directory is fresh and owned."):
 		var file := FileAccess.open(partial_path.path_join(Scenery.STONE_FILES.albedo), FileAccess.WRITE)
 		file.store_buffer(FileAccess.get_file_as_bytes(Scenery.STONE_ROOT.path_join(Scenery.STONE_FILES.albedo)))
 		file.close()
-		var partial := Opening.ProductionSteelFloor.read_images(partial_path, Scenery.STONE_FILES, Vector2i(512, 512), Vector2i(256, 256))
+		var partial := ProductionSteelFloor.read_images(partial_path, Scenery.STONE_FILES, Vector2i(512, 512), Vector2i(256, 256))
 		verify(partial.status == "invalid" and partial.reason == "incomplete_material_set", "A partial stone package is never accepted as ready.")
-	var wrong_extent := Opening.ProductionSteelFloor.read_images(Scenery.STONE_ROOT, Scenery.STONE_FILES, Vector2i(512, 512))
+	var wrong_extent := ProductionSteelFloor.read_images(Scenery.STONE_ROOT, Scenery.STONE_FILES, Vector2i(512, 512))
 	verify(wrong_extent.status == "invalid" and wrong_extent.reason == "invalid_arm",
 		"Scalar-map extents are validated, rather than treating a decode alone as a complete material.")
 	var view := FixtureView.new()
@@ -1709,7 +1712,7 @@ func check_stone_material() -> void:
 	verify(view.model == null and view.actor_world == null and view.state.is_empty(),
 		"Ordinary natural-scenery assembly starts no authority or gameplay clock.")
 	var users := count_material_users(view, material)
-	verify(users >= 5, "Actual natural geological pieces consume the shared source material.")
+	verify(users == 1, "The natural outcrop batch consumes the shared material without retired artificial stone architecture.")
 	verify(view.get_node("ProductionScenery/RockOutcrops").material_override == material,
 		"The ordinary rock group binds the same shared photo surface.")
 	print(JSON.stringify({"ordinary_material_users": users, "rock_instances": 64,

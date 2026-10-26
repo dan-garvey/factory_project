@@ -3,7 +3,7 @@ extends SceneTree
 ## No World, input, network or desktop execution.
 
 const Assets = preload("res://opening/workpiece_item_assets.gd")
-const Visuals = preload("res://opening/opening.gd").ProductionVisuals
+const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
 const Geometry = preload("res://opening/site_geometry.gd")
 const Opening = preload("res://opening/opening.gd")
 const Shared = preload("res://opening/shared_opening.gd")

@@ -82,8 +82,8 @@ class MixedAssetScaleView extends Opening:
 		var batch_start := Time.get_ticks_usec()
 		if production_batch:
 			if spatial_cells >= 0:
-				machine_static_spatial_tiles = spatial_cells
-			_batch_machine_visuals()
+				machine_batches.machine_static_spatial_tiles = spatial_cells
+			machine_batches.rebuild(machine_root, machine_motion_anchors, _native_transmission())
 			if mesh_lod:
 				_prepare_composite_lod()
 			var batches := machine_root.get_node_or_null("MachineVisualBatches")
@@ -161,7 +161,7 @@ class MixedAssetScaleView extends Opening:
 			if part.visible and part.mesh != null:
 				# The live opening helper copies any per-surface finish onto an exact
 				# mesh resource that MultiMesh can share without dropping that finish.
-				var prepared: Mesh = _machine_batch_surface_mesh(part)
+				var prepared: Mesh = machine_batches._machine_batch_surface_mesh(part)
 				part.set_meta("fixture_batch_mesh", prepared)
 				var finish := part.material_override
 				if shared_conveyor_finish and part.name == "ConveyorLoop" \
@@ -265,6 +265,8 @@ func _pick_bodies(node: Node) -> int:
 	return count
 
 func _initialize() -> void:
+	if not Opening.apply_test_window_title(self):
+		return
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--compare-images="):
 			_compare_images(argument.trim_prefix("--compare-images="))
@@ -357,9 +359,9 @@ func _expected_visible_wheel_rotors(view: PerformanceView) -> Dictionary:
 
 func _check_indexed_wheel_visibility(view: PerformanceView, condition: String) -> void:
 	var expected := _expected_visible_wheel_rotors(view)
-	var matches := view.wheel_updated_rotors.size() == expected.size()
+	var matches := view.machine_batches.wheel_updated_rotors.size() == expected.size()
 	for rotor_id in expected:
-		matches = matches and view.wheel_updated_rotors.has(rotor_id)
+		matches = matches and view.machine_batches.wheel_updated_rotors.has(rotor_id)
 	_check(matches, condition)
 
 func _batch_motion_check() -> void:
@@ -377,9 +379,9 @@ func _batch_motion_check() -> void:
 	view._rebuild_machines()
 	var batch_root := view.machine_root.get_node_or_null("MachineVisualBatches")
 	_check(batch_root != null and batch_root.get_child_count() > 0
-		and not view.machine_dynamic_batches.is_empty(),
+		and not view.machine_batches.machine_dynamic_batches.is_empty(),
 		"Twelve native wheels share static and moving render batches.")
-	_check(view.machine_batched_rotor_slots.size() == 12,
+	_check(view.machine_batches.machine_batched_rotor_slots.size() == 12,
 		"Each batched wheel has a direct moving-instance slot.")
 	var retained_joinery := 0
 	var hidden_core := 0
@@ -393,7 +395,7 @@ func _batch_motion_check() -> void:
 	var bases: Array[Basis] = []
 	for index in 12:
 		bases.append((view.machine_root.get_child(index).get_node("WheelRotor") as Node3D).basis)
-	var first_multi: MultiMesh = view.machine_dynamic_batches[0].mesh
+	var first_multi: MultiMesh = view.machine_batches.machine_dynamic_batches[0].mesh
 	var old_instance := first_multi.get_instance_transform(0)
 	view._animate_wheel(0.1)
 	if DisplayServer.get_name() != "headless":
@@ -408,7 +410,7 @@ func _batch_motion_check() -> void:
 	view.state.entities["wheel-11"].cell = [-100, 0]
 	view._rebuild_machines()
 	var isolated_rotor := view.machine_root.get_child(11).get_node("WheelRotor") as Node3D
-	_check(not view.machine_batched_rotors.has(isolated_rotor.get_instance_id())
+	_check(not view.machine_batches.machine_batched_rotors.has(isolated_rotor.get_instance_id())
 		and isolated_rotor.find_children("*", "MeshInstance3D", true, false).any(
 			func(part: Node) -> bool: return part.visible and (part as MeshInstance3D).visibility_range_end <= 0.0),
 		"A lone wheel in a spatial cell keeps its original rendered rotor mesh.")
@@ -426,8 +428,8 @@ func _batch_motion_check() -> void:
 	var far_rotor := view.machine_root.get_child(11).get_node("WheelRotor") as Node3D
 	var near_group := -1
 	var far_group := -1
-	for group_index in view.machine_dynamic_batches.size():
-		for part: Dictionary in view.machine_dynamic_batches[group_index].parts:
+	for group_index in view.machine_batches.machine_dynamic_batches.size():
+		for part: Dictionary in view.machine_batches.machine_dynamic_batches[group_index].parts:
 			if part.node == near_rotor:
 				near_group = group_index
 			elif part.node == far_rotor:
@@ -436,14 +438,14 @@ func _batch_motion_check() -> void:
 		"Nearby and distant wheels use separate moving batches with the same authored rotor mesh.")
 	var far_base := far_rotor.basis
 	var far_id := far_rotor.get_instance_id()
-	var far_slot: Dictionary = view.machine_batched_rotor_slots.get(far_id, {})
+	var far_slot: Dictionary = view.machine_batches.machine_batched_rotor_slots.get(far_id, {})
 	_check(not far_slot.is_empty(), "The distant wheel keeps its own moving-instance slot.")
 	var far_instance_before: Transform3D = far_slot.mesh.get_instance_transform(far_slot.index)
 	view._animate_wheel(0.1)
 	_check_indexed_wheel_visibility(view,
 		"The near camera updates exactly the rotors inside the original per-wheel frustum margin.")
 	_check(near_rotor.basis.is_equal_approx(bases[0] * Basis(Vector3.BACK, 0.1))
-		and far_rotor.basis.is_equal_approx(far_base) and not view.wheel_batch_poses.has(far_id),
+		and far_rotor.basis.is_equal_approx(far_base) and not view.machine_batches.wheel_batch_poses.has(far_id),
 		"Near joinery turns while an offscreen distant rotor holds its last pose.")
 	if DisplayServer.get_name() != "headless":
 		_check(far_slot.mesh.get_instance_transform(far_slot.index).is_equal_approx(far_instance_before),
@@ -452,10 +454,10 @@ func _batch_motion_check() -> void:
 	view._animate_wheel(0.1)
 	_check_indexed_wheel_visibility(view,
 		"Turning toward the negative distant cell updates its first visible frame.")
-	_check(far_rotor.basis.is_equal_approx(far_base) and view.wheel_batch_poses.has(far_id),
+	_check(far_rotor.basis.is_equal_approx(far_base) and view.machine_batches.wheel_batch_poses.has(far_id),
 		"A visible distant rotor resumes its moving batch without dirtying hidden source nodes.")
 	var far_instance_found := false
-	for group in view.machine_dynamic_batches:
+	for group in view.machine_batches.machine_dynamic_batches:
 		for index in group.parts.size():
 			var part: Dictionary = group.parts[index]
 			if part.node != far_rotor:
@@ -463,7 +465,7 @@ func _batch_motion_check() -> void:
 			far_instance_found = true
 			var expected: Transform3D = part.parent_pose * Transform3D(
 				far_base * Basis(Vector3.BACK, 1.2), far_rotor.position)
-			_check(view.wheel_batch_poses[far_id].is_equal_approx(Transform3D(
+			_check(view.machine_batches.wheel_batch_poses[far_id].is_equal_approx(Transform3D(
 				far_base * Basis(Vector3.BACK, 1.2), far_rotor.position)),
 				"The distant wheel keeps its independently advanced core pose.")
 			if DisplayServer.get_name() != "headless":
@@ -474,13 +476,13 @@ func _batch_motion_check() -> void:
 	view._animate_wheel(0.1)
 	_check_indexed_wheel_visibility(view,
 		"Moving across cells preserves the exact per-wheel visibility set.")
-	_check(not view.wheel_batch_poses.has(far_id)
+	_check(not view.machine_batches.wheel_batch_poses.has(far_id)
 		and far_rotor.basis.is_equal_approx(far_base * Basis(Vector3.BACK, 1.2)),
 		"Walking to a distant wheel immediately catches its detailed joinery up to motion.")
-	var near_slot: Dictionary = view.machine_batched_rotor_slots[near_rotor.get_instance_id()]
+	var near_slot: Dictionary = view.machine_batches.machine_batched_rotor_slots[near_rotor.get_instance_id()]
 	var original_near_basis := near_rotor.basis
 	near_rotor.basis = original_near_basis * Basis(Vector3.BACK, 0.17)
-	view._update_machine_dynamic_batches()
+	view.machine_batches.update()
 	if DisplayServer.get_name() != "headless":
 		_check(near_slot.mesh.get_instance_transform(near_slot.index).is_equal_approx(
 			near_slot.parent_pose * near_rotor.transform),
@@ -489,7 +491,7 @@ func _batch_motion_check() -> void:
 	view.state.entities.erase("wheel-11")
 	view._rebuild_machines()
 	_check(view.machine_root.get_node_or_null("MachineVisualBatches") == null
-		and view.machine_dynamic_batches.is_empty() and view.machine_batched_rotor_slots.is_empty(),
+		and view.machine_batches.machine_dynamic_batches.is_empty() and view.machine_batches.machine_batched_rotor_slots.is_empty(),
 		"Falling below the batching threshold restores direct render meshes.")
 	var unbatched_rotor := view.machine_root.get_child(0).get_node("WheelRotor") as Node3D
 	var unbatched_base := unbatched_rotor.basis
@@ -513,10 +515,10 @@ func _batch_motion_check() -> void:
 		belt_view.state.entities["belt-%d" % index] = {"kind": "belt", "axis": 0,
 			"cell": [index, 0], "level": 0}
 	belt_view._rebuild_machines()
-	_check(belt_view.machine_conveyor_batches.size() == 1,
+	_check(belt_view.machine_batches.machine_conveyor_batches.size() == 1,
 		"Conveyor loops retain one shared render batch.")
 	var grouped_belt_finish := false
-	for composite in belt_view.machine_batch_composite_meshes.values():
+	for composite in belt_view.machine_batches.machine_batch_composite_meshes.values():
 		if composite.get_surface_count() != 3:
 			continue
 		for surface_index in composite.get_surface_count():
@@ -530,7 +532,7 @@ func _batch_motion_check() -> void:
 				and arrays[Mesh.ARRAY_TEX_UV2].size() == arrays[Mesh.ARRAY_VERTEX].size()
 	_check(grouped_belt_finish,
 		"The repeated conveyor frame groups opaque finishes and retains textured surface inputs.")
-	if belt_view.machine_conveyor_batches.size() == 1:
+	if belt_view.machine_batches.machine_conveyor_batches.size() == 1:
 		var first := belt_view.machine_root.get_child(0) as Node3D
 		var second := belt_view.machine_root.get_child(1) as Node3D
 		var first_loop := first.find_child("ConveyorLoop", true, false) as MeshInstance3D
@@ -539,19 +541,19 @@ func _batch_motion_check() -> void:
 		var second_source_phase: float = second_loop.material_override.uv1_offset.x
 		belt_view._apply_conveyor_motion(first, 0.5)
 		belt_view._apply_conveyor_motion(second, 1.0)
-		belt_view._update_machine_dynamic_batches()
+		belt_view.machine_batches.update()
 		_check(first_loop != null and second_loop != null and not first_loop.visible
 			and not second_loop.visible and is_equal_approx(
 				first_loop.material_override.uv1_offset.x, first_source_phase) and is_equal_approx(
 				second_loop.material_override.uv1_offset.x, second_source_phase),
 			"Batched conveyor motion leaves hidden source finishes unchanged.")
 		if DisplayServer.get_name() != "headless":
-			var belt_multi: MultiMesh = belt_view.machine_conveyor_batches[0].mesh
+			var belt_multi: MultiMesh = belt_view.machine_batches.machine_conveyor_batches[0].mesh
 			var first_phase := belt_multi.get_instance_custom_data(0).r
 			var second_phase := belt_multi.get_instance_custom_data(1).r
 			_check(absf(first_phase - second_phase) > 0.001,
 				"Rendered conveyor loops retain distinct confirmed phases.")
-			belt_view._update_machine_dynamic_batches()
+			belt_view.machine_batches.update()
 			_check(absf(belt_multi.get_instance_custom_data(0).r - first_phase) < 0.001
 				and absf(belt_multi.get_instance_custom_data(1).r - second_phase) < 0.001,
 				"Updating other moving batches does not overwrite conveyor phases.")
@@ -562,7 +564,7 @@ func _batch_motion_check() -> void:
 			belt_view._rebuild_machines()
 			var rebuilt_first := belt_view.machine_root.get_child(0) as Node3D
 			belt_view._apply_conveyor_motion(rebuilt_first, 0.5)
-			var rebuilt_multi: MultiMesh = belt_view.machine_conveyor_batches[0].mesh
+			var rebuilt_multi: MultiMesh = belt_view.machine_batches.machine_conveyor_batches[0].mesh
 			_check(rebuilt_multi != belt_multi and absf(
 				rebuilt_multi.get_instance_custom_data(0).r - first_phase) < 0.001,
 				"A rebuild replaces conveyor slots and catches up to confirmed phase.")
@@ -659,7 +661,7 @@ func _performance_benchmark() -> void:
 	var build_ms := float(Time.get_ticks_usec() - build_start) / 1000.0
 	var batch_start := Time.get_ticks_usec()
 	if batch:
-		view._batch_machine_visuals()
+		view.machine_batches.rebuild(view.machine_root, view.machine_motion_anchors, view._native_transmission())
 	var batch_ms := float(Time.get_ticks_usec() - batch_start) / 1000.0
 	var batch_root := view.machine_root.get_node_or_null("MachineVisualBatches")
 	var batch_groups := batch_root.get_child_count() if batch_root != null else 0
@@ -676,7 +678,7 @@ func _performance_benchmark() -> void:
 			remaining[label] = int(remaining.get(label, 0)) + 1
 		print("MACHINE_UNBATCHED " + JSON.stringify(remaining))
 	if batch and count >= 12 and (batch_groups == 0 or
-			(kind in ["collector", "processor", "wheel"] and view.machine_dynamic_batches.is_empty())):
+			(kind in ["collector", "processor", "wheel"] and view.machine_batches.machine_dynamic_batches.is_empty())):
 		push_error("The fixture did not batch static and moving machine forms.")
 		view.free()
 		scene.free()
@@ -707,7 +709,7 @@ func _performance_benchmark() -> void:
 				"wheel":
 					fixture_rotors[index].rotation.z += 0.02
 		if batch:
-			view._update_machine_dynamic_batches()
+			view.machine_batches.update()
 		var motion_ms := float(Time.get_ticks_usec() - start) / 1000.0
 		await process_frame
 		if frame >= 30:
@@ -726,7 +728,7 @@ func _performance_benchmark() -> void:
 		"frame_median_ms": frames[frames.size() / 2],
 		"frame_p95_ms": frames[int(frames.size() * 0.95)],
 		"draw_calls_median": draws[draws.size() / 2], "batched": batch,
-		"batch_groups": batch_groups, "dynamic_groups": view.machine_dynamic_batches.size()}))
+		"batch_groups": batch_groups, "dynamic_groups": view.machine_batches.machine_dynamic_batches.size()}))
 	view.free()
 	scene.free()
 	quit()
@@ -843,7 +845,7 @@ func _mixed_scale_benchmark() -> void:
 	print("MIXED_ASSET_SCALE " + JSON.stringify({"count": count, "batch": batched,
 		"production_batch": production_batch,
 		"mesh_lod": mesh_lod,
-		"spatial_cells": view.machine_static_spatial_tiles,
+		"spatial_cells": view.machine_batches.machine_static_spatial_tiles,
 		"camera_close": camera_close,
 		"sampled_frames": total_frames - 30,
 		"lod_inventory": view.lod_inventory,

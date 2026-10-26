@@ -1,4 +1,5 @@
 extends PanelContainer
+const Widgets = preload("res://opening/production_widgets.gd")
 ## Local slot assignments over the host's confirmed carried kit.
 class PlaceableTile:
 	extends Button
@@ -126,14 +127,14 @@ func configure(host, ui: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 5)
 	add_child(row)
-	catalog_button = host._button(row, "", open_catalog)
+	catalog_button = Widgets.button(row, "", open_catalog)
 	catalog_button.icon = COMPONENT_ICON
 	catalog_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	catalog_button.custom_minimum_size = Vector2(54, 54)
 	catalog_button.tooltip_text = "Build and inventory · B"
 	catalog_button.accessibility_name = "Build and inventory, shortcut B"
 	_style_slot(catalog_button, true)
-	footprint_button = host._button(row, "", host._toggle_component_footprint)
+	footprint_button = Widgets.button(row, "", host._toggle_component_footprint)
 	footprint_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	footprint_button.custom_minimum_size = Vector2(48, 54)
 	footprint_button.focus_mode = Control.FOCUS_ALL
@@ -191,16 +192,16 @@ func configure(host, ui: Control) -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 10)
 	margin.add_child(column)
-	parts_label = host._label(column, "BUILD / INVENTORY", 18)
-	focus_description = host._label(column, " ", 12)
-	footprint_catalog_button = host._button(column, "", host._toggle_component_footprint)
+	parts_label = Widgets.label(column, "BUILD / INVENTORY", 18)
+	focus_description = Widgets.label(column, " ", 12)
+	footprint_catalog_button = Widgets.button(column, "", host._toggle_component_footprint)
 	footprint_catalog_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	footprint_catalog_button.custom_minimum_size = Vector2(48, 44)
 	footprint_catalog_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	footprint_catalog_button.focus_mode = Control.FOCUS_ALL
 	footprint_catalog_button.focus_entered.connect(_describe_focus.bind(footprint_catalog_button))
 	footprint_catalog_button.visible = false
-	context_label = host._label(column, "Carried items and craftable recipes", 12)
+	context_label = Widgets.label(column, "Carried items and craftable recipes", 12)
 	catalog_columns = BoxContainer.new()
 	catalog_columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	catalog_columns.add_theme_constant_override("separation", 12)
@@ -209,7 +210,7 @@ func configure(host, ui: Control) -> void:
 	inventory_side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	inventory_side.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	catalog_columns.add_child(inventory_side)
-	carried_label = host._label(inventory_side, "CARRIED", 13)
+	carried_label = Widgets.label(inventory_side, "CARRIED", 13)
 	inventory_scroll = ScrollContainer.new()
 	inventory_scroll.name = "InventoryItems"
 	inventory_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -260,9 +261,9 @@ func configure(host, ui: Control) -> void:
 	recipe_focus_row = HBoxContainer.new()
 	recipe_focus_row.add_theme_constant_override("separation", 6)
 	recipe_side.add_child(recipe_focus_row)
-	var recipe_heading: Label = host._label(recipe_focus_row, "CRAFT / BUILD", 13)
+	var recipe_heading: Label = Widgets.label(recipe_focus_row, "CRAFT / BUILD", 13)
 	recipe_heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	collector_focus_button = host._button(recipe_focus_row, "", _set_recipe_focus.bind("collector"))
+	collector_focus_button = Widgets.button(recipe_focus_row, "", _set_recipe_focus.bind("collector"))
 	collector_focus_button.icon = load("res://opening/assets/build-icons/collector.svg")
 	collector_focus_button.custom_minimum_size = Vector2(38, 34)
 	collector_focus_button.toggle_mode = true
@@ -270,7 +271,7 @@ func configure(host, ui: Control) -> void:
 	collector_focus_button.accessibility_name = "Collector project recipes"
 	_style_slot(collector_focus_button)
 	collector_focus_button.focus_entered.connect(_describe_focus.bind(collector_focus_button))
-	all_focus_button = host._button(recipe_focus_row, "", _set_recipe_focus.bind("all"))
+	all_focus_button = Widgets.button(recipe_focus_row, "", _set_recipe_focus.bind("all"))
 	all_focus_button.icon = COMPONENT_ICON
 	all_focus_button.custom_minimum_size = Vector2(38, 34)
 	all_focus_button.toggle_mode = true
@@ -278,8 +279,8 @@ func configure(host, ui: Control) -> void:
 	all_focus_button.accessibility_name = "All unlocked recipes"
 	_style_slot(all_focus_button)
 	all_focus_button.focus_entered.connect(_describe_focus.bind(all_focus_button))
-	recipe_focus_label = host._label(recipe_focus_row, "COLLECTOR PROJECT", 11)
-	recipe_tip_label = host._label(recipe_side, "T timber · Cu copper · choose an icon to craft", 11)
+	recipe_focus_label = Widgets.label(recipe_focus_row, "COLLECTOR PROJECT", 11)
+	recipe_tip_label = Widgets.label(recipe_side, "T timber · Cu copper · choose an icon to craft", 11)
 	recipe_scroll = ScrollContainer.new()
 	recipe_scroll.name = "CraftRecipes"
 	recipe_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -291,7 +292,7 @@ func configure(host, ui: Control) -> void:
 	recipe_grid.add_theme_constant_override("h_separation", 6)
 	recipe_grid.add_theme_constant_override("v_separation", 6)
 	recipe_scroll.add_child(recipe_grid)
-	host._label(column, "HOTBAR · drag a carried part here, or hover it and press 1–8", 11)
+	Widgets.label(column, "HOTBAR · drag a carried part here, or hover it and press 1–8", 11)
 	var targets := HBoxContainer.new()
 	targets.add_theme_constant_override("separation", 4)
 	column.add_child(targets)
@@ -317,17 +318,17 @@ func configure(host, ui: Control) -> void:
 		catalog_slots.append(target)
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
-	context_action = host._button(actions, "", _use_context_action)
+	context_action = Widgets.button(actions, "", _use_context_action)
 	context_action.icon = load("res://opening/assets/build-icons/workshop-reclaim.svg")
 	context_action.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	context_action.custom_minimum_size = Vector2(46, 39)
 	context_action.focus_entered.connect(_describe_focus.bind(context_action))
 	context_action.visible = false
-	var clear: Button = host._button(actions, "", clear_slot)
+	var clear: Button = Widgets.button(actions, "", clear_slot)
 	clear.icon = load("res://opening/assets/build-icons/slot-clear.svg")
 	clear.tooltip_text = "Clear hovered or focused hotbar slot · Delete"
 	clear.accessibility_name = "Clear hovered or focused hotbar slot, shortcut Delete"
-	var close: Button = host._button(actions, "", _close_catalog)
+	var close: Button = Widgets.button(actions, "", _close_catalog)
 	close.icon = load("res://opening/assets/menu-icons/close.svg")
 	close.tooltip_text = "Close build and inventory · Esc"
 	close.accessibility_name = "Close build and inventory, shortcut Escape"
@@ -575,7 +576,7 @@ func _recipe_tile(key: String, icon: Texture2D) -> Button:
 	if recipe_buttons.has(key):
 		return recipe_buttons[key]
 	var host = _view()
-	var tile: Button = host._button(recipe_grid, "", _craft_recipe.bind(key))
+	var tile: Button = Widgets.button(recipe_grid, "", _craft_recipe.bind(key))
 	_style_inventory_tile(tile, icon)
 	tile.custom_minimum_size = Vector2(78, 98)
 	tile.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP

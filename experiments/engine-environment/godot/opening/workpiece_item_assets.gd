@@ -2,8 +2,8 @@ extends RefCounted
 ## A natural mineral exposure, fitted in-line billets and stamped plates.
 ## Pure presentation: no collision, input, quantities or state authority.
 
-const Visuals = preload("res://opening/opening.gd").ProductionVisuals
-const Scenery = preload("res://opening/opening.gd").ProductionEnvironment
+const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
+const Scenery = preload("res://opening/production_environment.gd").ProductionEnvironment
 const Geometry = preload("res://opening/site_geometry.gd")
 
 const BILLET_HALF_EXTENTS := Vector3(0.135, 0.09, 0.18)

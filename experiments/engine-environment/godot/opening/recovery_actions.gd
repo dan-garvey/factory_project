@@ -1,4 +1,5 @@
 extends VBoxContainer
+const Widgets = preload("res://opening/production_widgets.gd")
 ## Presentation over a confirmed native projection. Only the ordinary view's
 ## issue callback submits commands; this control never changes material state.
 
@@ -590,23 +591,23 @@ class ArrivalAssemblyControls:
 		reclaim_row = HBoxContainer.new()
 		reclaim_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 		column.add_child(reclaim_row)
-		reclaim_button = host._button(reclaim_row, "", _reclaim)
+		reclaim_button = Widgets.button(reclaim_row, "", _reclaim)
 		_style_workshop_icon(reclaim_button, "workshop-reclaim")
 		reclaim_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		reclaim_row.visible = false
 		collector_section = VBoxContainer.new()
 		column.add_child(collector_section)
-		collector_status = host._label(collector_section, "", 12, Color("bfd1cc"))
+		collector_status = Widgets.label(collector_section, "", 12, Color("bfd1cc"))
 		collector_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var collector_actions := HBoxContainer.new()
 		collector_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		collector_section.add_child(collector_actions)
-		collector_cut_button = host._button(collector_actions, "", _cut_collector)
+		collector_cut_button = Widgets.button(collector_actions, "", _cut_collector)
 		_style_workshop_icon(collector_cut_button, "workshop-cut")
 		collector_cut_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		press_section = VBoxContainer.new()
 		column.add_child(press_section)
-		press_status = host._label(press_section, "Select an anvil with E", 13, Color("bfd1cc"))
+		press_status = Widgets.label(press_section, "Select an anvil with E", 13, Color("bfd1cc"))
 		press_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		var broad_actions := HBoxContainer.new()
 		broad_actions.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -627,7 +628,7 @@ class ArrivalAssemblyControls:
 		sheet_button.get_popup().about_to_popup.connect(_open_sheet_menu)
 		sheet_button.get_popup().id_pressed.connect(_choose_sheet)
 		broad_actions.add_child(sheet_button)
-		shear_button = host._button(broad_actions, "", _stroke_sheet)
+		shear_button = Widgets.button(broad_actions, "", _stroke_sheet)
 		_style_workshop_icon(shear_button, "workshop-cut")
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
@@ -640,7 +641,7 @@ class ArrivalAssemblyControls:
 		flow_diagram.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		press_section.add_child(flow_diagram)
 		flow_diagram.visible = false
-		auto_route_cue = host._label(press_section, "", 12, Color("f4bf75"))
+		auto_route_cue = Widgets.label(press_section, "", 12, Color("f4bf75"))
 		auto_route_cue.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		auto_route_cue.visible = false
 		held_work_choice = OptionButton.new()
@@ -654,7 +655,7 @@ class ArrivalAssemblyControls:
 		inventory_section.name = "WorkbedInventory"
 		inventory_section.add_theme_constant_override("separation", 4)
 		press_section.add_child(inventory_section)
-		var player_heading: Label = host._label(inventory_section, "CARRIED INPUT  ·  DROP OUTPUT HERE", 11, Color("f4bf75"))
+		var player_heading: Label = Widgets.label(inventory_section, "CARRIED INPUT  ·  DROP OUTPUT HERE", 11, Color("f4bf75"))
 		player_heading.tooltip_text = "Only carried material accepted by this workbed appears below. Drag workbed material onto the carried region to pick it up."
 		inventory_player_region = _add_inventory_region(inventory_section, "player")
 		inventory_player_region.tooltip_text = "Drop workbed material anywhere here to carry it. Select or drag an input item to feed the workbed."
@@ -663,7 +664,7 @@ class ArrivalAssemblyControls:
 		inventory_player_row.alignment = BoxContainer.ALIGNMENT_CENTER
 		inventory_player_row.mouse_filter = Control.MOUSE_FILTER_PASS
 		inventory_player_region.add_child(inventory_player_row)
-		inventory_workbed_heading = host._label(inventory_section, "ON THE WORKBED  →  OUTLET", 11, Color("f4bf75"))
+		inventory_workbed_heading = Widgets.label(inventory_section, "ON THE WORKBED  →  OUTLET", 11, Color("f4bf75"))
 		inventory_workbed_heading.tooltip_text = "The work face and outlet hold material until you pick it up."
 		inventory_workbed_region = _add_inventory_region(inventory_section, "workbed")
 		inventory_workbed_region.tooltip_text = "Drop accepted carried material anywhere here to feed the workbed."
@@ -674,15 +675,15 @@ class ArrivalAssemblyControls:
 		inventory_workbed_region.add_child(inventory_workbed_row)
 		_add_inventory_slot(inventory_workbed_row, "workbed_work", "workbed", "ore", "Work face")
 		_add_inventory_slot(inventory_workbed_row, "workbed_output", "workbed", "plate", "Outlet")
-		feed_heading = host._label(press_section, "FEED & STROKE", 11, Color("f4bf75"))
+		feed_heading = Widgets.label(press_section, "FEED & STROKE", 11, Color("f4bf75"))
 		feed_actions = HBoxContainer.new()
 		feed_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		press_section.add_child(feed_actions)
-		feed_button = host._button(feed_actions, "", _feed)
+		feed_button = Widgets.button(feed_actions, "", _feed)
 		_style_workshop_icon(feed_button, "press-feed")
-		refeed_work_button = host._button(feed_actions, "", _refeed_work)
+		refeed_work_button = Widgets.button(feed_actions, "", _refeed_work)
 		_style_workshop_icon(refeed_work_button, "press-refeed")
-		compact_button = host._button(feed_actions, "", _compact_offcuts)
+		compact_button = Widgets.button(feed_actions, "", _compact_offcuts)
 		compact_button.icon = load("res://opening/assets/menu-icons/compact-offcuts.svg")
 		compact_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		compact_button.custom_minimum_size = Vector2(46, 37)
@@ -693,13 +694,13 @@ class ArrivalAssemblyControls:
 		compact_key.keycode = KEY_B
 		compact_shortcut.events = [compact_key]
 		compact_button.shortcut = compact_shortcut
-		output_heading = host._label(press_section, "OUTPUT & RECOVERY", 11, Color("f4bf75"))
+		output_heading = Widgets.label(press_section, "OUTPUT & RECOVERY", 11, Color("f4bf75"))
 		output_actions = HBoxContainer.new()
 		output_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 		press_section.add_child(output_actions)
-		pickup_button = host._button(output_actions, "", _pickup_exit)
+		pickup_button = Widgets.button(output_actions, "", _pickup_exit)
 		_style_workshop_icon(pickup_button, "press-pickup")
-		recover_work_button = host._button(output_actions, "", _recover_work)
+		recover_work_button = Widgets.button(output_actions, "", _recover_work)
 		_style_workshop_icon(recover_work_button, "press-recover")
 		collector_section.visible = false
 		press_section.visible = false
