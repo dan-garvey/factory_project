@@ -7,7 +7,8 @@ const Geometry = preload("res://opening/site_geometry.gd")
 class HostFixture:
 	extends Node3D
 	var state := {"context": "worker-wardrobe-view", "actors": {
-		"P": {"ready": true, "position": [0.0, Geometry.CAPSULE_HEIGHT / 2.0, 0.0]}}}
+		"P": {"ready": true, "position": [0.0, Geometry.CAPSULE_HEIGHT / 2.0, 0.0]},
+		"Q": {"ready": true, "position": [0.95, Geometry.CAPSULE_HEIGHT / 2.0, 0.0]}}}
 	var client := "P"
 	var explanation_open := false
 	var distance := 2.0
@@ -85,6 +86,17 @@ func run() -> void:
 		push_error("The loose provisional suit mark must not appear beside the worker.")
 		quit(1)
 		return
+	var remote_worker: Node3D = presenter.views.get("Q")
+	if remote_worker == null or remote_worker.get_meta("actor", "") != "Q" or \
+			remote_worker.get_node("BodyView").get_meta("source", "") != "Microsoft Rocketbox Male_Adult_05":
+		push_error("The passive shared view must retain the second worker's identity and appearance.")
+		quit(1)
+		return
+	for actor in ["P", "Q"]:
+		if not presenter.views[actor].find_children("*", "Label3D", true, false).is_empty():
+			push_error("Neither worker may carry a floating world-space name label: " + actor)
+			quit(1)
+			return
 	var camera := Camera3D.new()
 	stage.add_child(camera)
 	camera.fov = 38.0
@@ -149,6 +161,7 @@ func run() -> void:
 	viewport.free()
 	print(JSON.stringify({"status": "pass", "source": "Microsoft Rocketbox Female_Adult_04",
 		"field_mark": "removed",
+		"remote_actor": "Q", "remote_world_label": "absent",
 		"captures": [prefix + "-front.png", prefix + "-quarter.png", prefix + "-distant.png"],
 		"input_calls": control_calls, "safety_release_calls": safety_release_calls,
 		"native_actor": "not_started", "human_view": "unassessed"}))

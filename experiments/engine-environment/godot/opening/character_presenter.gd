@@ -1623,14 +1623,6 @@ func _new_view(actor: String) -> Node3D:
 	if mesh is MeshInstance3D:
 		mesh.material_override = _worker_material(Color("c87847") if actor == host.client else Color("50899a"), 0.85, 0, true)
 	root.add_child(mesh)
-	if actor != host.client:
-		var label := Label3D.new()
-		label.text = actor
-		label.position = Vector3(0, Geometry.CAPSULE_HEIGHT / 2 + 0.3, 0)
-		label.font_size = 30
-		label.pixel_size = 0.006
-		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		root.add_child(label)
 	add_child(root)
 	return root
 
