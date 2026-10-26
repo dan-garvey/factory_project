@@ -3096,7 +3096,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 Integer direct_products = *products;
                 for (const auto& value : *receiver_ids) {
                     const auto* id = std::get_if<Integer>(&value.storage());
-                    if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id)
+                    // A receiver pickup can be the first command after a
+                    // powered slide finishes. Its accepted identity witnesses
+                    // that completion while the active route is settled below.
+                    if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
+                        !picked_press_products.insert(*id).second)
                         return false;
                     if (snapshot.state.belt_press_work_ids.contains(*id)) {
                         const auto belt = belt_offcut_claims.find(*id);
@@ -3121,11 +3125,14 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                             active->second.id != *completed_id) ||
                             snapshot.state.belt_press_work_ids.contains(*completed_id)) continue;
                         const auto delivery = snapshot.state.press_offcut_deliveries.find(*completed_id);
-                        if (delivery == snapshot.state.press_offcut_deliveries.end() ||
-                            delivery->second.work != active->first ||
-                            delivery->second.exit != *point ||
-                            delivery->second.revision <= active->second.feed_revision ||
-                            delivery->second.revision >= *result_revision) continue;
+                        if (delivery != snapshot.state.press_offcut_deliveries.end()) {
+                            if (delivery->second.work != active->first ||
+                                delivery->second.exit != *point ||
+                                delivery->second.revision <= active->second.feed_revision ||
+                                delivery->second.revision >= *result_revision) continue;
+                        } else if (!record_offcut(active->first)) return false;
+                        if (!clear_automatic_slide_route(active->first, *point,
+                                *completed_id, active->second)) return false;
                         press_work.erase(active);
                         if (!add(press_products[*point], 1)) return false;
                         claim = press_products.find(*point);
@@ -3142,7 +3149,6 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     const auto location = id ? delivered_product_locations.find(*id) :
                         delivered_product_locations.end();
                     if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
-                        !picked_press_products.insert(*id).second ||
                         (location != delivered_product_locations.end() &&
                             location->second != *point) ||
                         !picked_product_exits.emplace(*id,
@@ -7231,11 +7237,8 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
                 previous->second.work_lots.front().id : materials::WorkId{0};
             const auto before_remaining = before_id > 0 ?
                 previous->second.work_lots.front().remaining_ticks : Integer{0};
-            const auto receiver = std::any_of(candidate.placed_components.begin(),
-                candidate.placed_components.end(), [&](const auto& entry) {
-                    return entry.second.kind == materials::Component::receiver_tray &&
-                        entry.second.center == route->second;
-                });
+            const auto receiver = tick_layout.layout.has_component(
+                route->second, materials::Component::receiver_tray);
             const auto error = materials::turn_press(candidate.material, profile_.material,
                 material_path(candidate.topology), anvil, route->second, receiver);
             if (error == materials::Error::unavailable_input ||

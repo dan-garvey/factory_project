@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <string>
 
@@ -330,6 +331,46 @@ void sliding_press_contact_geometry() {
           "Work support uses the common full-tile grid.");
 }
 
+void receiver_snapshot_lookup() {
+    const g::Point work{8, 4, 12};
+    const g::Point exit{7, 4, 12};
+    const std::vector<a::Part> bare{
+        part("anvil", m::Component::anvil, work),
+        part("head", m::Component::flat_head, {8, 5, 12}),
+        part("slide", m::Component::wooden_slide, {8, 6, 12}),
+    };
+    const a::Layout absent(bare);
+    check(absent.valid() && !absent.has_component(exit, m::Component::receiver_tray),
+          "An open selected exit has no receiver in its immutable placement snapshot.");
+    auto with_tray = bare;
+    with_tray.push_back(part("outlet", m::Component::receiver_tray, exit));
+    const a::Layout tray(with_tray);
+    const auto inspected = tray.inspect_sliding_press(work);
+    check(tray.valid() && tray.has_component(exit, m::Component::receiver_tray) &&
+          inspected.status == a::PressStatus::ready && inspected.press &&
+          inspected.press->open_feeds.size() == 1,
+          "The indexed selected exit finds its actual receiver tray.");
+    auto occupied = with_tray;
+    occupied.back().kind = m::Component::wooden_frame;
+    const a::Layout blocker(occupied);
+    check(blocker.valid() && !blocker.has_component(exit, m::Component::receiver_tray) &&
+          blocker.inspect_sliding_press(work).status == a::PressStatus::blocked_feed,
+          "A solid outlet obstruction is not a receiver or a valid through-feed.");
+    auto removed = with_tray;
+    removed.pop_back();
+    const a::Layout after_removal(removed);
+    check(after_removal.valid() && !after_removal.has_component(exit, m::Component::receiver_tray),
+          "A new placement snapshot drops the removed tray without stale receiver state.");
+    occupied.back().kind = m::Component::receiver_tray;
+    const a::Layout replacement(occupied);
+    check(replacement.valid() && replacement.has_component(exit, m::Component::receiver_tray),
+          "A replacement tray is recognized by a fresh placement snapshot.");
+    occupied.push_back(part("duplicate", m::Component::receiver_tray, exit));
+    const a::Layout invalid(occupied);
+    check(!invalid.valid() && !invalid.has_component(exit, m::Component::receiver_tray),
+          "An invalid duplicate outlet cannot expose a cached receiver.");
+}
+
 void broad_press_from_repeated_work_faces() {
     const auto parts_at = [](g::Point origin, bool drive_from_x_edges) {
         std::vector<a::Part> placed;
@@ -521,6 +562,54 @@ void indexed_independent_assemblies() {
               << ",\"direct_p95_ms\":" << direct_ms[19]
               << ",\"indexed_median_ms\":" << indexed_ms[10]
               << ",\"indexed_p95_ms\":" << indexed_ms[19] << "}\n";
+    std::vector<g::Point> slide_exits;
+    slide_exits.reserve(80);
+    for (int index = 0; index < 80; ++index) {
+        const g::Integer x = 2400 + index * 8;
+        const auto name = "slide-" + std::to_string(index);
+        placed.push_back({name + "-anvil", m::Component::anvil, {x, 4, 32}, 1});
+        placed.push_back({name + "-head", m::Component::flat_head, {x, 5, 32}, 1});
+        placed.push_back({name + "-body", m::Component::wooden_slide, {x, 6, 32}, 1});
+        slide_exits.push_back({x - 1, 4, 32});
+        if (index % 2 == 0)
+            placed.push_back({name + "-tray", m::Component::receiver_tray,
+                slide_exits.back(), 1});
+    }
+    const a::Layout slide_snapshot(placed);
+    check(slide_snapshot.valid(), "Eighty independent slide outlets share one valid placement index.");
+    std::map<std::string, a::Part> placed_by_id;
+    for (const auto& item : placed) placed_by_id.emplace(item.id, item);
+    std::array<double, 20> receiver_scan_ms{}, receiver_indexed_ms{};
+    for (std::size_t sample = 0; sample < receiver_scan_ms.size(); ++sample) {
+        int scan_hits = 0, indexed_hits = 0;
+        const auto scan_start = std::chrono::steady_clock::now();
+        for (int repeat = 0; repeat < 20; ++repeat)
+            for (const auto& exit : slide_exits)
+                scan_hits += std::any_of(placed_by_id.begin(), placed_by_id.end(),
+                    [&](const auto& entry) {
+                        return entry.second.kind == m::Component::receiver_tray &&
+                            entry.second.center == exit;
+                    });
+        const auto indexed_start = std::chrono::steady_clock::now();
+        for (int repeat = 0; repeat < 20; ++repeat)
+            for (const auto& exit : slide_exits)
+                indexed_hits += slide_snapshot.has_component(exit, m::Component::receiver_tray);
+        const auto end = std::chrono::steady_clock::now();
+        check(scan_hits == 800 && indexed_hits == scan_hits,
+              "Eighty slide outlets agree across repeated map scans and indexed queries.");
+        receiver_scan_ms[sample] =
+            std::chrono::duration<double, std::milli>(indexed_start - scan_start).count();
+        receiver_indexed_ms[sample] =
+            std::chrono::duration<double, std::milli>(end - indexed_start).count();
+    }
+    std::sort(receiver_scan_ms.begin(), receiver_scan_ms.end());
+    std::sort(receiver_indexed_ms.begin(), receiver_indexed_ms.end());
+    std::cout << "{\"evidence\":\"synthetic_slide_receiver_lookup\",\"parts\":"
+              << placed.size() << ",\"slides\":80,\"queries_per_sample\":1600,\"samples\":20,"
+              << "\"scan_median_ms\":" << receiver_scan_ms[10]
+              << ",\"scan_p95_ms\":" << receiver_scan_ms[19]
+              << ",\"indexed_median_ms\":" << receiver_indexed_ms[10]
+              << ",\"indexed_p95_ms\":" << receiver_indexed_ms[19] << "}\n";
     placed.back().id = placed.front().id;
     const a::Layout invalid(placed);
     check(!invalid.valid() && invalid.inspect_collector(faces.front()).status == a::Status::invalid_input &&
@@ -538,6 +627,7 @@ int main() {
         press_missing_and_invalid_parts();
         guided_press_without_structure();
         sliding_press_contact_geometry();
+        receiver_snapshot_lookup();
         broad_press_from_repeated_work_faces();
         indexed_independent_assemblies();
         std::cout << "assembly_test: " << checks << " checks passed\n";

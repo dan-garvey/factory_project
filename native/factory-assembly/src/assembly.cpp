@@ -74,6 +74,10 @@ Layout::Layout(const std::vector<Part>& placed) {
     valid_ = true;
 }
 
+bool Layout::has_component(const Point& center, materials::Component kind) const {
+    return valid_ && at(by_center_, center, kind) != nullptr;
+}
+
 Inspection Layout::inspect_collector(const OreFace& face) const {
     if (!valid_ || !valid_face(face)) return {Status::invalid_input, std::nullopt};
     const auto& by_center = by_center_;
