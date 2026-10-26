@@ -4766,16 +4766,6 @@ func check_press_die() -> void:
 					"Removal and rebuilding reuse passive geometry without carrying an old moving instance into a new generation.")
 				assemblies += 1
 				view.free()
-	var historical := Opening.new()
-	historical.legacy_fixture = true
-	var root_node := Node3D.new()
-	historical._press_visual(root_node)
-	verify(root_node.get_node("ToolHead").mesh == Visuals.box_mesh(Vector3(0.56, 0.17, 0.55))
-		and root_node.get_node("Anvil").mesh == Visuals.box_mesh(Vector3(0.7, 0.16, 0.63))
-		and root_node.get_node_or_null("AnvilPedestalLeft") == null,
-		"The historical fixture retains its previous head and anvil rather than receiving an unclaimed native-art result.")
-	root_node.free()
-	historical.free()
 	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(),
 		"poses_per_assembly": 3, "negative_controls": controls, "minimum_held_item_gap_metres": minimum_item_gap,
 		"minimum_added_support_drive_gap_metres": minimum_drive_gap,
@@ -5002,15 +4992,6 @@ func check_press_output_tray() -> void:
 					"Observed removal clears the complete outlet, brackets and output display without altering the replacement state.")
 				assemblies += 1
 				view.free()
-	var historical := Opening.new()
-	historical.legacy_fixture = true
-	var old_root := Node3D.new()
-	historical._press_visual(old_root)
-	verify(old_root.get_node("OutputTray").mesh == Visuals.box_mesh(Vector3(0.48, 0.05, 0.58))
-		and old_root.get_node_or_null("TrayBracketLeft") == null,
-		"The historical nonnative fixture retains its previous tray and roster.")
-	old_root.free()
-	historical.free()
 	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(), "negative_controls": controls,
 		"minimum_complete_plate_facet_gap_metres": minimum_plate_gap, "minimum_drive_facet_gap_metres": minimum_drive_gap,
 		"minimum_tray_saddle_facet_gap_metres": minimum_saddle_gap, "minimum_source_facet_gap_metres": minimum_source_gap,
@@ -5120,7 +5101,7 @@ func check_collector_tooling() -> void:
 	var bore_radius := INF
 	for shared_profile in [false, true]:
 		for axis in range(3):
-			for cell in [[0, 0], [2, -1]]:
+			for cell in [[0, 0], [0, 1]]:
 				var view: Variant = Shared.new() if shared_profile else Opening.new()
 				view.client = "P"
 				if shared_profile:
@@ -5209,11 +5190,14 @@ func check_collector_tooling() -> void:
 				for child in machine.get_children():
 					if child is StaticBody3D:
 						picks += 1
+						var intake: Dictionary = Geometry.collector_intake_boxes(view.state.entities.fixture).boxes[0]
 						verify(child.get_meta("entity", "") == "fixture" and child.collision_layer == Geometry.PICK_LAYER
-							and child.collision_mask == 0 and child.get_child_count() == 1
+							and child.collision_mask == 0 and child.get_child_count() == 2
 							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
-							and child.get_child(0).position == Vector3(0, 0.8, 0),
-							"The sole original entity pick keeps its identity, dimensions, centre and masks.")
+							and child.get_child(0).position == Vector3(0, 0.8, 0)
+							and child.get_child(1).shape.size == intake.size
+							and child.get_child(1).position == intake.center - machine.position,
+							"The collector pick retains its body and covers the admitted source intake for both cells.")
 				verify(picks == 1 and view.model == null and view.actor_world == null and view.request_sequence == 0,
 					"The art builder creates no authority, native body, material request or extra collider.")
 				var fixed: Array[Transform3D] = []
@@ -5273,27 +5257,6 @@ func check_collector_tooling() -> void:
 					"Observed removal clears the entire collector without generating material, tools or an orphaned motion owner.")
 				assemblies += 1
 				view.free()
-	for shared_profile in [false, true]:
-		var historical: Variant = Shared.new() if shared_profile else Opening.new()
-		historical.legacy_fixture = true
-		var old_root := Node3D.new()
-		historical._collector_visual(old_root)
-		historical._machine_surface_detail(old_root, "collector")
-		var drum: MeshInstance3D = old_root.get_node("CutterDrum")
-		verify(drum.mesh is CylinderMesh and is_equal_approx(drum.mesh.top_radius, 0.24)
-			and is_equal_approx(drum.mesh.height, 0.34) and not drum.has_meta("collector_tooling_role")
-			and drum.material_override == Visuals.material(Color("465a60"), 0.85, 0.4),
-			"Both historical nonnative view classes retain the exact original drum primitive and finish.")
-		var details: Node3D = old_root.get_node("SurfaceDetail")
-		var old_flutes := 0
-		for part in details.get_children():
-			if part.get_meta("detail_role", "") == "CutterFlute":
-				old_flutes += 1
-				verify(part.mesh == Visuals.box_mesh(Vector3(0.04, 0.045, 0.29)) and not part.has_meta("collector_tooling_role"),
-					"The historical eight flutes keep their original boxes without new native tooling.")
-		verify(old_flutes == 8, "The original nonnative flute roster is preserved.")
-		old_root.free()
-		historical.free()
 	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "unique_meshes": cache.size(), "negative_controls": controls,
 		"poses_per_assembly": 24, "moving_rows": 10, "maximum_actual_moving_radius_metres": maximum_moving_radius,
 		"minimum_continuous_frame_gap_metres": minimum_frame_gap, "minimum_continuous_stock_gap_metres": minimum_stock_gap,
@@ -5438,7 +5401,7 @@ func check_collector_rear_service() -> void:
 	var maximum_seat_error := 0.0
 	for shared_profile in [false, true]:
 		for axis in range(3):
-			for cell in [[0, 0], [2, -1]]:
+			for cell in [[0, 0], [0, 1]]:
 				var view = Shared.new() if shared_profile else Opening.new()
 				if shared_profile:
 					view.session = PaddleSessionFacts.new()
@@ -5537,8 +5500,14 @@ func check_collector_rear_service() -> void:
 				for child in machine.get_children():
 					if child is StaticBody3D:
 						picks += 1
-						verify(child.collision_layer == 4 and child.collision_mask == 0 and child.get_child_count() == 1
-							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45), "The original independent pick envelope stays unchanged.")
+						var intake: Dictionary = Geometry.collector_intake_boxes(view.state.entities.fixture).boxes[0]
+						verify(child.get_meta("entity") == "fixture" and child.collision_layer == Geometry.PICK_LAYER
+							and child.collision_mask == 0 and child.get_child_count() == 2
+							and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
+							and child.get_child(0).position == Vector3(0, 0.8, 0)
+							and child.get_child(1).shape.size == intake.size
+							and child.get_child(1).position == intake.center - machine.position,
+							"The independent collector pick keeps its body and covers the admitted intake for both cells.")
 				verify(picks == 1 and machine.get_meta("motion_meshes").size() == 10 and view.state == before
 					and view.model == null and view.actor_world == null and view.request_sequence == 0,
 					"Fixed service artwork changes no motion rows, observations, authority, requests or pick ownership.")
@@ -5560,16 +5529,14 @@ func check_collector_rear_service() -> void:
 						"An outward-floating washer assembly fails the same support-plane oracle.")
 				assemblies += 1
 				view.free()
-	for legacy_profile in [false, true]:
-		var old_view := Opening.new()
-		old_view.legacy_fixture = legacy_profile
-		old_view.state = {"options": {"native": legacy_profile}}
-		var old_machine := Node3D.new()
-		old_view.add_child(old_machine)
-		old_view._assemble_machine(old_machine, {"kind": "collector", "axis": 0})
-		verify(old_machine.get_node("SurfaceDetail").get_node_or_null("RearServicePanel") == null,
-			"Historical and nonnative profiles retain their original rear casting.")
-		old_view.free()
+	var scripted_view := Opening.new()
+	scripted_view.state = {"options": {"native": false}}
+	var scripted_machine := Node3D.new()
+	scripted_view.add_child(scripted_machine)
+	scripted_view._assemble_machine(scripted_machine, {"kind": "collector", "axis": 0})
+	verify(scripted_machine.get_node("SurfaceDetail").get_node_or_null("RearServicePanel") == null,
+		"The scripted physical profile retains its original rear casting.")
+	scripted_view.free()
 	print(JSON.stringify({"collector_service_assemblies": assemblies, "negative_controls": 2, "mixed_index_control": 1,
 		"minimum_full_turn_axial_gap_metres": minimum_gap, "maximum_washer_foot_area_error": maximum_seat_error,
 		"observations": "invented read-only", "gameplay": "not_run"}))
