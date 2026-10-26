@@ -399,8 +399,10 @@ func _component_placement_check() -> void:
 	slide_sample.position = slide_box.center
 	view.add_child(slide_sample)
 	presenter.preview_component(slide_sample, "copper_slide", slide_box.size)
-	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace") and slide_sample.has_node("SlideCarriage"),
-		"The separate flat die and unchanged powered carriage both have visible meshes.")
+	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace")
+		and head_sample.has_node("FlatHeadMovingDie/FlatHeadStem")
+		and slide_sample.has_node("SlideCarriage/CarriageDieRod"),
+		"The fitted flat die and slide carriage have a visible shaft connection.")
 	var stroke_phase := {"subticks": 2048, "remainder": 0, "denominator": 1,
 		"cycle_subticks": 4096}
 	var stroked_head := Node3D.new()
@@ -417,10 +419,24 @@ func _component_placement_check() -> void:
 		- head_sample.get_node("FlatHeadMovingDie").position.y
 	var carriage_drop: float = stroked_slide.get_node("SlideCarriage").position.y \
 		- slide_sample.get_node("SlideCarriage").position.y
-	verify(absf(head_drop + head_box.size.y - 0.175) < 0.0001
-		and absf(carriage_drop + slide_box.size.y - Geometry.HEIGHT_STEP - 0.175) < 0.0001
-		and head_drop < carriage_drop and carriage_drop < 0.0,
-		"The die reaches the lower work face while its driven carriage stays within the slide rails.")
+	var anvil_top: float = workbed_box.center.y + workbed_box.half.y
+	var resting_face_bottom: float = head_sample.position.y \
+		+ head_sample.get_node("FlatHeadMovingDie").position.y - 0.05
+	var working_face_bottom: float = stroked_head.position.y \
+		+ stroked_head.get_node("FlatHeadMovingDie").position.y - 0.05
+	var working_carriage_face_bottom: float = stroked_slide.position.y \
+		+ stroked_slide.get_node("SlideCarriage").position.y - 0.1025
+	var resting_stem_top: float = head_sample.position.y \
+		+ head_sample.get_node("FlatHeadMovingDie").position.y + 0.55
+	var resting_carriage_face_bottom: float = slide_sample.position.y \
+		+ slide_sample.get_node("SlideCarriage").position.y - 0.1025
+	verify(absf(head_drop + 0.20) < 0.0001 and absf(carriage_drop - head_drop) < 0.0001
+		and absf(resting_face_bottom - anvil_top - 0.24) < 0.0001
+		and absf(working_face_bottom - anvil_top - 0.04) < 0.0001
+		and absf(working_carriage_face_bottom - (slide_box.center.y - slide_box.half.y) - 0.02) < 0.0001
+		and absf(resting_stem_top - resting_carriage_face_bottom) < 0.002
+		and resting_stem_top < head_box.center.y + head_box.half.y,
+		"Head and carriage share a short stroke; their faces meet within the admitted boxes above the lowered anvil.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		camera.position = head_box.center + Vector3(1.1, 0.45, 2.4)
 		camera.look_at(head_box.center - Vector3(0, 0.18, 0))

@@ -22,6 +22,7 @@ const LIVE_GEAR_BATCH_THRESHOLD := 1
 const GUIDED_RAM_REST_LIFT := 0.08
 const GUIDED_RAM_CONTACT_LIFT := -0.0075
 const SLIDE_DIE_TRAVEL_MARGIN := 0.175
+const SLIDE_VISIBLE_STROKE := 0.20
 
 var _host: WeakRef
 var _view_key: Variant = null
@@ -1391,12 +1392,13 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			# fixed swept envelope. It has no extra rails, input shaft or drive.
 			var die := Node3D.new()
 			die.name = "FlatHeadMovingDie"
-			var travel := occupied_size.y - SLIDE_DIE_TRAVEL_MARGIN
-			die.position.y = occupied_size.y * 0.5 - 0.085 \
-				+ slide_carriage_drop(slide_phase, travel)
+			die.position.y = -occupied_size.y * 0.5 + 0.09 + SLIDE_VISIBLE_STROKE \
+				+ slide_carriage_drop(slide_phase, SLIDE_VISIBLE_STROKE)
 			anchor.add_child(die)
 			_support_box(die, "FlatHeadFace", Vector3.ZERO,
 				Vector3(0.27, 0.10, 0.27), worked, true)
+			var stem := _support_cylinder(die, "FlatHeadStem", 0.045, 0.55, worked)
+			stem.position.y = 0.275
 			for z in [-0.095, 0.095]:
 				_support_box(die, "FlatHeadWearStrip", Vector3(0, -0.045, z),
 					Vector3(0.23, 0.012, 0.018), dark)
@@ -1493,14 +1495,13 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				bearing.rotation.z = PI * 0.5
 			var carriage := Node3D.new()
 			carriage.name = "SlideCarriage"
-			carriage.position.y = occupied_size.y * 0.5 - 0.18 \
-				+ slide_carriage_drop(slide_phase,
-					occupied_size.y - Geometry.HEIGHT_STEP - SLIDE_DIE_TRAVEL_MARGIN)
+			carriage.position.y = -occupied_size.y * 0.5 + 0.1225 + SLIDE_VISIBLE_STROKE \
+				+ slide_carriage_drop(slide_phase, SLIDE_VISIBLE_STROKE)
 			anchor.add_child(carriage)
 			_support_box(carriage, "CarriageBody", Vector3.ZERO,
 				Vector3(0.235, 0.14, 0.23), dark, true)
-			var drive_rod := _support_cylinder(carriage, "CarriageDieRod", 0.045, 0.34, worked)
-			drive_rod.position.y = -0.20
+			var drive_rod := _support_cylinder(carriage, "CarriageDieRod", 0.045, 0.10, worked)
+			drive_rod.position.y = -0.05
 			_support_box(carriage, "CarriageFace", Vector3(0, -0.085, 0),
 				Vector3(0.29, 0.035, 0.27), finish, true)
 			for x in [-0.115, 0.115]:
