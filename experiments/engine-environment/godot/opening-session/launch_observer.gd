@@ -3,6 +3,7 @@ extends Node
 var report_path := ""
 var finish_path := ""
 var role := ""
+var view := "shared"
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
@@ -11,8 +12,15 @@ func _ready() -> void:
 		if argument.begins_with("--launch-report="): report_path = argument.trim_prefix("--launch-report=")
 		elif argument.begins_with("--launch-finish-file="): finish_path = argument.trim_prefix("--launch-finish-file=")
 		elif argument.begins_with("--session-role="): role = argument.trim_prefix("--session-role=")
+		elif argument.begins_with("--launch-view="): view = argument.trim_prefix("--launch-view=")
 	if not report_path.is_absolute_path() or not finish_path.is_absolute_path():
 		fail("Observer needs owned absolute report/finish paths")
+		return
+	if view == "offline":
+		await observe_offline()
+		return
+	if view != "shared":
+		fail("Unknown observer view")
 		return
 	var deadline := Time.get_ticks_msec() + 15000
 	var scene
@@ -75,3 +83,50 @@ func fail(reason: String) -> void:
 	push_error(reason)
 	print("SHARED_OPENING_OBSERVER_FAIL " + reason)
 	get_tree().quit(1)
+
+func observe_offline() -> void:
+	var deadline := Time.get_ticks_msec() + 45000
+	var scene: Node = null
+	while Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+		scene = get_tree().current_scene
+		if scene != null and scene.scene_file_path == "res://opening/opening.tscn" \
+				and scene.model != null and scene.actor_world != null and scene.camera != null:
+			break
+	if scene == null or scene.scene_file_path != "res://opening/opening.tscn" \
+			or scene.model == null or scene.actor_world == null or scene.camera == null:
+		fail("Normal offline opening did not present its native worksite")
+		return
+	while Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+		if scene.get_node_or_null("MachinePreviewWarmup") == null \
+				and scene.arrival_reveal_elapsed > 0.0 and not scene.arrival_reveal_active:
+			break
+	if scene.get_node_or_null("MachinePreviewWarmup") != null \
+			or scene.arrival_reveal_elapsed <= 0.0 or scene.arrival_reveal_active:
+		fail("Normal offline arrival did not finish presenting")
+		return
+	await get_tree().physics_frame
+	await RenderingServer.frame_post_draw
+	if get_tree().root.get_texture().get_image().save_png(report_path + ".png") != OK:
+		fail("Cannot capture actual offline window")
+		return
+	var projection: Dictionary = scene.model.projection()
+	var value := {"schema": 1, "status": "pass", "view": "offline", "pid": OS.get_process_id(),
+		"scene": scene.scene_file_path, "script": scene.get_script().resource_path,
+		"model_script": scene.model.get_script().resource_path,
+		"model_native": scene.model.native != null, "opening": projection.get("options", {}).get("opening", false),
+		"revision": projection.get("revision", -1), "arrival_reveal_elapsed": scene.arrival_reveal_elapsed,
+		"viewport": get_tree().root.get_visible_rect().size,
+		"camera_position": scene.camera.global_position}
+	var file := FileAccess.open(report_path + ".writing", FileAccess.WRITE)
+	if file == null:
+		fail("Cannot open owned offline report")
+		return
+	file.store_string(JSON.stringify(value, "", true, true))
+	file.close()
+	if DirAccess.rename_absolute(report_path + ".writing", report_path) != OK:
+		fail("Cannot publish offline report")
+		return
+	print("OFFLINE_OPENING_OBSERVED " + JSON.stringify({"pid": OS.get_process_id()}))
+	get_tree().quit(0)
