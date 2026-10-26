@@ -29,7 +29,11 @@ template<class Function> void refuses(Function operation, const char* reason) {
 }
 void cases(const fs::path& root) {
     write(root / "MODULE.bazel");
-    const std::string root_build = "exports_files([\"scripts/ensure-gameplay-library.sh\", \"scripts/tests/ensure-gameplay-library.sh\"])\n";
+    const std::string root_build =
+        "exports_files([\"scripts/ensure-gameplay-library.sh\", \"scripts/tests/ensure-gameplay-library.sh\", "
+        "'scripts/hash#path.sh'])\n"
+        "# \"scripts/unrelated.sh\"\n"
+        "# 'scripts/single-commented.sh'\n";
     write(root / "BUILD.bazel", root_build);
     write(root / "native/factory-core/BUILD.bazel");
     write(root / "native/factory-world/BUILD.bazel");
@@ -66,7 +70,13 @@ void cases(const fs::path& root) {
           "A staged root Bazel data file seeds its exact native reverse dependencies.");
     check(!gate::select_native_changes(root, {"scripts/unrelated.sh"}).required &&
               !gate::requires_native_validation({"scripts/unrelated.sh"}, root_build),
-          "An unrelated script is not a native input.");
+          "A quoted path in a staged BUILD comment is not a native input.");
+    check(!gate::select_native_changes(root, {"scripts/single-commented.sh"}).required &&
+              !gate::requires_native_validation({"scripts/single-commented.sh"}, root_build),
+          "A single-quoted BUILD comment does not select an undeclared script.");
+    check(gate::select_native_changes(root, {"scripts/hash#path.sh"}).required &&
+              gate::requires_native_validation({"scripts/hash#path.sh"}, root_build),
+          "A hash inside an actual exported string remains part of its label.");
     for (const auto& path : {".bazelrc", ".bazelversion", "MODULE.bazel", "MODULE.bazel.lock",
                              "BUILD.bazel", "native/factory-core/defs.bzl", "native/new/src/file.cpp"}) {
         const auto all = gate::select_native_changes(root, {path});
