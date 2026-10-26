@@ -486,6 +486,67 @@ void flat_head_host_custody() {
                   "sliding_press_assemblies").front().storage())), "selected_exit")),
               V(A{V(I{11}), V(I{0}), V(I{8})})),
           "Refitting the head restores a ready assembly while the chosen output remains fixed.");
+    Host direct;
+    const auto direct_start = restored.checkpoint();
+    check(get<bool>(direct.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(direct.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(direct.restore_checkpoint(direct_start), "accepted") &&
+          get<bool>(direct.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "A fresh worker resumes the same finite routed blank beside its fitted crank.");
+    I direct_work_id = 0;
+    bool direct_plate = false;
+    for (int index = 0; index < 68 && !direct_plate; ++index) {
+        const auto pulse = direct.command("P", O{
+            {"context", V("flat-head-site")}, {"client", V("P")},
+            {"request", V("direct-slide-pulse-" + std::to_string(index))},
+            {"action", V("operate_hand_crank")}, {"entity", V(cranks.begin()->first)}});
+        if (!get<bool>(pulse, "accepted"))
+            throw std::runtime_error("Direct fitted crank pulse refused: " +
+                get<std::string>(pulse, "reason"));
+        const auto projected = direct.projection();
+        for (const auto& value : get<A>(projected, "dropped_material")) {
+            const auto& dropped = std::get<O>(value.storage());
+            const auto& center = get<A>(V(dropped), "center");
+            if (factory::values::typed_difference(V(center),
+                    V(A{V(I{12}), V(I{0}), V(I{8})}))) continue;
+            const auto& lots = get<A>(V(dropped), "work_lots");
+            if (lots.size() == 1)
+                direct_work_id = get<I>(lots.front(), "id");
+        }
+        if (direct_work_id > 0 && index < 8)
+            check(get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
+                  "The first direct source contact retains exact partial work and phase on save.");
+        for (const auto& value : get<A>(projected, "dropped_material")) {
+            const auto& dropped = std::get<O>(value.storage());
+            if (!factory::values::typed_difference(V(get<A>(V(dropped), "center")),
+                    V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+                get<I>(V(dropped), "products") == 1) direct_plate = true;
+        }
+    }
+    check(direct_work_id > 0,
+          "An exterior source pulse converts the routed blank into identified native work.");
+    check(direct_plate,
+          "Held exterior crank pulses finish the identified plate at its selected native outlet.");
+    check(get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
+          "The direct formed plate and its finite work identity survive checkpoint replay.");
+    O direct_output;
+    const auto direct_projection = direct.projection();
+    for (const auto& value : get<A>(direct_projection, "dropped_material")) {
+        const auto& dropped = std::get<O>(value.storage());
+        if (!factory::values::typed_difference(V(get<A>(V(dropped), "center")),
+                V(A{V(I{11}), V(I{0}), V(I{8})}))) direct_output = dropped;
+    }
+    direct_output.erase("center");
+    const auto direct_pickup = direct.command("P", O{
+        {"context", V("flat-head-site")}, {"client", V("P")},
+        {"request", V("direct-slide-pickup")}, {"action", V("pickup_material")},
+        {"center", V(A{V(I{11}), V(I{0}), V(I{8})})},
+        {"expected", V(direct_output)}});
+    check(get<bool>(direct_pickup, "accepted") &&
+          get<I>(direct_pickup, "press_output_work_id") == direct_work_id &&
+          get<I>(get<O>(direct.projection(), "cargo").at("P"), "products") == 1 &&
+          get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
+          "Picking up the source-formed plate preserves the exact claim and saved route history.");
     const auto first_contact = resumed("first-slide-contact", "turn_slide_crank",
         {{"entity", V(slide_id)}, {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
     if (!get<bool>(first_contact, "accepted"))
@@ -628,6 +689,26 @@ void flat_head_host_custody() {
     if (!get<bool>(blocker, "accepted"))
         throw std::runtime_error("Slide outlet blocker refused: " +
             get<std::string>(blocker, "reason"));
+    Host blocked_direct;
+    const auto blocked_saved = restored.checkpoint();
+    check(get<bool>(blocked_direct.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(blocked_direct.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(blocked_direct.restore_checkpoint(blocked_saved), "accepted") &&
+          get<bool>(blocked_direct.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "The blocked outlet also restores with the same partly worked blank and crank.");
+    const auto blocked_work = get<A>(blocked_direct.projection(), "dropped_material");
+    for (int index = 0; index < 4; ++index) {
+        const auto pulse = blocked_direct.command("P", O{
+            {"context", V("flat-head-site")}, {"client", V("P")},
+            {"request", V("blocked-direct-pulse-" + std::to_string(index))},
+            {"action", V("operate_hand_crank")}, {"entity", V(cranks.begin()->first)}});
+        check(get<bool>(pulse, "accepted") &&
+              !factory::values::typed_difference(
+                  V(blocked_work), V(get<A>(blocked_direct.projection(), "dropped_material"))),
+              "A full direct source cycle cannot work or discharge through a blocked outlet.");
+    }
+    check(get<bool>(blocked_direct.validate_checkpoint(blocked_direct.checkpoint()), "accepted"),
+          "A blocked direct stroke retains the partial WorkId and exact saved phase.");
     const auto turn = [&](const std::string& request) {
         return resumed(request.c_str(), "turn_slide_crank",
             {{"entity", V(slide_id)}, {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
