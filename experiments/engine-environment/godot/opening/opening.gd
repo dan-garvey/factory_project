@@ -4624,6 +4624,8 @@ var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
 var machine_preview: Node3D
 var component_preview: Node3D
+var press_snap_target: MeshInstance3D
+var press_snap_material: StandardMaterial3D
 var component_preview_kind := ""
 var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
@@ -7121,6 +7123,8 @@ func _refresh_component_preview() -> void:
 	if component_preview == null:
 		return
 	component_preview.visible = false
+	if press_snap_target != null:
+		press_snap_target.visible = false
 	if mode != "component" or not _native_transmission() or arrival_assembly_controls == null \
 			or transmission_presenter == null or explanation_open or not _placement_ready() \
 			or not _preview_pointer_clear():
@@ -7235,6 +7239,15 @@ func _refresh_component_preview() -> void:
 		component_preview_snap = str(press_snap.label) if not press_snap.is_empty() else \
 			("Above %s" % pointed_kind.replace("_", " ") if not hit.is_empty() and hit.normal.y > 0.5 \
 			else "Beside %s" % pointed_kind.replace("_", " "))
+		if press_snap_target != null and not press_snap.is_empty() \
+				and (kind == "flat_head" and pointed_kind == "anvil" \
+				or kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head"):
+			var target_box := _component_candidate_box(pointed_kind, state.placed_components[pointed].center)
+			press_snap_target.position = target_box.center + Vector3.UP * (target_box.half.y + 0.015)
+			press_snap_target.scale = Vector3(target_box.half.x / 0.77, 1.0, target_box.half.z / 0.77)
+			press_snap_material.albedo_color = Color(0.94, 0.27, 0.21, 0.85) \
+				if component_preview_blocked else Color(0.98, 0.73, 0.28, 0.9)
+			press_snap_target.visible = true
 	else:
 		component_preview_snap = "Floor grid"
 	var collector_face := _component_collector_face(kind, center)
@@ -7493,6 +7506,12 @@ func _build_world() -> void:
 	component_preview.name = "ComponentPreview"
 	component_preview.visible = false
 	add_child(component_preview)
+	press_snap_target = _selection_outline()
+	press_snap_target.name = "PressSnapTarget"
+	press_snap_material = press_snap_target.material_override.duplicate() as StandardMaterial3D
+	press_snap_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	press_snap_target.material_override = press_snap_material
+	press_snap_target.visible = false
 	item_root = Node3D.new()
 	add_child(item_root)
 	hover = _box(self, Vector3.ZERO, Vector3(1.5, 0.035, 1.5), Color(0.85, 0.75, 0.45, 0.45))
