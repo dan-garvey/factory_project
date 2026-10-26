@@ -4617,7 +4617,7 @@ func _ready() -> void:
 		else:
 			_prime_machine_visuals()
 	if not _native_transmission():
-		_message("Build a small line. Choose a part, then click a grid square." if legacy_fixture else "WASD walks. Build nearby; a wheel in the stream drives connected parts.")
+		_message("WASD walks. Build nearby; a wheel in the stream drives connected parts.")
 	elif not state.has("hand_sources"):
 		_message(FIRST_COLLECTOR_HINT)
 	for argument in OS.get_cmdline_user_args():
@@ -4628,19 +4628,14 @@ func _ready() -> void:
 				get_tree().quit(1)
 				return
 			startup_resume_checkpoint = model.checkpoint()
-			if legacy_fixture and not _save_worksite().accepted:
-				push_error("Resumed worksite could not publish its new session slot")
-				get_tree().quit(1)
-				return
-			startup_save_pending = not legacy_fixture
+			startup_save_pending = true
 			_message("Worksite reopened in this session. Your original save is kept.")
-	if not legacy_fixture:
-		if not _start_character_world():
-			return
-		_start_character_presenter()
-		if model is NativeWorldModel and state.has("landing_pod") and startup_resume_checkpoint.is_empty() \
-				and (auto_advance or arrival_reveal_probe):
-			_maybe_start_arrival_reveal.call_deferred()
+	if not _start_character_world():
+		return
+	_start_character_presenter()
+	if model is NativeWorldModel and state.has("landing_pod") and startup_resume_checkpoint.is_empty() \
+			and (auto_advance or arrival_reveal_probe):
+		_maybe_start_arrival_reveal.call_deferred()
 
 func _start_character_world() -> bool:
 	actor_world = ActorWorld.new()
@@ -4707,7 +4702,7 @@ func _can_control_character() -> bool:
 		and DisplayServer.window_get_active_popup() == DisplayServer.INVALID_WINDOW_ID
 
 func _actor_ready_for_actions() -> bool:
-	return not legacy_fixture and not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
+	return not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
 		and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
 
 func _can_use_object_actions() -> bool:
@@ -4716,10 +4711,10 @@ func _can_use_object_actions() -> bool:
 func _can_choose_tool() -> bool:
 	# The catalog holds movement while keeping its own choices available.
 	return not arrival_reveal_active and not manager_log_open and not explanation_open and not startup_save_pending and not _object_menu_open() and not _pause_menu_open() \
-		and (legacy_fixture or state.get("actors", {}).get(client, {}).get("ready", false))
+		and state.get("actors", {}).get(client, {}).get("ready", false)
 
 func _native_transmission() -> bool:
-	return not legacy_fixture and state.get("options", {}).get("native", false)
+	return state.get("options", {}).get("native", false)
 
 func _can_present_confirmed_motion() -> bool:
 	return _native_transmission() and not explanation_open and not startup_save_pending and state.get("actors", {}).get(client, {}).get("ready", false)
@@ -4826,7 +4821,7 @@ func _refresh_engineering(snapshot_ready: bool) -> void:
 const TRANSMISSION_TERRAIN_PICK_LAYER := 32
 
 func _install_transmission_terrain_picker() -> void:
-	if legacy_fixture or ProductionEnvironment.Surface == null or has_node("TransmissionTerrainPicker"):
+	if ProductionEnvironment.Surface == null or has_node("TransmissionTerrainPicker"):
 		return
 	var terrain := StaticBody3D.new()
 	terrain.name = "TransmissionTerrainPicker"
@@ -5042,22 +5037,19 @@ func _save_worksite() -> Dictionary:
 	elif not save_slot_owned and _path_exists(save_slot):
 		last_save_result = {"accepted": false, "reason": "existing_destination"}
 	else:
-		var physical := {"accepted": true}
-		if not legacy_fixture:
-			physical = actor_world.checkpoint_status() if actor_world != null else {"accepted": false, "reason": "actor_unready"}
+		var physical: Dictionary = actor_world.checkpoint_status() if actor_world != null else {"accepted": false, "reason": "actor_unready"}
 		last_save_result = Store.write(model, save_slot) if physical.accepted else {"accepted": false, "reason": physical.reason}
-		if not legacy_fixture:
-			last_save_result["native_preflight"] = physical.duplicate(true)
+		last_save_result["native_preflight"] = physical.duplicate(true)
 	if last_save_result.accepted:
 		save_slot_owned = true
-		_message("Worksite saved. Load returns to this moment." if legacy_fixture else "Worksite saved. Reopen this save through the launcher in a new session.")
+		_message("Worksite saved. Reopen this save through the launcher in a new session.")
 	else:
 		_message("Save unavailable. Your current worksite and previous save are kept.", true)
 	_refresh_ui()
 	return last_save_result
 
 func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
-	if not legacy_fixture and not startup_resume:
+	if not startup_resume:
 		last_load_result = {"accepted": false, "reason": "load_requires_restart"}
 		_message("Reopen the saved worksite through the launcher in a new session. The live worksite is kept.", true)
 		return last_load_result
@@ -5109,7 +5101,7 @@ func issue(action: Dictionary) -> Dictionary:
 	if startup_save_pending:
 		_message("Finishing the saved worksite's opening. Wait a moment.")
 		return {"accepted": false, "reason": "worksite_starting"}
-	if not legacy_fixture and actor_world != null:
+	if actor_world != null:
 		for actor in model.projection().actors:
 			actor_world.ensure_actor(actor)
 	request_sequence += 1
@@ -5117,7 +5109,7 @@ func issue(action: Dictionary) -> Dictionary:
 	intent.merge({"context": model.projection().context, "client": client,
 		"request": request_namespace + str(request_sequence)}, true)
 	var outcome: Dictionary = model.command(intent)
-	if not legacy_fixture and actor_world != null:
+	if actor_world != null:
 		actor_world.sync_topology()
 	if outcome.accepted:
 		if action.action in ["place_gear", "place_shaft"]:
@@ -5308,14 +5300,6 @@ func _process(delta: float) -> void:
 	if _object_menu_open() and Vector2i(get_viewport().get_visible_rect().size) != object_menu_viewport_size:
 		_fit_object_menu()
 	_refresh_pointed_summary()
-	if not legacy_fixture:
-		return
-	var pan := Vector2(float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
-		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W)))
-	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-		focus += Vector3(pan.x, 0, pan.y) * delta * 4.0
-		focus.x = clampf(focus.x, -4, 6)
-		focus.z = clampf(focus.z, -4, 6)
 
 func _update_fps_counter(delta: float) -> void:
 	if fps_label == null or not is_finite(delta) or delta <= 0.0:
@@ -5329,7 +5313,7 @@ func _water_time_seconds() -> float:
 	return float(Time.get_ticks_msec()) * 0.001
 
 func _refresh_water() -> void:
-	if not legacy_fixture and ProductionEnvironment.Surface != null:
+	if ProductionEnvironment.Surface != null:
 		ProductionEnvironment.animate_water(_water_time_seconds())
 
 func _refresh_mechanical_audio() -> void:
@@ -5535,7 +5519,7 @@ func _exit_tree() -> void:
 	_release_mouse_capture()
 
 func _mouse_capture_allowed(window_focused: bool, popup_open: bool) -> bool:
-	return not legacy_fixture and distance <= 0.0 and window_focused and not popup_open \
+	return distance <= 0.0 and window_focused and not popup_open \
 		and _can_control_character() and (pause_exit_confirmation == null or not pause_exit_confirmation.visible)
 
 func _wants_mouse_capture() -> bool:
@@ -5571,7 +5555,7 @@ func _sync_mouse_capture() -> void:
 func _rotate_camera_from_mouse(relative: Vector2) -> void:
 	orbit_yaw -= relative.x * 0.007
 	orbit_pitch = clampf(orbit_pitch + relative.y * 0.005,
-		-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
+		-1.25 if distance == 0.0 else 0.35, 1.25)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and mouse_capture_owned and _wants_mouse_capture():
@@ -5820,10 +5804,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_update_cursor()
 	elif event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			distance = maxf(10 if legacy_fixture else 0, distance - 1)
+			distance = maxf(0, distance - 1)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			distance = minf(28 if legacy_fixture else 24, distance + 1)
-			if not legacy_fixture and distance > 0.0:
+			distance = minf(24, distance + 1)
+			if distance > 0.0:
 				orbit_pitch = maxf(orbit_pitch, 0.35)
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			var entity_id := _screen_entity(event.position)
@@ -5856,10 +5840,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				else:
 					_retrieve()
 			KEY_H: _toggle_explanation()
-			KEY_HOME:
-				if legacy_fixture:
-					focus = Vector3(1.3, 0, 1.1)
-				distance = 18.5 if legacy_fixture else 14.0
+			KEY_HOME: distance = 14.0
 	_update_camera()
 
 func _select_tool(tool: String) -> void:
