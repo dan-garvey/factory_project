@@ -283,6 +283,10 @@ func _capture_slide_shaft(slide_id: String, path: String) -> bool:
 		"shaft_radius_m": (shaft.mesh as CylinderMesh).top_radius,
 		"spindle_radius_m": (spindle.mesh as CylinderMesh).top_radius,
 		"parallel": absf(axis.dot(spindle.global_basis.y.normalized()))}
+	if overlap < 0.07 or transverse > 0.0001 or \
+			absf(axis.dot(spindle.global_basis.y.normalized())) < 0.999 or \
+			(spindle.mesh as CylinderMesh).top_radius - (shaft.mesh as CylinderMesh).top_radius < 0.002:
+		return false
 	var close := SubViewport.new()
 	close.size = Vector2i(1280, 800)
 	close.world_3d = root.world_3d

@@ -1241,7 +1241,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 	match kind:
 		"hand_crank":
 			# A removable hand grip seats on the slide's actual horizontal input.
-			var spindle := _support_cylinder(anchor, "CrankSpindle", 0.027, 0.15, worked)
+			# The sleeve covers the input rod without coincident cylinder surfaces.
+			var spindle := _support_cylinder(anchor, "CrankSpindle", 0.031, 0.15, worked)
 			spindle.rotation.z = PI * 0.5
 			var rotor := Node3D.new()
 			rotor.name = "CrankRotor"
