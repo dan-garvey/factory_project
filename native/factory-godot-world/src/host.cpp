@@ -3301,15 +3301,17 @@ Value Host::projection() const {
                         Value(feed.entry[1]), Value(feed.entry[2])})},
                         {"exit", Value(Array{Value(feed.exit[0]), Value(feed.exit[1]),
                             Value(feed.exit[2])})}};
-                    // Retained work keeps its native outlet. With no local
-                    // belt, east is the stable manual default. A connected
-                    // lane supplies a role only when exactly one open route
-                    // agrees with its actual cargo motion.
+                    // Retained work keeps its native outlet. A tray on one
+                    // side leaves a single physically open through-feed;
+                    // only two open manual routes need the east default.
+                    // A connected lane supplies a role only when exactly one
+                    // route agrees with its actual cargo motion.
                     if (manual_auto_route && (selected != state.slide_press_routes.end() ?
                             feed.exit == selected->second :
                             mouth_has_belt ? candidate_count == 1 && feed.exit == inferred_exit :
-                            feed.exit == mechanics::Point{press.work_center[0] + 1,
-                                press.work_center[1], press.work_center[2]}))
+                            (press.open_feeds.size() == 1 ||
+                                feed.exit == mechanics::Point{press.work_center[0] + 1,
+                                    press.work_center[1], press.work_center[2]})))
                         entry.emplace("auto_feed", Value(route));
                     feeds.emplace_back(std::move(route));
                 }
