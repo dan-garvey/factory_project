@@ -783,9 +783,9 @@ void flat_head_host_custody() {
          {"to", V(get<std::string>(mouth_last, "entity"))}});
     const auto mouth_press = std::get<O>(get<A>(unlocked_restored.projection(),
         "sliding_press_assemblies").front().storage());
-    check(!mouth_press.contains("auto_route") && !mouth_press.contains("auto_feed") &&
+    check(get<bool>(V(mouth_press), "auto_route") && !mouth_press.contains("auto_feed") &&
           get<bool>(unlocked_restored.validate_checkpoint(unlocked_restored.checkpoint()), "accepted"),
-          "A belt at the actual west mouth no longer claims the isolated manual Auto fallback.");
+          "A stopped belt at the west mouth keeps Auto visible but cannot invent a material direction.");
 }
 
 void shared_fast_setting_and_restore() {

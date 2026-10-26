@@ -3833,6 +3833,13 @@ func _slide_controls_check() -> void:
 		and not panel.cycle_feed_route()
 		and auto_blank.get("wire", {}).get("entry", []) == [11, 0, 8],
 		"The projected Auto route feeds carried copper without a G selector, even when the manual index differs.")
+	auto_snapshot.sliding_press_assemblies[0].auto_feed = {
+		"entry": [13, 0, 8], "exit": [11, 0, 8]}
+	panel.refresh(auto_snapshot, "P", "anvil", true)
+	var connected_blank: Dictionary = panel.inventory_drag("player_raw")
+	verify(not panel.route_choice.visible and panel.auto_route_cue.text.contains("EAST → WEST")
+		and connected_blank.get("wire", {}).get("entry", []) == [13, 0, 8],
+		"A reversed native Auto projection changes the visible cue and carried-copper entry together.")
 	auto_snapshot.sliding_press_assemblies[0].erase("auto_feed")
 	panel.refresh(auto_snapshot, "P", "anvil", true)
 	verify(panel.auto_route_cue.text.contains("ROUTE BLOCKED")
@@ -4003,6 +4010,22 @@ func _slide_inventory_render_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(scene_root.get_texture().get_image().save_png(destination + "-wide.png") == OK,
 			"Retain the passive workbed inventory panel at 1280 by 800.")
+	var projected_press: Dictionary = view.state.sliding_press_assemblies[0]
+	projected_press.open_feeds.append({"entry": [13, 0, 8], "exit": [11, 0, 8]})
+	projected_press.auto_route = true
+	projected_press.auto_feed = {"entry": [13, 0, 8], "exit": [11, 0, 8]}
+	view._refresh_ui()
+	verify(panel.auto_route_cue.visible and panel.auto_route_cue.text.contains("EAST → WEST")
+		and not panel.route_choice.visible,
+		"The ordinary workbed renders the connected east-to-west Auto cue without a route selector.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-connected-auto.png") == OK,
+			"Retain the connected Auto cue in the actual workbed panel.")
+	projected_press.erase("auto_route")
+	projected_press.erase("auto_feed")
+	projected_press.open_feeds.pop_back()
+	view._refresh_ui()
 	var output_drag: Dictionary = panel.inventory_drag("workbed_output")
 	var output_preview := TextureRect.new()
 	output_preview.texture = panel.inventory_slots.workbed_output.icon

@@ -3215,26 +3215,37 @@ Value Host::projection() const {
         }
         projection.emplace("guided_press_assemblies", Value(std::move(guided_presses)));
         Array sliding_presses;
+        std::set<mechanics::Point> belt_tiles;
+        std::map<mechanics::Point, std::pair<int, int>> mouth_roles;
+        // World accepts press handoff only at a full-tile belt endpoint.
+        // Index all lanes once so each workbed reads only its two X mouths.
+        for (const auto& span : state.topology.belt_spans) {
+            const auto* first = find(state, span.geometry.first_shaft);
+            const auto* last = find(state, span.geometry.last_shaft);
+            if (!first || !last) continue;
+            const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            if (!path) continue;
+            belt_tiles.insert(path->tiles.begin(), path->tiles.end());
+            const auto motion = power.mechanical.motion.find(span.geometry.first_shaft);
+            if (motion == power.mechanical.motion.end() ||
+                motion->second.state != mechanics::MotionState::rotating) continue;
+            const auto direction = mechanics::belt_cargo_direction(first->geometry,
+                last->geometry, motion->second.rate);
+            if (!direction || *direction == 0) continue;
+            for (const bool at_last : {false, true}) {
+                const auto& mouth = at_last ? path->tiles.back() : path->tiles.front();
+                auto& [inbound, outbound] = mouth_roles[mouth];
+                if (at_last == (*direction > 0)) ++inbound;
+                else ++outbound;
+            }
+        }
         for (const auto& anvil : parts) {
             if (anvil.kind != materials::Component::anvil) continue;
             const auto inspection = assembly::inspect_sliding_press(parts, anvil.center);
-            // A belt elsewhere in the site cannot change this workbed's
-            // manual route. Native belt transfer uses the mouths one full tile
-            // east or west of the slide anchor.
-            const bool mouth_has_belt = std::any_of(state.topology.belt_spans.begin(),
-                state.topology.belt_spans.end(), [&](const auto& span) {
-                    const auto* first = find(state, span.geometry.first_shaft);
-                    const auto* last = find(state, span.geometry.last_shaft);
-                    if (!first || !last) return false;
-                    const auto path = mechanics::belt_path(first->geometry, last->geometry);
-                    if (!path) return false;
-                    return std::any_of(path->tiles.begin(), path->tiles.end(),
-                        [&](const mechanics::Point& tile) {
-                            return tile[1] == anvil.center[1] && tile[2] == anvil.center[2] &&
-                                (tile[0] == anvil.center[0] - 4 || tile[0] == anvil.center[0] + 4);
-                        });
-                });
-            const bool manual_auto_route = profile_.first_plate_unlock && !mouth_has_belt;
+            const mechanics::Point west_mouth{anvil.center[0] - 4, anvil.center[1], anvil.center[2]};
+            const mechanics::Point east_mouth{anvil.center[0] + 4, anvil.center[1], anvil.center[2]};
+            const bool mouth_has_belt = belt_tiles.contains(west_mouth) || belt_tiles.contains(east_mouth);
+            const bool manual_auto_route = profile_.landing_pod_center.has_value();
             Object entry{{"anvil", Value(anvil.id)},
                 {"center", Value(Array{Value(anvil.center[0]), Value(anvil.center[1]),
                     Value(anvil.center[2])})},
@@ -3257,16 +3268,30 @@ Value Host::projection() const {
                         Value(selected->second[1]), Value(selected->second[2])}));
                 Array feeds;
                 const auto selected = state.slide_press_routes.find(press.work_center);
+                const auto route_score = [&](const assembly::PressFeed& feed) {
+                    const auto entry_mouth = feed.entry[0] < press.work_center[0] ? west_mouth : east_mouth;
+                    const auto exit_mouth = feed.exit[0] < press.work_center[0] ? west_mouth : east_mouth;
+                    const auto [input_in, input_out] = mouth_roles[entry_mouth];
+                    const auto [output_in, output_out] = mouth_roles[exit_mouth];
+                    return input_out || output_in ? 0 : input_in + output_out;
+                };
+                int candidate_count = 0;
+                mechanics::Point inferred_exit{};
+                if (manual_auto_route && mouth_has_belt && selected == state.slide_press_routes.end())
+                    for (const auto& feed : press.open_feeds)
+                        if (route_score(feed) > 0) { ++candidate_count; inferred_exit = feed.exit; }
                 for (const auto& feed : press.open_feeds) {
                     Object route{{"entry", Value(Array{Value(feed.entry[0]),
                         Value(feed.entry[1]), Value(feed.entry[2])})},
                         {"exit", Value(Array{Value(feed.exit[0]), Value(feed.exit[1]),
                             Value(feed.exit[2])})}};
-                    // The first manual slide has an integral X input. While
-                    // this opening has no belts, its east outlet is the stable
-                    // preferred side. Retained work keeps its original outlet.
+                    // Retained work keeps its native outlet. With no local
+                    // belt, east is the stable manual default. A connected
+                    // lane supplies a role only when exactly one open route
+                    // agrees with its actual cargo motion.
                     if (manual_auto_route && (selected != state.slide_press_routes.end() ?
                             feed.exit == selected->second :
+                            mouth_has_belt ? candidate_count == 1 && feed.exit == inferred_exit :
                             feed.exit == mechanics::Point{press.work_center[0] + 1,
                                 press.work_center[1], press.work_center[2]}))
                         entry.emplace("auto_feed", Value(route));
