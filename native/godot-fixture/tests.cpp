@@ -1,12 +1,16 @@
 #include "cases.hpp"
 #include "fixture.hpp"
 
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace fixture = factory::godot_fixture;
+namespace fs = std::filesystem;
 
 namespace {
 unsigned checks = 0;
@@ -97,6 +101,38 @@ int main() {
                   std::vector<std::string>{"--native-check-mode=arrival-first-plate",
                                            "--event-route-pointer", "--unexpected=/tmp/x"}),
               "Wrong route, conflicting case or stray input cannot satisfy a named case.");
+        std::string directory_template = (fs::temp_directory_path() / "factory-case-path-XXXXXX").string();
+        std::vector<char> directory_bytes(directory_template.begin(), directory_template.end());
+        directory_bytes.push_back('\0');
+        char* created = ::mkdtemp(directory_bytes.data());
+        check(created != nullptr, "The output-path controls own a fresh temporary directory.");
+        struct TemporaryDirectory {
+            fs::path path;
+            ~TemporaryDirectory() {
+                std::error_code error;
+                fs::remove_all(path, error);
+            }
+        } temporary{created};
+        fs::create_directory(temporary.path / "real");
+        fs::create_directory_symlink(temporary.path / "real", temporary.path / "alias");
+        const auto named_args = [&](const fs::path& save, const fs::path& result) {
+            return std::vector<std::string>{"--native-check-mode=arrival-channel-small",
+                "--event-route-loose", "--resume-input=/tmp/previous.worksite",
+                "--save-slot=" + save.string(), "--native-check-output=" + result.string()};
+        };
+        const auto save = temporary.path / "real" / "channel.worksite";
+        const auto equal = named_args(save, save);
+        check(fixture::accepts_case_arguments(*small, equal) &&
+                  !fixture::distinct_case_output_paths(equal),
+              "A named channel cannot write its result over its own fresh worksite.");
+        const auto symlink_alias = named_args(save, temporary.path / "alias" / "channel.worksite");
+        check(fixture::accepts_case_arguments(*small, symlink_alias) &&
+                  !fixture::distinct_case_output_paths(symlink_alias),
+              "Distinct path spellings through a symlinked parent cannot share an output file.");
+        const auto distinct = named_args(save, temporary.path / "alias" / "channel.result");
+        check(fixture::accepts_case_arguments(*small, distinct) &&
+                  fixture::distinct_case_output_paths(distinct),
+              "Separate fresh worksite and result destinations remain selectable.");
         std::cout << "PASS " << checks << " native Godot fixture-log controls.\n";
         return 0;
     } catch (const std::exception& error) {

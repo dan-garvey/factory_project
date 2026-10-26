@@ -1,6 +1,8 @@
 #include "cases.hpp"
 
 #include <array>
+#include <filesystem>
+#include <set>
 #include <vector>
 
 namespace factory::godot_fixture {
@@ -74,6 +76,18 @@ bool accepts_case_arguments(const Case& selected, std::span<const std::string> a
             }
         }
         if (!matched) return false;
+    }
+    return true;
+}
+
+bool distinct_case_output_paths(std::span<const std::string> arguments) {
+    std::set<std::filesystem::path> destinations;
+    for (const auto& argument : arguments) {
+        if (!argument.starts_with("--native-check-output=") &&
+            !argument.starts_with("--save-slot=")) continue;
+        const std::filesystem::path path(argument.substr(argument.find('=') + 1));
+        const auto destination = std::filesystem::canonical(path.parent_path()) / path.filename();
+        if (!destinations.insert(destination).second) return false;
     }
     return true;
 }

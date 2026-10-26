@@ -212,6 +212,8 @@ int main(int argc, char** argv) {
             require(fixture::accepts_case_arguments(*selected, user_arguments),
                     "The registered fixture case requires its exact mode, route and inputs.");
             validate_case_paths(user_arguments, options.at("--artifacts"));
+            require(fixture::distinct_case_output_paths(user_arguments),
+                    "Registered fixture result and save destinations must be distinct.");
             script = selected->script;
             expected = selected->pass_line;
             timeout_seconds = selected->seconds;
