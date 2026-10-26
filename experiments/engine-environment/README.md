@@ -20,6 +20,12 @@ PASS line for the selected source revision and reject engine error lines.
 | `model.gd`, `tests.gd`, `scenario.gd` | Earlier engine-coupled finite production baseline |
 
 Each script defines its required arguments, markers and invented setup.
+The opening scene coordinates input and confirmed native projections. Its
+`production_*.gd` modules own surfaces, machine art, environment, widgets and
+theme; consumers import those resources directly. `machine_batches.gd` owns
+draw batching and caches over an explicit rendered root and motion anchors.
+Audio controllers are separate. None of these presentation modules owns game
+state or command admission.
 The shared server selects native authority explicitly with `--native-world`;
 legacy fixed-roster Python launchers do not prepare its compiled resources.
 Source/runtime identity, actual outcomes and unresolved coverage belong in Beads.

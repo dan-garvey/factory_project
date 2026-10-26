@@ -1,7 +1,8 @@
 extends SceneTree
+const ProductionCoating = preload("res://opening/production_surfaces.gd").ProductionCoating
 ## Isolated asset controls; no game state, native body or desktop operation.
 const Opening = preload("res://opening/opening.gd")
-const Visuals = Opening.ProductionVisuals
+const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
 var checks := 0
 var failed := false
 var error_count := 0
@@ -111,7 +112,7 @@ func _initialize() -> void:
 		"The actual collector's working bed uses exposed steel.")
 	var lower_housing := collector.get_node_or_null("CollectorCastFrame/CastLowerHousing") as MeshInstance3D
 	var cast_finish := lower_housing.material_override as StandardMaterial3D if lower_housing != null else null
-	verify(cast_finish != null and cast_finish == Opening.ProductionCollectorArt.coating(
+	verify(cast_finish != null and cast_finish == ProductionCoating.material(
 		Opening.COLORS.collector.darkened(0.09)) and cast_finish.metallic < 0.1
 		and cast_finish.roughness_texture != null,
 		"The actual collector casting keeps its distinct painted source finish.")

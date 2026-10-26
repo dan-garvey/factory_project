@@ -1,8 +1,8 @@
 extends RefCounted
 ## Pure render assemblies. The presenter retains axes, picks and native facts.
-const Visuals = preload("res://opening/opening.gd").ProductionVisuals
-const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
-const ConveyorArt = preload("res://opening/opening.gd").ProductionConveyorArt
+const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
+const Finish = preload("res://opening/production_surfaces.gd").ProductionTransmissionFinish
+const ConveyorArt = preload("res://opening/production_conveyors.gd").ProductionConveyorArt
 const UNIT := preload("res://opening/site_geometry.gd").PITCH / 4.0
 const SHAFT_CORE_RADIUS := 0.03
 const SPAN_HALF_WIDTH := UNIT * 4.0 * 0.55 / 2.0
@@ -36,7 +36,7 @@ static func _prepare_coupling() -> void:
 	if present != files.size():
 		push_error("The sourced shaft coupling resource set is incomplete.")
 		return
-	var images := preload("res://opening/opening.gd").ProductionSteelFloor.read_images(COUPLING_ROOT, COUPLING_IMAGES, Vector2i(512, 512))
+	var images := preload("res://opening/production_surfaces.gd").ProductionSteelFloor.read_images(COUPLING_ROOT, COUPLING_IMAGES, Vector2i(512, 512))
 	if images.status != "ready":
 		push_error("Cannot decode the sourced shaft coupling material.")
 		return
