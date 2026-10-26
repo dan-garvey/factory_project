@@ -35,6 +35,42 @@ arguments. `--render-buildable-resources` may combine its declared
 exit 2 before any case runs. Existing suite-specific completion and exit
 contracts remain; resource renders are isolated passive evidence.
 
+`native_transmission_view_check.gd` runs its default transmission suite with
+no user arguments or exactly one direct `--...-only` mode. The supported
+component modes are `--supplied-hardware-only`, `--component-boxes-only`,
+`--press-components-only`, `--guided-press-components-only`,
+`--broad-press-components-only`, `--broad-press-raised-only`,
+`--channel-components-only`, `--channel-z-only`, `--channel-sheet-only`,
+`--support-frame-only` and `--finish-only`. Projection and control modes are
+`--physical-topology-cache-only`, `--physical-actor-bridge-only`,
+`--advance-projection-only`, `--native-actor-view-only`,
+`--native-view-cache-only`, `--tool-guidance-only`, `--refresh-cache-only`,
+`--belt-surface-only`, `--direction-basis-only` and `--loose-material-only`.
+Material, collision and transport modes are `--slide-material-only`,
+`--mechanical-collision-only`, `--collision-lifecycle-only`,
+`--cog-axle-collision-only`, `--river-pier-collision-only`,
+`--belt-actor-only`, `--inclined-belt-actor-only`,
+`--nonhorizontal-presentation-only`, `--belt-picking-only`,
+`--cog-axles-only`, `--belt-spans-only` and `--belt-spans-missing-only`.
+Unknown, duplicate, conflicting and orphan options exit 2 before a suite
+starts. Each direct suite emits `NATIVE_TRANSMISSION_VIEW_PASS` with its exact
+revision-matched check count on success and exits nonzero on failure.
+Among direct suites, `--capture` and `--crank-capture-prefix` belong only to
+the guided press mode; `--broad-capture` belongs to either broad press mode;
+`--channel-capture` and `--channel-after-capture` belong to a channel mode; and
+`--slide-material-image` belongs only to slide material. Use
+`--test-purpose=TEXT` on agent graphical launches through
+the tracked launcher. Passive capture output is rendered evidence only.
+
+`--scale-benchmark` is a separate selection. Only its declared `--count`,
+`--large-every`, `--capture`, `--supports`, `--varied-supports`, `--close`,
+`--cycle-axes`, `--verify-only`, `--whole-opening`, `--stopped`,
+`--refresh-every-frame` and `--trusted-revision` companions are accepted.
+`--verify-only` emits structured `COG_SCALE_VALIDATION` with status `pass`;
+the measurement route emits structured `COG_SCALE` values. Treat those as
+synthetic validation or performance evidence, separately from the direct
+fixture PASS line and native/human-play results.
+
 `guidance_cue_check.gd --mouse-look-only` emits `OPENING_MOUSE_LOOK_PASS 15`.
 It checks first-person capture policy, relative camera motion, menu release and
 held-key refusal in a headless view. It does not establish actual OS focus or
