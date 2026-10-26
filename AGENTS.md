@@ -94,6 +94,10 @@ Keep concurrent writers in separate linked worktrees. Merge current main into
 committed work rather than routinely rebasing; never overwrite another checkout.
 Only the short main update/push holds the shared Git lock.
 
+Write commit messages that explain what changed and why it matters to the game
+at its current stage of development, using specific context rather than canned
+repetitions.
+
 For every authored commit, including merges, open an unassigned `review-request`
 Bead naming the exact commit, implementing agent, scope and checks. Never review
 your own commit or claim your own request. After opening one, claim and complete
