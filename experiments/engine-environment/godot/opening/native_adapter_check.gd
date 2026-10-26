@@ -2892,13 +2892,17 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					capture_prefix + "-loaded-crank-cue.png") == OK,
 				"Retain the loaded workpiece and direct exterior crank cue"):
 				return
-		var direct_world_hold: bool = DisplayServer.window_is_focused()
-		facts["plate_drive_input"] = "world_e_hold" if direct_world_hold else "native_unfocused_passive"
+		var direct_world_hold: bool = DisplayServer.get_name() != "headless" \
+			and DisplayServer.window_is_focused()
+		facts["plate_drive_input"] = "viewport_world_e_hold" if direct_world_hold else "native_unfocused_passive"
 		var hold_key := InputEventKey.new()
 		hold_key.keycode = KEY_E
+		hold_key.physical_keycode = KEY_E
 		hold_key.pressed = true
 		var prior_held_order: int = int(opening.model.projection().order)
-		opening._unhandled_input(hold_key)
+		if direct_world_hold:
+			Input.parse_input_event(hold_key)
+			await process_frame
 		var formed: Dictionary = {}
 		var hold_progressed := true
 		var held_pulses := 0
@@ -2924,10 +2928,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					break
 			if not formed.is_empty():
 				break
-		var release_hold := InputEventKey.new()
-		release_hold.keycode = KEY_E
-		release_hold.pressed = false
-		opening._input(release_hold)
+		if direct_world_hold:
+			var release_hold: InputEventKey = hold_key.duplicate()
+			release_hold.pressed = false
+			Input.parse_input_event(release_hold)
+			await process_frame
 		facts["plate_drive_pulses"] = held_pulses
 		var before_pickup: Dictionary = opening.model.projection()
 		if not _expect(hold_progressed and held_pulses > 0 and opening.held_crank.is_empty()
