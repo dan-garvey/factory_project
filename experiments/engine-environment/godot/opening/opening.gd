@@ -7215,7 +7215,7 @@ func _assemble_foundation(parent: Node3D, neighbor_mask: int = 0) -> void:
 
 func _update_camera() -> void:
 	var back := Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch))
-	var eye_offset := 0.0 if legacy_fixture else FIRST_PERSON_EYE_OFFSET * (1.0 - clampf(distance / FIRST_PERSON_BLEND_DISTANCE, 0.0, 1.0))
+	var eye_offset := FIRST_PERSON_EYE_OFFSET * (1.0 - clampf(distance / FIRST_PERSON_BLEND_DISTANCE, 0.0, 1.0))
 	camera.position = focus + Vector3.UP * eye_offset + back * distance
 	# At zero distance look along the same orbit ray instead of looking at the
 	# camera's own position. The local mesh remains real but cannot fill the view.
@@ -7233,95 +7233,41 @@ func _update_camera() -> void:
 		_update_arrival_reveal_camera()
 
 func _build_world() -> void:
-	if not legacy_fixture and ProductionEnvironment.Surface == null:
+	if ProductionEnvironment.Surface == null:
 		push_error("Opening requires authored site geometry")
 		if is_inside_tree():
 			get_tree().quit(1)
 		return
-	if not legacy_fixture and ProductionEnvironment.Surface != null:
-		ProductionEnvironment.build(self)
-	else:
-		var environment := WorldEnvironment.new()
-		var settings := Environment.new()
-		var sky_material := ProceduralSkyMaterial.new()
-		sky_material.sky_top_color = Color("536f86")
-		sky_material.sky_horizon_color = Color("d8cbb2")
-		sky_material.ground_bottom_color = Color("394641")
-		sky_material.ground_horizon_color = Color("b5b8a1")
-		var sky := Sky.new()
-		sky.sky_material = sky_material
-		settings.background_mode = Environment.BG_SKY
-		settings.sky = sky
-		settings.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		settings.ambient_light_energy = 0.5
-		settings.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-		environment.environment = settings
-		add_child(environment)
-		var sun := DirectionalLight3D.new()
-		sun.rotation_degrees = Vector3(-48, -30, 0)
-		sun.light_color = Color("fff1d6")
-		sun.light_energy = 1.35
-		sun.shadow_enabled = true
-		add_child(sun)
-		# Keep the back of machinery readable without adding a second shadow map.
-		var fill := DirectionalLight3D.new()
-		fill.rotation_degrees = Vector3(-32, 135, 0)
-		fill.light_color = Color("b9d2ea")
-		fill.light_energy = 0.35
-		fill.shadow_enabled = false
-		add_child(fill)
-	if legacy_fixture or ProductionEnvironment.Surface == null:
-		_box(self, Vector3(1.65, -0.55, 1.65), Vector3(13.4, 0.8, 13.4), Color("394641"))
-		var foundation_finish: StandardMaterial3D = ProductionSteelFloor.material() if not legacy_fixture else null
-		set_meta("foundation_surface", "legacy")
-		for x in range(-2, 5):
-			for z in range(-2, 5):
-				# Subtle panel variation replaces the debug checkerboard. Existing
-				# seams, grid dimensions and physical ground stay unchanged.
-				var tint := Color("74766b").darkened(float(posmod(x * 17 + z * 31, 5)) * 0.018)
-				var panel := _machine_box(self, "FoundationPanel", Vector3(x * PITCH, -0.08, z * PITCH),
-					Vector3(PITCH - 0.035, 0.12, PITCH - 0.035), tint, 0.0, 0.95)
-				panel.set_meta("surface_role", "foundation")
-				if foundation_finish != null:
-					panel.material_override = foundation_finish
-		_box(self, Vector3(-2.7, 0.0, 1.65), Vector3(1.2, 0.06, 13.4), Color("396c76"))
-		for z in range(-3, 6):
-			_box(self, Vector3(-2.7, 0.04, z * 1.3), Vector3(0.85, 0.018, 0.035), Color("72a5a7"))
-		_box(self, Vector3(0, 0.005, 1.65), Vector3(0.12, 0.035, 13.4), Color("a58c59"))
-		for z in [-1.8, -1.4, -1.0]:
-			_box(self, Vector3(-3.75, 0.02, z), Vector3(0.12, 0.08, 0.22), Color("be9957"))
-		var arrow := _text(self, "MATERIAL  →", Vector3(1.6, 0.08, -4.15), Color("e4bc70"), 0.005)
-		arrow.rotation_degrees.x = -90
-	else:
-		var surface = ProductionEnvironment.Surface
-		var natural_ground: ShaderMaterial = ProductionEnvironment.ground_material()
-		if natural_ground == null:
-			if is_inside_tree():
-				get_tree().quit(1)
-			return
-		var natural_stone: StandardMaterial3D = ProductionEnvironment.stone_material()
-		set_meta("foundation_surface", ProductionEnvironment.ground_source_status)
-		var groups := {"": self}
-		var headwall := Node3D.new()
-		headwall.name = "NorthSeamOutcrop"
-		headwall.position = surface.group_origin("NorthSeamOutcrop")
-		add_child(headwall)
-		groups.NorthSeamOutcrop = headwall
-		for spec in surface.foundation_boxes():
-			var part := _machine_box(groups[spec.group], spec.label,
-				spec.center - surface.group_origin(spec.group), spec.size, spec.tint, spec.metallic, spec.roughness)
-			part.set_meta("site_solid_id", spec.id)
-			if spec.label in ["EastBedrockShelf", "WestBankBedrockShelf"] and natural_ground != null:
-				part.material_override = natural_ground
-			elif spec.label in ["EastBedrockRim", "WestBedrockRim", "EastShelfOutcrop", "WestShelfOutcrop", "StreamBankLedge"] and natural_stone != null:
-				part.material_override = natural_stone
-		for spec in surface.pad_panels():
-			var tint := Color("74766b").darkened(float(posmod(spec.cell.x * 17 + spec.cell.y * 31, 5)) * 0.018)
-			var panel := _machine_box(self, "BedrockTerracePanel", spec.center, spec.size, tint, 0.0, 0.94)
-			panel.set_meta("surface_role", "foundation")
-			panel.set_meta("site_solid_id", spec.id)
-			if natural_ground != null:
-				panel.material_override = natural_ground
+	ProductionEnvironment.build(self)
+	var surface = ProductionEnvironment.Surface
+	var natural_ground: ShaderMaterial = ProductionEnvironment.ground_material()
+	if natural_ground == null:
+		if is_inside_tree():
+			get_tree().quit(1)
+		return
+	var natural_stone: StandardMaterial3D = ProductionEnvironment.stone_material()
+	set_meta("foundation_surface", ProductionEnvironment.ground_source_status)
+	var groups := {"": self}
+	var headwall := Node3D.new()
+	headwall.name = "NorthSeamOutcrop"
+	headwall.position = surface.group_origin("NorthSeamOutcrop")
+	add_child(headwall)
+	groups.NorthSeamOutcrop = headwall
+	for spec in surface.foundation_boxes():
+		var part := _machine_box(groups[spec.group], spec.label,
+			spec.center - surface.group_origin(spec.group), spec.size, spec.tint, spec.metallic, spec.roughness)
+		part.set_meta("site_solid_id", spec.id)
+		if spec.label in ["EastBedrockShelf", "WestBankBedrockShelf"] and natural_ground != null:
+			part.material_override = natural_ground
+		elif spec.label in ["EastBedrockRim", "WestBedrockRim", "EastShelfOutcrop", "WestShelfOutcrop", "StreamBankLedge"] and natural_stone != null:
+			part.material_override = natural_stone
+	for spec in surface.pad_panels():
+		var tint := Color("74766b").darkened(float(posmod(spec.cell.x * 17 + spec.cell.y * 31, 5)) * 0.018)
+		var panel := _machine_box(self, "BedrockTerracePanel", spec.center, spec.size, tint, 0.0, 0.94)
+		panel.set_meta("surface_role", "foundation")
+		panel.set_meta("site_solid_id", spec.id)
+		if natural_ground != null:
+			panel.material_override = natural_ground
 	_install_transmission_terrain_picker()
 	machine_root = Node3D.new()
 	add_child(machine_root)
@@ -9272,7 +9218,7 @@ func _rebuild_machines() -> void:
 	machine_cutter_batch_slots.clear()
 	var foundation_masks := ProductionFoundationArt.neighbor_masks(state.get("foundations", {}))
 	var scenery := get_node_or_null("ProductionScenery")
-	if scenery != null and not legacy_fixture and ProductionEnvironment.Surface != null:
+	if scenery != null and ProductionEnvironment.Surface != null:
 		ProductionEnvironment.refresh_vegetation(scenery, state)
 	for child in machine_root.get_children():
 		child.free()
