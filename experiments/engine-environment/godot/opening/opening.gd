@@ -4710,6 +4710,7 @@ var object_menu_detail_panel: PanelContainer
 var object_menu_desired_extent := Vector2i(500, 400)
 var object_menu_viewport_size := Vector2i.ZERO
 var object_menu_target := ""
+var object_menu_closed_frame := -1
 var pause_menu: PanelContainer
 var pause_menu_scrim: ColorRect
 var pause_resume_button: Button
@@ -5851,6 +5852,10 @@ func _input(event: InputEvent) -> void:
 	if _catalog_open():
 		return
 	if event is InputEventKey and event.keycode == KEY_ESCAPE and event.pressed and not event.echo:
+		# PopupPanel can hide itself before this scene sees the same Escape.
+		if object_menu_closed_frame == Engine.get_process_frames():
+			get_viewport().set_input_as_handled()
+			return
 		if _cancel_active_construction():
 			consumed_shortcut_keys[KEY_ESCAPE] = true
 		else:
@@ -10840,6 +10845,7 @@ func _style_pause_action(button: Button, icon_name: String, action_name: String,
 	caption.add_theme_font_size_override("font_size", 11)
 
 func _on_object_menu_closed() -> void:
+	object_menu_closed_frame = Engine.get_process_frames()
 	if arrival_assembly_controls != null:
 		arrival_assembly_controls.stop_turn_hold()
 	object_menu_scrim.visible = false

@@ -3503,6 +3503,71 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 			and _construction_custody() == before,
 			"Escape closes the focused catalog before any worksite menu"):
 		return
+	var floor_id := ""
+	for id: String in opening.model.projection().foundations:
+		if id.begins_with("pod-floor-"):
+			floor_id = id
+			break
+	if not _expect(not floor_id.is_empty(), "The native arrival retains a pod floor for machine-menu input"):
+		return
+	opening._open_object_menu_for(floor_id)
+	if not _expect(opening.object_menu.visible and not opening.pause_menu.visible,
+			"An ordinary built floor opens the machine popup before Escape"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-machine-popup.png") == OK,
+				"Retain the ordinary open machine popup"):
+			return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(not opening.object_menu.visible and not opening.pause_menu.visible
+			and _construction_custody() == before,
+			"One ordinary Escape closes the machine popup without opening Worksite"):
+		return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(opening.pause_menu.visible and _construction_custody() == before,
+			"A later Escape from the closed machine popup opens Worksite"):
+		return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(not opening.pause_menu.visible, "Escape resumes after the machine-popup pause route"):
+		return
+	opening._open_object_menu_for(floor_id)
+	if not _expect(opening.object_menu.visible, "The same native floor can reopen its popup"):
+		return
+	# Reproduce the alternate Godot ordering: the PopupPanel hides before
+	# opening.gd receives the Escape that caused the hide.
+	opening.object_menu.hide()
+	opening._on_object_menu_closed()
+	if not _expect(opening.object_menu_target.is_empty(),
+			"The popup hide callback finishes before scene input"):
+		return
+	var close_key := InputEventKey.new()
+	close_key.keycode = KEY_ESCAPE
+	close_key.pressed = true
+	opening._input(close_key)
+	if not _expect(not opening.object_menu.visible and not opening.pause_menu.visible
+			and _construction_custody() == before,
+			"The same Escape cannot open Worksite after PopupPanel hid first"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-machine-closed.png") == OK,
+				"Retain the popup-closed view without Worksite"):
+			return
+	await process_frame
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(opening.pause_menu.visible and _construction_custody() == before,
+			"A separate next-frame Escape still opens Worksite after an early popup hide"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-worksite.png") == OK,
+				"Retain the distinct later-Escape Worksite view"):
+			return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(not opening.pause_menu.visible and _construction_custody() == before,
+			"Machine-popup Escape precedence leaves native construction custody unchanged"):
+		return
 	_record("pass")
 
 func _arrival_run() -> void:
