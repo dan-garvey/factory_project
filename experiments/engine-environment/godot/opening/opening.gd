@@ -7254,7 +7254,7 @@ func _refresh_component_preview() -> void:
 			var camera_right: Vector3 = camera.global_transform.basis.x
 			camera_right.y = 0.0
 			press_snap_lift.position = (target_box.center + box.center) * 0.5 \
-				- camera_right.normalized() * 0.36
+				+ camera_right.normalized() * 0.22
 			press_snap_lift.scale.y = maxf(0.35, box.center.y - target_box.center.y)
 			press_snap_lift_material.albedo_color = press_snap_material.albedo_color
 			press_snap_lift.visible = true
