@@ -712,6 +712,82 @@ void flat_head_host_custody() {
           get<std::string>(newly_unlocked, "reason") != "first_plate_required",
           "Only the worker who physically carries the first plate may start advanced crafting.");
     const auto unlocked_saved = finished_restored.checkpoint();
+    Host tray_host;
+    check(get<bool>(tray_host.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(tray_host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(tray_host.restore_checkpoint(unlocked_saved), "accepted"),
+          "The post-plate worksite can branch into a finite tray-supported slide route.");
+    const auto tray_command = [&](const std::string& request, const char* action, O extra) {
+        O wire{{"context", V("flat-head-site")}, {"client", V("Q")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        const auto reply = tray_host.command("Q", wire);
+        if (!get<bool>(reply, "accepted"))
+            throw std::runtime_error(request + " refused: " + get<std::string>(reply, "reason"));
+        return reply;
+    };
+    check(get<bool>(tray_host.publish_actor("Q", {V(-1.2375), V(1.0), V(0.0)}, 2), "accepted"),
+          "The plate holder reaches a real copper blank for the tray-backed press.");
+    tray_command("tray-route-ore", "harvest_source", {{"target", V("opening-copper")}});
+    check(get<bool>(tray_host.publish_actor("Q", {V(5.8), V(1.0), V(-1.0)}, 3), "accepted"),
+          "The same worker reaches finite timber for the receiver tray.");
+    for (int index = 0; index < 2; ++index)
+        tray_command("tray-route-timber-" + std::to_string(index), "harvest_source",
+            {{"target", V("tree-east-upstream")}});
+    tray_command("tray-route-craft", "field_craft", {{"component", V("receiver_tray")}});
+    check(get<bool>(tray_host.publish_actor("Q", {V(3.3), V(1.0), V(1.65)}, 4), "accepted"),
+          "The worker can place a receiver beside, rather than inside, the workbed outlet.");
+    const auto tray = tray_command("tray-route-place", "place_component",
+        {{"component", V("receiver_tray")},
+         {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+    const auto tray_press = std::get<O>(get<A>(tray_host.projection(),
+        "sliding_press_assemblies").front().storage());
+    const auto tray_feed = get<O>(V(tray_press), "auto_feed");
+    check(get<A>(V(tray_press), "open_feeds").size() == 1 &&
+          get<bool>(V(tray_press), "auto_route") &&
+          !factory::values::typed_difference(V(get<A>(V(tray_feed), "entry")),
+              V(A{V(I{13}), V(I{0}), V(I{8})})) &&
+          !factory::values::typed_difference(V(get<A>(V(tray_feed), "exit")),
+              V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+          get<O>(tray_host.projection(), "placed_components").contains(
+              get<std::string>(tray, "entity")),
+          "The one supported west tray outlet becomes the native Auto route without a face selector.");
+    const auto remaining_drop = std::find_if(formed.begin(), formed.end(), [](const V& value) {
+        return !get<I>(value, "products");
+    });
+    check(remaining_drop != formed.end() &&
+          get<bool>(tray_host.publish_actor("Q", {V(5.8), V(1.0), V(3.3)}, 5), "accepted"),
+          "The plate holder can reach the first plate's remaining offcuts on the work cell.");
+    auto offcut_expected = std::get<O>(remaining_drop->storage());
+    const auto offcut_center = get<A>(V(offcut_expected), "center");
+    offcut_expected.erase("center");
+    tray_command("tray-route-clear-work", "pickup_material",
+        {{"center", V(offcut_center)}, {"expected", V(offcut_expected)}});
+    check(get<bool>(tray_host.publish_actor("Q", {V(5.8), V(1.0), V(1.65)}, 6), "accepted"),
+          "The actor approaches the inferred east input with the finite blank.");
+    tray_command("tray-route-feed", "feed_press",
+        {{"entity", V(get<std::string>(support, "entity"))},
+         {"entry", V(get<A>(V(tray_feed), "entry"))}});
+    const auto tray_loaded = std::get<O>(get<A>(tray_host.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(!factory::values::typed_difference(V(get<A>(V(tray_loaded), "selected_exit")),
+              V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+          get<I>(get<O>(tray_host.projection(), "cargo").at("Q"), "raw") == 0,
+          "The native workbed retains one selected west receiver outlet and consumes only its fed blank.");
+    const auto tray_saved = tray_host.checkpoint();
+    Host tray_restored;
+    check(get<bool>(tray_restored.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(tray_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(tray_restored.restore_checkpoint(tray_saved), "accepted") &&
+          !factory::values::typed_difference(tray_saved, tray_restored.checkpoint()),
+          "A fresh Host replays the exact finite tray and selected work outlet.");
+    const auto tray_rejoined = std::get<O>(get<A>(tray_restored.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(!factory::values::typed_difference(V(get<O>(V(tray_rejoined), "auto_feed")),
+              V(tray_feed)) &&
+          !factory::values::typed_difference(V(get<A>(V(tray_rejoined), "selected_exit")),
+              V(A{V(I{11}), V(I{0}), V(I{8})})),
+          "The restored Auto projection still agrees with the native tray-backed work route.");
     Host unlocked_restored;
     check(get<bool>(unlocked_restored.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
           get<bool>(unlocked_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&

@@ -11064,6 +11064,14 @@ func _build_interface() -> void:
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	if not legacy_fixture:
 		_build_object_menu(root, right_panel as PanelContainer)
+		# Loose work belongs to the world, so its action menu must stay reachable
+		# while the selected-object panel is closed.
+		loose_material_controls.reparent(selection_tools)
+		loose_material_controls.text = "Loose"
+		loose_material_controls.icon = load("res://opening/assets/build-icons/ore.svg")
+		loose_material_controls.custom_minimum_size = Vector2(82, 30)
+		loose_material_controls.focus_mode = Control.FOCUS_ALL
+		loose_material_controls.accessibility_name = "Handle loose material, shortcut Control L"
 		_build_pause_menu(root)
 		_build_pointed_summary(root)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))

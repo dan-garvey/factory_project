@@ -7,6 +7,7 @@ const TransmissionPresenter = preload("res://opening/native_transmission_present
 const ARRIVAL_INITIAL_MASS := 4096 * 4
 var opening
 var destination := ""
+var prior_result_path := ""
 var mode := ""
 var checks := 0
 var deadline := 0
@@ -17,6 +18,8 @@ func _init() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--native-check-output="):
 			destination = argument.trim_prefix("--native-check-output=")
+		if argument.begins_with("--native-check-prior="):
+			prior_result_path = argument.trim_prefix("--native-check-prior=")
 		if argument.begins_with("--native-check-mode="):
 			mode = argument.trim_prefix("--native-check-mode=")
 	deadline = Time.get_ticks_msec() + (45000 if mode == "foundations" else 60000)
@@ -808,7 +811,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -2712,11 +2715,25 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		press_key.pressed = true
 		opening._unhandled_input(press_key)
 		var after_direct: Dictionary = opening.model.projection()
+		var focused_world_input: bool = int(after_direct.order) == int(before_direct.order) + 1
+		if not focused_world_input:
+			if not _expect(not DisplayServer.window_is_focused()
+					and after_direct.order == before_direct.order
+					and opening.held_crank.is_empty() and not opening.object_menu.visible,
+				"An unfocused passive window refuses E without leaving a held source"):
+				return
+			var visual_pulse: Dictionary = opening.issue({"action": "operate_hand_crank", "entity": crank_id})
+			after_direct = opening.model.projection()
+			if not _expect(visual_pulse.get("accepted", false),
+				"A confirmed native pulse can still supply the passive motion capture"):
+				return
+		facts["crank_visual_input"] = "focused_world_e" if focused_world_input else "native_after_unfocused_e"
 		if not _expect(after_direct.order == before_direct.order + 1
 				and after_direct.slide_phases[fitted.wooden_slide].subticks >
 					before_direct.slide_phases[fitted.wooden_slide].subticks
-				and opening.held_crank == crank_id and not opening.object_menu.visible,
-			"World E on the fitted crank drives the unloaded slide once without opening a machine menu"):
+				and (opening.held_crank == crank_id if focused_world_input else opening.held_crank.is_empty())
+				and not opening.object_menu.visible,
+			"The direct native crank pulse drives the unloaded slide once without opening a machine menu"):
 			return
 		var rotor: Node3D = opening.transmission_presenter._crank_rotors.get(crank_id)
 		var initial_angle: float = rotor.rotation.x if rotor != null else NAN
@@ -3070,10 +3087,11 @@ func _arrival_mature_tree_resume_run(capture_prefix: String) -> void:
 			return
 	_record("pass")
 
-func _ordinary_key(code: Key, repeat: bool = false) -> void:
+func _ordinary_key(code: Key, repeat: bool = false, ctrl: bool = false) -> void:
 	var key := InputEventKey.new()
 	key.keycode = code
 	key.physical_keycode = code
+	key.ctrl_pressed = ctrl
 	key.pressed = true
 	Input.parse_input_event(key)
 	await process_frame
@@ -3086,6 +3104,61 @@ func _ordinary_key(code: Key, repeat: bool = false) -> void:
 	key.pressed = false
 	Input.parse_input_event(key)
 	await process_frame
+
+func _push_loose_from_menu(source: Array, target: Array, item_name: String) -> bool:
+	if opening.object_menu.visible:
+		opening.object_menu.hide()
+	if opening.building_hotbar.catalog.visible:
+		opening.building_hotbar.catalog.hide()
+	if opening.mode == "component":
+		await _ordinary_key(KEY_ESCAPE)
+		if not _expect(opening.mode == "inspect" and not opening.pause_menu.visible,
+				"Escape leaves channel construction before the loose-material shortcut"):
+			return false
+	await _ordinary_key(KEY_L, false, true)
+	var controls: MenuButton = opening.loose_material_controls
+	var popup: PopupMenu = controls.get_popup()
+	var choice := -1
+	for index in range(popup.get_item_count()):
+		var offer: Dictionary = controls._offers[index]
+		if offer.wire.get("from", []) == source and offer.wire.get("to", []) == target \
+				and popup.get_item_text(index).contains(item_name):
+			choice = index
+			break
+	if not _expect(choice >= 0 and controls.visible and not controls.disabled,
+			"Ctrl+L offers the confirmed %s at %s for a one-cell push to %s: %s" % [
+				item_name, str(source), str(target), str({"visible": controls.visible,
+					"disabled": controls.disabled, "in_tree": controls.is_visible_in_tree(),
+					"popup": popup.visible,
+					"offers": controls._offers.size(), "items": popup.get_item_count(),
+					"mode": opening.mode, "drops": opening.model.projection().dropped_material.size()})]):
+		return false
+	popup.id_pressed.emit(choice)
+	popup.hide()
+	return true
+
+func _pickup_loose_from_menu(center: Array, item_name: String) -> bool:
+	if opening.object_menu.visible:
+		opening.object_menu.hide()
+	if opening.building_hotbar.catalog.visible:
+		opening.building_hotbar.catalog.hide()
+	await _ordinary_key(KEY_L, false, true)
+	var controls: MenuButton = opening.loose_material_controls
+	var popup: PopupMenu = controls.get_popup()
+	var choice := -1
+	for index in range(popup.get_item_count()):
+		var offer: Dictionary = controls._offers[index]
+		if offer.wire.get("action", "") == "pickup_material" \
+				and offer.wire.get("center", []) == center \
+				and popup.get_item_text(index).contains(item_name):
+			choice = index
+			break
+	if not _expect(choice >= 0 and controls.is_visible_in_tree() and not controls.disabled,
+			"Ctrl+L offers recovery of the actual %s at %s" % [item_name, str(center)]):
+		return false
+	popup.id_pressed.emit(choice)
+	popup.hide()
+	return true
 
 func _placement_ghosts_hidden() -> bool:
 	return (opening.machine_preview == null or not opening.machine_preview.visible) \
@@ -3225,19 +3298,19 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
-	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-craft-capacity"]:
+	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-craft-capacity"]:
 		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
 	var advanced_fixture := mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-reveal", "arrival-reveal-skip"]
-	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume"]:
+	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -3331,6 +3404,15 @@ func _arrival_run() -> void:
 		return
 	if mode == "arrival-broad-cut-resume":
 		await _arrival_broad_cut_resume_run(panel)
+		return
+	if mode == "arrival-channel-broad":
+		await _arrival_channel_broad_run(capture_prefix)
+		return
+	if mode == "arrival-channel-small":
+		await _arrival_channel_small_run(capture_prefix)
+		return
+	if mode in ["arrival-channel-broad-resume", "arrival-channel-small-resume"]:
+		await _arrival_channel_resume_run(mode == "arrival-channel-broad-resume")
 		return
 	if mode == "arrival-press-site":
 		await _arrival_press_site_run(panel)
@@ -4272,6 +4354,323 @@ func _broad_part(state: Dictionary, kind: String, center: Array) -> Dictionary:
 		if part.component == kind and part.center == center:
 			return {"id": id, "generation": part.generation}
 	return {}
+
+func _place_carried_channel(kind: String, center: Array) -> String:
+	if not _select_inventory_item("component:" + kind):
+		return ""
+	opening.component_nudge_active = true
+	opening.component_nudge_center = center.duplicate()
+	opening._refresh_component_preview()
+	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked,
+			"The carried %s shows a supported placement preview at %s" % [kind, str(center)]):
+		return ""
+	var before: Dictionary = opening.model.projection().placed_components
+	opening._world_click(Vector2i(int(center[0] / 4), int(center[2] / 4)))
+	opening.component_nudge_active = false
+	opening.component_nudge_center.clear()
+	var after: Dictionary = opening.model.projection().placed_components
+	if not _expect(after.size() == before.size() + 1,
+			"The ordinary component click builds one finite %s channel" % kind):
+		return ""
+	for id: String in after:
+		if not before.has(id) and after[id].component == kind and after[id].center == center:
+			return id
+	_expect(false, "The new channel identity retains its selected kind and grid center")
+	return ""
+
+func _arrival_channel_broad_run(capture_prefix: String) -> void:
+	deadline = Time.get_ticks_msec() + 240000
+	facts.evidence = "ordinary_actor_broad_channel_transfer"
+	var restored: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and restored.broad_press_assemblies.size() == 1
+			and restored.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.center == [12, 0, 0]
+					and drop.work_lots.size() == 1 and drop.work_lots[0].remaining == 1))
+			and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"A fresh native scene resumes the finite partially formed broad workpiece"):
+		return
+	var formed: Dictionary = {}
+	for tick in range(128):
+		opening.model.advance()
+		var state: Dictionary = opening.model.projection()
+		for drop: Dictionary in state.dropped_material:
+			if drop.center == [12, 0, 0] and drop.get("sheets", 0) == 1:
+				formed = drop
+				break
+		if not formed.is_empty():
+			break
+	opening._refresh()
+	if not _expect(formed.get("sheet_items", []).size() == 1
+			and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The restored native drive finishes one identity-bearing twelve-mass copper sheet"):
+		return
+	var sheet_id: int = formed.sheet_items[0].id
+	if not await _approach_points([Vector2(5.8, -1.2), Vector2(5.8, 0.8)]):
+		return
+	var placed: Dictionary = opening.model.projection().placed_components.duplicate(true)
+	for id: String in placed:
+		if placed[id].component in ["ram_face", "sliding_guide"]:
+			if _construct({"action": "reclaim_component", "entity": id}).is_empty():
+				return
+	if not _expect(opening.model.projection().dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.center == [12, 0, 0]
+				and drop.sheet_items.size() == 1 and drop.sheet_items[0].id == sheet_id)),
+			"Removing only the upper heads leaves the same sheet on its four native supports"):
+		return
+	if not await _approach(Vector2(6.0, -1.2)):
+		return
+	for cut in range(2):
+		if _construct({"action": "harvest_source", "target": "tree-east-upstream"}).is_empty():
+			return
+	if not await _approach_points([Vector2(3.3, -1.2), Vector2(3.3, 3.3),
+			Vector2(4.95, 9.9), Vector2(0.6, 11.55)]):
+		return
+	for cut in range(8):
+		if _construct({"action": "harvest_source", "target": "tree-north"}).is_empty():
+			return
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 4.95),
+			Vector2(3.3, 4.95)]):
+		return
+	for kind in ["channel_narrow_x", "channel_broad_x", "channel_broad_x"]:
+		if not _press_inventory_recipe("component:" + kind,
+				str(opening.model.projection().fabrication_hub.id)):
+			return
+	if not _expect(opening.model.projection().cargo.P.timber == 0
+			and opening.model.projection().cargo.P.components.get("channel_narrow_x", 0) == 1
+			and opening.model.projection().cargo.P.components.get("channel_broad_x", 0) == 2,
+			"Ten finite tree cuts become one narrow and two broad channel kits"):
+		return
+	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, -1.2),
+			Vector2(5.8, -1.2), Vector2(6.6, -1.2)]):
+		return
+	var narrow_id := _place_carried_channel("channel_narrow_x", [20, 0, 0])
+	if narrow_id.is_empty():
+		return
+	var before_refusal: Dictionary = opening.model.projection()
+	if not await _push_loose_from_menu([12, 0, 0], [16, 0, 0], "copper sheet"):
+		return
+	var after_refusal: Dictionary = opening.model.projection()
+	if not _expect(after_refusal.order == before_refusal.order + 1
+			and after_refusal.cargo == before_refusal.cargo
+			and after_refusal.dropped_material == before_refusal.dropped_material
+			and after_refusal.material_mass == before_refusal.material_mass
+			and opening.status_label.text.contains("Build a broad channel"),
+			"The one-wide channel refuses a two-wide sheet without losing its owner: %s" % str({
+				"orders": [before_refusal.order, after_refusal.order],
+				"drops_equal": after_refusal.dropped_material == before_refusal.dropped_material,
+				"message": opening.status_label.text})):
+		return
+	if _construct({"action": "reclaim_component", "entity": narrow_id}).is_empty():
+		return
+	var first_id := _place_carried_channel("channel_broad_x", [20, 0, 0])
+	if first_id.is_empty():
+		return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(opening.mode == "inspect" and not opening.component_preview.visible,
+			"Escape clears the broad build ghost before inspecting the installed route"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-first-broad-channel.png",
+				Vector3(6.6, 0.7, 0.825)),
+				"Retain the installed broad rail beside the sheet at actor-eye height"):
+			return
+	if not await _push_loose_from_menu([12, 0, 0], [16, 0, 0], "copper sheet"):
+		return
+	var moved: Dictionary = opening.model.projection()
+	if not _expect(moved.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.center == [16, 0, 0]
+				and drop.sheet_items.size() == 1 and drop.sheet_items[0].id == sheet_id))
+			and not moved.dropped_material.any(func(drop: Variant) -> bool:
+				return drop is Dictionary and drop.center == [12, 0, 0]),
+			"Ctrl+L moves the same whole sheet one supported workcell along the broad rail"):
+		return
+	var before_gap: Dictionary = moved.duplicate(true)
+	if not await _push_loose_from_menu([16, 0, 0], [20, 0, 0], "copper sheet"):
+		return
+	if not _expect(opening.model.projection().dropped_material == before_gap.dropped_material
+			and opening.status_label.text.contains("supported squares"),
+			"A missing receiving segment retains the sheet at its last real owner"):
+		return
+	if not await _approach(Vector2(8.25, -1.2)):
+		return
+	if _place_carried_channel("channel_broad_x", [24, 0, 0]).is_empty():
+		return
+	if not await _push_loose_from_menu([16, 0, 0], [20, 0, 0], "copper sheet"):
+		return
+	var final: Dictionary = opening.model.projection()
+	if not _expect(final.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.center == [20, 0, 0]
+				and drop.sheet_items.size() == 1 and drop.sheet_items[0].id == sheet_id))
+			and final.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The repaired broad route keeps one sheet identity and all finite material"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-sheet-second-cell.png",
+				Vector3(8.25, 0.7, 0.825)),
+				"Retain the moved sheet and clear receiving rail in an ordinary actor-eye frame"):
+			return
+	var saved: Dictionary = opening._save_worksite()
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store keeps the channel-built actor, repaired route and moved sheet in one native checkpoint"):
+		return
+	facts.sheet_id = sheet_id
+	facts.channel_ids = [first_id]
+	_record("pass")
+
+func _arrival_channel_small_run(capture_prefix: String) -> void:
+	deadline = Time.get_ticks_msec() + 240000
+	facts.evidence = "ordinary_actor_small_channel_transfer"
+	var restored: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and restored.cargo.P.products == 1
+			and restored.dropped_material.any(func(drop: Variant) -> bool:
+				return (drop is Dictionary and drop.center == [16, 0, 0]
+					and drop.products == 1))
+			and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"A fresh native scene resumes a carried broad-route plate and separate retained plates"):
+		return
+	if not await _approach_points([Vector2(5.8, -1.2), Vector2(5.8, 0.8)]):
+		return
+	var placed: Dictionary = restored.placed_components.duplicate(true)
+	for id: String in placed:
+		if placed[id].component == "sliding_guide":
+			if _construct({"action": "reclaim_component", "entity": id}).is_empty():
+				return
+	if not await _approach_points([Vector2(5.8, -1.2), Vector2(3.3, -1.2),
+			Vector2(3.3, 3.3), Vector2(4.95, 9.9), Vector2(0.6, 11.55)]):
+		return
+	for cut in range(4):
+		if _construct({"action": "harvest_source", "target": "tree-north"}).is_empty():
+			return
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 4.95),
+			Vector2(3.3, 4.95)]):
+		return
+	for index in range(2):
+		if not _press_inventory_recipe("component:channel_narrow_x",
+				str(opening.model.projection().fabrication_hub.id)):
+			return
+	if not _expect(opening.model.projection().cargo.P.timber == 0
+			and opening.model.projection().cargo.P.components.get("channel_narrow_x", 0) == 2,
+			"Four finite timber cuts become two distinct narrow channel kits"):
+		return
+	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, -1.2),
+			Vector2(5.8, -1.2), Vector2(6.6, -1.2)]):
+		return
+	if _place_carried_channel("channel_narrow_x", [20, 0, 0]).is_empty():
+		return
+	await _ordinary_key(KEY_ESCAPE)
+	if not _expect(opening.mode == "inspect" and not opening.component_preview.visible,
+			"Escape clears the narrow build ghost before inspecting the supported plate"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-narrow-channel.png",
+				Vector3(7.425, 0.7, 0.825)),
+				"Retain the actor-eye narrow rail and its supported plate at normal scale"):
+			return
+		root.size = Vector2i(900, 600)
+		await process_frame
+		if not _expect(await _capture_actor_area(capture_prefix + "-narrow-window.png",
+				Vector3(7.425, 0.7, 0.825)),
+				"Retain the same narrow rail and contextual loose-material control at 900x600"):
+			return
+		root.size = Vector2i(1280, 800)
+		await process_frame
+	if not await _push_loose_from_menu([16, 0, 0], [20, 0, 0], "copper plate"):
+		return
+	var moved: Dictionary = opening.model.projection()
+	if not _expect(moved.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.center == [20, 0, 0]
+				and drop.products == 1))
+			and not moved.dropped_material.any(func(drop: Variant) -> bool:
+				return drop is Dictionary and drop.center == [16, 0, 0]),
+			"Ctrl+L moves only the selected plate one workcell along the narrow rail"):
+		return
+	var before_gap: Dictionary = moved.duplicate(true)
+	if not await _push_loose_from_menu([20, 0, 0], [24, 0, 0], "copper plate"):
+		return
+	if not _expect(opening.model.projection().dropped_material == before_gap.dropped_material
+			and opening.status_label.text.contains("supported square"),
+			"A missing receiving rail retains the plate at the occupied channel cell"):
+		return
+	if not await _approach(Vector2(8.25, -1.2)):
+		return
+	if _place_carried_channel("channel_narrow_x", [24, 0, 0]).is_empty():
+		return
+	if not await _push_loose_from_menu([20, 0, 0], [24, 0, 0], "copper plate"):
+		return
+	var final: Dictionary = opening.model.projection()
+	if not _expect(final.dropped_material.any(func(drop: Variant) -> bool:
+			return (drop is Dictionary and drop.center == [24, 0, 0]
+				and drop.products == 1))
+			and final.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The repaired narrow route retains the same finite plate and all material"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-plate-second-cell.png",
+				Vector3(9.075, 0.7, 0.825)),
+				"Retain the moved plate on its second narrow rail in the ordinary actor view"):
+			return
+	var saved: Dictionary = opening._save_worksite()
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store retains the two narrow rails, carried plate and moved plate in native custody"):
+		return
+	_record("pass")
+
+func _arrival_channel_resume_run(sheet: bool) -> void:
+	facts.evidence = "fresh_process_channel_custody_and_recovery"
+	if not _expect(not prior_result_path.is_empty() and FileAccess.file_exists(prior_result_path),
+			"The fresh channel continuation names its retained producer result"):
+		return
+	var previous_value: Variant = bytes_to_var(FileAccess.get_file_as_bytes(prior_result_path))
+	if not _expect(previous_value is Dictionary and previous_value.get("status") == "pass"
+			and previous_value.get("final_projection") is Dictionary,
+			"The source result contains one passing producer projection"):
+		return
+	var previous: Dictionary = previous_value.final_projection
+	var restored: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and restored.placed_components == previous.placed_components
+			and restored.dropped_material == previous.dropped_material
+			and restored.cargo == previous.cargo
+			and restored.material_mass == previous.material_mass
+			and restored.actors.P.ready and restored.actors.Q.ready
+			and opening.actor_world.bodies.P.is_on_floor(),
+			"The fresh native World reopens exact channel parts, item identities, cargo and conserved mass: %s" % str({
+				"load": opening.last_load_result.get("accepted", false),
+				"placed": restored.placed_components == previous.placed_components,
+				"drops": restored.dropped_material == previous.dropped_material,
+				"cargo": restored.cargo == previous.cargo,
+				"mass": restored.material_mass == previous.material_mass,
+				"ready": [restored.actors.P.ready, restored.actors.Q.ready],
+				"floor": opening.actor_world.bodies.P.is_on_floor()})):
+		return
+	var point := [20, 0, 0] if sheet else [24, 0, 0]
+	var item_name := "copper sheet" if sheet else "copper plate"
+	var owned := false
+	for drop: Dictionary in restored.dropped_material:
+		if drop.center == point:
+			owned = drop.get("sheets", 0) == 1 if sheet else drop.get("products", 0) == 1
+	if not _expect(owned and restored.placed_components.values().any(func(part: Variant) -> bool:
+			return part is Dictionary and part.component == (
+				"channel_broad_x" if sheet else "channel_narrow_x")),
+			"The restored %s still sits on its selected real channel" % item_name):
+		return
+	if not await _pickup_loose_from_menu(point, item_name):
+		return
+	var recovered: Dictionary = opening.model.projection()
+	if not _expect(not recovered.dropped_material.any(func(drop: Variant) -> bool:
+			return drop is Dictionary and drop.center == point)
+			and (recovered.cargo.P.sheets == previous.cargo.P.sheets + 1 if sheet else
+				recovered.cargo.P.products == previous.cargo.P.products + 1)
+			and recovered.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"The ordinary loose-material menu transfers the same restored %s into carried custody" % item_name):
+		return
+	var saved: Dictionary = opening._save_worksite()
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"Store retains the post-recovery channel worksite without material loss"):
+		return
+	_record("pass")
 
 func _arrival_broad_form_run() -> void:
 	deadline = Time.get_ticks_msec() + 240000
