@@ -64,6 +64,10 @@ remain owned through stalls and recovery. Saves
 use the selected native Store format;
 scripted fixture saves are separate.
 
+The isolated first slide shows its Auto workbed feed and outlet in the E menu.
+Select or drag carried copper onto the workbed; clear a blocked route before
+feeding or resuming its retained work.
+
 ## Build and verify
 
 Bazel **8.4.2** is pinned in `.bazelversion`. The

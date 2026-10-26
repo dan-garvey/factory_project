@@ -306,6 +306,13 @@ void flat_head_host_custody() {
           get<std::string>(V(fitted), "slide") == slide_id &&
           get<A>(V(press), "open_feeds").size() == 2,
           "Ordinary Host projection names the three finite parts and both open X-axis routes.");
+    const auto auto_feed = get<O>(V(press), "auto_feed");
+    check(get<bool>(V(press), "auto_route") &&
+          !factory::values::typed_difference(V(get<A>(V(auto_feed), "entry")),
+              V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+          !factory::values::typed_difference(V(get<A>(V(auto_feed), "exit")),
+              V(A{V(I{13}), V(I{0}), V(I{8})})),
+          "The isolated first-plate press projects one stable west-to-east manual Auto route.");
     check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 10), "accepted") &&
           get<bool>(resumed("press-crank-wood-1", "harvest_source",
               {{"target", V("tree-east-south")}}), "accepted") &&
@@ -344,7 +351,7 @@ void flat_head_host_custody() {
           "A further finite copper unit reaches the fitted press as an actor-held blank.");
     const auto feed = resumed("feed-slide-west", "feed_press",
         {{"entity", V(get<std::string>(support, "entity"))},
-         {"entry", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+         {"entry", V(get<A>(V(auto_feed), "entry"))}});
     if (!get<bool>(feed, "accepted"))
         throw std::runtime_error("Sliding press feed refused: " + get<std::string>(feed, "reason"));
     const auto fed_press = std::get<O>(get<A>(restored.projection(),
@@ -420,6 +427,9 @@ void flat_head_host_custody() {
         "sliding_press_assemblies").front().storage());
     check(get<std::string>(V(blocked_assembly), "status") == "blocked_feed",
           "One solid X-side part blocks both through-feed directions of the fitted slide.");
+    check(get<bool>(V(blocked_assembly), "auto_route") &&
+          !blocked_assembly.contains("auto_feed"),
+          "An obstructed manual Auto route has no alternate projected feed.");
     const auto blocked_feed = resumed("refuse-blocked-slide-feed", "feed_press",
         {{"entity", V(get<std::string>(support, "entity"))},
          {"entry", V(A{V(I{13}), V(I{0}), V(I{8})})}});
@@ -447,6 +457,12 @@ void flat_head_host_custody() {
                   "sliding_press_assemblies").front().storage())), "selected_exit")),
               V(A{V(I{11}), V(I{0}), V(I{8})})),
           "The same native blank can select the opposite clear outlet after recovery.");
+    const auto retained_assembly = std::get<O>(get<A>(restored.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(!factory::values::typed_difference(
+              V(get<O>(V(retained_assembly), "auto_feed").at("exit")),
+              V(A{V(I{11}), V(I{0}), V(I{8})})),
+          "Retained work keeps its chosen outlet in the native Auto projection.");
     check(!get<bool>(resumed("old-press-bypass", "turn_press_crank",
               {{"entity", V(get<std::string>(support, "entity"))},
                {"drive", V(slide_id)},

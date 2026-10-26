@@ -3862,6 +3862,24 @@ func _slide_controls_check() -> void:
 	snapshot.sliding_press_assemblies[0].erase("selected_exit")
 	panel.refresh(snapshot, "P", "anvil", true)
 	view.selected = "anvil"
+	var auto_snapshot: Dictionary = snapshot.duplicate(true)
+	auto_snapshot.sliding_press_assemblies[0].auto_route = true
+	auto_snapshot.sliding_press_assemblies[0].auto_feed = {
+		"entry": [11, 0, 8], "exit": [13, 0, 8]}
+	panel._route_index = 0
+	panel.refresh(auto_snapshot, "P", "anvil", true)
+	var auto_blank: Dictionary = panel.inventory_drag("player_raw")
+	verify(not panel.route_choice.visible and panel.auto_route_cue.visible
+		and panel.auto_route_cue.text.contains("WEST → EAST")
+		and not panel.cycle_feed_route()
+		and auto_blank.get("wire", {}).get("entry", []) == [11, 0, 8],
+		"The projected Auto route feeds carried copper without a G selector, even when the manual index differs.")
+	auto_snapshot.sliding_press_assemblies[0].erase("auto_feed")
+	panel.refresh(auto_snapshot, "P", "anvil", true)
+	verify(panel.auto_route_cue.text.contains("ROUTE BLOCKED")
+		and panel.inventory_drag("player_raw").is_empty(),
+		"A blocked native Auto route does not fall through to the other clear route.")
+	panel.refresh(snapshot, "P", "anvil", true)
 	verify(panel.cycle_feed_route() and panel._route_index == 1,
 		"G changes the next feed direction after the retained route is released.")
 	var carried_blank: Dictionary = panel.inventory_drag("player_raw")
@@ -3910,6 +3928,15 @@ func _slide_controls_check() -> void:
 	verify(panel.inventory_shortcut(KEY_P) and view.issued.back() == formed_plate.wire,
 		"P recovers the exact outlet plate through the workbed inventory.")
 	view.issued.clear()
+	var released_route: Dictionary = snapshot.duplicate(true)
+	released_route.sliding_press_assemblies[0].auto_route = true
+	released_route.sliding_press_assemblies[0].auto_feed = {
+		"entry": [11, 0, 8], "exit": [13, 0, 8]}
+	released_route.dropped_material[0].center = [11, 0, 8]
+	panel.refresh(released_route, "P", "anvil", true)
+	verify(panel.inventory_drag("workbed_output").get("wire", {}).get("center", []) == [11, 0, 8],
+		"Auto keeps a completed plate recoverable at its old selected outlet after route release.")
+	panel.refresh(snapshot, "P", "anvil", true)
 	snapshot.dropped_material.append({"center": [12, 0, 8], "raw": 0,
 		"products": 0, "offcuts": 1, "work_lots": []})
 	panel.refresh(snapshot, "P", "anvil", true)
