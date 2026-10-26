@@ -9,6 +9,7 @@ const NativeModel = preload("res://opening/native_model.gd")
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterialControls
 const Session = preload("res://opening-session/session.gd")
+const Opening = preload("res://opening/opening.gd")
 var checks := 0
 var failures := 0
 
@@ -1467,6 +1468,8 @@ func _guided_press_component_view() -> void:
 	await process_frame
 
 func _initialize() -> void:
+	if not Opening.apply_test_window_title(self):
+		return
 	call_deferred("_run")
 
 func _controls() -> void:

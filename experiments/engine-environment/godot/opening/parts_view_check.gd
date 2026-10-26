@@ -115,6 +115,8 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	if not Opening.apply_test_window_title(self):
+		return
 	if "--slide-view-only" in OS.get_cmdline_user_args():
 		call_deferred("_slide_view_check")
 		return

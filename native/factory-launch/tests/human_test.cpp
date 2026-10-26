@@ -75,6 +75,10 @@ int main(int argc, char** argv) {
             "printf '%s' \"$resume\" > \"$out/fake-resume-arg\"\n"
             "exit 0\n", true);
         write(repo / "native/factory-godot-world/native-world.gdextension", "[configuration]\nentry_symbol = fake\n");
+        write(repo / "experiments/engine-environment/godot/project.godot", "config_version=5\n");
+        write(repo / "experiments/engine-environment/godot/opening/shared_opening.tscn", "[gd_scene]\n");
+        write(repo / "experiments/engine-environment/godot/opening/parts_view_check.gd", "extends SceneTree\n");
+        write(repo / "experiments/engine-environment/godot/opening/other_check.gd", "extends SceneTree\n");
         require(run({"/usr/bin/git", "-C", repo.string(), "init", "-b", "main"}).exit_code == 0,
                 "Cannot init fake repo.");
         git(repo, {"add", "."});
@@ -130,6 +134,70 @@ int main(int argc, char** argv) {
         require(graphical_failure.exit_code != 0 &&
                 graphical_failure.output.find("graphical engine exited 1") != std::string::npos,
                 "A failed graphical child must report its exit and retain the session.");
+        auto agent = graphical;
+        agent.insert(agent.end(), {"--agent", "--test-purpose", "Ore interaction reach"});
+        const auto launched = root / "agent arguments";
+        write(admission, "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + launched.string() + "'\nexit 0\n", true);
+        require(run(agent).exit_code == 0 && read(launched).find("--test-purpose=Ore interaction reach") != std::string::npos,
+                "A labeled player session forwards the purpose unchanged to Godot.");
+        fs::remove(launched);
+        auto missing_agent = graphical;
+        missing_agent.push_back("--agent");
+        require(run(missing_agent).exit_code != 0 && !fs::exists(launched),
+                "An agent player window needs an explicit purpose.");
+        for (const auto& invalid : {std::string(""), std::string("   "), std::string("\xe2\x80\x8b"),
+                                    std::string("\xe2\x80\x8e"), std::string("\xef\xb8\x8f"),
+                                    std::string("view\xe2\x80\xae hidden"),
+                                    std::string("line\nwrap"),
+                                    std::string(61, 'x'), std::string("\xc0\xaf")}) {
+            auto rejected = graphical;
+            rejected.insert(rejected.end(), {"--agent", "--test-purpose", invalid});
+            require(run(rejected).exit_code != 0 && !fs::exists(launched),
+                    "Invalid agent purposes refuse before creating a visible child.");
+        }
+        const std::vector<std::string> window_base{fs::canonical(argv[1]).string(), "--agent-window",
+            "--repo", repo.string(), "--tree", tree, "--engine", engine.string(),
+            "--engine-sha256", engine_hash, "--library", library.string(),
+            "--library-sha256", library_hash, "--sessions", sessions.string(),
+            "--admission", admission.string()};
+        auto scene_window = window_base;
+        scene_window.insert(scene_window.end(), {"--scene", "res://opening/shared_opening.tscn",
+            "--test-purpose", "Shared client — vérification", "--", "--session-port=13200"});
+        require(run(scene_window).exit_code == 0 &&
+                read(launched).find("--test-purpose=Shared client — vérification") != std::string::npos &&
+                read(launched).find("--session-port=13200") != std::string::npos &&
+                read(launched).find("/native/runtime/project") != std::string::npos &&
+                read(launched).find("--path\n" + (repo / "experiments/engine-environment/godot").string()) == std::string::npos,
+                "A shared-client window forwards Unicode purpose into a separately prepared runtime.");
+        fs::remove(launched);
+        auto script_window = window_base;
+        script_window.insert(script_window.end(), {"--script", "res://opening/parts_view_check.gd",
+            "--test-purpose", "Slide fixture"});
+        require(run(script_window).exit_code == 0 &&
+                read(launched).find("--script\nres://opening/parts_view_check.gd") != std::string::npos,
+                "A graphical fixture uses the same labeled agent window route.");
+        fs::remove(launched);
+        auto unsupported = window_base;
+        unsupported.insert(unsupported.end(), {"--script", "res://opening/other_check.gd",
+            "--test-purpose", "Unregistered fixture"});
+        require(run(unsupported).exit_code != 0 && !fs::exists(launched),
+                "An unregistered fixture cannot open an unlabeled agent window.");
+        auto duplicate_purpose = script_window;
+        duplicate_purpose.insert(duplicate_purpose.end(), {"--", "--test-purpose=second"});
+        require(run(duplicate_purpose).exit_code != 0 && !fs::exists(launched),
+                "A user argument cannot replace the validated window purpose.");
+        auto missing_window = window_base;
+        missing_window.insert(missing_window.end(), {"--scene", "res://opening/shared_opening.tscn"});
+        require(run(missing_window).exit_code != 0 && !fs::exists(launched),
+                "Shared and fixture agent windows need an explicit purpose.");
+        for (const auto& invalid : {std::string(""), std::string("  "), std::string("line\nwrap"),
+                                    std::string(61, 'x')}) {
+            auto rejected = window_base;
+            rejected.insert(rejected.end(), {"--scene", "res://opening/shared_opening.tscn",
+                "--test-purpose", invalid});
+            require(run(rejected).exit_code != 0 && !fs::exists(launched),
+                    "Invalid shared or fixture purposes refuse before a visible child.");
+        }
         const auto marker = root / "graphical child.pid";
         write(admission, "#!/bin/sh\nsleep 60 &\nprintf '%s' \"$!\" > '" + marker.string() +
                          "'\nwait\n", true);

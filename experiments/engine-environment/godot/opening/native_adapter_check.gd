@@ -830,6 +830,8 @@ func _collector_route() -> Dictionary:
 		"source_cog": source_cog.entity, "output_cog": output_cog.entity, "shaft": shaft.entity}
 
 func _run() -> void:
+	if not OpeningScene.apply_test_window_title(self):
+		return
 	if event_route_loose and mode not in ["arrival-channel-small", "arrival-channel-small-resume"] \
 			or event_route_pointer and mode != "arrival-first-plate":
 		push_error("The selected event route does not apply to this fixture mode")

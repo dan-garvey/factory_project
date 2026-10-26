@@ -17,6 +17,8 @@ var reconnect_button: Button
 var disconnect_button: Button
 
 func _ready() -> void:
+	if not apply_test_window_title(get_tree()):
+		return
 	# Do not call the offline _ready: that path legitimately creates its Model
 	# and accepts a local save slot. This scene does neither.
 	auto_advance = false
