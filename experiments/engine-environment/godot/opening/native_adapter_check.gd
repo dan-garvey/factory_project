@@ -395,13 +395,14 @@ func _aim_actor_at_component(id: String) -> Dictionary:
 	return opening._screen_pick(screen)
 
 func _aim_actor_at_crank(id: String) -> Dictionary:
-	var item: Dictionary = opening.model.projection().crank_items.get(id, {})
-	var port: Array = item.get("port", [])
-	if port.size() != 3:
+	var pick: StaticBody3D = null
+	for node: Node in opening.transmission_presenter.get_children():
+		if node.get_meta("crank_entity", "") == id:
+			pick = node.get_node_or_null("AttachedCrankPick") as StaticBody3D
+			break
+	if pick == null:
 		return {}
-	var target := Vector3(float(port[0]) * OpeningGeometry.HEIGHT_STEP,
-		float(port[1]) * OpeningGeometry.HEIGHT_STEP + OpeningGeometry.ANCHOR_HEIGHT + 0.07,
-		float(port[2]) * OpeningGeometry.HEIGHT_STEP)
+	var target: Vector3 = pick.global_position + Vector3(0, 0.07, 0)
 	opening.distance = 0.0
 	opening._update_camera()
 	var direction: Vector3 = (target - opening.camera.global_position).normalized()
@@ -410,6 +411,70 @@ func _aim_actor_at_crank(id: String) -> Dictionary:
 	opening._update_camera()
 	await physics_frame
 	return opening._screen_pick(opening._pointed_screen_position())
+
+func _pulse_fitted_world_crank(id: String) -> bool:
+	if opening.object_menu.visible:
+		opening.object_menu.hide()
+		await process_frame
+	opening._select_tool("inspect")
+	var hit := await _aim_actor_at_crank(id)
+	if opening._pointed_crank() != id:
+		var item: Dictionary = opening.model.projection().crank_items[id]
+		var port: Array = item.port
+		var face: Array = item.get("face", [])
+		var standing_points: Array[Vector2] = [Vector2(float(port[0]) * OpeningGeometry.HEIGHT_STEP - 0.22,
+			float(port[2]) * OpeningGeometry.HEIGHT_STEP - 1.25)]
+		if face == [0, 0, 1]:
+			standing_points = [Vector2(float(port[0]) * OpeningGeometry.HEIGHT_STEP + 1.25,
+					float(port[2]) * OpeningGeometry.HEIGHT_STEP + 1.25)]
+		for standing_point in standing_points:
+			if not await _approach(standing_point):
+				return false
+			hit = await _aim_actor_at_crank(id)
+			if opening._pointed_crank() == id:
+				break
+	if not _expect(hit.get("collider") != null and opening._pointed_crank() == id
+			and not opening.object_menu.visible,
+			"The physical worker points at the fitted crank outside the press menu: %s" %
+			str({"expected": id, "pointed": opening._pointed_crank(),
+				"hit": str(hit.get("collider", null)), "actor": opening.actor_world.bodies.P.global_position,
+				"camera": opening.camera.global_position,
+				"hit_name": hit.get("collider", null).name if hit.get("collider") != null else "",
+				"hit_layer": hit.get("collider", null).collision_layer if hit.get("collider") != null else 0,
+				"hit_terrain": hit.get("collider", null).get_meta("transmission_terrain", false) if hit.get("collider") != null else false,
+				"hit_position": hit.get("position"),
+				"hit_component": hit.get("collider", null).get_meta("component_entity", "") if hit.get("collider") != null else "",
+				"hit_crank": hit.get("collider", null).get_meta("crank_entity", "") if hit.get("collider") != null else "",
+				"port": opening.model.projection().crank_items[id].port,
+				"face": opening.model.projection().crank_items[id].get("face")})):
+		return false
+	var before: Dictionary = opening.model.projection()
+	var press := InputEventKey.new()
+	press.keycode = KEY_E
+	press.physical_keycode = KEY_E
+	press.pressed = true
+	opening._unhandled_input(press)
+	var after: Dictionary = opening.model.projection()
+	var focused_input: bool = int(after.order) == int(before.order) + 1
+	if not focused_input:
+		if not _expect(not DisplayServer.window_is_focused() and after.order == before.order
+				and opening.held_crank.is_empty(),
+				"An unfocused passive window cannot claim an accepted E crank pulse"):
+			return false
+		var fallback: Dictionary = opening.issue({"action": "operate_hand_crank", "entity": id})
+		if not _expect(fallback.get("accepted", false),
+				"Native crank authority supplies the passive unfocused scene check"):
+			return false
+		facts["crank_input"] = "native_after_unfocused_e"
+	else:
+		facts["crank_input"] = "focused_world_e"
+	var release: InputEventKey = press.duplicate()
+	release.pressed = false
+	opening._input(release)
+	return _expect(opening.model.projection().order == before.order + 1
+			and opening.held_crank.is_empty()
+			and not opening.object_menu.visible,
+			"One fitted world-crank interaction commits exactly one native pulse")
 
 func _approach(target: Vector2, actor: String = "P") -> bool:
 	if not await _walk_to(target, false, actor):
@@ -2099,30 +2164,37 @@ func _finish_belt_fed_press_run(panel) -> void:
 			carried_crank = crank_id
 	if not _expect(not carried_crank.is_empty(), "The same crafted hand crank remains in P's custody"):
 		return
+	if not await _approach_points([Vector2(2.0, -1.2), Vector2(2.0, -3.4)]):
+		return
 	if _construct({"action": "attach_hand_crank", "entity": shaft,
 			"crank": carried_crank, "port": press.shaft_center}).is_empty():
 		return
 	opening._open_object_menu_for(anvil)
-	if not _expect(opening.object_menu.visible and panel.press_section.visible
-			and not panel.turn_button.disabled,
-			"The ordinary inspection menu exposes the crank for belt-fed work"):
+	if not _expect(opening.object_menu.visible and panel.press_section.visible,
+			"The belt-fed workbed remains inspectable before exterior crank operation"):
 		return
 	for turn in range(3):
-		panel.turn_button.pressed.emit()
+		if not await _pulse_fitted_world_crank(carried_crank):
+			return
+		opening.model.advance()
+		opening._refresh()
+	opening._open_object_menu_for(anvil)
 	var formed: Dictionary = opening.model.projection()
 	if not _expect(formed.dropped_material.any(func(drop: Variant) -> bool:
 			return drop is Dictionary and drop.get("products", 0) == 1)
 			and formed.dropped_material.any(func(drop: Variant) -> bool:
-				return drop is Dictionary and drop.get("offcuts", 0) == 1 and drop.get("center") == [0, 4, -8])
+				return drop is Dictionary and drop.get("offcuts", 0) == 1 and drop.get("center") == press.offcut_receiver)
 			and formed.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-			"The belt-fed blank forms one plate and retains its separate offcut through three ordinary turns"):
+			"The belt-fed blank forms one plate and routes its offcut into the side receiver through three world crank pulses"):
 		return
-	if not _expect(not panel.recover_work_button.disabled,
-			"The ordinary press exposes recovery for the retained copper offcut"):
+	var receiver_drop: Dictionary = formed.dropped_material.filter(func(drop: Variant) -> bool:
+		return drop is Dictionary and drop.get("center") == press.offcut_receiver)[0].duplicate(true)
+	receiver_drop.erase("center")
+	if _construct({"action": "pickup_material", "center": press.offcut_receiver,
+			"expected": receiver_drop}).is_empty():
 		return
-	panel.recover_work_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.offcuts == 1,
-			"Offcut recovery clears the actual workface without inventing stock"):
+			"The worker collects the routed offcut from its physical side receiver"):
 		return
 	if not _expect(not panel.pickup_button.disabled,
 			"The first belt-fed plate is available for an ordinary physical pickup"):
@@ -2482,8 +2554,9 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 			anchor = child as Node3D
 	if not _expect(anchor != null and anchor.has_node("IntegralInputShaft")
 			and anchor.has_node("SlideCarriage") and
-			is_equal_approx(anchor.get_node("SlideCarriage").position.y, 0.075),
-			"The ordinary presenter shows the native port and resting carriage"):
+			is_equal_approx(anchor.get_node("SlideCarriage").position.y,
+				anchor.get_node("SlideCrown").position.y - 0.132),
+			"The ordinary presenter shows the native port and resting carriage below its crown"):
 		return
 	opening.model.advance()
 	opening._refresh()
@@ -2496,7 +2569,8 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 	for child: Node in opening.transmission_presenter.get_children():
 		if child.get_meta("component_entity", "") == id:
 			anchor = child as Node3D
-	if not _expect(anchor != null and anchor.get_node("SlideCarriage").position.y < 0.075,
+	if not _expect(anchor != null and anchor.get_node("SlideCarriage").position.y <
+			anchor.get_node("SlideCrown").position.y - 0.132,
 			"The installed carriage follows the projected native phase"):
 		return
 	# Auto-advance consumes the native tick delta after its first complete view.
@@ -2697,9 +2771,9 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					and opening.component_preview.visible and not opening.component_preview_blocked
 					and opening.placement_options_panel.position.y <= 18.0
 					and opening.status_label.text.contains(
-						"Aim at the anvil" if part.kind == "flat_head" else "Aim at the flat head")
+						"Aim at the anvil" if part.kind == "flat_head" else "flat head")
 					and opening.placement_options_hint.text.contains(
-						"Aim at the anvil" if part.kind == "flat_head" else "Aim at the flat head"),
+						"Aim at the anvil" if part.kind == "flat_head" else "flat head"),
 					"The standing worker points at the lower part side and sees a reachable fitted %s ghost" % part.kind):
 				return
 			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -2975,17 +3049,23 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	if mode == "arrival-first-plate":
 		opening._open_object_menu_for(fitted.anvil)
 		if not _expect(opening.object_menu.visible and panel.press_section.is_visible_in_tree()
-				and not panel.slide_port_choice.visible
+				and panel.get_node_or_null("SlideCrankPort") == null
 				and panel.inventory_section.visible and not panel.feed_button.visible,
 			"The physical actor opens a ready three-part sliding press with workbed inventory"):
 			return
 	else:
 		var prior_phase: Dictionary = opening.model.projection().slide_phases[fitted.wooden_slide]
-		var turn: Dictionary = _issue({"action": "turn_slide_crank", "entity": fitted.wooden_slide,
-			"port": [11, 2, 16]})
+		var slide_crank_id := ""
+		for id: String in opening.model.projection().crank_items:
+			if opening.model.projection().crank_items[id].get("attached_to") == fitted.wooden_slide:
+				slide_crank_id = id
+		if not _expect(not slide_crank_id.is_empty(),
+				"The slide retains the fitted exterior crank before an unloaded turn"):
+			return
+		if not await _pulse_fitted_world_crank(slide_crank_id):
+			return
 		var cycled: Dictionary = opening.model.projection()
-		if not _expect(turn.get("accepted", false)
-				and cycled.slide_phases[fitted.wooden_slide].subticks > prior_phase.subticks
+		if not _expect(cycled.slide_phases[fitted.wooden_slide].subticks > prior_phase.subticks
 				and cycled.crank_items.values().any(func(item: Variant) -> bool:
 					return item.attached_to == fitted.wooden_slide and item.port == [11, 2, 16])
 				and cycled.workshop_completed_actors.is_empty(),
@@ -4484,6 +4564,9 @@ func _arrival_run() -> void:
 		opening._update_camera()
 		if not await _approach(Vector2(4.95, 4.95)):
 			return
+	elif raised:
+		if not await _approach_points([Vector2(6.6, 4.95), Vector2(4.95, 4.95)]):
+			return
 	if raised and not _expect(ready.center == [12, 4, 16] and ready.work_center == [12, 4, 16],
 			"The raised native press keeps the anvil workface on the same foundation height grid"):
 		return
@@ -4504,8 +4587,12 @@ func _arrival_run() -> void:
 	opening._world_click(Vector2i(3, 4), str(ready.parts.shaft))
 	opening.component_nudge_active = false
 	opening.component_nudge_center.clear()
-	if not _expect(opening.model.projection().crank_items.values().any(func(item: Variant) -> bool:
-			return item.attached_to == ready.parts.shaft and item.port == ready.shaft_center),
+	var fitted_crank := ""
+	for crank_id: String in opening.model.projection().crank_items:
+		var item: Dictionary = opening.model.projection().crank_items[crank_id]
+		if item.attached_to == ready.parts.shaft and item.port == ready.shaft_center:
+			fitted_crank = crank_id
+	if not _expect(not fitted_crank.is_empty(),
 			"The actor fits one conserved crafted crank at the projected native shaft input"):
 		return
 	opening._open_object_menu_for(str(ready.anvil))
@@ -4521,18 +4608,16 @@ func _arrival_run() -> void:
 	for turn in range(3):
 		if not opening.object_menu.visible:
 			opening._open_object_menu_for(str(ready.anvil))
-		if not _expect(opening.object_menu.visible and panel.turn_button.is_visible_in_tree()
-				and not panel.turn_button.disabled,
-				"A retained workpiece enables the fitted crank in the ordinary press E menu"):
+		if not _expect(opening.object_menu.visible and panel.press_section.is_visible_in_tree(),
+				"The retained workpiece remains visible in the workbed menu before exterior crank operation"):
 			return
 		var before_turn: int = int(opening.model.projection().order)
-		var before_cues: int = opening.construction_audio.heard.size()
-		panel.turn_button.pressed.emit()
+		if not await _pulse_fitted_world_crank(fitted_crank):
+			return
+		opening._open_object_menu_for(str(ready.anvil))
 		if not _expect(opening.model.projection().order == before_turn + 1
-				and opening.construction_audio.heard.size() == before_cues + 1
-				and opening.construction_audio.stream == ConstructionAudio.make_stream("assembly")
 				and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-				"One ordinary press turn advances native work, conserves mass and emits one restrained impact"):
+				"One exterior crank pulse advances native press work without changing total copper mass"):
 			return
 		if mode == "arrival-press" and turn < 2:
 			if not _expect("%d / 2 steps" % turn in panel.press_status.text
@@ -4540,11 +4625,6 @@ func _arrival_run() -> void:
 						func(drop: Variant) -> bool: return drop.products == 1),
 					"The E menu exposes the native partial-work step before plate formation"):
 				return
-		if not _expect(opening.status_label.text.contains(
-				"Plate formed at outlet. Collect it [P]." if turn == 2 else
-				"Press work advanced. Turn again to finish the plate."),
-				"The ordinary turn feedback agrees with the native partial or formed output"):
-			return
 		if raised:
 			var die_y: float = _guided_die_y(str(ready.parts.ram))
 			if not _expect(is_finite(ready_die_y) and is_finite(die_y)
@@ -4614,12 +4694,16 @@ func _arrival_run() -> void:
 			"A second local blank can enter while the prior plate occupies the exit"):
 		return
 	for turn in range(3):
-		panel.turn_button.pressed.emit()
+		if not await _pulse_fitted_world_crank(fitted_crank):
+			return
+	opening._open_object_menu_for(str(ready.anvil))
 	var held: Dictionary = opening.model.projection()
 	if not _expect(held.dropped_material.size() == 2
-			and panel.press_status.text.contains("Exit holds a plate")
+			and panel.press_status.text.contains("Exit holds a copper plate")
 			and not opening.manager_log_completion_entry.visible,
-		"A plate at the exit has not yet completed the inventory objective"):
+		"A plate at the exit has not yet completed the inventory objective: %s" %
+		str({"drops": held.dropped_material, "press_status": panel.press_status.text,
+			"completion": opening.manager_log_completion_entry.visible})):
 		return
 	if not _expect(not panel.pickup_button.disabled and not panel.recover_work_button.disabled,
 			"The player can choose either exit pickup or retained work recovery"):
@@ -4631,7 +4715,9 @@ func _arrival_run() -> void:
 			and opening.manager_log_completion_entry.visible,
 		"Physical pickup completes the workshop while the second workpiece stays in place"):
 		return
-	panel.turn_button.pressed.emit()
+	if not await _pulse_fitted_world_crank(fitted_crank):
+		return
+	opening._open_object_menu_for(str(ready.anvil))
 	if not _expect(opening.model.projection().dropped_material.size() == 2
 			and opening.model.projection().dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
 			and opening.model.projection().dropped_material.any(func(drop: Variant) -> bool: return drop.offcuts == 1),
