@@ -505,11 +505,10 @@ void flat_head_host_custody() {
                 get<std::string>(pulse, "reason"));
         const auto projected = direct.projection();
         for (const auto& value : get<A>(projected, "dropped_material")) {
-            const auto& dropped = std::get<O>(value.storage());
-            const auto& center = get<A>(V(dropped), "center");
+            const auto& center = get<A>(value, "center");
             if (factory::values::typed_difference(V(center),
                     V(A{V(I{12}), V(I{0}), V(I{8})}))) continue;
-            const auto& lots = get<A>(V(dropped), "work_lots");
+            const auto& lots = get<A>(value, "work_lots");
             if (lots.size() == 1)
                 direct_work_id = get<I>(lots.front(), "id");
         }

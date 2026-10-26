@@ -47,6 +47,30 @@ gameplay-library freshness guard; the documented
 and fake build children, without starting Godot or a desktop.
 The old `//:native_tests` alias covers only the bootstrap subset.
 
+The repository's [native CI workflow](../../.github/workflows/native.yml) runs
+on Ubuntu 22.04 with installed GCC 11 and OpenSSL headers. It downloads the
+`.bazelversion` 8.4.2 binary only after checking the committed SHA-256 above,
+prints the source revision and toolchain versions, and lets the Bazel module
+lock govern `rules_cc`. Its first lane builds and runs all non-host
+`//native/...` tests. Its host lane runs host tests separately, then the two
+local commit-gate tests and `local_resources_test` with an owned temporary
+fixture root. Those local tests are explicit because the resource test needs
+two path arguments that the other tests must not receive. A failed compile,
+nonzero selected test, or changed lock stops the job; GitHub retains the
+selected target names and failing output in the job log. This CI lane is
+not a Godot import, rendered scene, performance, or human-play result.
+
+The same workflow runs ASAN and UBSAN over World transaction/checkpoint and
+Host adapter/press/harvest consumers with debug symbols, frame pointers and
+leak detection. It allows 180 seconds per sanitizer test rather than the
+ordinary 30-second Bazel timeout. TSAN is excluded from this lane because
+these production consumers do not create threads or share mutable state
+between threads; the current native process supervisors use fork/wait, while
+`std::this_thread::sleep_for` is only a wait. Revisit that exclusion if a native
+consumer gains actual concurrent access. CI uses two Bazel jobs on its fresh
+hosted runner; the local admission floors and bounded runner below still
+govern developer-host checks.
+
 Keep Bazel in `--batch` mode inside admission. Reuse caches within the verified
 toolchain boundary; separate concurrent workspaces/output bases. Never clean
 another owner's outputs or evidence. Before replacing a sequential build
