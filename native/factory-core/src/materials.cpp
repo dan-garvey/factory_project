@@ -126,6 +126,21 @@ std::optional<std::vector<DropPoint>> channel_workcells(
     return spec ? occupied_workcells(origin, spec->floor, 0) : std::nullopt;
 }
 
+std::pair<Component, Quantity> placement_parts(Component kind) noexcept {
+    switch (kind) {
+        case Component::broad_anvil: return {Component::anvil, 4};
+        case Component::broad_flat_head: return {Component::flat_head, 4};
+        default: return {kind, 1};
+    }
+}
+
+std::optional<std::vector<DropPoint>> component_workcells(
+        Component kind, const DropPoint& origin) {
+    if (kind == Component::broad_anvil || kind == Component::broad_flat_head)
+        return occupied_workcells(origin, Footprint{2, 2}, 0);
+    return channel_workcells(kind, origin);
+}
+
 Quantity belt_speed_subticks(Quantity numerator, Quantity denominator, bool inclined) noexcept {
     if (numerator == 0 || denominator <= 0) return 0;
     __extension__ using Wide = __int128;
@@ -214,6 +229,8 @@ const char* component_name(Component component) noexcept {
         case Component::wooden_slide: return "wooden_slide";
         case Component::copper_slide: return "copper_slide";
         case Component::flat_head: return "flat_head";
+        case Component::broad_anvil: return "broad_anvil";
+        case Component::broad_flat_head: return "broad_flat_head";
         case Component::hand_crank: return "hand_crank";
         case Component::channel_narrow_x: return "channel_narrow_x";
         case Component::channel_narrow_z: return "channel_narrow_z";
@@ -229,7 +246,8 @@ std::optional<Component> component_from_name(const std::string& name) noexcept {
              Component::sliding_guide, Component::cutting_edge, Component::anvil,
              Component::ram_face, Component::copper_shaft, Component::copper_cog,
              Component::wooden_workbench, Component::wooden_slide,
-             Component::copper_slide, Component::flat_head, Component::hand_crank,
+             Component::copper_slide, Component::flat_head, Component::broad_anvil,
+             Component::broad_flat_head, Component::hand_crank,
              Component::channel_narrow_x, Component::channel_narrow_z,
              Component::channel_broad_x, Component::channel_broad_z})
         if (name == component_name(component)) return component;
@@ -253,6 +271,8 @@ std::optional<ComponentCost> component_cost(Component component) noexcept {
         case Component::wooden_slide: return ComponentCost{3, 0};
         case Component::copper_slide: return ComponentCost{0, 4};
         case Component::flat_head: return ComponentCost{0, 1};
+        case Component::broad_anvil: return ComponentCost{0, 8};
+        case Component::broad_flat_head: return ComponentCost{0, 4};
         case Component::hand_crank: return ComponentCost{2, 0};
         case Component::channel_narrow_x:
         case Component::channel_narrow_z: return ComponentCost{2, 0};
@@ -1036,6 +1056,7 @@ Error craft_component(State& state, const Config& config, const Path& path,
     const auto input_error = validate(state, config, path);
     if (input_error != Error::none) return input_error;
     if (actor.empty() || !state.cargo.contains(actor)) return Error::invalid_actor;
+    if (placement_parts(component).second != 1) return Error::unavailable_recipe;
     const auto cost = component_cost(component);
     if (!cost || (!config.manual_ore && config.timber_sites.empty())) return Error::unavailable_recipe;
     const auto& carried = state.cargo.at(actor);

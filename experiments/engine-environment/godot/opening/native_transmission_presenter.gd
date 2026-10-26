@@ -1361,6 +1361,21 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				for z in [-0.105, 0.105]:
 					var bolt := _support_cylinder(anchor, "BolsterBolt", 0.009, 0.002, dark)
 					bolt.position = Vector3(x, top - 0.0025, z)
+		"broad_anvil":
+			var bottom := -occupied_size.y * 0.5
+			var top := occupied_size.y * 0.5
+			var face_iron := Visuals.material(Color("707c79"), 0.63, 0.46)
+			_support_box(anchor, "JoinedWorkbedBase", Vector3(0, bottom + 0.055, 0),
+				Vector3(occupied_size.x - 0.12, 0.11, occupied_size.z - 0.12), dark, true)
+			for x in [-0.79, 0.79]:
+				for z in [-0.79, 0.79]:
+					_support_box(anchor, "WorkbedFace", Vector3(x, top - 0.08, z),
+						Vector3(1.53, 0.16, 1.53), face_iron, true)
+			for side in [-1.0, 1.0]:
+				_support_box(anchor, "JoinedWorkbedX", Vector3(0, bottom + 0.13, side * 1.47),
+					Vector3(3.02, 0.08, 0.10), worked)
+				_support_box(anchor, "JoinedWorkbedZ", Vector3(side * 1.47, bottom + 0.13, 0),
+					Vector3(0.10, 0.08, 3.02), worked)
 		"ram_face":
 			var bottom := -occupied_size.y * 0.5
 			_support_box(anchor, "MovingDie", Vector3(0, bottom + 0.045, 0),
@@ -1385,6 +1400,21 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			for z in [-0.095, 0.095]:
 				_support_box(die, "FlatHeadWearStrip", Vector3(0, -0.045, z),
 					Vector3(0.23, 0.012, 0.018), dark)
+		"broad_flat_head":
+			var die := Node3D.new()
+			die.name = "BroadHeadMovingDie"
+			var travel := occupied_size.y - SLIDE_DIE_TRAVEL_MARGIN
+			die.position.y = occupied_size.y * 0.5 - 0.10 \
+				+ slide_carriage_drop(slide_phase, travel)
+			anchor.add_child(die)
+			_support_box(die, "JoinedFlatFace", Vector3.ZERO,
+				Vector3(occupied_size.x - 0.14, 0.16, occupied_size.z - 0.14), worked, true)
+			for side in [-1.0, 1.0]:
+				_support_box(die, "BroadHeadCrossbar", Vector3(0, 0.125, side * 0.77),
+					Vector3(2.75, 0.10, 0.11), dark)
+				_support_box(die, "BroadHeadBeam", Vector3(side * 0.77, 0.125, 0),
+					Vector3(0.11, 0.10, 2.75), dark)
+			_support_box(die, "SlideKey", Vector3(0, 0.19, 0), Vector3(0.35, 0.12, 0.35), dark)
 		"channel_narrow_x", "channel_narrow_z", "channel_broad_x", "channel_broad_z":
 			# The selected segment owns its complete floor and outer rails.
 			# Adjacent segments meet at their open faces; a broad segment has no
@@ -1927,12 +1957,14 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		add_child(anchor)
 		var phase: Variant = snapshot.get("slide_phases", {}).get(id) \
 			if snapshot.get("slide_phases") is Dictionary else null
-		if spec.component == "flat_head" and placed[id].get("center") is Array:
+		if spec.component in ["flat_head", "broad_flat_head"] and placed[id].get("center") is Array:
 			var head_cell: Array = placed[id].center
+			var slide_cell := [head_cell[0] + 2, head_cell[1] + 1, head_cell[2] + 2] \
+				if spec.component == "broad_flat_head" else [head_cell[0], head_cell[1] + 1, head_cell[2]]
 			for mate_id: Variant in placed:
 				var mate: Variant = placed[mate_id]
 				if mate is Dictionary and mate.get("component", "") in ["wooden_slide", "copper_slide"] \
-						and mate.get("center") == [head_cell[0], head_cell[1] + 1, head_cell[2]]:
+						and mate.get("center") == slide_cell:
 					phase = snapshot.get("slide_phases", {}).get(mate_id)
 					break
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),

@@ -112,6 +112,8 @@ enum class Component {
     wooden_slide,
     copper_slide,
     flat_head,
+    broad_anvil,
+    broad_flat_head,
     hand_crank,
     channel_narrow_x,
     channel_narrow_z,
@@ -127,6 +129,12 @@ struct ChannelSpec {
 };
 [[nodiscard]] std::optional<ChannelSpec> channel_spec(Component) noexcept;
 [[nodiscard]] std::optional<std::vector<DropPoint>> channel_workcells(
+    Component, const DropPoint& origin);
+// A sized workbed/head is placed from four ordinary carried parts. Its one
+// placed identity owns the whole 2x2 support area and returns those parts on
+// reclaim; no separate crafting recipe or carried broad-item stack exists.
+[[nodiscard]] std::pair<Component, Quantity> placement_parts(Component) noexcept;
+[[nodiscard]] std::optional<std::vector<DropPoint>> component_workcells(
     Component, const DropPoint& origin);
 
 struct ComponentCost {
