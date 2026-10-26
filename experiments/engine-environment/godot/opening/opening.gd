@@ -1,7 +1,6 @@
 extends Node3D
-## Input and presentation only. Every material/build mutation goes to model.gd.
+## Input and presentation only. The native model owns ordinary material and build mutations.
 
-const Model = preload("res://model.gd")
 const NativeWorldModel = preload("res://opening/native_model.gd")
 const RecoveryActions = preload("res://opening/recovery_actions.gd")
 const Store = preload("res://save-tests/checkpoint_file.gd")
@@ -4810,7 +4809,8 @@ func _ready() -> void:
 		if argument == "--legacy-fixture":
 			legacy_fixture = true
 	if model == null:
-		model = Model.new(16, "opening-local-1", 1, {"opening": true} if legacy_fixture else {"opening": true, "physical": true})
+		model = load("res://model.gd").new(16, "opening-local-1", 1,
+			{"opening": true} if legacy_fixture else {"opening": true, "physical": true})
 	if save_slot.is_empty():
 		for argument in OS.get_cmdline_user_args():
 			if argument.begins_with("--save-slot="):

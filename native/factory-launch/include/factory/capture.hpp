@@ -29,10 +29,12 @@ std::string sha256(const std::string& bytes);
 std::string json_string(const std::string& value);
 
 struct CaptureOptions {
+    enum class Profile { complete, product };
     std::filesystem::path repository;
     std::string tree;
     std::filesystem::path output;
     const volatile std::sig_atomic_t* cancellation = nullptr;
+    Profile profile = Profile::complete;
 };
 
 struct CaptureResult {
@@ -43,7 +45,8 @@ struct CaptureResult {
     std::filesystem::path manifest;
 };
 
-// Captures the complete tracked Godot subtree from raw immutable Git objects.
+// Captures the complete fixture project or the native opening product closure
+// from raw immutable Git objects, without trusting working files.
 // This function does not run a compiler, import resources or start the game.
 CaptureResult capture_project(const CaptureOptions& options);
 

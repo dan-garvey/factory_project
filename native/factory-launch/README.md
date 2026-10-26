@@ -11,13 +11,17 @@ for the extension descriptor/library and ordinary scene.
 ```bash
 /absolute/verified/factory-project-capture \
   --repo /absolute/checkout --tree FULL_COMMIT_OR_TREE_ID \
-  --output /absolute/owned/fresh-capture
+  --output /absolute/owned/fresh-capture --profile product
 ```
 
 Run under ordinary admission. The repository/output parent must be canonical;
 output must be new and outside source worktrees and Git administration.
-The tool reads the tracked Godot project from raw Git blobs, excluding ignored
-files, private tracker data and generated caches. It refuses symlinks/submodules.
+The product profile follows the native opening scene's tracked resource references
+and its dynamic asset roots. It excludes the legacy scripted model and test-only
+scenes. Normal native startup selects this profile. Omit `--profile` or choose
+`complete` for explicit fixture and legacy consumers; that profile retains every
+tracked Godot input. Both profiles read raw Git blobs, exclude ignored files,
+private tracker data and generated caches, and refuse symlinks/submodules.
 
 A completed `capture.json` binds tree, modes, blob identities, hashes and totals.
 An incomplete directory is retained diagnostic output, never a successful capture.
@@ -45,7 +49,8 @@ For manual graphical entry, pass that captured incoming file with
 
 ## Limits
 
-Source capture allows 64 MiB, 512 files and 128 scripts. Resume input is 2 MiB;
+Each selected capture allows 64 MiB, 512 files and 128 scripts. The raw source
+roster is bounded separately. Resume input is 2 MiB;
 native descriptor/library limits are 64 KiB/64 MiB. Startup retains a 256 MiB
 session family and two 4 MiB logs with a 120-second engine-stage limit.
 These are adapter budgets, not game requirements.

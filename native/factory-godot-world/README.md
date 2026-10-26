@@ -15,6 +15,8 @@ gameplay library.
 After the pinned build, prepare an immutable captured runtime with the actual
 absolute launcher/library outputs and the already verified engine hash. The
 installed admission tool is in the canonical Git directory:
+Normal startup captures the native opening product dependency closure; explicit
+fixture captures keep the complete tracked Godot project.
 
 ```sh
 native_admission="$(git rev-parse --path-format=absolute --git-common-dir)/factory-local-resources"
