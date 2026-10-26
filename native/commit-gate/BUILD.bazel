@@ -21,6 +21,19 @@ cc_library(
     deps = [":git_reader", "//native/validation:tree_manifest"],
 )
 
+cc_library(
+    name = "native_selection",
+    srcs = ["native_selection.cpp"],
+    hdrs = ["native_selection.hpp"],
+)
+
+cc_test(
+    name = "native_selection_test",
+    srcs = ["native_selection_tests.cpp"],
+    deps = [":native_selection"],
+    size = "small",
+)
+
 cc_test(
     name = "staged_tree_test",
     srcs = ["staged_tree_tests.cpp"],
