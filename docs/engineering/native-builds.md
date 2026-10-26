@@ -73,6 +73,10 @@ native save in a fresh session. `--prepare-session-only` runs capture, import
 and startup without a desktop window and retains their exact records.
 Branch builds do not install into the current-main human launcher.
 A plain Bazel build only produces artifacts.
+The committed `native/gameplay-build/production-paths.txt` is the shared
+startup/gameplay freshness inventory. The installer checks Bazel's local source
+and BUILD dependency labels against it before compiling; new transitive
+packages must be declared there before installation.
 
 ## Checks and local hooks
 

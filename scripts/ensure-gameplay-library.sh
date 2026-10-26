@@ -19,24 +19,26 @@ digest=$6
     exit 1
 }
 
-# Match the production closure in native/gameplay-build/build.cpp. Build and
-# package changes can change the library even when no World .cpp file changes.
-production_paths=(
-    .bazelrc MODULE.bazel MODULE.bazel.lock
-    native/factory-godot-world/src native/factory-godot-world/include native/factory-godot-world/BUILD.bazel
-    native/opening-engineering/src native/opening-engineering/include native/opening-engineering/BUILD.bazel
-    native/factory-godot-values/src native/factory-godot-values/include native/factory-godot-values/vendor native/factory-godot-values/BUILD.bazel
-    native/factory-value/src native/factory-value/include native/factory-value/BUILD.bazel
-    native/factory-world/src native/factory-world/include native/factory-world/BUILD.bazel
-    native/factory-assembly/src native/factory-assembly/include native/factory-assembly/BUILD.bazel
-    native/mineral-site/src native/mineral-site/include native/mineral-site/BUILD.bazel
-    native/waterwheel/src native/waterwheel/include native/waterwheel/BUILD.bazel
-    native/waterflow/src native/waterflow/include native/waterflow/BUILD.bazel
-    native/factory-core/src native/factory-core/include native/factory-core/BUILD.bazel
-    native/factory-stationary/src native/factory-stationary/include native/factory-stationary/BUILD.bazel
-    native/factory-authority/src native/factory-authority/include native/factory-authority/BUILD.bazel
-    native/factory-mechanics/src native/factory-mechanics/include native/factory-mechanics/BUILD.bazel
-)
+manifest_path=native/gameplay-build/production-paths.txt
+manifest=$(git -C "$project" show "$revision:$manifest_path") || {
+    printf 'Cannot read the committed gameplay dependency manifest.\n' >&2
+    exit 1
+}
+production_paths=("$manifest_path")
+declare -A seen_paths=()
+while IFS= read -r line; do
+    [[ $line =~ ^(startup|gameplay)\ ([a-zA-Z0-9._/-]+)$ ]] || {
+        printf 'Invalid production dependency manifest.\n' >&2; exit 1;
+    }
+    component=${BASH_REMATCH[1]}
+    path=${BASH_REMATCH[2]}
+    [[ $path != /* && $path != *..* && $path != *//* && ! -v seen_paths[$line] ]] || {
+        printf 'Unsafe or duplicate production dependency path.\n' >&2; exit 1;
+    }
+    seen_paths[$line]=1
+    if [[ $component == gameplay ]]; then production_paths+=("$path"); fi
+done <<< "$manifest"
+(( ${#production_paths[@]} > 1 )) || { printf 'The gameplay dependency manifest is empty.\n' >&2; exit 1; }
 
 source_current=false
 if git -C "$project" diff --quiet "$source_revision" "$revision" -- "${production_paths[@]}"; then

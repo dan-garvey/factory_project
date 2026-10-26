@@ -5,13 +5,19 @@ set -euo pipefail
 root=$(mktemp -d "${TMPDIR:-/tmp}/factory-library-refresh-XXXXXX")
 trap 'rm -rf -- "$root"' EXIT
 project="$root/project"
-mkdir -p "$project/native/factory-world/src" "$project/scripts"
+mkdir -p "$project/native/factory-world/src" "$project/native/gameplay-build" "$project/scripts"
 git -C "$root" init -q project
 git -C "$project" config user.name 'Factory test'
 git -C "$project" config user.email 'factory-test@example.invalid'
 printf 'world one\n' > "$project/native/factory-world/src/world.cpp"
+cat > "$project/native/gameplay-build/production-paths.txt" <<'PATHS'
+startup native/factory-launch/src
+gameplay native/factory-world/src
+gameplay native/mineral-site/include
+gameplay native/waterwheel/include
+PATHS
 printf 'notes one\n' > "$project/README.md"
-git -C "$project" add README.md native/factory-world/src/world.cpp
+git -C "$project" add README.md native/factory-world/src/world.cpp native/gameplay-build/production-paths.txt
 git -C "$project" -c core.hooksPath=/dev/null commit -qm first
 first=$(git -C "$project" rev-parse HEAD)
 

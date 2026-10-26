@@ -43,13 +43,18 @@ command. Each attempt gets a fresh log directory in the same cumulative family;
 it does not reset the family or retry a failure. Run after publishing the relevant
 native change, from a clean owned checkout whose production inputs match main.
 
-Each build runs once through the existing bounded runner inside one ordinary
+Each build runs through the existing bounded runner inside one ordinary
 `factory-local heavy` admission. Use the pinned Bazel 8.4.2 executable, an owned
 external family with verified dependency cache entries, and a clean committed
 build checkout. The main checkout must have the same production inputs. Build
 outside the shared Git landing lock. The command uses eight jobs, a five-minute
 bound, an 8 MiB log and the existing 2 GiB family ceiling. No network dependency
-download, resource-floor override or passing-test replay is introduced.
+download, resource-floor override or passing-test replay is introduced. A
+bounded Bazel source/buildfile query runs before compilation; any local input
+outside the committed `production-paths.txt` inventory refuses installation.
+Add a newly introduced transitive package to that file before publishing its
+first native build. The two launcher guards and native installer read that same
+inventory, and changing it invalidates both installed components.
 
 ```bash
 "$FACTORY_LOCAL" --root "$BUILD_CHECKOUT" heavy --inherit-permits -- \
@@ -67,7 +72,7 @@ publication controls are `//native/gameplay-build:install_test`; this explicit
 host test uses isolated temporary Git repositories and invented ELF headers,
 never a game, the real launcher or a real library loader.
 
-The tool snapshots the selected component's committed source closure and launcher before building.
+The tool snapshots the selected component's committed source inventory and launcher before building.
 It refuses if the build checkout changes, production on main advances, launcher
 pins change concurrently, output is missing or malformed, or the destination is
 invalid. An unrelated documentation commit may advance main without invalidating
