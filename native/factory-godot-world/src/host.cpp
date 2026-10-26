@@ -1,5 +1,6 @@
 #include "factory/godot_world.hpp"
 #include "factory/crank_command_contract.hpp"
+#include "factory/material_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
@@ -565,40 +566,25 @@ bool historical_wire(const authority::Record& record) {
     if (const auto crank = crank_commands::parse(*action);
         crank != crank_commands::Action::none)
         return crank_commands::historical_wire(*wire, intent, crank);
+    if (const auto material = material_commands::parse(*action);
+        material != material_commands::Action::none) {
+        if (!material_commands::historical_wire(*wire, intent, material)) return false;
+        if (material != material_commands::Action::pickup) return true;
+        const auto& center = *field<Array>(*wire, "center");
+        if (center.size() != 3) return false;
+        for (const auto& value : center) {
+            const auto* coordinate = std::get_if<Integer>(&value.storage());
+            if (!coordinate || *coordinate < -materials::maximum_drop_coordinate ||
+                *coordinate > materials::maximum_drop_coordinate) return false;
+        }
+        return true;
+    }
     const auto same = [&](const char* original, const char* normalized) {
         const auto left = wire->find(original);
         const auto right = intent.find(normalized);
         return left != wire->end() && right != intent.end() &&
             !values::typed_difference(left->second, right->second);
     };
-    if (*action == "pickup_material") {
-        const auto* center = field<Array>(*wire, "center");
-        if (*original_action != "pickup_material" || !keys(*wire, {"center", "expected"}) || !field<Object>(*wire, "expected") || !center || center->size() != 3 || !same("center", "center") || !same("expected", "expected")) return false;
-        for (const auto& value : *center) {
-            const auto* coordinate = std::get_if<Integer>(&value.storage());
-            if (!coordinate || *coordinate < -materials::maximum_drop_coordinate || *coordinate > materials::maximum_drop_coordinate) return false;
-        }
-        return true;
-    }
-    if (*action == "place_sheet")
-        return *original_action == "place_sheet" &&
-            keys(*wire, {"center", "sheet_id"}) &&
-            field<Array>(*wire, "center") && field<Integer>(*wire, "sheet_id") &&
-            same("center", "center") && same("sheet_id", "sheet_id");
-    if (*action == "push_channel_sheet")
-        return *original_action == "push_channel_sheet" &&
-            keys(*wire, {"from", "to", "sheet_id"}) &&
-            field<Array>(*wire, "from") && field<Array>(*wire, "to") &&
-            field<Integer>(*wire, "sheet_id") &&
-            same("from", "from") && same("to", "to") &&
-            same("sheet_id", "sheet_id");
-    if (*action == "push_channel_small")
-        return *original_action == "push_channel_small" &&
-            keys(*wire, {"from", "to", "form"}) &&
-            field<Array>(*wire, "from") && field<Array>(*wire, "to") &&
-            field<std::string>(*wire, "form") &&
-            same("from", "from") && same("to", "to") &&
-            same("form", "form");
     if (*action == "stroke_broad_shear")
         return *original_action == "stroke_broad_shear" &&
             keys(*wire, {"entity", "sheet_id"}) &&
@@ -1873,6 +1859,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto* action = field<std::string>(wire, "action");
     if (!action) return refuse("invalid_action");
     const auto crank_action = crank_commands::parse(*action);
+    const auto material_action = material_commands::parse(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
         if (!id) return false;
@@ -2169,8 +2156,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
-    } else if (*action == "pickup_material") {
-        if (!keys(wire, {"center", "expected"}) || !field<Object>(wire, "expected")) return refuse("invalid_command");
+    } else if (material_action == material_commands::Action::pickup) {
+        if (!material_commands::valid_wire_before_geometry(wire, material_action))
+            return refuse("invalid_command");
         const auto* center = field<Array>(wire, "center");
         if (!center || center->size() != 3) return refuse("invalid_center");
         for (const auto& value : *center) {
@@ -2178,12 +2166,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (!coordinate || *coordinate < -materials::maximum_drop_coordinate || *coordinate > materials::maximum_drop_coordinate)
                 return refuse("invalid_center");
         }
-        normalized.at("action") = Value("pickup_material");
+        normalized.at("action") = Value(*action);
         normalized.emplace("center", wire.at("center"));
         normalized.emplace("expected", wire.at("expected"));
-    } else if (*action == "place_sheet") {
-        if (!keys(wire, {"center", "sheet_id"}) ||
-            !field<Integer>(wire, "sheet_id")) return refuse("invalid_command");
+    } else if (material_action == material_commands::Action::place_sheet) {
+        if (!material_commands::valid_wire_before_geometry(wire, material_action))
+            return refuse("invalid_command");
         const auto* center = field<Array>(wire, "center");
         if (!center || center->size() != 3) return refuse("invalid_center");
         for (const auto& value : *center) {
@@ -2192,15 +2180,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 *coordinate > materials::maximum_drop_coordinate)
                 return refuse("invalid_center");
         }
-        normalized.at("action") = Value("place_sheet");
+        normalized.at("action") = Value(*action);
         normalized.emplace("center", wire.at("center"));
         normalized.emplace("sheet_id", wire.at("sheet_id"));
-    } else if (*action == "push_channel_sheet" || *action == "push_channel_small") {
-        const bool sheet_move = *action == "push_channel_sheet";
-        if (!(sheet_move ? keys(wire, {"from", "to", "sheet_id"}) &&
-                    field<Integer>(wire, "sheet_id") :
-                keys(wire, {"from", "to", "form"}) &&
-                    field<std::string>(wire, "form"))) return refuse("invalid_command");
+    } else if (material_action == material_commands::Action::push_sheet ||
+               material_action == material_commands::Action::push_small) {
+        const bool sheet_move = material_action == material_commands::Action::push_sheet;
+        if (!material_commands::valid_wire_before_geometry(wire, material_action))
+            return refuse("invalid_command");
         for (const auto* name : {"from", "to"}) {
             const auto* point = field<Array>(wire, name);
             if (!point || point->size() != 3) return refuse("invalid_center");

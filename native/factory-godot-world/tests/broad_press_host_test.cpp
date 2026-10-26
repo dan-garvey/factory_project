@@ -357,6 +357,36 @@ void channel_projection_and_wire() {
           get<std::string>(malformed_small, "reason") == "invalid_center" &&
           get<A>(host.projection(), "dropped_material").empty(),
         "The Host refuses a floating small-stock coordinate without changing custody.");
+    const auto before_bad_shapes = host.projection();
+    auto bad_pickup = request("bad-pickup-shape", "pickup_material");
+    bad_pickup.emplace("center", V(A{V(I{20}), V(I{0}), V(I{0})}));
+    bad_pickup.emplace("expected", V(I{0}));
+    auto bad_stage = request("bad-stage-shape", "place_sheet");
+    bad_stage.emplace("center", V(A{V(I{20}), V(I{0}), V(I{0})}));
+    bad_stage.emplace("sheet_id", V(I{1}));
+    bad_stage.emplace("unexpected", V(true));
+    auto bad_sheet_move = request("bad-sheet-move-shape", "push_channel_sheet");
+    bad_sheet_move.emplace("from", V(A{V(I{20}), V(I{0}), V(I{0})}));
+    bad_sheet_move.emplace("to", V(A{V(I{24}), V(I{0}), V(I{0})}));
+    bad_sheet_move.emplace("sheet_id", V(1.0));
+    auto bad_small_move = request("bad-small-move-shape", "push_channel_small");
+    bad_small_move.emplace("from", V(A{V(I{28}), V(I{0}), V(I{0})}));
+    bad_small_move.emplace("to", V(A{V(I{32}), V(I{0}), V(I{0})}));
+    bad_small_move.emplace("form", V(I{0}));
+    for (const auto& wire : {bad_pickup, bad_stage, bad_sheet_move, bad_small_move}) {
+        const auto refused = host.command("P", wire);
+        check(!get<bool>(refused, "accepted") &&
+              get<std::string>(refused, "reason") == "invalid_command",
+              "Malformed material movement fields refuse through the production Host.");
+    }
+    const auto after_bad_shapes = host.projection();
+    check(get<I>(before_bad_shapes, "revision") == get<I>(after_bad_shapes, "revision") &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_shapes, "cargo")), V(get<O>(after_bad_shapes, "cargo"))) &&
+          !factory::values::typed_difference(
+              V(get<A>(before_bad_shapes, "dropped_material")),
+              V(get<A>(after_bad_shapes, "dropped_material"))),
+          "Malformed material commands leave native revision, cargo and loose material unchanged.");
     Host restored;
     check(get<bool>(restored.initialize_arrival_advanced_fixture("broad-site", {"P", "Q"}),
             "accepted") &&

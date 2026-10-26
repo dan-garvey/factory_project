@@ -60,6 +60,23 @@ O conveniences(const char* actor, const char* client, const char* request, bool 
         {"enabled", V(enabled)}};
 }
 
+void malformed_pickup_keeps_world_refusal() {
+    auto [profile, state] = seed();
+    auto world = w::World::create("harvest-world", profile, state);
+    check(bool(world), "The direct native World pickup fixture initializes.");
+    const auto before = world->snapshot();
+    O wire{{"context", V("harvest-world")}, {"client", V("P-client")},
+        {"request", V("bad-pickup-center")}, {"actor", V("P")},
+        {"action", V("pickup_material")}, {"center", V("wrong type")},
+        {"expected", V(O{})}};
+    const auto refused = world->command({"P", "P-client"}, wire, {});
+    check(refused.completed() && !std::get<bool>(refused.result->at("accepted").storage()) &&
+          std::get<std::string>(refused.result->at("reason").storage()) == "invalid_center" &&
+          world->snapshot().revision == before.revision &&
+          world->snapshot().state == before.state,
+          "A malformed direct-World pickup retains its invalid-center refusal and cannot move material.");
+}
+
 void fast_harvest_is_shared_and_finite() {
     auto [profile, state] = seed();
     auto world = w::World::create("harvest-world", profile, state);
@@ -331,6 +348,7 @@ void interrupted_cut_and_shared_source() {
 
 int main() {
     try {
+        malformed_pickup_keeps_world_refusal();
         fast_harvest_is_shared_and_finite();
         harvest_and_restore();
         interrupted_cut_and_shared_source();
