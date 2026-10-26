@@ -408,6 +408,16 @@ void flat_head_host_custody() {
           !std::get<O>(get<A>(route_restored.projection(),
               "sliding_press_assemblies").front().storage()).contains("selected_exit"),
           "A second client recovers the first worker's blank after restore and clears the shared route.");
+    const auto shared_reclaim = route_restored.command("Q", O{
+        {"context", V("flat-head-site")}, {"client", V("Q")},
+        {"request", V("shared-loaded-support-reclaim")}, {"action", V("reclaim_component")},
+        {"entity", V(get<std::string>(support, "entity"))}});
+    check(get<bool>(shared_reclaim, "accepted") &&
+          get<I>(get<O>(route_restored.projection(), "cargo").at("Q"), "raw") == 1 &&
+          get<I>(V(get<O>(get<O>(route_restored.projection(), "cargo").at("Q"),
+              "components")), "anvil") == 1 &&
+          get<bool>(route_restored.validate_checkpoint(route_restored.checkpoint()), "accepted"),
+          "Native pickup followed by reclaim returns the selected press support and its work to the same actor across save.");
     check(!get<bool>(resumed("reclaim-loaded-anvil", "reclaim_component",
               {{"entity", V(get<std::string>(support, "entity"))}}), "accepted"),
           "The work support cannot be reclaimed while it owns a selected route and blank.");
