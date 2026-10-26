@@ -295,6 +295,38 @@ private:
 };
 } // namespace
 
+std::vector<std::vector<std::string>> partition_native_labels(
+    const std::vector<std::string>& labels,
+    const std::vector<std::string>& fixed_arguments) {
+    constexpr std::size_t maximum_arguments = 256;
+    constexpr std::size_t maximum_argument_bytes = 131072;
+    require(!labels.empty() && std::is_sorted(labels.begin(), labels.end()) &&
+                std::adjacent_find(labels.begin(), labels.end()) == labels.end(),
+            "The native targets must be a nonempty sorted unique selection.");
+    std::size_t fixed_bytes = 0;
+    for (const auto& argument : fixed_arguments) fixed_bytes += argument.size();
+    require(fixed_arguments.size() < maximum_arguments && fixed_bytes < maximum_argument_bytes,
+            "Native Bazel command options exceed the bounded runner allowance.");
+    std::vector<std::vector<std::string>> batches;
+    std::vector<std::string> current;
+    std::size_t bytes = fixed_bytes;
+    for (const auto& label : labels) {
+        require(label.size() <= 65536 && label.size() + fixed_bytes <= maximum_argument_bytes,
+                "A native target label exceeds the bounded runner allowance.");
+        if (fixed_arguments.size() + current.size() == maximum_arguments ||
+            bytes + label.size() > maximum_argument_bytes) {
+            require(!current.empty(), "A native target could not fit a bounded command.");
+            batches.push_back(std::move(current));
+            current.clear();
+            bytes = fixed_bytes;
+        }
+        current.push_back(label);
+        bytes += label.size();
+    }
+    if (!current.empty()) batches.push_back(std::move(current));
+    return batches;
+}
+
 void require_passing_test_events(std::string_view data,
                                  const std::vector<std::string>& expected) {
     require(data.size() <= 8 * 1024 * 1024 &&
@@ -392,19 +424,33 @@ int run_native_worker(const fs::path& checkout, const std::string& expected_tree
         auto build = bazel_command(bazel, artifacts, output_base, snapshot.root(), "build");
         build.push_back("--cxxopt=-DFACTORY_GATE_TOOLCHAIN_FINGERPRINT=0x" + toolchain.substr(0, 16));
         build.push_back("--jobs=8");
-        build.insert(build.end(), build_labels.begin(), build_labels.end());
-        require(bazel_stage(artifacts, admission, run / "build.log", build) == 0,
-                "An affected native target failed to build.");
+        const auto build_batches = partition_native_labels(build_labels, build);
+        for (std::size_t index = 0; index < build_batches.size(); ++index) {
+            auto command = build;
+            command.insert(command.end(), build_batches[index].begin(), build_batches[index].end());
+            const auto log = run / ("build-" + std::to_string(index) + ".log");
+            require(bazel_stage(artifacts, admission, log, command) == 0,
+                    "An affected native target batch failed to build; see " + log.string());
+        }
         auto test = bazel_command(bazel, artifacts, output_base, snapshot.root(), "test");
         test.push_back("--cxxopt=-DFACTORY_GATE_TOOLCHAIN_FINGERPRINT=0x" + toolchain.substr(0, 16));
         test.insert(test.end(), {"--jobs=8", "--local_test_jobs=1", "--build_tests_only",
-            "--test_output=errors",
-            "--build_event_json_file=" + (run / "test-events.json").string()});
-        test.insert(test.end(), test_labels.begin(), test_labels.end());
-        require(bazel_stage(artifacts, admission, run / "test.log", test) == 0,
-                "An affected native behavioral test failed.");
-        require_passing_test_events(bounded_file(run / "test-events.json", 8 * 1024 * 1024),
-                                    test_labels);
+            "--test_output=errors"});
+        auto sized_test = test;
+        sized_test.push_back("--build_event_json_file=" +
+            (run / ("test-events-" + std::to_string(test_labels.size()) + ".json")).string());
+        const auto test_batches = partition_native_labels(test_labels, sized_test);
+        for (std::size_t index = 0; index < test_batches.size(); ++index) {
+            auto command = test;
+            const auto events = run / ("test-events-" + std::to_string(index) + ".json");
+            command.push_back("--build_event_json_file=" + events.string());
+            command.insert(command.end(), test_batches[index].begin(), test_batches[index].end());
+            const auto log = run / ("test-" + std::to_string(index) + ".log");
+            require(bazel_stage(artifacts, admission, log, command) == 0,
+                    "An affected native test batch failed; see " + log.string());
+            require_passing_test_events(bounded_file(events, 8 * 1024 * 1024),
+                                        test_batches[index]);
+        }
     }
     snapshot.close();
     require(prepare(checkout).tree == expected_tree,
