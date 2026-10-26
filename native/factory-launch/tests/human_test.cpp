@@ -78,6 +78,7 @@ int main(int argc, char** argv) {
         write(repo / "experiments/engine-environment/godot/project.godot", "config_version=5\n");
         write(repo / "experiments/engine-environment/godot/opening/shared_opening.tscn", "[gd_scene]\n");
         write(repo / "experiments/engine-environment/godot/opening/parts_view_check.gd", "extends SceneTree\n");
+        write(repo / "experiments/engine-environment/godot/opening/native_adapter_check.gd", "extends SceneTree\n");
         write(repo / "experiments/engine-environment/godot/opening/other_check.gd", "extends SceneTree\n");
         require(run({"/usr/bin/git", "-C", repo.string(), "init", "-b", "main"}).exit_code == 0,
                 "Cannot init fake repo.");
@@ -177,6 +178,27 @@ int main(int argc, char** argv) {
                 read(launched).find("--script\nres://opening/parts_view_check.gd") != std::string::npos,
                 "A graphical fixture uses the same labeled agent window route.");
         fs::remove(launched);
+        auto adapter_window = window_base;
+        adapter_window.insert(adapter_window.end(), {"--script", "res://opening/native_adapter_check.gd",
+            "--test-purpose", "First plate route", "--", "--native-check-mode=arrival-first-plate"});
+        require(run(adapter_window).exit_code == 0 &&
+                read(launched).find("--script\nres://opening/native_adapter_check.gd") != std::string::npos &&
+                read(launched).find("--test-purpose=First plate route") != std::string::npos &&
+                read(launched).find("--native-check-mode=arrival-first-plate") != std::string::npos,
+                "The native first-plate fixture forwards the purpose and selected mode.");
+        fs::remove(launched);
+        auto missing_adapter_purpose = window_base;
+        missing_adapter_purpose.insert(missing_adapter_purpose.end(),
+            {"--script", "res://opening/native_adapter_check.gd"});
+        require(run(missing_adapter_purpose).exit_code != 0 && !fs::exists(launched),
+                "The native first-plate window refuses a missing purpose before a graphical child.");
+        auto invalid_adapter_purpose = adapter_window;
+        auto invalid_adapter_label = std::find(invalid_adapter_purpose.begin(), invalid_adapter_purpose.end(),
+            "First plate route");
+        require(invalid_adapter_label != invalid_adapter_purpose.end(), "Find the adapter label argument.");
+        *invalid_adapter_label = "line\nwrap";
+        require(run(invalid_adapter_purpose).exit_code != 0 && !fs::exists(launched),
+                "The native first-plate window refuses a multiline purpose before a graphical child.");
         auto unsupported = window_base;
         unsupported.insert(unsupported.end(), {"--script", "res://opening/other_check.gd",
             "--test-purpose", "Unregistered fixture"});

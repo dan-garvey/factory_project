@@ -45,12 +45,14 @@ native and Godot artifacts:
 ./scripts/launch-factory-latest.sh --agent --test-purpose="Ore interaction reach"
 ./scripts/launch-factory-latest.sh --agent --test-purpose="Resume inspection" --resume /absolute/path/to/player.factory
 ./scripts/launch-factory-latest.sh --agent-window --test-purpose="Slide fixture" --script res://opening/parts_view_check.gd -- --slide-view-only
+./scripts/launch-factory-latest.sh --agent-window --test-purpose="First plate route" --script res://opening/native_adapter_check.gd -- --native-check-mode=arrival-first-plate --event-route-pointer --native-check-output=/absolute/owned/first-plate.bin --save-slot=/absolute/owned/first-plate.factory
 ```
 
 For a shared client with an already running server, use `--agent-window`
 with `--scene res://opening/shared_opening.tscn`, then pass the session port
 and role after `--`. Supported script fixtures are `parts_view_check.gd`,
-`native_transmission_view_check.gd`, and `worker_wardrobe_view_check.gd` in
+`native_adapter_check.gd`, `native_transmission_view_check.gd`, and
+`worker_wardrobe_view_check.gd` in
 `res://opening/`; other targets refuse until they initialize the same title.
 The normal player shortcut needs no test purpose.
 

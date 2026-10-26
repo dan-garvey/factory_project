@@ -347,6 +347,7 @@ int agent_window_launch(int argc, char** argv) {
         const bool script = options.count("--script");
         const auto target = options.at(script ? "--script" : "--scene");
         require(script ? (target == "res://opening/parts_view_check.gd" ||
+                          target == "res://opening/native_adapter_check.gd" ||
                           target == "res://opening/native_transmission_view_check.gd" ||
                           target == "res://opening/worker_wardrobe_view_check.gd") :
                          target == "res://opening/shared_opening.tscn",
