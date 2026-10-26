@@ -4626,6 +4626,8 @@ var machine_preview: Node3D
 var component_preview: Node3D
 var press_snap_target: MeshInstance3D
 var press_snap_material: StandardMaterial3D
+var press_snap_lift: Node3D
+var press_snap_lift_material: StandardMaterial3D
 var component_preview_kind := ""
 var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
@@ -7125,6 +7127,7 @@ func _refresh_component_preview() -> void:
 	component_preview.visible = false
 	if press_snap_target != null:
 		press_snap_target.visible = false
+		press_snap_lift.visible = false
 	if mode != "component" or not _native_transmission() or arrival_assembly_controls == null \
 			or transmission_presenter == null or explanation_open or not _placement_ready() \
 			or not _preview_pointer_clear():
@@ -7248,6 +7251,13 @@ func _refresh_component_preview() -> void:
 			press_snap_material.albedo_color = Color(0.94, 0.27, 0.21, 0.85) \
 				if component_preview_blocked else Color(0.98, 0.73, 0.28, 0.9)
 			press_snap_target.visible = true
+			var camera_right: Vector3 = camera.global_transform.basis.x
+			camera_right.y = 0.0
+			press_snap_lift.position = (target_box.center + box.center) * 0.5 \
+				- camera_right.normalized() * 0.36
+			press_snap_lift.scale.y = maxf(0.35, box.center.y - target_box.center.y)
+			press_snap_lift_material.albedo_color = press_snap_material.albedo_color
+			press_snap_lift.visible = true
 	else:
 		component_preview_snap = "Floor grid"
 	var collector_face := _component_collector_face(kind, center)
@@ -7512,6 +7522,34 @@ func _build_world() -> void:
 	press_snap_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	press_snap_target.material_override = press_snap_material
 	press_snap_target.visible = false
+	press_snap_lift = Node3D.new()
+	press_snap_lift.name = "PressSnapLift"
+	press_snap_lift_material = StandardMaterial3D.new()
+	press_snap_lift_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	press_snap_lift_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	for dash_y in [-0.30, -0.08, 0.14]:
+		var dash := MeshInstance3D.new()
+		var stem := CylinderMesh.new()
+		stem.top_radius = 0.009
+		stem.bottom_radius = 0.009
+		stem.height = 0.13
+		dash.mesh = stem
+		dash.position.y = dash_y
+		dash.material_override = press_snap_lift_material
+		dash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		press_snap_lift.add_child(dash)
+	var tip := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 0.045
+	cone.height = 0.15
+	tip.mesh = cone
+	tip.position.y = 0.38
+	tip.material_override = press_snap_lift_material
+	tip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	press_snap_lift.add_child(tip)
+	press_snap_lift.visible = false
+	add_child(press_snap_lift)
 	item_root = Node3D.new()
 	add_child(item_root)
 	hover = _box(self, Vector3.ZERO, Vector3(1.5, 0.035, 1.5), Color(0.85, 0.75, 0.45, 0.45))
