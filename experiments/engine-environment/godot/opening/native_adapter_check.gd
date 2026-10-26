@@ -1600,7 +1600,7 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 	opening.manager_log_button.pressed.emit()
 	if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
 			and not opening._can_control_character()
-			and "Gather 5 timber and 4 copper blanks" in opening.manager_log_current.text
+			and "Gather 5 timber and 4 copper pieces" in opening.manager_log_current.text
 			and opening.model.projection() == after,
 			"The replayable manager log opens after normal or skipped arrival without changing native work"):
 		return

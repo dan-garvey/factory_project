@@ -53,7 +53,7 @@ func _collector_control(view: LayoutView) -> bool:
 		"dropped_material": []}
 	panel.refresh(snapshot, "P", "shaft", true)
 	var ready: bool = panel.collector_cut_button.visible and not panel.collector_cut_button.disabled \
-		and panel.collector_cut_button.tooltip_text == "Cut one ore blank · X"
+		and panel.collector_cut_button.tooltip_text == "Cut one copper piece · X"
 	panel.collector_cut_button.pressed.emit()
 	var exact: bool = view.submitted == [{"action": "turn_hand_crank", "entity": "mount"}]
 	view.submitted.clear()
@@ -111,7 +111,7 @@ func _run() -> void:
 	await _settle()
 	var recovery: Dictionary = _bounds(view)
 	var tooltip: String = view.recovery_actions.action_button.tooltip_text
-	var separate_forms: bool = "2 blanks" in tooltip and "1 plate" in tooltip and "1 workpiece" in tooltip
+	var separate_forms: bool = "2 copper pieces" in tooltip and "1 copper plate" in tooltip and "1 copper workpiece" in tooltip
 	var available: bool = recovery.recovery_visible and not view.recovery_actions.action_button.disabled
 	var bar_top: float = view.building_hotbar.get_global_rect().position.y
 	var fit: bool = not recovery.overlap and recovery.minimum_required_bottom <= bar_top - 12.0 \
