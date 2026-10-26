@@ -375,6 +375,8 @@ private:
                 }
         }
     };
+    [[nodiscard]] std::optional<State> step_with_drive(const Snapshot&,
+        const ObserveActor&, const DrivePower&, const TickLayout&) const;
     // Tick changes material custody, not the power graph. Commands can change
     // either topology or the drive switch and invalidate these derived views.
     std::unique_ptr<TickLayout> tick_layout_;

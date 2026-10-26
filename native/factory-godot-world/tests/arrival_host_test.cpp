@@ -67,7 +67,7 @@ void arrival_projection_and_restore() {
           std::abs(std::get<double>(upstream[2].storage()) + 1.65) < 1e-8,
           "Finite east timber sites include a separate upstream tree for the constructed plate route.");
     const auto recipes = get<O>(view, "component_recipes");
-    check(recipes.size() == 16 && get<I>(view, "component_capacity") == 0 &&
+    check(recipes.size() == 20 && get<I>(view, "component_capacity") == 0 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
           get<I>(recipes.at("wooden_frame"), "copper") == 0 &&
           get<I>(recipes.at("wooden_workbench"), "timber") == 4 &&
@@ -77,7 +77,11 @@ void arrival_projection_and_restore() {
           get<I>(recipes.at("flat_head"), "timber") == 0 &&
           get<I>(recipes.at("flat_head"), "copper") == 1 &&
           get<I>(recipes.at("hand_crank"), "timber") == 2 &&
-          get<I>(recipes.at("hand_crank"), "copper") == 0,
+          get<I>(recipes.at("hand_crank"), "copper") == 0 &&
+          get<I>(recipes.at("channel_narrow_x"), "timber") == 2 &&
+          get<I>(recipes.at("channel_narrow_z"), "timber") == 2 &&
+          get<I>(recipes.at("channel_broad_x"), "timber") == 4 &&
+          get<I>(recipes.at("channel_broad_z"), "timber") == 4,
           "The normal consumer receives every native recipe cost and no opening carry bound.");
     check(get<I>(recipes.at("wooden_slide"), "timber") == 3 &&
           get<I>(recipes.at("wooden_slide"), "load_rating") == 8 &&
@@ -275,8 +279,21 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
     check(get<bool>(turn, "accepted") &&
           get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") > 0,
           "Turning the fitted crank advances the actual slide phase.");
+    const auto before_pulse = get<I>(get<O>(restored.projection(), "slide_phases")
+        .at(slide_id), "subticks");
+    const auto pulse = resumed("pulse-fitted", "operate_hand_crank",
+        {{"entity", V(first_id)}});
+    const auto after_pulse = get<I>(get<O>(restored.projection(), "slide_phases")
+        .at(slide_id), "subticks");
+    check(get<bool>(pulse, "accepted") && after_pulse != before_pulse &&
+          get<bool>(resumed("pulse-fitted", "operate_hand_crank",
+              {{"entity", V(first_id)}}), "duplicate") &&
+          get<I>(get<O>(restored.projection(), "slide_phases")
+              .at(slide_id), "subticks") == after_pulse,
+          "One fitted-crank request consumes one native source pulse, while an exact retry cannot turn again.");
     const auto fitted_checkpoint = restored.checkpoint();
-    check(get<bool>(restored.validate_checkpoint(fitted_checkpoint), "accepted"),
+    const auto fitted_validation = restored.validate_checkpoint(fitted_checkpoint);
+    check(get<bool>(fitted_validation, "accepted"),
           "Checkpoint validation preserves both paid crank identities and attached port custody.");
     const auto removed = resumed("detach-first", "detach_hand_crank", {{"entity", V(first_id)}});
     check(get<bool>(removed, "accepted") &&
@@ -302,7 +319,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
             get<std::string>(west_turn, "reason"));
     check(get<bool>(west, "accepted") &&
           get<bool>(west_turn, "accepted") &&
-          get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") == 0,
+          get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") == before_pulse,
           "Moving the crank to the opposite shaft end reverses the native slide rotation.");
     check(get<bool>(restored.publish_actor("Q", {V(4.8), V(1.0), V(3.3)}, 1), "accepted"),
           "A second authenticated worker can approach the shared fitted crank.");

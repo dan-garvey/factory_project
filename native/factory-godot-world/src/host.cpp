@@ -590,6 +590,9 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "detach_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
+    if (*action == "operate_hand_crank")
+        return *original_action == *action && keys(*wire, {"entity"}) &&
+            field<std::string>(*wire, "entity") && same("entity", "crank");
     if (*action == "turn_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
@@ -1748,6 +1751,31 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         return result(false, "wrong_actor");
     const auto snapshot = owned_->world->snapshot();
     const auto* request = field<std::string>(wire, "request");
+    const auto complete_crank_pulse = [&](world::Delivery delivered) -> Value {
+        if (delivered.completed() && field<bool>(*delivered.result, "accepted") &&
+            *field<bool>(*delivered.result, "accepted")) {
+            const auto* revision = field<Integer>(*delivered.result, "revision");
+            const auto current = owned_->world->snapshot();
+            const auto& records = current.history.records;
+            const auto* last_action = records.empty() ? nullptr :
+                field<std::string>(records.back().intent, "action");
+            const auto* last_request = records.empty() ? nullptr :
+                field<std::string>(records.back().intent, "request");
+            const auto* last_client = records.empty() ? nullptr :
+                field<std::string>(records.back().intent, "client");
+            const auto* last_accepted = records.empty() ? nullptr :
+                field<bool>(records.back().result, "accepted");
+            if (revision && current.revision == *revision && last_action &&
+                *last_action == "operate_hand_crank" && request && last_request &&
+                *last_request == *request && last_client && *last_client == *client &&
+                last_accepted && *last_accepted) {
+                const auto tick = owned_->world->tick(observe());
+                if (tick.error != world::TransactionError::none || !tick.changed ||
+                    !settle_manual_cuts()) return result(false, "native_step_failed");
+            }
+        }
+        return Value(outward(delivered, owned_->world->snapshot()));
+    };
     // Server-owned completion IDs cannot be occupied by a client request.
     if (request && request->starts_with("native-cut-"))
         return result(false, "reserved_request");
@@ -1758,7 +1786,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             field<std::string>(record.intent, "request") && *field<std::string>(record.intent, "request") == *request) {
             auto replay = record.intent;
             replay.insert_or_assign("wire", Value(wire));
-            return Value(outward(owned_->world->command({bound_actor, *client}, replay, observe()), snapshot));
+            auto delivered = owned_->world->command({bound_actor, *client}, replay, observe());
+            if (field<std::string>(record.intent, "action") &&
+                *field<std::string>(record.intent, "action") == "operate_hand_crank")
+                return complete_crank_pulse(std::move(delivered));
+            return Value(outward(delivered, snapshot));
         }
     }
     Object normalized{{"context", wire.contains("context") ? wire.at("context") : Value()},
@@ -1913,6 +1945,27 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
+    } else if (*action == "operate_hand_crank") {
+        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+            return refuse("invalid_command");
+        const auto crank_id = *field<std::string>(wire, "entity");
+        const auto crank = snapshot.state.crank_items.find(crank_id);
+        const auto input_id = crank == snapshot.state.crank_items.end() ?
+            std::string{} : crank->second.attached_to.value_or("");
+        const auto input = snapshot.state.placed_components.find(input_id);
+        Array port;
+        if (crank != snapshot.state.crank_items.end() && crank->second.port) {
+            const auto& point = *crank->second.port;
+            port = {Value(point[0]), Value(point[1]), Value(point[2])};
+        }
+        normalized.at("action") = Value(*action);
+        normalized.emplace("target", Value(input_id));
+        normalized.emplace("generation", Value(input == snapshot.state.placed_components.end() ?
+            Integer{0} : input->second.generation));
+        normalized.emplace("crank", wire.at("entity"));
+        normalized.emplace("crank_generation", Value(crank == snapshot.state.crank_items.end() ?
+            Integer{0} : crank->second.generation));
+        normalized.emplace("port", Value(port));
     } else if (*action == "turn_hand_crank") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -2584,7 +2637,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (const auto* refusal = supplied_space_refusal(geometry)) return refuse(refusal);
         if (const auto* refusal = support_change_refusal(snapshot.state, geometry)) return refuse(refusal);
     }
-    const auto delivered = owned_->world->command({bound_actor, *client}, normalized, observe());
+    auto delivered = owned_->world->command({bound_actor, *client}, normalized, observe());
+    if (edit == "operate_hand_crank") return complete_crank_pulse(std::move(delivered));
     return Value(outward(delivered, owned_->world->snapshot()));
 }
 

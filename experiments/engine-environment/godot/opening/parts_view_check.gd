@@ -2839,10 +2839,28 @@ func _workshop_pages() -> void:
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-output-drag.png") == OK,
 				"Retain the highlighted carried region during a broad output drag.")
-		root.gui_cancel_drag()
+		var drag_escape := InputEventKey.new()
+		drag_escape.keycode = KEY_ESCAPE
+		drag_escape.pressed = true
+		Input.parse_input_event(drag_escape)
+		await process_frame
+		verify(not root.gui_is_dragging() and not view.pause_menu.visible and view.issued.is_empty(),
+			"One ordinary Escape ends the focused output drag without opening pause or issuing a command.")
+		drag_escape.pressed = false
+		Input.parse_input_event(drag_escape)
+		await process_frame
+		verify(not view.object_menu.visible and not root.gui_is_dragging()
+			and not view.pause_menu.visible and view.issued.is_empty(),
+			"The focused popup closes on drag Escape release without opening pause or changing custody.")
+		if root.gui_is_dragging():
+			root.gui_cancel_drag()
 		await process_frame
 		verify(not panel.inventory_player_region.highlighted,
 			"The carried-inventory highlight clears when the drag ends.")
+		view._open_object_menu_for("press-anvil")
+		await process_frame
+		verify(view.object_menu.visible and panel.inventory_section.is_visible_in_tree(),
+			"The same workbed reopens after the focused drag is canceled.")
 		panel.inventory_player_region._drop_data(Vector2(250, 50), broad_sheet)
 		verify(view.issued == [broad_sheet.wire],
 			"Dropping a sheet on ordinary empty space in the carried region sends one native pickup.")
