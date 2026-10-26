@@ -2046,6 +2046,24 @@ func _render_receiver_chutes(snapshot: Dictionary) -> void:
 				_support_box(chute, "ReceiverChuteLip", Vector3(side * 0.165, 0.075, 0),
 					Vector3(0.025, 0.13, length), edge_finish, true)
 
+func _add_loose_pickers(node: Node3D, drop: Dictionary, context: String) -> void:
+	# Match the visible item, including its offset on a workbed and sheet rotation.
+	# These shapes only select; native World still owns reach and material custody.
+	for child in node.get_children():
+		if child is Node3D:
+			_add_loose_pickers(child, drop, context)
+	if node is MeshInstance3D and node.mesh != null:
+		var body := StaticBody3D.new()
+		body.name = "LooseMaterialPicker"
+		body.collision_layer = Geometry.PICK_LAYER
+		body.collision_mask = 0
+		body.set_meta("loose_material", drop.duplicate(true))
+		body.set_meta("material_context", context)
+		var shape := CollisionShape3D.new()
+		shape.shape = node.mesh.create_trimesh_shape()
+		body.add_child(shape)
+		node.add_child(body)
+
 func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
 		_clear()
@@ -2215,6 +2233,7 @@ func refresh() -> void:
 				visual.position = location
 			else:
 				visual = Items.workpiece_billet(self, location)
+			_add_loose_pickers(visual, drop, str(snapshot.get("context", "")))
 			if drop.raw == 0 and drop.products == 0 and int(drop.get("offcuts", 0)) == 0 \
 					and int(drop.get("sheets", 0)) == 0 and drop.work_lots.size() == 1 \
 				and guided_work_surfaces.has(drop.center):

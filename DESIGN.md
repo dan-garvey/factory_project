@@ -256,6 +256,11 @@ Machine workbeds show actual occupied material and only carried inputs accepted
 by the selected assembly. Empty work locations are blank; the whole carried area
 accepts recoverable output drops. Material tiles depict the item, with progress
 and operations explained separately.
+Point at loose material and press E to pick it up. The world interaction uses the
+visible item and confirmed native custody, with normal reach and obstruction
+limits. Manual push commands belong only to developer diagnostics. Connected,
+powered material transport must advance automatically; players do not issue
+push commands to operate it.
 Escape cancels active placement and its unfinished steps; from neutral it opens
 the worksite menu. Placement footprint outlines lie horizontally. Resizing must
 preserve usable UI.

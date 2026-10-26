@@ -3981,6 +3981,7 @@ var pause_exit_button: Button
 var pause_exit_confirmation: ConfirmationDialog
 var recovery_actions
 var loose_material_controls
+var developer_material_tools := "--debug-material-tools" in OS.get_cmdline_user_args()
 var transmission_controls
 var transmission_presenter
 var construction_audio
@@ -5956,8 +5957,28 @@ func _screen_hand_source(screen: Vector2) -> String:
 			id = deposits[0]
 	return id if not _hand_source(id).is_empty() else ""
 
+func _screen_loose_material(screen: Vector2) -> Dictionary:
+	if not _native_transmission() or camera == null or not camera.is_inside_tree():
+		return {}
+	var eye := camera.project_ray_origin(screen)
+	var query := PhysicsRayQueryParameters3D.create(eye,
+		eye + camera.project_ray_normal(screen) * 80.0,
+		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty() or hit.collider.get_meta("material_context", "") != state.get("context", ""):
+		return {}
+	var drop: Dictionary = hit.collider.get_meta("loose_material", {})
+	# A stale visible body must never collect a replacement at the same location.
+	return drop if not drop.is_empty() and state.get("dropped_material", []).has(drop) else {}
+
 func _interact_pointed() -> void:
 	if not _can_control_character():
+		return
+	var drop := _screen_loose_material(_pointed_screen_position()) if mode == "inspect" else {}
+	if not drop.is_empty():
+		var expected: Dictionary = drop.duplicate(true)
+		expected.erase("center")
+		issue({"action": "pickup_material", "center": drop.center.duplicate(), "expected": expected})
 		return
 	var attached_crank := _pointed_crank() if mode == "inspect" else ""
 	if not attached_crank.is_empty():
@@ -10122,6 +10143,17 @@ func _is_collector_frame(target: String) -> bool:
 func _pointed_summary_data(screen: Vector2) -> Dictionary:
 	if camera == null or not camera.is_inside_tree():
 		return {}
+	var drop := _screen_loose_material(screen) if mode == "inspect" else {}
+	if not drop.is_empty():
+		var items: Array[String] = []
+		for kind in [["raw", "copper"], ["products", "copper plate"],
+				["offcuts", "copper offcut"], ["sheets", "copper sheet"]]:
+			var count := int(drop.get(kind[0], 0))
+			if count > 0:
+				items.append("%d %s" % [count, kind[1]])
+		if not drop.get("work_lots", []).is_empty():
+			items.append("%d copper workpiece" % drop.work_lots.size())
+		return {"name": ", ".join(items), "detail": "E  Pick up"}
 	var crank_id := _crank_at_screen(screen)
 	if not crank_id.is_empty():
 		return {"name": "Fitted hand crank",
@@ -10341,9 +10373,10 @@ func _build_interface() -> void:
 		recovery_actions = recovery_script.new()
 		right.add_child(recovery_actions)
 		recovery_actions.configure(self)
-	loose_material_controls = load("res://opening/recovery_actions.gd").LooseMaterialControls.new()
-	right.add_child(loose_material_controls)
-	loose_material_controls.configure(self)
+	if developer_material_tools:
+		loose_material_controls = RecoveryActions.LooseMaterialControls.new()
+		right.add_child(loose_material_controls)
+		loose_material_controls.configure(self)
 	arrival_assembly_scroll = ScrollContainer.new()
 	arrival_assembly_scroll.name = "ArrivalWorkshopScroll"
 	arrival_assembly_scroll.custom_minimum_size.y = 260
@@ -10356,14 +10389,10 @@ func _build_interface() -> void:
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	_build_object_menu(root, right_panel as PanelContainer)
-	# Loose work belongs to the world, so its action menu must stay reachable
-	# while the selected-object panel is closed.
-	loose_material_controls.reparent(selection_tools)
-	loose_material_controls.text = "Loose"
-	loose_material_controls.icon = load("res://opening/assets/build-icons/ore.svg")
-	loose_material_controls.custom_minimum_size = Vector2(82, 30)
-	loose_material_controls.focus_mode = Control.FOCUS_ALL
-	loose_material_controls.accessibility_name = "Handle loose material, shortcut Control L"
+	if loose_material_controls != null:
+		loose_material_controls.reparent(selection_tools)
+		loose_material_controls.text = "DEBUG material"
+		loose_material_controls.accessibility_name = "Developer material commands, shortcut Control L"
 	_build_pause_menu(root)
 	_build_pointed_summary(root)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
