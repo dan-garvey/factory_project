@@ -362,7 +362,7 @@ func _component_placement_check() -> void:
 	verify(snapped == [0, 1, 0], "The anvil snaps one height step above a pointed frame top.")
 	view._refresh_component_preview()
 	verify(view.component_preview.visible and view.component_preview_kind == "anvil"
-		and view.component_preview.has_node("WorkbedWeb")
+		and view.component_preview.find_child("WorkbedLeg*", true, false) != null
 		and view.component_preview.has_node("OpenAnvilSeat")
 		and view.component_preview.has_node("ReplaceableDiePlate")
 		and not view.component_preview_blocked,
