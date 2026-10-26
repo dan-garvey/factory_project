@@ -1342,32 +1342,25 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var bottom := -occupied_size.y * 0.5
 			var top := occupied_size.y * 0.5
 			var face_iron := Visuals.material(Color("707c79"), 0.63, 0.46)
-			# A short cast waist supports a broad working face, with a tapered
-			# horn and heel visible at both ends of the native pick body.
+			# This passive workbed is a floor-seated press die support. Leave both
+			# feed ends clear for a future belt, within the native occupied body.
 			_support_box(anchor, "CastPedestalFoot", Vector3(0, bottom + 0.0275, 0),
-				Vector3(0.18, 0.055, 0.22), dark)
-			var waist := MeshInstance3D.new()
-			waist.name = "CastAnvilWaist"
-			waist.mesh = Visuals.prism_mesh(PackedVector2Array([
-				Vector2(-0.077, bottom + 0.055), Vector2(0.077, bottom + 0.055),
-				Vector2(0.054, top - 0.115), Vector2(-0.054, top - 0.115)]), 0.105, 0.003)
-			waist.material_override = dark
-			anchor.add_child(waist)
-			_support_box(anchor, "CastAnvilShoulder", Vector3(-0.025, top - 0.095, 0),
-				Vector3(0.25, 0.10, 0.19), dark, true)
-			_support_box(anchor, "OpenAnvilSeat", Vector3(-0.02, top - 0.025, 0),
-				Vector3(0.25, 0.05, 0.25), face_iron, true)
-			_support_box(anchor, "AnvilHeel", Vector3(-0.15, top - 0.045, 0),
-				Vector3(0.105, 0.07, 0.20), dark, true)
-			_support_box(anchor, "HardySocket", Vector3(-0.095, top - 0.0015, 0.045),
-				Vector3(0.032, 0.003, 0.032), dark)
-			var horn := _support_cylinder(anchor, "TaperedAnvilHorn", 0.065, 0.125, face_iron)
-			(horn.mesh as CylinderMesh).top_radius = 0.008
-			horn.rotation.z = -PI * 0.5
-			horn.position = Vector3(0.14, top - 0.09, 0)
-			for z in [-0.107, 0.107]:
-				_support_box(anchor, "AnvilEdge", Vector3(-0.02, top - 0.055, z),
-					Vector3(0.22, 0.01, 0.025), dark)
+				Vector3(0.28, 0.055, 0.23), dark)
+			_support_box(anchor, "WorkbedWeb", Vector3(0, bottom + 0.15, 0),
+				Vector3(0.17, 0.245, 0.17), dark)
+			for z in [-0.091, 0.091]:
+				_support_box(anchor, "WorkbedStiffener", Vector3(0, bottom + 0.16, z),
+					Vector3(0.21, 0.205, 0.016), worked)
+			_support_box(anchor, "CastBolster", Vector3(0, top - 0.095, 0),
+				Vector3(0.34, 0.14, 0.235), dark, true)
+			_support_box(anchor, "OpenAnvilSeat", Vector3(0, top - 0.0275, 0),
+				Vector3(0.34, 0.05, 0.25), face_iron, true)
+			_support_box(anchor, "ReplaceableDiePlate", Vector3(0, top - 0.003, 0),
+				Vector3(0.27, 0.006, 0.18), worked, true)
+			for x in [-0.135, 0.135]:
+				for z in [-0.105, 0.105]:
+					var bolt := _support_cylinder(anchor, "BolsterBolt", 0.009, 0.002, dark)
+					bolt.position = Vector3(x, top - 0.0025, z)
 		"ram_face":
 			var bottom := -occupied_size.y * 0.5
 			_support_box(anchor, "MovingDie", Vector3(0, bottom + 0.045, 0),
