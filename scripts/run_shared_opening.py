@@ -26,7 +26,7 @@ PROJECT = ROOT / 'experiments/engine-environment/godot'
 SCENE = 'res://opening/shared_opening.tscn'
 OBSERVER = 'opening-session/launch_observer.gd'
 FILES = bounds.FILES + (
-    'opening/opening.gd', 'opening/example_presenter.gd', 'opening/example_world.gd',
+    'opening/opening.gd',
     'opening/shared_opening.gd', 'opening/shared_opening.tscn',
     'opening-session/session.gd', 'opening-session/server.gd', 'save-tests/checkpoint_file.gd',
     'opening/actor_world.gd', 'opening/actor_body.gd', 'opening/character_presenter.gd')

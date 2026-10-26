@@ -1246,11 +1246,15 @@ func _multitool_controls() -> void:
 			"A standalone work support retains component-level inspection guidance.")
 		view.state = before.duplicate(true)
 		view._refresh_ui()
-		verify(not view.confirm_button.visible and not view.lesson_button.visible,
-			"Arrival offers neither old objective confirmation nor the completed-machine lesson.")
+		verify(not view.confirm_button.visible and view.help_button.visible,
+			"Arrival offers current Help without the old objective confirmation.")
 		view._toggle_explanation()
-		verify(not view.explanation_open and view.example_presenter == null,
-			"The retired lesson shortcut cannot create its historical example in arrival.")
+		verify(view.explanation_open and view.help_panel.visible
+			and view.help_body.text.contains(view.goal_label.text),
+			"Arrival Help shows the current objective without a separate example world.")
+		view._toggle_explanation()
+		verify(not view.explanation_open and not view.help_panel.visible,
+			"Help returns to the same worksite.")
 		view.hand_pointed = "ore"
 		var ore_summary: Dictionary = view._pointed_summary_data(Vector2.ZERO)
 		verify(ore_summary.get("name") == "Ore deposit" and "2 left" in ore_summary.get("detail", "")
