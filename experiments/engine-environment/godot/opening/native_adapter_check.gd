@@ -2919,9 +2919,22 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		hold_key.physical_keycode = KEY_E
 		hold_key.pressed = true
 		var prior_held_order: int = int(opening.model.projection().order)
+		var focus_owner: Control = root.gui_get_focus_owner()
+		facts["plate_drive_before_hold"] = {"window_focused": DisplayServer.window_is_focused(),
+			"can_control": opening._can_control_character(), "mode": opening.mode,
+			"pointed_crank": opening._pointed_crank(), "held_crank": opening.held_crank,
+			"object_menu_visible": opening.object_menu.visible,
+			"pause_menu_visible": opening.pause_menu.visible,
+			"focus_owner": str(focus_owner.get_path()) if focus_owner != null else ""}
 		if direct_world_hold:
 			Input.parse_input_event(hold_key)
 			await process_frame
+			facts["plate_drive_after_press"] = {"order_delta":
+				int(opening.model.projection().order) - prior_held_order,
+				"held_crank": opening.held_crank,
+				"key_down": Input.is_key_pressed(KEY_E),
+				"object_menu_visible": opening.object_menu.visible,
+				"pause_menu_visible": opening.pause_menu.visible}
 		var formed: Dictionary = {}
 		var hold_progressed := true
 		var held_pulses := 0
