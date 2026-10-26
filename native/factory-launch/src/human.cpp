@@ -391,21 +391,35 @@ int agent_window_launch(int argc, char** argv) {
         sealed(engine, options.at("--engine-sha256"), 512 * 1024 * 1024, true);
         sealed(library, options.at("--library-sha256"), 64 * 1024 * 1024, false);
         if (script) {
-            // The gameplay snapshot intentionally omits fixture entrypoints.
-            // Copy only the selected checked-main script into this owned runtime.
-            const auto source = project / relative;
-            const auto tracked = git(repo, {"show", tree + ":experiments/engine-environment/godot/" +
-                relative.generic_string()}, 1024 * 1024);
-            require(sha256(regular(source, 1024 * 1024)) == sha256(tracked),
-                "The selected fixture differs from checked main.");
-            const auto runtime_target = session / "native/runtime/project" / relative;
-            require(fs::is_directory(fs::symlink_status(runtime_target.parent_path())) &&
-                    fs::canonical(runtime_target.parent_path()) == runtime_target.parent_path() &&
-                    !fs::exists(fs::symlink_status(runtime_target)),
-                "The owned runtime cannot receive the selected fixture.");
-            write_new(runtime_target, tracked);
-            require(sha256(regular(runtime_target, 1024 * 1024)) == sha256(tracked),
-                "The runtime fixture differs from checked main.");
+            // The gameplay snapshot omits fixture scripts and the shared-only
+            // classes they import. Supply this allowlisted fixture's exact
+            // checked-main source closure to its private runtime.
+            std::vector<fs::path> fixture_sources{relative};
+            if (target == "res://opening/parts_view_check.gd" ||
+                    target == "res://opening/native_transmission_view_check.gd")
+                fixture_sources.emplace_back("opening/shared_opening.gd");
+            if (target == "res://opening/native_transmission_view_check.gd") {
+                fixture_sources.emplace_back("opening-session/session.gd");
+                fixture_sources.emplace_back("model.gd");
+            }
+            const auto runtime_project = session / "native/runtime/project";
+            require(fs::is_directory(fs::symlink_status(runtime_project)) &&
+                    fs::canonical(runtime_project) == runtime_project,
+                "The owned fixture runtime is unavailable.");
+            for (const auto& fixture : fixture_sources) {
+                const auto tracked = git(repo, {"show", tree + ":experiments/engine-environment/godot/" +
+                    fixture.generic_string()}, 1024 * 1024);
+                require(sha256(regular(project / fixture, 1024 * 1024)) == sha256(tracked),
+                    "A fixture script differs from checked main.");
+                const auto runtime_target = runtime_project / fixture;
+                fs::create_directories(runtime_target.parent_path());
+                require(fs::canonical(runtime_target.parent_path()) == runtime_target.parent_path() &&
+                        !fs::exists(fs::symlink_status(runtime_target)),
+                    "The owned runtime cannot receive a fixture script.");
+                write_new(runtime_target, tracked);
+                require(sha256(regular(runtime_target, 1024 * 1024)) == sha256(tracked),
+                    "A runtime fixture script differs from checked main.");
+            }
         }
         std::vector<std::string> command{admission.string(), "--root", repo.string(), "heavy", "--",
             engine.string(), "--path", (session / "native/runtime/project").string()};
