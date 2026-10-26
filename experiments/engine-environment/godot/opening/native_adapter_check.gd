@@ -2891,8 +2891,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		for id: String in opening.model.projection().crank_items:
 			if opening.model.projection().crank_items[id].get("attached_to") == fitted.wooden_slide:
 				loaded_crank_id = id
-		if not _expect(not opening.object_menu.visible and not loaded_crank_id.is_empty(),
-			"Closing the loaded workbed returns to the fitted exterior crank"):
+		facts["loaded_workbed_close"] = {"object_menu_visible": opening.object_menu.visible,
+			"pause_menu_visible": opening.pause_menu.visible,
+			"window_focused": DisplayServer.window_is_focused()}
+		if not _expect(not opening.object_menu.visible and not opening.pause_menu.visible
+				and not loaded_crank_id.is_empty(),
+			"One Escape closes the loaded workbed without opening Worksite pause"):
 			return
 		var loaded_hit := await _aim_actor_at_crank(loaded_crank_id)
 		opening._refresh_pointed_summary()
@@ -2915,9 +2919,21 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		hold_key.physical_keycode = KEY_E
 		hold_key.pressed = true
 		var prior_held_order: int = int(opening.model.projection().order)
+		var focus_owner: Control = root.gui_get_focus_owner()
+		facts["plate_drive_before_hold"] = {"window_focused": DisplayServer.window_is_focused(),
+			"can_control": opening._can_control_character(), "mode": opening.mode,
+			"pointed_crank": opening._pointed_crank(), "held_crank": opening.held_crank,
+			"object_menu_visible": opening.object_menu.visible,
+			"pause_menu_visible": opening.pause_menu.visible,
+			"focus_owner": str(focus_owner.get_path()) if focus_owner != null else ""}
 		if direct_world_hold:
-			Input.parse_input_event(hold_key)
+			root.push_input(hold_key)
 			await process_frame
+			facts["plate_drive_after_press"] = {"order_delta":
+				int(opening.model.projection().order) - prior_held_order,
+				"held_crank": opening.held_crank,
+				"object_menu_visible": opening.object_menu.visible,
+				"pause_menu_visible": opening.pause_menu.visible}
 		var formed: Dictionary = {}
 		var hold_progressed := true
 		var held_pulses := 0
@@ -2946,7 +2962,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if direct_world_hold:
 			var release_hold: InputEventKey = hold_key.duplicate()
 			release_hold.pressed = false
-			Input.parse_input_event(release_hold)
+			root.push_input(release_hold)
 			await process_frame
 		facts["plate_drive_pulses"] = held_pulses
 		var before_pickup: Dictionary = opening.model.projection()
