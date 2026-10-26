@@ -285,11 +285,16 @@ int fixture(int argc, char** argv) {
 int main(int argc, char** argv) {
     try {
         if (argc > 1 && std::string(argv[1]) == "--fixture") return fixture(argc,argv);
-        expect(argc == 4,"Expected CLI, actual source root and owned artifact root");
+        expect(argc == 2 || argc == 4,
+            "Expected CLI, optionally followed by source and owned artifact roots");
         executable = fs::canonical("/proc/self/exe");
         cli = fs::canonical(argv[1]);
-        fs::create_directories(argv[3]);
-        std::string pattern = (fs::absolute(argv[3]) / "admission-XXXXXX").string();
+        const char* bazel_tmp = std::getenv("TEST_TMPDIR");
+        expect(argc == 4 || (bazel_tmp != nullptr && *bazel_tmp != '\0'),
+            "A self-contained Bazel run requires TEST_TMPDIR");
+        const fs::path fixture_root = argc == 4 ? fs::path(argv[3]) : fs::path(bazel_tmp);
+        fs::create_directories(fixture_root);
+        std::string pattern = (fs::absolute(fixture_root) / "admission-XXXXXX").string();
         expect(::mkdtemp(pattern.data()) != nullptr,"Could not create owned native test artifacts");
         artifacts = pattern;
         repo = artifacts / "main checkout with spaces";
@@ -300,12 +305,34 @@ int main(int argc, char** argv) {
         common = resource::common_git_dir(repo);
         expect(common == repo/".git","Wrong disposable common Git directory");
 
-        test("actual linked checkout resolves its existing canonical common directory",[&] {
-            const auto source = fs::canonical(argv[2]);
+        test("actual checkout resolves its existing canonical common directory",[&] {
+            const auto source = argc == 4 ? fs::canonical(argv[2]) : repo;
             const auto actual_common = resource::common_git_dir(source);
             expect(actual_common.filename() == ".git","Unexpected real common Git directory");
-            expect(fs::is_symlink(source/".beads"),"The source checkout is not canonically linked");
-            expect(resource::common_git_dir(actual_common.parent_path()) == actual_common,"Main and linked checkout discovery differ");
+            const auto main = fs::canonical(actual_common.parent_path());
+            expect(resource::common_git_dir(main) == actual_common,"Main and source checkout discovery differ");
+            if (source != main)
+                expect(fs::is_symlink(source/".beads")
+                    && fs::canonical(source/".beads") == fs::canonical(main/".beads"),
+                    "The linked source checkout does not use the canonical private tracker");
+        });
+        test("synthetic linked checkout shares its main Git and admission directory",[&] {
+            expect(invoke({"git","-C",repo.string(),"-c","user.name=Factory Fixture",
+                "-c","user.email=fixture@example.invalid","commit","--quiet","--allow-empty",
+                "-m","fixture root"}) == 0,"Could not commit disposable Git fixture");
+            const auto linked = artifacts / "linked checkout with spaces";
+            expect(invoke({"git","-C",repo.string(),"worktree","add","--quiet","--detach",
+                linked.string()}) == 0,"Could not create disposable linked checkout");
+            fs::create_directory(repo/".beads");
+            fs::create_directory_symlink(repo/".beads",linked/".beads");
+            expect(fs::is_symlink(linked/".beads")
+                && fs::canonical(linked/".beads") == fs::canonical(repo/".beads"),
+                "Disposable linked checkout does not use its canonical tracker");
+            expect(resource::common_git_dir(linked) == common,
+                "Disposable linked checkout did not resolve the shared Git directory");
+            auto command = wrapped("check");
+            command[2] = linked.string();
+            expect(invoke(command) == 0,"Linked checkout check did not use shared admission");
         });
         test("shared checks coexist with checks and heavy work",[&] {
             resource::Admission holder(common,resource::Mode::check,false);

@@ -39,7 +39,11 @@ rather than omitting unreadable cache directories.
 
 Use a relevant package target for focused work. Host-tagged tests need explicit
 fixtures; for `//native/tooling:local_resources_test`, supply
-`--test_arg=/absolute/linked/checkout --test_arg=/absolute/owned/artifacts`.
+`--test_arg=/absolute/checkout --test_arg=/absolute/owned/artifacts`.
+The checkout may be direct or canonically linked; the test also creates its own
+disposable linked worktree to check shared Git discovery. When the installed
+hook selects this test without arguments, it uses Bazel's owned test directory
+for a self-contained checkout fixture.
 Run `//native/gameplay-build:launch_refresh_guard_test` explicitly with
 `--test_tag_filters=host` in an admitted host lane to exercise the isolated
 gameplay-library freshness guard; the documented

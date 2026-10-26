@@ -37,8 +37,10 @@ and engine resource profiles: a compiler address-space cap must not accidentally
 carry into Godot import/startup. Admission does not require a per-process cap.
 
 Build the tool with `//native/tooling:factory-local`. The host test
-`//native/tooling:local_resources_test` takes the canonical linked checkout and
-an owned fixture directory as test arguments; it uses synthetic permits, not the
+`//native/tooling:local_resources_test` accepts a direct or canonically linked
+checkout and an owned fixture directory as optional test arguments. Without
+them, Bazel's test temporary directory holds a self-contained checkout. Both
+routes create a disposable linked worktree and use synthetic permits, not the
 real checkout's lanes. Follow [native builds](native-builds.md).
 
 This wrapper does not isolate the whole machine. Record workload/environment
