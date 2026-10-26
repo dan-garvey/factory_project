@@ -44,6 +44,8 @@ cc_library(
 cc_library(
     name = "world",
     srcs = [
+        "src/fabrication_planner.cpp",
+        "src/fabrication_planner.hpp",
         "src/harvest_planner.cpp",
         "src/harvest_planner.hpp",
         "src/plan_common.cpp",

@@ -1,6 +1,7 @@
 #include "factory/world.hpp"
 #include "factory/crank_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
+#include "fabrication_planner.hpp"
 #include "harvest_planner.hpp"
 #include "plan_common.hpp"
 
@@ -55,10 +56,8 @@ using Value = values::Value;
 using Role = stationary::Role;
 
 constexpr std::size_t maximum_actors = 16;
-constexpr std::size_t maximum_issued_entities = 4096;
 constexpr std::size_t maximum_current_work = materials::maximum_live_work_lots;
 constexpr Integer foundation_depth_levels = 2;
-constexpr std::string_view allocated_prefix = "native-part-";
 
 bool identity(const std::string& value) {
     return !value.empty() && value.size() <= 128 && value.find('\0') == std::string::npos;
@@ -129,12 +128,6 @@ bool spec_valid(const stationary::PartSpec& spec) {
     return false;
 }
 
-bool add(Integer& total, Integer count) {
-    if (count < 0 || total > std::numeric_limits<Integer>::max() - count) return false;
-    total += count;
-    return true;
-}
-
 bool slide_component(materials::Component kind) {
     return kind == materials::Component::wooden_slide ||
            kind == materials::Component::copper_slide;
@@ -159,8 +152,6 @@ bool crank_face_on_axis(const mechanics::Point& face, mechanics::Axis axis) {
         if (other != index && face[other] != 0) return false;
     return true;
 }
-
-authority::Point anchor(const Profile& profile, const mechanics::Point& point);
 
 mechanics::Point crank_face_from_actor(const Profile& profile,
         const authority::Point& actor, const mechanics::Point& port,
@@ -396,19 +387,6 @@ bool shape(const Object& intent, const std::string& action) {
     return false;
 }
 
-std::optional<Role> role(const std::string& value) {
-    if (value == "collector") return Role::collector;
-    if (value == "belt") return Role::belt;
-    if (value == "processor") return Role::processor;
-    if (value == "waterwheel") return Role::waterwheel;
-    if (value == "gear") return Role::gear;
-    if (value == "shaft") return Role::shaft;
-    if (value == "gearbox") return Role::gearbox;
-    if (value == "vertical_gearbox") return Role::vertical_gearbox;
-    if (value == "chain_drive") return Role::chain_drive;
-    return std::nullopt;
-}
-
 std::optional<mechanics::Axis> axis(const std::string& value) {
     if (value == "x") return mechanics::Axis::x;
     if (value == "y") return mechanics::Axis::y;
@@ -427,12 +405,6 @@ std::optional<mechanics::Point> grid_point(const Object& intent, Integer limit =
         point[index] = *value;
     }
     return point;
-}
-
-authority::Point anchor(const Profile& profile, const mechanics::Point& point) {
-    return {static_cast<double>(point[0]) * profile.meters_per_grid_unit + profile.anchor_offset[0],
-            static_cast<double>(point[1]) * profile.meters_per_grid_unit + profile.anchor_offset[1],
-            static_cast<double>(point[2]) * profile.meters_per_grid_unit + profile.anchor_offset[2]};
 }
 
 std::vector<authority::Point> broad_reach_targets(const Profile& profile,
@@ -5387,193 +5359,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("formed_products", Value(progress.strokes == 4 ? Integer{4} : Integer{0}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
-    if (*action == "field_craft") {
-        const auto* requested = field<std::string>(intent, "component");
-        if (!requested) return refused("invalid_command");
-        const auto component = materials::component_from_name(*requested);
-        const auto cost = component ? materials::component_cost(*component) : std::nullopt;
-        if (!cost || cost->ore != 0 || cost->timber < 1) return refused("unavailable_recipe");
-        if (*component == materials::Component::hand_crank && !profile_.landing_pod_center)
-            return refused("unavailable_recipe");
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready");
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut, {checked_cut.position});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), {}, std::move(facts));
-        auto candidate = state;
-        const auto error = materials::craft_component(candidate.material, profile_.material,
-            material_path(candidate.topology), binding.actor, *component);
-        if (error != materials::Error::none)
-            return refused(materials::error_name(error), {}, std::move(facts));
-        if (*component == materials::Component::hand_crank) {
-            if (candidate.issued_entities.size() == maximum_issued_entities ||
-                candidate.next_entity_serial == std::numeric_limits<Integer>::max())
-                return refused("identity_limit", {}, std::move(facts));
-            const auto serial = candidate.next_entity_serial++;
-            const auto crank_id = std::string(allocated_prefix) + std::to_string(serial);
-            if (!candidate.issued_entities.emplace(crank_id, serial).second ||
-                !candidate.crank_items.emplace(crank_id,
-                    HandCrank{crank_id, serial, binding.actor}).second)
-                return refused("identity_conflict", {}, std::move(facts));
-            facts.emplace("crank_id", Value(crank_id));
-            facts.emplace("crank_generation", Value(serial));
-        }
-        facts.emplace("generation", Value(Integer{0}));
-        facts.emplace("component", Value(*requested));
-        facts.emplace("spent_timber", Value(cost->timber));
-        facts.emplace("spent_raw", Value(Integer{0}));
-        facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.at(*component)));
-        return accepted(std::move(candidate), {}, std::move(facts));
-    }
-    if (*action == "craft_foundation") {
-        const auto* id = field<std::string>(intent, "target");
-        const auto* generation = field<Integer>(intent, "generation");
-        if (!id || !generation) return refused("invalid_target");
-        const auto placed_bench = state.placed_components.find(*id);
-        const auto bench = state.fabrication_hub && !state.fabrication_hub->holder &&
-            *id == state.fabrication_hub->id ?
-            std::optional<FabricationHub>(*state.fabrication_hub) :
-            placed_bench != state.placed_components.end() &&
-                placed_bench->second.kind == materials::Component::wooden_workbench ?
-                std::optional<FabricationHub>(FabricationHub{*id, placed_bench->second.center,
-                    placed_bench->second.generation}) : std::nullopt;
-        if (!bench) return refused("unknown_target", *id);
-        if (*generation != bench->generation) return refused("stale_generation", *id);
-        if (!profile_.landing_pod_center || profile_.foundation_parts == 0)
-            return refused("unavailable_recipe", *id);
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready", *id);
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, bench->center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        auto candidate = state;
-        auto& carried = candidate.material.cargo.at(binding.actor);
-        if (carried.timber < foundation_timber_cost) return refused("unavailable_input", *id, std::move(facts));
-        Integer total = static_cast<Integer>(candidate.foundations.size());
-        for (const auto& [actor, count] : candidate.foundation_kits)
-            if (!add(total, count)) return refused("inventory_full", *id, std::move(facts));
-        if (total >= 256 || candidate.material.fabricated_timber >
-                std::numeric_limits<Integer>::max() - foundation_timber_cost)
-            return refused("inventory_full", *id, std::move(facts));
-        carried.timber -= foundation_timber_cost;
-        candidate.material.fabricated_timber += foundation_timber_cost;
-        const Integer count = ++candidate.foundation_kits.at(binding.actor);
-        facts.emplace("generation", Value(*generation));
-        facts.emplace("spent_timber", Value(foundation_timber_cost));
-        facts.emplace("foundation_count", Value(count));
-        return accepted(std::move(candidate), *id, std::move(facts));
-    }
-    if (*action == "craft_component") {
-        const auto* id = field<std::string>(intent, "target");
-        const auto* generation = field<Integer>(intent, "generation");
-        const auto* requested = field<std::string>(intent, "component");
-        if (!id || !generation || !requested) return refused("invalid_target");
-        const auto placed_bench = state.placed_components.find(*id);
-        const auto bench = state.fabrication_hub && !state.fabrication_hub->holder &&
-            *id == state.fabrication_hub->id ?
-            std::optional<FabricationHub>(*state.fabrication_hub) :
-            placed_bench != state.placed_components.end() &&
-                placed_bench->second.kind == materials::Component::wooden_workbench ?
-                std::optional<FabricationHub>(FabricationHub{*id, placed_bench->second.center,
-                    placed_bench->second.generation}) : std::nullopt;
-        if (!bench) return refused("unknown_target", *id);
-        if (*generation != bench->generation)
-            return refused("stale_generation", *id);
-        const auto component = materials::component_from_name(*requested);
-        const auto cost = component ? materials::component_cost(*component) : std::nullopt;
-        if (!cost) return refused("unavailable_recipe", *id);
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready", *id);
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, bench->center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        auto candidate = state;
-        const auto error = materials::craft_component(candidate.material, profile_.material,
-            material_path(candidate.topology), binding.actor, *component);
-        if (error != materials::Error::none)
-            return refused(materials::error_name(error), *id, std::move(facts));
-        if (*component == materials::Component::hand_crank) {
-            if (candidate.issued_entities.size() == maximum_issued_entities ||
-                candidate.next_entity_serial == std::numeric_limits<Integer>::max())
-                return refused("identity_limit", *id, std::move(facts));
-            const auto serial = candidate.next_entity_serial++;
-            const auto crank_id = std::string(allocated_prefix) + std::to_string(serial);
-            if (!candidate.issued_entities.emplace(crank_id, serial).second ||
-                !candidate.crank_items.emplace(crank_id,
-                    HandCrank{crank_id, serial, binding.actor}).second)
-                return refused("identity_conflict", *id, std::move(facts));
-            facts.emplace("crank_id", Value(crank_id));
-            facts.emplace("crank_generation", Value(serial));
-        }
-        facts.emplace("generation", Value(*generation));
-        facts.emplace("component", Value(*requested));
-        facts.emplace("spent_timber", Value(cost->timber));
-        facts.emplace("spent_raw", Value(cost->ore));
-        facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.at(*component)));
-        return accepted(std::move(candidate), *id, std::move(facts));
-    }
-    if (*action == "craft_part") {
-        const auto* id = field<std::string>(intent, "target");
-        const auto* generation = field<Integer>(intent, "generation");
-        const auto* requested = field<std::string>(intent, "role");
-        const auto* half_span = field<Integer>(intent, "half_span");
-        if (!id || !generation || !requested || !half_span) return refused("invalid_target");
-        const auto placed_bench = state.placed_components.find(*id);
-        const auto bench = state.fabrication_hub && !state.fabrication_hub->holder &&
-            *id == state.fabrication_hub->id ?
-            std::optional<FabricationHub>(*state.fabrication_hub) :
-            placed_bench != state.placed_components.end() &&
-                placed_bench->second.kind == materials::Component::wooden_workbench ?
-                std::optional<FabricationHub>(FabricationHub{*id, placed_bench->second.center,
-                    placed_bench->second.generation}) : std::nullopt;
-        if (!bench) return refused("unknown_target", *id);
-        if (*generation != bench->generation)
-            return refused("stale_generation", *id);
-        const auto selected = role(*requested);
-        const auto recipe = selected ? profile_.fabrication_parts.find({*selected, 0, *half_span}) :
-            profile_.fabrication_parts.end();
-        if (recipe == profile_.fabrication_parts.end()) return refused("unavailable_recipe", *id);
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready", *id);
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, bench->center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        const auto cost = recipe->second;
-        const auto& carried = state.material.cargo.at(binding.actor);
-        if (carried.timber < cost.timber || carried.raw_units < cost.ore)
-            return refused("unavailable_input", *id, std::move(facts));
-        auto candidate = state;
-        auto& next_cargo = candidate.material.cargo.at(binding.actor);
-        next_cargo.timber -= cost.timber;
-        next_cargo.raw_units -= cost.ore;
-        if (!add(candidate.material.fabricated_timber, cost.timber) ||
-            !add(candidate.material.fabricated_raw, cost.ore) ||
-            !add(candidate.kits.at(binding.actor)[recipe->first], 1) ||
-            candidate.kits.at(binding.actor)[recipe->first] > 4096)
-            return refused("quantity_overflow", *id, std::move(facts));
-        facts.emplace("generation", Value(*generation));
-        facts.emplace("role", Value(*requested));
-        facts.emplace("half_span", Value(*half_span));
-        facts.emplace("spent_timber", Value(cost.timber));
-        facts.emplace("spent_raw", Value(cost.ore));
-        facts.emplace("part_count", Value(candidate.kits.at(binding.actor).at(recipe->first)));
-        return accepted(std::move(candidate), *id, std::move(facts));
-    }
+    if (const auto fabrication = fabrication_command(*action, intent))
+        return plan_fabrication(profile_, binding, snapshot, *fabrication, observe);
     if (*action == "stow_fabrication_hub" || *action == "deploy_fabrication_hub") {
         const auto* id = field<std::string>(intent, "target");
         const auto* generation = field<Integer>(intent, "generation");
