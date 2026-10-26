@@ -246,6 +246,10 @@ Prefer icons, direct manipulation, keyboard paths and concise contextual text.
 Use a coherent inventory/crafting grid, a placement-options menu with rotation,
 E for machine interaction and a separate deconstruction key. Snapping must have
 visible confirmation, retain placed shafts/cogs, and work on elevated foundations.
+Machine workbeds show actual occupied material and only carried inputs accepted
+by the selected assembly. Empty work locations are blank; the whole carried area
+accepts recoverable output drops. Material tiles depict the item, with progress
+and operations explained separately.
 Escape cancels active placement and its unfinished steps; from neutral it opens
 the worksite menu. Placement footprint outlines lie horizontally. Resizing must
 preserve usable UI.

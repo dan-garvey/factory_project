@@ -2748,7 +2748,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and not panel.inventory_drag("workbed_output").is_empty(),
 			"The fitted press exposes the formed plate in its workbed outlet"):
 			return
-		panel.inventory_slots.workbed_output.pressed.emit()
+		var output_drag: Dictionary = panel.inventory_drag("workbed_output")
+		if not _expect(panel.inventory_player_region._can_drop_data(Vector2.ZERO, output_drag),
+				"The whole carried-inventory region accepts the formed plate without an input tile"):
+			return
+		panel.inventory_player_region._drop_data(Vector2(230, 30), output_drag)
 		var completed: Dictionary = opening.model.projection()
 		if not _expect(completed.cargo.P.products == 1
 				and completed.workshop_completed_actors.has("P")
@@ -2759,8 +2763,10 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		inventory.open_catalog()
 		if not _expect(inventory.recipe_buttons.has("component:wooden_cog")
 				and inventory.recipe_buttons.has("component:receiver_tray")
-				and inventory.recipe_buttons.has("foundation"),
-				"Carrying the formed plate reveals advanced component and foundation recipes"):
+				and inventory.recipe_buttons.has("foundation")
+				and inventory.material_buttons.products.visible
+				and inventory.material_counts.products.text == "1",
+				"The exact formed plate enters the full carried inventory and reveals advanced recipes"):
 			return
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw

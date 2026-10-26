@@ -2586,7 +2586,7 @@ func _workshop_pages() -> void:
 		var escape := InputEventKey.new()
 		escape.pressed = true
 		escape.keycode = KEY_ESCAPE
-		view._unhandled_input(escape)
+		view._input(escape)
 		verify(view.pause_menu.visible and view.pause_menu_scrim.visible
 			and view.save_button.get_parent() == view.pause_resume_button.get_parent()
 			and view.load_button.get_parent() == view.pause_resume_button.get_parent()
@@ -2667,7 +2667,7 @@ func _workshop_pages() -> void:
 		inventory._input(escape)
 		verify(not inventory.catalog.visible and not view.pause_menu.visible,
 			"Escape closes inventory without opening the worksite menu underneath it.")
-		view._unhandled_input(escape)
+		view._input(escape)
 		verify(view.pause_menu.visible, "The next idle Escape opens worksite actions.")
 		view.pause_exit_button.pressed.emit()
 		verify(view.pause_exit_confirmation.visible, "Exit asks before discarding unsaved work.")
@@ -2727,9 +2727,12 @@ func _workshop_pages() -> void:
 		verify(panel.inventory_section.is_visible_in_tree() and panel._inventory_broad
 			and not panel.feed_button.visible and panel.inventory_counts.player_raw.text == "3"
 			and panel.inventory_workbed_heading.text.contains("FOUR ANVILS")
-			and panel.inventory_slots.workbed_target.icon.resource_path.ends_with("/broad-feed.svg")
+			and not panel.inventory_slots.has("workbed_target")
+			and not panel.inventory_slots.has("player_target")
+			and panel.inventory_player_region.destination == "player"
+			and panel.inventory_workbed_region.destination == "workbed"
 			and panel.inventory_slots.player_raw.tooltip_text.contains("three"),
-			"A complete four-anvil press offers three carried blanks through its supported workbed grid.")
+			"A complete four-anvil press offers actual carried stock and whole-row drop regions without target glyphs.")
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-workbed.png") == OK,
@@ -2748,8 +2751,30 @@ func _workshop_pages() -> void:
 			await process_frame
 		var broad_blanks: Dictionary = panel.inventory_drag("player_raw")
 		verify(broad_blanks.get("wire", {}) == {"action": "feed_broad_press", "entity": "press-anvil"}
+			and broad_blanks.get("actor") == view.client
 			and panel.inventory_can_drop("workbed", broad_blanks),
 			"Three carried blanks target the native broad workbed through the same inventory drag contract.")
+		if shared:
+			view.client = "P"
+			panel.refresh(view.state, view.client, view.selected, true)
+			verify(not panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_blanks)
+				and view.state.cargo.P.raw == 1 and view.state.cargo.Q.raw == 3,
+				"A second actor cannot complete the first actor's carried-material drag.")
+			view.client = "Q"
+			panel.refresh(view.state, view.client, view.selected, true)
+			view.pending_actions = {"waiting": {}}
+			verify(not panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_blanks),
+				"A pending shared action blocks a repeated material transfer.")
+			view.pending_actions.clear()
+			panel.refresh(view.state, view.client, view.selected, true)
+		verify(panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_blanks),
+			"The original ready actor can resume its exact material transfer.")
+		view.state.context = "different-saved-worksite"
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(not panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_blanks),
+			"A drag from another saved worksite context cannot transfer material.")
+		view.state.context = "workshop-pages"
+		panel.refresh(view.state, view.client, view.selected, true)
 		panel.inventory_drop("workbed", broad_blanks)
 		verify(view.issued == [broad_blanks.wire],
 			"Dragging three blanks submits one native broad feed without changing local cargo.")
@@ -2774,6 +2799,7 @@ func _workshop_pages() -> void:
 		panel.refresh(view.state, view.client, view.selected, true)
 		var broad_work: Dictionary = panel.inventory_drag("workbed_work")
 		verify(panel.inventory_counts.workbed_work.text == "1"
+			and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/sheet.svg")
 			and panel.inventory_slots.workbed_work.tooltip_text.contains("Sheet work")
 			and broad_work.get("wire", {}).get("action") == "pickup_material"
 			and broad_work.wire.center == [8, 0, 8]
@@ -2785,10 +2811,37 @@ func _workshop_pages() -> void:
 		var broad_sheet: Dictionary = panel.inventory_drag("workbed_output")
 		verify(panel.inventory_counts.workbed_output.text == "1"
 			and panel.inventory_slots.workbed_output.icon.resource_path.ends_with("/sheet.svg")
+			and panel.inventory_slots.workbed_work.icon == null
+			and panel.inventory_counts.workbed_work.text.is_empty()
 			and broad_sheet.get("wire", {}).get("action") == "pickup_material"
 			and broad_sheet.wire.center == [8, 0, 8]
-			and panel.inventory_drag("workbed_work").is_empty(),
-			"The formed identity-bearing sheet appears on its four supports for direct pickup.")
+			and panel.inventory_drag("workbed_work").is_empty()
+			and panel.inventory_player_region._can_drop_data(Vector2.ZERO, broad_sheet),
+			"The formed sheet has a literal output tile and can drop onto the whole carried region.")
+		var sheet_preview := TextureRect.new()
+		panel.inventory_slots.workbed_output.force_drag(broad_sheet, sheet_preview)
+		await process_frame
+		verify(root.gui_is_dragging() and panel.inventory_player_region.highlighted
+			and not panel.inventory_workbed_region.highlighted,
+			"Dragging a supported output highlights the entire carried-inventory region.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-output-drag.png") == OK,
+				"Retain the highlighted carried region during a broad output drag.")
+		root.gui_cancel_drag()
+		await process_frame
+		verify(not panel.inventory_player_region.highlighted,
+			"The carried-inventory highlight clears when the drag ends.")
+		panel.inventory_player_region._drop_data(Vector2(250, 50), broad_sheet)
+		verify(view.issued == [broad_sheet.wire],
+			"Dropping a sheet on ordinary empty space in the carried region sends one native pickup.")
+		view.issued.clear()
+		view.state.order += 1
+		panel.refresh(view.state, view.client, view.selected, true)
+		verify(not panel.inventory_player_region._can_drop_data(Vector2.ZERO, broad_sheet),
+			"A stale output drag cannot transfer after the native order changes.")
+		view.state.order -= 1
+		panel.refresh(view.state, view.client, view.selected, true)
 		var broad_pickup_key := InputEventKey.new()
 		broad_pickup_key.keycode = KEY_P
 		broad_pickup_key.pressed = true
@@ -2801,13 +2854,19 @@ func _workshop_pages() -> void:
 			{"id": 7, "recipe_input": 1, "remaining": 1},
 			{"id": 41, "recipe_input": 3, "output_form": "sheet", "remaining": 2}]
 		panel.refresh(view.state, view.client, view.selected, true)
+		var broad_work_input: Dictionary = panel.inventory_drag("player_broad_work:41")
 		verify(panel.broad_refeed_button.is_visible_in_tree() and not panel.broad_refeed_button.disabled
 			and panel.broad_refeed_button.text.is_empty() and panel.broad_refeed_button.icon != null
 			and panel.broad_refeed_button.icon.resource_path.ends_with("/broad-refeed.svg")
 			and panel.broad_refeed_button.tooltip_text.contains("N")
 			and not panel.broad_refeed_button.accessibility_name.is_empty()
-			and panel._held_work_ids == [7],
-			"Broad and small held work retain separate, described refeed controls.")
+			and panel._held_work_ids == [7]
+			and panel.inventory_slots.has("player_broad_work:41")
+			and not panel.inventory_slots.has("player_work")
+			and broad_work_input.get("wire", {}) == {"action": "refeed_broad_press_work",
+				"entity": "press-anvil", "work_id": 41}
+			and panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_work_input),
+			"The broad workbed lists only its supported carried lot with exact identity and transfer.")
 		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 			await RenderingServer.frame_post_draw
 			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-refeed.png") == OK,
@@ -2828,6 +2887,9 @@ func _workshop_pages() -> void:
 		panel.refresh(view.state, view.client, view.selected, true)
 		verify(view.issued.is_empty() and not panel.broad_refeed_button.visible,
 			"A stale broad-work choice cannot reinsert a lot the actor no longer carries.")
+		verify(not panel.inventory_slots.has("player_broad_work:41")
+			and not panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_work_input),
+			"The carried broad-work tile vanishes when custody changes, and stale drags are refused.")
 		view.state.cargo[view.client].work_lots.clear()
 		view.state.cargo[view.client].raw = 1
 		view.state.broad_press_assemblies = [{"origin": [8, 0, 8], "geometry_status": "missing_ram"}]
@@ -3679,6 +3741,42 @@ func _slide_inventory_render_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(scene_root.get_texture().get_image().save_png(destination + "-wide.png") == OK,
 			"Retain the passive workbed inventory panel at 1280 by 800.")
+	view.state.cargo.P.raw = 0
+	view.state.cargo.P.work_lots.clear()
+	view._refresh_ui()
+	verify(not panel.inventory_cells.has("player_raw") and not panel.inventory_cells.has("player_work")
+		and not panel.inventory_slots.has("player_offcut")
+		and panel.inventory_player_region.visible and panel.inventory_slots.workbed_output.icon != null,
+		"A finished plate remains recoverable onto a visible carried region with no feed input tiles.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-output-no-input.png") == OK,
+			"Retain the output pickup region with no available carried input.")
+	view.state.dropped_material.clear()
+	view._refresh_ui()
+	verify(panel.inventory_slots.workbed_work.icon == null and panel.inventory_slots.workbed_output.icon == null
+		and panel.inventory_counts.workbed_work.text.is_empty()
+		and panel.inventory_counts.workbed_output.text.is_empty()
+		and not panel.inventory_counts.workbed_work.visible
+		and not panel.inventory_counts.workbed_output.visible,
+		"An empty work face and outlet retain blank slots without item art or zero badges.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-empty.png") == OK,
+			"Retain the empty workbed and carried pickup region.")
+	view.state.dropped_material = [{"center": [12, 0, 8], "raw": 0, "products": 0,
+		"offcuts": 1, "work_lots": []}]
+	view._refresh_ui()
+	verify(panel.inventory_slots.workbed_work.icon != null
+		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/offcut.svg")
+		and panel.inventory_slots.workbed_output.icon == null
+		and panel.inventory_player_region._can_drop_data(Vector2.ZERO,
+			panel.inventory_drag("workbed_work")),
+		"A retained offcut remains visible and recoverable, with no unusable carried offcut input.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-offcut.png") == OK,
+			"Retain the recoverable offcut at the work face.")
 	scene_root.size = Vector2i(640, 480)
 	view._fit_object_menu(Vector2i(640, 480))
 	await process_frame

@@ -45,6 +45,7 @@ startup. The old scripted launchers remain fixtures and do not deliver this entr
 | Camera | Right-drag to orbit; wheel to zoom |
 | Interact, gather, open a machine | E |
 | Inventory/build catalog | B; 1–8 select hotbar slots |
+| Machine workbed transfer | Drag a carried input onto the workbed; drag workbed material anywhere onto the carried area to pick it up. F/R feed, P/U pick up where available. |
 | Rotate a building | R during placement |
 | Deconstruct | F, then select the part |
 | Placement options | T; shown shortcuts depend on the selected part |

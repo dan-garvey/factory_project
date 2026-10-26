@@ -406,6 +406,39 @@ class WorkbedInventorySlot:
 		if _can_drop_data(Vector2.ZERO, data):
 			owner_view.get_ref().inventory_drop(destination, data)
 
+class WorkbedInventoryRegion:
+	extends PanelContainer
+	var owner_view: WeakRef
+	var destination := ""
+	var highlighted := false
+
+	func _ready() -> void:
+		_set_highlight(false)
+
+	func _can_drop_data(_position: Vector2, data: Variant) -> bool:
+		return owner_view != null and is_instance_valid(owner_view.get_ref()) \
+			and owner_view.get_ref().inventory_can_drop(destination, data)
+
+	func _drop_data(_position: Vector2, data: Variant) -> void:
+		if _can_drop_data(Vector2.ZERO, data):
+			owner_view.get_ref().inventory_drop(destination, data)
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_DRAG_BEGIN:
+			_set_highlight(_can_drop_data(Vector2.ZERO, get_viewport().gui_get_drag_data()))
+		elif what == NOTIFICATION_DRAG_END:
+			_set_highlight(false)
+
+	func _set_highlight(active: bool) -> void:
+		highlighted = active
+		var panel := StyleBoxFlat.new()
+		panel.bg_color = Color("365e51") if active else Color("172a2a")
+		panel.border_color = Color("a5e4b0") if active else Color("56736b")
+		panel.set_border_width_all(2 if active else 1)
+		panel.set_corner_radius_all(5)
+		panel.set_content_margin_all(6)
+		add_theme_stylebox_override("panel", panel)
+
 class ArrivalAssemblyControls:
 	extends PanelContainer
 	## Views the native arrival cargo and sends exact component and press commands.
@@ -470,10 +503,13 @@ class ArrivalAssemblyControls:
 	var recover_work_button: Button
 	var inventory_section: VBoxContainer
 	var inventory_workbed_heading: Label
+	var inventory_player_region: WorkbedInventoryRegion
+	var inventory_workbed_region: WorkbedInventoryRegion
 	var inventory_player_row: HBoxContainer
 	var inventory_workbed_row: HBoxContainer
 	var inventory_slots := {}
 	var inventory_counts := {}
+	var inventory_cells := {}
 	var sheet_button: MenuButton
 	var broad_refeed_button: MenuButton
 	var _broad_press := {}
@@ -564,23 +600,25 @@ class ArrivalAssemblyControls:
 		inventory_section.name = "WorkbedInventory"
 		inventory_section.add_theme_constant_override("separation", 4)
 		press_section.add_child(inventory_section)
-		var player_heading: Label = host._label(inventory_section, "CARRIED BY YOU  ⇅  WORKBED", 11, Color("f4bf75"))
-		player_heading.tooltip_text = "Select a material icon or drag it between the carried and workbed rows."
+		var player_heading: Label = host._label(inventory_section, "CARRIED INPUT  ·  DROP OUTPUT HERE", 11, Color("f4bf75"))
+		player_heading.tooltip_text = "Only carried material accepted by this workbed appears below. Drag workbed material onto the carried region to pick it up."
+		inventory_player_region = _add_inventory_region(inventory_section, "player")
+		inventory_player_region.tooltip_text = "Drop workbed material anywhere here to carry it. Select or drag an input item to feed the workbed."
+		inventory_player_region.accessibility_name = "Carried inventory drop region; release workbed material here to pick it up"
 		inventory_player_row = HBoxContainer.new()
 		inventory_player_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		inventory_section.add_child(inventory_player_row)
-		_add_inventory_slot(inventory_player_row, "player_raw", "workbed", "ore", "Ore blanks")
-		_add_inventory_slot(inventory_player_row, "player_work", "workbed", "press-refeed", "Carried work")
-		_add_inventory_slot(inventory_player_row, "player_plate", "player", "plate", "Carried plates")
-		_add_inventory_slot(inventory_player_row, "player_offcut", "player", "offcut", "Carried offcuts")
-		_add_inventory_slot(inventory_player_row, "player_target", "player", "press-pickup", "Drop workbed material here")
+		inventory_player_row.mouse_filter = Control.MOUSE_FILTER_PASS
+		inventory_player_region.add_child(inventory_player_row)
 		inventory_workbed_heading = host._label(inventory_section, "ON THE WORKBED  →  OUTLET", 11, Color("f4bf75"))
 		inventory_workbed_heading.tooltip_text = "The work face and outlet hold material until you pick it up."
+		inventory_workbed_region = _add_inventory_region(inventory_section, "workbed")
+		inventory_workbed_region.tooltip_text = "Drop accepted carried material anywhere here to feed the workbed."
+		inventory_workbed_region.accessibility_name = "Workbed drop region; release accepted carried material here to feed it"
 		inventory_workbed_row = HBoxContainer.new()
 		inventory_workbed_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		inventory_section.add_child(inventory_workbed_row)
-		_add_inventory_slot(inventory_workbed_row, "workbed_target", "workbed", "press-feed", "Drop carried material here")
-		_add_inventory_slot(inventory_workbed_row, "workbed_work", "workbed", "press-recover", "Work face")
+		inventory_workbed_row.mouse_filter = Control.MOUSE_FILTER_PASS
+		inventory_workbed_region.add_child(inventory_workbed_row)
+		_add_inventory_slot(inventory_workbed_row, "workbed_work", "workbed", "ore", "Work face")
 		_add_inventory_slot(inventory_workbed_row, "workbed_output", "workbed", "plate", "Outlet")
 		feed_heading = host._label(press_section, "FEED & STROKE", 11, Color("f4bf75"))
 		feed_actions = HBoxContainer.new()
@@ -628,6 +666,7 @@ class ArrivalAssemblyControls:
 			icon_name: String, description: String) -> void:
 		var cell := VBoxContainer.new()
 		cell.custom_minimum_size.x = 60
+		cell.mouse_filter = Control.MOUSE_FILTER_PASS
 		row.add_child(cell)
 		var button := WorkbedInventorySlot.new()
 		button.name = key
@@ -644,10 +683,21 @@ class ArrivalAssemblyControls:
 		cell.add_child(button)
 		var count := Label.new()
 		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		count.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		count.add_theme_font_size_override("font_size", 11)
 		cell.add_child(count)
 		inventory_slots[key] = button
 		inventory_counts[key] = count
+		inventory_cells[key] = cell
+
+	func _add_inventory_region(parent: Control, destination: String) -> WorkbedInventoryRegion:
+		var region := WorkbedInventoryRegion.new()
+		region.owner_view = weakref(self)
+		region.destination = destination
+		region.custom_minimum_size = Vector2(280, 64)
+		region.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		parent.add_child(region)
+		return region
 
 	func _style_workshop_icon(button: Button, icon_name: String) -> void:
 		button.icon = load("res://opening/assets/build-icons/%s.svg" % icon_name)
@@ -1174,43 +1224,79 @@ class ArrivalAssemblyControls:
 		var output: Dictionary = work if _inventory_broad else _exit_drop()
 		var bench_lots: Array = work.get("work_lots", [])
 		var counts := {
-			"player_raw": int(cargo.get("raw", 0)),
-			"player_work": 0 if _inventory_broad else _held_work_ids.size(),
-			"player_plate": int(cargo.get("products", 0)),
-			"player_offcut": int(cargo.get("offcuts", 0)),
-			"player_target": 0,
-			"workbed_target": 0,
 			"workbed_work": int(work.get("raw", 0)) + int(work.get("offcuts", 0)) + bench_lots.size(),
 			"workbed_output": int(output.get("sheets", 0)) if _inventory_broad else int(output.get("products", 0)),
 		}
+		var broad_anvils: Array = _broad_press.get("parts", {}).get("anvils", [])
+		var raw_supported: bool = broad_anvils.size() == 4 if _inventory_broad else \
+			(not _anvil.is_empty() and _press.get("parts", {}).has("slide"))
+		var work_supported: bool = not _inventory_broad and raw_supported
+		var route: Dictionary = _route()
+		var selected_exit: Array = _press.get("selected_exit", [])
+		var route_clear: bool = not route.is_empty() and \
+			(selected_exit.is_empty() or route.get("exit") == selected_exit)
+		var input_clear: bool = work.is_empty() and (_inventory_broad or route_clear)
+		var inputs: Array[Dictionary] = []
+		var raw_count: int = int(cargo.get("raw", 0))
+		if raw_supported and raw_count > 0:
+			var raw_hint := "Carry %d ore blanks. Select or drag three to the four-anvil workbed · F" % raw_count \
+				if _inventory_broad else "Carry %d ore blanks. Select or drag one to the workbed · F" % raw_count
+			if _inventory_broad and raw_count < 3:
+				raw_hint += " (three needed)"
+			elif not input_clear:
+				raw_hint += " (clear the workbed or choose a clear feed route)"
+			inputs.append({"key": "player_raw", "count": raw_count, "icon": "ore", "hint": raw_hint,
+				"enabled": ready and input_clear and (not _inventory_broad or raw_count >= 3)})
+		if work_supported and not _held_work_ids.is_empty():
+			var work_hint := "Work #%d selected. Select or drag to the workbed · R" % _held_work_id
+			if not input_clear:
+				work_hint += " (clear the workbed or choose a clear feed route)"
+			inputs.append({"key": "player_work", "count": _held_work_ids.size(), "icon": "plate",
+				"hint": work_hint, "enabled": ready and input_clear})
+		if _inventory_broad:
+			for offer: Dictionary in _broad_refeed_offers:
+				inputs.append({"key": "player_broad_work:%d" % int(offer.work_id), "count": 1,
+					"icon": "sheet", "hint": "Copper sheet work #%d; %d contacts remain. Select or drag to reinsert · N" %
+						[int(offer.work_id), int(offer.remaining)],
+					"enabled": ready and work.is_empty()})
+			for offer: Dictionary in _sheet_offers:
+				inputs.append({"key": "player_sheet:%d" % int(offer.sheet_id), "count": 1,
+					"icon": "sheet", "hint": "Copper sheet #%d. Select or drag to stage on four anvils · S" %
+						int(offer.sheet_id), "enabled": ready and work.is_empty()})
+		var active_inputs := {}
+		for item: Dictionary in inputs:
+			var key: String = item.key
+			active_inputs[key] = true
+			if not inventory_slots.has(key):
+				_add_inventory_slot(inventory_player_row, key, "player", item.icon, item.hint)
+			var input_button: WorkbedInventorySlot = inventory_slots[key]
+			input_button.icon = load("res://opening/assets/build-icons/%s.svg" % item.icon)
+			input_button.disabled = not item.enabled
+			input_button.tooltip_text = item.hint
+			input_button.accessibility_name = item.hint
+			inventory_counts[key].text = str(item.count)
+			inventory_counts[key].visible = true
+		for key: String in inventory_slots.keys():
+			if key.begins_with("player_") and not active_inputs.has(key):
+				inventory_cells[key].queue_free()
+				inventory_cells.erase(key)
+				inventory_counts.erase(key)
+				inventory_slots.erase(key)
 		for key: String in counts:
 			var button: WorkbedInventorySlot = inventory_slots[key]
 			var count: Label = inventory_counts[key]
-			count.text = str(counts[key]) if counts[key] > 0 else "·"
-			button.disabled = not ready or (counts[key] == 0 and not key.ends_with("_target")) \
-				or (_inventory_broad and key == "player_raw" and counts[key] < 3)
+			var occupied: bool = counts[key] > 0
+			count.visible = occupied
+			count.text = str(counts[key]) if occupied else ""
+			button.disabled = not ready or not occupied
 		inventory_workbed_heading.text = "ON FOUR ANVILS  →  SHEET" if _inventory_broad else "ON THE WORKBED  →  OUTLET"
-		inventory_slots.workbed_target.icon = load("res://opening/assets/build-icons/broad-feed.svg") \
-			if _inventory_broad else load("res://opening/assets/build-icons/press-feed.svg")
-		inventory_slots.workbed_output.icon = load("res://opening/assets/build-icons/sheet.svg") \
-			if _inventory_broad else load("res://opening/assets/build-icons/plate.svg")
-		var selected_work := "Work #%d selected" % _held_work_id if _held_work_ids.has(_held_work_id) else "No carried work"
-		inventory_slots.player_raw.tooltip_text = "Carry %d ore blanks. Select or drag three to the four-anvil workbed · F" % counts.player_raw \
-			if _inventory_broad else "Carry %d ore blanks. Select or drag one to the workbed · F" % counts.player_raw
-		inventory_slots.player_raw.accessibility_name = inventory_slots.player_raw.tooltip_text
-		inventory_slots.player_work.tooltip_text = "%s. Select or drag to the workbed · R" % selected_work
-		inventory_slots.player_work.accessibility_name = inventory_slots.player_work.tooltip_text
-		inventory_slots.player_plate.tooltip_text = "%d copper plates carried" % counts.player_plate
-		inventory_slots.player_plate.accessibility_name = inventory_slots.player_plate.tooltip_text
-		inventory_slots.player_offcut.tooltip_text = "%d copper offcuts carried" % counts.player_offcut
-		inventory_slots.player_offcut.accessibility_name = inventory_slots.player_offcut.tooltip_text
-		inventory_slots.player_target.tooltip_text = "Drop workbed material here to carry it"
-		inventory_slots.player_target.accessibility_name = inventory_slots.player_target.tooltip_text
-		var route := _route()
-		var direction := _bearing(route.get("entry", []), _work_center()) if not route.is_empty() else "clear"
-		inventory_slots.workbed_target.tooltip_text = "Drop three carried blanks on four supported anvils · F" \
-			if _inventory_broad else "Drop a carried blank or selected workpiece here from %s" % direction
-		inventory_slots.workbed_target.accessibility_name = inventory_slots.workbed_target.tooltip_text
+		var work_icon := "offcut" if int(work.get("offcuts", 0)) > 0 else \
+			"ore" if int(work.get("raw", 0)) > 0 else \
+			"sheet" if _inventory_broad else "plate"
+		inventory_slots.workbed_work.icon = load("res://opening/assets/build-icons/%s.svg" % work_icon) \
+			if counts.workbed_work > 0 else null
+		inventory_slots.workbed_output.icon = load("res://opening/assets/build-icons/%s.svg" % \
+			("sheet" if _inventory_broad else "plate")) if counts.workbed_output > 0 else null
 		var work_label := "Sheet work, %d contacts remain" % int(bench_lots[0].get("remaining", 0)) \
 			if _inventory_broad and not bench_lots.is_empty() and bench_lots[0] is Dictionary else \
 			"%d offcut" % int(work.get("offcuts", 0)) if int(work.get("offcuts", 0)) > 0 else \
@@ -1275,6 +1361,21 @@ class ArrivalAssemblyControls:
 					expected.erase("center")
 					wire = {"action": "pickup_material", "center": output.center.duplicate(), "expected": expected}
 					destination = "player"
+			_:
+				if _inventory_broad and work.is_empty() and source.begins_with("player_broad_work:"):
+					for offer: Dictionary in _broad_refeed_offers:
+						if source == "player_broad_work:%d" % int(offer.work_id):
+							wire = {"action": "refeed_broad_press_work", "entity": offer.entity,
+								"work_id": offer.work_id}
+							destination = "workbed"
+							break
+				elif _inventory_broad and work.is_empty() and source.begins_with("player_sheet:"):
+					for offer: Dictionary in _sheet_offers:
+						if source == "player_sheet:%d" % int(offer.sheet_id):
+							wire = {"action": "place_sheet", "center": offer.center.duplicate(),
+								"sheet_id": offer.sheet_id}
+							destination = "workbed"
+							break
 		if wire.is_empty():
 			return {}
 		return {"source": source, "destination": destination, "wire": wire,
