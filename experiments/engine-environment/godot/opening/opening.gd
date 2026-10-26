@@ -5880,8 +5880,12 @@ func _select_tool(tool: String) -> void:
 			var component_kind: String = arrival_assembly_controls.selected_name()
 			if component_kind == "flat_head":
 				instructions["component"] = "Aim at the anvil to show the head at press height. Click to fit it; the slide goes above."
+			elif component_kind == "broad_anvil":
+				instructions["component"] = "Aim at a clear 2×2 floor area. Click once to place four carried anvils as one workbed."
+			elif component_kind == "broad_flat_head":
+				instructions["component"] = "Aim at the 2×2 workbed. Click to fit four carried flat heads as one face."
 			elif component_kind in ["wooden_slide", "copper_slide"]:
-				instructions["component"] = "Aim at the flat head to show the slide above it. Click to fit the amber ghost; red means blocked."
+				instructions["component"] = "Aim at a flat head to show the slide above it. Click to fit the amber ghost; red means blocked."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
 
@@ -5962,7 +5966,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			return
 		var area_origin := _component_area_origin(component_name, center)
 		var centers := _component_footprint_centers(component_name, area_origin)
-		if not _component_center_allowed(center):
+		if not _component_area_bounds_allowed(component_name, center):
 			return
 		if centers.size() == 4 and not centers.has(center):
 			_message("Aim at one of the four highlighted cells.", true)
@@ -6667,8 +6671,13 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 	# part the player can actually point at to expose its next fitted socket.
 	if kind == "flat_head" and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
+	if kind == "broad_flat_head" and pointed_kind == "broad_anvil":
+		return {"center": [center[0], center[1] + 1, center[2]], "label": "2×2 head over workbed"}
 	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Slide over head"}
+	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "broad_flat_head":
+		return {"center": [center[0] + 2, center[1] + 1, center[2] + 2],
+			"label": "Central slide over 2×2 head"}
 	if kind == "ram_face" and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
 	if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
@@ -6733,6 +6742,15 @@ func _component_center_allowed(center: Array) -> bool:
 	var half: float = ProductionEnvironment.Surface.HALF - Geometry.HEIGHT_STEP / 2.0
 	return absf(center[0] * Geometry.HEIGHT_STEP) <= half \
 		and absf(center[2] * Geometry.HEIGHT_STEP) <= half
+
+func _component_area_bounds_allowed(kind: String, center: Array) -> bool:
+	if not _component_center_allowed(center):
+		return false
+	if kind not in ["broad_anvil", "broad_flat_head"]:
+		return true
+	var box := _component_candidate_box(kind, center)
+	return absf(box.center.x) + box.half.x <= ProductionEnvironment.Surface.HALF \
+		and absf(box.center.z) + box.half.z <= ProductionEnvironment.Surface.HALF
 
 func _component_footprint_centers(kind: String, anchor: Array) -> Array:
 	if anchor.size() != 3:
@@ -6823,6 +6841,12 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			var high := low + Geometry.HEIGHT_STEP
 			occupied.y = (low + high) * 0.5
 			half = Vector3(0.2025, (high - low) * 0.5, 0.14)
+		"broad_anvil":
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var high := low + Geometry.HEIGHT_STEP
+			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
+				Geometry.PITCH * 0.5)
+			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"ram_face":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
@@ -6833,6 +6857,12 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
+		"broad_flat_head":
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var high := at.y + Geometry.HEIGHT_STEP * 0.5
+			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
+				Geometry.PITCH * 0.5)
+			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"wooden_slide", "copper_slide":
 			var low: float = at.y - Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
@@ -6866,8 +6896,17 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 		for id: Variant in state.get("placed_components", {}):
 			var part: Dictionary = state.placed_components[id]
 			var part_center: Array = part.get("center", [])
-			if part_center.size() != 3 or center.size() != 3 or \
-					part_center[0] != center[0] or part_center[2] != center[2]:
+			if part_center.size() != 3 or center.size() != 3:
+				continue
+			if kind == "broad_flat_head" and part.component in ["wooden_slide", "copper_slide"] \
+					and part_center == [center[0] + 2, center[1] + 1, center[2] + 2]:
+				paired_ids[id] = true
+				continue
+			if kind in ["wooden_slide", "copper_slide"] and part.component == "broad_flat_head" \
+					and center == [part_center[0] + 2, part_center[1] + 1, part_center[2] + 2]:
+				paired_ids[id] = true
+				continue
+			if part_center[0] != center[0] or part_center[2] != center[2]:
 				continue
 			if (kind == "flat_head" and part.component in ["wooden_slide", "copper_slide"]
 					and part_center[1] == center[1] + 1) or \
@@ -6936,7 +6975,10 @@ func _refresh_component_preview() -> void:
 			or not _preview_pointer_clear():
 		return
 	var kind: String = arrival_assembly_controls.selected_name()
-	if int(state.get("cargo", {}).get(client, {}).get("components", {}).get(kind, 0)) < 1:
+	var carried_kind := "anvil" if kind == "broad_anvil" else \
+		"flat_head" if kind == "broad_flat_head" else kind
+	var needed := 4 if kind in ["broad_anvil", "broad_flat_head"] else 1
+	if int(state.get("cargo", {}).get(client, {}).get("components", {}).get(carried_kind, 0)) < needed:
 		return
 	var pointed := _screen_entity(_pointed_screen_position()) if not component_nudge_active else ""
 	var center := _component_place_center(_screen_cell(_pointed_screen_position()), pointed)
@@ -7033,7 +7075,8 @@ func _refresh_component_preview() -> void:
 			else Color(0.91, 0.73, 0.40, 0.56)
 		component_preview.visible = true
 		return
-	component_preview_blocked = not _component_center_allowed(center) or _component_candidate_blocked(kind, center, box)
+	component_preview_blocked = not _component_area_bounds_allowed(kind, center) or \
+		_component_candidate_blocked(kind, center, box)
 	component_preview_snap = ""
 	if component_nudge_active:
 		component_preview_snap = "Nudged point"
@@ -7046,8 +7089,8 @@ func _refresh_component_preview() -> void:
 			("Above %s" % pointed_kind.replace("_", " ") if not hit.is_empty() and hit.normal.y > 0.5 \
 			else "Beside %s" % pointed_kind.replace("_", " "))
 		if press_snap_target != null and not press_snap.is_empty() \
-				and (kind == "flat_head" and pointed_kind == "anvil" \
-				or kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head"):
+				and (kind in ["flat_head", "broad_flat_head"] and pointed_kind in ["anvil", "broad_anvil"] \
+				or kind in ["wooden_slide", "copper_slide"] and pointed_kind in ["flat_head", "broad_flat_head"]):
 			var target_box := _component_candidate_box(pointed_kind, state.placed_components[pointed].center)
 			press_snap_target.position = target_box.center + Vector3.UP * (target_box.half.y + 0.015)
 			press_snap_target.scale = Vector3(target_box.half.x / 0.77, 1.0, target_box.half.z / 0.77)
@@ -7117,7 +7160,9 @@ func _component_placement_hint() -> String:
 	var kind: String = arrival_assembly_controls.selected_name()
 	if component_footprint_size == 2 and kind in ["anvil", "ram_face"]:
 		action = "Aim at a free area cell" if component_preview_blocked else "Click each area cell"
-	var stack_hint := "Aim at a floor or built surface" if kind == "anvil" else \
+	var stack_hint := "Aim at a clear 2×2 floor area; uses four anvils" if kind == "broad_anvil" else \
+		"Aim at the 2×2 workbed; uses four flat heads" if kind == "broad_flat_head" else \
+		"Aim at a floor or built surface" if kind == "anvil" else \
 		"Aim at the anvil to place the head above" if kind == "flat_head" else \
 		"Aim at the flat head to place the slide above" if kind in ["wooden_slide", "copper_slide"] else \
 		"Aim at the anvil top" if kind == "ram_face" else \

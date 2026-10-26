@@ -203,6 +203,32 @@ SlidingPressInspection Layout::inspect_sliding_press(const Point& center) const 
     return {PressStatus::ready, std::move(press)};
 }
 
+BroadSlidingPressInspection Layout::inspect_broad_sliding_press(const Point& origin) const {
+    constexpr Integer limit = mechanics::maximum_coordinate;
+    if (!valid_ || origin[0] % 4 || origin[1] % 4 || origin[2] % 4 ||
+        origin[0] < -limit + 4 || origin[0] > limit - 4 ||
+        origin[1] < -limit || origin[1] > limit - 2 ||
+        origin[2] < -limit + 4 || origin[2] > limit - 4)
+        return {PressStatus::invalid_input, std::nullopt};
+    const auto* anvil = at(by_center_, origin, materials::Component::broad_anvil);
+    if (!anvil) return {PressStatus::missing_anvil, std::nullopt};
+    const auto* head = at(by_center_, {origin[0], origin[1] + 1, origin[2]},
+        materials::Component::broad_flat_head);
+    if (!head) return {PressStatus::missing_flat_head, std::nullopt};
+    const Point slide_center{origin[0] + 2, origin[1] + 2, origin[2] + 2};
+    const auto found = by_center_.find(slide_center);
+    const auto* slide = found != by_center_.end() &&
+        (found->second->kind == materials::Component::wooden_slide ||
+         found->second->kind == materials::Component::copper_slide) ? found->second : nullptr;
+    if (!slide) return {PressStatus::missing_slide, std::nullopt};
+    BroadSlidingPress press{anvil->id, head->id, slide->id, origin, slide_center,
+        slide->kind, {}};
+    for (std::size_t index = 0; index < press.work_centers.size(); ++index)
+        press.work_centers[index] = {origin[0] + static_cast<Integer>(index % 2) * 4,
+            origin[1], origin[2] + static_cast<Integer>(index / 2) * 4};
+    return {PressStatus::ready, std::move(press)};
+}
+
 GuidedPressInspection Layout::inspect_guided_press(const Point& center) const {
     for (const auto coordinate : center)
         if (coordinate % 4 != 0 || coordinate < -mechanics::maximum_coordinate + 4 ||

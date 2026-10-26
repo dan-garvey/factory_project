@@ -410,6 +410,43 @@ func _component_placement_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(prefix + "-flat-head-stroke.png") == OK,
 			"Retain the driven head at native half-cycle over the passive workbed.")
+	var broad_origin := [20, 0, 8]
+	var broad_bed_box: Dictionary = view._component_candidate_box("broad_anvil", broad_origin)
+	var broad_head_box: Dictionary = view._component_candidate_box("broad_flat_head", [20, 1, 8])
+	var broad_slide_box: Dictionary = view._component_candidate_box("copper_slide", [22, 2, 10])
+	verify(absf(broad_bed_box.size.x - 2.0 * Geometry.PITCH) < 0.0001
+		and absf(broad_head_box.size.z - 2.0 * Geometry.PITCH) < 0.0001
+		and view._guided_press_part_snap("broad_flat_head", "broad_anvil", broad_origin,
+			Vector3.RIGHT).center == [20, 1, 8]
+		and view._guided_press_part_snap("copper_slide", "broad_flat_head", [20, 1, 8],
+			Vector3.RIGHT).center == [22, 2, 10],
+		"One broad support and face occupy four contiguous cells with one fitted central slide.")
+	var broad_bed_sample := Node3D.new()
+	broad_bed_sample.position = broad_bed_box.center
+	view.add_child(broad_bed_sample)
+	presenter.preview_component(broad_bed_sample, "broad_anvil", broad_bed_box.size)
+	var broad_head_sample := Node3D.new()
+	broad_head_sample.position = broad_head_box.center
+	view.add_child(broad_head_sample)
+	presenter.preview_component(broad_head_sample, "broad_flat_head", broad_head_box.size)
+	var broad_slide_sample := Node3D.new()
+	broad_slide_sample.position = broad_slide_box.center
+	view.add_child(broad_slide_sample)
+	presenter.preview_component(broad_slide_sample, "copper_slide", broad_slide_box.size)
+	verify(broad_bed_sample.has_node("JoinedWorkbedBase")
+		and broad_head_sample.has_node("BroadHeadMovingDie/JoinedFlatFace")
+		and broad_slide_sample.has_node("SlideCarriage"),
+		"The sized workbed, single moving face and slide have separate visible parts.")
+	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+		camera.position = broad_bed_box.center + Vector3(5.0, 3.0, 6.0)
+		camera.look_at(broad_bed_box.center + Vector3.UP * 0.55)
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-sized-workbed.png") == OK,
+			"Retain the 2×2 workbed, joined face and one slide from a passive view.")
+	broad_bed_sample.free()
+	broad_head_sample.free()
+	broad_slide_sample.free()
 	view.state.placed_components["workbed"] = {"component": "anvil", "center": [12, 0, 8],
 		"generation": 1, "occupied": {"center": [workbed_box.center.x, workbed_box.center.y,
 			workbed_box.center.z], "half": [workbed_box.half.x, workbed_box.half.y,
@@ -2142,12 +2179,14 @@ func _arrival_hotbar() -> void:
 	var component_icon_paths := {}
 	for component: String in bar._component_names:
 		var texture: Texture2D = bar.component_buttons[component].icon
-		verify(texture != null and texture.resource_path.ends_with("/" + (
-			"workshop-crank" if component == "hand_crank" else component) + ".svg"),
+		var icon_kind := "anvil" if component == "broad_anvil" else \
+			"flat_head" if component == "broad_flat_head" else \
+			"workshop-crank" if component == "hand_crank" else component
+		verify(texture != null and texture.resource_path.ends_with("/" + icon_kind + ".svg"),
 			"Each fabricated component uses its own named item icon in the inventory.")
 		component_icon_paths[texture.resource_path] = true
-	verify(component_icon_paths.size() == bar._component_names.size(),
-		"Different fabricated parts never share one icon resource.")
+	verify(component_icon_paths.size() == bar._component_names.size() - 2,
+		"The two sized arrangements reuse the literal icons of their four carried parts.")
 	verify(bar.buttons.size() == 8 and bar.buttons[0].accessibility_name.contains("Empty hotbar key 1"),
 		"Each empty hotbar slot describes its number and drag assignment path.")
 	var face_labels: Array[String] = []
@@ -2182,6 +2221,17 @@ func _arrival_hotbar() -> void:
 		and bar.component_counts.anvil.text == "1"
 		and "Anvil" in bar.component_buttons.anvil.tooltip_text,
 		"The component icon shows its authoritative count and accessible name.")
+	view.state.cargo.P.components.anvil = 4
+	view.state.cargo.P.components.flat_head = 4
+	view._refresh_ui()
+	verify(bar.component_buttons.broad_anvil.visible and bar.component_buttons.broad_flat_head.visible
+		and bar.component_counts.broad_anvil.text == "1"
+		and bar.component_counts.broad_flat_head.text == "1"
+		and bar.component_buttons.broad_anvil.tooltip_text.contains("four carried parts"),
+		"Four owned parts of each kind expose one sized workbed and one fitted face.")
+	view.state.cargo.P.components.anvil = 1
+	view.state.cargo.P.components.erase("flat_head")
+	view._refresh_ui()
 	view.state.cargo.P.timber = 5
 	view.state.cargo.P.raw = 3
 	view.state.cargo.P.products = 1
@@ -3096,7 +3146,7 @@ func _workshop_pages() -> void:
 		panel.refresh(view.state, view.client, view.selected, true)
 		verify(panel.inventory_section.is_visible_in_tree() and panel._inventory_broad
 			and not panel.feed_button.visible and panel.inventory_counts.player_raw.text == "3"
-			and panel.inventory_workbed_heading.text.contains("FOUR ANVILS")
+			and panel.inventory_workbed_heading.text.contains("2×2 WORKBED")
 			and not panel.inventory_slots.has("workbed_target")
 			and not panel.inventory_slots.has("player_target")
 			and panel.inventory_player_region.destination == "player"
@@ -3348,9 +3398,26 @@ func _workshop_pages() -> void:
 		panel.refresh(view.state, view.client, view.selected, true)
 		verify(not panel.shear_button.visible,
 			"Cutting controls disappear after the staged sheet leaves native projection.")
+		view.state.placed_components["sized-bed"] = {"component": "broad_anvil", "center": [16, 0, 8]}
+		view.state.broad_press_assemblies = [{"origin": [16, 0, 8], "geometry_status": "ready",
+			"status": "unpowered", "parts": {"anvils": ["sized-bed"],
+				"heads": ["sized-head"], "slide": "sized-slide"}}]
+		view.state.cargo[view.client].raw = 3
+		view.selected = "sized-bed"
+		panel.refresh(view.state, view.client, view.selected, true)
+		panel.open_context()
+		verify(panel.press_section.visible and panel._inventory_broad
+			and panel.inventory_workbed_heading.text.contains("2×2 WORKBED")
+			and panel.inventory_drag("player_raw").get("wire", {}) == {
+				"action": "feed_broad_press", "entity": "sized-bed"},
+			"The selected sized workbed offers one ordinary three-stock transfer on its own native ID.")
+		view.selected = "press-anvil"
+		view.state.placed_components.erase("sized-bed")
 		view.state.erase("broad_press_assemblies")
 		view.state.cargo[view.client].erase("sheet_items")
 		view.state.cargo[view.client].erase("sheets")
+		panel.refresh(view.state, view.client, view.selected, true)
+		panel.open_context()
 		var action_key := InputEventKey.new()
 		action_key.pressed = true
 		action_key.keycode = KEY_F

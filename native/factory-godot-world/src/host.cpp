@@ -293,6 +293,12 @@ Bounds component_bounds(const world::Profile& profile,
             // lateral horn and heel remain within the native pick body.
             return {{at[0], center[1] * height_step + anvil_work_height * 0.5, at[2]},
                 {0.2025, anvil_work_height * 0.5, 0.14}};
+        case materials::Component::broad_anvil: {
+            const double floor = center[1] * height_step;
+            return {{at[0] + pitch * 0.5, floor + anvil_work_height * 0.5,
+                     at[2] + pitch * 0.5},
+                    {pitch, anvil_work_height * 0.5, pitch}};
+        }
         case materials::Component::ram_face:
             return vertical(center[1] * height_step - height_step + anvil_work_height,
                 at[1] + height_step * 0.5);
@@ -301,6 +307,13 @@ Bounds component_bounds(const world::Profile& profile,
             // may occupy its coaxial upper portion as an intentional fitting.
             return vertical(center[1] * height_step - height_step + anvil_work_height,
                 at[1] + height_step * 0.5);
+        case materials::Component::broad_flat_head: {
+            const double low = center[1] * height_step - height_step + anvil_work_height;
+            const double high = at[1] + height_step * 0.5;
+            return {{at[0] + pitch * 0.5, (low + high) * 0.5,
+                     at[2] + pitch * 0.5},
+                    {pitch, (high - low) * 0.5, pitch}};
+        }
         case materials::Component::sliding_guide:
             // Its full selected rails reach the ram below, whether or not a
             // press is recognized. The admitted box includes that entire
@@ -340,7 +353,14 @@ bool slide_head_fitting(std::optional<materials::Component> first,
         return kind == materials::Component::wooden_slide ||
             kind == materials::Component::copper_slide;
     };
-    if (!first || first_center[0] != second_center[0] ||
+    if (!first) return false;
+    if (*first == materials::Component::broad_flat_head && slide(second))
+        return second_center == mechanics::Point{first_center[0] + 2,
+            first_center[1] + 1, first_center[2] + 2};
+    if (slide(*first) && second == materials::Component::broad_flat_head)
+        return first_center == mechanics::Point{second_center[0] + 2,
+            second_center[1] + 1, second_center[2] + 2};
+    if (first_center[0] != second_center[0] ||
         first_center[2] != second_center[2]) return false;
     return (*first == materials::Component::flat_head && slide(second) &&
                second_center[1] == first_center[1] + 1) ||
@@ -1659,6 +1679,14 @@ const char* Host::component_site_refusal(const world::State& state,
     if (kind && materials::channel_spec(*kind) && center[1] == 0 &&
         ground->first < at[1] - volume.half[1] - 0.04)
         return "support_required";
+    if (kind == materials::Component::broad_anvil &&
+        ground->first < at[1] - volume.half[1] - 0.04) {
+        const auto cells = materials::component_workcells(*kind, center);
+        if (!cells || std::any_of(cells->begin(), cells->end(), [&](const auto& cell) {
+                return std::none_of(state.foundations.begin(), state.foundations.end(),
+                    [&](const auto& entry) { return entry.second.center == cell; });
+            })) return "support_required";
+    }
     if (kind == materials::Component::wooden_workbench) {
         const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
             [&](const auto& entry) { return entry.second.center == center; });
@@ -3427,6 +3455,43 @@ Value Host::projection() const {
                 }
                 broad_shears.emplace_back(std::move(shear_entry));
             }
+        }
+        const assembly::Layout sized_layout(parts);
+        for (const auto& part : parts) {
+            if (part.kind != materials::Component::broad_anvil) continue;
+            const auto sized = sized_layout.inspect_broad_sliding_press(part.center);
+            Object entry{{"origin", grid_value(part.center)},
+                {"geometry_status", Value(press_status_name(sized.status))},
+                {"status", Value(press_status_name(sized.status))}};
+            if (sized.press) {
+                const auto& press = *sized.press;
+                Array work_centers;
+                for (const auto& center : press.work_centers)
+                    work_centers.emplace_back(grid_value(center));
+                entry.emplace("work_centers", Value(std::move(work_centers)));
+                entry.emplace("parts", Value(Object{
+                    {"anvils", Value(Array{Value(press.anvil)})},
+                    {"heads", Value(Array{Value(press.head)})},
+                    {"slide", Value(press.slide)}}));
+                const auto motion = power.mechanical.motion.find(press.slide);
+                const bool overloaded = power.load.contains(press.slide) &&
+                    power.load.at(press.slide).overloaded;
+                if (motion == power.mechanical.motion.end() ||
+                    motion->second.state == mechanics::MotionState::unpowered)
+                    entry["status"] = Value("unpowered");
+                else if (overloaded || motion->second.state == mechanics::MotionState::stalled)
+                    entry["status"] = Value("stalled");
+                else if (motion->second.state != mechanics::MotionState::rotating ||
+                    motion->second.rate.numerator == 0)
+                    entry["status"] = Value("stopped");
+                else {
+                    entry["status"] = Value("ready");
+                    entry.emplace("stroke_rate", Value(Array{
+                        Value(std::abs(motion->second.rate.numerator)),
+                        Value(motion->second.rate.denominator)}));
+                }
+            }
+            broad_presses.emplace_back(std::move(entry));
         }
         projection.emplace("broad_press_assemblies", Value(std::move(broad_presses)));
         projection.emplace("broad_shear_assemblies", Value(std::move(broad_shears)));
