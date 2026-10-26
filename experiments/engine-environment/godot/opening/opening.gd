@@ -6939,13 +6939,12 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
 	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Slide over head"}
-	if normal.y > 0.5:
-		if kind == "ram_face" and pointed_kind == "anvil":
-			return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
-		if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
-			var rise := 3 if pointed_kind == "anvil" else 2
-			return {"center": [center[0], center[1] + rise, center[2]],
-				"label": "Guide over %s" % ("ram" if pointed_kind == "ram_face" else "anvil")}
+	if kind == "ram_face" and pointed_kind == "anvil":
+		return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
+	if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
+		var rise := 3 if pointed_kind == "anvil" else 2
+		return {"center": [center[0], center[1] + rise, center[2]],
+			"label": "Guide over %s" % ("ram" if pointed_kind == "ram_face" else "anvil")}
 	if pointed_kind == "anvil" and kind in ["wooden_shaft", "copper_shaft",
 			"wooden_cog", "copper_cog"]:
 		var distance := 1 if kind in ["wooden_shaft", "copper_shaft"] else 2
@@ -7090,23 +7089,25 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 				(low + high) * 0.5 - occupied.y, (width_z - pitch) * 0.5)
 			half = Vector3(width_x * 0.5, (high - low) * 0.5, width_z * 0.5)
 		"anvil":
-			var low := at.y - Geometry.HEIGHT_STEP + (0.9 - Geometry.ANCHOR_HEIGHT)
-			var high := at.y + 0.082
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var high := low + Geometry.HEIGHT_STEP
 			occupied.y = (low + high) * 0.5
-			half.y = (high - low) * 0.5
+			half = Vector3(0.2025, (high - low) * 0.5, 0.14)
 		"ram_face":
-			var low := at.y - Geometry.HEIGHT_STEP + 0.082
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
 		"flat_head":
-			var low := at.y - Geometry.HEIGHT_STEP * 0.75
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
 		"wooden_slide", "copper_slide":
-			occupied.y -= Geometry.HEIGHT_STEP * 0.5
-			half = Vector3(0.21, Geometry.HEIGHT_STEP, 0.21)
+			var low: float = at.y - Geometry.HEIGHT_STEP * 1.5
+			var high := at.y + Geometry.HEIGHT_STEP * 0.5
+			occupied.y = (low + high) * 0.5
+			half = Vector3(0.21, (high - low) * 0.5, 0.21)
 		"sliding_guide":
 			var low := at.y - Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP - 0.08
@@ -7145,7 +7146,15 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 				(kind == "sliding_guide" and part.component == "ram_face"
 					and part_center[1] == center[1] - 1) or \
 				(kind == "ram_face" and part.component == "sliding_guide"
-					and part_center[1] == center[1] + 1):
+					and part_center[1] == center[1] + 1) or \
+				(kind == "anvil" and part.component == "wooden_frame"
+					and part_center[1] == center[1] - 1) or \
+				(kind == "wooden_frame" and part.component == "anvil"
+					and part_center[1] == center[1] + 1) or \
+				(kind == "ram_face" and part.component == "wooden_frame"
+					and part_center[1] == center[1] - 2) or \
+				(kind == "wooden_frame" and part.component == "ram_face"
+					and part_center[1] == center[1] + 2):
 				paired_ids[id] = true
 		for id: Variant in result.boxes:
 			if not paired_ids.has(id):

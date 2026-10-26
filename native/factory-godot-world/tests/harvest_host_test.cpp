@@ -232,9 +232,9 @@ void flat_head_host_custody() {
     const auto low = std::get<double>(center[1].storage()) - std::get<double>(half[1].storage());
     const auto high = std::get<double>(center[1].storage()) + std::get<double>(half[1].storage());
     check(get<std::string>(placed, "component") == "flat_head" &&
-          std::abs(low - 0.928125) < 1e-8 && std::abs(high - 1.44375) < 1e-8 &&
+          std::abs(low - 0.4125) < 1e-8 && std::abs(high - 1.44375) < 1e-8 &&
           std::abs(std::get<double>(half[0].storage()) - 0.14) < 1e-8,
-          "The projected die reserves its downward sweep above the passive work surface.");
+          "The projected die reaches the compact anvil work face through its downward sweep.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted"),
           "The actor can leave the placed die to gather a finite slide bill.");
     for (const char* request : {"slide-tree-1", "slide-tree-2", "slide-tree-3"})
@@ -251,6 +251,13 @@ void flat_head_host_custody() {
           get<O>(host.projection(), "placed_components").size() == 2,
           "The slide fits over the previously placed head without consuming another shaft.");
     const auto slide_id = get<std::string>(slide, "entity");
+    const auto fitted_slide = get<O>(get<O>(host.projection(), "placed_components").at(slide_id),
+        "occupied");
+    const auto fitted_center = get<A>(V(fitted_slide), "center");
+    const auto fitted_half = get<A>(V(fitted_slide), "half");
+    check(std::abs(std::get<double>(fitted_center[1].storage()) -
+              std::get<double>(fitted_half[1].storage()) - 1.03125) < 1e-8,
+          "Fitting the separate head leaves the slide rails clear of adjacent feed parts.");
     const auto saved = host.checkpoint();
     Host restored;
     check(get<bool>(restored.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
@@ -268,6 +275,13 @@ void flat_head_host_custody() {
           get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"), "components")),
               "flat_head") == 1,
           "Reclaim returns the head to carried custody while the slide remains in place.");
+    const auto unfitted_slide = get<O>(get<O>(restored.projection(), "placed_components").at(slide_id),
+        "occupied");
+    const auto unfitted_center = get<A>(V(unfitted_slide), "center");
+    const auto unfitted_half = get<A>(V(unfitted_slide), "half");
+    check(std::abs(std::get<double>(unfitted_center[1].storage()) -
+              std::get<double>(unfitted_half[1].storage()) - 1.03125) < 1e-8,
+          "Removing the head preserves the standalone slide's original floor clearance.");
     const auto replaced = restored.command("P", O{{"context", V("flat-head-site")},
         {"client", V("P")}, {"request", V("replace-head")},
         {"action", V("place_component")}, {"component", V("flat_head")},

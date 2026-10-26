@@ -21,6 +21,7 @@ const GEAR_BATCH_THRESHOLD := 4
 const LIVE_GEAR_BATCH_THRESHOLD := 1
 const GUIDED_RAM_REST_LIFT := 0.08
 const GUIDED_RAM_CONTACT_LIFT := -0.0075
+const SLIDE_DIE_TRAVEL_MARGIN := 0.175
 
 var _host: WeakRef
 var _view_key: Variant = null
@@ -1276,8 +1277,18 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			for z in [-0.155, 0.155]:
 				_support_beam(anchor, "SideBrace", Vector3(-0.14, -0.29, z),
 					Vector3(0.14, 0.22, z), 0.035, timber, true)
-			_support_box(anchor, "OpenWorkBed", Vector3(0, 0.35, 0), Vector3(0.405, 0.06, 0.405), timber, true)
-			for z in [-0.155, 0.155]:
+			# The shelf ends at the anvil's selected level, one grid step up.
+			_support_box(anchor, "AnvilShelfCrossbar", Vector3(0, -0.16, 0),
+				Vector3(0.405, 0.07, 0.09), timber, true)
+			_support_box(anchor, "AnvilShelf", Vector3(0, -0.09, 0),
+				Vector3(0.21, 0.105, 0.21), timber, true)
+			# The framed press surrounds the same compact casting used alone.
+			for side in [-1.0, 1.0]:
+				_support_box(anchor, "BedCrossRailFront" if side < 0 else "BedCrossRailRear",
+					Vector3(0, 0.35, side * 0.17), Vector3(0.405, 0.06, 0.065), timber, true)
+				_support_box(anchor, "BedSideRailLeft" if side < 0 else "BedSideRailRight",
+					Vector3(side * 0.17, 0.35, 0), Vector3(0.065, 0.06, 0.20), timber, true)
+			for z in [-0.185, 0.185]:
 				_support_box(anchor, "BedIron", Vector3(0, 0.385, z), Vector3(0.35, 0.012, 0.025), worked, true)
 			for x in [-0.155, 0.155]:
 				for z in [-0.155, 0.155]:
@@ -1328,20 +1339,34 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					Vector3(0.012, 0.014, 0.038), worked)
 		"anvil":
 			var bottom := -occupied_size.y * 0.5
-			# The copper seat ends just below the native crown. Its edge and
-			# pedestal remain inside the same admitted occupied box.
-			var seat_top := occupied_size.y * 0.5 - 0.02
-			var seat_bottom := seat_top - 0.055
-			var foot_top := bottom + 0.0575
-			_support_box(anchor, "CastPedestalFoot", Vector3(0, bottom + 0.03, 0),
-				Vector3(0.265, 0.055, 0.265), dark)
-			_support_box(anchor, "CastPedestal", Vector3(0, (foot_top + seat_bottom) * 0.5, 0),
-				Vector3(0.17, seat_bottom - foot_top, 0.17), dark)
-			_support_box(anchor, "OpenAnvilSeat", Vector3(0, seat_top - 0.0275, 0),
-				Vector3(0.265, 0.055, 0.245), worked)
+			var top := occupied_size.y * 0.5
+			var face_iron := Visuals.material(Color("707c79"), 0.63, 0.46)
+			# A short cast waist supports a broad working face, with a tapered
+			# horn and heel visible at both ends of the native pick body.
+			_support_box(anchor, "CastPedestalFoot", Vector3(0, bottom + 0.0275, 0),
+				Vector3(0.18, 0.055, 0.22), dark)
+			var waist := MeshInstance3D.new()
+			waist.name = "CastAnvilWaist"
+			waist.mesh = Visuals.prism_mesh(PackedVector2Array([
+				Vector2(-0.077, bottom + 0.055), Vector2(0.077, bottom + 0.055),
+				Vector2(0.054, top - 0.115), Vector2(-0.054, top - 0.115)]), 0.105, 0.003)
+			waist.material_override = dark
+			anchor.add_child(waist)
+			_support_box(anchor, "CastAnvilShoulder", Vector3(-0.025, top - 0.095, 0),
+				Vector3(0.25, 0.10, 0.19), dark, true)
+			_support_box(anchor, "OpenAnvilSeat", Vector3(-0.02, top - 0.025, 0),
+				Vector3(0.25, 0.05, 0.25), face_iron, true)
+			_support_box(anchor, "AnvilHeel", Vector3(-0.15, top - 0.045, 0),
+				Vector3(0.105, 0.07, 0.20), dark, true)
+			_support_box(anchor, "HardySocket", Vector3(-0.095, top - 0.0015, 0.045),
+				Vector3(0.032, 0.003, 0.032), dark)
+			var horn := _support_cylinder(anchor, "TaperedAnvilHorn", 0.065, 0.125, face_iron)
+			(horn.mesh as CylinderMesh).top_radius = 0.008
+			horn.rotation.z = -PI * 0.5
+			horn.position = Vector3(0.14, top - 0.09, 0)
 			for z in [-0.107, 0.107]:
-				_support_box(anchor, "AnvilEdge", Vector3(0, occupied_size.y * 0.5 - 0.03, z),
-					Vector3(0.23, 0.06, 0.03), dark)
+				_support_box(anchor, "AnvilEdge", Vector3(-0.02, top - 0.055, z),
+					Vector3(0.22, 0.01, 0.025), dark)
 		"ram_face":
 			var bottom := -occupied_size.y * 0.5
 			_support_box(anchor, "MovingDie", Vector3(0, bottom + 0.045, 0),
@@ -1357,8 +1382,9 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			# fixed swept envelope. It has no extra rails, input shaft or drive.
 			var die := Node3D.new()
 			die.name = "FlatHeadMovingDie"
+			var travel := occupied_size.y - SLIDE_DIE_TRAVEL_MARGIN
 			die.position.y = occupied_size.y * 0.5 - 0.085 \
-				+ slide_carriage_drop(slide_phase, Geometry.HEIGHT_STEP * 0.9)
+				+ slide_carriage_drop(slide_phase, travel)
 			anchor.add_child(die)
 			_support_box(die, "FlatHeadFace", Vector3.ZERO,
 				Vector3(0.27, 0.10, 0.27), worked, true)
@@ -1443,10 +1469,14 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				bearing.rotation.z = PI * 0.5
 			var carriage := Node3D.new()
 			carriage.name = "SlideCarriage"
-			carriage.position.y = 0.075 + slide_carriage_drop(slide_phase, occupied_size.y * 0.45)
+			carriage.position.y = occupied_size.y * 0.5 - 0.18 \
+				+ slide_carriage_drop(slide_phase,
+					occupied_size.y - Geometry.HEIGHT_STEP - SLIDE_DIE_TRAVEL_MARGIN)
 			anchor.add_child(carriage)
 			_support_box(carriage, "CarriageBody", Vector3.ZERO,
 				Vector3(0.235, 0.14, 0.23), dark, true)
+			var drive_rod := _support_cylinder(carriage, "CarriageDieRod", 0.045, 0.34, worked)
+			drive_rod.position.y = -0.20
 			_support_box(carriage, "CarriageFace", Vector3(0, -0.085, 0),
 				Vector3(0.29, 0.035, 0.27), finish, true)
 			for x in [-0.115, 0.115]:
@@ -2108,10 +2138,13 @@ func refresh() -> void:
 	_native_view_revision = native_revision if native_model else null
 	_render_placed_components(snapshot, component_result.boxes)
 	_render_receiver_chutes(snapshot)
-	var guided_work_centers: Array = []
+	var guided_work_surfaces := {}
 	for press: Variant in snapshot.get("guided_press_assemblies", []):
-		if press is Dictionary and press.get("status") == "ready" and press.get("work_center") is Array:
-			guided_work_centers.append(press.work_center)
+		if press is Dictionary and press.get("status") == "ready" \
+				and press.get("work_center") is Array and press.get("parts") is Dictionary:
+			var anvil: Variant = component_result.boxes.get(press.parts.get("anvil"))
+			if anvil is Dictionary and anvil.get("component") == "anvil":
+				guided_work_surfaces[press.work_center] = anvil.center.y + anvil.size.y * 0.5
 	var sliding_work_surfaces := {}
 	for press: Variant in snapshot.get("sliding_press_assemblies", []):
 		if not press is Dictionary or press.get("status") != "ready" \
@@ -2134,6 +2167,9 @@ func refresh() -> void:
 					or (drop.raw == 0 and drop.work_lots.size() == 1))
 			if supported_slide:
 				location.y = float(sliding_work_surfaces[drop.center]) + (0.04 if drop.raw > 0 else 0.03)
+			elif guided_work_surfaces.has(drop.center):
+				location.y = float(guided_work_surfaces[drop.center]) + \
+					(0.04 if drop.raw > 0 else -0.082)
 			var visual: Node3D
 			if drop.raw > 0:
 				visual = _cylinder(self, "LooseBlank", 0.11 if supported_slide else 0.15,
@@ -2187,7 +2223,7 @@ func refresh() -> void:
 				visual = Items.workpiece_billet(self, location)
 			if drop.raw == 0 and drop.products == 0 and int(drop.get("offcuts", 0)) == 0 \
 					and int(drop.get("sheets", 0)) == 0 and drop.work_lots.size() == 1 \
-					and guided_work_centers.has(drop.center):
+				and guided_work_surfaces.has(drop.center):
 				continue
 			var label := Label3D.new()
 			if drop.raw > 0:

@@ -40,6 +40,7 @@ constexpr double machine_width = 1.45;
 constexpr double machine_height = 1.65;
 constexpr double machine_center_height = 0.8;
 constexpr double press_work_crown_rise = 0.082;
+constexpr double anvil_work_height = height_step;
 
 Integer crafting_bench_generation(const world::State& state, const std::string& id) {
     if (state.fabrication_hub && !state.fabrication_hub->holder && state.fabrication_hub->id == id)
@@ -288,18 +289,17 @@ Bounds component_bounds(const world::Profile& profile,
                     {height_step - component_shaft_half, 0.18,
                      height_step - component_shaft_half}};
         case materials::Component::anvil:
-            // The cast pedestal meets the frame's 0.9 m top. Its upper
-            // clearance reaches the retained copper crown at the work point.
-            // The ram's swept die begins at this same face.
-            return vertical(at[1] - height_step + (0.9 - anchor_height),
-                at[1] + press_work_crown_rise);
+            // The compact casting rests on this level's actual floor. Its
+            // lateral horn and heel remain within the native pick body.
+            return {{at[0], center[1] * height_step + anvil_work_height * 0.5, at[2]},
+                {0.2025, anvil_work_height * 0.5, 0.14}};
         case materials::Component::ram_face:
-            return vertical(at[1] - height_step + press_work_crown_rise,
+            return vertical(center[1] * height_step - height_step + anvil_work_height,
                 at[1] + height_step * 0.5);
         case materials::Component::flat_head:
             // Reserve the entire carriage-driven die sweep. The named slide
             // may occupy its coaxial upper portion as an intentional fitting.
-            return vertical(at[1] - height_step * 0.75,
+            return vertical(center[1] * height_step - height_step + anvil_work_height,
                 at[1] + height_step * 0.5);
         case materials::Component::sliding_guide:
             // Its full selected rails reach the ram below, whether or not a
@@ -307,11 +307,14 @@ Bounds component_bounds(const world::Profile& profile,
             // span and meets the unchanged tool-mount box above.
             return vertical(at[1] - height_step * 1.5, at[1] + height_step - 0.08);
         case materials::Component::wooden_slide:
-        case materials::Component::copper_slide:
-            // Its fixed rails and moving carriage live inside this volume.
-            // The lower face is the admitted stroke limit even when unloaded.
-            return {{at[0], at[1] - height_step * 0.5, at[2]},
-                {0.21, height_step, 0.21}};
+        case materials::Component::copper_slide: {
+            // The slide rails keep their original floor clearance. The fitted
+            // flat head separately reserves the full lower die sweep.
+            const double low = at[1] - height_step * 1.5;
+            const double high = at[1] + height_step * 0.5;
+            return {{at[0], (low + high) * 0.5, at[2]},
+                {0.21, (high - low) * 0.5, 0.21}};
+        }
         case materials::Component::cutting_edge:
             return {{at[0], at[1] - 0.015, at[2]}, {0.21, 0.12, 0.18}};
         case materials::Component::receiver_tray:
@@ -358,6 +361,35 @@ bool guide_ram_fitting(std::optional<materials::Component> first,
         (*first == materials::Component::ram_face &&
                second == materials::Component::sliding_guide &&
                second_center[1] == first_center[1] + 1);
+}
+
+bool frame_anvil_fitting(std::optional<materials::Component> first,
+        const mechanics::Point& first_center, materials::Component second,
+        const mechanics::Point& second_center) {
+    if (!first || first_center[0] != second_center[0] ||
+        first_center[2] != second_center[2]) return false;
+    // The open framed press receives the anvil on its lower shelf.
+    // Their conservative occupied boxes overlap, but their actual bodies do not.
+    return (*first == materials::Component::anvil &&
+               second == materials::Component::wooden_frame &&
+               first_center[1] == second_center[1] + 1) ||
+        (*first == materials::Component::wooden_frame &&
+               second == materials::Component::anvil &&
+               second_center[1] == first_center[1] + 1);
+}
+
+bool frame_ram_fitting(std::optional<materials::Component> first,
+        const mechanics::Point& first_center, materials::Component second,
+        const mechanics::Point& second_center) {
+    if (!first || first_center[0] != second_center[0] ||
+        first_center[2] != second_center[2]) return false;
+    // The frame's open upper bed surrounds the long central ram stroke.
+    return (*first == materials::Component::ram_face &&
+               second == materials::Component::wooden_frame &&
+               first_center[1] == second_center[1] + 2) ||
+        (*first == materials::Component::wooden_frame &&
+               second == materials::Component::ram_face &&
+               second_center[1] == first_center[1] + 2);
 }
 
 bool overlap(const Bounds& a, const Bounds& b) {
@@ -1663,6 +1695,8 @@ const char* Host::component_space_refusal(const world::State& state,
         if ((!current_id || id != *current_id) &&
             !slide_head_fitting(kind, center, other.kind, other.center) &&
             !guide_ram_fitting(kind, center, other.kind, other.center) &&
+            !frame_anvil_fitting(kind, center, other.kind, other.center) &&
+            !frame_ram_fitting(kind, center, other.kind, other.center) &&
             overlap(volume, component_bounds(profile_, other.kind, other.center))) return "occupied";
     if (intersects_belt(state, volume)) return "occupied";
     for (const auto& part : state.topology.parts) {

@@ -331,7 +331,9 @@ func _component_placement_check() -> void:
 	verify(snapped == [0, 1, 0], "The anvil snaps one height step above a pointed frame top.")
 	view._refresh_component_preview()
 	verify(view.component_preview.visible and view.component_preview_kind == "anvil"
-		and view.component_preview.has_node("CastPedestal") and not view.component_preview_blocked,
+		and view.component_preview.has_node("CastAnvilWaist")
+		and view.component_preview.has_node("TaperedAnvilHorn")
+		and not view.component_preview_blocked,
 		"The frame-top anvil ghost uses the placed anvil mesh and is initially clear.")
 	verify(view.component_preview_snap == "Above wooden frame"
 		and "Aim at a floor or built surface" in view._component_placement_hint(),
@@ -339,11 +341,12 @@ func _component_placement_check() -> void:
 	var head_box: Dictionary = view._component_candidate_box("flat_head", [12, 1, 8])
 	var slide_box: Dictionary = view._component_candidate_box("copper_slide", [12, 2, 8])
 	var workbed_box: Dictionary = view._component_candidate_box("anvil", [12, 0, 8])
-	verify(absf(head_box.center.y - head_box.half.y - 0.928125) < 0.0001
+	verify(absf(head_box.center.y - head_box.half.y - 0.4125) < 0.0001
 		and absf(head_box.center.y + head_box.half.y - 1.44375) < 0.0001
 		and absf(slide_box.center.y - slide_box.half.y - 1.03125) < 0.0001
-		and head_box.center.y - head_box.half.y > workbed_box.center.y + workbed_box.half.y,
-		"The flat head preview reserves a full stroke above the passive workbed.")
+		and absf(head_box.center.y - head_box.half.y -
+			(workbed_box.center.y + workbed_box.half.y)) < 0.0001,
+		"The flat head reaches the anvil face while the slide rails keep feed clearance.")
 	view.state.placed_components["sample-head"] = {"component": "flat_head", "center": [12, 1, 8],
 		"generation": 1, "occupied": {"center": [head_box.center.x, head_box.center.y, head_box.center.z],
 		"half": [head_box.half.x, head_box.half.y, head_box.half.z]}}
@@ -386,8 +389,10 @@ func _component_placement_check() -> void:
 		- head_sample.get_node("FlatHeadMovingDie").position.y
 	var carriage_drop: float = stroked_slide.get_node("SlideCarriage").position.y \
 		- slide_sample.get_node("SlideCarriage").position.y
-	verify(absf(head_drop - carriage_drop) < 0.0001 and head_drop < -0.35,
-		"The distinct flat head follows the native half-cycle by the same travel as the carriage.")
+	verify(absf(head_drop + head_box.size.y - 0.175) < 0.0001
+		and absf(carriage_drop + slide_box.size.y - Geometry.HEIGHT_STEP - 0.175) < 0.0001
+		and head_drop < carriage_drop and carriage_drop < 0.0,
+		"The die reaches the lower work face while its driven carriage stays within the slide rails.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		camera.position = head_box.center + Vector3(1.1, 0.45, 2.4)
 		camera.look_at(head_box.center - Vector3(0, 0.18, 0))
@@ -439,9 +444,9 @@ func _component_placement_check() -> void:
 	view.aim_normal = Vector3.UP
 	verify(view._component_place_center(Vector2i.ZERO, "workbed") == [12, 1, 8],
 		"Top-face aiming retains the same fitted head socket.")
-	verify(view._guided_press_part_snap("ram_face", "anvil", [12, 0, 8], Vector3.RIGHT).is_empty()
+	verify(view._guided_press_part_snap("ram_face", "anvil", [12, 0, 8], Vector3.RIGHT).center == [12, 1, 8]
 		and view._guided_press_part_snap("flat_head", "wooden_frame", [12, 0, 8], Vector3.RIGHT).is_empty(),
-		"Side-face matching remains specific to the flat-head press pair.")
+		"A player can snap the guided ram from an anvil side without changing unrelated fittings.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		view.aim_normal = Vector3.RIGHT
 		view._refresh_component_preview()
@@ -608,12 +613,12 @@ func _component_placement_check() -> void:
 	view.aimed = "frame"
 	view.pointed_cell = Vector2i.ZERO
 	view.state.placed_components["anvil"] = {"component": "anvil", "center": [0, 1, 0],
-		"generation": 1, "occupied": {"center": [0.0, 1.10975, 0.0],
-		"half": [0.14, 0.20975, 0.14]}}
+		"generation": 1, "occupied": {"center": [0.0, 0.61875, 0.0],
+		"half": [0.2025, 0.20625, 0.14]}}
 	var placed_anvil := Node3D.new()
-	placed_anvil.position.y = 1.10975
+	placed_anvil.position.y = 0.61875
 	view.add_child(placed_anvil)
-	presenter.preview_component(placed_anvil, "anvil", Vector3(0.28, 0.4195, 0.28))
+	presenter.preview_component(placed_anvil, "anvil", Vector3(0.405, 0.4125, 0.28))
 	view._refresh_component_preview()
 	verify(view.component_preview_blocked and view.component_preview_material.albedo_color.r > 0.9
 		and view.component_preview_material.albedo_color.g < 0.4,
