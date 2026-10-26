@@ -250,6 +250,8 @@ public:
     Layout& operator=(Layout&&) = delete;
 
     [[nodiscard]] bool valid() const noexcept { return valid_; }
+    [[nodiscard]] bool has_component(const mechanics::Point& center,
+                                     materials::Component kind) const;
     [[nodiscard]] Inspection inspect_collector(const OreFace& face) const;
     [[nodiscard]] PressInspection inspect_press(const mechanics::Point& frame_center) const;
     [[nodiscard]] GuidedPressInspection inspect_guided_press(

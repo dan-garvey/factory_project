@@ -1,0 +1,92 @@
+name: Native validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install and identify pinned native toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-11 g++-11 libssl-dev
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/bazel-8.4.2" \
+            https://github.com/bazelbuild/bazel/releases/download/8.4.2/bazel-8.4.2-linux-x86_64
+          printf '%s  %s\n' \
+            4dc8e99dfa802e252dac176d08201fd15c542ae78c448c8a89974b6f387c282c \
+            "$RUNNER_TEMP/bazel-8.4.2" | sha256sum --check --status
+          chmod 755 "$RUNNER_TEMP/bazel-8.4.2"
+          test "$(cat .bazelversion)" = 8.4.2
+          git rev-parse HEAD
+          /usr/bin/gcc-11 --version | head -1
+          /usr/bin/g++-11 --version | head -1
+          "$RUNNER_TEMP/bazel-8.4.2" --version
+          openssl version
+
+      - name: Build and run native tests
+        run: |
+          set -euo pipefail
+          bazel="$RUNNER_TEMP/bazel-8.4.2"
+          output="$RUNNER_TEMP/factory-bazel"
+          "$bazel" --nosystem_rc --nohome_rc --batch --output_user_root="$output/output" \
+            query 'tests(//native/...)' --output=label
+          "$bazel" --nosystem_rc --nohome_rc --batch --output_user_root="$output/output" \
+            test --jobs=2 --repository_cache="$output/repositories" \
+            --disk_cache="$output/actions" --build_tests_only \
+            --test_tag_filters=-host //native/...
+
+      - name: Run installed-host consumers
+        run: |
+          set -euo pipefail
+          bazel="$RUNNER_TEMP/bazel-8.4.2"
+          output="$RUNNER_TEMP/factory-bazel"
+          "$bazel" --nosystem_rc --nohome_rc --batch --output_user_root="$output/output" \
+            test --jobs=2 --repository_cache="$output/repositories" \
+            --disk_cache="$output/actions" --build_tests_only \
+            --test_tag_filters=host,-local //native/...
+          "$bazel" --nosystem_rc --nohome_rc --batch --output_user_root="$output/output" \
+            test --jobs=2 --repository_cache="$output/repositories" \
+            --disk_cache="$output/actions" \
+            //native/commit-gate:coordinator_test \
+            //native/commit-gate:hook_dispatch_test
+          mkdir -p "$RUNNER_TEMP/factory-local-test"
+          "$bazel" --nosystem_rc --nohome_rc --batch --output_user_root="$output/output" \
+            test --jobs=2 --repository_cache="$output/repositories" \
+            --disk_cache="$output/actions" \
+            --test_arg="$GITHUB_WORKSPACE" \
+            --test_arg="$RUNNER_TEMP/factory-local-test" \
+            //native/tooling:local_resources_test
+
+      - name: Run World and Host ASAN/UBSAN consumers
+        run: |
+          set -euo pipefail
+          bazel="$RUNNER_TEMP/bazel-8.4.2"
+          output="$RUNNER_TEMP/factory-bazel"
+          "$bazel" --nosystem_rc --nohome_rc --batch --output_user_root="$output/output" \
+            test --jobs=2 --repository_cache="$output/repositories" \
+            --disk_cache="$output/actions" --compilation_mode=dbg \
+            --copt=-fsanitize=address,undefined --linkopt=-fsanitize=address,undefined \
+            --copt=-fno-omit-frame-pointer --test_timeout=180 \
+            --test_env=ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+            --test_env=UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+            //native/factory-world:world_test \
+            //native/factory-world:checkpoint_test \
+            //native/factory-godot-world:host_test \
+            //native/factory-godot-world:press_assembly_host_test \
+            //native/factory-godot-world:harvest_host_test

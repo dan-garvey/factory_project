@@ -13,6 +13,29 @@ is a setup failure: keep its log and import the unchanged project before trying
 the intended component check. A zero Godot exit does not override a script-load
 error or a partial PASS line.
 
+`parts_view_check.gd` runs its default parts display suite with no user arguments,
+or one named `--...-only` suite. An unknown or repeated selector exits 2 before
+any suite starts; capture paths are accepted only with their corresponding
+suite. Select the exact completion line emitted by that suite when using this
+runner. The default suite emits an `OPENING_PARTS_VIEW_PASS` count, while
+`--buttons-only` emits its JSON status and check count. These are
+scripted view checks, not native gameplay, rendered, or human-play evidence.
+
+`machine_detail_check.gd` likewise runs its default geometry suite only with
+no user arguments. Select one direct check mode at a time; the retired
+one-cell conveyor selectors deliberately fail. Asset preparation takes its
+named `--prepare-...` selector first, followed by that case's required path
+arguments. `--render-buildable-resources` may combine its declared
+`--...-check` prerequisites; `--foot-seat-geometry` applies only to
+`--wheel-foot-seats-only`. Unknown, duplicate, conflicting or orphan options
+exit 2 before any case runs. Existing suite-specific completion and exit
+contracts remain; resource renders are isolated passive evidence.
+
+`guidance_cue_check.gd --mouse-look-only` emits `OPENING_MOUSE_LOOK_PASS 15`.
+It checks first-person capture policy, relative camera motion, menu release and
+held-key refusal in a headless view. It does not establish actual OS focus or
+human mouse control.
+
 Build `//native/godot-fixture:factory-godot-fixture` with the verified Bazel
 8.4.2 toolchain described in [native builds](../../docs/engineering/native-builds.md).
 Then run from a linked checkout, substituting existing absolute paths, the

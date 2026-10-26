@@ -32,13 +32,43 @@ argument errors exit 2, wrapper failures 1, child exits pass through, and
 signals return `128 + signal`. Cheap checks remain available below the floors.
 
 Keep build outputs, caches and evidence in owned external families with their
-declared bounds. Preserve failed runs and unrelated artifacts. Separate compiler
-and engine resource profiles: a compiler address-space cap must not accidentally
-carry into Godot import/startup. Admission does not require a per-process cap.
+declared bounds. Separate compiler and engine resource profiles: a compiler
+address-space cap must not accidentally carry into Godot import/startup.
+Admission does not require a per-process cap.
+
+## Artifact lifecycle
+
+Beads retains conclusions, revisions and evidence limits; it does not require
+permanent copies of every referenced file. Keep only the logs, reproductions and
+selected images needed for an active investigation or review. Retire generated
+build trees, imported projects, duplicate caches and routine captures when the
+run is inactive and its result is recorded. Completed work needs no permanent
+failed-run directory or screenshot archive. Preserve the historical failure
+outcome rather than relabeling it as a later success. Record retired paths in
+the owning Bead or a linked cleanup record so historical references remain clear.
+
+Check running processes, current main/worktree configuration and installed
+executable, library and runfile dependencies before cleanup. Never remove live
+files or locks. Owners clean their inactive outputs at task completion; coordinate
+shared cleanup through Beads. Explicit user-directed cleanup authorizes retiring
+obsolete shared artifacts without collecting fresh permission from every former
+owner. Current useful playtesting saves may be kept; incompatible development
+saves need no migration or retention unless an active bug specifically needs one.
+
+Reuse a bounded cache rather than opening new families whenever one fills.
+The default aggregate targets across families are 20 GiB of regenerable outputs
+and caches and 5 GiB of diagnostic captures, excluding installed tools and useful
+current saves. These are cleanup targets, not weaker admission floors. Retire
+unneeded material before allocating another family. Review remaining diagnostic
+captures after seven days; an exception must name its owner, active need and
+expiry condition in Beads. Keep compact source/result records instead of entire
+runtime bundles, and record any necessary temporary budget exception.
 
 Build the tool with `//native/tooling:factory-local`. The host test
-`//native/tooling:local_resources_test` takes the canonical linked checkout and
-an owned fixture directory as test arguments; it uses synthetic permits, not the
+`//native/tooling:local_resources_test` accepts a direct or canonically linked
+checkout and an owned fixture directory as optional test arguments. Without
+them, Bazel's test temporary directory holds a self-contained checkout. Both
+routes create a disposable linked worktree and use synthetic permits, not the
 real checkout's lanes. Follow [native builds](native-builds.md).
 
 This wrapper does not isolate the whole machine. Record workload/environment

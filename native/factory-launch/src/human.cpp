@@ -13,6 +13,7 @@
 #include <map>
 #include <spawn.h>
 #include <stdexcept>
+#include <string_view>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <thread>
@@ -32,6 +33,56 @@ bool digest(const std::string& value, std::size_t size) {
     return value.size() == size && std::all_of(value.begin(), value.end(), [](unsigned char c) {
         return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
     });
+}
+bool valid_purpose(std::string_view value) {
+    std::size_t count = 0;
+    bool visible = false;
+    for (std::size_t i = 0; i < value.size();) {
+        const auto first = static_cast<unsigned char>(value[i]);
+        std::uint32_t point = 0;
+        std::size_t width = 0;
+        if (first < 0x80) { point = first; width = 1; }
+        else if (first >= 0xc2 && first <= 0xdf) { point = first & 0x1f; width = 2; }
+        else if (first >= 0xe0 && first <= 0xef) { point = first & 0x0f; width = 3; }
+        else if (first >= 0xf0 && first <= 0xf4) { point = first & 0x07; width = 4; }
+        else return false;
+        if (width > value.size() - i) return false;
+        for (std::size_t j = 1; j < width; ++j) {
+            const auto byte = static_cast<unsigned char>(value[i + j]);
+            if ((byte & 0xc0) != 0x80) return false;
+            point = (point << 6) | (byte & 0x3f);
+        }
+        if ((width == 3 && point < 0x800) || (width == 4 && point < 0x10000) ||
+            (point >= 0xd800 && point <= 0xdfff) || point > 0x10ffff ||
+            point < 0x20 || (point >= 0x7f && point <= 0x9f) ||
+            point == 0x2028 || point == 0x2029 || point == 0x061c ||
+            point == 0x200e || point == 0x200f ||
+            (point >= 0x202a && point <= 0x202e) ||
+            (point >= 0x2066 && point <= 0x2069)) return false;
+        const bool invisible = point == 0x20 || point == 0xa0 || point == 0x1680 ||
+            (point >= 0x2000 && point <= 0x200a) || point == 0x202f ||
+            point == 0x205f || point == 0x3000 ||
+            point == 0xad || point == 0x034f || point == 0x180e ||
+            (point >= 0x200b && point <= 0x200d) ||
+            (point >= 0x2060 && point <= 0x2064) ||
+            (point >= 0xfe00 && point <= 0xfe0f) || point == 0xfeff;
+        visible |= !invisible;
+        if (++count > 60) return false;
+        i += width;
+    }
+    return visible;
+}
+void require_purpose(const std::string& value) {
+    require(valid_purpose(value),
+        "Usage: --test-purpose TEXT must be 1-60 single-line Unicode characters with visible text.");
+}
+void install_handlers() {
+    struct sigaction action{};
+    action.sa_handler = stop;
+    ::sigemptyset(&action.sa_mask);
+    require(::sigaction(SIGINT, &action, nullptr) == 0 &&
+            ::sigaction(SIGTERM, &action, nullptr) == 0,
+            "Cannot install launch cancellation handlers.");
 }
 std::string regular(const fs::path& path, std::size_t limit) {
     const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
@@ -118,13 +169,15 @@ int graphical(const std::vector<std::string>& command) {
         ~Child() {
             if (pid <= 0) return;
             ::kill(-pid, SIGTERM);
-            std::this_thread::sleep_for(100ms);
+            // The admission wrapper and engine inherit this group. Give the
+            // engine its shutdown window before enforcing the final stop.
+            std::this_thread::sleep_for(3s);
             ::kill(-pid, SIGKILL);
             int status = 0;
             while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
         }
     } child{pid};
-    const auto deadline = std::chrono::steady_clock::now() + 1830s;
+    const auto deadline = std::chrono::steady_clock::now() + 1800s;
     while (true) {
         require(cancelled == 0, "The graphical launch was cancelled.");
         siginfo_t info{};
@@ -148,26 +201,31 @@ int graphical(const std::vector<std::string>& command) {
 int human_launch(int argc, char** argv) {
     fs::path session;
     try {
-        struct sigaction action{};
-        action.sa_handler = stop;
-        ::sigemptyset(&action.sa_mask);
-        require(::sigaction(SIGINT, &action, nullptr) == 0 &&
-                ::sigaction(SIGTERM, &action, nullptr) == 0,
-                "Cannot install launch cancellation handlers.");
+        install_handlers();
         std::map<std::string, std::string> options;
         bool session_only = false;
+        bool agent = false;
         for (int i = 0; i < argc; ++i) {
             const std::string name(argv[i]);
             if (name == "--prepare-session-only") {
                 require(!session_only, "Use each launch option once.");
                 session_only = true;
+            } else if (name == "--agent") {
+                require(!agent, "Use each launch option once.");
+                agent = true;
             } else {
                 require(i + 1 < argc && (name == "--repo" || name == "--tree" || name == "--engine" ||
                         name == "--engine-sha256" || name == "--library" || name == "--library-sha256" ||
-                        name == "--sessions" || name == "--admission" || name == "--resume") &&
+                        name == "--sessions" || name == "--admission" || name == "--resume" ||
+                        name == "--test-purpose") &&
                         options.emplace(name, argv[++i]).second, "Use each documented launch option once.");
             }
         }
+        require(!agent || (!session_only && options.count("--test-purpose")),
+                "Usage: graphical --agent requires --test-purpose TEXT.");
+        require(agent || !options.count("--test-purpose"),
+                "Use --test-purpose only with the explicit agent graphical mode.");
+        if (agent) require_purpose(options.at("--test-purpose"));
         for (const auto* name : {"--repo", "--tree", "--engine", "--engine-sha256", "--library",
                                   "--library-sha256", "--sessions", "--admission"})
             require(options.count(name), std::string("Missing launch option: ") + name);
@@ -218,11 +276,12 @@ int human_launch(int argc, char** argv) {
             return 0;
         }
         std::vector<std::string> command{admission.string(), "--root", repo.string(), "heavy", "--",
-            "/usr/bin/timeout", "--kill-after=3s", "1800", engine.string(), "--path",
+            engine.string(), "--path",
             (session / "native/runtime/project").string(), "res://opening/opening.tscn", "--",
             "--save-slot=" + (session / "player.factory").string()};
         if (options.count("--resume"))
             command.push_back("--resume-input=" + (session / "native/incoming.factory").string());
+        if (agent) command.push_back("--test-purpose=" + options.at("--test-purpose"));
         std::cout << "Opening Factory. Session and save: " << session << std::endl;
         const int code = graphical(command);
         require(code == 0, "The graphical engine exited " + std::to_string(code) + ".");
@@ -230,6 +289,118 @@ int human_launch(int argc, char** argv) {
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Factory could not finish launching: " << error.what() << '\n';
+        if (!session.empty()) std::cerr << "Retained session: " << session << '\n';
+        return cancelled ? 128 + cancelled : 1;
+    }
+}
+
+int agent_window_launch(int argc, char** argv) {
+    fs::path session;
+    try {
+        install_handlers();
+        std::map<std::string, std::string> options;
+        std::vector<std::string> user_arguments;
+        for (int i = 0; i < argc; ++i) {
+            const std::string name(argv[i]);
+            if (name == "--") {
+                while (++i < argc) user_arguments.emplace_back(argv[i]);
+                break;
+            }
+            require(i + 1 < argc && (name == "--repo" || name == "--tree" ||
+                    name == "--engine" || name == "--engine-sha256" ||
+                    name == "--library" || name == "--library-sha256" ||
+                    name == "--sessions" || name == "--admission" || name == "--test-purpose" ||
+                    name == "--scene" || name == "--script") &&
+                    options.emplace(name, argv[++i]).second,
+                    "Usage: --agent-window needs one scene or script and --test-purpose TEXT.");
+        }
+        for (const auto* name : {"--repo", "--tree", "--engine", "--engine-sha256",
+                                  "--library", "--library-sha256", "--sessions",
+                                  "--admission", "--test-purpose"})
+            require(options.count(name), "Usage: --agent-window needs source, engine and --test-purpose TEXT.");
+        require(options.count("--scene") + options.count("--script") == 1,
+                "Usage: --agent-window needs exactly one --scene or --script.");
+        require_purpose(options.at("--test-purpose"));
+        require(user_arguments.size() <= 64, "Too many agent window arguments.");
+        for (const auto& argument : user_arguments)
+            require(argument.size() <= 4096 && argument.find('\n') == std::string::npos &&
+                    argument.find('\r') == std::string::npos &&
+                    !argument.starts_with("--test-purpose="),
+                    "Agent window arguments must be single-line and bounded.");
+        const fs::path repo(options.at("--repo")), engine(options.at("--engine"));
+        const fs::path library(options.at("--library")), admission(options.at("--admission"));
+        const fs::path root(options.at("--sessions"));
+        const auto tree = options.at("--tree");
+        require(repo.is_absolute() && fs::canonical(repo) == repo && digest(tree, 40),
+                "Use a canonical committed main checkout.");
+        require(root != repo && root.string().rfind(repo.string() + "/", 0) != 0,
+                "Keep native sessions outside the source checkout.");
+        current(repo, tree);
+        sealed(engine, options.at("--engine-sha256"), 512 * 1024 * 1024, true);
+        sealed(library, options.at("--library-sha256"), 64 * 1024 * 1024, false);
+        require(admission.is_absolute() && fs::is_regular_file(admission) &&
+                ::access(admission.c_str(), X_OK) == 0,
+                "The resource admission helper is unavailable.");
+        const auto project = repo / "experiments/engine-environment/godot";
+        require(fs::canonical(project) == project && fs::is_regular_file(project / "project.godot"),
+                "The tracked Godot project is unavailable.");
+        const bool script = options.count("--script");
+        const auto target = options.at(script ? "--script" : "--scene");
+        require(script ? (target == "res://opening/parts_view_check.gd" ||
+                          target == "res://opening/native_adapter_check.gd" ||
+                          target == "res://opening/native_transmission_view_check.gd" ||
+                          target == "res://opening/worker_wardrobe_view_check.gd") :
+                         target == "res://opening/shared_opening.tscn",
+                "This agent window target has no verified title initialization.");
+        require(target.starts_with("res://") && target.size() <= 256,
+                "Use a project-relative scene or script.");
+        const fs::path relative(target.substr(6));
+        require(!relative.empty() && !relative.is_absolute() &&
+                relative.lexically_normal() == relative &&
+                relative.extension() == (script ? ".gd" : ".tscn") &&
+                std::none_of(relative.begin(), relative.end(), [](const fs::path& part) {
+                    return part == "." || part == "..";
+                }) && fs::is_regular_file(project / relative) &&
+                fs::canonical(project / relative) == project / relative,
+                "The selected scene or script is not a tracked project file.");
+        session = make_session(root);
+        const auto descriptor_bytes = git(repo, {"show", tree + ":native/factory-godot-world/native-world.gdextension"},
+                                          1024 * 1024);
+        const auto descriptor = session / "native-world.gdextension";
+        write_new(descriptor, descriptor_bytes);
+        const auto descriptor_digest = sha256(descriptor_bytes);
+        current(repo, tree);
+        const auto self = fs::canonical("/proc/self/exe");
+        std::vector<std::string> startup{(repo / "scripts/run-human-startup.sh").string(),
+            repo.string(), admission.string(), self.string()};
+        startup.insert(startup.end(), {"--repo", repo.string(), "--tree", tree,
+            "--output", (session / "native").string(), "--godot", engine.string(),
+            "--engine-sha256", options.at("--engine-sha256"),
+            "--admission", admission.parent_path().string(),
+            "--native-descriptor", descriptor.string(),
+            "--native-descriptor-sha256", descriptor_digest,
+            "--native-descriptor-relative", "native-world.gdextension",
+            "--native-library", library.string(),
+            "--native-library-sha256", options.at("--library-sha256"),
+            "--native-library-relative", "factory-native-world.so"});
+        std::cout << "Preparing agent window project: " << session << std::endl;
+        const auto result = run_process(startup, 360s, 8 * 1024 * 1024, &cancelled, true);
+        std::cout << result.output << std::flush;
+        require(result.exit_code == 0, "Native startup failed; inspect the retained session logs.");
+        current(repo, tree);
+        sealed(engine, options.at("--engine-sha256"), 512 * 1024 * 1024, true);
+        sealed(library, options.at("--library-sha256"), 64 * 1024 * 1024, false);
+        std::vector<std::string> command{admission.string(), "--root", repo.string(), "heavy", "--",
+            engine.string(), "--path", (session / "native/runtime/project").string()};
+        if (script) command.push_back("--script");
+        command.insert(command.end(), {target, "--", "--test-purpose=" + options.at("--test-purpose")});
+        command.insert(command.end(), user_arguments.begin(), user_arguments.end());
+        std::cout << "Opening agent window: " << options.at("--test-purpose") << std::endl;
+        const int code = graphical(command);
+        require(code == 0, "The graphical engine exited " + std::to_string(code) + ".");
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "Agent window refused: " << error.what() << '\n';
         if (!session.empty()) std::cerr << "Retained session: " << session << '\n';
         return cancelled ? 128 + cancelled : 1;
     }

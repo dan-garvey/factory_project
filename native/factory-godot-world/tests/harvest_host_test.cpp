@@ -486,6 +486,66 @@ void flat_head_host_custody() {
                   "sliding_press_assemblies").front().storage())), "selected_exit")),
               V(A{V(I{11}), V(I{0}), V(I{8})})),
           "Refitting the head restores a ready assembly while the chosen output remains fixed.");
+    Host direct;
+    const auto direct_start = restored.checkpoint();
+    check(get<bool>(direct.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(direct.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(direct.restore_checkpoint(direct_start), "accepted") &&
+          get<bool>(direct.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "A fresh worker resumes the same finite routed blank beside its fitted crank.");
+    I direct_work_id = 0;
+    bool direct_plate = false;
+    for (int index = 0; index < 68 && !direct_plate; ++index) {
+        const auto pulse = direct.command("P", O{
+            {"context", V("flat-head-site")}, {"client", V("P")},
+            {"request", V("direct-slide-pulse-" + std::to_string(index))},
+            {"action", V("operate_hand_crank")}, {"entity", V(cranks.begin()->first)}});
+        if (!get<bool>(pulse, "accepted"))
+            throw std::runtime_error("Direct fitted crank pulse refused: " +
+                get<std::string>(pulse, "reason"));
+        const auto projected = direct.projection();
+        for (const auto& value : get<A>(projected, "dropped_material")) {
+            const auto& center = get<A>(value, "center");
+            if (factory::values::typed_difference(V(center),
+                    V(A{V(I{12}), V(I{0}), V(I{8})}))) continue;
+            const auto& lots = get<A>(value, "work_lots");
+            if (lots.size() == 1)
+                direct_work_id = get<I>(lots.front(), "id");
+        }
+        if (direct_work_id > 0 && index < 8)
+            check(get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
+                  "The first direct source contact retains exact partial work and phase on save.");
+        for (const auto& value : get<A>(projected, "dropped_material")) {
+            const auto& dropped = std::get<O>(value.storage());
+            if (!factory::values::typed_difference(V(get<A>(V(dropped), "center")),
+                    V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+                get<I>(V(dropped), "products") == 1) direct_plate = true;
+        }
+    }
+    check(direct_work_id > 0,
+          "An exterior source pulse converts the routed blank into identified native work.");
+    check(direct_plate,
+          "Held exterior crank pulses finish the identified plate at its selected native outlet.");
+    check(get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
+          "The direct formed plate and its finite work identity survive checkpoint replay.");
+    O direct_output;
+    const auto direct_projection = direct.projection();
+    for (const auto& value : get<A>(direct_projection, "dropped_material")) {
+        const auto& dropped = std::get<O>(value.storage());
+        if (!factory::values::typed_difference(V(get<A>(V(dropped), "center")),
+                V(A{V(I{11}), V(I{0}), V(I{8})}))) direct_output = dropped;
+    }
+    direct_output.erase("center");
+    const auto direct_pickup = direct.command("P", O{
+        {"context", V("flat-head-site")}, {"client", V("P")},
+        {"request", V("direct-slide-pickup")}, {"action", V("pickup_material")},
+        {"center", V(A{V(I{11}), V(I{0}), V(I{8})})},
+        {"expected", V(direct_output)}});
+    check(get<bool>(direct_pickup, "accepted") &&
+          get<I>(direct_pickup, "press_output_work_id") == direct_work_id &&
+          get<I>(get<O>(direct.projection(), "cargo").at("P"), "products") == 1 &&
+          get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
+          "Picking up the source-formed plate preserves the exact claim and saved route history.");
     const auto first_contact = resumed("first-slide-contact", "turn_slide_crank",
         {{"entity", V(slide_id)}, {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
     if (!get<bool>(first_contact, "accepted"))
@@ -628,6 +688,26 @@ void flat_head_host_custody() {
     if (!get<bool>(blocker, "accepted"))
         throw std::runtime_error("Slide outlet blocker refused: " +
             get<std::string>(blocker, "reason"));
+    Host blocked_direct;
+    const auto blocked_saved = restored.checkpoint();
+    check(get<bool>(blocked_direct.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(blocked_direct.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(blocked_direct.restore_checkpoint(blocked_saved), "accepted") &&
+          get<bool>(blocked_direct.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "The blocked outlet also restores with the same partly worked blank and crank.");
+    const auto blocked_work = get<A>(blocked_direct.projection(), "dropped_material");
+    for (int index = 0; index < 4; ++index) {
+        const auto pulse = blocked_direct.command("P", O{
+            {"context", V("flat-head-site")}, {"client", V("P")},
+            {"request", V("blocked-direct-pulse-" + std::to_string(index))},
+            {"action", V("operate_hand_crank")}, {"entity", V(cranks.begin()->first)}});
+        check(get<bool>(pulse, "accepted") &&
+              !factory::values::typed_difference(
+                  V(blocked_work), V(get<A>(blocked_direct.projection(), "dropped_material"))),
+              "A full direct source cycle cannot work or discharge through a blocked outlet.");
+    }
+    check(get<bool>(blocked_direct.validate_checkpoint(blocked_direct.checkpoint()), "accepted"),
+          "A blocked direct stroke retains the partial WorkId and exact saved phase.");
     const auto turn = [&](const std::string& request) {
         return resumed(request.c_str(), "turn_slide_crank",
             {{"entity", V(slide_id)}, {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
@@ -737,9 +817,22 @@ void flat_head_host_custody() {
     tray_command("tray-route-craft", "field_craft", {{"component", V("receiver_tray")}});
     check(get<bool>(tray_host.publish_actor("Q", {V(3.3), V(1.0), V(1.65)}, 4), "accepted"),
           "The worker can place a receiver beside, rather than inside, the workbed outlet.");
-    const auto tray = tray_command("tray-route-place", "place_component",
+    auto tray = tray_command("tray-route-place", "place_component",
         {{"component", V("receiver_tray")},
          {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+    tray_command("tray-route-remove", "reclaim_component",
+        {{"entity", V(get<std::string>(tray, "entity"))}});
+    const auto removed_tray = std::get<O>(get<A>(tray_host.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(get<A>(V(removed_tray), "open_feeds").size() == 2 &&
+          get<bool>(tray_host.validate_checkpoint(tray_host.checkpoint()), "accepted"),
+          "Removing the empty tray restores both physical slide outlets and invalidates the tick layout.");
+    const auto old_tray_id = get<std::string>(tray, "entity");
+    tray = tray_command("tray-route-replace", "place_component",
+        {{"component", V("receiver_tray")},
+         {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+    check(get<std::string>(tray, "entity") != old_tray_id,
+          "The replacement receiver has its own issued identity at the same selected exit.");
     const auto tray_press = std::get<O>(get<A>(tray_host.projection(),
         "sliding_press_assemblies").front().storage());
     const auto tray_feed = get<O>(V(tray_press), "auto_feed");
@@ -788,6 +881,48 @@ void flat_head_host_custody() {
           !factory::values::typed_difference(V(get<A>(V(tray_rejoined), "selected_exit")),
               V(A{V(I{11}), V(I{0}), V(I{8})})),
           "The restored Auto projection still agrees with the native tray-backed work route.");
+    check(get<bool>(tray_restored.publish_actor("Q", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "The restored worker can reach the exterior crank beside the tray-backed slide.");
+    I tray_work_id = 0;
+    O tray_output;
+    for (int index = 0; index < 68 && tray_output.empty(); ++index) {
+        O pulse{{"context", V("flat-head-site")}, {"client", V("Q")},
+            {"request", V("tray-contact-pulse-" + std::to_string(index))},
+            {"action", V("operate_hand_crank")}, {"entity", V(cranks.begin()->first)}};
+        const auto turned = tray_restored.command("Q", pulse);
+        if (!get<bool>(turned, "accepted"))
+            throw std::runtime_error("Tray-backed crank pulse refused: " +
+                get<std::string>(turned, "reason"));
+        const auto projected = tray_restored.projection();
+        for (const auto& value : get<A>(projected, "dropped_material")) {
+            const auto& drop = std::get<O>(value.storage());
+            const auto& center = get<A>(value, "center");
+            if (!factory::values::typed_difference(V(center),
+                    V(A{V(I{12}), V(I{0}), V(I{8})})) &&
+                get<A>(value, "work_lots").size() == 1)
+                tray_work_id = get<I>(get<A>(value, "work_lots").front(), "id");
+            if (!factory::values::typed_difference(V(center),
+                    V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+                get<I>(value, "products") == 1) tray_output = drop;
+        }
+    }
+    check(tray_work_id > 0 && !tray_output.empty() &&
+          get<bool>(tray_restored.validate_checkpoint(tray_restored.checkpoint()), "accepted"),
+          "The indexed replacement tray receives an identified plate from native crank ticks after reload.");
+    tray_output.erase("center");
+    const auto tray_pickup = tray_restored.command("Q", O{
+        {"context", V("flat-head-site")}, {"client", V("Q")},
+        {"request", V("tray-contact-pickup")}, {"action", V("pickup_material")},
+        {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}, {"expected", V(tray_output)}});
+    if (!get<bool>(tray_pickup, "accepted"))
+        throw std::runtime_error("Tray-backed plate pickup refused: " +
+            get<std::string>(tray_pickup, "reason"));
+    const auto tray_ids = get<A>(V(tray_pickup), "press_output_work_ids");
+    check(tray_ids.size() == 1 &&
+          std::get<I>(tray_ids.front().storage()) == tray_work_id &&
+          get<I>(get<O>(tray_restored.projection(), "cargo").at("Q"), "products") == 2 &&
+          get<bool>(tray_restored.validate_checkpoint(tray_restored.checkpoint()), "accepted"),
+          "Tray pickup keeps the exact finite WorkId after receiver replacement and checkpoint replay.");
     Host unlocked_restored;
     check(get<bool>(unlocked_restored.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
           get<bool>(unlocked_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&

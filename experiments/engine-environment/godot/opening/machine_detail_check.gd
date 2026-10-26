@@ -18,6 +18,34 @@ const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const TransmissionAssets = preload("res://opening/native_transmission_assets.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
+const DIRECT_MODES := [
+	"--paddle-hardware-only", "--paddle-grain-only", "--span-belt-only",
+	"--foundation-art-only", "--press-input-clearance-only",
+	"--collector-input-support-only", "--drive-journal-only", "--satin-coating-only",
+	"--collector-rear-service-only", "--collector-bearing-seat-only",
+	"--collector-tooling-only", "--press-output-tray-only", "--press-die-only",
+	"--cutter-guard-only", "--conveyor-hub-only", "--conveyor-frame-only",
+	"--diagnose-retired-conveyor-hub", "--diagnose-retired-conveyor-frame",
+	"--press-crown-only", "--wheel-foot-seats-only", "--feed-sleeves-only",
+	"--wheel-supports-only", "--river-piers-only", "--collector-coating-only",
+	"--historical-coating-only", "--paddles-only", "--historical-paddles-only",
+	"--machine-skid-only", "--collector-frame-only", "--conveyor-only",
+	"--historical-conveyor-only", "--sourced-press-only", "--historical-press-only",
+	"--wheel-resource-contract-only", "--sourced-wheel-material-only",
+	"--historical-wheel-only", "--sourced-wheel-only",
+]
+const PREPARATION_MODES := [
+	"--prepare-paddle-maps", "--prepare-conveyor-maps", "--prepare-waterwheel-maps",
+	"--prepare-wheel-center-color", "--prepare-press-support-maps",
+	"--prepare-coupling-maps",
+]
+const RENDER_CHECKS := [
+	"--paddle-hardware-check", "--paddle-grain-check", "--span-belt-check",
+	"--wheel-supports-check", "--press-input-clearance-check", "--foundation-art-check",
+	"--drive-journal-mount-check", "--drive-journal-check",
+	"--collector-input-support-check", "--satin-coating-check",
+	"--collector-rear-service-check",
+]
 var checks := 0
 var failed := false
 var max_tangent_dot := 0.0
@@ -1406,10 +1434,23 @@ func check_wheel_foot_seats() -> void:
 				if child is MeshInstance3D and child.get_meta("wheel_support_role", "") == "WheelStand":
 					stands.append(child)
 					var bounds: AABB = child.mesh.get_aabb()
-					var expected := AABB(Vector3(-0.195, 0.24, -0.195), Vector3(0.39, 0.22, 0.39)) if axis_index == 1 else AABB(Vector3(-0.19, 0.24, -0.09), Vector3(0.38, 0.38, 0.18))
-					var stand_scale := Vector3(scale_factor, scale_factor if axis_index == 1 else Geometry.ANCHOR_HEIGHT / 0.78, scale_factor)
-					verify(bounds.position.is_equal_approx(expected.position * stand_scale) and bounds.size.is_equal_approx(expected.size * stand_scale),
-						"Stand bounds retain the original width while reaching the shared axle height.")
+					var height_factor := Geometry.ANCHOR_HEIGHT / 0.78
+					var expected := AABB(Vector3(-0.195, 0.24, -0.195) * scale_factor,
+						Vector3(0.39, 0.22, 0.39) * scale_factor)
+					if axis_index != 1:
+						var base := Vector3(-0.19 * scale_factor, 0.24 * height_factor, -0.09 * scale_factor)
+						var top := Geometry.ANCHOR_HEIGHT - 0.17 * scale_factor
+						expected = AABB(base, Vector3(0.38 * scale_factor, top - base.y, 0.18 * scale_factor))
+					verify(bounds.position.is_equal_approx(expected.position) and bounds.size.is_equal_approx(expected.size),
+						"Stand retains its selected width and reaches the bearing underside.")
+					var suffix := str(child.name).trim_prefix("WheelStand")
+					var bearing := machine.get_node_or_null("AxleBearing" + suffix) as MeshInstance3D
+					verify(bearing != null, "Every stand has its corresponding fixed bearing.")
+					if bearing != null:
+						var bearing_box: AABB = bearing.transform * bearing.mesh.get_aabb()
+						var contact: float = child.position.y + bounds.end.y - bearing_box.position.y
+						verify(contact > 0.005 * scale_factor and contact < 0.03 * scale_factor,
+							"The stand enters its bearing underside without a visible gap or excessive overlap.")
 					if OS.get_cmdline_user_args().has("--foot-seat-geometry") and not checked_shapes.has(axis_index == 1):
 						var volume_scale := pow(scale_factor, 3) * (1.0 if axis_index == 1 else Geometry.ANCHOR_HEIGHT / 0.5)
 						check_closed_asset_mesh(child.mesh, (0.014 if axis_index == 1 else 0.010) * volume_scale,
@@ -5901,7 +5942,53 @@ func render_buildable_resources() -> void:
 		"gameplay": "not_run", "desktop_control": "not_used", "human_quality": "not_assessed"}))
 	quit(0)
 
+func _selection_error(reason: String) -> bool:
+	push_error(reason)
+	quit(2)
+	return false
+
+func _valid_selection() -> bool:
+	var args := OS.get_cmdline_user_args()
+	var primary := DIRECT_MODES + PREPARATION_MODES + ["--render-buildable-resources"]
+	var selected := ""
+	var companions: Array[String] = []
+	var positional: Array[String] = []
+	for argument: String in args:
+		if argument in primary:
+			if not selected.is_empty():
+				return _selection_error("Select exactly one machine-detail fixture mode.")
+			selected = argument
+		elif argument in RENDER_CHECKS or argument == "--foot-seat-geometry":
+			if argument in companions:
+				return _selection_error("Duplicate machine-detail fixture modifier: " + argument)
+			companions.append(argument)
+		elif argument.begins_with("--"):
+			return _selection_error("Unknown machine-detail fixture option: " + argument)
+		else:
+			positional.append(argument)
+	if selected.is_empty():
+		return true if args.is_empty() else _selection_error("The default machine-detail suite takes no arguments.")
+	if selected in PREPARATION_MODES:
+		var expected := 2 if selected == "--prepare-wheel-center-color" else 3
+		if args[0] != selected or args.size() != expected or not companions.is_empty():
+			return _selection_error("The selected map preparation needs its own positional inputs.")
+	elif selected == "--render-buildable-resources":
+		if not positional.is_empty():
+			return _selection_error("Resource rendering accepts only declared check modifiers.")
+		for companion in companions:
+			if companion not in RENDER_CHECKS:
+				return _selection_error("Resource rendering received an unrelated modifier.")
+	else:
+		if not positional.is_empty():
+			return _selection_error("The selected machine-detail check takes no positional inputs.")
+		for companion in companions:
+			if selected != "--wheel-foot-seats-only" or companion != "--foot-seat-geometry":
+				return _selection_error("The selected machine-detail check received an unrelated modifier.")
+	return true
+
 func _initialize() -> void:
+	if not _valid_selection():
+		return
 	if OS.get_cmdline_user_args().has("--paddle-hardware-only"):
 		check_paddle_hardware()
 		verify(paddle_hardware_checks_complete, "All twelve fitted wheel assemblies must pass.")

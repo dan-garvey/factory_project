@@ -19,12 +19,26 @@ digest=$6
     exit 1
 }
 
-# Keep this list in step with startup_paths in native/gameplay-build/build.cpp.
-startup_paths=(
-    .bazelrc MODULE.bazel MODULE.bazel.lock
-    native/factory-launch/src native/factory-launch/include native/factory-launch/BUILD.bazel
-    native/build-support/runner.cpp native/build-support/runner.hpp native/build-support/BUILD.bazel
-)
+manifest_path=native/gameplay-build/production-paths.txt
+manifest=$(git -C "$project" show "$revision:$manifest_path") || {
+    printf 'Cannot read the committed startup dependency manifest.\n' >&2
+    exit 1
+}
+startup_paths=("$manifest_path")
+declare -A seen_paths=()
+while IFS= read -r line; do
+    [[ $line =~ ^(startup|gameplay)\ ([a-zA-Z0-9._/-]+)$ ]] || {
+        printf 'Invalid production dependency manifest.\n' >&2; exit 1;
+    }
+    component=${BASH_REMATCH[1]}
+    path=${BASH_REMATCH[2]}
+    [[ $path != /* && $path != *..* && $path != *//* && ! -v seen_paths[$line] ]] || {
+        printf 'Unsafe or duplicate production dependency path.\n' >&2; exit 1;
+    }
+    seen_paths[$line]=1
+    if [[ $component == startup ]]; then startup_paths+=("$path"); fi
+done <<< "$manifest"
+(( ${#startup_paths[@]} > 1 )) || { printf 'The startup dependency manifest is empty.\n' >&2; exit 1; }
 source_current=false
 if git -C "$project" diff --quiet "$source_revision" "$revision" -- "${startup_paths[@]}"; then
     source_current=true

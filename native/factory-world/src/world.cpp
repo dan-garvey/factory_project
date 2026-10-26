@@ -256,6 +256,35 @@ std::optional<bool> hand_slide_contact(const State::SlidePhase& before,
             (after.subticks == bottom && after.remainder == 0));
 }
 
+std::optional<bool> powered_slide_contact(const State::SlidePhase& before,
+        mechanics::Rate rate) {
+    if (rate.denominator <= 0 || before.denominator <= 0 ||
+        before.subticks < 0 || before.subticks >= slide_cycle_subticks ||
+        before.remainder < 0 || before.remainder >= before.denominator)
+        return std::nullopt;
+    if (rate.numerator == 0) return false;
+    __extension__ using Wide = __int128;
+    Wide magnitude = rate.numerator;
+    if (magnitude < 0) magnitude = -magnitude;
+    const Wide distance = magnitude * materials::work_subticks_per_tick;
+    // One native material step can make one contact. A faster shaft still
+    // crosses the die's bottom at least once during this tick.
+    if (distance >= static_cast<Wide>(slide_cycle_subticks) * rate.denominator)
+        return true;
+    const auto divisor = std::gcd(before.denominator, rate.denominator);
+    const Wide common = static_cast<Wide>(before.denominator / divisor) * rate.denominator;
+    if (common > std::numeric_limits<Integer>::max()) return std::nullopt;
+    const Wide cycle = static_cast<Wide>(slide_cycle_subticks) * common;
+    const Wide bottom = cycle / 2;
+    const Wide prior = static_cast<Wide>(before.subticks) * common +
+        static_cast<Wide>(before.remainder) * (common / before.denominator);
+    const Wide travel = distance * (common / rate.denominator);
+    const Wide to_bottom = rate.numerator > 0 ?
+        (prior < bottom ? bottom - prior : cycle - prior + bottom) :
+        (prior > bottom ? prior - bottom : prior + cycle - bottom);
+    return travel >= to_bottom;
+}
+
 bool weighted_add(Integer& total, Integer count, Integer unit) {
     if (count < 0 || unit < 0 || (unit > 0 && count > std::numeric_limits<Integer>::max() / unit))
         return false;
@@ -1588,6 +1617,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     };
     std::map<mechanics::Point, PressWorkRecord> press_work;
     std::map<mechanics::Point, mechanics::Point> historical_slide_routes;
+    std::map<mechanics::Point, Integer> automatic_slide_contacts;
     std::map<mechanics::Point, Integer> press_products;
     std::map<mechanics::Point, Integer> expected_offcuts;
     const Integer offcut_per_plate = profile.material.plate_mass == 0 ? 0 :
@@ -2010,6 +2040,20 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             found->second.automatic_remaining_ticks - work.automatic_remaining_ticks_seen ==
                 work.remaining;
     };
+    const auto clear_automatic_slide_route = [&](const mechanics::Point& work,
+            const mechanics::Point& exit, materials::WorkId id,
+            const PressWorkRecord& active) {
+        const auto route = historical_slide_routes.find(work);
+        if (route == historical_slide_routes.end()) return true;
+        if (route->second != exit || id <= 0 ||
+            (active.id > 0 && active.id != id) ||
+            automatic_slide_contacts[work] <
+                (active.id == 0 ? profile.material.cycle_ticks + 1 : active.remaining))
+            return false;
+        historical_slide_routes.erase(route);
+        automatic_slide_contacts.erase(work);
+        return true;
+    };
     std::map<mechanics::Point, std::pair<materials::WorkId, Integer>> belt_press_turns;
     const auto within_component_capacity = [&](const std::string& actor) {
         Integer carried = 0;
@@ -2098,6 +2142,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         return true;
     };
     std::map<std::string, State::SlidePhase> historical_slide_phases;
+    const State* replay_slide_state = nullptr;
+    std::vector<assembly::Part> replay_slide_parts;
+    std::optional<assembly::Layout> replay_slide_layout;
     const auto replay_slide_ticks = [&](Integer first, Integer last) {
         if (first > last || historical_slide_phases.empty()) return true;
         const bool normal_enabled = normal_drive_at(first);
@@ -2105,11 +2152,37 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (!normal_enabled && !crank_pulses.contains(revision)) continue;
             const auto* power = power_at(revision);
             if (!power || !power->mechanical.accepted()) return false;
+            const auto* at_revision = layout_at(revision);
+            if (!at_revision) return false;
+            if (replay_slide_state != at_revision) {
+                replay_slide_layout.reset();
+                replay_slide_parts = assembly_parts(*at_revision);
+                replay_slide_layout.emplace(replay_slide_parts);
+                replay_slide_state = at_revision;
+            }
             for (auto& [id, phase] : historical_slide_phases) {
                 const auto found = power->mechanical.motion.find(id);
                 if (found == power->mechanical.motion.end()) return false;
-                if (found->second.state == mechanics::MotionState::rotating &&
-                    !advance_slide_phase(phase, found->second.rate)) return false;
+                if (found->second.state != mechanics::MotionState::rotating) continue;
+                const auto placed = at_revision->placed_components.find(id);
+                if (placed == at_revision->placed_components.end()) return false;
+                const mechanics::Point work{placed->second.center[0],
+                    placed->second.center[1] - 2, placed->second.center[2]};
+                const auto route = historical_slide_routes.find(work);
+                if (route != historical_slide_routes.end()) {
+                    const auto inspected = replay_slide_layout->inspect_sliding_press(work);
+                    if (inspected.press && inspected.press->slide == id &&
+                        std::any_of(inspected.press->open_feeds.begin(),
+                            inspected.press->open_feeds.end(), [&](const assembly::PressFeed& feed) {
+                                return feed.exit == route->second;
+                            })) {
+                        const auto contact = powered_slide_contact(phase, found->second.rate);
+                        if (!contact) return false;
+                        if (*contact && !add(automatic_slide_contacts[work], Integer{1}))
+                            return false;
+                    }
+                }
+                if (!advance_slide_phase(phase, found->second.rate)) return false;
             }
             if (revision == std::numeric_limits<Integer>::max()) break;
         }
@@ -2688,6 +2761,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 automatic_exit = selected_feed->exit;
                 if (!historical_slide_routes.emplace(*selected_work, automatic_exit).second)
                     return false;
+                automatic_slide_contacts[*selected_work] = 0;
             } else {
                 automatic_exit[0] -= inspected.press->shaft_center[0] - inspected.press->anchor_center[0];
                 automatic_exit[2] -= inspected.press->shaft_center[2] - inspected.press->anchor_center[2];
@@ -3022,7 +3096,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 Integer direct_products = *products;
                 for (const auto& value : *receiver_ids) {
                     const auto* id = std::get_if<Integer>(&value.storage());
-                    if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id)
+                    // A receiver pickup can be the first command after a
+                    // powered slide finishes. Its accepted identity witnesses
+                    // that completion while the active route is settled below.
+                    if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
+                        !picked_press_products.insert(*id).second)
                         return false;
                     if (snapshot.state.belt_press_work_ids.contains(*id)) {
                         const auto belt = belt_offcut_claims.find(*id);
@@ -3047,11 +3125,14 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                             active->second.id != *completed_id) ||
                             snapshot.state.belt_press_work_ids.contains(*completed_id)) continue;
                         const auto delivery = snapshot.state.press_offcut_deliveries.find(*completed_id);
-                        if (delivery == snapshot.state.press_offcut_deliveries.end() ||
-                            delivery->second.work != active->first ||
-                            delivery->second.exit != *point ||
-                            delivery->second.revision <= active->second.feed_revision ||
-                            delivery->second.revision >= *result_revision) continue;
+                        if (delivery != snapshot.state.press_offcut_deliveries.end()) {
+                            if (delivery->second.work != active->first ||
+                                delivery->second.exit != *point ||
+                                delivery->second.revision <= active->second.feed_revision ||
+                                delivery->second.revision >= *result_revision) continue;
+                        } else if (!record_offcut(active->first)) return false;
+                        if (!clear_automatic_slide_route(active->first, *point,
+                                *completed_id, active->second)) return false;
                         press_work.erase(active);
                         if (!add(press_products[*point], 1)) return false;
                         claim = press_products.find(*point);
@@ -3068,7 +3149,6 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     const auto location = id ? delivered_product_locations.find(*id) :
                         delivered_product_locations.end();
                     if (!id || *id <= 0 || *id >= snapshot.state.material.next_work_id ||
-                        !picked_press_products.insert(*id).second ||
                         (location != delivered_product_locations.end() &&
                             location->second != *point) ||
                         !picked_product_exits.emplace(*id,
@@ -3115,6 +3195,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                             !automatic_finish_witnessed(active->second)) continue;
                         if (!snapshot.state.press_offcut_deliveries.contains(*picked_id) &&
                             !record_offcut(active->first)) return false;
+                        if (!clear_automatic_slide_route(active->first, *point,
+                                *picked_id, active->second)) return false;
                         press_work.erase(active);
                         claimed_product = true;
                         break;
@@ -3156,6 +3238,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             }
             belt_press_turns.erase(*point);
             historical_slide_routes.erase(*point);
+            automatic_slide_contacts.erase(*point);
         }
         if (*action == "place_sheet") {
             const auto origin = grid_point(record.intent, materials::maximum_drop_coordinate);
@@ -3585,9 +3668,29 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     if (snapshot.revision < history_revision) return false;
     if (!replay_broad_ticks(history_revision + 1, snapshot.revision) ||
         !replay_slide_ticks(history_revision + 1, snapshot.revision) ||
-        historical_slide_phases != snapshot.state.slide_phases ||
-        historical_slide_routes != snapshot.state.slide_press_routes) return false;
+        historical_slide_phases != snapshot.state.slide_phases) return false;
     ticks_seen += snapshot.revision - history_revision;
+    for (auto route = historical_slide_routes.begin();
+         route != historical_slide_routes.end();) {
+        if (snapshot.state.slide_press_routes.contains(route->first)) {
+            ++route;
+            continue;
+        }
+        const auto active = press_work.find(route->first);
+        const auto output = snapshot.state.press_output_at_exit.find(route->second);
+        const auto receiver = snapshot.state.press_output_at_receiver.find(route->second);
+        const materials::WorkId output_id = output != snapshot.state.press_output_at_exit.end() ?
+            output->second : receiver != snapshot.state.press_output_at_receiver.end() &&
+                receiver->second.size() == 1 ? *receiver->second.begin() : materials::WorkId{0};
+        if (active == press_work.end() || active->second.automatic_exit != route->second ||
+            output_id <= 0 ||
+            !automatic_finish_witnessed(active->second)) return false;
+        const auto work = route->first;
+        const auto exit = route->second;
+        if (!clear_automatic_slide_route(work, exit, output_id, active->second)) return false;
+        route = historical_slide_routes.lower_bound(work);
+    }
+    if (historical_slide_routes != snapshot.state.slide_press_routes) return false;
     if (!apply_deliveries(snapshot.revision, true) ||
         next_delivery != deliveries.size()) return false;
     for (const auto& [id, site] : profile.material.timber_sites) {
@@ -7105,6 +7208,87 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
                         throw materials::Error::invalid_state;
                     candidate.belt_press_work.erase(belt_work);
                 }
+            }
+        }
+        // A slide's reciprocal motion is only useful at the bottom of its
+        // stroke. The selected feed route owns its exit; the crank, shaft or
+        // wheel merely supplies the same signed mechanical motion.
+        for (const auto& [anvil, inspected] : tick_layout.slides_by_anvil) {
+            if (!inspected.press || broad_occupied_cells.contains(anvil) ||
+                presses_by_work.contains(anvil)) continue;
+            const auto route = candidate.slide_press_routes.find(anvil);
+            if (route == candidate.slide_press_routes.end() ||
+                std::none_of(inspected.press->open_feeds.begin(),
+                    inspected.press->open_feeds.end(), [&](const assembly::PressFeed& feed) {
+                        return feed.exit == route->second;
+                    })) continue;
+            const auto shaft = motion.motion.find(inspected.press->slide);
+            if (shaft == motion.motion.end() ||
+                shaft->second.state != mechanics::MotionState::rotating) continue;
+            const auto before = snapshot.state.slide_phases.find(inspected.press->slide);
+            if (before == snapshot.state.slide_phases.end())
+                throw materials::Error::invalid_state;
+            const auto contact = powered_slide_contact(before->second, shaft->second.rate);
+            if (!contact) throw materials::Error::invalid_state;
+            if (!*contact) continue;
+            const auto previous = candidate.material.dropped_material.find(anvil);
+            if (previous == candidate.material.dropped_material.end()) continue;
+            const auto before_id = previous->second.work_lots.size() == 1 ?
+                previous->second.work_lots.front().id : materials::WorkId{0};
+            const auto before_remaining = before_id > 0 ?
+                previous->second.work_lots.front().remaining_ticks : Integer{0};
+            const auto receiver = tick_layout.layout.has_component(
+                route->second, materials::Component::receiver_tray);
+            const auto error = materials::turn_press(candidate.material, profile_.material,
+                material_path(candidate.topology), anvil, route->second, receiver);
+            if (error == materials::Error::unavailable_input ||
+                error == materials::Error::unavailable_output) continue;
+            if (error != materials::Error::none) throw error;
+            const auto current = candidate.material.dropped_material.find(anvil);
+            const bool completed = before_id > 0 &&
+                (current == candidate.material.dropped_material.end() ||
+                 current->second.work_lots.empty()) &&
+                candidate.material.dropped_material.contains(route->second);
+            if (before_id > 0) {
+                const auto remaining = current != candidate.material.dropped_material.end() &&
+                    current->second.work_lots.size() == 1 ?
+                    current->second.work_lots.front().remaining_ticks : Integer{0};
+                auto& witness = candidate.press_progress[before_id];
+                if (remaining > before_remaining ||
+                    !add(witness.automatic_remaining_ticks, before_remaining - remaining))
+                    throw materials::Error::invalid_state;
+                if (remaining < before_remaining) {
+                    if (snapshot.revision == std::numeric_limits<Integer>::max())
+                        throw materials::Error::invalid_state;
+                    witness.automatic_transitions.push_back({snapshot.revision + 1,
+                        anvil, before_remaining, remaining});
+                }
+                if (completed && !witness.manual_seen && !witness.refeed_seen &&
+                    !candidate.belt_press_work_ids.contains(before_id))
+                    candidate.press_progress.erase(before_id);
+            } else if (current != candidate.material.dropped_material.end() &&
+                       current->second.work_lots.size() == 1) {
+                candidate.press_progress.try_emplace(current->second.work_lots.front().id);
+            }
+            const auto belt_work = candidate.belt_press_work.find(anvil);
+            if (belt_work != candidate.belt_press_work.end()) {
+                if (completed) {
+                    if (!candidate.belt_press_products[route->second].insert(before_id).second)
+                        throw materials::Error::invalid_state;
+                    candidate.belt_press_work.erase(belt_work);
+                } else if (current != candidate.material.dropped_material.end() &&
+                           current->second.work_lots.size() == 1) {
+                    belt_work->second = current->second.work_lots.front().id;
+                    candidate.belt_press_work_ids.insert(belt_work->second);
+                }
+            }
+            if (completed) {
+                if (receiver) {
+                    if (!candidate.press_output_at_receiver[route->second].insert(before_id).second)
+                        throw materials::Error::invalid_state;
+                } else if (!candidate.press_output_at_exit.emplace(route->second, before_id).second)
+                    throw materials::Error::invalid_state;
+                candidate.slide_press_routes.erase(route);
             }
         }
         // Belt routes query the same immutable placed topology several times.

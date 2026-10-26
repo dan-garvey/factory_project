@@ -39,7 +39,11 @@ rather than omitting unreadable cache directories.
 
 Use a relevant package target for focused work. Host-tagged tests need explicit
 fixtures; for `//native/tooling:local_resources_test`, supply
-`--test_arg=/absolute/linked/checkout --test_arg=/absolute/owned/artifacts`.
+`--test_arg=/absolute/checkout --test_arg=/absolute/owned/artifacts`.
+The checkout may be direct or canonically linked; the test also creates its own
+disposable linked worktree to check shared Git discovery. When the installed
+hook selects this test without arguments, it uses Bazel's owned test directory
+for a self-contained checkout fixture.
 Run `//native/gameplay-build:launch_refresh_guard_test` explicitly with
 `--test_tag_filters=host` in an admitted host lane to exercise the isolated
 gameplay-library freshness guard; the documented
@@ -47,10 +51,36 @@ gameplay-library freshness guard; the documented
 and fake build children, without starting Godot or a desktop.
 The old `//:native_tests` alias covers only the bootstrap subset.
 
+The repository's [native CI workflow](../../.github/workflows/native.yml) runs
+on Ubuntu 22.04 with installed GCC 11 and OpenSSL headers. It downloads the
+`.bazelversion` 8.4.2 binary only after checking the committed SHA-256 above,
+prints the source revision and toolchain versions, and lets the Bazel module
+lock govern `rules_cc`. Its first lane builds and runs all non-host
+`//native/...` tests. Its host lane runs host tests separately, then the two
+local commit-gate tests and `local_resources_test` with an owned temporary
+fixture root. Those local tests are explicit because the resource test needs
+two path arguments that the other tests must not receive. A failed compile,
+nonzero selected test, or changed lock stops the job; GitHub retains the
+selected target names and failing output in the job log. This CI lane is
+not a Godot import, rendered scene, performance, or human-play result.
+
+The same workflow runs ASAN and UBSAN over World transaction/checkpoint and
+Host adapter/press/harvest consumers with debug symbols, frame pointers and
+leak detection. It allows 180 seconds per sanitizer test rather than the
+ordinary 30-second Bazel timeout. TSAN is excluded from this lane because
+these production consumers do not create threads or share mutable state
+between threads; the current native process supervisors use fork/wait, while
+`std::this_thread::sleep_for` is only a wait. Revisit that exclusion if a native
+consumer gains actual concurrent access. CI uses two Bazel jobs on its fresh
+hosted runner; the local admission floors and bounded runner below still
+govern developer-host checks.
+
 Keep Bazel in `--batch` mode inside admission. Reuse caches within the verified
-toolchain boundary; separate concurrent workspaces/output bases. Never clean
-another owner's outputs or evidence. Before replacing a sequential build
-workspace, retain needed source, seals, results, binaries and runtime libraries.
+toolchain boundary; separate concurrent workspaces/output bases. Follow the
+[artifact lifecycle](local-resources.md#artifact-lifecycle) when retiring inactive
+outputs. Keep compact source/result records and any binaries, shared libraries
+and runfiles still needed by installed tools or an active investigation/review;
+completed build workspaces and duplicate caches need not be preserved.
 Distinguish cached test success from executed tests and analysis from compilation.
 Runner ceilings remain 300 seconds, 2 GiB artifacts, 8 MiB logs and eight jobs;
 a specific case can require less.
@@ -58,8 +88,9 @@ a specific case can require less.
 Raw build-event/execution records may expose environment or arguments. Keep
 them private with restrictive permissions; do not print or upload them.
 Share only an allowlisted, hashed view of source identities, status, timings,
-actions/cache counts and approved paths. Preserve original failures and exact
-source/toolchain provenance without recasting later hashes as earlier evidence.
+actions/cache counts and approved paths. Preserve the recorded failure outcomes
+and source/toolchain provenance without recasting later hashes as earlier evidence.
+Raw logs and bulky captures may expire under the artifact lifecycle.
 
 ## Gameplay installation
 
@@ -73,6 +104,10 @@ native save in a fresh session. `--prepare-session-only` runs capture, import
 and startup without a desktop window and retains their exact records.
 Branch builds do not install into the current-main human launcher.
 A plain Bazel build only produces artifacts.
+The committed `native/gameplay-build/production-paths.txt` is the shared
+startup/gameplay freshness inventory. The installer checks Bazel's local source
+and BUILD dependency labels against it before compiling; new transitive
+packages must be declared there before installation.
 
 ## Checks and local hooks
 

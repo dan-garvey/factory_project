@@ -4624,6 +4624,11 @@ var hover: MeshInstance3D
 var selection_ring: MeshInstance3D
 var machine_preview: Node3D
 var component_preview: Node3D
+var press_snap_target: MeshInstance3D
+var press_snap_material: StandardMaterial3D
+var press_snap_lift: Node3D
+var press_snap_lift_tip: MeshInstance3D
+var press_snap_lift_material: StandardMaterial3D
 var component_preview_kind := ""
 var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
@@ -4705,6 +4710,9 @@ var object_menu_detail_panel: PanelContainer
 var object_menu_desired_extent := Vector2i(500, 400)
 var object_menu_viewport_size := Vector2i.ZERO
 var object_menu_target := ""
+var object_menu_closed_frame := -1
+var mouse_capture_owned := false
+var mouse_capture_skip_motion := false
 var pause_menu: PanelContainer
 var pause_menu_scrim: ColorRect
 var pause_resume_button: Button
@@ -4774,7 +4782,30 @@ var arrival_reveal_caption: Label
 var arrival_reveal_audio
 const ARRIVAL_REVEAL_SECONDS := 2.8
 
+static func apply_test_window_title(tree: SceneTree) -> bool:
+	var purpose := ""
+	var found := false
+	for argument: String in OS.get_cmdline_user_args():
+		if not argument.begins_with("--test-purpose="):
+			continue
+		if found:
+			push_error("Use exactly one test window purpose")
+			tree.quit(2)
+			return false
+		found = true
+		purpose = argument.trim_prefix("--test-purpose=")
+	if not found:
+		return true
+	if purpose.strip_edges().is_empty() or purpose.length() > 60 or "\n" in purpose or "\r" in purpose:
+		push_error("Invalid test window purpose")
+		tree.quit(2)
+		return false
+	tree.root.title = "Factory — " + purpose
+	return true
+
 func _ready() -> void:
+	if not apply_test_window_title(get_tree()):
+		return
 	for argument in OS.get_cmdline_user_args():
 		if argument == "--legacy-fixture":
 			legacy_fixture = true
@@ -4786,6 +4817,10 @@ func _ready() -> void:
 				configure_save_slot(argument.trim_prefix("--save-slot="))
 	_build_world()
 	_build_interface()
+	for menu: Node in [object_menu, pause_menu, pause_exit_confirmation,
+			building_hotbar.catalog, manager_log_layer, lesson_panel]:
+		if menu != null:
+			menu.connect("visibility_changed", _on_mouse_menu_visibility_changed)
 	_refresh()
 	if _native_transmission():
 		if state.has("hand_sources"):
@@ -4879,7 +4914,8 @@ func _actor_failed(actor: String, reason: String) -> void:
 	get_tree().quit(1)
 
 func _can_control_character() -> bool:
-	return _actor_ready_for_actions() and not _object_menu_open() and not _pause_menu_open()
+	return _actor_ready_for_actions() and not _object_menu_open() and not _pause_menu_open() \
+		and DisplayServer.window_get_active_popup() == DisplayServer.INVALID_WINDOW_ID
 
 func _actor_ready_for_actions() -> bool:
 	return not legacy_fixture and not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
@@ -5455,6 +5491,7 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 	return fallback
 
 func _process(delta: float) -> void:
+	_sync_mouse_capture()
 	_update_fps_counter(delta)
 	_advance_held_crank(delta)
 	if actor_world != null:
@@ -5703,8 +5740,60 @@ func _apply_press_pose(rows: Array, travel: float) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		_stop_held_crank()
+		_release_character_controls()
+		_release_mouse_capture()
+
+func _exit_tree() -> void:
+	_release_mouse_capture()
+
+func _mouse_capture_allowed(window_focused: bool, popup_open: bool) -> bool:
+	return not legacy_fixture and distance <= 0.0 and window_focused and not popup_open \
+		and _can_control_character() and (pause_exit_confirmation == null or not pause_exit_confirmation.visible)
+
+func _wants_mouse_capture() -> bool:
+	return _mouse_capture_allowed(DisplayServer.window_is_focused(),
+		DisplayServer.window_get_active_popup() != DisplayServer.INVALID_WINDOW_ID)
+
+func _release_mouse_capture() -> void:
+	if not mouse_capture_owned:
+		return
+	mouse_capture_owned = false
+	mouse_capture_skip_motion = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _on_mouse_menu_visibility_changed() -> void:
+	if not _can_control_character():
+		_release_character_controls()
+		_stop_held_crank()
+	_sync_mouse_capture()
+
+func _sync_mouse_capture() -> void:
+	if not _wants_mouse_capture():
+		if mouse_capture_owned and (not DisplayServer.window_is_focused() or not _can_control_character()):
+			_release_character_controls()
+			_stop_held_crank()
+		_release_mouse_capture()
+		return
+	if not mouse_capture_owned or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		mouse_capture_owned = true
+		# Capture can warp the pointer. Ignore that first relative event.
+		mouse_capture_skip_motion = true
+
+func _rotate_camera_from_mouse(relative: Vector2) -> void:
+	orbit_yaw -= relative.x * 0.007
+	orbit_pitch = clampf(orbit_pitch + relative.y * 0.005,
+		-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and mouse_capture_owned and _wants_mouse_capture():
+		if mouse_capture_skip_motion:
+			mouse_capture_skip_motion = false
+		else:
+			_rotate_camera_from_mouse(event.relative)
+			_update_camera()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.keycode == KEY_E and not event.pressed:
 		_stop_held_crank()
 	if arrival_reveal_active:
@@ -5823,6 +5912,10 @@ func _input(event: InputEvent) -> void:
 	if _catalog_open():
 		return
 	if event is InputEventKey and event.keycode == KEY_ESCAPE and event.pressed and not event.echo:
+		# PopupPanel can hide itself before this scene sees the same Escape.
+		if object_menu_closed_frame == Engine.get_process_frames():
+			get_viewport().set_input_as_handled()
+			return
 		if _cancel_active_construction():
 			consumed_shortcut_keys[KEY_ESCAPE] = true
 		else:
@@ -5947,9 +6040,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-			orbit_yaw -= event.relative.x * 0.007
-			orbit_pitch = clampf(orbit_pitch + event.relative.y * 0.005,
-				-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
+			_rotate_camera_from_mouse(event.relative)
 		elif not component_nudge_active:
 			hover_cell = _screen_cell(event.position)
 			_update_cursor()
@@ -6020,7 +6111,7 @@ func _select_tool(tool: String) -> void:
 		"component": "Point at a part face to snap. Hold Alt and use arrows or Page Up / Down to nudge one quarter-grid step; click to place.",
 		"pod_workshop": "Click a clear full tile to reinstall the carried pod workshop. It can sit on ground or a foundation top.",
 		"drive": "Click two neighboring machines to connect a drive shaft.",
-		"inspect": "Point at a machine and press E to open it." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
+		"inspect": "E opens a pointed machine; hold E to turn a fitted crank." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
 		"deconstruct": "Point at a built part and click to dismantle it. Escape leaves dismantle mode.",
 		"collector": "Place the collector on the ore deposit.",
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
@@ -7098,6 +7189,9 @@ func _refresh_component_preview() -> void:
 	if component_preview == null:
 		return
 	component_preview.visible = false
+	if press_snap_target != null:
+		press_snap_target.visible = false
+		press_snap_lift.visible = false
 	if mode != "component" or not _native_transmission() or arrival_assembly_controls == null \
 			or transmission_presenter == null or explanation_open or not _placement_ready() \
 			or not _preview_pointer_clear():
@@ -7212,6 +7306,28 @@ func _refresh_component_preview() -> void:
 		component_preview_snap = str(press_snap.label) if not press_snap.is_empty() else \
 			("Above %s" % pointed_kind.replace("_", " ") if not hit.is_empty() and hit.normal.y > 0.5 \
 			else "Beside %s" % pointed_kind.replace("_", " "))
+		if press_snap_target != null and not press_snap.is_empty() \
+				and (kind == "flat_head" and pointed_kind == "anvil" \
+				or kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head"):
+			var target_box := _component_candidate_box(pointed_kind, state.placed_components[pointed].center)
+			press_snap_target.position = target_box.center + Vector3.UP * (target_box.half.y + 0.015)
+			press_snap_target.scale = Vector3(target_box.half.x / 0.77, 1.0, target_box.half.z / 0.77)
+			press_snap_material.albedo_color = Color(0.94, 0.27, 0.21, 0.85) \
+				if component_preview_blocked else Color(0.98, 0.73, 0.28, 0.9)
+			press_snap_target.visible = true
+			var camera_right: Vector3 = camera.global_transform.basis.x
+			camera_right.y = 0.0
+			var guide_bottom: float = target_box.center.y - target_box.half.y + 0.02 \
+				if pointed_kind == "flat_head" else target_box.center.y + target_box.half.y + 0.025
+			var guide_top: float = box.center.y + box.half.y - 0.025
+			press_snap_lift.scale.y = maxf(0.35, (guide_top - guide_bottom) / 0.82)
+			press_snap_lift_tip.scale.y = 0.5 / press_snap_lift.scale.y
+			press_snap_lift_tip.position.y = 0.455 - 0.0375 / press_snap_lift.scale.y
+			press_snap_lift.position = Vector3(target_box.center.x,
+				guide_bottom + press_snap_lift.scale.y * 0.365, target_box.center.z) \
+				+ camera_right.normalized() * (0.28 if pointed_kind == "flat_head" else 0.22)
+			press_snap_lift_material.albedo_color = press_snap_material.albedo_color
+			press_snap_lift.visible = true
 	else:
 		component_preview_snap = "Floor grid"
 	var collector_face := _component_collector_face(kind, center)
@@ -7470,6 +7586,40 @@ func _build_world() -> void:
 	component_preview.name = "ComponentPreview"
 	component_preview.visible = false
 	add_child(component_preview)
+	press_snap_target = _selection_outline()
+	press_snap_target.name = "PressSnapTarget"
+	press_snap_material = press_snap_target.material_override.duplicate() as StandardMaterial3D
+	press_snap_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	press_snap_target.material_override = press_snap_material
+	press_snap_target.visible = false
+	press_snap_lift = Node3D.new()
+	press_snap_lift.name = "PressSnapLift"
+	press_snap_lift_material = StandardMaterial3D.new()
+	press_snap_lift_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	press_snap_lift_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	for dash_y in [-0.30, -0.08, 0.14]:
+		var dash := MeshInstance3D.new()
+		var stem := CylinderMesh.new()
+		stem.top_radius = 0.009
+		stem.bottom_radius = 0.009
+		stem.height = 0.13
+		dash.mesh = stem
+		dash.position.y = dash_y
+		dash.material_override = press_snap_lift_material
+		dash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		press_snap_lift.add_child(dash)
+	press_snap_lift_tip = MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 0.045
+	cone.height = 0.15
+	press_snap_lift_tip.mesh = cone
+	press_snap_lift_tip.position.y = 0.38
+	press_snap_lift_tip.material_override = press_snap_lift_material
+	press_snap_lift_tip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	press_snap_lift.add_child(press_snap_lift_tip)
+	press_snap_lift.visible = false
+	add_child(press_snap_lift)
 	item_root = Node3D.new()
 	add_child(item_root)
 	hover = _box(self, Vector3.ZERO, Vector3(1.5, 0.035, 1.5), Color(0.85, 0.75, 0.45, 0.45))
@@ -9675,7 +9825,7 @@ func _refresh_ui() -> void:
 		if component.get("component", "") == "wooden_workbench":
 			inspector.text += "\nPress E for recipes when nearby."
 	else:
-		inspector.text = "Point at a machine and press E to open it."
+		inspector.text = "E opens a pointed machine; hold E to turn a fitted crank."
 	inspector.tooltip_text = inspector.text
 	if _object_menu_open() and _contains_target(state, selected):
 		var detail_lines := inspector.text.split("\n")
@@ -9880,7 +10030,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if snapshot_ready:
 			_notice_workshop_completion(workshop_complete)
 		if workshop_complete:
-			next_work = "Open Work log [J] for optional projects, or keep building."
+			next_work = "Open Work log [J] for the collector project, or keep building."
 		elif sliding_plate_waiting:
 			next_work = "Plate at outlet. Open the press [E], then collect it [P]."
 		elif sliding_press_ready and ready_slide_has_crank:
@@ -10753,6 +10903,7 @@ func _style_pause_action(button: Button, icon_name: String, action_name: String,
 	caption.add_theme_font_size_override("font_size", 11)
 
 func _on_object_menu_closed() -> void:
+	object_menu_closed_frame = Engine.get_process_frames()
 	if arrival_assembly_controls != null:
 		arrival_assembly_controls.stop_turn_hold()
 	object_menu_scrim.visible = false
@@ -11163,8 +11314,8 @@ func _build_manager_log() -> void:
 	manager_log_projects.add_theme_constant_override("separation", 6)
 	column.add_child(manager_log_projects)
 	for project in [
-		["belt", "Route collector copper by belt to a powered press."],
-		["gear", "Compare wood and copper drive parts under load."]]:
+		["collector", "Assemble a finite ore collector: frame, mount, edge, receiver and drive."],
+		["belt", "Then route its copper by belt to a powered press."]]:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		manager_log_projects.add_child(row)

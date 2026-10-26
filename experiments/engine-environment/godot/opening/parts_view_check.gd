@@ -10,6 +10,39 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const ComponentPresenter = preload("res://opening/native_transmission_presenter.gd")
 const RecoveryActions = preload("res://opening/recovery_actions.gd")
 const BuildingHotbar = preload("res://opening/building_hotbar.gd")
+const SUITES := {
+	"--slide-view-only": "_slide_view_check",
+	"--component-placement-only": "_component_placement_check",
+	"--object-menu-only": "_object_menu_check",
+	"--slide-controls-only": "_slide_controls_check",
+	"--slide-inventory-render-only": "_slide_inventory_render_check",
+	"--workshop-pages-only": "_workshop_pages",
+	"--field-craft-widget-only": "_field_craft_widget",
+	"--pod-floor-only": "_pod_floor_views",
+	"--multitool-view-only": "_multitool_presentation",
+	"--hand-trees-only": "_hand_tree_views",
+	"--multitool-only": "_multitool_controls",
+	"--ui-shortcuts-only": "_ui_shortcuts",
+	"--interaction-only": "_interaction_controls",
+	"--shared-crank-hold-only": "_shared_crank_hold_check",
+	"--building-rotation-only": "_building_rotation",
+	"--hotbar-render-only": "_render_hotbar",
+	"--arrival-hotbar-render-only": "_render_arrival_hotbar",
+	"--hotbar-only": "_hotbar",
+	"--arrival-hotbar-only": "_arrival_hotbar",
+	"--carried-guidance-only": "_carried_guidance",
+	"--shared-component-results-only": "_shared_component_results",
+	"--buttons-only": "_buttons",
+}
+const CAPTURE_SUITES := {
+	"--image-prefix=": ["--component-placement-only", "--object-menu-only"],
+	"--arrival-hotbar-image-prefix=": ["--arrival-hotbar-render-only"],
+	"--hotbar-image-prefix=": ["--hotbar-render-only"],
+	"--inventory-resize-capture-prefix=": ["--field-craft-widget-only"],
+	"--slide-image=": ["--slide-view-only"],
+	"--slide-inventory-image-prefix=": ["--slide-inventory-render-only"],
+	"--workshop-pages-image-prefix=": ["--workshop-pages-only"],
+}
 var checks := 0
 var failures := 0
 
@@ -115,71 +148,37 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
-	if "--slide-view-only" in OS.get_cmdline_user_args():
-		call_deferred("_slide_view_check")
+	var selected := ""
+	var captures: Array[String] = []
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--test-purpose="):
+			continue
+		if SUITES.has(argument):
+			if not selected.is_empty():
+				push_error("Select exactly one parts-view fixture suite")
+				quit(2)
+				return
+			selected = argument
+			continue
+		var capture := ""
+		for prefix: String in CAPTURE_SUITES:
+			if argument.begins_with(prefix) and argument.length() > prefix.length():
+				capture = prefix
+				break
+		if capture.is_empty() or captures.has(capture):
+			push_error("Unknown or duplicate parts-view fixture argument: " + argument)
+			quit(2)
+			return
+		captures.append(capture)
+	for capture in captures:
+		if selected not in CAPTURE_SUITES[capture]:
+			push_error("The parts-view capture argument does not belong to the selected suite: " + capture)
+			quit(2)
+			return
+	if not Opening.apply_test_window_title(self):
 		return
-	if "--component-placement-only" in OS.get_cmdline_user_args():
-		call_deferred("_component_placement_check")
-		return
-	if "--object-menu-only" in OS.get_cmdline_user_args():
-		call_deferred("_object_menu_check")
-		return
-	if "--slide-controls-only" in OS.get_cmdline_user_args():
-		call_deferred("_slide_controls_check")
-		return
-	if "--slide-inventory-render-only" in OS.get_cmdline_user_args():
-		call_deferred("_slide_inventory_render_check")
-		return
-	if "--workshop-pages-only" in OS.get_cmdline_user_args():
-		call_deferred("_workshop_pages")
-		return
-	if "--field-craft-widget-only" in OS.get_cmdline_user_args():
-		call_deferred("_field_craft_widget")
-		return
-	if "--pod-floor-only" in OS.get_cmdline_user_args():
-		call_deferred("_pod_floor_views")
-		return
-	if "--multitool-view-only" in OS.get_cmdline_user_args():
-		call_deferred("_multitool_presentation")
-		return
-	if "--hand-trees-only" in OS.get_cmdline_user_args():
-		call_deferred("_hand_tree_views")
-		return
-	if "--multitool-only" in OS.get_cmdline_user_args():
-		call_deferred("_multitool_controls")
-		return
-	if "--ui-shortcuts-only" in OS.get_cmdline_user_args():
-		call_deferred("_ui_shortcuts")
-		return
-	if "--interaction-only" in OS.get_cmdline_user_args():
-		call_deferred("_interaction_controls")
-		return
-	if "--shared-crank-hold-only" in OS.get_cmdline_user_args():
-		call_deferred("_shared_crank_hold_check")
-		return
-	if "--building-rotation-only" in OS.get_cmdline_user_args():
-		call_deferred("_building_rotation")
-		return
-	if "--hotbar-render-only" in OS.get_cmdline_user_args():
-		call_deferred("_render_hotbar")
-		return
-	if "--arrival-hotbar-render-only" in OS.get_cmdline_user_args():
-		call_deferred("_render_arrival_hotbar")
-		return
-	if "--hotbar-only" in OS.get_cmdline_user_args():
-		call_deferred("_hotbar")
-		return
-	if "--arrival-hotbar-only" in OS.get_cmdline_user_args():
-		call_deferred("_arrival_hotbar")
-		return
-	if "--carried-guidance-only" in OS.get_cmdline_user_args():
-		call_deferred("_carried_guidance")
-		return
-	if "--shared-component-results-only" in OS.get_cmdline_user_args():
-		call_deferred("_shared_component_results")
-		return
-	if "--buttons-only" in OS.get_cmdline_user_args():
-		call_deferred("_buttons")
+	if not selected.is_empty():
+		call_deferred(SUITES[selected])
 		return
 	var offline = Opening.new()
 	offline.state = fixture()
@@ -2071,6 +2070,8 @@ func _arrival_hotbar() -> void:
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
 		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
+		"wooden_cog": {"timber": 1, "copper": 0, "load_rating": 8},
+		"receiver_tray": {"timber": 2, "copper": 0},
 		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
@@ -2128,6 +2129,8 @@ func _arrival_hotbar() -> void:
 		and not bar.recipe_buttons.has("component:receiver_tray")
 		and not bar.recipe_buttons.has("foundation"),
 		"Before the first carried plate, the inventory exposes only the four required press recipes.")
+	verify(not bar.collector_focus_button.visible and bar.recipe_tip_label.visible,
+		"The post-plate project choices do not crowd the starter build view.")
 	var initial: Dictionary = view.state.duplicate(true)
 	view.state.cargo.P.components = {"wooden_frame": 2, "copper_cog": 1,
 		"anvil": 1, "ram_face": 1, "hand_crank": 1}
@@ -2161,7 +2164,25 @@ func _arrival_hotbar() -> void:
 	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
 		and view.goal_label.text.contains("Open Work log [J]"),
 		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_label.text)
+	verify(bar.collector_focus_button.visible and bar.recipe_focus == "collector"
+		and bar.recipe_buttons["component:wooden_frame"].visible
+		and bar.recipe_buttons["component:cutting_edge"].visible
+		and bar.recipe_buttons["component:receiver_tray"].visible
+		and bar.recipe_buttons["component:wooden_cog"].visible
+		and bar.recipe_buttons["part:0"].visible
+		and not bar.recipe_buttons["component:anvil"].visible
+		and not bar.recipe_buttons.foundation.visible,
+		"The post-plate Build view offers the collector kit while retaining full native availability.")
 	bar.open_catalog(7)
+	bar.all_focus_button.grab_focus()
+	await settle_widgets()
+	verify(bar.focus_description.text.contains("All parts")
+		and bar.all_focus_button.accessibility_name == "All unlocked recipes",
+		"Keyboard focus describes the way to every earned recipe.")
+	bar.all_focus_button.pressed.emit()
+	verify(bar.recipe_focus == "all" and bar.recipe_buttons["component:anvil"].visible
+		and bar.recipe_buttons.foundation.visible,
+		"All parts restores the complete earned recipe list without changing cargo.")
 	bar.material_buttons.timber.grab_focus()
 	await settle_widgets()
 	verify("Timber · 5 carried" in bar.focus_description.text,
@@ -2348,6 +2369,8 @@ func _render_arrival_hotbar() -> void:
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
 		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
+		"wooden_cog": {"timber": 1, "copper": 0, "load_rating": 8},
+		"receiver_tray": {"timber": 2, "copper": 0},
 		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
@@ -2383,6 +2406,16 @@ func _render_arrival_hotbar() -> void:
 	verify(bar.recipe_buttons.has("component:wooden_frame") and
 		bar.recipe_buttons.has("component:anvil") and bar.recipe_buttons.has("part:0"),
 		"The item inventory presents field and bench recipes beside carried stock.")
+	verify(bar.recipe_focus == "collector" and bar.recipe_buttons["component:wooden_frame"].visible
+		and not bar.recipe_buttons["component:anvil"].visible,
+		"The first post-plate catalog shows a collector-sized recipe group.")
+	bar.all_focus_button.pressed.emit()
+	await settle_widgets()
+	verify(bar.recipe_buttons["component:anvil"].visible and bar.recipe_buttons.foundation.visible,
+		"All parts reveals the full set of native-unlocked recipes.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-all-recipes.png") == OK,
+		"Retain the full unlocked recipe view reached from the project group.")
 	var stocked_cargo: Dictionary = view.state.cargo.P.duplicate(true)
 	view.state.cargo.P = {"components": {}}
 	view.state.crank_items.clear()
@@ -2410,9 +2443,19 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-components.png") == OK,
 		"Retain the visible component icon grid after scrolling.")
+	root.size = Vector2i(900, 600)
+	bar.catalog.hide()
+	await settle_widgets()
+	bar.collector_focus_button.pressed.emit()
+	bar.open_catalog(7)
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-project-narrow.png") == OK,
+		"Retain the project recipe group in a narrow actor viewport.")
 	root.size = Vector2i(640, 480)
 	bar.catalog.hide()
 	await settle_widgets()
+	bar.all_focus_button.pressed.emit()
 	bar.open_catalog(7)
 	await settle_widgets()
 	var catalog_surface: StyleBoxFlat = bar.catalog.get_theme_stylebox("panel", "PopupPanel") as StyleBoxFlat
@@ -3464,15 +3507,20 @@ func _field_craft_widget() -> void:
 	view._build_interface()
 	var inventory = view.building_hotbar
 	inventory.open_catalog()
+	verify(inventory.recipe_focus == "collector"
+		and inventory.recipe_buttons["component:wooden_frame"].visible
+		and not inventory.recipe_buttons["component:flat_head"].visible,
+		"Post-plate Build opens on a small next project instead of every advanced part.")
+	inventory.all_focus_button.pressed.emit()
 	var frame: Button = inventory.recipe_buttons["component:wooden_frame"]
 	var edge: Button = inventory.recipe_buttons["component:cutting_edge"]
 	var head: Button = inventory.recipe_buttons["component:flat_head"]
 	var foundation: Button = inventory.recipe_buttons["foundation"]
 	verify(inventory.catalog.visible and frame.visible and edge.visible and head.visible and foundation.visible
 		and frame.icon != null and edge.icon != null and head.icon != null and foundation.icon != null
-		and "3 timber + 0 ore" in frame.tooltip_text and "Field or bench" in frame.tooltip_text
+		and "3 timber + 0 copper" in frame.tooltip_text and "Field or bench" in frame.tooltip_text
 		and "Bench" in edge.tooltip_text and "Flat pressing head" in head.tooltip_text
-		and "1 ore" in head.tooltip_text and "2 timber + 0 copper" in foundation.tooltip_text,
+		and "1 copper" in head.tooltip_text and "2 timber + 0 copper" in foundation.tooltip_text,
 		"The shared inventory shows described field and bench recipes with native bills.")
 	frame.grab_focus()
 	verify(inventory.focus_description.text == frame.tooltip_text and not frame.accessibility_name.is_empty(),
@@ -3513,7 +3561,7 @@ func _field_craft_widget() -> void:
 	view.state.part_specifications = {"P": [{"kind": "belt", "teeth": 0, "half_span": 0, "count": 1}]}
 	inventory.refresh()
 	var belt_recipe: Button = inventory.recipe_buttons["part:0"]
-	verify("2 timber + 1 ore" in belt_recipe.tooltip_text and belt_recipe.icon != null
+	verify("2 timber + 1 copper" in belt_recipe.tooltip_text and belt_recipe.icon != null
 		and "rated for 8 load" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text
 		and "rated for 24 load" in inventory.recipe_buttons["component:copper_shaft"].tooltip_text,
 		"The recipe grid shows actual drive bills and load ratings.")
