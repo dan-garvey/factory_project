@@ -48,6 +48,7 @@ struct Reader {
     int head_exit{};
     int tree_exit{};
     std::string names;
+    std::string root_build = "exports_files([\"scripts/guard.sh\"])\n";
     std::map<std::string, std::string> config{
         {"factory.godotExecutable", "/fixture engine/godot\n"},
         {"factory.godotSHA256", std::string(64, 'a') + "\n"},
@@ -60,6 +61,7 @@ struct Reader {
         if (args == std::vector<std::string>{"rev-parse", "--verify", "--quiet", "HEAD"}) return {head_exit, head + "\n"};
         if (args == std::vector<std::string>{"diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", head, tree}) return {0, names};
         if (args == std::vector<std::string>{"ls-tree", "-rz", "--name-only", tree}) return {0, names};
+        if (args == std::vector<std::string>{"show", tree + ":BUILD.bazel"}) return {0, root_build};
         if (args == std::vector<std::string>{"config", "--local", "--bool", "--get", "extensions.worktreeConfig"}) {
             const auto value = config.find("extensions.worktreeConfig");
             return value == config.end() ? gate::GitResult{1, {}} : gate::GitResult{0, value->second};
@@ -79,9 +81,17 @@ void plans() {
     Reader docs;
     docs.names = nul({"README.md", "fixture.GD", ".gd"});
     const auto cheap = docs.plan();
-    check(!cheap.compile_gdscript && docs.calls == 3, "Documentation does not query runtime config or compile unchanged scripts.");
+    check(!cheap.compile_gdscript && docs.calls == 4, "Documentation reads only its staged root BUILD and does not query runtime config or compile unchanged scripts.");
     check(!cheap.validate_native && cheap.changed_paths.size() == 3,
           "A documentation candidate retains exact changed paths without native work.");
+    Reader root_data;
+    root_data.names = nul({"scripts/guard.sh"});
+    check(root_data.plan().validate_native,
+          "A staged root Bazel data file selects native validation before admission.");
+    Reader unrelated;
+    unrelated.names = nul({"scripts/unrelated.sh"});
+    check(!unrelated.plan().validate_native,
+          "An unreferenced script does not force the native lane.");
     check(cheap.command == std::vector<std::string>{"/usr/bin/python3", "-B", "/fixture checkout/scripts/check.py", "--staged", "--expected-tree", docs.tree},
           "The existing checker receives exactly one pinned staged-tree invocation.");
     for (const auto& paths : {nul({"experiments/engine-environment/godot/opening/file.gd"}),
@@ -89,7 +99,7 @@ void plans() {
                               nul({"experiments/engine-environment/godot/name with\nspace.gd"})}) {
         Reader game; game.names = paths;
         const auto heavy = game.plan();
-        check(heavy.compile_gdscript && game.calls == 7, "A NUL-delimited script delta selects heavy, common runtime settings and extension metadata.");
+        check(heavy.compile_gdscript && game.calls == 8, "A NUL-delimited script delta selects heavy, common runtime settings and extension metadata.");
         const std::vector<std::string> expected{"/usr/bin/python3", "-B", "/fixture checkout/scripts/check.py", "--staged", "--expected-tree", game.tree,
             "--parse-gdscript", "--godot", "/fixture engine/godot", "--godot-sha256", std::string(64, 'a'), "--prototype-artifacts", "/fixture artifacts/compiler"};
         check(heavy.command == expected, "Pinned compiler arguments and paths remain separate, with no shell or nested wrapper.");
@@ -177,6 +187,7 @@ void repository(const fs::path& root) {
     (void)git(root, {"config", "user.name", "Native gate fixture"});
     (void)git(root, {"config", "user.email", "fixture@example.invalid"});
     write(root / "scripts/check.py", "");  // Data only; no Python implementation.
+    write(root / "BUILD.bazel", "exports_files([\"scripts/check.py\"])\n");
     write(root / "README.md", "Fixture\n");
     (void)git(root, {"add", "."});
     const auto tree = git(root, {"write-tree"});

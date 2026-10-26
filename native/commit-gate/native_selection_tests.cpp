@@ -16,10 +16,10 @@ void check(bool value, const char* reason) {
     ++checks;
     if (!value) throw std::runtime_error(reason);
 }
-void write(const fs::path& path) {
+void write(const fs::path& path, const std::string& contents = "# staged fixture\n") {
     fs::create_directories(path.parent_path());
     std::ofstream stream(path);
-    stream << "# staged fixture\n";
+    stream << contents;
     check(static_cast<bool>(stream), "Fixture workspace file exists.");
 }
 template<class Function> void refuses(Function operation, const char* reason) {
@@ -29,6 +29,8 @@ template<class Function> void refuses(Function operation, const char* reason) {
 }
 void cases(const fs::path& root) {
     write(root / "MODULE.bazel");
+    const std::string root_build = "exports_files([\"scripts/ensure-gameplay-library.sh\", \"scripts/tests/ensure-gameplay-library.sh\"])\n";
+    write(root / "BUILD.bazel", root_build);
     write(root / "native/factory-core/BUILD.bazel");
     write(root / "native/factory-world/BUILD.bazel");
     write(root / "native/commit-gate/BUILD.bazel");
@@ -52,10 +54,19 @@ void cases(const fs::path& root) {
     const auto docs = gate::select_native_changes(root, {"README.md", "native/factory-core/README.md"});
     check(!docs.required && docs.build_query.empty() && docs.test_query.empty(),
           "Documentation-only changes do not force native validation.");
-    check(!gate::requires_native_validation({"README.md", "native/factory-core/README.md"}) &&
-              gate::requires_native_validation({"native/factory-core/src/materials.cpp"}) &&
-              gate::requires_native_validation({"MODULE.bazel.lock"}),
+    check(!gate::requires_native_validation({"README.md", "native/factory-core/README.md"}, root_build) &&
+              gate::requires_native_validation({"native/factory-core/src/materials.cpp"}, root_build) &&
+              gate::requires_native_validation({"MODULE.bazel.lock"}, root_build),
           "The pre-admission path decision matches source, documentation and shared Bazel inputs.");
+    const auto root_data = gate::select_native_changes(root, {"scripts/ensure-gameplay-library.sh"});
+    check(root_data.required && !root_data.all &&
+              root_data.packages == std::vector<std::string>{"//:scripts/ensure-gameplay-library.sh"} &&
+              root_data.test_query == "kind(\".*_test rule\", rdeps(//native/..., set(//:scripts/ensure-gameplay-library.sh)))" &&
+              gate::requires_native_validation({"scripts/ensure-gameplay-library.sh"}, root_build),
+          "A staged root Bazel data file seeds its exact native reverse dependencies.");
+    check(!gate::select_native_changes(root, {"scripts/unrelated.sh"}).required &&
+              !gate::requires_native_validation({"scripts/unrelated.sh"}, root_build),
+          "An unrelated script is not a native input.");
     for (const auto& path : {".bazelrc", ".bazelversion", "MODULE.bazel", "MODULE.bazel.lock",
                              "BUILD.bazel", "native/factory-core/defs.bzl", "native/new/src/file.cpp"}) {
         const auto all = gate::select_native_changes(root, {path});
@@ -68,7 +79,7 @@ void cases(const fs::path& root) {
         refuses([&] { (void)gate::select_native_changes(root, {path}); },
                 (std::string("An unsafe or private staged delta refuses: ") + path).c_str());
         if (std::string(path).starts_with("native/") || std::string(path).ends_with(".bzl"))
-            refuses([&] { (void)gate::requires_native_validation({path}); },
+            refuses([&] { (void)gate::requires_native_validation({path}, root_build); },
                     "The pre-admission decision refuses an unsafe native path.");
     }
     const auto labels = gate::native_labels_from_query(
