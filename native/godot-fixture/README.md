@@ -172,6 +172,8 @@ fixture rejects a selected route if its required actions were skipped.
 | `--case` selection | Godot arguments | Exact completion line | Maximum time |
 | --- | --- | --- | --- |
 | `arrival-first-plate` (placement and focus guard) | `--native-check-mode=arrival-first-plate --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate` | 180 seconds |
+| `arrival-raised-starter-snap` (raised press starter placement) | `--native-check-mode=arrival-raised-starter-snap --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-raised-starter-snap` | 180 seconds |
+| `arrival-raised-press` (raised press assembly and plate) | `--native-check-mode=arrival-raised-press --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-raised-press` | 180 seconds |
 | `arrival-channel-small` (custody and blocked gap) | `--native-check-mode=arrival-channel-small --event-route-loose --resume-input=BROAD_CUT_WORKSITE --save-slot=FRESH_WORKSITE --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small` | 300 seconds |
 | `arrival-channel-small-resume` (fresh-process recovery) | `--native-check-mode=arrival-channel-small-resume --event-route-loose --resume-input=PREVIOUS_WORKSITE --save-slot=FRESH_WORKSITE --native-check-prior=PREVIOUS_RESULT --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume` | 180 seconds |
 
@@ -179,11 +181,12 @@ fixture rejects a selected route if its required actions were skipped.
 `arrival-broad-cut-resume` from the same native revision. Feed the narrow
 channel result and save into the fresh-process recovery case; it checks exact
 placed parts, dropped items, carried cargo and conserved mass before keyboard
-pickup. The first case uses pointer events for two fitted placements and checks
-that a click while the Escape menu is open cannot place a part. The second
-uses Ctrl+L, popup focus, arrow keys and Enter for three custody attempts,
-including refusal across a missing rail. The third uses the same keyboard
-path to pick up the restored plate. Ordinary players point at material and press
+pickup. The first three cases use pointer events for fitted placement and check
+that a click while the Escape menu is open cannot place a part. The raised
+starter checks three placements; the raised press checks five and forms a plate.
+The channel case uses Ctrl+L, popup focus, arrow keys and Enter for three
+custody attempts, including refusal across a missing rail. Its resume case
+uses the same keyboard path to pick up the restored plate. Ordinary players point at material and press
 E; the old material menu is available only with `--debug-material-tools`.
 Scene tests still substitute scripted
 actor movement and choices; they do not establish human play or desktop input.

@@ -11,7 +11,8 @@ const SUITES := ["--channel-hotbar-icons-only", "--slide-manager-cue-only",
 	"--inventory-goal-only", "--manager-controls-only", "--reveal-controls-only",
 	"--route-report-only", "--foundation-inspector-only", "--foundation-view-only",
 	"--footer-layout-only", "--manager-log-shared-only", "--camera-profile-only",
-	"--camera-zoom-only", "--mouse-look-only", "--verifier-negative-control"]
+	"--camera-zoom-only", "--mouse-look-only", "--resize-layout-only",
+	"--verifier-negative-control"]
 const CAPTURE_SUITES := {
 	"--channel-icon-normal-screenshot=": "--channel-hotbar-icons-only",
 	"--channel-icon-narrow-screenshot=": "--channel-hotbar-icons-only",
@@ -23,6 +24,7 @@ const CAPTURE_SUITES := {
 	"--inventory-goal-screenshot=": "--inventory-goal-only",
 	"--manager-complete-log-screenshot=": "--inventory-goal-only",
 	"--manager-complete-log-narrow-screenshot=": "--inventory-goal-only",
+	"--resize-layout-capture-prefix=": "--resize-layout-only",
 }
 var checks := 0
 var camera_failed := false
@@ -878,6 +880,66 @@ func check_footer_layout() -> void:
 	shared.free()
 	finish_checks()
 
+func check_resize_layout() -> void:
+	var capture_prefix := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--resize-layout-capture-prefix="):
+			capture_prefix = argument.trim_prefix("--resize-layout-capture-prefix=")
+	root.size = Vector2i(1280, 800)
+	var view := FooterView.new()
+	view.state = first_target_fixture()
+	view.state.entities = {"press-a": {"kind": "processor", "cell": [3, 1]}}
+	root.add_child(view)
+	view._build_interface()
+	view._refresh_guided_tools()
+	view.selected = "press-a"
+	view.object_menu_target = "press-a"
+	view.object_menu_title.text = "PRESS"
+	view.inspector.text = "The selected press is waiting for a connected drive."
+	view.object_menu_desired_extent = Vector2i(500, 400)
+	view.object_menu.popup_centered(Vector2i(500, 400))
+	view._fit_object_menu()
+	view._refresh_guided_tools()
+	view._message("The press needs a connected drive before it can form a plate.", true)
+	var sizes := [Vector2i(1280, 800), Vector2i(1920, 1080),
+		Vector2i(640, 480), Vector2i(1280, 800)]
+	for step in range(sizes.size()):
+		var dimensions: Vector2i = sizes[step]
+		root.size = dimensions
+		await settle_footer()
+		# The detached view disables _process; production calls this when the
+		# viewport changes while the E menu is open.
+		view._fit_object_menu()
+		await settle_footer()
+		var viewport := Rect2(Vector2.ZERO, Vector2(dimensions))
+		var menu_bounds := Rect2(Vector2(view.object_menu.position), Vector2(view.object_menu.size))
+		var hotbar_bounds: Rect2 = view.building_hotbar.get_global_rect()
+		var footer_bounds: Rect2 = view.status_footer.get_global_rect()
+		verify(view.object_menu.visible and viewport.encloses(menu_bounds)
+			and absf(menu_bounds.get_center().x - dimensions.x / 2.0) <= 2.0,
+			"The selected press remains in a centered, reachable E menu after resizing to %s." % dimensions)
+		verify(viewport.encloses(hotbar_bounds) and viewport.encloses(footer_bounds)
+			and is_equal_approx(footer_bounds.end.y, hotbar_bounds.position.y - 12.0)
+			and footer_bounds.encloses(view.controls_label.get_global_rect())
+			and footer_bounds.encloses(view.status_label.get_global_rect()),
+			"The status strip and hotbar remain inside the resized viewport without overlap at %s." % dimensions)
+		if not capture_prefix.is_empty():
+			verify(root.get_texture().get_image().save_png("%s-%d-%dx%d.png" % [capture_prefix,
+				step, dimensions.x, dimensions.y]) == OK,
+				"The resized worksite UI can be captured at %s." % dimensions)
+	if not capture_prefix.is_empty():
+		# This view has no full scene or Model for the production close callback.
+		view.object_menu.popup_hide.disconnect(view._on_object_menu_closed)
+		view.object_menu.hide()
+		root.size = Vector2i(640, 480)
+		await settle_footer()
+		verify(root.get_texture().get_image().save_png(capture_prefix + "-4-640x480-uncovered.png") == OK,
+			"The unobscured narrow worksite UI can be captured.")
+	verify(view.model == null and view.actor_world == null and view.request_sequence == 0,
+		"Resizing the real opening widgets creates no gameplay request or authority.")
+	view.free()
+	finish_checks()
+
 class CameraProjection extends RefCounted:
 	var snapshot := {"options": {}, "entities": {}, "links": [], "revision": 0}
 	func projection() -> Dictionary:
@@ -1229,6 +1291,7 @@ func _initialize() -> void:
 		"--foundation-inspector-only": call_deferred("check_foundation_inspector")
 		"--foundation-view-only": check_foundation_view.call_deferred()
 		"--footer-layout-only": call_deferred("check_footer_layout")
+		"--resize-layout-only": call_deferred("check_resize_layout")
 		"--manager-log-shared-only": call_deferred("check_shared_manager_log")
 		"--camera-profile-only":
 			check_camera_profiles()

@@ -202,6 +202,34 @@ void guided_press_host_path() {
     accepted(elevated, raised_floor);
     const auto elevated_anvil = place(elevated, "anvil", 8, 4, 0,
                                      "guided-independent-raised-anvil");
+    const auto before_bad_component_shapes = elevated.projection();
+    auto wrong_component = request("bad-place-component-type", "place_component");
+    wrong_component.emplace("component", V(I{1}));
+    wrong_component.emplace("center", V(A{V(I{8}), V(I{4}), V(I{0})}));
+    auto wrong_center = request("bad-place-center-type", "place_component");
+    wrong_center.emplace("component", V("anvil"));
+    wrong_center.emplace("center", V(false));
+    auto wrong_entity = request("bad-reclaim-entity-type", "reclaim_component");
+    wrong_entity.emplace("entity", V(I{1}));
+    auto extra_reclaim_field = request("bad-reclaim-extra-field", "reclaim_component");
+    extra_reclaim_field.emplace("entity", V(elevated_anvil));
+    extra_reclaim_field.emplace("center", V(A{V(I{8}), V(I{4}), V(I{0})}));
+    for (const auto& malformed : {wrong_component, wrong_center, wrong_entity, extra_reclaim_field}) {
+        const auto refused = elevated.command("P", malformed);
+        check(!get<bool>(refused, "accepted") && get<std::string>(refused, "reason") == "invalid_command",
+              "Malformed component placement and recovery requests refuse at Host admission.");
+    }
+    const auto after_bad_component_shapes = elevated.projection();
+    check(get<I>(before_bad_component_shapes, "revision") ==
+              get<I>(after_bad_component_shapes, "revision") &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_component_shapes, "placed_components")),
+              V(get<O>(after_bad_component_shapes, "placed_components"))) &&
+          !factory::values::typed_difference(V(get<O>(before_bad_component_shapes, "cargo")),
+              V(get<O>(after_bad_component_shapes, "cargo"))) &&
+          !factory::values::typed_difference(V(get<O>(before_bad_component_shapes, "part_kits")),
+              V(get<O>(after_bad_component_shapes, "part_kits"))),
+          "Malformed component requests leave native revision, identities and finite stock unchanged.");
     const auto elevated_faces = vertical_faces(get<O>(elevated.projection(), "placed_components"),
                                                elevated_anvil);
     check(std::abs(elevated_faces.first - 1.65) < 1e-9 &&

@@ -55,20 +55,35 @@ int main() {
                   == fixture::Verdict::malformed_log,
               "Binary controls cannot hide a diagnostic or forge a marker.");
         const auto* first = fixture::find_case("arrival-first-plate");
+        const auto* raised_starter = fixture::find_case("arrival-raised-starter-snap");
+        const auto* raised_press = fixture::find_case("arrival-raised-press");
         const auto* small = fixture::find_case("arrival-channel-small");
         const auto* resumed = fixture::find_case("arrival-channel-small-resume");
-        check(fixture::registered_cases().size() == 3 && first && small && resumed &&
+        check(fixture::registered_cases().size() == 5 && first && raised_starter && raised_press &&
+                  small && resumed &&
                   !fixture::find_case("arrival-first-plste"),
-              "Only the three declared scene event routes are registered.");
+              "Only the five declared scene event routes are registered.");
         check(first->script == "res://opening/native_adapter_check.gd" &&
                   first->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate" &&
+                  raised_starter->script == first->script &&
+                  raised_starter->pass_line ==
+                      "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-starter-snap" &&
+                  raised_press->script == first->script &&
+                  raised_press->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-press" &&
                   small->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small" &&
                   resumed->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume" &&
-                  first->seconds == 180 && small->seconds == 300 && resumed->seconds == 180,
+                  first->seconds == 180 && raised_starter->seconds == 180 &&
+                  raised_press->seconds == 180 && small->seconds == 300 && resumed->seconds == 180,
               "Named cases own the script, exact completion marker and deadline.");
         const std::vector<std::string> first_args{
             "--event-route-pointer", "--native-check-output=/tmp/first.result",
             "--native-check-mode=arrival-first-plate"};
+        const std::vector<std::string> raised_starter_args{
+            "--event-route-pointer", "--native-check-output=/tmp/raised-starter.result",
+            "--native-check-mode=arrival-raised-starter-snap"};
+        const std::vector<std::string> raised_press_args{
+            "--event-route-pointer", "--native-check-output=/tmp/raised-press.result",
+            "--native-check-mode=arrival-raised-press"};
         const std::vector<std::string> small_args{
             "--native-check-output=/tmp/small.result", "--save-slot=/tmp/small.worksite",
             "--event-route-loose", "--resume-input=/tmp/broad.worksite",
@@ -78,13 +93,29 @@ int main() {
             "--resume-input=/tmp/small.worksite", "--save-slot=/tmp/recovered.worksite",
             "--native-check-prior=/tmp/small.result", "--native-check-output=/tmp/recovered.result"};
         check(fixture::accepts_case_arguments(*first, first_args) &&
+                  fixture::accepts_case_arguments(*raised_starter, raised_starter_args) &&
+                  fixture::accepts_case_arguments(*raised_press, raised_press_args) &&
                   fixture::accepts_case_arguments(*small, small_args) &&
                   fixture::accepts_case_arguments(*resumed, resume_args),
               "Every registered route accepts its required arguments in any order.");
         check(!fixture::accepts_case_arguments(*first, {first_args.data(), first_args.size() - 1}) &&
+                  !fixture::accepts_case_arguments(*raised_starter,
+                      {raised_starter_args.data(), raised_starter_args.size() - 1}) &&
+                  !fixture::accepts_case_arguments(*raised_press,
+                      {raised_press_args.data(), raised_press_args.size() - 1}) &&
                   !fixture::accepts_case_arguments(*small, {small_args.data(), small_args.size() - 1}) &&
                   !fixture::accepts_case_arguments(*resumed, {resume_args.data(), resume_args.size() - 1}),
               "Omitted required inputs refuse for every route.");
+        check(!fixture::accepts_case_arguments(*raised_starter, first_args) &&
+                  !fixture::accepts_case_arguments(*raised_press, raised_starter_args) &&
+                  !fixture::accepts_case_arguments(*raised_press,
+                      std::vector<std::string>{"--native-check-mode=arrival-raised-press",
+                          "--event-route-pointer", "--native-check-output="}) &&
+                  !fixture::accepts_case_arguments(*raised_press,
+                      std::vector<std::string>{"--native-check-mode=arrival-raised-press",
+                          "--event-route-pointer", "--native-check-output=/tmp/a",
+                          "--native-check-output=/tmp/b"}),
+              "Raised routes reject another mode, empty output and duplicate output.");
         check(!fixture::accepts_case_arguments(*first,
                   std::vector<std::string>{"--native-check-mode=arrival-first-plate",
                                            "--event-route-pointer", "--native-check-output="}) &&
