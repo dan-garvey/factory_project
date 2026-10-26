@@ -1,12 +1,13 @@
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 
-package(default_visibility = ["//visibility:public"])
+package(default_visibility = ["//visibility:private"])
 
 cc_library(
     name = "transactions",
     hdrs = ["include/factory/transactions.hpp"],
     strip_include_prefix = "include",
     deps = ["//native/factory-authority:authority_boundary"],
+    visibility = ["//native/factory-core:__pkg__"],
 )
 
 cc_test(
@@ -29,6 +30,7 @@ cc_library(
         "//native/factory-stationary:stationary",
         "//native/waterwheel:waterwheel",
     ],
+    visibility = ["//native/repair-scenarios:__pkg__"],
 )
 
 cc_test(
@@ -72,6 +74,7 @@ cc_library(
     hdrs = ["include/factory/checkpoint.hpp"],
     strip_include_prefix = "include",
     deps = [":world", "//native/factory-core:material_state_codec"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
 )
 
 cc_test(
