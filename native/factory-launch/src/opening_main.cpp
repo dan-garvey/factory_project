@@ -143,7 +143,8 @@ int main(int argc, char** argv) {
         require(engine.is_absolute() && fs::canonical(engine) == engine && ::access(engine.c_str(), X_OK) == 0 &&
                 sha256(read_regular(engine, 512 * 1024 * 1024)) == engine_digest,
                 "The selected executable differs from the explicitly sealed engine.");
-        const auto captured = capture_project({options.at("--repo"), options.at("--tree"), output, &cancelled});
+        const auto captured = capture_project({options.at("--repo"), options.at("--tree"), output,
+                                               &cancelled, CaptureOptions::Profile::product});
         owned_output = true;
         source_tree = captured.tree;
         capture_digest = sha256(read_regular(captured.manifest, 2 * 1024 * 1024));

@@ -198,6 +198,56 @@ int main(int argc, char** argv) {
         check(cli.exit_code == 0 && read(root / "cli-captured/project/opening/assets/worker.tscn") == asset,
               "The public C++ capture entry point produces the immutable resource snapshot.");
 
+        const auto product_repository = root / "product-repository";
+        fs::create_directory(product_repository);
+        utility({"/usr/bin/git", "init", "--quiet", product_repository.string()});
+        const auto product = product_repository / "experiments/engine-environment/godot";
+        const std::string product_script =
+            "extends Node\nconst Store = preload(\"res://save-tests/checkpoint_file.gd\")\n"
+            "const ICON = preload(\"res://opening/assets/icon.svg\")\n"
+            "func legacy(): return load(\"res://model.gd\").new()\n";
+        write(product / "project.godot", "[application]\nrun/main_scene=\"res://opening/opening.tscn\"\n");
+        write(product / "opening/opening.tscn",
+              "[gd_scene format=3]\n[ext_resource type=\"Script\" path=\"res://opening/native_opening.gd\" id=\"1\"]\n");
+        write(product / "opening/native_opening.gd", "extends \"res://opening/opening.gd\"\n");
+        write(product / "opening/opening.gd", product_script);
+        write(product / "save-tests/checkpoint_file.gd",
+              "extends RefCounted\nfunc legacy(): return load(\"res://model.gd\").new()\n");
+        write(product / "opening/assets/icon.svg", "<svg/>\n");
+        write(product / "opening/assets/icon.svg.import", "[remap]\n");
+        write(product / "opening/assets/LICENSE.txt", "Fixture attribution.\n");
+        write(product / "model.gd", "extends Node\n");
+        write(product / "opening/test_only.gd", "extends Node\n");
+        write(product / "opening/assets/unused.tscn", "[gd_scene format=3]\n");
+        const auto product_tree = commit(product_repository);
+        const auto product_capture = root / "product-captured";
+        const auto product_result = capture_project({product_repository, product_tree, product_capture,
+                                                      nullptr, CaptureOptions::Profile::product});
+        check(product_result.files == 7 && product_result.scripts == 3,
+              "The product closure selects only the rooted scene, scripts, asset and attribution.");
+        check(!fs::exists(product_capture / "project/model.gd") &&
+              !fs::exists(product_capture / "project/opening/test_only.gd") &&
+              !fs::exists(product_capture / "project/opening/assets/unused.tscn") &&
+              fs::exists(product_capture / "project/opening/assets/LICENSE.txt"),
+              "Product capture excludes legacy and test dependencies while retaining asset attribution.");
+        check(read(product_result.manifest).find("\"profile\": \"product\"") != std::string::npos,
+              "The immutable manifest identifies the selected product profile.");
+        const auto complete_result = capture_project({product_repository, product_tree, root / "complete-captured"});
+        check(complete_result.files == 11 && complete_result.scripts == 5 &&
+              fs::exists(root / "complete-captured/project/model.gd") &&
+              fs::exists(root / "complete-captured/project/opening/test_only.gd"),
+              "The complete fixture profile retains legacy and test sources.");
+        fs::remove(product / "opening/assets/icon.svg");
+        const auto missing_product = commit(product_repository);
+        no_output_refusal({product_repository, missing_product, root / "missing-product", nullptr,
+                           CaptureOptions::Profile::product}, "Missing selected scene asset.");
+        write(product / "opening/assets/icon.svg", "<svg/>\n");
+        write(product / "opening/opening.gd",
+              "extends Node\nconst Model = preload(\"res://model.gd\")\n");
+        const auto eager_legacy = commit(product_repository);
+        no_output_refusal({product_repository, eager_legacy, root / "eager-legacy", nullptr,
+                           CaptureOptions::Profile::product}, "Eager legacy preload in the product scene.");
+
         // The remaining commits are disclosed negative Git fixtures, never game runs.
         write(project / "opening/view.gd", script);
         write(project / "opening/assets/worker.tscn", asset);

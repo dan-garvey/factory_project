@@ -7,10 +7,12 @@
 #include <cerrno>
 #include <csignal>
 #include <cstring>
+#include <deque>
 #include <fcntl.h>
 #include <fstream>
 #include <iomanip>
 #include <memory>
+#include <map>
 #include <poll.h>
 #include <spawn.h>
 #include <sstream>
@@ -172,6 +174,40 @@ struct Source {
     std::string bytes;
     std::string digest;
 };
+
+struct RosterEntry {
+    std::string path;
+    std::string mode;
+    std::string blob;
+};
+
+bool text_resource(const std::string& path) {
+    const auto extension = fs::path(path).extension();
+    return extension == ".gd" || extension == ".godot" || extension == ".tscn" ||
+           extension == ".tres" || extension == ".gdshader";
+}
+
+std::vector<std::string> resource_references(const std::string& content) {
+    std::vector<std::string> result;
+    for (std::size_t start = 0; (start = content.find("res://", start)) != std::string::npos;) {
+        const auto end = content.find_first_of("\"'\r\n\t ", start);
+        require(end != std::string::npos, "A product resource reference is incomplete.");
+        if (end > start + 6) result.push_back(content.substr(start + 6, end - start - 6));
+        start = end;
+    }
+    return result;
+}
+
+bool prefix_asset(const std::string& path) {
+    const auto extension = fs::path(path).extension();
+    return extension != ".gd" && extension != ".tscn" && extension != ".md" &&
+           extension != ".txt";
+}
+
+bool identifier_character(char value) {
+    return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
+           (value >= '0' && value <= '9') || value == '_';
+}
 } // namespace
 
 ProcessResult run_process(const std::vector<std::string>& arguments,
@@ -350,9 +386,9 @@ CaptureResult capture_project(const CaptureOptions& options) {
     const auto tree = trim_newline(read_git({"rev-parse", "--verify", options.tree + "^{tree}"}));
     require(object_id(tree), "Git did not resolve one immutable tree.");
     const auto roster = read_git({"ls-tree", "-rz", "--full-tree", tree, "--", project_prefix});
-    std::vector<Source> sources;
-    std::size_t total = 0, scripts = 0, start = 0;
-    bool has_project = false;
+    std::vector<RosterEntry> entries;
+    std::map<std::string, RosterEntry> by_path;
+    std::size_t start = 0;
     while (start < roster.size()) {
         const auto end = roster.find('\0', start);
         require(end != std::string::npos, "The raw Git roster is incomplete.");
@@ -377,17 +413,90 @@ CaptureResult capture_project(const CaptureOptions& options) {
             require(component != ".git" && component != ".beads" && component != ".godot"
                     && component != ".." && component != ".",
                     "Private metadata and generated caches are excluded.");
-        require(sources.size() < maximum_files, "The project exceeds its file allowance.");
-        auto bytes = read_git({"cat-file", "blob", blob}, maximum_project_source_bytes - total);
-        total += bytes.size();
-        if (path.extension() == ".gd") ++scripts;
-        require(scripts <= maximum_scripts, "The project exceeds its script allowance.");
-        has_project = has_project || relative == "project.godot";
-        const auto digest = sha256(bytes);
-        sources.push_back({relative, mode, blob, std::move(bytes), digest});
+        require(entries.size() < 4096 &&
+                by_path.emplace(relative, RosterEntry{relative, mode, blob}).second,
+                "The raw Godot roster is excessive or repeats a path.");
+        entries.push_back({relative, mode, blob});
         start = end + 1;
     }
-    require(has_project && scripts > 0, "The immutable snapshot is not the supported Godot project.");
+    require(by_path.count("project.godot") == 1,
+            "The immutable snapshot is not the supported Godot project.");
+    std::vector<Source> sources;
+    std::map<std::string, std::size_t> selected;
+    std::deque<std::string> pending;
+    std::size_t total = 0, scripts = 0;
+    const auto add_source = [&](const std::string& path) {
+        if (selected.count(path)) return;
+        const auto found = by_path.find(path);
+        require(found != by_path.end(), "A declared product resource is missing: " + path);
+        require(sources.size() < maximum_files, "The project exceeds its file allowance.");
+        const auto& entry = found->second;
+        auto bytes = read_git({"cat-file", "blob", entry.blob}, maximum_project_source_bytes - total);
+        total += bytes.size();
+        require(total <= maximum_project_source_bytes, "The project exceeds its total source allowance.");
+        if (fs::path(path).extension() == ".gd") ++scripts;
+        require(scripts <= maximum_scripts, "The project exceeds its script allowance.");
+        selected.emplace(path, sources.size());
+        sources.push_back({path, entry.mode, entry.blob, std::move(bytes), {}});
+        sources.back().digest = sha256(sources.back().bytes);
+        if (text_resource(path)) pending.push_back(path);
+    };
+    if (options.profile == CaptureOptions::Profile::complete) {
+        for (const auto& entry : entries) add_source(entry.path);
+    } else {
+        add_source("project.godot");
+        add_source("opening/opening.tscn");
+        while (!pending.empty()) {
+            const auto path = pending.front();
+            pending.pop_front();
+            const auto references = resource_references(sources.at(selected.at(path)).bytes);
+            for (auto reference : references) {
+                if (reference == "model.gd" &&
+                    (path == "opening/opening.gd" || path == "save-tests/checkpoint_file.gd")) {
+                    const auto& script = sources.at(selected.at(path)).bytes;
+                    const auto at = script.find("res://model.gd");
+                    require(at >= 6 && script.substr(at - 6, 6) == "load(\"" &&
+                            (at == 6 || !identifier_character(script[at - 7])) &&
+                            script.find("res://model.gd", at + 1) == std::string::npos,
+                            "The product opening cannot eagerly depend on the legacy model.");
+                    continue;
+                }
+                if (by_path.count(reference)) {
+                    add_source(reference);
+                    continue;
+                }
+                const auto wildcard = reference.find('%');
+                if (wildcard != std::string::npos) reference.resize(wildcard);
+                const bool directory = std::any_of(entries.begin(), entries.end(), [&](const auto& entry) {
+                    return entry.path.starts_with(reference + "/");
+                });
+                require(wildcard != std::string::npos || directory ||
+                        reference.ends_with('/') || reference.ends_with('-'),
+                        "A declared product resource is missing: " + reference);
+                require(reference == "opening/assets" || reference.starts_with("opening/assets/"),
+                        "An unresolved product resource is outside the dynamic asset roots: " + reference);
+                bool matched = false;
+                for (const auto& entry : entries) {
+                    if (entry.path.starts_with(directory ? reference + "/" : reference) &&
+                        prefix_asset(entry.path)) {
+                        add_source(entry.path);
+                        matched = true;
+                    }
+                }
+                require(matched, "A dynamic product asset prefix has no tracked resources: " + reference);
+            }
+        }
+        // Keep attribution and licensing beside the assets that enter runtime.
+        for (const auto& entry : entries)
+            if (entry.path.starts_with("opening/assets/") &&
+                (fs::path(entry.path).extension() == ".md" ||
+                 fs::path(entry.path).filename().string().starts_with("LICENSE")))
+                add_source(entry.path);
+    }
+    require(scripts > 0, "The immutable snapshot has no selected Godot scripts.");
+    std::sort(sources.begin(), sources.end(), [](const Source& left, const Source& right) {
+        return left.path < right.path;
+    });
     require(sha256(file_bytes(git_executable, 16 * 1024 * 1024)) == git_digest,
             "The Git executable changed during capture preparation.");
 
@@ -400,6 +509,7 @@ CaptureResult capture_project(const CaptureOptions& options) {
     manifest << "{\n  \"schema\": 1,\n  \"kind\": \"immutable_project_capture\",\n"
              << "  \"status\": \"captured\",\n  \"engine_runs\": 0,\n  \"source_tree\": " << json_string(tree)
              << ",\n  \"source_object\": " << json_string(options.tree)
+             << ",\n  \"profile\": " << json_string(options.profile == CaptureOptions::Profile::product ? "product" : "complete")
              << ",\n  \"git_executable\": " << json_string(git_executable)
              << ",\n  \"git_sha256\": " << json_string(git_digest)
              << ",\n  \"source_bytes\": " << total << ",\n  \"script_count\": " << scripts << ",\n  \"files\": [\n";

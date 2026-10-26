@@ -1,7 +1,6 @@
 extends RefCounted
 ## Prototype file boundary; the shared model is the sole state/schema validator.
 
-const Model = preload("res://model.gd")
 const MAGIC = "FACTORY-SAVE-1\n"
 const MAX_BYTES = 1024 * 1024
 
@@ -28,7 +27,9 @@ static func write(model, path: String) -> Dictionary:
 	return write_snapshot(model.checkpoint(), path)
 
 static func write_snapshot(snapshot: Dictionary, path: String) -> Dictionary:
-	var validator = Model.new()
+	# Only the explicit legacy fixture uses the scripted validator. Native
+	# saves are validated by their own authority in write().
+	var validator = load("res://model.gd").new()
 	var validation: Dictionary = validator.restore_checkpoint(snapshot)
 	if not validation.accepted:
 		return _result(false, "invalid_capture:" + validation.reason)
