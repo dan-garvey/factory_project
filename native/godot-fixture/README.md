@@ -71,6 +71,25 @@ the measurement route emits structured `COG_SCALE` values. Treat those as
 synthetic validation or performance evidence, separately from the direct
 fixture PASS line and native/human-play results.
 
+`site_surface_check.gd` runs its default terrain/physics suite with no user
+arguments or one of `--outcrop-native-only`, `--belt-water-native-only`,
+`--belt-water-native-forward-only`, `--water-samples-only`,
+`--water-native-only`, `--flow-sections-only`, `--waterwheel-visual-only`,
+`--bank-firs-physics-only`, `--mature-tree-depletion-only`,
+`--native-hull-matching-only`, `--convex-only` or `--structures-only`.
+Unknown, repeated and competing modes exit 2 before a suite starts. The
+default, outcrop, tree, hull, convex, structure and wheel-visual suites emit
+JSON with `status: pass` and a check count. Water samples emit `terrain flow
+cell and riverbed section controls passed`; belt-water modes emit `native
+actual river belt route controls passed`; flow sections emit `native riverbed
+flow and wheel-size sections passed`; and native water emits `native water site
+controls passed`, each with its check count. Require the complete
+revision-matched line, exit zero and a log free of engine/script errors.
+Modes that instantiate `NativeModel` require a captured native library; a
+missing library is a setup failure. `--test-purpose=TEXT` is accepted for a
+tracked agent graphical launch, but headless results do not establish
+rendered or human-play behavior.
+
 `guidance_cue_check.gd --mouse-look-only` emits `OPENING_MOUSE_LOOK_PASS 15`.
 It checks first-person capture policy, relative camera motion, menu release and
 held-key refusal in a headless view. It does not establish actual OS focus or
@@ -99,6 +118,8 @@ where their selected consumer uses them.
 
 Build `//native/godot-fixture:factory-godot-fixture` with the verified Bazel
 8.4.2 toolchain described in [native builds](../../docs/engineering/native-builds.md).
+The binary is the supported external entry point; its implementation library
+and local test are private to this package.
 Then run from a linked checkout, substituting existing absolute paths, the
 verified lowercase SHA-256, an owned private artifact directory, and the full
 PASS line for that exact fixture revision:

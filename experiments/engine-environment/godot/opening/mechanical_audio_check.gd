@@ -2,7 +2,7 @@ extends SceneTree
 ## Invented observations and Dummy audio. No authority, network or desktop.
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
-const Ambience = Opening.MechanicalAmbience
+const Ambience = preload("res://opening/mechanical_ambience.gd")
 
 class ViewFixture extends Opening:
 	func _ready() -> void:

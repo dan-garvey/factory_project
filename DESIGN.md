@@ -109,9 +109,10 @@ contiguous support, clearance, coupling and drive capacity decide validity.
 Working area does not mandate a whole actuator or shaft/cog pair per cell.
 Players with sufficient parts may attempt it early; avoid a recipe per footprint.
 The ordinary build controls expose both sizes for the anvil and current flat
-head. A broad placement joins four carried ordinary parts into one continuous
-surface or face, then returns those parts on reclaim. One slide may drive that
-face when its actual input and load permit.
+head; V switches the selected part between them. A broad placement spends four
+carried ordinary parts in one click to build one continuous surface or face,
+then returns those parts on reclaim. One slide may drive that face when its
+actual input and load permit.
 
 Conserve material mass and form through extraction, carrying, processing,
 offcuts, storage, recovery, edits, saves and shared continuation. The prototype

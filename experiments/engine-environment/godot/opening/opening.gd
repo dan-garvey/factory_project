@@ -8,165 +8,9 @@ const ActorWorld = preload("res://opening/actor_world.gd")
 const CharacterPresenter = preload("res://opening/character_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const BuildingHotbar = preload("res://opening/building_hotbar.gd")
-class ArrivalRevealAudio:
-	extends Node
-	## A short presentation score for the already deployed native landing pod.
-	## It reads the reveal clock and never owns pod, actor or material state.
-
-	signal cue_emitted(cue: String)
-
-	const DURATION := 2.8
-	const SAMPLE_RATE := 22050
-	const TOUCHDOWN := preload("res://opening/assets/construction-audio/assembly.wav")
-	const LATCH := preload("res://opening/assets/construction-audio/coupling.wav")
-	const EVENTS := {"touchdown": 1.45, "latch_port": 1.72,
-		"latch_starboard": 2.12, "hub_ready": 2.52}
-	const EVENT_ORDER := ["touchdown", "latch_port", "latch_starboard", "hub_ready"]
-
-	var descent_stream: AudioStreamWAV
-	var ready_stream: AudioStreamWAV
-
-	var active := false
-	var elapsed := 0.0
-	var cue_history: Array[String] = []
-	var voices: Dictionary = {}
-
-
-	static func _wav(samples: PackedByteArray) -> AudioStreamWAV:
-		var result := AudioStreamWAV.new()
-		result.format = AudioStreamWAV.FORMAT_16_BITS
-		result.mix_rate = SAMPLE_RATE
-		result.stereo = false
-		result.data = samples
-		return result
-
-
-	func _descent() -> AudioStreamWAV:
-		if descent_stream != null:
-			return descent_stream
-		var count := roundi(DURATION * SAMPLE_RATE)
-		var samples := PackedByteArray()
-		samples.resize(count * 2)
-		var phase := 0.0
-		var sub_phase := 0.0
-		var filtered_noise := 0.0
-		var random := RandomNumberGenerator.new()
-		random.seed = 0x4d4552494449414e
-		for index in count:
-			var time := float(index) / SAMPLE_RATE
-			var progress := time / DURATION
-			var frequency := lerpf(142.0, 74.0, progress)
-			phase += TAU * frequency / SAMPLE_RATE
-			sub_phase += TAU * 39.0 / SAMPLE_RATE
-			filtered_noise = 0.985 * filtered_noise + 0.015 * random.randf_range(-1.0, 1.0)
-			var envelope := minf(1.0, time / 0.16) * minf(1.0, (DURATION - time) / 0.28)
-			var engine := 0.38 * sin(phase) + 0.16 * sin(phase * 2.01) + 0.18 * sin(sub_phase)
-			var sample := clampf(envelope * (engine + filtered_noise * 1.4), -0.8, 0.8)
-			samples.encode_s16(index * 2, roundi(sample * 32767.0))
-		descent_stream = _wav(samples)
-		return descent_stream
-
-
-	func _ready_chime() -> AudioStreamWAV:
-		if ready_stream != null:
-			return ready_stream
-		var count := roundi(0.58 * SAMPLE_RATE)
-		var samples := PackedByteArray()
-		samples.resize(count * 2)
-		for index in count:
-			var time := float(index) / SAMPLE_RATE
-			var attack := minf(1.0, time / 0.012)
-			var envelope := attack * exp(-time * 6.0) * minf(1.0, (0.58 - time) / 0.055)
-			var bell := 0.48 * sin(TAU * 392.0 * time) + 0.30 * sin(TAU * 523.25 * time) \
-				+ 0.12 * sin(TAU * 1046.5 * time)
-			samples.encode_s16(index * 2, roundi(clampf(envelope * bell, -0.95, 0.95) * 32767.0))
-		ready_stream = _wav(samples)
-		return ready_stream
-
-	static func workshop_chime() -> AudioStreamWAV:
-		var count := roundi(0.72 * SAMPLE_RATE)
-		var samples := PackedByteArray()
-		samples.resize(count * 2)
-		for index in count:
-			var time := float(index) / SAMPLE_RATE
-			var envelope := minf(1.0, time / 0.016) * exp(-time * 4.2) \
-				* minf(1.0, (0.72 - time) / 0.08)
-			var bell := 0.34 * sin(TAU * 523.25 * time) \
-				+ 0.26 * sin(TAU * 659.25 * time) + 0.18 * sin(TAU * 783.99 * time)
-			samples.encode_s16(index * 2, roundi(clampf(envelope * bell, -0.95, 0.95) * 32767.0))
-		return _wav(samples)
-
-
-	func _ready() -> void:
-		for cue in ["descent", "touchdown", "latch_port", "latch_starboard", "hub_ready"]:
-			var player := AudioStreamPlayer.new()
-			player.name = cue.to_pascal_case()
-			player.bus = "Master"
-			player.volume_db = {"descent": -19.0, "touchdown": -11.0,
-				"latch_port": -15.0, "latch_starboard": -15.0, "hub_ready": -16.0}[cue]
-			player.stream = _descent() if cue == "descent" else \
-				_ready_chime() if cue == "hub_ready" else \
-				TOUCHDOWN if cue == "touchdown" else LATCH
-			player.pitch_scale = 0.72 if cue == "touchdown" else \
-				(0.93 if cue == "latch_port" else 1.06 if cue == "latch_starboard" else 1.0)
-			add_child(player)
-			voices[cue] = player
-
-
-	func _emit(cue: String) -> void:
-		voices[cue].play()
-		cue_history.append(cue)
-		cue_emitted.emit(cue)
-
-
-	func begin() -> void:
-		if active:
-			return
-		stop_all()
-		active = true
-		elapsed = 0.0
-		cue_history.clear()
-		_emit("descent")
-
-
-	func advance(seconds: float) -> void:
-		if not active or not is_finite(seconds):
-			return
-		var next := clampf(seconds, elapsed, DURATION)
-		for cue in EVENT_ORDER:
-			if elapsed < EVENTS[cue] and next >= EVENTS[cue]:
-				_emit(cue)
-		elapsed = next
-
-
-	func finish(skipped: bool) -> void:
-		if not active:
-			return
-		active = false
-		voices.descent.stop()
-		if skipped:
-			stop_all()
-
-
-	func stop_all() -> void:
-		for voice in voices.values():
-			voice.stop()
-
-
-	func all_stopped() -> bool:
-		for voice in voices.values():
-			if voice.playing:
-				return false
-		return true
-
-
-	func _exit_tree() -> void:
-		stop_all()
-		for voice in voices.values():
-			voice.stream = null
-		voices.clear()
-		descent_stream = null
-		ready_stream = null
+const ArrivalRevealAudio = preload("res://opening/arrival_reveal_audio.gd")
+const ConstructionAudio = preload("res://opening/construction_audio.gd")
+const MechanicalAmbience = preload("res://opening/mechanical_ambience.gd")
 
 class ProductionVisuals:
 	extends RefCounted
@@ -3986,328 +3830,6 @@ class ProductionEnvironment:
 		scenery.add_child(_bank_shrubs())
 		return scenery
 
-class ConstructionAudio:
-	extends AudioStreamPlayer
-	## Local acknowledgement only. No command, stock or simulation authority.
-	signal cue_emitted(cue: String, identity: Array)
-	const ROOT := "res://opening/assets/construction-audio"
-	const FILES := {"belt_snap": "belt_snap.wav", "assembly": "assembly.wav",
-		"coupling": "coupling.wav", "release": "release.wav"}
-	static var streams: Dictionary = {}
-	static var source_status := "uninitialized"
-	var current_context := ""
-	var heard: Dictionary = {}
-
-	func _init() -> void:
-		volume_db = -13.0
-		max_polyphony = 3
-
-	static func cue_for(action: Dictionary) -> String:
-		match action.get("action", ""):
-			"place":
-				if action.get("kind") == "belt":
-					return "belt_snap"
-				if action.get("kind") in ["collector", "processor", "wheel"]:
-					return "assembly"
-			"place_belt_span", "place_selected_belt_span":
-				return "belt_snap"
-			"place_foundation", "place_foundations", "place_component", "deploy_fabrication_hub", \
-			"craft_component", "field_craft", "craft_part":
-				return "assembly"
-			"turn_press_crank":
-				return "assembly"
-			"place_gear", "place_shaft", "place_relay", "shaft_between", "connect_drive", "connect":
-				return "coupling"
-			"remove", "remove_belt_span", "remove_shaft_between", "remove_foundation", \
-			"reclaim_component", "stow_fabrication_hub", "disconnect_drive", "disconnect":
-				return "release"
-		return ""
-
-	static func read_samples(directory: String = ROOT) -> Dictionary:
-		var present := 0
-		for file in FILES.values():
-			if FileAccess.file_exists(directory.path_join(file)):
-				present += 1
-		if present == 0:
-			return {"status": "missing", "streams": {}}
-		if present != FILES.size():
-			return {"status": "invalid", "reason": "incomplete_cues", "streams": {}}
-		var loaded: Dictionary = {}
-		for cue in FILES:
-			var path := directory.path_join(FILES[cue])
-			var file := FileAccess.open(path, FileAccess.READ)
-			if file == null:
-				return {"status": "invalid", "reason": "unreadable_" + cue, "streams": {}}
-			var size := file.get_length()
-			file.close()
-			# Fixed local PCM clips, not arbitrary or unbounded user audio.
-			if size < 44 or size > 65536:
-				return {"status": "invalid", "reason": "cue_size_" + cue, "streams": {}}
-			var sample := AudioStreamWAV.load_from_file(path)
-			if sample == null or sample.stereo or sample.mix_rate != 44100 or sample.format != AudioStreamWAV.FORMAT_16_BITS \
-					or sample.loop_mode != AudioStreamWAV.LOOP_DISABLED or sample.get_length() < 0.1 or sample.get_length() > 0.5:
-				return {"status": "invalid", "reason": "cue_format_" + cue, "streams": {}}
-			loaded[cue] = sample
-		return {"status": "ready", "streams": loaded}
-
-	static func make_stream(cue: String) -> AudioStreamWAV:
-		if not FILES.has(cue):
-			return null
-		if streams.has(cue):
-			return streams[cue]
-		if source_status == "uninitialized":
-			var loaded := read_samples()
-			source_status = loaded.status
-			if source_status == "ready":
-				streams = loaded.streams
-			elif source_status == "invalid":
-				push_error("Invalid construction samples: " + str(loaded.reason))
-		if source_status == "ready":
-			return streams[cue]
-		if source_status != "missing":
-			return null
-		# Historical fixed-roster captures retain their original generated cue.
-		var rate := 44100
-		var duration: float = {"belt_snap": 0.24, "assembly": 0.42, "coupling": 0.18, "release": 0.16}[cue]
-		var count := roundi(duration * rate)
-		var bytes := PackedByteArray()
-		bytes.resize(count * 2)
-		var random := RandomNumberGenerator.new()
-		random.seed = {"belt_snap": 1627, "assembly": 3471, "coupling": 619, "release": 937}[cue]
-		var low_noise := 0.0
-		for n in range(count):
-			var t := float(n) / float(rate)
-			var noise := random.randf_range(-1, 1)
-			low_noise = lerpf(low_noise, noise, 0.18)
-			var sample := 0.0
-			match cue:
-				"belt_snap":
-					sample = 0.22 * sin(TAU * 155.0 * t) * exp(-22.0 * t)
-					sample += 0.19 * sin(TAU * (720.0 - 500.0 * t) * t) * exp(-46.0 * t)
-					sample += 0.25 * (noise - low_noise) * exp(-110.0 * t)
-					if t > 0.045:
-						var latch := t - 0.045
-						sample += 0.19 * sin(TAU * 1850.0 * latch) * exp(-65.0 * latch)
-				"assembly":
-					for mode in [[140.0, 0.22, 14.0], [480.0, 0.18, 23.0], [913.0, 0.1, 27.0], [1810.0, 0.06, 36.0]]:
-						sample += mode[1] * sin(TAU * mode[0] * t) * exp(-mode[2] * t)
-					sample += 0.18 * low_noise * exp(-30.0 * t)
-				"coupling":
-					sample = 0.23 * sin(TAU * 950.0 * t) * exp(-52.0 * t)
-					sample += 0.13 * sin(TAU * 2410.0 * t) * exp(-65.0 * t)
-					sample += 0.2 * (noise - low_noise) * exp(-95.0 * t)
-				"release":
-					sample = 0.2 * sin(TAU * (1500.0 - 2400.0 * t) * t) * exp(-48.0 * t)
-					sample += 0.22 * low_noise * exp(-35.0 * t)
-			var envelope := minf(1.0, t / 0.002) * clampf((duration - t) / 0.03, 0.0, 1.0)
-			sample = 0.85 * sample * envelope if n > 0 and n < count - 1 else 0.0
-			bytes.encode_s16(n * 2, clampi(roundi(sample * 32767.0), -32767, 32767))
-		var stream := AudioStreamWAV.new()
-		stream.format = AudioStreamWAV.FORMAT_16_BITS
-		stream.mix_rate = rate
-		stream.stereo = false
-		stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
-		stream.data = bytes
-		streams[cue] = stream
-		return stream
-
-	func confirmed(action: Dictionary, outcome: Dictionary, live_context: String) -> bool:
-		var cue := cue_for(action)
-		if cue.is_empty() or typeof(outcome.get("accepted")) != TYPE_BOOL or not outcome.accepted:
-			return false
-		for flag in ["queued", "duplicate"]:
-			if typeof(outcome.get(flag, false)) != TYPE_BOOL or outcome.get(flag, false):
-				return false
-		var identity: Array[String] = []
-		for field in ["context", "client", "request"]:
-			if typeof(action.get(field)) != TYPE_STRING or action[field].is_empty() or outcome.get(field) != action[field]:
-				return false
-			identity.append(action[field])
-		if live_context.is_empty() or identity[0] != live_context:
-			return false
-		if current_context != live_context:
-			current_context = live_context
-			heard.clear()
-		var key := JSON.stringify(identity)
-		if heard.has(key):
-			return false
-		var next_stream := make_stream(cue)
-		if next_stream == null:
-			return false
-		heard[key] = true
-		stream = next_stream
-		play()
-		cue_emitted.emit(cue, identity)
-		return true
-
-class MechanicalAmbience:
-	extends Node3D
-	## Disposable audio from confirmed motion, never a simulation clock.
-	const SOURCE_AUDIBLE_RADIUS := 16.0
-	static var loops: Dictionary = {}
-	var emitters: Dictionary = {}
-	var listener: AudioListener3D
-	var context := ""
-	var scanned_entities: Dictionary = {}
-	var scanned_motions: Dictionary = {}
-	var scanned_listener_position := Vector3.ZERO
-	var scanned_revision := -1
-	var scanned_order := -1
-	var source_scan_ready := false
-	var scanned_native_revision := false
-
-	func _init() -> void:
-		listener = AudioListener3D.new()
-		listener.name = "WorkerAudioListener"
-		add_child(listener)
-
-	static func make_loop(kind: String) -> AudioStreamWAV:
-		if kind not in ["collector", "belt", "processor", "wheel"]:
-			return null
-		if loops.has(kind):
-			return loops[kind]
-		var cycles: int = {"collector": 190, "belt": 124, "processor": 98, "wheel": 76}[kind]
-		var random := RandomNumberGenerator.new()
-		random.seed = {"collector": 3461, "belt": 6127, "processor": 1987, "wheel": 4231}[kind]
-		var partials: Array = []
-		for n in range(24):
-			partials.append([random.randi_range(180, 5200), random.randf_range(0, TAU)])
-		var count := 88200
-		var bytes := PackedByteArray()
-		bytes.resize(count * 2)
-		for n in range(count):
-			var phase := float(n) / count
-			# Every component has an integer number of cycles in this two-second
-			# loop. Its seam is continuous; it does not claim a physical phase.
-			var tone := 0.11 * sin(TAU * cycles * phase) + 0.035 * sin(TAU * cycles * 2 * phase)
-			var grain := 0.0
-			for partial in partials:
-				grain += sin(TAU * int(partial[0]) * phase + float(partial[1])) * 0.0025
-			var envelope := 0.78 + 0.22 * cos(TAU * phase * 3.0)
-			var sample := clampf((tone + grain) * envelope, -0.25, 0.25)
-			bytes.encode_s16(n * 2, roundi(sample * 32767.0))
-		var stream := AudioStreamWAV.new()
-		stream.format = AudioStreamWAV.FORMAT_16_BITS
-		stream.mix_rate = 44100
-		stream.stereo = false
-		stream.data = bytes
-		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		stream.loop_begin = 0
-		stream.loop_end = count
-		loops[kind] = stream
-		return stream
-
-	static func _numeric(value: Variant) -> bool:
-		return (typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT) and is_finite(float(value))
-
-	static func _pose(value: Variant) -> bool:
-		return value is Array and value.size() == 3 and _numeric(value[0]) and _numeric(value[1]) and _numeric(value[2])
-
-	static func _rotating(value: Variant) -> bool:
-		return value is Dictionary and value.get("state") == "rotating" and typeof(value.get("numerator")) == TYPE_INT \
-			and typeof(value.get("denominator")) == TYPE_INT and value.denominator > 0 and value.numerator != 0
-
-	func silence() -> void:
-		for emitter in emitters.values():
-			emitter.stop()
-			emitter.free()
-		emitters.clear()
-		if is_inside_tree() and listener.is_current():
-			listener.clear_current()
-		context = ""
-		scanned_entities = {}
-		scanned_motions = {}
-		scanned_revision = -1
-		scanned_order = -1
-		source_scan_ready = false
-		scanned_native_revision = false
-
-	func sync(snapshot: Dictionary, actor: String, ready: bool, camera_basis: Basis,
-			trusted_native_revision := false) -> void:
-		var options: Variant = snapshot.get("options")
-		var actors: Variant = snapshot.get("actors")
-		var body: Variant = actors.get(actor) if actors is Dictionary else null
-		var entities: Variant = snapshot.get("entities")
-		var motions: Variant = snapshot.get("motion")
-		var world: Variant = snapshot.get("context")
-		if not ready or not is_inside_tree() or not options is Dictionary or typeof(options.get("native")) != TYPE_BOOL \
-			or not options.native or not body is Dictionary or typeof(body.get("ready")) != TYPE_BOOL or not body.ready \
-			or not _pose(body.get("position")) or not entities is Dictionary or not motions is Dictionary \
-			or typeof(world) != TYPE_STRING or world.is_empty() or not camera_basis.is_finite() or absf(camera_basis.determinant()) < 0.5:
-			silence()
-			return
-		if world != context:
-			silence()
-			context = world
-		# Body origin plus a presentation-only ear offset. Camera distance cannot
-		# move the listener away from the worker or grant construction reach.
-		listener.position = Vector3(body.position[0], body.position[1], body.position[2]) + Vector3.UP * 0.55
-		listener.basis = camera_basis.orthonormalized()
-		if not listener.is_current():
-			listener.make_current()
-		# Native World revisions cover source state changes even when a new
-		# projection allocates fresh dictionaries for an unchanged tick. Other
-		# callers retain the identity check for same-version replacements.
-		# Physical ear movement still rescans; camera rotation always reaches it.
-		var revision: Variant = snapshot.get("revision")
-		var order: Variant = snapshot.get("order")
-		var versioned := typeof(revision) == TYPE_INT and typeof(order) == TYPE_INT
-		if versioned and source_scan_ready and revision == scanned_revision and order == scanned_order \
-				and ((trusted_native_revision and scanned_native_revision) \
-					or (is_same(entities, scanned_entities) and is_same(motions, scanned_motions))) \
-				and listener.position == scanned_listener_position:
-			return
-		scanned_entities = entities
-		scanned_motions = motions
-		scanned_listener_position = listener.position
-		scanned_revision = int(revision) if versioned else -1
-		scanned_order = int(order) if versioned else -1
-		source_scan_ready = versioned
-		scanned_native_revision = versioned and trusted_native_revision
-		var audible: Dictionary = {}
-		for id: Variant in entities:
-			var entity: Variant = entities[id]
-			var motion: Variant = motions.get(id)
-			if typeof(id) != TYPE_STRING or not entity is Dictionary or not _rotating(motion):
-				continue
-			var kind: Variant = entity.get("kind")
-			var cell: Variant = entity.get("cell")
-			if typeof(kind) != TYPE_STRING or kind not in ["collector", "belt", "processor", "wheel"] \
-				or not cell is Array or cell.size() != 2 or typeof(cell[0]) != TYPE_INT or typeof(cell[1]) != TYPE_INT:
-				continue
-			var source_position := Vector3(cell[0] * Geometry.PITCH, 0.7, cell[1] * Geometry.PITCH)
-			if not source_position.is_finite() or listener.position.distance_squared_to(source_position) \
-					> SOURCE_AUDIBLE_RADIUS * SOURCE_AUDIBLE_RADIUS:
-				continue
-			audible[id] = true
-			if emitters.has(id) and emitters[id].get_meta("kind") != kind:
-				emitters[id].stop()
-				emitters[id].free()
-				emitters.erase(id)
-			if not emitters.has(id):
-				var emitter := AudioStreamPlayer3D.new()
-				emitter.set_meta("entity", id)
-				emitter.set_meta("kind", kind)
-				emitter.stream = make_loop(kind)
-				emitter.volume_db = -23.0
-				emitter.max_db = -14.0
-				emitter.unit_size = 2.5
-				emitter.max_distance = SOURCE_AUDIBLE_RADIUS
-				emitter.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
-				emitter.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
-				add_child(emitter)
-				emitters[id] = emitter
-			# A bounded timbre change, not a rate clamp in the native mechanics.
-			emitters[id].pitch_scale = clampf(absf(float(motion.numerator) / float(motion.denominator)), 0.6, 1.8)
-			emitters[id].position = source_position
-			if not emitters[id].playing:
-				emitters[id].play()
-		for id in emitters.keys():
-			if not audible.has(id):
-				emitters[id].stop()
-				emitters[id].free()
-				emitters.erase(id)
-
 class ProductionInterface:
 	extends RefCounted
 	## Draw styles only. Effective content metrics remain the engine defaults.
@@ -4421,12 +3943,8 @@ var press_snap_lift_material: StandardMaterial3D
 var component_preview_kind := ""
 var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
-var component_preview_cell_materials: Dictionary = {}
 var component_preview_blocked := false
 var component_preview_snap := ""
-var component_footprint_size := 1
-var component_area_anchor: Array = []
-var component_area_kind := ""
 var mutable_machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
@@ -5747,7 +5265,8 @@ func _input(event: InputEvent) -> void:
 						handled = true
 				KEY_V:
 					if mode == "component" and arrival_assembly_controls != null \
-							and arrival_assembly_controls.selected_name() in ["anvil", "ram_face"]:
+							and arrival_assembly_controls.selected_name() in [
+								"anvil", "broad_anvil", "flat_head", "broad_flat_head"]:
 						_toggle_component_footprint()
 						handled = true
 					elif foundation_area_toggle.is_visible_in_tree() and not foundation_area_toggle.disabled:
@@ -5891,12 +5410,10 @@ func _select_tool(tool: String) -> void:
 
 func _cancel_active_construction() -> bool:
 	if mode == "inspect" and pending_link.is_empty() and not foundation_area_started \
-			and component_area_anchor.is_empty() and not component_nudge_active \
+			and not component_nudge_active \
 			and transmission_preview_point.is_empty() \
 			and (transmission_controls == null or transmission_controls.active_tool.is_empty()):
 		return false
-	component_area_anchor.clear()
-	component_area_kind = ""
 	component_preview_snap = ""
 	component_preview_blocked = false
 	component_preview_pose_key = ""
@@ -5964,23 +5481,11 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 				selected = input_id
 			_refresh_ui()
 			return
-		var area_origin := _component_area_origin(component_name, center)
-		var centers := _component_footprint_centers(component_name, area_origin)
 		if not _component_area_bounds_allowed(component_name, center):
-			return
-		if centers.size() == 4 and not centers.has(center):
-			_message("Aim at one of the four highlighted cells.", true)
-			return
-		if centers.size() == 4 and _component_area_has_part(component_name, center):
-			_message("That part is already placed.", true)
 			return
 		var selected_anvil: String = arrival_assembly_controls.press_anvil_for(selected)
 		var outcome := issue({"action": "place_component",
 			"component": component_name, "center": center})
-		if outcome.accepted or outcome.get("queued", false):
-			if centers.size() == 4:
-				component_area_anchor = area_origin.duplicate()
-				component_area_kind = component_name
 		if outcome.accepted:
 			selected = selected_anvil if component_name != "anvil" and not selected_anvil.is_empty() \
 				else str(outcome.get("entity", ""))
@@ -6752,35 +6257,17 @@ func _component_area_bounds_allowed(kind: String, center: Array) -> bool:
 	return absf(box.center.x) + box.half.x <= ProductionEnvironment.Surface.HALF \
 		and absf(box.center.z) + box.half.z <= ProductionEnvironment.Surface.HALF
 
-func _component_footprint_centers(kind: String, anchor: Array) -> Array:
-	if anchor.size() != 3:
-		return []
-	if component_footprint_size != 2 or kind not in ["anvil", "ram_face"]:
-		return [anchor.duplicate()]
-	var centers := []
-	for z in 2:
-		for x in 2:
-			centers.append([int(anchor[0]) + x * Geometry.HEIGHT_DENOMINATOR,
-				int(anchor[1]), int(anchor[2]) + z * Geometry.HEIGHT_DENOMINATOR])
-	return centers
-
-func _component_area_origin(kind: String, pointer_center: Array) -> Array:
-	return component_area_anchor if component_area_kind == kind and component_area_anchor.size() == 3 \
-		else pointer_center
-
-func _component_area_has_part(kind: String, center: Array) -> bool:
-	for part: Dictionary in state.get("placed_components", {}).values():
-		if part.get("component", "") == kind and part.get("center", []) == center:
-			return true
-	return false
-
 func _toggle_component_footprint() -> void:
 	if mode != "component" or arrival_assembly_controls == null \
-			or arrival_assembly_controls.selected_name() not in ["anvil", "ram_face"]:
+			or arrival_assembly_controls.selected_name() not in [
+				"anvil", "broad_anvil", "flat_head", "broad_flat_head"]:
 		return
-	component_footprint_size = 1 if component_footprint_size == 2 else 2
-	component_area_anchor.clear()
-	component_area_kind = ""
+	var next_kind: String = {
+		"anvil": "broad_anvil", "broad_anvil": "anvil",
+		"flat_head": "broad_flat_head", "broad_flat_head": "flat_head",
+	}[arrival_assembly_controls.selected_name()]
+	if not arrival_assembly_controls.select_component_name(next_kind):
+		return
 	component_preview_pose_key = ""
 	_refresh_component_preview()
 	_update_cursor()
@@ -7018,63 +6505,7 @@ func _refresh_component_preview() -> void:
 		component_preview.visible = true
 		return
 	component_preview.rotation.y = 0.0
-	if component_area_kind == kind and component_area_anchor.size() == 3:
-		var finished := true
-		for area_cell: Array in _component_footprint_centers(kind, component_area_anchor):
-			finished = finished and _component_area_has_part(kind, area_cell)
-		if finished:
-			component_area_anchor.clear()
-			component_area_kind = ""
-	var area_origin := _component_area_origin(kind, center)
 	var box := _component_candidate_box(kind, center)
-	var area_centers := _component_footprint_centers(kind, area_origin)
-	if area_centers.size() == 4:
-		var area_box := _component_candidate_box(kind, area_origin)
-		component_preview_blocked = not area_centers.has(center) \
-			or not _component_center_allowed(center) \
-			or _component_area_has_part(kind, center) \
-			or _component_candidate_blocked(kind, center, box)
-		component_preview_snap = "Nudged point" if component_nudge_active else \
-			"Selected area" if component_area_anchor.size() == 3 else "Floor grid"
-		var placed_cells := []
-		for part_center: Array in area_centers:
-			placed_cells.append(_component_area_has_part(kind, part_center))
-		var area_key := "area:%s:%s:%s" % [kind, str(area_origin), str(placed_cells)]
-		if area_key != component_preview_pose_key:
-			for child in component_preview.get_children():
-				child.free()
-			component_preview_cell_materials.clear()
-			component_preview_material = StandardMaterial3D.new()
-			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			component_preview_material.roughness = 0.72
-			for index in area_centers.size():
-				if placed_cells[index]:
-					continue
-				var part_center: Array = area_centers[index]
-				var part_box := _component_candidate_box(kind, part_center)
-				var anchor := Node3D.new()
-				anchor.position = part_box.center - area_box.center
-				component_preview.add_child(anchor)
-				transmission_presenter.preview_component(anchor, kind, part_box.size)
-				var material := component_preview_material.duplicate() as StandardMaterial3D
-				component_preview_cell_materials[str(part_center)] = material
-				_style_component_preview(anchor, material)
-			component_preview_kind = kind
-			component_preview_pose_key = area_key
-		for part_center: Array in area_centers:
-			if _component_area_has_part(kind, part_center):
-				continue
-			var part_box := _component_candidate_box(kind, part_center)
-			var blocked := not _component_center_allowed(part_center) \
-				or _component_candidate_blocked(kind, part_center, part_box)
-			var material: StandardMaterial3D = component_preview_cell_materials[str(part_center)]
-			material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if blocked \
-				else Color(0.91, 0.73, 0.40, 0.56)
-		component_preview.position = area_box.center
-		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
-			else Color(0.91, 0.73, 0.40, 0.56)
-		component_preview.visible = true
-		return
 	component_preview_blocked = not _component_area_bounds_allowed(kind, center) or \
 		_component_candidate_blocked(kind, center, box)
 	component_preview_snap = ""
@@ -7158,8 +6589,6 @@ func _component_placement_hint() -> String:
 	var location := "%s · X %d  Y %d  Z %d" % [component_preview_snap, center[0], center[1], center[2]]
 	var action := "Blocked here · move the ghost" if component_preview_blocked else "Click to place"
 	var kind: String = arrival_assembly_controls.selected_name()
-	if component_footprint_size == 2 and kind in ["anvil", "ram_face"]:
-		action = "Aim at a free area cell" if component_preview_blocked else "Click each area cell"
 	var stack_hint := "Aim at a clear 2×2 floor area; uses four anvils" if kind == "broad_anvil" else \
 		"Aim at the 2×2 workbed; uses four flat heads" if kind == "broad_flat_head" else \
 		"Aim at a floor or built surface" if kind == "anvil" else \

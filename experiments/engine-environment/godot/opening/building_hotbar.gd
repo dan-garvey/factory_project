@@ -821,11 +821,16 @@ func refresh(snapshot_ready: bool = true) -> void:
 	var active: String = host.mode
 	if active == "component" and host.arrival_assembly_controls != null:
 		active = COMPONENT_PREFIX + host.arrival_assembly_controls.selected_name()
-	var sized_part := active in ["component:anvil", "component:ram_face"]
-	var area_size: int = host.component_footprint_size
-	var area_icon: Texture2D = FOOTPRINT_FOUR_ICON if area_size == 2 else FOOTPRINT_ONE_ICON
-	var area_tip := "2x2 footprint · four carried parts · V" if area_size == 2 else \
-		"1x1 footprint · one carried part · V"
+	var sized_part := active in ["component:anvil", "component:broad_anvil",
+		"component:flat_head", "component:broad_flat_head"]
+	var broad_size := active in ["component:broad_anvil", "component:broad_flat_head"]
+	var area_icon: Texture2D = FOOTPRINT_FOUR_ICON if broad_size else FOOTPRINT_ONE_ICON
+	var area_tip := "2x2 joined face · one click · uses four carried flat heads · V" \
+		if active == "component:broad_flat_head" else \
+		"2x2 joined workbed · one click · uses four carried anvils · V" \
+		if active == "component:broad_anvil" else \
+		"1x1 flat head · one carried part · V for 2x2" if active == "component:flat_head" else \
+		"1x1 workbed · one carried part · V for 2x2"
 	for area_button: Button in [footprint_button, footprint_catalog_button]:
 		area_button.visible = sized_part
 		area_button.disabled = not usable

@@ -874,17 +874,17 @@ func _press_component_view() -> void:
 		"The seven identities form a supported anvil, die, guide and press crown.")
 	var framed_foot := anchors.anvil.get_node("CastPedestalFoot") as MeshInstance3D
 	var framed_shelf := anchors.frame.get_node("AnvilShelf") as MeshInstance3D
-	var framed_waist := anchors.anvil.get_node("CastAnvilWaist") as MeshInstance3D
+	var framed_web := anchors.anvil.get_node("WorkbedWeb") as MeshInstance3D
 	var foot_bounds: AABB = framed_foot.global_transform * framed_foot.mesh.get_aabb()
 	var shelf_bounds: AABB = framed_shelf.global_transform * framed_shelf.mesh.get_aabb()
-	var waist_bounds: AABB = framed_waist.global_transform * framed_waist.mesh.get_aabb()
+	var web_bounds: AABB = framed_web.global_transform * framed_web.mesh.get_aabb()
 	verify(absf(foot_bounds.position.y - 0.4125) < 0.0002
 		and absf(shelf_bounds.end.y - foot_bounds.position.y) < 0.0002,
 		"The framed anvil foot meets its raised shelf without a visible unsupported gap.")
 	for rail_name in ["BedCrossRailFront", "BedCrossRailRear", "BedSideRailLeft", "BedSideRailRight"]:
 		var rail := anchors.frame.get_node(rail_name) as MeshInstance3D
-		verify(not (rail.global_transform * rail.mesh.get_aabb()).intersects(waist_bounds),
-			"The frame bed leaves real clearance around the compact anvil casting.")
+		verify(not (rail.global_transform * rail.mesh.get_aabb()).intersects(web_bounds),
+			"The frame bed leaves real clearance around the anvil web.")
 	var rotor: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
 	verify(rotor != null and rotor.find_children("CogTooth*", "MeshInstance3D", false, false).size() == 12
 		and anchors.shaft.get_node_or_null("LooseDriveShaft") != null,
@@ -1291,16 +1291,30 @@ func _guided_press_component_view() -> void:
 	var shaft: Node3D = anchors.shaft.get_node_or_null("LooseDriveShaft")
 	var cog: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
 	verify(anchors.size() == 5 and anchors.anvil.get_node_or_null("OpenAnvilSeat") != null
+		and anchors.anvil.get_node_or_null("CastBolster") != null
+		and anchors.anvil.get_node_or_null("ReplaceableDiePlate") != null
+		and anchors.anvil.get_node_or_null("TaperedAnvilHorn") == null
+		and anchors.anvil.get_node_or_null("AnvilHeel") == null
 		and anchors.ram.get_node_or_null("MovingDie") != null
 		and anchors.guide.get_node_or_null("GuideRail") != null
 		and anchors.shaft.get_node_or_null("GuidedBearingSeat") != null
 		and anchors.anvil.get_node_or_null("PressCrown") == null,
-		"The confirmed anvil, ram and guide render with a floating shaft bearing and no frame crown.")
+		"The confirmed industrial workbed, ram and guide render without a blacksmith horn or frame crown.")
 	var anvil_foot := anchors.anvil.get_node("CastPedestalFoot") as MeshInstance3D
 	var anvil_foot_bounds: AABB = anvil_foot.global_transform * anvil_foot.mesh.get_aabb()
 	verify(absf(anvil_foot_bounds.position.y) < 0.0002
 		and absf(parsed.boxes.anvil.center.y - parsed.boxes.anvil.size.y * 0.5) < 0.0002,
 		"The frame-free anvil mesh and native occupied body both meet the ground datum.")
+	var native_anvil_size: Vector3 = parsed.boxes.anvil.size
+	var native_anvil_local := AABB(-native_anvil_size * 0.5, native_anvil_size).grow(0.0005)
+	var anvil_art_inside_body := true
+	for child: Node in anchors.anvil.get_children():
+		if child is MeshInstance3D:
+			var mesh_part := child as MeshInstance3D
+			anvil_art_inside_body = anvil_art_inside_body and native_anvil_local.encloses(
+				mesh_part.transform * mesh_part.mesh.get_aabb())
+	verify(anvil_art_inside_body,
+		"Every visible anvil casting stays inside the native occupied body and below its work plane.")
 	var anvil_preview := Node3D.new()
 	root.add_child(anvil_preview)
 	view.preview_component(anvil_preview, "anvil", parsed.boxes.anvil.size)

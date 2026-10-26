@@ -231,6 +231,9 @@ class ComponentPlacementChoice extends Node:
 	var kind := "anvil"
 	func selected_name() -> String:
 		return kind
+	func select_component_name(component_name: String) -> bool:
+		kind = component_name
+		return true
 	func press_anvil_for(_selected: String) -> String:
 		return ""
 
@@ -331,8 +334,8 @@ func _component_placement_check() -> void:
 	verify(snapped == [0, 1, 0], "The anvil snaps one height step above a pointed frame top.")
 	view._refresh_component_preview()
 	verify(view.component_preview.visible and view.component_preview_kind == "anvil"
-		and view.component_preview.has_node("CastAnvilWaist")
-		and view.component_preview.has_node("TaperedAnvilHorn")
+		and view.component_preview.has_node("WorkbedWeb")
+		and view.component_preview.has_node("ReplaceableDiePlate")
 		and not view.component_preview_blocked,
 		"The frame-top anvil ghost uses the placed anvil mesh and is initially clear.")
 	verify(view.component_preview_snap == "Above wooden frame"
@@ -547,78 +550,64 @@ func _component_placement_check() -> void:
 	slide_sample.free()
 	stroked_head.free()
 	stroked_slide.free()
-	view.component_footprint_size = 2
 	view.component_nudge_active = true
 	view.state.cargo.P.components.anvil = 4
+	choice.kind = "broad_anvil"
 	var clear_area: Array = []
 	for x in range(-24, 25, 4):
 		for z in range(-24, 25, 4):
 			var candidate := [x, 0, z]
-			var clear := true
-			for part_center: Array in view._component_footprint_centers("anvil", candidate):
-				clear = clear and view._component_center_allowed(part_center) \
-					and not view._component_candidate_blocked("anvil", part_center,
-						view._component_candidate_box("anvil", part_center))
-			if clear:
+			if view._component_area_bounds_allowed("broad_anvil", candidate) \
+					and not view._component_candidate_blocked("broad_anvil", candidate,
+						view._component_candidate_box("broad_anvil", candidate)):
 				clear_area = candidate
 				break
 		if not clear_area.is_empty():
 			break
-	verify(not clear_area.is_empty(), "The isolated fixture has four clear, buildable anvil cells.")
+	verify(not clear_area.is_empty(), "The isolated fixture has one clear, contiguous workbed site.")
 	if not clear_area.is_empty():
-		for level in [0, 4]:
-			view.component_nudge_center = [clear_area[0], level, clear_area[2]]
-			view.component_area_anchor = view.component_nudge_center.duplicate()
-			view.component_area_kind = "anvil"
+		view.component_nudge_center = clear_area.duplicate()
+		view._refresh_component_preview()
+		verify(view.component_preview.visible and not view.component_preview_blocked
+			and view.component_preview_kind == "broad_anvil"
+			and view.component_preview.has_node("JoinedWorkbedBase"),
+			"The broad choice previews one joined workbed over the full native occupied area.")
+		view.issued.clear()
+		view._world_click(Vector2i.ZERO)
+		verify(view.issued.size() == 1 and view.issued[0].component == "broad_anvil"
+			and view.issued[0].center == clear_area,
+			"One click sends one four-part workbed placement with the previewed center.")
+		view.issued.clear()
+		var blocker_center := [clear_area[0] + 2, 0, clear_area[2] + 2]
+		var blocking_box := view._component_candidate_box("wooden_frame", blocker_center)
+		view.state.placed_components["broad_obstacle"] = {"component": "wooden_frame",
+			"center": blocker_center, "generation": 2,
+			"occupied": {"center": [blocking_box.center.x, blocking_box.center.y,
+				blocking_box.center.z], "half": [blocking_box.half.x,
+				blocking_box.half.y, blocking_box.half.z]}}
+		view._refresh_component_preview()
+		verify(view.component_preview.visible and view.component_preview_blocked
+			and view.component_preview_material.albedo_color.r > 0.9
+			and view.component_preview_material.albedo_color.g < 0.4,
+			"Any obstruction turns the whole joined workbed ghost red.")
+		view.state.placed_components.erase("broad_obstacle")
+		if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 			view._refresh_component_preview()
-			var area_centers := view._component_footprint_centers("anvil", view.component_nudge_center)
-			var blocked_center: Array = area_centers[1]
-			var blocking_box := view._component_candidate_box("wooden_frame", blocked_center)
-			view.state.placed_components["broad_obstacle"] = {"component": "wooden_frame",
-				"center": blocked_center, "generation": 2,
-				"occupied": {"center": [blocking_box.center.x, blocking_box.center.y,
-					blocking_box.center.z], "half": [blocking_box.half.x,
-					blocking_box.half.y, blocking_box.half.z]}}
-			view._refresh_component_preview()
-			var clear_material: StandardMaterial3D = view.component_preview_cell_materials[str(area_centers[0])]
-			var blocked_material: StandardMaterial3D = view.component_preview_cell_materials[str(blocked_center)]
-			verify(view.component_preview.visible and view.component_preview.get_child_count() == 4
-				and clear_material.albedo_color.g > blocked_material.albedo_color.g
-				and not view.component_preview_blocked,
-				"A neighboring occupied cell alone turns red while the pointed anvil cell stays buildable.")
-			if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-				camera.position = view.component_preview.position + Vector3(3.5, 1.1, 4.0)
-				camera.look_at(view.component_preview.position)
-				await process_frame
-				await RenderingServer.frame_post_draw
-				verify(root.get_texture().get_image().save_png(prefix +
-					("-broad-raised.png" if level > 0 else "-broad-ground.png")) == OK,
-					"Retain the actor-eye broad area with one obstructed cell at this height.")
-			view.component_nudge_center = blocked_center
-			view._refresh_component_preview()
-			verify(view.component_preview_blocked
-				and view.component_preview_cell_materials[str(area_centers[0])] == clear_material,
-				"Pointing at the obstructed cell reports its refusal without recoloring a valid neighbor.")
-			view.state.placed_components.erase("broad_obstacle")
+			camera.position = view.component_preview.position + Vector3(5.0, 2.0, 6.0)
+			camera.look_at(view.component_preview.position)
+			await process_frame
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(prefix + "-broad-ground.png") == OK,
+				"Retain the joined workbed ghost from a passive view.")
 		var last_inside := floori((SiteSurface.HALF - Geometry.HEIGHT_STEP / 2.0) \
 			/ Geometry.HEIGHT_STEP)
 		view.component_nudge_center = [last_inside, 0, 0]
-		view.component_area_anchor = view.component_nudge_center.duplicate()
 		view._refresh_component_preview()
-		var edge_centers := view._component_footprint_centers("anvil", view.component_area_anchor)
-		var inside_material: StandardMaterial3D = view.component_preview_cell_materials[str(edge_centers[0])]
-		var outside_material: StandardMaterial3D = view.component_preview_cell_materials[str(edge_centers[1])]
-		verify(view._component_center_allowed(edge_centers[0])
-			and not view._component_center_allowed(edge_centers[1])
-			and inside_material.albedo_color.g > outside_material.albedo_color.g,
-			"A four-cell area straddling the terrain edge colors its inside and outside cells separately.")
-		view.component_nudge_center = edge_centers[1]
-		view._refresh_component_preview()
-		verify(view.component_preview_blocked,
-			"Pointing at the outside cell reports the same boundary refusal as placement.")
-	view.component_area_anchor.clear()
-	view.component_area_kind = ""
-	view.component_footprint_size = 1
+		verify(view._component_center_allowed(view.component_nudge_center)
+			and not view._component_area_bounds_allowed("broad_anvil", view.component_nudge_center)
+			and view.component_preview_blocked,
+			"A workbed crossing the terrain edge refuses as one complete footprint.")
+	choice.kind = "anvil"
 	view.component_nudge_active = false
 	view.component_preview_pose_key = ""
 	view._refresh_component_preview()
@@ -3668,17 +3657,26 @@ func _workshop_pages() -> void:
 		footprint_key.pressed = true
 		footprint_key.keycode = KEY_V
 		view._input(footprint_key)
-		verify(view.component_footprint_size == 2
-			and view._component_footprint_centers("anvil", [12, 0, 0]) == [
-				[12, 0, 0], [16, 0, 0], [12, 0, 4], [16, 0, 4]]
-			and view.building_hotbar.footprint_button.tooltip_text.contains("four carried parts"),
-			"The size control selects four distinct native grid cells and shows their cost.")
+		verify(view.arrival_assembly_controls.selected_name() == "broad_anvil"
+			and view.building_hotbar.footprint_button.tooltip_text.contains("one click")
+			and view.building_hotbar.footprint_button.tooltip_text.contains("four carried anvils"),
+			"V selects one joined workbed identity and shows its four-part cost.")
 		view.building_hotbar.open_catalog()
 		view.building_hotbar._input(footprint_key)
-		verify(view.component_footprint_size == 1
+		verify(view.arrival_assembly_controls.selected_name() == "anvil"
 			and view.building_hotbar.footprint_catalog_button.icon ==
 				view.building_hotbar.FOOTPRINT_ONE_ICON,
-			"The same V shortcut returns to one cell while the build catalog is open.")
+			"The same V shortcut returns to the small workbed while the build catalog is open.")
+		view.arrival_assembly_controls.select_component_name("flat_head")
+		view._select_tool("component")
+		view.building_hotbar._input(footprint_key)
+		verify(view.arrival_assembly_controls.selected_name() == "broad_flat_head"
+			and view.building_hotbar.footprint_button.tooltip_text.contains("four carried flat heads"),
+			"V selects the matching one-piece broad head with its four-part cost.")
+		view.building_hotbar.catalog.hide()
+		view._input(footprint_key)
+		verify(view.arrival_assembly_controls.selected_name() == "flat_head",
+			"V returns the flat head to its small size.")
 		view.building_hotbar.catalog.hide()
 		view._select_tool("inspect")
 		view.state = before.duplicate(true)
