@@ -2,6 +2,8 @@ extends "res://opening/opening.gd"
 ## The existing view over a read-only session projection, never a live Model.
 ## Session owns identity, transport, retry dispositions and snapshot freshness.
 
+const MechanicalAudio = preload("res://opening/mechanical_ambience.gd")
+
 var session
 var session_port := 0
 var session_role := ""
@@ -136,7 +138,7 @@ func _reconnect() -> void:
 	# Prepare reusable presentation data before receiving live snapshots. Cold
 	# waveform synthesis must not block the first running drive's network poll.
 	for kind: String in ["collector", "belt", "processor", "wheel"]:
-		MechanicalAmbience.make_loop(kind)
+		MechanicalAudio.make_loop(kind)
 	connecting = true
 	var error: Error = session.join_loopback(session_port, session_role)
 	if error != OK:

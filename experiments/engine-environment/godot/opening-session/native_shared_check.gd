@@ -1,7 +1,7 @@
 extends "res://opening-session/native_shared_cog_check.gd"
 ## Headless ordinary callbacks over the existing Session and native World.
 ## The inherited reader retains typed observations before initial assertions.
-const SharedOpening = preload("res://opening/shared_opening.gd")
+const MechanicalAmbience = preload("res://opening/mechanical_ambience.gd")
 
 func _init() -> void:
 	super._init()
@@ -13,7 +13,7 @@ func _initial() -> bool:
 		return false
 	facts["prepared_audio"] = {}
 	for kind: String in ["collector", "belt", "processor", "wheel"]:
-		var stream: AudioStreamWAV = SharedOpening.MechanicalAmbience.loops.get(kind)
+		var stream: AudioStreamWAV = MechanicalAmbience.loops.get(kind)
 		if not _expect(stream != null and stream.data.size() == 176400 and stream.mix_rate == 44100
 			and stream.loop_mode == AudioStreamWAV.LOOP_FORWARD,
 			"Shared startup prepares the original cached audio before any material input"):
@@ -34,7 +34,7 @@ func _running_audio() -> bool:
 	for id: String in opening.state.entities:
 		var kind: String = opening.state.entities[id].kind
 		var emitter: AudioStreamPlayer3D = opening.mechanical_ambience.emitters.get(id)
-		var cached: AudioStreamWAV = SharedOpening.MechanicalAmbience.loops[kind]
+		var cached: AudioStreamWAV = MechanicalAmbience.loops[kind]
 		if not _expect(emitter != null and emitter.stream == cached,
 			"The real emitter reuses the original stream prepared before connection"):
 			return false

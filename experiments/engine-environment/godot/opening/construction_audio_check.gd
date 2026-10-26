@@ -1,7 +1,6 @@
 extends SceneTree
 ## Invented decisions check presentation guards. No authority or desktop starts.
-const Opening = preload("res://opening/opening.gd")
-const Audio = Opening.ConstructionAudio
+const Audio = preload("res://opening/construction_audio.gd")
 var checks := 0
 var failed := false
 var preview_directory := ""

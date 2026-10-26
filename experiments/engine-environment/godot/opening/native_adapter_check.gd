@@ -3,6 +3,8 @@ extends SceneTree
 const NativeModel = preload("res://opening/native_model.gd")
 const OpeningGeometry = preload("res://opening/site_geometry.gd")
 const OpeningScene = preload("res://opening/opening.gd")
+const ConstructionAudio = preload("res://opening/construction_audio.gd")
+const MechanicalAmbience = preload("res://opening/mechanical_ambience.gd")
 const TransmissionPresenter = preload("res://opening/native_transmission_presenter.gd")
 const ARRIVAL_INITIAL_MASS := 4096 * 4
 const VALUE_OPTIONS := ["--native-check-output=", "--native-check-prior=", "--native-check-mode=",
@@ -140,10 +142,10 @@ func _record(status: String, reason: String = "") -> void:
 	file.store_buffer(var_to_bytes(facts))
 	file.close()
 	var audio_refs: Array[WeakRef] = []
-	for kind in OpeningScene.MechanicalAmbience.loops:
-		audio_refs.append(weakref(OpeningScene.MechanicalAmbience.loops[kind]))
-	for cue in OpeningScene.ConstructionAudio.streams:
-		audio_refs.append(weakref(OpeningScene.ConstructionAudio.streams[cue]))
+	for kind in MechanicalAmbience.loops:
+		audio_refs.append(weakref(MechanicalAmbience.loops[kind]))
+	for cue in ConstructionAudio.streams:
+		audio_refs.append(weakref(ConstructionAudio.streams[cue]))
 	if opening != null:
 		if opening.mechanical_ambience != null:
 			opening.mechanical_ambience.silence()
@@ -171,9 +173,9 @@ func _record(status: String, reason: String = "") -> void:
 			opening.workshop_completion_audio.stream = null
 		opening.free()
 		opening = null
-	OpeningScene.ConstructionAudio.streams.clear()
-	OpeningScene.ConstructionAudio.source_status = "uninitialized"
-	OpeningScene.MechanicalAmbience.loops.clear()
+	ConstructionAudio.streams.clear()
+	ConstructionAudio.source_status = "uninitialized"
+	MechanicalAmbience.loops.clear()
 	# The dummy audio driver can release a stopped playback after scene removal.
 	# Observe the actual resources before ending this short lived consumer.
 	var audio_deadline := Time.get_ticks_msec() + 2000
@@ -4528,7 +4530,7 @@ func _arrival_run() -> void:
 		panel.turn_button.pressed.emit()
 		if not _expect(opening.model.projection().order == before_turn + 1
 				and opening.construction_audio.heard.size() == before_cues + 1
-				and opening.construction_audio.stream == OpeningScene.ConstructionAudio.make_stream("assembly")
+				and opening.construction_audio.stream == ConstructionAudio.make_stream("assembly")
 				and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 				"One ordinary press turn advances native work, conserves mass and emits one restrained impact"):
 			return
