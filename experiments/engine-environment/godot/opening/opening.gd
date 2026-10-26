@@ -4569,7 +4569,16 @@ func _reclaim_owned_drops(entity: String) -> Array[Dictionary]:
 	if part.is_empty():
 		return []
 	var centers: Array = []
-	if part.get("component", "") in ["anvil", "receiver_tray"]:
+	var broad_member := false
+	for press: Dictionary in state.get("broad_press_assemblies", []):
+		var parts: Dictionary = press.get("parts", {})
+		if parts.get("anvils", []).has(entity) or parts.get("heads", []).has(entity) \
+				or parts.get("slide", "") == entity:
+			var origin: Array = press.get("origin", [])
+			if origin.size() == 3:
+				centers.append(origin)
+				broad_member = true
+	if not broad_member and part.get("component", "") in ["anvil", "broad_anvil", "receiver_tray"]:
 		centers.append(part.get("center", []))
 	for key in ["sliding_press_assemblies", "guided_press_assemblies"]:
 		for press: Dictionary in state.get(key, []):
