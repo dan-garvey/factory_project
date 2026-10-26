@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Git supplies the final message here, after pre-commit and the editor.
+message=$(git stripspace < "$1")
+if [[ -z "$message" ]]; then
+    printf 'COMMIT MESSAGE FAILED: write a nonempty commit message.\n' >&2
+    exit 1
+fi

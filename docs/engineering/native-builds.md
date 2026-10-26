@@ -117,6 +117,10 @@ if the index changes. Do not wrap `git commit` or either coordinator in another
 admission command, auto-stage fixes, or bypass a failure. Run relevant consumer
 checks; do not duplicate the hook's suite for unchanged inputs.
 
+The same hooks path enables `commit-msg`, which rejects empty or whitespace-only
+messages, including with `--allow-empty-message`. It checks the final message
+after the editor without rewriting it; literal comment characters remain valid.
+
 Optional repository-local `factory.commitGateExecutable` and
 `factory.commitGateSHA256` select a retained verified native coordinator.
 Both absent retain the existing Python coordinator; partial/invalid settings,
