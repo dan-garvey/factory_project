@@ -18,6 +18,34 @@ const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const TransmissionAssets = preload("res://opening/native_transmission_assets.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
+const DIRECT_MODES := [
+	"--paddle-hardware-only", "--paddle-grain-only", "--span-belt-only",
+	"--foundation-art-only", "--press-input-clearance-only",
+	"--collector-input-support-only", "--drive-journal-only", "--satin-coating-only",
+	"--collector-rear-service-only", "--collector-bearing-seat-only",
+	"--collector-tooling-only", "--press-output-tray-only", "--press-die-only",
+	"--cutter-guard-only", "--conveyor-hub-only", "--conveyor-frame-only",
+	"--diagnose-retired-conveyor-hub", "--diagnose-retired-conveyor-frame",
+	"--press-crown-only", "--wheel-foot-seats-only", "--feed-sleeves-only",
+	"--wheel-supports-only", "--river-piers-only", "--collector-coating-only",
+	"--historical-coating-only", "--paddles-only", "--historical-paddles-only",
+	"--machine-skid-only", "--collector-frame-only", "--conveyor-only",
+	"--historical-conveyor-only", "--sourced-press-only", "--historical-press-only",
+	"--wheel-resource-contract-only", "--sourced-wheel-material-only",
+	"--historical-wheel-only", "--sourced-wheel-only",
+]
+const PREPARATION_MODES := [
+	"--prepare-paddle-maps", "--prepare-conveyor-maps", "--prepare-waterwheel-maps",
+	"--prepare-wheel-center-color", "--prepare-press-support-maps",
+	"--prepare-coupling-maps",
+]
+const RENDER_CHECKS := [
+	"--paddle-hardware-check", "--paddle-grain-check", "--span-belt-check",
+	"--wheel-supports-check", "--press-input-clearance-check", "--foundation-art-check",
+	"--drive-journal-mount-check", "--drive-journal-check",
+	"--collector-input-support-check", "--satin-coating-check",
+	"--collector-rear-service-check",
+]
 var checks := 0
 var failed := false
 var max_tangent_dot := 0.0
@@ -5901,7 +5929,53 @@ func render_buildable_resources() -> void:
 		"gameplay": "not_run", "desktop_control": "not_used", "human_quality": "not_assessed"}))
 	quit(0)
 
+func _selection_error(reason: String) -> bool:
+	push_error(reason)
+	quit(2)
+	return false
+
+func _valid_selection() -> bool:
+	var args := OS.get_cmdline_user_args()
+	var primary := DIRECT_MODES + PREPARATION_MODES + ["--render-buildable-resources"]
+	var selected := ""
+	var companions: Array[String] = []
+	var positional: Array[String] = []
+	for argument: String in args:
+		if argument in primary:
+			if not selected.is_empty():
+				return _selection_error("Select exactly one machine-detail fixture mode.")
+			selected = argument
+		elif argument in RENDER_CHECKS or argument == "--foot-seat-geometry":
+			if argument in companions:
+				return _selection_error("Duplicate machine-detail fixture modifier: " + argument)
+			companions.append(argument)
+		elif argument.begins_with("--"):
+			return _selection_error("Unknown machine-detail fixture option: " + argument)
+		else:
+			positional.append(argument)
+	if selected.is_empty():
+		return true if args.is_empty() else _selection_error("The default machine-detail suite takes no arguments.")
+	if selected in PREPARATION_MODES:
+		var expected := 2 if selected == "--prepare-wheel-center-color" else 3
+		if args[0] != selected or args.size() != expected or not companions.is_empty():
+			return _selection_error("The selected map preparation needs its own positional inputs.")
+	elif selected == "--render-buildable-resources":
+		if not positional.is_empty():
+			return _selection_error("Resource rendering accepts only declared check modifiers.")
+		for companion in companions:
+			if companion not in RENDER_CHECKS:
+				return _selection_error("Resource rendering received an unrelated modifier.")
+	else:
+		if not positional.is_empty():
+			return _selection_error("The selected machine-detail check takes no positional inputs.")
+		for companion in companions:
+			if selected != "--wheel-foot-seats-only" or companion != "--foot-seat-geometry":
+				return _selection_error("The selected machine-detail check received an unrelated modifier.")
+	return true
+
 func _initialize() -> void:
+	if not _valid_selection():
+		return
 	if OS.get_cmdline_user_args().has("--paddle-hardware-only"):
 		check_paddle_hardware()
 		verify(paddle_hardware_checks_complete, "All twelve fitted wheel assemblies must pass.")

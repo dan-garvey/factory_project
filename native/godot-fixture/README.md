@@ -21,6 +21,16 @@ runner. The default suite emits an `OPENING_PARTS_VIEW_PASS` count, while
 `--buttons-only` emits its JSON status and check count. These are
 scripted view checks, not native gameplay, rendered, or human-play evidence.
 
+`machine_detail_check.gd` likewise runs its default geometry suite only with
+no user arguments. Select one direct check mode at a time; the retired
+one-cell conveyor selectors deliberately fail. Asset preparation takes its
+named `--prepare-...` selector first, followed by that case's required path
+arguments. `--render-buildable-resources` may combine its declared
+`--...-check` prerequisites; `--foot-seat-geometry` applies only to
+`--wheel-foot-seats-only`. Unknown, duplicate, conflicting or orphan options
+exit 2 before any case runs. Existing suite-specific completion and exit
+contracts remain; resource renders are isolated passive evidence.
+
 Build `//native/godot-fixture:factory-godot-fixture` with the verified Bazel
 8.4.2 toolchain described in [native builds](../../docs/engineering/native-builds.md).
 Then run from a linked checkout, substituting existing absolute paths, the
