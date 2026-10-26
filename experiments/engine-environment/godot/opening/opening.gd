@@ -6099,8 +6099,12 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 			if carried_id.is_empty():
 				_message("Craft and carry a hand crank before fitting an input.", true)
 				return
-			var attached := issue({"action": "attach_hand_crank", "entity": input_id,
-				"crank": carried_id, "port": center})
+			var attach_wire := {"action": "attach_hand_crank", "entity": input_id,
+				"crank": carried_id, "port": center}
+			var crank_face := _crank_face_for_input(input_id, center)
+			if crank_face.size() == 3:
+				attach_wire["face"] = crank_face
+			var attached := issue(attach_wire)
 			if attached.accepted:
 				selected = input_id
 			_refresh_ui()
@@ -6813,6 +6817,23 @@ func _rotary_at_input_port(port: Array) -> String:
 			found = id
 	return found
 
+func _crank_face_for_input(input_id: String, port: Array) -> Array:
+	var input: Dictionary = state.get("placed_components", {}).get(input_id, {})
+	var center: Array = input.get("center", [])
+	if center.size() != 3 or port.size() != 3:
+		return []
+	if center != port:
+		return [1 if int(port[0]) > int(center[0]) else -1, 0, 0]
+	var axis := int(input.get("crank_axis", -1))
+	var actor: Dictionary = state.get("actors", {}).get(client, {})
+	var position: Array = actor.get("position", [])
+	var anchor_position: Array = input.get("position", [])
+	if axis not in [0, 2] or position.size() != 3 or anchor_position.size() != 3:
+		return []
+	var face := [0, 0, 0]
+	face[axis] = -1 if float(position[axis]) < float(anchor_position[axis]) else 1
+	return face
+
 func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		normal: Vector3) -> Dictionary:
 	# The press's working offsets are larger than a one-step face snap. Use the
@@ -7103,9 +7124,14 @@ func _refresh_component_preview() -> void:
 			float(center[1]) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
 			float(center[2]) * Geometry.HEIGHT_STEP)
 		var input_cell: Array = input.get("center", [])
+		var face := _crank_face_for_input(input_id, center)
+		if face.size() != 3:
+			face = [-1, 0, 0] if input_cell.size() == 3 and center[0] < input_cell[0] \
+				else [1, 0, 0]
+		var outward := Vector3(float(face[0]), 0.0, float(face[2]))
 		if input_cell == center:
-			component_preview.position += Vector3(0.0, 0.12, 0.22)
-		component_preview.rotation.y = PI if input_cell.size() == 3 and center[0] < input_cell[0] else 0.0
+			component_preview.position += outward * 0.22
+		component_preview.rotation.y = -atan2(outward.z, outward.x)
 		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
 			else Color(0.91, 0.73, 0.40, 0.56)
 		component_preview.visible = true

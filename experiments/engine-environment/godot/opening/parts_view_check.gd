@@ -807,6 +807,47 @@ func _component_placement_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(prefix + "-ore-cutter.png") == OK,
 			"Retain the allowed ore-face cutter and its floor-reaching support.")
+	view.client = "P"
+	view.component_nudge_active = false
+	view.state.placed_components = {"shaft": {"component": "wooden_shaft",
+		"center": [0, 4, 0], "position": [0.0, 2.475, 0.0],
+		"input_ports": [[0, 4, 0]], "crank_axis": 0}}
+	view.state.crank_items = {"crank-id": {"holder": "P"}}
+	view.state.cargo.P.components.hand_crank = 1
+	view.state.actors.P.position = [1.0, 1.0, 0.0]
+	choice.kind = "hand_crank"
+	view.aimed = "shaft"
+	view.aim_normal = Vector3.RIGHT
+	body.set_meta("component_entity", "shaft")
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and not view.component_preview_blocked
+		and absf(view.component_preview.position.x - 0.22) < 0.001
+		and absf(view.component_preview.rotation.y) < 0.001,
+		"The ordinary crank ghost follows the native positive X spindle face.")
+	view._world_click(Vector2i.ZERO, "shaft")
+	verify(view.issued.back().face == [1, 0, 0],
+		"Fitting from the positive X side sends the projected spindle face for native validation.")
+	view.state.actors.P.position = [-1.0, 1.0, 0.0]
+	view._refresh_component_preview()
+	verify(absf(view.component_preview.position.x + 0.22) < 0.001
+		and absf(absf(view.component_preview.rotation.y) - PI) < 0.001,
+		"Approaching the other side mirrors the visible crank preview.")
+	view._world_click(Vector2i.ZERO, "shaft")
+	verify(view.issued.back().face == [-1, 0, 0],
+		"The mirrored native attachment request matches the ordinary preview.")
+	view.state.placed_components.shaft.crank_axis = 2
+	view.state.actors.P.position = [0.0, 1.0, 1.0]
+	view._refresh_component_preview()
+	verify(absf(view.component_preview.position.z - 0.22) < 0.001
+		and absf(view.component_preview.rotation.y + PI * 0.5) < 0.001,
+		"A native Z spindle rotates the preview around the actual horizontal axis.")
+	view._world_click(Vector2i.ZERO, "shaft")
+	verify(view.issued.back().face == [0, 0, 1],
+		"The ordinary Z-facing fit sends the same signed face as its preview.")
+	view.state.actors.P.position = [0.0, 1.0, -1.0]
+	view._world_click(Vector2i.ZERO, "shaft")
+	verify(view.issued.back().face == [0, 0, -1],
+		"Approaching the opposite Z face reverses the requested native winding.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,

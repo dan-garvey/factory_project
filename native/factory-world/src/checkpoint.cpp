@@ -321,7 +321,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"remaining_ticks", Value(cut.remaining_ticks)},
                 {"interrupted_revision", Value(cut.interrupted_revision)}}));
         Value output(Object{
-            {"schema", Value(Integer{20})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{21})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -366,7 +366,9 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                     {"holder", item.holder ? Value(*item.holder) : Value(nullptr)},
                     {"attached_to", item.attached_to ? Value(*item.attached_to) : Value(nullptr)},
                     {"port", item.port ? Value(Array{Value((*item.port)[0]),
-                        Value((*item.port)[1]), Value((*item.port)[2])}) : Value(nullptr)}}));
+                        Value((*item.port)[1]), Value((*item.port)[2])}) : Value(nullptr)},
+                    {"face", item.face ? Value(Array{Value((*item.face)[0]),
+                        Value((*item.face)[1]), Value((*item.face)[2])}) : Value(nullptr)}}));
             state.emplace("crank_items", Value(std::move(crank_items)));
             Object placed;
             for (const auto& [id, component] : snapshot.state.placed_components)
@@ -462,7 +464,9 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
     try {
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
-        if (integer(root, "schema", "$") != 20) refuse(CheckpointReason::unsupported_schema, "$.schema");
+        const auto schema = integer(root, "schema", "$");
+        if (schema != 20 && schema != 21)
+            refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
@@ -518,11 +522,15 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
             const auto& crank_items = object(state.at("crank_items"), "$.state.crank_items");
             if (crank_items.size() > 4096) refuse(CheckpointReason::limit, "$.state.crank_items");
             for (const auto& [id, value] : crank_items) {
-                const auto& item = fields(value, "$.state.crank_items",
-                    {"id", "generation", "holder", "attached_to", "port"});
+                const auto& item = schema == 21 ?
+                    fields(value, "$.state.crank_items",
+                        {"id", "generation", "holder", "attached_to", "port", "face"}) :
+                    fields(value, "$.state.crank_items",
+                        {"id", "generation", "holder", "attached_to", "port"});
                 std::optional<std::string> carried_by;
                 std::optional<std::string> attached_to;
                 std::optional<mechanics::Point> port;
+                std::optional<mechanics::Point> face;
                 if (item.at("holder").type() != values::Type::null)
                     carried_by = scalar<std::string>(item.at("holder"), "$.state.crank_items.holder");
                 if (item.at("attached_to").type() != values::Type::null)
@@ -534,10 +542,17 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                         scalar<Integer>(point[1], "$.state.crank_items.port"),
                         scalar<Integer>(point[2], "$.state.crank_items.port")};
                 }
+                if (schema == 21 && item.at("face").type() != values::Type::null) {
+                    const auto& point = array(item.at("face"), "$.state.crank_items.face", 3);
+                    if (point.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.crank_items.face");
+                    face = mechanics::Point{scalar<Integer>(point[0], "$.state.crank_items.face"),
+                        scalar<Integer>(point[1], "$.state.crank_items.face"),
+                        scalar<Integer>(point[2], "$.state.crank_items.face")};
+                }
                 if (!candidate.state.crank_items.emplace(id, HandCrank{
                         scalar<std::string>(item.at("id"), "$.state.crank_items.id"),
                         integer(item, "generation", "$.state.crank_items"),
-                        std::move(carried_by), std::move(attached_to), port}).second)
+                        std::move(carried_by), std::move(attached_to), port, face}).second)
                     refuse(CheckpointReason::invalid_world, "$.state.crank_items");
             }
             const auto& placed = object(state.at("placed_components"), "$.state.placed_components");

@@ -105,12 +105,16 @@ struct HandCrank {
     std::optional<std::string> holder;
     std::optional<std::string> attached_to;
     std::optional<mechanics::Point> port;
+    // Outward unit normal of the fitted spindle face. Older checkpoints may
+    // omit it; their central input keeps the historical positive winding.
+    std::optional<mechanics::Point> face;
     HandCrank(std::string name, authority::Integer serial,
               std::optional<std::string> carried_by = std::nullopt,
               std::optional<std::string> target = std::nullopt,
-              std::optional<mechanics::Point> at = std::nullopt)
+              std::optional<mechanics::Point> at = std::nullopt,
+              std::optional<mechanics::Point> outward = std::nullopt)
         : id(std::move(name)), generation(serial), holder(std::move(carried_by)),
-          attached_to(std::move(target)), port(at) {}
+          attached_to(std::move(target)), port(at), face(outward) {}
     bool operator==(const HandCrank&) const = default;
 };
 
@@ -268,6 +272,7 @@ struct NetworkLoad {
 struct DrivePower {
     mechanics::Result mechanical;
     std::map<std::string, NetworkLoad> load;
+    std::map<std::string, mechanics::Axis> crank_axes{};
 };
 
 enum class BroadPressDriveStatus {
@@ -300,7 +305,8 @@ private:
 // A held crank engages one fitted input for one command. This projects a
 // temporary source into the same native graph; it is never a placed part.
 [[nodiscard]] DrivePower hand_crank_power(const Profile&, const State&,
-    const std::string& input, const mechanics::Point& port);
+    const std::string& input, const mechanics::Point& port,
+    std::optional<mechanics::Point> face = std::nullopt);
 [[nodiscard]] materials::Path material_path(const stationary::Topology&);
 [[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&);
 [[nodiscard]] materials::MachinePower machine_power(const stationary::Topology&, const DrivePower&);

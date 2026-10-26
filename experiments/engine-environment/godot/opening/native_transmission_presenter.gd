@@ -1881,12 +1881,17 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 			continue
 		var input_cell: Array = placed[input_id].get("center", [])
 		var central: bool = input_cell == port
+		var face: Array = item.get("face", [])
+		if face.size() != 3:
+			face = [-1, 0, 0] if input_cell.size() == 3 and port[0] < input_cell[0] \
+				else [1, 0, 0]
+		var outward := Vector3(float(face[0]), 0.0, float(face[2]))
 		var crank := Node3D.new()
 		crank.name = "AttachedHandCrank"
 		crank.position = Vector3(float(port[0]) * UNIT,
-			float(port[1]) * UNIT + Geometry.ANCHOR_HEIGHT + (0.12 if central else 0.0),
-			float(port[2]) * UNIT + (0.22 if central else 0.0))
-		crank.rotation.y = PI if input_cell.size() == 3 and port[0] < input_cell[0] else 0.0
+			float(port[1]) * UNIT + Geometry.ANCHOR_HEIGHT,
+			float(port[2]) * UNIT) + (outward * 0.22 if central else Vector3.ZERO)
+		crank.rotation.y = -atan2(outward.z, outward.x)
 		crank.set_meta("crank_entity", id)
 		add_child(crank)
 		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.15, 0.2, 0.15),

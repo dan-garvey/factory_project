@@ -186,6 +186,38 @@ void held_crank_drives_fitted_spindles_and_connected_consumers() {
     check(!w::hand_crank_power(fixture.profile, fixture.state,
               "press-shaft", {8, 4, 0}).mechanical.accepted(),
           "A neighboring cell cannot impersonate the fitted shaft port.");
+    const auto east = w::hand_crank_power(fixture.profile, fixture.state,
+        "press-shaft", {7, 4, 0}, m::Point{1, 0, 0});
+    const auto west = w::hand_crank_power(fixture.profile, fixture.state,
+        "press-shaft", {7, 4, 0}, m::Point{-1, 0, 0});
+    check(east.mechanical.accepted() && west.mechanical.accepted() &&
+          east.crank_axes.at("press-shaft") == m::Axis::x &&
+          east.mechanical.motion.at("press-shaft").rate.numerator ==
+              -west.mechanical.motion.at("press-shaft").rate.numerator &&
+          east.mechanical.motion.at("press-shaft").rate.denominator ==
+              west.mechanical.motion.at("press-shaft").rate.denominator,
+          "Opposite fitted X faces reverse the same shaft and connected press.");
+    check(!w::hand_crank_power(fixture.profile, fixture.state,
+              "press-shaft", {7, 4, 0}, m::Point{0, 0, 1}).mechanical.accepted(),
+          "A perpendicular face cannot claim the X spindle.");
+    auto along_z = connected_line();
+    along_z.state.topology.parts.clear();
+    along_z.state.topology.sources.clear();
+    along_z.profile.collector_faces = {{{0, 4, 0}, {0, 0, -1}}};
+    along_z.state.placed_components.clear();
+    add(along_z.state, "z-frame", mat::Component::wooden_frame, {0, 4, 0});
+    add(along_z.state, "z-mount", mat::Component::tool_mount, {0, 4, -1});
+    add(along_z.state, "z-edge", mat::Component::cutting_edge, {0, 4, -2});
+    add(along_z.state, "z-tray", mat::Component::receiver_tray, {1, 4, 0});
+    const auto north = w::hand_crank_power(along_z.profile, along_z.state,
+        "z-mount", {0, 4, -1}, m::Point{0, 0, -1});
+    const auto south = w::hand_crank_power(along_z.profile, along_z.state,
+        "z-mount", {0, 4, -1}, m::Point{0, 0, 1});
+    check(north.mechanical.accepted() && south.mechanical.accepted() &&
+          north.crank_axes.at("z-mount") == m::Axis::z &&
+          north.mechanical.motion.at("z-mount").rate.numerator ==
+              -south.mechanical.motion.at("z-mount").rate.numerator,
+          "Mirrored Z faces reverse the same collector spindle.");
 }
 
 void carriage_phase_tracks_signed_fractional_shaft_travel() {

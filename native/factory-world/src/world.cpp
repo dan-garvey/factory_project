@@ -153,6 +153,25 @@ bool crank_input_port(const PlacedComponent& component, const mechanics::Point& 
         component.kind == materials::Component::copper_shaft) && port == center;
 }
 
+bool crank_face_on_axis(const mechanics::Point& face, mechanics::Axis axis) {
+    const auto index = static_cast<std::size_t>(axis);
+    if (std::abs(face[index]) != 1) return false;
+    for (std::size_t other = 0; other < face.size(); ++other)
+        if (other != index && face[other] != 0) return false;
+    return true;
+}
+
+authority::Point anchor(const Profile& profile, const mechanics::Point& point);
+
+mechanics::Point crank_face_from_actor(const Profile& profile,
+        const authority::Point& actor, const mechanics::Point& port,
+        mechanics::Axis axis) {
+    mechanics::Point face{};
+    const auto index = static_cast<std::size_t>(axis);
+    face[index] = actor[index] < anchor(profile, port)[index] ? -1 : 1;
+    return face;
+}
+
 bool has_attached_crank(const State& state, const std::string& input,
         const mechanics::Point& port) {
     return std::any_of(state.crank_items.begin(), state.crank_items.end(),
@@ -298,10 +317,12 @@ bool shape(const Object& intent, const std::string& action) {
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "center");
     if (action == "attach_hand_crank")
-        return keys(intent, {"target", "generation", "crank", "crank_generation", "port"}) &&
+        return (keys(intent, {"target", "generation", "crank", "crank_generation", "port"}) ||
+                keys(intent, {"target", "generation", "crank", "crank_generation", "port", "face"})) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<std::string>(intent, "crank") &&
-            field<Integer>(intent, "crank_generation") && field<Value::Array>(intent, "port");
+            field<Integer>(intent, "crank_generation") && field<Value::Array>(intent, "port") &&
+            (!intent.contains("face") || field<Value::Array>(intent, "face"));
     if (action == "detach_hand_crank")
         return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
             field<Integer>(intent, "generation");
@@ -313,10 +334,12 @@ bool shape(const Object& intent, const std::string& action) {
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "port");
     if (action == "operate_hand_crank")
-        return keys(intent, {"target", "generation", "crank", "crank_generation", "port"}) &&
+        return (keys(intent, {"target", "generation", "crank", "crank_generation", "port"}) ||
+                keys(intent, {"target", "generation", "crank", "crank_generation", "port", "face"})) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<std::string>(intent, "crank") && field<Integer>(intent, "crank_generation") &&
-            field<Value::Array>(intent, "port");
+            field<Value::Array>(intent, "port") &&
+            (!intent.contains("face") || field<Value::Array>(intent, "face"));
     if (action == "feed_press")
         return keys(intent, {"target", "generation", "entry"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
@@ -1135,9 +1158,16 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* count = field<Integer>(result, "component_count");
         const auto* at = field<Value::Array>(result, "port_center");
         const auto port = at ? grid_point(Object{{"center", Value(*at)}}) : std::nullopt;
+        const auto* face_value = field<Value::Array>(result, "face");
+        const auto face = face_value ?
+            grid_point(Object{{"center", Value(*face_value)}}, 1) : std::nullopt;
         const auto* requested_at = attaching ? field<Value::Array>(record.intent, "port") : nullptr;
         const auto requested_port = requested_at ?
             grid_point(Object{{"center", Value(*requested_at)}}) : std::nullopt;
+        const auto* requested_face_value = attaching ?
+            field<Value::Array>(record.intent, "face") : nullptr;
+        const auto requested_face = requested_face_value ?
+            grid_point(Object{{"center", Value(*requested_face_value)}}, 1) : std::nullopt;
         const auto input = input_id ? placed_components.find(*input_id) : placed_components.end();
         return profile.landing_pod_center && target && requested_generation &&
             crank && serial && *serial > 0 && entity && *entity == *crank &&
@@ -1145,11 +1175,14 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             (attaching ? *input_id == *target && *requested_generation > 0 : *target == *crank) &&
             input != placed_components.end() &&
             port && (!attaching || requested_port == port) &&
+            (!result.contains("face") || (attaching && face.has_value())) &&
+            (!record.intent.contains("face") || (requested_face && requested_face == face)) &&
             crank_input_port(PlacedComponent{input->second.first, input->second.second, 1}, *port) &&
             holder && *holder == (attaching ? "installed" : actor) &&
             count && *count >= 0 && (profile.material.component_capacity == 0 ||
                 *count <= profile.material.component_capacity) &&
-            targets.front() == anchor(profile, *port) && result.size() == 20;
+            targets.front() == anchor(profile, *port) &&
+            result.size() == (face ? 21u : 20u);
     }
     if (action == "stow_fabrication_hub" || action == "deploy_fabrication_hub") {
         const bool deploy = action == "deploy_fabrication_hub";
@@ -1613,6 +1646,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     struct HistoricalCrankPulse {
         std::string input;
         mechanics::Point port{};
+        std::optional<mechanics::Point> face;
     };
     std::map<Integer, HistoricalCrankPulse> crank_pulses;
     for (std::size_t index = 0; index < snapshot.history.records.size(); ++index) {
@@ -1635,8 +1669,11 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto* port_value = field<Value::Array>(record.intent, "port");
         const auto port = port_value ?
             grid_point(Object{{"center", Value(*port_value)}}) : std::nullopt;
-        if (!input || !port ||
-            !crank_pulses.emplace(pulse_revision, HistoricalCrankPulse{*input, *port}).second)
+        const auto* face_value = field<Value::Array>(record.intent, "face");
+        const auto face = face_value ?
+            grid_point(Object{{"center", Value(*face_value)}}, 1) : std::nullopt;
+        if (!input || !port || (record.intent.contains("face") && !face) ||
+            !crank_pulses.emplace(pulse_revision, HistoricalCrankPulse{*input, *port, face}).second)
             return false;
     }
     const auto normal_drive_at = [&](Integer revision) {
@@ -1798,7 +1835,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         manual_state.topology.drive_enabled = normal_drive_at(event_revision);
         return &historical_crank_power.emplace(event_revision,
             hand_crank_power(profile, manual_state, pulse->second.input,
-                pulse->second.port)).first->second;
+                pulse->second.port, pulse->second.face)).first->second;
     };
     std::vector<std::pair<materials::WorkId, const PressOffcutDelivery*>> deliveries;
     deliveries.reserve(snapshot.state.press_offcut_deliveries.size());
@@ -2246,7 +2283,24 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto* input_id = field<std::string>(record.result, "input_id");
             const auto* at = field<Value::Array>(record.result, "port_center");
             const auto port = at ? grid_point(Object{{"center", Value(*at)}}) : std::nullopt;
+            const auto* face_value = field<Value::Array>(record.result, "face");
+            const auto face = face_value ?
+                grid_point(Object{{"center", Value(*face_value)}}, 1) : std::nullopt;
+            if (record.result.contains("face") && !face) return false;
             if (crank == historical_cranks.end() || !input_id || !port) return false;
+            if (attaching && face) {
+                const auto* layout_state = layout_at(*result_revision);
+                if (!layout_state) return false;
+                const auto power = drive_power(profile, *layout_state);
+                const auto axis = power.crank_axes.find(*input_id);
+                const auto input = layout_state->placed_components.find(*input_id);
+                if (!power.mechanical.accepted() || axis == power.crank_axes.end() ||
+                    !crank_face_on_axis(*face, axis->second) ||
+                    (input != layout_state->placed_components.end() &&
+                        slide_component(input->second.kind) &&
+                        (*face)[0] != ((*port)[0] > input->second.center[0] ? 1 : -1)))
+                    return false;
+            }
             auto& item = crank->second;
             auto& carried = crafted_components[{*actor, materials::Component::hand_crank}];
             if (attaching) {
@@ -2257,6 +2311,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 item.holder.reset();
                 item.attached_to = *input_id;
                 item.port = *port;
+                item.face = face;
                 --carried;
             } else {
                 if (item.holder || item.attached_to != *input_id || item.port != port ||
@@ -2264,6 +2319,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 item.holder = *actor;
                 item.attached_to.reset();
                 item.port.reset();
+                item.face.reset();
             }
             if (carried != *field<Integer>(record.result, "component_count")) return false;
         }
@@ -2275,11 +2331,16 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto* port_value = field<Value::Array>(record.intent, "port");
             const auto port = port_value ?
                 grid_point(Object{{"center", Value(*port_value)}}) : std::nullopt;
+            const auto* face_value = field<Value::Array>(record.intent, "face");
+            const auto face = face_value ?
+                grid_point(Object{{"center", Value(*face_value)}}, 1) : std::nullopt;
             const auto* layout_state = layout_at(*result_revision);
             if (crank == historical_cranks.end() || !input_id || !input_generation ||
                 !crank_generation || !port || !layout_state ||
+                (record.intent.contains("face") && !face) ||
                 crank->second.generation != *crank_generation ||
-                crank->second.attached_to != *input_id || crank->second.port != port)
+                crank->second.attached_to != *input_id || crank->second.port != port ||
+                crank->second.face != face)
                 return false;
             const auto input = placed_components.find(*input_id);
             const auto issued = snapshot.state.issued_entities.find(*input_id);
@@ -2294,7 +2355,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (!prior.mechanical.accepted() ||
                 (prior_motion != prior.mechanical.motion.end() &&
                     !manual_input_available(prior_motion->second))) return false;
-            const auto powered = hand_crank_power(profile, at_command, *input_id, *port);
+            const auto powered = hand_crank_power(profile, at_command, *input_id, *port, face);
             const auto motion = powered.mechanical.motion.find(*input_id);
             const auto* numerator = field<Integer>(record.result, "rate_numerator");
             const auto* denominator = field<Integer>(record.result, "rate_denominator");
@@ -3997,6 +4058,7 @@ DrivePower drive_power(const stationary::Topology& topology) {
 struct ManualCrankInput {
     std::string input;
     mechanics::Point port{};
+    std::optional<mechanics::Point> face;
 };
 
 static DrivePower drive_power_with_layout(const Profile& profile, const State& state,
@@ -4121,6 +4183,20 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
             impacts.emplace(shear.anvils[index], 8);
         }
     }
+    std::map<std::string, mechanics::Axis> crank_axes;
+    for (const auto& item : placed) {
+        if (slide_component(item.kind)) {
+            crank_axes.emplace(item.id, mechanics::Axis::x);
+        } else if (item.kind == materials::Component::tool_mount ||
+                item.kind == materials::Component::wooden_shaft ||
+                item.kind == materials::Component::copper_shaft) {
+            const auto spindle = std::find_if(parts.begin(), parts.end(),
+                [&](const mechanics::Part& part) {
+                    return part.id == item.id && part.kind == mechanics::Kind::shaft;
+                });
+            if (spindle != parts.end()) crank_axes.emplace(item.id, spindle->axis);
+        }
+    }
     std::map<std::string, long double> manual_sources;
     mechanics::Rate manual_rate{1, 1};
     if (hand_input) {
@@ -4132,14 +4208,27 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
             result.error = mechanics::Error::invalid_drive;
             return {std::move(result), {}};
         }
+        const auto axis = crank_axes.find(input->id);
+        if (axis == crank_axes.end() ||
+            (hand_input->face && !crank_face_on_axis(*hand_input->face, axis->second))) {
+            mechanics::Result result;
+            result.error = mechanics::Error::invalid_drive;
+            return {std::move(result), {}};
+        }
         if (slide_component(input->kind)) {
+            const auto side = hand_input->port[0] > input->center[0] ? 1 : -1;
+            if (hand_input->face && (*hand_input->face)[0] != side) {
+                mechanics::Result result;
+                result.error = mechanics::Error::invalid_drive;
+                return {std::move(result), {}};
+            }
             std::string hub_id = "manual-slide-input";
             for (std::size_t index = 0; reserved_ids.contains(hub_id); ++index)
                 hub_id = "manual-slide-input-" + std::to_string(index);
             append({hub_id, mechanics::Kind::hub, hand_input->port,
                 mechanics::Axis::x, 0, 0});
             manual_sources.emplace(hub_id, 12);
-            manual_rate.numerator = hand_input->port[0] > input->center[0] ? 1 : -1;
+            manual_rate.numerator = side;
         } else {
             // A fitted crank presents a temporary source hub coaxial with
             // the embodied spindle. Native sources attach to hubs, while
@@ -4160,6 +4249,8 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
             append({hub_id, mechanics::Kind::hub, hand_input->port,
                 axis, 0, 0});
             manual_sources.emplace(hub_id, 12);
+            if (hand_input->face) manual_rate.numerator =
+                (*hand_input->face)[static_cast<std::size_t>(axis)];
         }
     }
     if (parts.size() > mechanics::maximum_parts) {
@@ -4174,9 +4265,11 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     std::vector<mechanics::BeltSpan> spans;
     spans.reserve(state.topology.belt_spans.size());
     for (const auto& span : state.topology.belt_spans) spans.push_back(span.geometry);
-    return apply_load(state.topology,
+    auto powered = apply_load(state.topology,
         mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower),
         ratings, impacts, manual_sources);
+    powered.crank_axes = std::move(crank_axes);
+    return powered;
 }
 
 DrivePower drive_power(const Profile& profile, const State& state) {
@@ -4189,10 +4282,12 @@ DrivePower drive_power(const Profile& profile, const State& state) {
 }
 
 DrivePower hand_crank_power(const Profile& profile, const State& state,
-        const std::string& input, const mechanics::Point& port) {
+        const std::string& input, const mechanics::Point& port,
+        std::optional<mechanics::Point> face) {
     const auto placed = assembly_parts(state);
     const assembly::Layout layout(placed);
-    return drive_power_with_layout(profile, state, placed, layout, ManualCrankInput{input, port});
+    return drive_power_with_layout(profile, state, placed, layout,
+        ManualCrankInput{input, port, face});
 }
 
 BroadPressDriveIndex::BroadPressDriveIndex(const DrivePower& power) : power_(power) {
@@ -4470,7 +4565,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             state.foundations.contains(id) || part(state.topology, id) ||
             crank.holder.has_value() == crank.attached_to.has_value()) return false;
         if (crank.holder) {
-            if (!profile.actors.contains(*crank.holder) || crank.port ||
+            if (!profile.actors.contains(*crank.holder) || crank.port || crank.face ||
                 !add(carried_cranks[*crank.holder], 1)) return false;
         } else {
             const auto input = state.placed_components.find(*crank.attached_to);
@@ -4492,6 +4587,16 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             const auto motion = powered.mechanical.motion.find(*crank.attached_to);
             if (motion == powered.mechanical.motion.end() ||
                 !manual_input_available(motion->second)) return false;
+            if (crank.face) {
+                const auto axis = powered.crank_axes.find(*crank.attached_to);
+                if (axis == powered.crank_axes.end() ||
+                    !crank_face_on_axis(*crank.face, axis->second)) return false;
+                const auto input = state.placed_components.find(*crank.attached_to);
+                if (input != state.placed_components.end() &&
+                    slide_component(input->second.kind) &&
+                    (*crank.face)[0] != ((*crank.port)[0] > input->second.center[0] ? 1 : -1))
+                    return false;
+            }
         }
     }
     for (const auto& [actor, cargo] : state.material.cargo) {
@@ -5479,6 +5584,10 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto port = attaching ?
             (port_value ? grid_point(Object{{"center", Value(*port_value)}}) : std::nullopt) :
             crank->second.port;
+        const auto* requested_face_value = attaching ? field<Value::Array>(intent, "face") : nullptr;
+        const auto requested_face = requested_face_value ?
+            grid_point(Object{{"center", Value(*requested_face_value)}}, 1) : std::nullopt;
+        if (requested_face_value && !requested_face) return refused("invalid_crank_face", *id);
         const auto input_id = attaching ? *id : crank->second.attached_to.value_or("");
         const auto input = state.placed_components.find(input_id);
         if (!port || input == state.placed_components.end() ||
@@ -5516,8 +5625,20 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 return refused("input_already_driven", *id, std::move(facts));
             if (motion == existing.mechanical.motion.end())
                 return refused("not_rotary_input", *id, std::move(facts));
+            const auto axis = existing.crank_axes.find(input_id);
+            if (axis == existing.crank_axes.end())
+                return refused("not_rotary_input", *id, std::move(facts));
             if (!manual_input_available(motion->second))
                 return refused("input_already_driven", *id, std::move(facts));
+            mechanics::Point face = requested_face.value_or(
+                crank_face_from_actor(profile_, cut->position, *port, axis->second));
+            if (slide_component(input->second.kind) && !requested_face) {
+                face = {(*port)[0] > input->second.center[0] ? 1 : -1, 0, 0};
+            }
+            if (!crank_face_on_axis(face, axis->second) ||
+                (slide_component(input->second.kind) &&
+                    face[0] != ((*port)[0] > input->second.center[0] ? 1 : -1)))
+                return refused("invalid_crank_face", *id, std::move(facts));
             const auto owned = cargo.find(materials::Component::hand_crank);
             if (owned == cargo.end() || owned->second < 1)
                 return refused("no_component", *id, std::move(facts));
@@ -5526,6 +5647,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             item.holder.reset();
             item.attached_to = input_id;
             item.port = *port;
+            item.face = face;
         } else {
             if (profile_.material.component_capacity > 0 &&
                 carried >= profile_.material.component_capacity)
@@ -5533,6 +5655,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             item.holder = binding.actor;
             item.attached_to.reset();
             item.port.reset();
+            item.face.reset();
             ++cargo[materials::Component::hand_crank];
             auto& placed = candidate.material.placed_components.at(materials::Component::hand_crank);
             if (--placed == 0) candidate.material.placed_components.erase(materials::Component::hand_crank);
@@ -5541,6 +5664,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         facts.emplace("input_id", Value(input_id));
         facts.emplace("port_center", Value(Value::Array{
             Value((*port)[0]), Value((*port)[1]), Value((*port)[2])}));
+        if (attaching) facts.emplace("face", Value(Value::Array{
+            Value((*item.face)[0]), Value((*item.face)[1]), Value((*item.face)[2])}));
         facts.emplace("holder", Value(attaching ? "installed" : binding.actor));
         facts.emplace("component_count", Value(
             cargo.contains(materials::Component::hand_crank) ?
@@ -5556,6 +5681,10 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto* port_value = field<Value::Array>(intent, "port");
         const auto port = port_value ?
             grid_point(Object{{"center", Value(*port_value)}}) : std::nullopt;
+        const auto* face_value = field<Value::Array>(intent, "face");
+        const auto face = face_value ?
+            grid_point(Object{{"center", Value(*face_value)}}, 1) : std::nullopt;
+        if (face_value && !face) return refused("invalid_crank_face", *crank_id);
         if (!crank_id || !crank_generation || !input_id || !input_generation || !port)
             return refused("invalid_target");
         const auto crank = state.crank_items.find(*crank_id);
@@ -5566,7 +5695,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (input == state.placed_components.end()) return refused("unknown_target", *input_id);
         if (input->second.generation != *input_generation)
             return refused("stale_generation", *input_id);
-        if (crank->second.attached_to != *input_id || crank->second.port != port)
+        if (crank->second.attached_to != *input_id || crank->second.port != port ||
+            crank->second.face != face)
             return refused("crank_not_attached", *crank_id);
         if (!crank_input_port(input->second, *port))
             return refused("not_rotary_input", *input_id);
@@ -5589,7 +5719,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (prior_motion != existing.mechanical.motion.end() &&
             !manual_input_available(prior_motion->second))
             return refused("input_already_driven", *crank_id, std::move(facts));
-        const auto powered = hand_crank_power(profile_, state, *input_id, *port);
+        const auto powered = hand_crank_power(profile_, state, *input_id, *port, face);
         if (!powered.mechanical.accepted())
             return refused("invalid_mechanics", *crank_id, std::move(facts));
         const auto motion = powered.mechanical.motion.find(*input_id);
@@ -7319,6 +7449,7 @@ struct PendingCrankPulse {
     std::string input;
     Integer input_generation{};
     mechanics::Point port{};
+    std::optional<mechanics::Point> face;
 };
 
 std::optional<PendingCrankPulse> pending_crank_pulse(const Snapshot& snapshot) {
@@ -7337,10 +7468,14 @@ std::optional<PendingCrankPulse> pending_crank_pulse(const Snapshot& snapshot) {
     const auto* port_value = field<Value::Array>(record.intent, "port");
     const auto port = port_value ?
         grid_point(Object{{"center", Value(*port_value)}}) : std::nullopt;
-    if (!actor || !crank || !crank_generation || !input || !input_generation || !port)
+    const auto* face_value = field<Value::Array>(record.intent, "face");
+    const auto face = face_value ?
+        grid_point(Object{{"center", Value(*face_value)}}, 1) : std::nullopt;
+    if (!actor || !crank || !crank_generation || !input || !input_generation || !port ||
+        (face_value && !face))
         return std::nullopt;
     return PendingCrankPulse{*actor, *crank, *crank_generation,
-        *input, *input_generation, *port};
+        *input, *input_generation, *port, face};
 }
 
 Advance World::tick(const ObserveActor& observe) noexcept {
@@ -7364,6 +7499,7 @@ Advance World::tick(const ObserveActor& observe) noexcept {
                 crank->second.generation != pulse->crank_generation ||
                 crank->second.attached_to != pulse->input ||
                 crank->second.port != pulse->port ||
+                crank->second.face != pulse->face ||
                 input == snapshot.state.placed_components.end() ||
                 input->second.generation != pulse->input_generation || !cut)
                 throw materials::Error::invalid_state;
@@ -7373,7 +7509,7 @@ Advance World::tick(const ObserveActor& observe) noexcept {
                     {anchor(profile_, pulse->port)}).error != authority::Error::none)
                 throw materials::Error::invalid_state;
             pulse_drive.emplace(hand_crank_power(profile_, snapshot.state,
-                pulse->input, pulse->port));
+                pulse->input, pulse->port, pulse->face));
             const auto motion = pulse_drive->mechanical.motion.find(pulse->input);
             if (!pulse_drive->mechanical.accepted() ||
                 motion == pulse_drive->mechanical.motion.end() ||

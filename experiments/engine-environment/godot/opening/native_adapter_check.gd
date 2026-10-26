@@ -2640,7 +2640,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	opening.component_nudge_center = [11, 2, 16]
 	opening._refresh_component_preview()
 	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked
-			and absf(opening.component_preview.rotation.y - PI) < 0.001,
+			and absf(absf(opening.component_preview.rotation.y) - PI) < 0.001,
 			"The west slide input visibly reverses the crank fitting"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
