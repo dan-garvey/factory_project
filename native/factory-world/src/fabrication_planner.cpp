@@ -1,4 +1,5 @@
 #include "fabrication_planner.hpp"
+#include "factory/fabrication_command_contract.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -40,19 +41,20 @@ std::optional<FabricationCommand> fabrication_command(
         const std::string& action, const authority::Object& intent) {
     using Integer = authority::Integer;
     using Kind = FabricationCommand::Kind;
-    if (action == "field_craft") {
+    using ContractAction = fabrication_commands::Action;
+    const auto selected = fabrication_commands::parse(action);
+    if (selected == ContractAction::field_craft) {
         const auto* component = field<std::string>(intent, "component");
         if (!component) return std::nullopt;
         return FabricationCommand{Kind::field_component, {}, 0, *component, 0};
     }
-    if (action != "craft_foundation" && action != "craft_component" &&
-        action != "craft_part") return std::nullopt;
+    if (selected == ContractAction::none) return std::nullopt;
     const auto* target = field<std::string>(intent, "target");
     const auto* generation = field<Integer>(intent, "generation");
     if (!target || !generation) return std::nullopt;
-    if (action == "craft_foundation")
+    if (selected == ContractAction::foundation)
         return FabricationCommand{Kind::foundation, *target, *generation, {}, 0};
-    if (action == "craft_component") {
+    if (selected == ContractAction::component) {
         const auto* component = field<std::string>(intent, "component");
         if (!component) return std::nullopt;
         return FabricationCommand{Kind::component, *target, *generation, *component, 0};

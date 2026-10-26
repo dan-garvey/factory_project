@@ -1,5 +1,6 @@
 #include "factory/godot_world.hpp"
 #include "factory/crank_command_contract.hpp"
+#include "factory/fabrication_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
@@ -566,6 +567,9 @@ bool historical_wire(const authority::Record& record) {
     if (const auto crank = crank_commands::parse(*action);
         crank != crank_commands::Action::none)
         return crank_commands::historical_wire(*wire, intent, crank);
+    if (const auto fabrication = fabrication_commands::parse(*action);
+        fabrication != fabrication_commands::Action::none)
+        return fabrication_commands::historical_wire(*wire, intent, fabrication);
     if (const auto material = material_commands::parse(*action);
         material != material_commands::Action::none) {
         if (!material_commands::historical_wire(*wire, intent, material)) return false;
@@ -602,16 +606,6 @@ bool historical_wire(const authority::Record& record) {
             field<bool>(*wire, "enabled") && same("enabled", "enabled");
     if (*action == "finish_harvest" || *action == "cancel_harvest")
         return *original_action == *action && keys(*wire, {});
-    if (*action == "craft_component")
-        return *original_action == "craft_component" && keys(*wire, {"entity", "component"}) &&
-            field<std::string>(*wire, "entity") && field<std::string>(*wire, "component") &&
-            same("entity", "target") && same("component", "component");
-    if (*action == "craft_foundation")
-        return *original_action == "craft_foundation" && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target");
-    if (*action == "field_craft")
-        return *original_action == "field_craft" && keys(*wire, {"component"}) &&
-            field<std::string>(*wire, "component") && same("component", "component");
     if (*action == "stow_fabrication_hub")
         return *original_action == "stow_fabrication_hub" && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
@@ -619,11 +613,6 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "deploy_fabrication_hub" && keys(*wire, {"entity", "center"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "center") &&
             same("entity", "target") && same("center", "center");
-    if (*action == "craft_part")
-        return *original_action == "craft_part" && keys(*wire, {"entity", "role", "half_span"}) &&
-            field<std::string>(*wire, "entity") && field<std::string>(*wire, "role") &&
-            field<Integer>(*wire, "half_span") && same("entity", "target") &&
-            same("role", "role") && same("half_span", "half_span");
     if (*action == "feed_press")
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
@@ -1859,6 +1848,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto* action = field<std::string>(wire, "action");
     if (!action) return refuse("invalid_action");
     const auto crank_action = crank_commands::parse(*action);
+    const auto fabrication_action = fabrication_commands::parse(*action);
     const auto material_action = material_commands::parse(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
@@ -1901,25 +1891,25 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     } else if (*action == "finish_harvest" || *action == "cancel_harvest") {
         if (!keys(wire, {})) return refuse("invalid_command");
         normalized.at("action") = Value(*action);
-    } else if (*action == "craft_foundation") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+    } else if (fabrication_action == fabrication_commands::Action::foundation) {
+        if (!fabrication_commands::valid_wire(wire, fabrication_action))
             return refuse("invalid_command");
-        normalized.at("action") = Value("craft_foundation");
+        normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("generation", Value(crafting_bench_generation(snapshot.state,
             *field<std::string>(wire, "entity"))));
-    } else if (*action == "craft_component") {
-        if (!keys(wire, {"entity", "component"}) || !field<std::string>(wire, "entity") ||
-            !field<std::string>(wire, "component")) return refuse("invalid_command");
-        normalized.at("action") = Value("craft_component");
+    } else if (fabrication_action == fabrication_commands::Action::component) {
+        if (!fabrication_commands::valid_wire(wire, fabrication_action))
+            return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("generation", Value(crafting_bench_generation(snapshot.state,
             *field<std::string>(wire, "entity"))));
         normalized.emplace("component", wire.at("component"));
-    } else if (*action == "field_craft") {
-        if (!keys(wire, {"component"}) || !field<std::string>(wire, "component"))
+    } else if (fabrication_action == fabrication_commands::Action::field_craft) {
+        if (!fabrication_commands::valid_wire(wire, fabrication_action))
             return refuse("invalid_command");
-        normalized.at("action") = Value("field_craft");
+        normalized.at("action") = Value(*action);
         normalized.emplace("component", wire.at("component"));
     } else if (*action == "stow_fabrication_hub" || *action == "deploy_fabrication_hub") {
         const bool deploy = *action == "deploy_fabrication_hub";
@@ -1971,11 +1961,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     materials::Component::wooden_workbench, center)) return refuse(refusal);
             normalized.emplace("center", wire.at("center"));
         }
-    } else if (*action == "craft_part") {
-        if (!keys(wire, {"entity", "role", "half_span"}) ||
-            !field<std::string>(wire, "entity") || !field<std::string>(wire, "role") ||
-            !field<Integer>(wire, "half_span")) return refuse("invalid_command");
-        normalized.at("action") = Value("craft_part");
+    } else if (fabrication_action == fabrication_commands::Action::part) {
+        if (!fabrication_commands::valid_wire(wire, fabrication_action))
+            return refuse("invalid_command");
+        normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("generation", Value(crafting_bench_generation(snapshot.state,
             *field<std::string>(wire, "entity"))));

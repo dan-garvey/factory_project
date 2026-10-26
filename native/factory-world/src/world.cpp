@@ -1,5 +1,6 @@
 #include "factory/world.hpp"
 #include "factory/crank_command_contract.hpp"
+#include "factory/fabrication_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "fabrication_planner.hpp"
 #include "harvest_planner.hpp"
@@ -300,6 +301,9 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 bool shape(const Object& intent, const std::string& action) {
     if (const auto crank = crank_commands::parse(action); crank != crank_commands::Action::none)
         return crank_commands::valid_intent(intent, crank);
+    if (const auto fabrication = fabrication_commands::parse(action);
+        fabrication != fabrication_commands::Action::none)
+        return fabrication_commands::valid_intent(intent, fabrication);
     if (const auto material = material_commands::parse(action);
         material != material_commands::Action::none)
         return material == material_commands::Action::pickup ?
@@ -314,16 +318,6 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "finish_harvest" || action == "cancel_harvest") return keys(intent, {});
     if (action == "set_developer_conveniences")
         return keys(intent, {"enabled"}) && field<bool>(intent, "enabled");
-    if (action == "craft_component") return keys(intent, {"target", "generation", "component"}) &&
-        field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-        field<std::string>(intent, "component");
-    if (action == "craft_foundation") return keys(intent, {"target", "generation"}) &&
-        field<std::string>(intent, "target") && field<Integer>(intent, "generation");
-    if (action == "field_craft") return keys(intent, {"component"}) &&
-        field<std::string>(intent, "component");
-    if (action == "craft_part") return keys(intent, {"target", "generation", "role", "half_span"}) &&
-        field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-        field<std::string>(intent, "role") && field<Integer>(intent, "half_span");
     if (action == "stow_fabrication_hub")
         return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
             field<Integer>(intent, "generation");
@@ -474,12 +468,16 @@ bool two_endpoints(const std::string& action) {
 }
 
 bool requires_first_plate(const Object& intent, const std::string& action) {
-    if (action == "craft_component" || action == "field_craft" || action == "place_component") {
+    const auto fabrication = fabrication_commands::parse(action);
+    if (fabrication == fabrication_commands::Action::component ||
+        fabrication == fabrication_commands::Action::field_craft ||
+        action == "place_component") {
         const auto* name = field<std::string>(intent, "component");
         return !name || (*name != "anvil" && *name != "flat_head" &&
             *name != "wooden_slide" && *name != "hand_crank");
     }
-    return action == "craft_foundation" || action == "craft_part" ||
+    return fabrication == fabrication_commands::Action::foundation ||
+        fabrication == fabrication_commands::Action::part ||
         action == "shaft_between" || action == "place" || action.starts_with("place_");
 }
 

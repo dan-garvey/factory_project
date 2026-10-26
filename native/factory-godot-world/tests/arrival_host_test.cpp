@@ -1,6 +1,7 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -223,6 +224,32 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
           get<I>(V(cargo), "hand_crank") == 2 &&
           get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0,
           "The two identities agree with one actor's finite carried component count.");
+    const auto before_bad_shapes = host.projection();
+    const std::array<std::tuple<const char*, const char*, O>, 4> malformed{{
+        {"bad-field", "field_craft", {{"component", V(I{1})}}},
+        {"bad-floor", "craft_foundation", {{"entity", V(I{1})}}},
+        {"bad-component", "craft_component",
+            {{"entity", V("pod-fabrication-hub")}, {"component", V("hand_crank")},
+             {"free_stock", V(true)}}},
+        {"bad-part", "craft_part",
+            {{"entity", V("pod-fabrication-hub")}, {"role", V("shaft")},
+             {"half_span", V(2.0)}}},
+    }};
+    for (const auto& [request, action, fields] : malformed) {
+        const auto refusal = command(request, action, fields);
+        check(!get<bool>(refusal, "accepted") &&
+              get<std::string>(refusal, "reason") == "invalid_command",
+              "Malformed crafting requests refuse at the production Host boundary.");
+    }
+    const auto after_bad_shapes = host.projection();
+    check(get<I>(before_bad_shapes, "revision") == get<I>(after_bad_shapes, "revision") &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_shapes, "cargo")), V(get<O>(after_bad_shapes, "cargo"))) &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_shapes, "part_kits")), V(get<O>(after_bad_shapes, "part_kits"))) &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_shapes, "crank_items")), V(get<O>(after_bad_shapes, "crank_items"))),
+          "Malformed crafting requests leave native revision, stock, kits and crank identities unchanged.");
     const auto duplicate = command("crank-2", "field_craft", {{"component", V("hand_crank")}});
     check(get<bool>(duplicate, "duplicate") && get<O>(host.projection(), "crank_items").size() == 2,
           "Retransmitting a craft command cannot mint a third crank item.");
