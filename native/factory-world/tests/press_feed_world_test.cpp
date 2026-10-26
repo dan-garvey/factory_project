@@ -225,7 +225,7 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
                            center[2] + direction[2]}},
         {"wooden_cog", {center[0] + 2 * direction[0], center[1] + 4,
                          center[2] + 2 * direction[2]}}};
-    std::string anvil, shaft;
+    std::string anvil, shaft, cog;
     I anvil_generation{};
     for (const auto& [kind, center] : parts) {
         auto place = request("P", std::string("guided-place-") + kind, "place_component");
@@ -237,6 +237,7 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
             anvil_generation = std::get<I>(made.at("generation").storage());
         }
         if (std::string(kind) == "wooden_shaft") shaft = std::get<std::string>(made.at("entity").storage());
+        if (std::string(kind) == "wooden_cog") cog = std::get<std::string>(made.at("entity").storage());
         if (std::string(kind) == "wooden_shaft") {
             auto incomplete = request("P", "guided-incomplete-feed", "feed_press");
             incomplete.emplace("target", V(anvil));
@@ -307,6 +308,12 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
         check(halted.world->snapshot().state.crank_items.at(token.id).face ==
               std::optional<g::Point>(g::Point{1, 0, 0}),
               "An explicit X face is stored on the fitted shaft despite the actor standing west.");
+        const auto connected = w::hand_crank_power(source.profile,
+            halted.world->snapshot().state, shaft, mounted.center, g::Point{1, 0, 0});
+        check(connected.mechanical.accepted() &&
+              connected.mechanical.motion.at(shaft).state == g::MotionState::rotating &&
+              connected.mechanical.motion.at(cog).state == g::MotionState::rotating,
+              "The held crank rotates the external shaft and its connected cog without a wheel.");
         const auto prior = halted.world->snapshot().state.material;
         auto pulse = request("P", "direct-press-pulse", "operate_hand_crank");
         pulse.emplace("target", V(shaft));
@@ -330,6 +337,38 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
               pulsed.state.crank_items.at(token.id).face ==
                   std::optional<g::Point>(g::Point{1, 0, 0}),
               "A direct crank pulse advances the fed press through the shared tick and restores its exact work history.");
+        const g::Point direct_exit{center[0] - direction[0], center[1], center[2] - direction[2]};
+        bool direct_formed = pulsed.state.material.dropped_material.contains(direct_exit) &&
+            pulsed.state.material.dropped_material.at(direct_exit).products == 1;
+        for (int index = 1; index <= 8 && !direct_formed; ++index) {
+            pulse.at("request") = V("direct-press-pulse-" + std::to_string(index));
+            halted.accept("P", pulse);
+            check(halted.world->tick(held_actor).error == w::TransactionError::none,
+                  "Every held-crank pulse advances the same native guided press tick.");
+            const auto cycled = halted.world->snapshot();
+            direct_formed = cycled.state.material.dropped_material.contains(direct_exit) &&
+                cycled.state.material.dropped_material.at(direct_exit).products == 1;
+        }
+        const auto direct_finished = halted.world->snapshot();
+        check(direct_formed && direct_finished.state.press_output_at_exit.contains(direct_exit) &&
+              direct_finished.state.press_output_at_exit.at(direct_exit) > 0 &&
+              direct_finished.state.material.dropped_material.at(center).offcuts == 1 &&
+              w::validate(source.profile, direct_finished),
+              "The connected crank, shaft and cog form one finite plate and offcut without a menu turn.");
+        codec_restore(source.profile, direct_finished,
+                      "The directly cranked plate and its output identity survive a native checkpoint.");
+        auto pickup = request("P", "direct-press-pickup", "pickup_material");
+        pickup.emplace("center", V(point(direct_exit[0], direct_exit[1], direct_exit[2])));
+        pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+        halted.accept("P", pickup);
+        const auto direct_picked = halted.world->snapshot();
+        check(direct_picked.state.material.cargo.at("P").products == 1 &&
+              direct_picked.state.press_output_at_exit.empty() &&
+              w::validate(source.profile, direct_picked),
+              "The actor claims the same directly cranked output exactly once.");
+        codec_restore(source.profile, direct_picked,
+                      "The carried directly cranked plate keeps exact finite custody after pickup.");
     }
     Runner automated(source);
     automated.world = w::World::restore("press-feed", source.profile, fed);
