@@ -403,8 +403,10 @@ func _component_placement_check() -> void:
 	slide_sample.position = slide_box.center
 	view.add_child(slide_sample)
 	presenter.preview_component(slide_sample, "copper_slide", slide_box.size)
-	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace") and slide_sample.has_node("SlideCarriage"),
-		"The separate flat die and unchanged powered carriage both have visible meshes.")
+	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace")
+		and head_sample.has_node("FlatHeadMovingDie/FlatHeadStem")
+		and slide_sample.has_node("SlideCarriage/CarriageDieRod"),
+		"The fitted flat die and slide carriage have a visible shaft connection.")
 	var stroke_phase := {"subticks": 2048, "remainder": 0, "denominator": 1,
 		"cycle_subticks": 4096}
 	var stroked_head := Node3D.new()
@@ -421,10 +423,24 @@ func _component_placement_check() -> void:
 		- head_sample.get_node("FlatHeadMovingDie").position.y
 	var carriage_drop: float = stroked_slide.get_node("SlideCarriage").position.y \
 		- slide_sample.get_node("SlideCarriage").position.y
-	verify(absf(head_drop + head_box.size.y - 0.175) < 0.0001
-		and absf(carriage_drop + slide_box.size.y - Geometry.HEIGHT_STEP - 0.175) < 0.0001
-		and head_drop < carriage_drop and carriage_drop < 0.0,
-		"The die reaches the lower work face while its driven carriage stays within the slide rails.")
+	var anvil_top: float = workbed_box.center.y + workbed_box.half.y
+	var resting_face_bottom: float = head_sample.position.y \
+		+ head_sample.get_node("FlatHeadMovingDie").position.y - 0.05
+	var working_face_bottom: float = stroked_head.position.y \
+		+ stroked_head.get_node("FlatHeadMovingDie").position.y - 0.05
+	var working_carriage_face_bottom: float = stroked_slide.position.y \
+		+ stroked_slide.get_node("SlideCarriage").position.y - 0.1025
+	var resting_stem_top: float = head_sample.position.y \
+		+ head_sample.get_node("FlatHeadMovingDie").position.y + 0.55
+	var resting_carriage_face_bottom: float = slide_sample.position.y \
+		+ slide_sample.get_node("SlideCarriage").position.y - 0.1025
+	verify(absf(head_drop + 0.20) < 0.0001 and absf(carriage_drop - head_drop) < 0.0001
+		and absf(resting_face_bottom - anvil_top - 0.24) < 0.0001
+		and absf(working_face_bottom - anvil_top - 0.04) < 0.0001
+		and absf(working_carriage_face_bottom - (slide_box.center.y - slide_box.half.y) - 0.02) < 0.0001
+		and absf(resting_stem_top - resting_carriage_face_bottom) < 0.002
+		and resting_stem_top < head_box.center.y + head_box.half.y,
+		"Head and carriage share a short stroke; their faces meet within the admitted boxes above the lowered anvil.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		camera.position = head_box.center + Vector3(1.1, 0.45, 2.4)
 		camera.look_at(head_box.center - Vector3(0, 0.18, 0))
@@ -1324,31 +1340,30 @@ func _multitool_controls() -> void:
 		view._build_interface()
 		view._refresh_ui()
 		var before: Dictionary = view.state.duplicate(true)
-		verify("FIRST WORKSHOP" in view.objective_heading.text and not view.goal_progress.visible
-			and not view.goal_label.text.contains("3 timber") and not view.goal_label.text.contains("1 copper")
+		verify("FIRST WORKSHOP" in view.objective_title
+			and not view.goal_text.contains("3 timber") and not view.goal_text.contains("1 copper")
 			and view.building_hotbar.material_counts.timber.text == "3"
 			and view.building_hotbar.material_counts.raw.text == "1",
 			"The arrival objective stays focused on the order while build/inventory shows confirmed cargo.")
-		verify("Craft a part in Build [B]." in view.goal_label.text,
+		verify("Craft a part in Build [B]." in view.goal_text,
 			"The stocked worker sees the build control without a required press recipe.")
 		view.state.cargo.P.components = {"anvil": 1}
 		view._refresh_ui()
-		verify("Place a carried part [B]." in view.goal_label.text
-			and not view.goal_label.text.contains("ram, guide, shaft and cog"),
+		verify("Place a carried part [B]." in view.goal_text
+			and not view.goal_text.contains("ram, guide, shaft and cog"),
 			"A carried anvil does not become a mandatory press blueprint in the local or shared HUD.")
 		view.state.placed_components = {"standalone-anvil": {"component": "anvil", "center": [0, 0, 0]}}
 		view._refresh_ui()
-		verify("Inspect parts [E] or build [B]." in view.goal_label.text
-			and not view.goal_label.text.contains("Fit the press parts"),
+		verify("Inspect parts [E] or build [B]." in view.goal_text
+			and not view.goal_text.contains("Fit the press parts"),
 			"A standalone work support retains component-level inspection guidance.")
 		view.state = before.duplicate(true)
 		view._refresh_ui()
-		verify(not view.confirm_button.visible and not view.help_button.visible
-			and "H help" in view.controls_label.text,
-			"Arrival keeps Help on H without the old objective confirmation or HUD button.")
+		verify("H help" in view.controls_label.text and "J log" in view.controls_label.text,
+			"Arrival advertises both menus without a separate HUD card.")
 		view._toggle_explanation()
 		verify(view.explanation_open and view.help_panel.visible
-			and view.help_body.text.contains(view.goal_label.text),
+			and view.help_body.text.contains(view.goal_text),
 			"Arrival Help shows the current objective without a separate example world.")
 		view._toggle_explanation()
 		verify(not view.explanation_open and not view.help_panel.visible,
@@ -2315,9 +2330,9 @@ func _arrival_hotbar() -> void:
 		"Copper stock, partial work and plate use literal item icons with matching pointer and focus names.")
 	verify(bar.carried_label.text == "CARRIED" and bar.component_buttons.hand_crank.visible,
 		"The inventory shows the crafted crank as carried component stock.")
-	verify(not view.goal_label.text.contains("timber ·") and not view.goal_label.text.contains("ore blanks carried")
-		and view.goal_label.text.contains("Open Work log [J]"),
-		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_label.text)
+	verify(not view.goal_text.contains("timber ·") and not view.goal_text.contains("ore blanks carried")
+		and view.goal_text.contains("Open Work log [J]"),
+		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_text)
 	verify(bar.collector_focus_button.visible and bar.recipe_focus == "collector"
 		and bar.recipe_buttons["component:wooden_frame"].visible
 		and bar.recipe_buttons["component:cutting_edge"].visible
@@ -2830,8 +2845,8 @@ func _carried_guidance() -> void:
 				var before: Dictionary = view.state.duplicate(true)
 				view._refresh_ui()
 				var form: String = "carried copper" if lots.is_empty() else "carried copper workpiece"
-				verify(view.goal_label.text.contains(form) and view.goal_label.text.contains("press")
-					and not view.goal_label.text.contains("No copper"),
+				verify(view.goal_text.contains(form) and view.goal_text.contains("press")
+					and not view.goal_text.contains("No copper"),
 					"The real %s goal points %s's %s back to the press." % ["shared" if shared else "offline", actor, form])
 				view.recovery_actions._open_menu()
 				var offered: Array = []
@@ -2849,38 +2864,35 @@ func _carried_guidance() -> void:
 			view.state.cargo[peer] = {"raw": 3, "products": 0, "work_lots": [{"id": 9,
 				"recipe_input": 1, "cycle_ticks": 4, "remaining": 1}]}
 			view._refresh_ui()
-			verify(view.goal_label.text.contains("No copper") and not view.recovery_actions.visible,
+			verify(view.goal_text.contains("No copper") and not view.recovery_actions.visible,
 				"A peer's carried material does not become the active actor's continuation route.")
 		view.state.cargo[view.client] = {"raw": 1, "products": 0, "work_lots": []}
 		view.state.stock.output = 1
 		view._refresh_ui()
-		verify(view.goal_label.text.contains("Plate ready"), "A finished plate still takes priority over reinsertion advice.")
+		verify(view.goal_text.contains("Plate ready"), "A finished plate still takes priority over reinsertion advice.")
 		view.state.stock.output = 0
 		view.state.inventories[view.client] = 4
 		view._refresh_ui()
-		verify(view.confirm_button.visible and not view.confirm_button.disabled and view.goal_label.text.contains("Confirm"),
-			"Four collected products retain the original confirmation route.")
+		verify(view.goal_text.contains("Four plates collected")
+			and not view.controls_label.text.contains("confirm"),
+			"Four collected products are complete without a separate confirmation step.")
 		view.state.inventories[view.client] = 0
 		view.state.power_enabled = false
 		view.state.motion.collector.state = "stopped"
 		view._refresh_ui()
-		verify(view.goal_label.text.contains("Use cogs and shafts"),
+		verify(view.goal_text.contains("Use cogs and shafts"),
 			"Stopped native motion takes priority over carried-material reinsertion advice.")
 		view.state.power_enabled = true
 		view.state.motion.collector.state = "rotating"
-		view.state.options.native = false
-		view._refresh_ui()
-		verify(view.goal_label.text.contains("No copper"), "Historical guidance ignores native carried-material fields.")
-		view.state.options.native = true
 		if shared:
 			view.pending_actions = {"waiting": {}}
 			view._refresh_ui()
-			verify(view.goal_label.text.contains("Waiting for the server") and view.recovery_actions.action_button.disabled,
+			verify(view.goal_text.contains("Waiting for the server") and view.recovery_actions.action_button.disabled,
 				"A pending shared command retains the waiting message and disabled material menu.")
 			view.pending_actions.clear()
 			view.session.ready = false
 			view._refresh_ui()
-			verify(view.goal_label.text.contains("Reconnect") and view.recovery_actions.action_button.disabled,
+			verify(view.goal_text.contains("Reconnect") and view.recovery_actions.action_button.disabled,
 				"Disconnection retains the read-only prompt and disabled material menu.")
 		view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
@@ -4279,6 +4291,32 @@ func _slide_controls_check() -> void:
 		and reclaim_model.sent[0].action == "pickup_material",
 		"A refused native material pickup leaves the component in place.")
 	reclaim_view.free()
+	var broad_snapshot := snapshot.duplicate(true)
+	broad_snapshot.placed_components = {
+		"broad-bed": {"component": "broad_anvil", "center": [20, 0, 8]},
+		"broad-head": {"component": "broad_flat_head", "center": [20, 1, 8]},
+		"broad-slide": {"component": "copper_slide", "center": [20, 2, 8]}}
+	broad_snapshot.broad_press_assemblies = [{"origin": [20, 0, 8],
+		"parts": {"anvils": ["broad-bed"], "heads": ["broad-head"], "slide": "broad-slide"}}]
+	broad_snapshot.dropped_material = [{"center": [20, 0, 8], "sheets": 1},
+		{"center": [24, 0, 8], "raw": 1}]
+	var broad_reclaim := ReclaimOrderView.new()
+	var broad_model := ReclaimOrderModel.new()
+	broad_model.projected = broad_snapshot
+	broad_reclaim.model = broad_model
+	broad_reclaim.state = broad_snapshot
+	broad_reclaim.client = "P"
+	for broad_part in ["broad-bed", "broad-head", "broad-slide"]:
+		verify(broad_reclaim._reclaim_owned_drops(broad_part) == [broad_snapshot.dropped_material[0]],
+			"Each broad press part owns its origin material without collecting loose stock beside the workbed.")
+	broad_reclaim.issue({"action": "reclaim_component", "entity": "broad-head"})
+	verify(broad_model.sent.size() == 2
+		and broad_model.sent[0].action == "pickup_material"
+		and broad_model.sent[0].center == [20, 0, 8]
+		and broad_model.sent[0].expected == {"sheets": 1}
+		and broad_model.sent[1].action == "reclaim_component",
+		"Broad head reclaim submits exact native sheet pickup before part removal.")
+	broad_reclaim.free()
 	snapshot.sliding_press_assemblies[0] = {"anvil": "anvil", "center": [12, 0, 8],
 		"status": "missing_head"}
 	snapshot.guided_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],

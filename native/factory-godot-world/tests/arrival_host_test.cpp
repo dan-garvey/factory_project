@@ -278,6 +278,31 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
           !get<bool>(resumed("reclaim-with-crank", "reclaim_component",
               {{"entity", V(slide_id)}}), "accepted"),
           "A retry cannot mint a crank, and one occupied port blocks another crank and slide reclaim.");
+    const auto before_bad_crank_commands = restored.projection();
+    for (const auto& refused : {
+             resumed("bad-attach", "attach_hand_crank",
+                 {{"entity", V(slide_id)}, {"crank", V(first_id)},
+                  {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}, {"face", V(true)}}),
+             resumed("bad-detach", "detach_hand_crank",
+                 {{"entity", V(first_id)}, {"unexpected", V(I{1})}}),
+             resumed("bad-operate", "operate_hand_crank", {{"entity", V(I{7})}}),
+             resumed("bad-turn", "turn_hand_crank", {{"entity", V(slide_id)},
+                 {"unexpected", V(I{1})}}),
+             resumed("bad-slide-turn", "turn_slide_crank",
+                 {{"entity", V(slide_id)}, {"port", V("not a port")}})})
+        check(!get<bool>(refused, "accepted") &&
+              get<std::string>(refused, "reason") == "invalid_command",
+              "Malformed crank fields refuse through the production Host command path.");
+    const auto after_bad_crank_commands = restored.projection();
+    check(get<I>(before_bad_crank_commands, "revision") ==
+              get<I>(after_bad_crank_commands, "revision") &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_crank_commands, "crank_items")),
+              V(get<O>(after_bad_crank_commands, "crank_items"))) &&
+          !factory::values::typed_difference(
+              V(get<O>(before_bad_crank_commands, "slide_phases")),
+              V(get<O>(after_bad_crank_commands, "slide_phases"))),
+          "Malformed crank requests leave the native revision, item custody and slide phase unchanged.");
     const auto turn = resumed("turn-fitted", "turn_slide_crank",
         {{"entity", V(slide_id)},
          {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}});

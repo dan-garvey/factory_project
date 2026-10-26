@@ -601,7 +601,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		return
 	inventory.catalog.hide()
 	await process_frame
-	if not _expect(opening.goal_label.text == "FORM A PLATE · KEEP IT\nPlace a carried part [B].",
+	if not _expect(opening.goal_text == "FORM A PLATE · KEEP IT\nPlace a carried part [B].",
 			"The ordinary finite crafted part receives a component action cue without a fixed press bill"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -1832,7 +1832,7 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 	if "--arrival-close-camera" in OS.get_cmdline_user_args():
 		opening.distance = 0.0
 		opening._update_camera()
-	opening.manager_log_button.pressed.emit()
+	opening._toggle_manager_log()
 	if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
 			and not opening._can_control_character()
 			and "Gather 5 timber and 4 copper pieces" in opening.manager_log_current.text
@@ -2608,7 +2608,7 @@ func _arrival_first_plate_resume_run(capture_prefix: String) -> void:
 			and restored.crank_items.values().any(func(item: Variant) -> bool:
 				return item.attached_to == restored.sliding_press_assemblies[0].parts.slide)
 			and restored.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
-			and opening.objective_heading.text.contains("COMPLETE"),
+			and opening.objective_title.contains("COMPLETE"),
 			"A separate Godot process reopens the first carried plate and completed native milestone"):
 		return
 	var inventory = opening.building_hotbar
@@ -2884,8 +2884,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and press.get("status") == "blocked_feed")
 		if not _expect(not blocker_id.is_empty()
 				and blocked_press
-				and opening.goal_label.text.contains("Clear an X-side feed path [F]")
-				and not opening.goal_label.text.contains("Craft and place"),
+				and opening.goal_text.contains("Clear an X-side feed path [F]")
+				and not opening.goal_text.contains("Craft and place"),
 				"A physically placed side obstruction produces the native blocked-feed status and recovery cue"):
 			return
 		opening._open_object_menu_for(str(fitted.anvil))
@@ -2920,7 +2920,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			return
 		if not _expect(_issue({"action": "reclaim_component", "entity": blocker_id}).get("accepted", false)
 				and opening.model.projection().sliding_press_assemblies[0].status == "ready"
-				and opening.goal_label.text.contains("Open the fitted press [E]"),
+				and opening.goal_text.contains("Open the fitted press [E]"),
 				"Reclaiming the obstruction restores the native ready feed route and first-plate cue"):
 			return
 		opening._open_object_menu_for(str(fitted.anvil))
@@ -3210,7 +3210,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and before_pickup.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 			"The held exterior crank conserves mass and forms one plate at the native chosen exit"):
 			return
-		if not _expect(opening.goal_label.text.contains(
+		if not _expect(opening.goal_text.contains(
 				"Plate at outlet. Open the press [E], then collect it [P].")
 				and opening.manager_log_current.text.ends_with(
 					"Plate at outlet. Open the press [E], then collect it [P]."),
@@ -3232,7 +3232,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not _expect(completed.cargo.P.products == 1
 				and completed.workshop_completed_actors.has("P")
 				and completed.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
-				and opening.objective_heading.text.contains("COMPLETE"),
+				and opening.objective_title.contains("COMPLETE"),
 				"The first copper plate in carried inventory completes the native and visible milestone"):
 			return
 		inventory.open_catalog()
@@ -4042,7 +4042,7 @@ func _arrival_run() -> void:
 				and opening.manager_log_completion_entry.visible,
 				"A fresh process reopens the finite press, attached crank and P's saved inventory milestone"):
 			return
-		opening.manager_log_button.pressed.emit()
+		opening._toggle_manager_log()
 		if not _expect(opening.manager_log_open and opening.manager_log_layer.visible
 				and not opening.manager_log_current.text.is_empty()
 				and opening.model.projection() == restored,
@@ -4711,7 +4711,7 @@ func _arrival_run() -> void:
 	panel.pickup_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.products == 1
 			and opening.model.projection().dropped_material.size() == 1
-			and "FIRST WORKSHOP  /  COMPLETE" in opening.objective_heading.text
+			and "FIRST WORKSHOP  /  COMPLETE" in opening.objective_title
 			and opening.manager_log_completion_entry.visible,
 		"Physical pickup completes the workshop while the second workpiece stays in place"):
 		return

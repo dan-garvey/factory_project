@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/crank_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
@@ -561,6 +562,9 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "adapter_refusal") return !*accepted;
     const auto* original_action = field<std::string>(*wire, "action");
     if (!original_action) return false;
+    if (const auto crank = crank_commands::parse(*action);
+        crank != crank_commands::Action::none)
+        return crank_commands::historical_wire(*wire, intent, crank);
     const auto same = [&](const char* original, const char* normalized) {
         const auto left = wire->find(original);
         const auto right = intent.find(normalized);
@@ -634,27 +638,6 @@ bool historical_wire(const authority::Record& record) {
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "role") &&
             field<Integer>(*wire, "half_span") && same("entity", "target") &&
             same("role", "role") && same("half_span", "half_span");
-    if (*action == "attach_hand_crank")
-        return *original_action == *action &&
-            (keys(*wire, {"entity", "crank", "port"}) ||
-             keys(*wire, {"entity", "crank", "port", "face"})) &&
-            field<std::string>(*wire, "entity") && field<std::string>(*wire, "crank") &&
-            field<Array>(*wire, "port") && same("entity", "target") &&
-            same("crank", "crank") && same("port", "port") &&
-            (wire->contains("face") ? same("face", "face") : !intent.contains("face"));
-    if (*action == "detach_hand_crank")
-        return *original_action == *action && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target");
-    if (*action == "operate_hand_crank")
-        return *original_action == *action && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "crank");
-    if (*action == "turn_hand_crank")
-        return *original_action == *action && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target");
-    if (*action == "turn_slide_crank")
-        return *original_action == *action && keys(*wire, {"entity", "port"}) &&
-            field<std::string>(*wire, "entity") && field<Array>(*wire, "port") &&
-            same("entity", "target") && same("port", "port");
     if (*action == "feed_press")
         return *original_action == *action && keys(*wire, {"entity", "entry"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "entry") &&
@@ -1487,12 +1470,17 @@ const char* Host::machine_site_refusal(const world::State& state, const mechanic
 }
 
 std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
-        const world::State& state) const {
+        const world::State& state, const std::map<std::string, std::size_t>* preferred_routes) const {
     std::vector<const stationary::PlacedPart*> parts;
     for (const auto& part : state.topology.parts) parts.push_back(&part);
     auto jobs = parts;
     std::erase_if(jobs, [](const auto* part) { return !fixed_transmission(part->role); });
-    std::sort(jobs.begin(), jobs.end(), [](const auto* a, const auto* b) {
+    std::sort(jobs.begin(), jobs.end(), [preferred_routes](const auto* a, const auto* b) {
+        // Existing hardware owns its route before a newly placed stand chooses
+        // one. The placement order cannot silently displace a surviving post.
+        const bool a_pinned = preferred_routes && preferred_routes->contains(a->geometry.id);
+        const bool b_pinned = preferred_routes && preferred_routes->contains(b->geometry.id);
+        if (a_pinned != b_pinned) return a_pinned;
         const auto& ac = a->geometry.center;
         const auto& bc = b->geometry.center;
         return std::tie(ac[1], ac[0], ac[2], a->geometry.axis, a->geometry.id) <
@@ -1527,7 +1515,16 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
             std::array{1.6, -1.6}, std::array{1.6, 1.6}};
         const auto routes = offsets.size() * (axis == mechanics::Axis::y ? 1 : 2) +
             (axis == mechanics::Axis::y ? diagonals.size() : 0);
-        for (std::size_t route = 0; route < routes; ++route) {
+        const auto pinned = preferred_routes ? preferred_routes->find(part->geometry.id) :
+            std::map<std::string, std::size_t>::const_iterator{};
+        const bool keep_route = preferred_routes && pinned != preferred_routes->end();
+        for (std::size_t choice = 0; choice < (keep_route ? 1u : routes); ++choice) {
+            // Leave the central ground-level column available for a later
+            // coaxial machine beneath a raised axle.
+            const bool raised = axis != mechanics::Axis::y && center[1] > height_denominator;
+            const std::size_t route = keep_route ? pinned->second :
+                raised && choice < 2 ? 1 - choice : choice;
+            if (route >= routes) continue;
             const bool diagonal = axis == mechanics::Axis::y && route >= offsets.size();
             const double offset = diagonal ? diagonals[route - offsets.size()][0] : offsets[route % offsets.size()];
             const double axial = route < offsets.size() ? 0.55 : -0.55;
@@ -1608,7 +1605,7 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
                 if (!clear) break;
             }
             if (!clear) continue;
-            TransmissionSupport fitted{foot, fitted_bearing, {}};
+            TransmissionSupport fitted{foot, fitted_bearing, {}, route};
             for (const auto& box : boxes) fitted.boxes.emplace_back(box.center, box.half);
             result.emplace(part->geometry.id, std::move(fitted));
             occupied.insert(occupied.end(), boxes.begin(), boxes.end());
@@ -1618,19 +1615,24 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
     return result;
 }
 
-const char* Host::support_change_refusal(const world::State& before, const world::State& after,
-        bool preserve_surviving_stands) const {
-    const auto previous = transmission_supports(before);
-    const auto next = transmission_supports(after);
-    for (const auto& part : after.topology.parts)
-        if (fixed_transmission(part.role) && !next.contains(part.geometry.id)) return "support_required";
+const char* Host::support_change_refusal(const world::State& before, const world::State& after) const {
+    const auto previous = transmission_supports(before, &owned_->support_routes);
+    const auto next = transmission_supports(after, &owned_->support_routes);
+    std::optional<std::map<std::string, TransmissionSupport>> free_layout;
+    for (const auto& part : after.topology.parts) {
+        if (!fixed_transmission(part.role) || next.contains(part.geometry.id)) continue;
+        // A route exists, but using it would relocate an already built stand.
+        // Keep the neighboring machine buildable after its owner is reclaimed.
+        if (owned_->support_routes.contains(part.geometry.id)) {
+            if (!free_layout) free_layout = transmission_supports(after);
+            if (free_layout->contains(part.geometry.id)) return "stand_in_use";
+        }
+        return "support_required";
+    }
     for (const auto& [id, support] : next) {
         const auto old = previous.find(id);
         if (old != previous.end() && old->second.foot == support.foot &&
             old->second.bearing == support.bearing && old->second.boxes == support.boxes) continue;
-        // Reclaiming a cog must not silently move a different, surviving stand.
-        // Reclaim that dependent part first, then retry this removal.
-        if (preserve_surviving_stands && old != previous.end()) return "stand_in_use";
         for (const auto& [center, half] : support.boxes)
             if (placement_blocked(center, half)) return "actor_occupied";
     }
@@ -1870,6 +1872,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     };
     const auto* action = field<std::string>(wire, "action");
     if (!action) return refuse("invalid_action");
+    const auto crank_action = crank_commands::parse(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
         if (!id) return false;
@@ -1991,13 +1994,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             *field<std::string>(wire, "entity"))));
         normalized.emplace("role", wire.at("role"));
         normalized.emplace("half_span", wire.at("half_span"));
-    } else if (*action == "attach_hand_crank") {
-        if (!(keys(wire, {"entity", "crank", "port"}) ||
-                keys(wire, {"entity", "crank", "port", "face"})) ||
-            !field<std::string>(wire, "entity") || !field<std::string>(wire, "crank") ||
-            !field<Array>(wire, "port") || !gear_center(*field<Array>(wire, "port")) ||
+    } else if (crank_action == crank_commands::Action::attach) {
+        if (!crank_commands::valid_wire(wire, crank_action) ||
+            !gear_center(*field<Array>(wire, "port")) ||
             (wire.contains("face") &&
-                (!field<Array>(wire, "face") || !gear_center(*field<Array>(wire, "face")))))
+                !gear_center(*field<Array>(wire, "face"))))
             return refuse("invalid_command");
         const auto slide = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "crank"));
@@ -2010,16 +2011,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             Integer{0} : crank->second.generation));
         normalized.emplace("port", wire.at("port"));
         if (wire.contains("face")) normalized.emplace("face", wire.at("face"));
-    } else if (*action == "detach_hand_crank") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+    } else if (crank_action == crank_commands::Action::detach) {
+        if (!crank_commands::valid_wire(wire, crank_action))
             return refuse("invalid_command");
         const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "entity"));
         normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
-    } else if (*action == "operate_hand_crank") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+    } else if (crank_action == crank_commands::Action::operate) {
+        if (!crank_commands::valid_wire(wire, crank_action))
             return refuse("invalid_command");
         const auto crank_id = *field<std::string>(wire, "entity");
         const auto crank = snapshot.state.crank_items.find(crank_id);
@@ -2044,17 +2045,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             normalized.emplace("face", Value(Array{
                 Value(face[0]), Value(face[1]), Value(face[2])}));
         }
-    } else if (*action == "turn_hand_crank") {
-        if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
+    } else if (crank_action == crank_commands::Action::turn) {
+        if (!crank_commands::valid_wire(wire, crank_action))
             return refuse("invalid_command");
         normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
-    } else if (*action == "turn_slide_crank") {
-        if (!keys(wire, {"entity", "port"}) || !field<std::string>(wire, "entity") ||
-            !field<Array>(wire, "port")) return refuse("invalid_command");
+    } else if (crank_action == crank_commands::Action::turn_slide) {
+        if (!crank_commands::valid_wire(wire, crank_action)) return refuse("invalid_command");
         const auto port = gear_center(*field<Array>(wire, "port"));
         if (!port) return refuse("invalid_command");
         if (const auto* refusal = component_site_refusal(snapshot.state, std::nullopt, *port))
@@ -2652,9 +2652,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (work) normalized.emplace("work_id", wire.at("work_id"));
     } else return refuse("unsupported_action");
     const auto& edit = *field<std::string>(normalized, "action");
-    if (edit == "place" || edit == "place_connected" || edit == "remove" ||
+    const bool support_edit = edit == "place" || edit == "place_connected" || edit == "remove" ||
         edit == "place_foundation" || edit == "place_foundations" || edit == "remove_foundation" ||
-        edit == "place_belt_span" || edit == "place_selected_belt_span" || edit == "remove_belt_span") {
+        edit == "place_belt_span" || edit == "place_selected_belt_span" || edit == "remove_belt_span";
+    if (support_edit) {
         // Preview only the geometry fields. World still owns the transaction,
         // inventory, material and history; no second World or clock is created.
         world::State geometry;
@@ -2713,12 +2714,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 *field<std::string>(normalized, "target"), *field<std::string>(normalized, "to")}, 0});
         }
         if (const auto* refusal = supplied_space_refusal(geometry)) return refuse(refusal);
-        const auto* removed = edit == "remove" ?
-            find(snapshot.state, *field<std::string>(normalized, "target")) : nullptr;
-        if (const auto* refusal = support_change_refusal(snapshot.state, geometry,
-                removed && removed->role == Role::gear)) return refuse(refusal);
+        if (const auto* refusal = support_change_refusal(snapshot.state, geometry)) return refuse(refusal);
     }
     auto delivered = owned_->world->command({bound_actor, *client}, normalized, observe());
+    if (support_edit && delivered.result && field<bool>(*delivered.result, "accepted") &&
+            *field<bool>(*delivered.result, "accepted")) {
+        const auto layout = transmission_supports(owned_->world->snapshot().state, &owned_->support_routes);
+        std::map<std::string, std::size_t> routes;
+        for (const auto& [id, support] : layout) routes.emplace(id, support.route);
+        owned_->support_routes = std::move(routes);
+    }
     if (edit == "operate_hand_crank") return complete_crank_pulse(std::move(delivered));
     return Value(outward(delivered, owned_->world->snapshot()));
 }
@@ -2909,7 +2914,7 @@ Value Host::projection() const {
     if (!owned_) return result(false, "not_initialized");
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
-    const auto support_layout = transmission_supports(state);
+    const auto support_layout = transmission_supports(state, &owned_->support_routes);
     Object entities, transmissions, inventories, cargo, kits, specifications, actors, foundations, manual_cuts;
     Array links, drive_links, engagements;
     for (const auto& part : state.topology.parts) {
@@ -3513,16 +3518,32 @@ Value Host::checkpoint() const {
     if (!std::holds_alternative<Value>(encoded)) return result(false, "native_checkpoint_refused");
     Object actors;
     for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, point_value(sample.position));
-    return Value(Object{{"schema", Value(Integer{3})}, {"format", Value("factory-native-physical")},
-        {"world", std::get<Value>(encoded)}, {"actors", Value(std::move(actors))}});
+    Object support_routes;
+    for (const auto& [id, route] : owned_->support_routes)
+        support_routes.emplace(id, Value(static_cast<Integer>(route)));
+    return Value(Object{{"schema", Value(Integer{4})}, {"format", Value("factory-native-physical")},
+        {"world", std::get<Value>(encoded)}, {"actors", Value(std::move(actors))},
+        {"support_routes", Value(std::move(support_routes))}});
 }
 
 Host::Decoded Host::decode(const Value& input) const {
     if (!owned_) return {nullptr, "not_initialized"};
     const auto* root = std::get_if<Object>(&input.storage());
-    if (!root || root->size() != 4 || !field<Integer>(*root, "schema") || *field<Integer>(*root, "schema") != 3 ||
+    const auto* schema = root ? field<Integer>(*root, "schema") : nullptr;
+    if (!root || !schema || (*schema != 3 && *schema != 4) ||
+        root->size() != (*schema == 4 ? 5u : 4u) ||
         !field<std::string>(*root, "format") || *field<std::string>(*root, "format") != "factory-native-physical" ||
         !root->contains("world") || !field<Object>(*root, "actors")) return {nullptr, "invalid_checkpoint"};
+    std::map<std::string, std::size_t> saved_routes;
+    if (*schema == 4) {
+        const auto* routes = field<Object>(*root, "support_routes");
+        if (!routes) return {nullptr, "invalid_checkpoint"};
+        for (const auto& [id, value] : *routes) {
+            const auto* route = std::get_if<Integer>(&value.storage());
+            if (!route || *route < 0) return {nullptr, "invalid_support_route"};
+            saved_routes.emplace(id, static_cast<std::size_t>(*route));
+        }
+    }
     const auto* native = std::get_if<Object>(&root->at("world").storage());
     const auto* history = native ? field<Object>(*native, "history") : nullptr;
     const auto* context = history ? field<std::string>(*history, "context") : nullptr;
@@ -3548,7 +3569,8 @@ Host::Decoded Host::decode(const Value& input) const {
         if (const auto* refusal = component_space_refusal(snapshot.state, component.kind,
                 component.center, &id)) return {nullptr, refusal};
     }
-    const auto restored_supports = transmission_supports(snapshot.state);
+    const auto restored_supports = transmission_supports(snapshot.state,
+        *schema == 4 ? &saved_routes : nullptr);
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};
         if (!historical_wire(record)) return {nullptr, "inconsistent_wire_history"};
@@ -3698,6 +3720,14 @@ Host::Decoded Host::decode(const Value& input) const {
             if (terrain->second > at[1] - half[1]) return {nullptr, "site_occupied"};
         }
     }
+    if (*schema == 4) {
+        if (restored_supports.size() != saved_routes.size()) return {nullptr, "invalid_support_route"};
+        for (const auto& [id, route] : saved_routes) {
+            const auto found = restored_supports.find(id);
+            if (found == restored_supports.end() || found->second.route != route)
+                return {nullptr, "invalid_support_route"};
+        }
+    }
     const auto& actors = *field<Object>(*root, "actors");
     if (actors.size() != profile_.actors.size()) return {nullptr, "actor_roster_mismatch"};
     auto candidate = std::make_unique<Owned>();
@@ -3718,6 +3748,8 @@ Host::Decoded Host::decode(const Value& input) const {
     }
     candidate->world = world::World::restore(*context, profile_, snapshot);
     if (!candidate->world) return {nullptr, "native_checkpoint_refused"};
+    for (const auto& [id, support] : restored_supports)
+        candidate->support_routes.emplace(id, support.route);
     return {std::move(candidate), ""};
 }
 

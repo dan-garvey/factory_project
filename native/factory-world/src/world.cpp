@@ -1,4 +1,7 @@
 #include "factory/world.hpp"
+#include "factory/crank_command_contract.hpp"
+#include "harvest_planner.hpp"
+#include "plan_common.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -55,11 +58,6 @@ constexpr std::size_t maximum_issued_entities = 4096;
 constexpr std::size_t maximum_current_work = materials::maximum_live_work_lots;
 constexpr Integer foundation_depth_levels = 2;
 constexpr std::string_view allocated_prefix = "native-part-";
-
-template<class T> const T* field(const Object& object, const char* name) {
-    const auto found = object.find(name);
-    return found == object.end() ? nullptr : std::get_if<T>(&found->second.storage());
-}
 
 bool identity(const std::string& value) {
     return !value.empty() && value.size() <= 128 && value.find('\0') == std::string::npos;
@@ -308,6 +306,8 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
+    if (const auto crank = crank_commands::parse(action); crank != crank_commands::Action::none)
+        return crank_commands::valid_intent(intent, crank);
     if (action == "pickup_material") return keys(intent, {"center", "expected"}) && field<Object>(intent, "expected");
     if (action == "place_sheet") return keys(intent, {"center", "sheet_id"}) &&
         field<Value::Array>(intent, "center") && field<Integer>(intent, "sheet_id");
@@ -345,30 +345,6 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "center"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "center");
-    if (action == "attach_hand_crank")
-        return (keys(intent, {"target", "generation", "crank", "crank_generation", "port"}) ||
-                keys(intent, {"target", "generation", "crank", "crank_generation", "port", "face"})) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<std::string>(intent, "crank") &&
-            field<Integer>(intent, "crank_generation") && field<Value::Array>(intent, "port") &&
-            (!intent.contains("face") || field<Value::Array>(intent, "face"));
-    if (action == "detach_hand_crank")
-        return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
-            field<Integer>(intent, "generation");
-    if (action == "turn_hand_crank")
-        return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
-            field<Integer>(intent, "generation");
-    if (action == "turn_slide_crank")
-        return keys(intent, {"target", "generation", "port"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<Value::Array>(intent, "port");
-    if (action == "operate_hand_crank")
-        return (keys(intent, {"target", "generation", "crank", "crank_generation", "port"}) ||
-                keys(intent, {"target", "generation", "crank", "crank_generation", "port", "face"})) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<std::string>(intent, "crank") && field<Integer>(intent, "crank_generation") &&
-            field<Value::Array>(intent, "port") &&
-            (!intent.contains("face") || field<Value::Array>(intent, "face"));
     if (action == "feed_press")
         return keys(intent, {"target", "generation", "entry"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
@@ -540,10 +516,6 @@ bool requires_first_plate(const Object& intent, const std::string& action) {
         action == "shaft_between" || action == "place" || action.starts_with("place_");
 }
 
-Value point_value(const authority::Point& point) {
-    return Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])});
-}
-
 Value grid_value(const mechanics::Point& point) {
     return Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])});
 }
@@ -610,15 +582,6 @@ std::optional<stationary::PlacedBeltSpan> removed_span(const Value& value,
     if (!first || !last || !identity(*first) || !identity(*last) ||
         *first == *last || generation <= 0) return std::nullopt;
     return stationary::PlacedBeltSpan{{entity, *first, *last}, generation};
-}
-
-Object reach_facts(const Binding& binding, const authority::ReachReceipt& reach) {
-    Value::Array targets, distances;
-    for (const auto& target : reach.targets) targets.push_back(point_value(target));
-    for (const auto distance : reach.distances_squared) distances.emplace_back(distance);
-    return {{"actor", Value(binding.actor)}, {"native_epoch", Value(reach.cut.native_epoch)},
-        {"actor_position", point_value(reach.cut.position)}, {"targets", Value(std::move(targets))},
-        {"distances_squared", Value(std::move(distances))}, {"build_reach", Value(reach.cut.build_reach)}};
 }
 
 std::vector<assembly::Part> assembly_parts(const State& state) {
@@ -701,14 +664,6 @@ CollectorMatch collector_for_input(const Profile& profile,
     }
     if (found.ambiguous) found.collector.reset();
     return found;
-}
-
-Owner::Decision refused(std::string reason, std::string entity = {}, Object facts = {}) {
-    return {std::nullopt, {false, std::move(reason), std::move(entity), std::move(facts)}};
-}
-
-Owner::Decision accepted(State state, std::string entity, Object facts) {
-    return {std::move(state), {true, "ok", std::move(entity), std::move(facts)}};
 }
 
 std::optional<materials::ResolvedTarget> material_target(
@@ -5072,48 +5027,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     const auto pending = state.manual_cuts.find(binding.actor);
     if (pending != state.manual_cuts.end() && *action != "finish_harvest" &&
         *action != "cancel_harvest") return refused("actor_busy", pending->second.target);
-    if (*action == "cancel_harvest") {
-        if (pending == state.manual_cuts.end()) return refused("no_active_cut");
-        auto candidate = state;
-        const auto target = pending->second.target;
-        candidate.manual_cuts.erase(binding.actor);
-        return accepted(std::move(candidate), target,
-            {{"actor", Value(binding.actor)}, {"generation", Value(Integer{0})}});
-    }
-    if (*action == "finish_harvest") {
-        if (pending == state.manual_cuts.end()) return refused("no_active_cut");
-        const auto target = pending->second.target;
-        if (pending->second.interrupted_revision != 0)
-            return refused("cut_interrupted", target);
-        if (pending->second.remaining_ticks != 0)
-            return refused("cut_in_progress", target);
-        const bool ore = profile_.material.manual_ore &&
-            profile_.material.manual_ore->id == target;
-        const auto tree = profile_.material.timber_sites.find(target);
-        if (!ore && tree == profile_.material.timber_sites.end())
-            return refused("unknown_target", target);
-        const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready", target);
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
-            profile_.manual_cut_reach : profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {manual_cut_target(profile_, center, checked_cut.position, ore)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), target, std::move(facts));
-        auto candidate = state;
-        const auto error = materials::harvest_source(candidate.material, profile_.material,
-            material_path(candidate.topology), binding.actor, target);
-        if (error != materials::Error::none)
-            return refused(materials::error_name(error), target, std::move(facts));
-        candidate.manual_cuts.erase(binding.actor);
-        facts.emplace("generation", Value(Integer{1}));
-        facts.emplace("moved_raw", Value(Integer{ore ? 1 : 0}));
-        facts.emplace("moved_timber", Value(Integer{ore ? 0 : 1}));
-        return accepted(std::move(candidate), target, std::move(facts));
-    }
+    if (const auto harvest = harvest_command(*action, intent))
+        return plan_harvest(profile_, binding, snapshot, *harvest, observe);
     if (*action == "select_belt_shaft") {
         const auto* id = field<std::string>(intent, "target");
         const auto* generation = field<Integer>(intent, "generation");
@@ -5475,42 +5390,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             Value(shear.origin[1]), Value(shear.origin[2])}));
         facts.emplace("shear_strokes", Value(progress.strokes));
         facts.emplace("formed_products", Value(progress.strokes == 4 ? Integer{4} : Integer{0}));
-        return accepted(std::move(candidate), *id, std::move(facts));
-    }
-    if (*action == "harvest_source" || *action == "fast_harvest_source") {
-        const bool fast = *action == "fast_harvest_source";
-        if (fast && !state.developer_conveniences) return refused("developer_mode_off");
-        const auto* id = field<std::string>(intent, "target");
-        if (!id) return refused("invalid_target");
-        const bool ore = profile_.material.manual_ore && profile_.material.manual_ore->id == *id;
-        const auto tree = profile_.material.timber_sites.find(*id);
-        if (!ore && tree == profile_.material.timber_sites.end()) return refused("unknown_target", *id);
-        const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready", *id);
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
-            profile_.manual_cut_reach : profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {manual_cut_target(profile_, center, checked_cut.position, ore)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        if (std::any_of(state.manual_cuts.begin(), state.manual_cuts.end(),
-                [&](const auto& entry) { return entry.second.target == *id; }))
-            return refused("source_busy", *id, std::move(facts));
-        auto candidate = state;
-        const auto error = materials::harvest_source(candidate.material, profile_.material,
-            material_path(candidate.topology), binding.actor, *id);
-        if (error != materials::Error::none) return refused(materials::error_name(error), *id, std::move(facts));
-        if (!fast) {
-            candidate = state;
-            candidate.manual_cuts.emplace(binding.actor, State::ManualCut{
-                *id, snapshot.revision + 1, manual_cut_ticks, 0});
-        }
-        facts.emplace("generation", Value(Integer{1}));
-        facts.emplace("moved_raw", Value(Integer{fast && ore ? 1 : 0}));
-        facts.emplace("moved_timber", Value(Integer{fast && !ore ? 1 : 0}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
     if (*action == "field_craft") {

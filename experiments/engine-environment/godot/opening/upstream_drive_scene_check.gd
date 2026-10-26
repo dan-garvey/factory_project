@@ -73,13 +73,11 @@ func _run() -> void:
 		and _same(opening.startup_resume_checkpoint.world, prior.final_checkpoint.world)
 		and opening.request_sequence == 0 and start.inventories.P == 4 and start.opening_engineering.P.phase == "move_source"
 		and _same(start.opening_engineering.P.wheel_cell, [-2, 0]), "The actual four-plate World resumes toward the current native target."): return
-	var before_confirmation: Dictionary = opening.model.checkpoint()
-	opening._confirm_goal()
-	facts["confirmation"] = {"goal": opening.goal_label.text, "visible": opening.engineering_presenter.visible,
+	facts["engineering_view"] = {"goal": opening.goal_text, "visible": opening.engineering_presenter.visible,
 		"children": opening.engineering_presenter.get_child_count()}
-	if not _expect(opening.goal_confirmed and _same(before_confirmation, opening.model.checkpoint())
-		and opening.engineering_presenter.visible and "Move power upstream." in opening.goal_label.text
-		and opening.engineering_presenter.get_child_count() == 0, "Confirmation reveals UI guidance without consuming product or adding world props."): return
+	if not _expect(opening.engineering_presenter.visible and "Move power upstream." in opening.goal_text
+		and opening.engineering_presenter.get_child_count() == 0,
+		"Native engineering progress reveals its guidance without a separate confirmation or world props."): return
 	var collector := _kind("collector")
 	var press := _kind("processor")
 	var wheel := _kind("wheel")
@@ -152,7 +150,7 @@ func _run() -> void:
 		if not _retrieve(press): return
 	var final: Dictionary = opening.model.projection()
 	if not _expect(final.opening_engineering.P.ready and final.opening_engineering.P.products == 8
-		and "Upstream drive restored." in opening.goal_label.text and not opening.confirm_button.visible
+		and "Upstream drive restored." in opening.goal_text
 		and opening.engineering_presenter.get_child_count() == 0,
 		"Eight individually collected plates and live native power complete the UI goal without world props."): return
 	if not _expect(opening._save_worksite().accepted and FileAccess.get_sha256(original_slot) == facts.original_save_sha256,

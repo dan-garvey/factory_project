@@ -49,8 +49,8 @@ func _ready() -> void:
 			"model_is_session": scene.model == scene.session, "client_world_is_null": scene.session.world == null,
 			"auto_advance": scene.auto_advance, "model_script": scene.model.get_script().resource_path,
 			"namespace": scene.request_namespace, "sequence": scene.request_sequence,
-			"selected": scene.selected, "pending_link": scene.pending_link, "confirmed": scene.goal_confirmed,
-			"goal": scene.goal_label.text, "confirm_disabled": scene.confirm_button.disabled,
+			"selected": scene.selected, "pending_link": scene.pending_link,
+			"goal": scene.goal_text,
 			"session_namespace": scene.session.request_namespace, "session_sequence": scene.session.request_sequence,
 			"save_slot": scene.save_slot, "save_ready": scene.save_slot_ready, "save_owned": scene.save_slot_owned,
 			"save_disabled": scene.save_button.disabled, "load_disabled": scene.load_button.disabled}}
