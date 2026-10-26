@@ -245,7 +245,7 @@ func check_foundation_view() -> void:
 		"Leaving step mode snaps the selected height without moving an existing surface.")
 	verify(view.state.foundations.left.level == 1 and view.state.foundations.right.level == 1,
 		"The height controls do not migrate or move previously built foundations.")
-	var bounds: Rect2 = view.build_column.get_parent().get_global_rect()
+	var bounds: Rect2 = view.placement_options_panel.get_global_rect()
 	verify(root.get_visible_rect().encloses(bounds), "The expanded foundation controls fit the viewport.")
 	verify(view.model == null and view.actor_world == null, "All pointer and UI observations stay read-only.")
 	var ack := AckView.new()
@@ -309,7 +309,7 @@ func check_shared_manager_log() -> void:
 		"A pending shared command does not present its unconfirmed material result as the next action.")
 	view.pending_actions.clear()
 	view._refresh_ui()
-	view.manager_log_button.pressed.emit()
+	view._toggle_manager_log()
 	verify(view.manager_log_open and view.manager_log_layer.visible and view.state == unchanged
 		and view.model == null and view.request_sequence == 0,
 		"The shared work log replays without creating a client authority or sending a request.")
@@ -386,20 +386,20 @@ func check_slide_manager_cue() -> void:
 	view._build_interface()
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(not view.goal_label.text.contains("Open the working press"),
+	verify(not view.goal_text.contains("Open the working press"),
 		"An unpowered slide candidate does not claim that the first press is ready.")
 	view.state.first_plate_unlock = true
 	view.state.cargo.P.timber = 3
 	view.state.cargo.P.raw = 4
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(view.goal_label.text.contains("Use Build [B] to craft and fit press parts from carried stock")
-		and not view.goal_label.text.contains("Craft anvil, flat head"),
+	verify(view.goal_text.contains("Use Build [B] to craft and fit press parts from carried stock")
+		and not view.goal_text.contains("Craft anvil, flat head"),
 		"Carried stock reveals the recipe grid without prescribing a fixed four-part checklist.")
 	view.state.sliding_press_assemblies[0].status = "ready"
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(view.goal_label.text.contains("Craft a hand crank [B]")
+	verify(view.goal_text.contains("Craft a hand crank [B]")
 		and view.manager_log_current.text.ends_with(
 			"Craft a hand crank [B], fit it at a slide input, then open the press [E]."),
 		"A geometrically ready slide without a crank asks for the missing portable input.")
@@ -415,14 +415,14 @@ func check_slide_manager_cue() -> void:
 	view.state.cargo.P.components.hand_crank = 1
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(view.goal_label.text.contains("Fit your carried crank at a slide input [B]")
-		and not view.goal_label.text.contains("Craft a hand crank"),
+	verify(view.goal_text.contains("Fit your carried crank at a slide input [B]")
+		and not view.goal_text.contains("Craft a hand crank"),
 		"A carried crank is fitted rather than crafted again.")
 	view.state.cargo.P.components.hand_crank = 0
 	view.state.crank_items = {"crank-1": {"holder": "", "attached_to": "slide", "port": [1, 2, 0]}}
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(view.goal_label.text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
+	verify(view.goal_text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
 		and view.manager_log_current.text.ends_with("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."),
 		"The ordinary first-shift cue and replayable log recognize a ready slide with its fitted crank.")
 	for argument: String in OS.get_cmdline_user_args():
@@ -439,7 +439,7 @@ func check_slide_manager_cue() -> void:
 	shared._build_interface()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(shared.goal_label.text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
+	verify(shared.goal_text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
 		and shared.manager_log_current.text.ends_with("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."),
 		"The shared worker receives the same ready-slide cue without creating local authority.")
 	view.state.sliding_press_assemblies[0].open_feeds = [
@@ -448,7 +448,7 @@ func check_slide_manager_cue() -> void:
 	view.state.sliding_press_assemblies[0].selected_exit = [1, 0, 0]
 	view.state.dropped_material = [{"center": [9, 0, 0], "products": 1}]
 	view._refresh_guided_tools()
-	verify(view.goal_label.text.contains("Move copper to the workbed"),
+	verify(view.goal_text.contains("Move copper to the workbed"),
 		"A plate elsewhere in the world does not replace the press feed cue.")
 	view.state.dropped_material.append({"center": [1, 0, 0], "products": 1})
 	shared.state = view.state.duplicate(true)
@@ -456,9 +456,9 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_label.text.contains("Plate at outlet. Open the press [E], then collect it [P].")
+	verify(view.goal_text.contains("Plate at outlet. Open the press [E], then collect it [P].")
 		and view.manager_log_current.text.ends_with("Plate at outlet. Open the press [E], then collect it [P].")
-		and shared.goal_label.text == view.goal_label.text
+		and shared.goal_text == view.goal_text
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"Ordinary and shared first-shift cues guide pickup of the confirmed slide outlet plate.")
 	for argument: String in OS.get_cmdline_user_args():
@@ -480,7 +480,7 @@ func check_slide_manager_cue() -> void:
 			root.size = Vector2i(1280, 800)
 	view.state.sliding_press_assemblies[0].selected_exit = [2, 0, 0]
 	view._refresh_guided_tools()
-	verify(view.goal_label.text.contains("Move copper to the workbed"),
+	verify(view.goal_text.contains("Move copper to the workbed"),
 		"The cue follows the native selected exit rather than an occupied alternate route.")
 	view.state.dropped_material.clear()
 	view.state.first_plate_unlock = true
@@ -493,11 +493,11 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_label.text.contains("Clear an X-side feed path [F]")
-		and not view.goal_label.text.contains("Craft and place")
+	verify(view.goal_text.contains("Clear an X-side feed path [F]")
+		and not view.goal_text.contains("Craft and place")
 		and view.manager_log_current.text.ends_with("Clear an X-side feed path [F], then open the press [E]."),
 		"A fitted first-plate slide with native blocked feed gives the obstruction action, not another recipe.")
-	verify(shared.goal_label.text == view.goal_label.text
+	verify(shared.goal_text == view.goal_text
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"The shared worker receives the same blocked-feed action without creating local authority.")
 	view.state.sliding_press_assemblies[0].status = "unpowered"
@@ -506,8 +506,8 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_label.text.contains("Inspect placed parts [E]")
-		and not view.goal_label.text.contains("Craft anvil, flat head")
+	verify(view.goal_text.contains("Inspect placed parts [E]")
+		and not view.goal_text.contains("Craft anvil, flat head")
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"Partial press work points to the placed parts without ordering a fixed four-part list.")
 	for argument: String in OS.get_cmdline_user_args():
@@ -524,8 +524,8 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_label.text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
-		and shared.goal_label.text == view.goal_label.text
+	verify(view.goal_text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
+		and shared.goal_text == view.goal_text
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"Clearing one native feed route restores the first-plate press cue for ordinary and shared workers.")
 	shared.session = null
@@ -552,23 +552,25 @@ func check_inventory_goal_view() -> void:
 	verify(view.loose_material_controls == null,
 		"The constructed ordinary player interface has no diagnostic loose-material or Push menu.")
 	await process_frame
-	verify(not view.build_column.get_parent().visible
-		and not view.objective_heading.visible and not view.goal_label.visible
-		and not view.manager_log_button.visible and not view.help_button.visible
+	verify(not has_first_workshop_card(view)
 		and "J log" in view.controls_label.text and "H help" in view.controls_label.text,
-		"The arrival HUD leaves the workshop text and menu buttons offscreen while showing both shortcuts on the status strip.")
+		"The arrival HUD has no workshop card and shows both menu shortcuts on the status strip.")
 	view._toggle_explanation()
-	verify(view.help_panel.visible and view.help_title.text == view.objective_heading.text
-		and view.help_body.text.contains(view.goal_label.text),
+	verify(view.help_panel.visible and view.help_title.text == view.objective_title
+		and view.help_body.text.contains(view.goal_text),
 		"Help contains the current workshop heading and instructions after the HUD card is hidden.")
 	view._toggle_explanation()
-	view._toggle_manager_log()
-	verify(view.manager_log_layer.visible and view.manager_log_current.text.contains(view.objective_heading.text)
-		and view.manager_log_current.text.contains(view.goal_label.text),
-		"The Work log keeps the current workshop objective available through J.")
-	view._toggle_manager_log()
+	var log_key := InputEventKey.new()
+	log_key.pressed = true
+	log_key.keycode = KEY_J
+	view._input(log_key)
+	verify(view.manager_log_layer.visible and view.manager_log_current.text.contains(view.objective_title)
+		and view.manager_log_current.text.contains(view.goal_text),
+		"J opens the Work log with the current workshop objective.")
+	view._input(log_key)
+	verify(not view.manager_log_layer.visible, "J closes the Work log and returns to the same worksite.")
 	verify(view.get_node_or_null("ShipmentMarker") == null
-		and "FORM A PLATE · KEEP IT" in view.goal_label.text
+		and "FORM A PLATE · KEEP IT" in view.goal_text
 		and not view.manager_log_completion_entry.visible,
 		"Arrival has no freight marker, and the first workshop waits for a carried plate.")
 	var shared := SharedFooterView.new()
@@ -582,25 +584,25 @@ func check_inventory_goal_view() -> void:
 	verify(shared.loose_material_controls == null,
 		"The constructed shared player interface also excludes diagnostic material commands.")
 	await process_frame
-	verify(not shared.build_column.get_parent().visible
-		and not shared.objective_heading.visible and not shared.goal_label.visible
+	verify(not has_first_workshop_card(shared)
 		and "J log" in shared.controls_label.text,
-		"A shared worker gets the same clear arrival view and visible Work log shortcut.")
+		"A shared worker also has no workshop card and sees the Work log shortcut.")
 	view.state = view.state.duplicate(true)
 	view.state.cargo.P.products = 1
 	view.state.workshop_completed_actors = ["P"]
 	view._refresh_ui()
 	shared.state = view.state.duplicate(true)
 	shared._refresh_ui()
-	verify("FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
-		and "Open Work log [J] for the collector project" in view.goal_label.text
+	verify(not has_first_workshop_card(view) and not has_first_workshop_card(shared)
+		and "FIRST WORKSHOP  /  COMPLETE" in view.objective_title
+		and "Open Work log [J] for the collector project" in view.goal_text
 		and view.manager_log_completion_entry.visible
 		and view.manager_log_projects.visible
 		and "finite ore collector" in (view.manager_log_projects.get_child(0).get_child(1) as Label).text
 		and view.workshop_completion_cue_count == 1
 		and "Plate collected" in view.status_label.text,
 		"One native-projected product in the local inventory completes the first workshop.")
-	verify("FORM A PLATE · KEEP IT" in shared.goal_label.text
+	verify("FORM A PLATE · KEEP IT" in shared.goal_text
 		and not shared.manager_log_completion_entry.visible
 		and shared.workshop_completion_cue_count == 0,
 		"Another actor's product does not complete this actor's workshop cue.")
@@ -609,9 +611,9 @@ func check_inventory_goal_view() -> void:
 		"Refresh does not replay the completion sound.")
 	view.state.cargo.P.products = 0
 	view._refresh_ui()
-	verify("FIRST WORKSHOP  /  COMPLETE" in view.objective_heading.text
-		and "Open Work log [J]" in view.goal_label.text
-		and not view.goal_label.text.contains("PLATE IN INVENTORY")
+	verify("FIRST WORKSHOP  /  COMPLETE" in view.objective_title
+		and "Open Work log [J]" in view.goal_text
+		and not view.goal_text.contains("PLATE IN INVENTORY")
 		and view.manager_log_completion_entry.visible
 		and view.manager_log_completion_entry.text.contains("You collected your first formed plate")
 		and not view.manager_log_completion_entry.text.contains("is in your inventory")
@@ -625,8 +627,8 @@ func check_inventory_goal_view() -> void:
 	reopened._build_world()
 	reopened._build_interface()
 	reopened._refresh_ui()
-	verify(reopened.manager_log_completion_entry.visible
-		and "Open Work log [J]" in reopened.goal_label.text
+	verify(not has_first_workshop_card(reopened) and reopened.manager_log_completion_entry.visible
+		and "Open Work log [J]" in reopened.goal_text
 		and reopened.manager_log_completion_entry.text == view.manager_log_completion_entry.text
 		and reopened.workshop_completion_cue_count == 0,
 		"A reopened projection shows completion without replaying the acquisition sound.")
@@ -1108,6 +1110,13 @@ func check_mouse_look() -> void:
 	view.free()
 	print("OPENING_MOUSE_LOOK_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
 	quit(1 if camera_failed else 0)
+
+func has_first_workshop_card(view) -> bool:
+	var hud_root: Control = view.arrival_gameplay_canvas.get_child(0)
+	for child in hud_root.get_children():
+		if child is PanelContainer and (child as Control).position.is_equal_approx(Vector2(18, 18)):
+			return true
+	return false
 
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
