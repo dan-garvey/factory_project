@@ -17,6 +17,12 @@ is a setup failure: keep its log and import the unchanged project before trying
 the intended component check. A zero Godot exit does not override a script-load
 error or a partial PASS line.
 
+`machine_body_motion_check.gd` needs an actual renderer for its batched cutter
+transform readback. Run it through `launch-factory-latest.sh --agent-window`
+with `--test-purpose` and its `--script` path. The same labeled route supports
+`machine_visual_test.gd -- --batch-motion-check`; its rendered run additionally
+checks the GPU instance transforms that the headless dummy renderer cannot read.
+
 `parts_view_check.gd` runs its default parts display suite with no user arguments,
 or one named `--...-only` suite. An unknown or repeated selector exits 2 before
 any suite starts; capture paths are accepted only with their corresponding

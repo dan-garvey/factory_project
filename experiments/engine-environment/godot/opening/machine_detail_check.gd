@@ -1,19 +1,24 @@
 extends SceneTree
+const ProductionFeedSleeveArt = preload("res://opening/production_collectors.gd").ProductionFeedSleeveArt
+const ProductionEnvironment = preload("res://opening/production_environment.gd").ProductionEnvironment
+const ProductionSteelFloor = preload("res://opening/production_surfaces.gd").ProductionSteelFloor
+const ProductionTransmissionFinish = preload("res://opening/production_surfaces.gd").ProductionTransmissionFinish
 ## Authored mesh and visual assembly checks. No game authority or desktop.
 const Opening = preload("res://opening/opening.gd")
 const Shared = preload("res://opening/shared_opening.gd")
-const Visuals = Opening.ProductionVisuals
-const WheelArt = Opening.ProductionWheelArt
-const PaddleArt = Opening.ProductionPaddleArt
-const PressArt = Opening.ProductionPressArt
-const DieArt = Opening.ProductionPressDieArt
-const TrayArt = Opening.ProductionPressTrayArt
-const ConveyorArt = Opening.ProductionConveyorArt
-const CollectorArt = Opening.ProductionCollectorArt
-const CollectorToolingArt = Opening.ProductionCollectorToolingArt
-const DriveJournalArt = Opening.ProductionDriveJournalArt
-const FoundationArt = Opening.ProductionFoundationArt
-const SkidArt = Opening.ProductionSkidArt
+const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
+const WheelArt = preload("res://opening/production_waterwheels.gd").ProductionWheelArt
+const PaddleArt = preload("res://opening/production_waterwheels.gd").ProductionPaddleArt
+const PressArt = preload("res://opening/production_presses.gd").ProductionPressArt
+const DieArt = preload("res://opening/production_presses.gd").ProductionPressDieArt
+const TrayArt = preload("res://opening/production_presses.gd").ProductionPressTrayArt
+const ConveyorArt = preload("res://opening/production_conveyors.gd").ProductionConveyorArt
+const CollectorArt = preload("res://opening/production_collectors.gd").ProductionCollectorArt
+const Coating = preload("res://opening/production_surfaces.gd").ProductionCoating
+const CollectorToolingArt = preload("res://opening/production_collectors.gd").ProductionCollectorToolingArt
+const DriveJournalArt = preload("res://opening/production_presses.gd").ProductionDriveJournalArt
+const FoundationArt = preload("res://opening/production_foundations.gd").ProductionFoundationArt
+const SkidArt = preload("res://opening/production_foundations.gd").ProductionSkidArt
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const TransmissionAssets = preload("res://opening/native_transmission_assets.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
@@ -24,11 +29,11 @@ const DIRECT_MODES := [
 	"--collector-input-support-only", "--drive-journal-only", "--satin-coating-only",
 	"--collector-rear-service-only", "--collector-bearing-seat-only",
 	"--collector-tooling-only", "--press-output-tray-only", "--press-die-only",
-	"--cutter-guard-only", "--conveyor-hub-only", "--conveyor-frame-only",
+	"--conveyor-hub-only", "--conveyor-frame-only",
 	"--diagnose-retired-conveyor-hub", "--diagnose-retired-conveyor-frame",
 	"--press-crown-only", "--wheel-foot-seats-only", "--feed-sleeves-only",
 	"--wheel-supports-only", "--river-piers-only", "--collector-coating-only",
-	"--historical-coating-only", "--paddles-only", "--historical-paddles-only",
+	"--paddles-only", "--historical-paddles-only",
 	"--machine-skid-only", "--collector-frame-only", "--conveyor-only",
 	"--historical-conveyor-only", "--sourced-press-only", "--historical-press-only",
 	"--wheel-resource-contract-only", "--sourced-wheel-material-only",
@@ -1024,7 +1029,7 @@ func check_conveyor_frame() -> void:
 				var material := part.material_override as StandardMaterial3D
 				verify(material.albedo_color == (Color("49666a") if painted else Color("a6b4af"))
 					and is_equal_approx(material.metallic, 0.0 if painted else 0.85)
-					and material.normal_texture == Opening.ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
+					and material.normal_texture == ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
 					"The actual kit keeps cast coating and exposed worked metal distinct with shared qualified maps.")
 				if role == "GuardPost":
 					var post_box: AABB = part.transform * part.mesh.get_aabb()
@@ -1170,7 +1175,7 @@ func check_press_crown() -> void:
 					check_closed_asset_mesh(part.mesh, limits[0], limits[1])
 					frame_cached[role] = [part.mesh, part.material_override]
 				verify(part.mesh == frame_cached[role][0] and part.material_override == frame_cached[role][1]
-					and part.material_override == Opening.ProductionTransmissionFinish.material("cast", Color("56635f"), 0.55, 0.74),
+					and part.material_override == ProductionTransmissionFinish.material("cast", Color("56635f"), 0.55, 0.74),
 					"The structural frame reuses its closed meshes and cast finish across views and axes.")
 				frame_fixed.append(part.transform)
 			var tie: MeshInstance3D = rear_frame.get_node("RearLowerTie")
@@ -1214,7 +1219,7 @@ func check_press_crown() -> void:
 				var finish_value := part.material_override as StandardMaterial3D
 				var color := Color("56635f") if painted else (Color("a6b4af") if key == "RamLiner" else Color("b87945"))
 				verify(finish_value.albedo_color == color and is_equal_approx(finish_value.metallic, 0.55 if painted else 0.85)
-					and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
+					and finish_value.normal_texture == ProductionTransmissionFinish.textures[("cast" if painted else "worked") + "_normal"],
 					"The actual crown separates structural cast iron from exposed worked liners and sockets.")
 				fixed.append(part.transform)
 			for side in [-1.0, 1.0]:
@@ -1604,8 +1609,8 @@ func check_feed_sleeves() -> void:
 				else:
 					var surface_role := "cast" if role == "FeedCuff" else "worked"
 					verify(is_equal_approx(finish_value.metallic, 0.85)
-						and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_normal"]
-						and finish_value.roughness_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_roughness"],
+						and finish_value.normal_texture == ProductionTransmissionFinish.textures[surface_role + "_normal"]
+						and finish_value.roughness_texture == ProductionTransmissionFinish.textures[surface_role + "_roughness"],
 						"Channel, cuffs and fasteners retain their actual qualified cast/worked material roles.")
 			verify(roles.FeedChannel == 1 and roles.FeedCuff == 2 and roles.FeedBolt == 4 and roles.FeedDirection == 1,
 				"The complete connection has one open channel, two fixed cuffs, four fasteners and one floor mark.")
@@ -1641,7 +1646,7 @@ func check_feed_sleeves() -> void:
 			view.free()
 	for span in [0.30, 2.20]:
 		var route := Node3D.new()
-		verify(Opening.ProductionFeedSleeveArt.mount(route, Vector3.ZERO, Vector3(0, 0, span)),
+		verify(ProductionFeedSleeveArt.mount(route, Vector3.ZERO, Vector3(0, 0, span)),
 			"The isolated render helper can vary a middle span without adopting a new native route rule.")
 		verify(is_equal_approx(route.get_node("FeedChannel").mesh.get_aabb().size.z, span)
 			and route.get_node("FeedCuffN").mesh == cached.FeedCuff[0]
@@ -1655,13 +1660,13 @@ func check_feed_sleeves() -> void:
 				"Each rigid cuff stays flush with its actual channel end rather than stretching with the middle.")
 		route.free()
 	var equivalent := Node3D.new()
-	verify(Opening.ProductionFeedSleeveArt.mount(equivalent, Vector3(5.5, 0, 0), Vector3(6.0500002, 0, 0))
+	verify(ProductionFeedSleeveArt.mount(equivalent, Vector3(5.5, 0, 0), Vector3(6.0500002, 0, 0))
 		and equivalent.get_node("FeedChannel").mesh == cached.FeedChannel[0],
 		"Tiny packed-coordinate differences reuse the same declared visual mesh length without changing source positions.")
 	equivalent.free()
 	for end in [Vector3(0, 0, 0.1), Vector3(0, 1, 1), Vector3(INF, 0, 1)]:
 		var refused := Node3D.new()
-		verify(not Opening.ProductionFeedSleeveArt.mount(refused, Vector3.ZERO, end)
+		verify(not ProductionFeedSleeveArt.mount(refused, Vector3.ZERO, end)
 			and refused.get_child_count() == 0 and refused.transform == Transform3D.IDENTITY,
 			"Unsupported short, nonlevel or nonfinite render spans refuse before publishing geometry.")
 		refused.free()
@@ -1846,10 +1851,10 @@ func check_wheel_supports() -> void:
 					"The actual journal retains its outer planes with real end chamfers, relieved bands and recessed centres.")
 				var finish := hub.material_override as StandardMaterial3D
 				verify(finish == DriveJournalArt.material() and finish != null
-					and finish.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal
-					and finish.roughness_texture == Opening.ProductionTransmissionFinish.textures.worked_roughness
+					and finish.normal_texture == ProductionTransmissionFinish.textures.worked_normal
+					and finish.roughness_texture == ProductionTransmissionFinish.textures.worked_roughness
 					and finish.uv1_triplanar and not finish.uv1_world_triplanar
-					and finish.uv1_scale.is_equal_approx(Vector3.ONE / Opening.ProductionTransmissionFinish.WORKED_METRES),
+					and finish.uv1_scale.is_equal_approx(Vector3.ONE / ProductionTransmissionFinish.WORKED_METRES),
 					"The journal reuses the qualified local worked-metal maps at their physical repeat.")
 				if not cached.has("Journal"):
 					var journal_span_factor: float = Geometry.WATERWHEEL_RADIUS / (2.0 * Geometry.HEIGHT_STEP)
@@ -1919,8 +1924,8 @@ func check_wheel_supports() -> void:
 					var finish_value := child.material_override as StandardMaterial3D
 					var surface_role := "worked" if role in ["BearingLiner", "WheelFootBolt"] else "cast"
 					verify(finish_value != null and is_equal_approx(finish_value.metallic, 0.85)
-						and finish_value.normal_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_normal"]
-						and finish_value.roughness_texture == Opening.ProductionTransmissionFinish.textures[surface_role + "_roughness"],
+						and finish_value.normal_texture == ProductionTransmissionFinish.textures[surface_role + "_normal"]
+						and finish_value.roughness_texture == ProductionTransmissionFinish.textures[surface_role + "_roughness"],
 						"Fixed castings and exposed liners/fasteners use their distinct qualified metal image roles.")
 					verify(wheel_support_separates(child.mesh, inverse * child.transform, rotating),
 						"Every fixed hardware envelope clears all nonjournal rotor facets throughout a complete turn.")
@@ -2119,18 +2124,18 @@ func check_vertical_sized_wheels() -> int:
 	return checked
 
 func satin_coating_properties(finish: StandardMaterial3D) -> bool:
-	var surface := Opening.ProductionTransmissionFinish
+	var surface := ProductionTransmissionFinish
 	return finish != null and finish.metallic == 0 and finish.metallic_texture == null \
 		and finish.albedo_texture == null and finish.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED \
 		and not finish.clearcoat_enabled and not finish.ao_enabled and finish.normal_enabled \
 		and is_equal_approx(finish.normal_scale, 0.08) and finish.normal_texture == surface.textures.cast_normal \
-		and finish.roughness == 1 and finish.roughness_texture == CollectorArt.paint_roughness \
+		and finish.roughness == 1 and finish.roughness_texture == Coating.paint_roughness \
 		and finish.roughness_texture != surface.textures.cast_roughness \
 		and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
 		and finish.uv1_triplanar and not finish.uv1_world_triplanar and finish.uv1_scale == Vector3(4, 4, 4)
 
 func check_satin_coating() -> void:
-	var surface := Opening.ProductionTransmissionFinish
+	var surface := ProductionTransmissionFinish
 	var original := surface.material("cast", Color("f3c16c"), 0.0, 0.72)
 	verify(original != null and surface.source_status == "ready", "The existing qualified cast source is available before paint preparation.")
 	if original == null or surface.source_status != "ready":
@@ -2142,7 +2147,7 @@ func check_satin_coating() -> void:
 		return
 	var source_bytes := source_image.get_data()
 	var worked_bytes: PackedByteArray = surface.textures.worked_roughness.get_image().get_data()
-	var finish := CollectorArt.coating(Color("f3c16c"))
+	var finish := Coating.material(Color("f3c16c"))
 	verify(satin_coating_properties(finish), "The actual authored coating is opaque satin dielectric paint, distinct from its metal source.")
 	if finish == null or finish.roughness_texture == null:
 		return
@@ -2171,7 +2176,7 @@ func check_satin_coating() -> void:
 		and surface.textures.worked_roughness.get_image().get_data() == worked_bytes
 		and original.roughness_texture == surface.textures.cast_roughness and is_equal_approx(original.normal_scale, 0.35),
 		"Paint preparation leaves the original cast/worked image bytes and independently cached material unchanged.")
-	var replacement := CollectorArt.coating(Color("58634c"))
+	var replacement := Coating.material(Color("58634c"))
 	verify(replacement != finish and replacement.roughness_texture == finish.roughness_texture
 		and replacement.normal_texture == finish.normal_texture and replacement.albedo_color == Color("58634c"),
 		"Different original tints share the same authored paint texture without sharing mutable material identity.")
@@ -2185,8 +2190,8 @@ func check_satin_coating() -> void:
 		"source_bytes": [original_low, original_high], "negative_controls": 2, "source_images_unchanged": true,
 		"observations": "invented read-only materials", "gameplay": "not_run"}))
 
-func check_collector_coating(historical: bool) -> void:
-	var surface := Opening.ProductionTransmissionFinish
+func check_collector_coating() -> void:
+	var surface := ProductionTransmissionFinish
 	var cached: Dictionary = {}
 	var assemblies := 0
 	var coated_parts := 0
@@ -2198,7 +2203,7 @@ func check_collector_coating(historical: bool) -> void:
 			var before: Dictionary = view.state.duplicate(true)
 			var machine := Node3D.new()
 			view.add_child(machine)
-			view._assemble_machine(machine, {"kind": "collector", "axis": axis})
+			view._assemble_machine(machine, {"kind": "collector", "axis": axis, "cell": [0, 0]})
 			var frame: Node3D = machine.get_node("CollectorCastFrame")
 			var count := 0
 			for part: MeshInstance3D in frame.get_children():
@@ -2216,28 +2221,24 @@ func check_collector_coating(historical: bool) -> void:
 					color = Color("394f59")
 				verify(finish_value != null and finish_value.albedo_color == color,
 					"The formed hood and original cast roles retain their distinct declared coating colors.")
-				if historical:
-					verify(finish_value == Visuals.material(color, 0.08, 0.72),
-						"A missing historical map set retains the exact original generated coating resource.")
-				else:
-					verify(finish_value.metallic == 0 and finish_value.metallic_texture == null
-						and finish_value.metallic_specular == 0.5 and finish_value.albedo_texture == null
-						and finish_value.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED
-						and not finish_value.clearcoat_enabled and not finish_value.ao_enabled,
-						"The authored opaque paint is a dielectric without a second coat, metallic mask or invented occlusion.")
-					verify(finish_value.normal_enabled and is_equal_approx(finish_value.normal_scale, 0.08)
-						and finish_value.normal_texture == surface.textures.cast_normal
-						and finish_value.roughness_texture == CollectorArt.paint_roughness
-						and finish_value.roughness_texture != surface.textures.cast_roughness
-						and finish_value.roughness == 1 and finish_value.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED,
-						"The coating shares qualified normal detail and a separate authored satin response without changing exposed metal maps.")
-					verify(finish_value.uv1_triplanar and not finish_value.uv1_world_triplanar
-						and finish_value.uv1_scale == Vector3(4, 4, 4)
-						and finish_value.texture_filter == BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC,
-						"Local mapping retains the declared quarter-metre art scale and mip filtering.")
-					var original := surface.material("cast", color, 0.0, 0.72)
-					verify(finish_value != original and is_equal_approx(original.normal_scale, 0.35),
-						"Reducing coating relief does not mutate the independently cached source material.")
+				verify(finish_value.metallic == 0 and finish_value.metallic_texture == null
+					and finish_value.metallic_specular == 0.5 and finish_value.albedo_texture == null
+					and finish_value.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED
+					and not finish_value.clearcoat_enabled and not finish_value.ao_enabled,
+					"The authored opaque paint is a dielectric without a second coat, metallic mask or invented occlusion.")
+				verify(finish_value.normal_enabled and is_equal_approx(finish_value.normal_scale, 0.08)
+					and finish_value.normal_texture == surface.textures.cast_normal
+					and finish_value.roughness_texture == Coating.paint_roughness
+					and finish_value.roughness_texture != surface.textures.cast_roughness
+					and finish_value.roughness == 1 and finish_value.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED,
+					"The coating shares qualified normal detail and a separate authored satin response without changing exposed metal maps.")
+				verify(finish_value.uv1_triplanar and not finish_value.uv1_world_triplanar
+					and finish_value.uv1_scale == Vector3(4, 4, 4)
+					and finish_value.texture_filter == BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC,
+					"Local mapping retains the declared quarter-metre art scale and mip filtering.")
+				var original := surface.material("cast", color, 0.0, 0.72)
+				verify(finish_value != original and is_equal_approx(original.normal_scale, 0.35),
+					"Reducing coating relief does not mutate the independently cached source material.")
 				if cached.has(color):
 					verify(finish_value == cached[color], "Every view and axis shares one coating material per declared tint.")
 				else:
@@ -2245,20 +2246,19 @@ func check_collector_coating(historical: bool) -> void:
 			verify(count == 6, "Exactly six existing painted casting roles receive the coating.")
 			coated_parts += count
 			var drum: MeshInstance3D = machine.get_node("CutterDrum")
-			var expected_metal := Visuals.material(Color("465a60"), 0.85, 0.4) if historical \
-				else Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+			var expected_metal := ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
 			verify(drum.material_override == expected_metal,
-				"The moving cutter remains metal, with the current qualified worked finish or the exact historical fallback.")
+				"The moving cutter remains metal, with the qualified worked finish.")
 			verify(view.state == before and view.model == null and view.actor_world == null
 				and view.request_sequence == 0 and not view.is_inside_tree(),
 				"Material construction changes no projection, authority, native body or request.")
 			assemblies += 1
 			view.free()
-	verify(cached.size() == 3 and surface.source_status == ("missing" if historical else "ready"),
+	verify(cached.size() == 3 and surface.source_status == "ready",
 		"Three distinct cast tints and the declared resource presence remain explicit.")
 	print(JSON.stringify({"phase": "collector coating", "assemblies": assemblies, "coated_parts": coated_parts,
-		"coating_materials": cached.size(), "historical_missing_set": historical,
-		"maps": "historical generated coating" if historical else "qualified cast normal and authored satin roughness", "geometry_changed": false,
+		"coating_materials": cached.size(),
+		"maps": "qualified cast normal and authored satin roughness", "geometry_changed": false,
 		"native_gameplay": "not_run", "rendered_quality": "not_assessed"}))
 
 func foundation_plane(node: MeshInstance3D, upward: bool) -> Dictionary:
@@ -2324,7 +2324,7 @@ func check_foundation_art() -> void:
 	entry.close()
 	verify(FoundationArt.read_images(partial).status == "invalid", "A partial set is never described as qualified.")
 	var concrete := FoundationArt.material()
-	var deck_finish := Opening.ProductionSteelFloor.material()
+	var deck_finish := ProductionSteelFloor.material()
 	verify(FoundationArt.source_status == "ready" and concrete != null and concrete.metallic == 0
 		and concrete.metallic_texture == null and not concrete.ao_enabled and concrete.ao_texture == null
 		and concrete.albedo_color == Color.WHITE and concrete.albedo_texture == FoundationArt.textures.albedo
@@ -2903,10 +2903,10 @@ func check_drive_journals(geometry_checks: bool = true) -> void:
 	var material := DriveJournalArt.material()
 	if geometry_checks:
 		verify(meshes[0.9] != meshes[1.35], "Different native journal lengths cannot alias a cached mesh.")
-		verify(material == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
+		verify(material == ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.38)
 			and material != null and material.albedo_color == Color("a6b4af") and is_equal_approx(material.metallic, 0.85)
-			and material.roughness_texture == Opening.ProductionTransmissionFinish.textures.worked_roughness
-			and material.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal
+			and material.roughness_texture == ProductionTransmissionFinish.textures.worked_roughness
+			and material.normal_texture == ProductionTransmissionFinish.textures.worked_normal
 			and material.uv1_triplanar and not material.uv1_world_triplanar,
 			"Exposed journals reuse the qualified worked steel finish and its local physical map scale.")
 	for shared_profile in [false, true]:
@@ -3379,7 +3379,7 @@ func check_collector_cast_frame() -> void:
 				elif point.x > 0.20:
 					right_shoulder = maxf(right_shoulder, point.y)
 			verify(crown > 1.52 and crown - maxf(left_shoulder, right_shoulder) > 0.04
-				and hood.material_override == CollectorArt.coating(Color("394f59")),
+				and hood.material_override == Coating.material(Color("394f59")),
 				"The formed hood has a raised crown over both dark-coated shoulders rather than a bright flat canopy.")
 		var rows: Array = machine.get_meta("motion_meshes")
 		verify(rows.size() == 10 and count_role(machine, "CutterFlute") == 8,
@@ -4530,60 +4530,10 @@ func die_supports(machine: Node3D, rib: MeshInstance3D) -> bool:
 		and absf(base - deck_top) < 0.000001 and absf(top - anvil_base) < 0.000001
 
 func die_materials(part: MeshInstance3D, color: Color) -> bool:
-	return part.material_override == null and part.get_surface_override_material(0) == CollectorArt.coating(color) \
-		and part.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32) \
-		and part.get_surface_override_material(2) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+	return part.material_override == null and part.get_surface_override_material(0) == Coating.material(color) \
+		and part.get_surface_override_material(1) == ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32) \
+		and part.get_surface_override_material(2) == ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
 
-func check_cutter_guard() -> void:
-	var head := MeshInstance3D.new()
-	head.mesh = DieArt.tool_mesh("cut_sample")
-	var cutter_mesh := head.mesh
-	verify(Opening.ProductionCutterGuardArt.mount(head),
-		"The visual cutter sample accepts one fitted guard without a machine or state owner.")
-	var guard := head.get_node_or_null("CutterSampleGuard")
-	if guard == null:
-		head.free()
-		return
-	verify(guard.get_child_count() == 10 and guard.get_node_or_null("FrontLeftCheek") != null
-		and guard.get_node_or_null("FrontRightCheek") != null
-		and guard.get_node_or_null("RearLeftCheek") != null
-		and guard.get_node_or_null("RearRightCheek") != null,
-		"Both sides retain their guard cheeks, open crossbars and fitted fasteners.")
-	var overall := AABB()
-	var first := true
-	var open_front := true
-	var open_rear := true
-	for child in guard.get_children():
-		var part := child as MeshInstance3D
-		verify(part != null and part.mesh != null and part.material_override != null,
-			"Every cutter guard member is a passive finished mesh.")
-		if part == null or part.mesh == null:
-			continue
-		var box: AABB = part.transform * part.mesh.get_aabb()
-		overall = box if first else overall.merge(box)
-		first = false
-		open_front = open_front and not box.has_point(Vector3(0, 0.12, 0.27))
-		open_rear = open_rear and not box.has_point(Vector3(0, 0.12, -0.27))
-	verify(not first and overall.position.y >= 0.029 and overall.end.y <= 0.251
-		and overall.position.x >= -0.281 and overall.end.x <= 0.281
-		and overall.position.z >= -0.31 and overall.end.z <= 0.31,
-		"The guard stays above the cutter edge and inside its bounded outer head envelope.")
-	verify(open_front and open_rear and cutter_mesh.get_aabb().position.y <= -0.085,
-		"Both guarded faces leave a central viewing and material opening over the unchanged lower cutter edge.")
-	verify(not Opening.ProductionCutterGuardArt.mount(head) and guard.get_child_count() == 10
-		and head.mesh == cutter_mesh and head.transform == Transform3D.IDENTITY,
-		"A duplicate guard is refused without changing the head mesh or pose.")
-	var press := MeshInstance3D.new()
-	press.mesh = DieArt.tool_mesh("press")
-	verify(not Opening.ProductionCutterGuardArt.mount(press) and press.get_child_count() == 0,
-		"The ordinary installed press cannot acquire sample-only cutter artwork.")
-	print(JSON.stringify({"status": "pass" if not failed else "fail", "scope": "passive cutter guard geometry",
-		"members": guard.get_child_count(), "front_open": open_front, "rear_open": open_rear,
-		"bounds_min": [overall.position.x, overall.position.y, overall.position.z],
-		"bounds_max": [overall.end.x, overall.end.y, overall.end.z],
-		"native_gameplay": "not_run", "desktop_control": "not_used"}))
-	press.free()
-	head.free()
 
 func check_press_die() -> void:
 	var cache: Dictionary = {}
@@ -4592,35 +4542,12 @@ func check_press_die() -> void:
 	var minimum_item_gap := INF
 	var minimum_drive_gap := INF
 	var press_cartridge: Mesh = DieArt.tool_mesh()
-	var cutter_sample: Mesh = DieArt.tool_mesh("cut_sample")
-	verify(press_cartridge != null and cutter_sample != null and press_cartridge != cutter_sample
-		and DieArt.tool_mesh("cut_sample") == cutter_sample and DieArt.tool_mesh("unsupported") == null,
-		"The installed press and disclosed cutter sample are distinct cached heads; unsupported tools have no art substitute.")
-	if press_cartridge != null and cutter_sample != null:
-		verify(cutter_sample.get_surface_count() == 3
-			and cutter_sample.surface_get_name(1) == "WorkingFace"
-			and cutter_sample.surface_get_arrays(0) == press_cartridge.surface_get_arrays(0)
-			and cutter_sample.surface_get_arrays(2) == press_cartridge.surface_get_arrays(2),
-			"Both complete tool heads have the same actual carrier and locking hardware mesh data.")
-		verify(cutter_sample.get_aabb().size.x == press_cartridge.get_aabb().size.x
-			and cutter_sample.get_aabb().size.y == press_cartridge.get_aabb().size.y
-			and cutter_sample.get_aabb().size.z < press_cartridge.get_aabb().size.z,
-			"The sample changes the working insert inside the same rigid mount envelope.")
-		verify(absf(die_height(cutter_sample, 1, Transform3D.IDENTITY, Vector2.ZERO, false) + 0.085) < 0.000001
-			and die_height(cutter_sample, 1, Transform3D.IDENTITY, Vector2(0, 0.05), false) > -0.07
-			and not is_finite(die_height(cutter_sample, 1, Transform3D.IDENTITY, Vector2(0, 0.20), false))
-			and is_finite(die_height(press_cartridge, 1, Transform3D.IDENTITY, Vector2(0, 0.20), false)),
-			"A narrow cutter edge has the same lower reference plane but cannot masquerade as the full press face.")
-		for cartridge in [press_cartridge, cutter_sample]:
-			verify(absf(die_height(cartridge, 2, Transform3D.IDENTITY, Vector2(0.27, 0), true) - 0.055) < 0.000001
-				and absf(die_height(cartridge, 2, Transform3D.IDENTITY, Vector2(0, 0.255), true) - 0.0575) < 0.000001,
-				"Actual side rails and end locks are present on both cartridge meshes, rather than only in their source builder.")
-		var cutter_face := SurfaceTool.new()
-		cutter_face.create_from(cutter_sample, 1)
-		check_closed_asset_mesh(cutter_face.commit(), 0.0015, 0.0018)
-		var cutter_hardware := SurfaceTool.new()
-		cutter_hardware.create_from(cutter_sample, 2)
-		check_closed_asset_mesh(cutter_hardware.commit(), 0.0020, 0.0025)
+	verify(press_cartridge != null and DieArt.tool_mesh() == press_cartridge
+		and DieArt.tool_mesh("unsupported") == null,
+		"The installed press reuses its cached head; unsupported tools have no art substitute.")
+	verify(absf(die_height(press_cartridge, 2, Transform3D.IDENTITY, Vector2(0.27, 0), true) - 0.055) < 0.000001
+		and absf(die_height(press_cartridge, 2, Transform3D.IDENTITY, Vector2(0, 0.255), true) - 0.0575) < 0.000001,
+		"Actual side rails and end locks remain present on the press cartridge mesh.")
 	for shared_profile in [false, true]:
 		for axis in range(3):
 			for cell in [[0, 0], [2, -1]]:
@@ -4676,7 +4603,7 @@ func check_press_die() -> void:
 				var fixed: Array[Transform3D] = [anvil.transform, ribs[0].transform, ribs[1].transform]
 				for rib in ribs:
 					verify(rib.mesh == DieArt.pedestal_mesh() and rib.get_script() == null and rib.get_child_count() == 0
-						and rib.material_override == CollectorArt.coating(Color("394a44")) and die_supports(machine, rib),
+						and rib.material_override == Coating.material(Color("394a44")) and die_supports(machine, rib),
 						"Fixed cast ribs meet the actual skid top and anvil bottom across the original visible support gap.")
 					if not cache.has("rib"):
 						check_closed_asset_mesh(rib.mesh, 0.0044, 0.0049)
@@ -4872,7 +4799,7 @@ func check_press_output_tray() -> void:
 				var receiving_plane := die_height(tray.mesh, 0, tray.transform, Vector2(0.46, 0.15), true)
 				verify(absf(receiving_plane - 0.355) < 0.000001 and absf((plate_box.position.y - receiving_plane) - 0.005) < 0.000001,
 					"The actual broad floor retains the original receiving plane and sheet clearance instead of moving the output item.")
-				verify(tray.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.5),
+				verify(tray.material_override == ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.5),
 					"The formed sheet reuses the qualified worked finish without a new texture or authority input.")
 				if cache.is_empty():
 					check_closed_asset_mesh(tray.mesh, 0.00235, 0.00245)
@@ -4911,8 +4838,8 @@ func check_press_output_tray() -> void:
 					check_bounds(part, Transform3D.IDENTITY)
 				for bracket in [parts[1], parts[2]]:
 					verify(bracket.mesh.get_surface_count() == 2 and bracket.material_override == null
-						and bracket.get_surface_override_material(0) == CollectorArt.coating(Color("394a44"))
-						and bracket.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
+						and bracket.get_surface_override_material(0) == Coating.material(Color("394a44"))
+						and bracket.get_surface_override_material(1) == ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
 						and tray_bracket_seated(machine, bracket),
 						"Fixed coated brackets and worked foot fasteners meet the actual skid and pan underside at three independent support probes.")
 				for rib in [parts[4], parts[5]]:
@@ -5087,9 +5014,9 @@ func collector_tooling_section(mesh: Mesh, height: float, angle: float) -> float
 
 func collector_tooling_materials(flute: MeshInstance3D) -> bool:
 	return flute.material_override == null \
-		and flute.get_surface_override_material(0) == Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4) \
-		and flute.get_surface_override_material(1) == Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.9, 0.3) \
-		and flute.get_surface_override_material(2) == Opening.ProductionTransmissionFinish.material("worked", Color("778b8c"), 0.85, 0.4)
+		and flute.get_surface_override_material(0) == ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4) \
+		and flute.get_surface_override_material(1) == ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.9, 0.3) \
+		and flute.get_surface_override_material(2) == ProductionTransmissionFinish.material("worked", Color("778b8c"), 0.85, 0.4)
 
 func check_collector_tooling() -> void:
 	var cache: Dictionary = {}
@@ -5134,8 +5061,8 @@ func check_collector_tooling() -> void:
 					and drum.mesh.get_aabb().size.is_equal_approx(Vector3(0.48, 0.34, 0.48))
 					and hub.mesh.get_aabb().size.is_equal_approx(Vector3(0.17, 0.08, 0.17)),
 					"The stepped native drum and hub preserve their original centres and complete local envelopes.")
-				verify(drum.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
-					and hub.material_override == Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.4),
+				verify(drum.material_override == ProductionTransmissionFinish.material("worked", Color("465a60"), 0.85, 0.4)
+					and hub.material_override == ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.4),
 					"The rotating metal uses the qualified worked surfaces without changing the frame's coating.")
 				var flutes: Array[MeshInstance3D] = []
 				for row in rows:
@@ -5238,7 +5165,7 @@ func check_collector_tooling() -> void:
 						"An off-centre hub fails the same whole-turn bearing clearance oracle.")
 					hub.transform = saved
 					var finish_value := flutes[0].get_surface_override_material(1)
-					flutes[0].set_surface_override_material(1, CollectorArt.coating(Color("465a60")))
+					flutes[0].set_surface_override_material(1, Coating.material(Color("465a60")))
 					verify(not collector_tooling_materials(flutes[0]), "A painted cutting insert fails the qualified metal-role requirement.")
 					flutes[0].set_surface_override_material(1, finish_value)
 					controls = 4
@@ -5493,8 +5420,8 @@ func check_collector_rear_service() -> void:
 				var paint := panel.material_override as StandardMaterial3D
 				var steel := hardware.material_override as StandardMaterial3D
 				verify(paint.metallic == 0 and is_equal_approx(paint.normal_scale, 0.08) and paint.roughness == 1
-					and paint.roughness_texture == CollectorArt.paint_roughness
-					and is_equal_approx(steel.metallic, 0.85) and steel.normal_texture == Opening.ProductionTransmissionFinish.textures.worked_normal,
+					and paint.roughness_texture == Coating.paint_roughness
+					and is_equal_approx(steel.metallic, 0.85) and steel.normal_texture == ProductionTransmissionFinish.textures.worked_normal,
 					"Paint and exposed worked hardware retain their distinct qualified material roles.")
 				var picks := 0
 				for child in machine.get_children():
@@ -5602,8 +5529,6 @@ func render_buildable_resources() -> void:
 	Engine.max_fps = 30
 	var subjects: Array = [{"name": "collector", "kind": "collector"}, {"name": "press", "kind": "processor"},
 		{"name": "press-cartridge", "kind": "tool_cartridge", "tool": "press", "sample_only": true},
-		{"name": "cutter-cartridge-sample", "kind": "tool_cartridge", "tool": "cut_sample", "sample_only": true},
-		{"name": "guarded-cutter-sample", "kind": "tool_cartridge", "tool": "cut_sample", "guarded": true, "sample_only": true},
 		{"name": "waterwheel", "kind": "wheel"},
 		{"name": "waterwheel-large", "kind": "wheel", "tiles": 8},
 		{"name": "belt-span", "kind": "belt_span"}, {"name": "belt-pulley", "kind": "belt_pulley"},
@@ -5668,21 +5593,12 @@ func render_buildable_resources() -> void:
 			var cartridge := MeshInstance3D.new()
 			cartridge.name = subject.name
 			cartridge.mesh = DieArt.tool_mesh(subject.tool)
-			cartridge.set_surface_override_material(0, CollectorArt.coating(Color("58634c")))
+			cartridge.set_surface_override_material(0, Coating.material(Color("58634c")))
 			cartridge.set_surface_override_material(1,
-				Opening.ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32))
+				ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32))
 			cartridge.set_surface_override_material(2,
-				Opening.ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38))
+				ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38))
 			model.add_child(cartridge)
-			if subject.get("guarded", false) and not Opening.ProductionCutterGuardArt.mount(cartridge):
-				report.status = "fail"
-				report.reason = "The sample cutter guard did not mount to its tool head."
-				resource_render_write(manifest, report)
-				model.free()
-				view.free()
-				push_error(report.reason)
-				quit(1)
-				return
 		else:
 			view._assemble_machine(model, {"kind": subject.kind, "cell": [0, 0], "axis": 0, "tiles": subject.get("tiles", 3), "generation": 1})
 		if subject.get("paddle_cutaway", false):
@@ -5743,7 +5659,7 @@ func render_buildable_resources() -> void:
 		environment.background_mode = Environment.BG_COLOR
 		environment.background_color = Color("26333b")
 		var sky := Sky.new()
-		sky.sky_material = Opening.ProductionEnvironment.panorama_material()
+		sky.sky_material = ProductionEnvironment.panorama_material()
 		environment.sky = sky
 		environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 		environment.ambient_light_energy = 0.6
@@ -5754,8 +5670,8 @@ func render_buildable_resources() -> void:
 		studio.add_child(world)
 		var sun := DirectionalLight3D.new()
 		sun.rotation_degrees = Vector3(-48, -30, 0)
-		if Opening.ProductionEnvironment.sky_source_status == "ready":
-			sun.basis = Basis.looking_at(-Opening.ProductionEnvironment.SKY_SUN_DIRECTION, Vector3.UP)
+		if ProductionEnvironment.sky_source_status == "ready":
+			sun.basis = Basis.looking_at(-ProductionEnvironment.SKY_SUN_DIRECTION, Vector3.UP)
 		sun.light_color = Color("fff0d4")
 		sun.light_energy = 1.25
 		sun.shadow_enabled = true
@@ -5766,11 +5682,11 @@ func render_buildable_resources() -> void:
 		fill.light_color = Color("b9d2ea")
 		fill.light_energy = 0.18
 		studio.add_child(fill)
-		var required_sources := {"panorama": Opening.ProductionEnvironment.sky_source_status}
+		var required_sources := {"panorama": ProductionEnvironment.sky_source_status}
 		if subject.kind in ["cogwheel", "processor"]:
-			required_sources["transmission_surfaces"] = Opening.ProductionTransmissionFinish.source_status
+			required_sources["transmission_surfaces"] = ProductionTransmissionFinish.source_status
 		if subject.kind == "processor":
-			required_sources["press_support"] = Opening.ProductionPressArt.source_status
+			required_sources["press_support"] = PressArt.source_status
 		var unavailable: Array[String] = []
 		for role: String in required_sources:
 			if required_sources[role] != "ready":
@@ -5882,9 +5798,9 @@ func render_buildable_resources() -> void:
 				"camera_target": [centre.x, centre.y, centre.z], "orthographic_size": camera.size if not perspective else null,
 				"camera_projection": "perspective" if perspective else "orthographic",
 				"camera_distance": distance, "camera_fov": camera.fov if perspective else null,
-				"qualified_worked_maps": Opening.ProductionTransmissionFinish.source_status,
+				"qualified_worked_maps": ProductionTransmissionFinish.source_status,
 				"item_surface": "generic_grain_calibrated" if subject.kind == "item" else null,
-				"panorama_source": Opening.ProductionEnvironment.sky_source_status,
+				"panorama_source": ProductionEnvironment.sky_source_status,
 				"required_sources": required_sources}
 			report.images.append(frame)
 			if not resource_render_write(manifest, report):
@@ -5899,7 +5815,7 @@ func render_buildable_resources() -> void:
 		await process_frame
 	report.status = "pass"
 	report.images_expected = subjects.size() * 2 + subjects.filter(func(subject): return subject.kind == "cogwheel").size() * 2
-	report.limits = "Studio lighting and passive mesh observations. The cutter cartridge is an isolated visual sample without native cutting. The unsupported one-cell conveyor is omitted; playable belts are shaft spans. No actual app, game state, user understanding, export, performance or human-quality verdict."
+	report.limits = "Studio lighting and passive mesh observations. The unsupported one-cell conveyor is omitted; playable belts are shaft spans. No actual app, game state, user understanding, export, performance or human-quality verdict."
 	if not resource_render_write(manifest, report):
 		push_error("The final resource-render result cannot be retained.")
 		quit(1)
@@ -6028,7 +5944,7 @@ func _initialize() -> void:
 				return
 		if OS.get_cmdline_user_args().has("--satin-coating-check"):
 			check_satin_coating()
-			check_collector_coating(false)
+			check_collector_coating()
 			if failed:
 				finish()
 				return
@@ -6055,7 +5971,7 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--satin-coating-only"):
 		check_satin_coating()
-		check_collector_coating(false)
+		check_collector_coating()
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--collector-rear-service-only"):
@@ -6076,10 +5992,6 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--press-die-only"):
 		check_press_die()
-		finish()
-		return
-	if OS.get_cmdline_user_args().has("--cutter-guard-only"):
-		check_cutter_guard()
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--conveyor-hub-only") or OS.get_cmdline_user_args().has("--conveyor-frame-only"):
@@ -6117,8 +6029,8 @@ func _initialize() -> void:
 		check_river_pier_projection()
 		finish()
 		return
-	if OS.get_cmdline_user_args().has("--collector-coating-only") or OS.get_cmdline_user_args().has("--historical-coating-only"):
-		check_collector_coating(OS.get_cmdline_user_args().has("--historical-coating-only"))
+	if OS.get_cmdline_user_args().has("--collector-coating-only"):
+		check_collector_coating()
 		finish()
 		return
 	if OS.get_cmdline_user_args().has("--paddles-only") or OS.get_cmdline_user_args().has("--historical-paddles-only"):

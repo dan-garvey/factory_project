@@ -1,4 +1,5 @@
 extends SceneTree
+const Widgets = preload("res://opening/production_widgets.gd")
 ## Regression for RECOVERY-UI-LAYOUT-R1. This uses the real UI containers over
 ## invented records, without starting a Model, body, network or game scene.
 
@@ -84,10 +85,10 @@ func _run() -> void:
 	view.add_child(view.selection_ring)
 	view._build_interface()
 	var column: VBoxContainer = view.power_label.get_parent()
-	view.connection_label = view._label(column, "", 14)
+	view.connection_label = Widgets.label(column, "", 14)
 	column.move_child(view.connection_label, 1)
-	view.reconnect_button = view._button(column, "Reconnect to session", _ignore)
-	view.disconnect_button = view._button(column, "Disconnect", _ignore)
+	view.reconnect_button = Widgets.button(column, "Reconnect to session", _ignore)
+	view.disconnect_button = Widgets.button(column, "Disconnect", _ignore)
 	view.state = {"context": "layout-fixture", "revision": 0, "order": 0,
 		"entities": {"collector": {"kind": "collector", "cell": [0, 1]},
 			"belt": {"kind": "belt", "cell": [1, 1]},

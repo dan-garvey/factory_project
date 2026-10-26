@@ -5,9 +5,9 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const Assets = preload("res://opening/native_transmission_assets.gd")
 const Items = preload("res://opening/workpiece_item_assets.gd")
 const NativeModel = preload("res://opening/native_model.gd")
-const Finish = preload("res://opening/opening.gd").ProductionTransmissionFinish
-const Visuals = preload("res://opening/opening.gd").ProductionVisuals
-const WheelArt = preload("res://opening/opening.gd").ProductionWheelArt
+const Finish = preload("res://opening/production_surfaces.gd").ProductionTransmissionFinish
+const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
+const WheelArt = preload("res://opening/production_waterwheels.gd").ProductionWheelArt
 const ClampBody = preload("res://opening/assets/collector-clamp/collector_clamp.gltf")
 const UNIT := Geometry.PITCH / 4.0
 ## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
