@@ -3,6 +3,7 @@ extends SceneTree
 
 const Presenter = preload("res://opening/character_presenter.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const Opening = preload("res://opening/opening.gd")
 
 class HostFixture:
 	extends Node3D
@@ -28,6 +29,8 @@ class HostFixture:
 		safety_release_calls += 1
 
 func _initialize() -> void:
+	if not Opening.apply_test_window_title(self):
+		return
 	call_deferred("run")
 
 func run() -> void:

@@ -77,6 +77,9 @@ The integration owner maintains the separate authorized unlisted-gist
   play evidence; retain exact revisions and material limitations.
 - Desktop control is disabled until the user re-enables it. Do not focus
   windows or inject input. Launching and passive screenshots/video are allowed.
+  Label agent graphical launches with `--test-purpose=TEXT` through the tracked
+  agent launcher so the purpose appears in the OS window title. Add title
+  initialization before opening a new graphical fixture target.
   Inspect relevant pixels, recording revision, view and conditions. Consider
   screenshots for reviews of visible changes: shape, scale, orientation,
   connections and interaction cues. Passive fixtures do not prove usability.

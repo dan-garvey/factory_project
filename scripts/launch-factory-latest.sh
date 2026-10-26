@@ -14,23 +14,60 @@ trap on_exit EXIT
 mode=prepare
 resume=()
 session_only=()
+agent=()
+agent_window=()
+usage() {
+    printf 'Usage: %s [--check|--prepare-only|--prepare-session-only] [--resume ABSOLUTE_SAVE]\n' "$0" >&2
+    printf '       %s --agent --test-purpose=TEXT [--resume ABSOLUTE_SAVE]\n' "$0" >&2
+    printf '       %s --agent-window --test-purpose=TEXT --scene|--script res://PATH [-- USER_ARGUMENTS...]\n' "$0" >&2
+    exit 2
+}
+if [[ ${1:-} == --agent || ${1:-} == --agent-window ]]; then
+    agent_mode=$1
+    shift
+    (( $# > 0 )) || usage
+    case $1 in
+        --test-purpose=*) purpose=${1#--test-purpose=}; shift ;;
+        --test-purpose) (( $# >= 2 )) || usage; purpose=$2; shift 2 ;;
+        *) usage ;;
+    esac
+    if [[ $agent_mode == --agent ]]; then
+        agent=(--agent --test-purpose "$purpose")
+        if (( $# > 0 )); then
+            (( $# == 2 )) && [[ $1 == --resume && $2 == /* ]] || usage
+            resume=(--resume "$2")
+        fi
+    else
+        (( $# >= 2 )) && [[ $1 == --scene || $1 == --script ]] || usage
+        selector=$1 target=$2
+        shift 2
+        agent_window=(--test-purpose "$purpose" "$selector" "$target")
+        if (( $# > 0 )); then
+            [[ $1 == -- ]] || usage
+            shift
+            agent_window+=(-- "$@")
+        fi
+        mode=agent-window
+    fi
+else
 case $# in
     0) ;;
     1) case $1 in
         --check) mode=check ;;
         --prepare-only) mode=prepare-only ;;
         --prepare-session-only) session_only=(--prepare-session-only) ;;
-        *) printf 'Usage: %s [--check|--prepare-only|--prepare-session-only] [--resume ABSOLUTE_SAVE]\n' "$0" >&2; exit 2 ;;
+        *) usage ;;
        esac ;;
     2) [[ $1 == --resume && $2 == /* ]] && resume=(--resume "$2") || {
-           printf 'Usage: %s [--check|--prepare-only|--prepare-session-only] [--resume ABSOLUTE_SAVE]\n' "$0" >&2; exit 2;
+           usage;
        } ;;
     3) [[ $1 == --prepare-session-only && $2 == --resume && $3 == /* ]] &&
            { session_only=(--prepare-session-only); resume=(--resume "$3"); } || {
-           printf 'Usage: %s [--check|--prepare-only|--prepare-session-only] [--resume ABSOLUTE_SAVE]\n' "$0" >&2; exit 2;
+           usage;
        } ;;
-    *) printf 'Usage: %s [--check|--prepare-only|--prepare-session-only] [--resume ABSOLUTE_SAVE]\n' "$0" >&2; exit 2 ;;
+    *) usage ;;
 esac
+fi
 
 project=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 [[ $(git -C "$project" rev-parse --show-toplevel) == "$project" &&
@@ -121,7 +158,12 @@ if [[ $mode == prepare-only ]]; then
     printf 'Native launch resources are ready. No game was started.\n'
     exit 0
 fi
+if [[ $mode == agent-window ]]; then
+    exec "$startup" --agent-window --repo "$project" --tree "$revision" \
+        --engine "$engine" --engine-sha256 "$engine_sha256" \
+        --admission "$admission" "${agent_window[@]}"
+fi
 exec "$startup" --human-launch --repo "$project" --tree "$revision" \
     --engine "$engine" --engine-sha256 "$engine_sha256" \
     --library "$library" --library-sha256 "$library_sha256" \
-    --sessions "$sessions" --admission "$admission" "${session_only[@]}" "${resume[@]}"
+    --sessions "$sessions" --admission "$admission" "${session_only[@]}" "${agent[@]}" "${resume[@]}"

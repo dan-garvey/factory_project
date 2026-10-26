@@ -4774,7 +4774,30 @@ var arrival_reveal_caption: Label
 var arrival_reveal_audio
 const ARRIVAL_REVEAL_SECONDS := 2.8
 
+static func apply_test_window_title(tree: SceneTree) -> bool:
+	var purpose := ""
+	var found := false
+	for argument: String in OS.get_cmdline_user_args():
+		if not argument.begins_with("--test-purpose="):
+			continue
+		if found:
+			push_error("Use exactly one test window purpose")
+			tree.quit(2)
+			return false
+		found = true
+		purpose = argument.trim_prefix("--test-purpose=")
+	if not found:
+		return true
+	if purpose.strip_edges().is_empty() or purpose.length() > 60 or "\n" in purpose or "\r" in purpose:
+		push_error("Invalid test window purpose")
+		tree.quit(2)
+		return false
+	tree.root.title = "Factory — " + purpose
+	return true
+
 func _ready() -> void:
+	if not apply_test_window_title(get_tree()):
+		return
 	for argument in OS.get_cmdline_user_args():
 		if argument == "--legacy-fixture":
 			legacy_fixture = true
