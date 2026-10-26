@@ -11,6 +11,14 @@ constexpr std::array first_plate_fixed{
     std::string_view{"--native-check-mode=arrival-first-plate"},
     std::string_view{"--event-route-pointer"},
 };
+constexpr std::array raised_starter_fixed{
+    std::string_view{"--native-check-mode=arrival-raised-starter-snap"},
+    std::string_view{"--event-route-pointer"},
+};
+constexpr std::array raised_press_fixed{
+    std::string_view{"--native-check-mode=arrival-raised-press"},
+    std::string_view{"--event-route-pointer"},
+};
 constexpr std::array channel_small_fixed{
     std::string_view{"--native-check-mode=arrival-channel-small"},
     std::string_view{"--event-route-loose"},
@@ -35,6 +43,11 @@ constexpr std::string_view script = "res://opening/native_adapter_check.gd";
 const std::array cases{
     Case{"arrival-first-plate", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate",
          180, first_plate_fixed, first_plate_values},
+    Case{"arrival-raised-starter-snap", script,
+         "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-starter-snap",
+         180, raised_starter_fixed, first_plate_values},
+    Case{"arrival-raised-press", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-press",
+         180, raised_press_fixed, first_plate_values},
     Case{"arrival-channel-small", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small",
          300, channel_small_fixed, channel_small_values},
     Case{"arrival-channel-small-resume", script,
