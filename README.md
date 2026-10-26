@@ -18,24 +18,30 @@ On the configured development machine, use **Factory (Latest)** or:
 ./scripts/launch-factory-latest.sh
 ```
 
-The shortcut checks and refreshes its pinned native startup executable and
-gameplay library before launch. It uses the canonical main checkout and an
-already configured human launcher. Preparation failure stops launch.
+The tracked shortcut locates its own clean main checkout, checks and refreshes
+its pinned native startup executable and gameplay library, and opens a fresh
+session. Configure local installation paths as described in the
+[gameplay installation guide](native/gameplay-build/README.md). Preparation
+failure stops launch.
 
 ```bash
 ./scripts/launch-factory-latest.sh --check
 ./scripts/launch-factory-latest.sh --prepare-only
+./scripts/launch-factory-latest.sh --resume /absolute/path/to/player.factory
 ```
 
 `--check` validates existing installations without building; `--prepare-only`
-runs needed preparation without starting Godot. These are local development
-entrypoints, not a portable installer.
+runs needed preparation without starting Godot. `--resume` copies the selected
+native save into a fresh session and opens it with a new save slot. For a
+headless startup record without a window, use `--prepare-session-only`, with
+optional `--resume /absolute/path/to/player.factory`. These are local
+development entrypoints, not a portable installer.
 
-For another checkout/machine, provision the verified Godot **4.7.2** executable,
-follow the [native build setup](docs/engineering/native-builds.md), then use the
-[explicit native capture and launch recipe](native/factory-godot-world/README.md#build-and-consume).
-It supplies the production extension and library; missing resources refuse
-startup. The old scripted launchers remain fixtures and do not deliver this entry.
+For another checkout or machine, provision the verified Godot **4.7.2**
+executable, follow the [native build setup](docs/engineering/native-builds.md),
+and configure the local pins. The script discovers the checkout from its own
+location, including paths with spaces. Missing resources refuse startup. The
+old scripted launchers remain fixtures and do not deliver this entry.
 
 ## Controls
 

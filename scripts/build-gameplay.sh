@@ -24,7 +24,7 @@ tool=$(setting factory.gameplayBuildExecutable)
 digest=$(setting factory.gameplayBuildSHA256)
 artifacts=$(setting factory.gameplayArtifacts)
 bazel=$(setting factory.bazelExecutable)
-launcher=$(setting factory.humanLauncher)
+launcher=$(setting factory.humanPins)
 installed=$(setting factory.gameplayInstallRoot)
 [[ "$tool" == /* && -f "$tool" && ! -L "$tool" && -x "$tool" && "$digest" =~ ^[0-9a-f]{64}$ ]] &&
     printf '%s  %s\n' "$digest" "$tool" | sha256sum --check --status ||

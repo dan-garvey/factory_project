@@ -5,7 +5,7 @@
 only that component's three human-launcher pins after success. It never launches
 Godot or controls a desktop. The Windows shortcut uses the tracked startup and
 gameplay freshness guards. A changed source or missing installed binary triggers
-one bounded build for that component; the helper then reloads its pins and
+one bounded build for that component; the entrypoint then reloads its pins and
 continues. A failed build leaves the shortcut closed and retains the old
 installation. `--prepare-only` exercises both preparations without starting the
 game; `--check` only validates existing installations.
@@ -26,9 +26,17 @@ git config --local factory.gameplayBuildExecutable /absolute/retained/factory-ga
 git config --local factory.gameplayBuildSHA256 verified-lowercase-sha256
 git config --local factory.gameplayArtifacts /absolute/owned/gameplay-build-family
 git config --local factory.bazelExecutable /absolute/verified/bazel-8.4.2
-git config --local factory.humanLauncher /absolute/human-launch-helper.sh
+git config --local factory.humanPins /absolute/owned/human-launch-pins
 git config --local factory.gameplayInstallRoot /absolute/owned/installed-libraries
 ```
+
+Create the owned `factory.humanPins` regular file outside the checkout with
+exactly one assignment per name: `engine`, `engine_sha256`, `sessions`,
+`startup`, `startup_sha256`, `startup_source`, `library`, `library_sha256`, and
+`library_source`. Use absolute paths, lowercase SHA-256 hashes, and full source
+revision IDs. Single quote paths containing spaces. The installed build tool
+atomically replaces only the three pins for its selected component. The tracked
+entrypoint reads these assignments as data and never executes the file.
 
 The small Bash entry point only validates local pins and dispatches the native
 command. Each attempt gets a fresh log directory in the same cumulative family;
@@ -46,12 +54,12 @@ download, resource-floor override or passing-test replay is introduced.
 ```bash
 "$FACTORY_LOCAL" --root "$BUILD_CHECKOUT" heavy --inherit-permits -- \
   "$FACTORY_GAMEPLAY_BUILD" \
-  --checkout "$BUILD_CHECKOUT" --main /home/dan/factory_project \
+  --checkout "$BUILD_CHECKOUT" --main "$MAIN_CHECKOUT" \
   --bazel "$FACTORY_BAZEL" --artifacts "$OWNED_BUILD_FAMILY" \
   --log "$OWNED_BUILD_FAMILY/fresh-build.log" \
-  --admission-directory /home/dan/factory_project/.git/factory-local-resources \
-  --launcher "$HUMAN_LAUNCH_HELPER" \
-  --install-root /home/dan/.local/state/factory-prototypes/human-opening/native
+  --admission-directory "$ADMISSION_DIRECTORY" \
+  --launcher "$HUMAN_LAUNCH_PINS" \
+  --install-root "$OWNED_INSTALL_ROOT"
 ```
 
 Build the tool with `//native/gameplay-build:factory-gameplay-build`. Its focused

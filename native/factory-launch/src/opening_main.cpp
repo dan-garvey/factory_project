@@ -1,5 +1,6 @@
 #include "factory/capture.hpp"
 #include "factory/opening.hpp"
+#include "factory/human.hpp"
 #include "native/build-support/runner.hpp"
 
 #include <algorithm>
@@ -83,6 +84,8 @@ struct Stage {
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "--human-launch")
+        return factory_launch::human_launch(argc - 2, argv + 2);
     using namespace factory_launch;
     using namespace std::chrono_literals;
     fs::path output;

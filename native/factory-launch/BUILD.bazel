@@ -30,7 +30,8 @@ cc_library(
 # lifetime implementation to bypass that source interface review.
 cc_binary(
     name = "factory-opening-startup",
-    srcs = ["src/opening_main.cpp"],
+    srcs = ["src/opening_main.cpp", "src/human.cpp", "include/factory/human.hpp"],
+    includes = ["include"],
     deps = [":opening", "//native/build-support:runner"],
 )
 
@@ -80,7 +81,17 @@ cc_test(
     size = "small",
 )
 
+cc_test(
+    name = "human_test",
+    tags = ["host"],
+    srcs = ["tests/human_test.cpp"],
+    args = ["$(rootpath :factory-opening-startup)"],
+    data = [":factory-opening-startup"],
+    deps = [":capture"],
+    size = "small",
+)
+
 test_suite(
     name = "tests",
-    tests = [":capture_test", ":opening_test", ":extension_test", ":source_budget_test"],
+    tests = [":capture_test", ":opening_test", ":extension_test", ":source_budget_test", ":human_test"],
 )

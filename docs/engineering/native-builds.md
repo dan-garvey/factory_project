@@ -66,8 +66,11 @@ source/toolchain provenance without recasting later hashes as earlier evidence.
 `./scripts/build-gameplay.sh` builds and installs the native gameplay library;
 `--startup` selects the startup executable. See
 [one-time configuration](../../native/gameplay-build/README.md).
-The Windows shortcut prepares stale components automatically; `--prepare-only`
-does so without launching, and `--check` only checks installed pins.
+The tracked Windows shortcut locates its own clean main checkout and prepares
+stale components automatically; `--prepare-only` does so without launching,
+and `--check` only checks installed pins. `--resume ABSOLUTE_SAVE` opens a
+native save in a fresh session. `--prepare-session-only` runs capture, import
+and startup without a desktop window and retains their exact records.
 Branch builds do not install into the current-main human launcher.
 A plain Bazel build only produces artifacts.
 
