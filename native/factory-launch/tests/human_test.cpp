@@ -78,6 +78,11 @@ int main(int argc, char** argv) {
         write(repo / "experiments/engine-environment/godot/project.godot", "config_version=5\n");
         write(repo / "experiments/engine-environment/godot/opening/shared_opening.tscn", "[gd_scene]\n");
         write(repo / "experiments/engine-environment/godot/opening/parts_view_check.gd", "extends SceneTree\n");
+        write(repo / "experiments/engine-environment/godot/opening/shared_opening.gd", "extends Node\n");
+        write(repo / "experiments/engine-environment/godot/opening/native_transmission_view_check.gd",
+            "extends SceneTree\n");
+        write(repo / "experiments/engine-environment/godot/opening-session/session.gd", "extends Node\n");
+        write(repo / "experiments/engine-environment/godot/model.gd", "extends RefCounted\n");
         write(repo / "experiments/engine-environment/godot/opening/native_adapter_check.gd", "extends SceneTree\n");
         write(repo / "experiments/engine-environment/godot/opening/other_check.gd", "extends SceneTree\n");
         require(run({"/usr/bin/git", "-C", repo.string(), "init", "-b", "main"}).exit_code == 0,
@@ -184,10 +189,32 @@ int main(int argc, char** argv) {
                 ++installed_fixtures;
                 require(read(fixture) == "extends SceneTree\n",
                     "The agent runtime must carry the exact selected tracked fixture.");
+                require(read(entry.path() / "native/runtime/project/opening/shared_opening.gd") ==
+                    "extends Node\n", "The workbed view also needs its checked shared view class.");
             }
         }
         require(installed_fixtures == 1,
             "Only the selected fixture runtime gains its checked-main script.");
+        fs::remove(launched);
+        auto transmission_window = window_base;
+        transmission_window.insert(transmission_window.end(), {"--script",
+            "res://opening/native_transmission_view_check.gd", "--test-purpose", "Broad press view"});
+        require(run(transmission_window).exit_code == 0 &&
+                read(launched).find("--script\nres://opening/native_transmission_view_check.gd") != std::string::npos,
+                "The mechanical view fixture uses the same labeled agent window route.");
+        std::size_t complete_view_runtimes = 0;
+        for (const auto& entry : fs::directory_iterator(sessions)) {
+            const auto project = entry.path() / "native/runtime/project";
+            if (fs::exists(project / "opening/native_transmission_view_check.gd")) {
+                ++complete_view_runtimes;
+                require(read(project / "opening/shared_opening.gd") == "extends Node\n" &&
+                        read(project / "opening-session/session.gd") == "extends Node\n" &&
+                        read(project / "model.gd") == "extends RefCounted\n",
+                    "The mechanical view receives its exact shared fixture dependencies.");
+            }
+        }
+        require(complete_view_runtimes == 1,
+            "Only the selected mechanical view runtime gains shared fixture dependencies.");
         fs::remove(launched);
         auto adapter_window = window_base;
         adapter_window.insert(adapter_window.end(), {"--script", "res://opening/native_adapter_check.gd",
