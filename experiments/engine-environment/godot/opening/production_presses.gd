@@ -244,40 +244,45 @@ class ProductionPressDieArt:
 		if meshes.has("anvil"):
 			return meshes.anvil
 		var mesh := ArrayMesh.new()
-		var saddle := PackedVector2Array([
-			Vector2(-0.35, -0.08), Vector2(0.21, -0.08), Vector2(0.21, -0.02),
-			Vector2(0.35, -0.02), Vector2(0.35, 0.005), Vector2(0.27, 0.005), Vector2(0.24, 0.04),
-			Vector2(-0.24, 0.04), Vector2(-0.24, -0.015), Vector2(-0.27, -0.045), Vector2(-0.35, -0.045)])
-		ProductionMeshAssembly.append_surface(mesh, "AnvilSaddle", [[ProductionVisuals.prism_mesh(saddle, 0.63, 0.004), Transform3D.IDENTITY]])
+		var bolster := PackedVector2Array([
+			Vector2(-0.35, -0.08), Vector2(0.18, -0.08),
+			Vector2(0.18, 0.005), Vector2(0.35, 0.005),
+			Vector2(0.35, 0.04), Vector2(-0.35, 0.04)])
+		ProductionMeshAssembly.append_surface(mesh, "BolsterFrame", [[ProductionVisuals.prism_mesh(bolster, 0.63, 0.004), Transform3D.IDENTITY]])
 		ProductionMeshAssembly.append_surface(mesh, "WorkingFace", [[ProductionVisuals.box_mesh(Vector3(0.52, 0.04, 0.51)),
 			Transform3D(Basis.IDENTITY, Vector3(0, 0.06, 0))]])
 		var poses: Array[Transform3D] = []
-		for x in [-0.305, 0.305]:
+		for x in [-0.29, 0.29]:
 			for z in [-0.255, 0.255]:
-				# The outlet-side foot is relieved above the existing output plate.
-				poses.append(Transform3D(Basis.IDENTITY, Vector3(x, 0.005 if x > 0 else -0.045, z)))
+				poses.append(Transform3D(Basis.IDENTITY, Vector3(x, 0.03, z)))
 		ProductionMeshAssembly.append_hardware(mesh, poses)
 		meshes.anvil = mesh
 		return mesh
 
-	static func pedestal_mesh() -> ArrayMesh:
-		if not meshes.has("pedestal"):
-			var rib := PackedVector2Array([
-				Vector2(-0.05, -0.07), Vector2(0.05, -0.07), Vector2(0.05, -0.045),
-				Vector2(0.025, -0.045), Vector2(0.022, 0.045), Vector2(0.045, 0.045),
-				Vector2(0.045, 0.07), Vector2(-0.045, 0.07), Vector2(-0.045, 0.045),
-				Vector2(-0.022, 0.045), Vector2(-0.025, -0.045), Vector2(-0.05, -0.045)])
-			meshes.pedestal = ProductionVisuals.prism_mesh(rib, 0.53, 0.002)
-		return meshes.pedestal
+	static func frame_mesh(size: Vector3) -> Mesh:
+		var key := "frame_" + str(size)
+		if not meshes.has(key):
+			meshes[key] = ProductionVisuals.box_mesh(size)
+		return meshes[key]
+
+	static func _frame_part(parent: Node3D, role: String, size: Vector3, at: Vector3,
+			finish: StandardMaterial3D) -> void:
+		var part := MeshInstance3D.new()
+		part.name = role
+		part.mesh = frame_mesh(size)
+		part.position = at
+		part.material_override = finish
+		part.set_meta("press_die_role", "WorkbedFrame")
+		parent.add_child(part)
 
 	static func mount(parent: Node3D, anvil: MeshInstance3D, head: MeshInstance3D) -> void:
 		var holder := ProductionCoating.material(Color("58634c"))
-		var saddle := ProductionCoating.material(Color("394a44"))
+		var bolster := ProductionCoating.material(Color("394a44"))
 		var face := ProductionTransmissionFinish.material("worked", Color("a6b4af"), 0.85, 0.32)
 		var hardware := ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
-		if holder == null or saddle == null or face == null or hardware == null:
+		if holder == null or bolster == null or face == null or hardware == null:
 			return
-		for pair in [[head, tool_mesh(), holder], [anvil, anvil_mesh(), saddle]]:
+		for pair in [[head, tool_mesh(), holder], [anvil, anvil_mesh(), bolster]]:
 			var part: MeshInstance3D = pair[0]
 			part.mesh = pair[1]
 			part.material_override = null
@@ -285,15 +290,17 @@ class ProductionPressDieArt:
 			part.set_surface_override_material(1, face)
 			part.set_surface_override_material(2, hardware)
 			part.set_meta("press_die_role", str(part.name))
-		for side in [-1.0, 1.0]:
-			var rib := MeshInstance3D.new()
-			rib.name = "AnvilPedestalLeft" if side < 0 else "AnvilPedestalRight"
-			# Keep the outlet side open without entering the vertical drive journal.
-			rib.position = Vector3(side * 0.16, 0.31, 0.05)
-			rib.mesh = pedestal_mesh()
-			rib.material_override = saddle
-			rib.set_meta("press_die_role", "AnvilPedestal")
-			parent.add_child(rib)
+		# Four legs carry the working plane from the grounded machine plinth.
+		# The right pair sits inboard of the separate output pan.
+		for x in [-0.22, 0.12]:
+			for z in [-0.19, 0.29]:
+				_frame_part(parent, "WorkbedLeg%d" % parent.get_child_count(),
+					Vector3(0.065, 0.14, 0.065), Vector3(x, 0.31, z), bolster)
+				_frame_part(parent, "WorkbedShoe%d" % parent.get_child_count(),
+					Vector3(0.105, 0.03, 0.105), Vector3(x, 0.255, z), bolster)
+		for z in [-0.19, 0.29]:
+			_frame_part(parent, "WorkbedCrossTie%d" % parent.get_child_count(),
+				Vector3(0.40, 0.045, 0.04), Vector3(-0.05, 0.29, z), bolster)
 
 class ProductionPressTrayArt:
 	extends RefCounted
