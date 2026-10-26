@@ -1,6 +1,6 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
-package(default_visibility = ["//visibility:public"])
+package(default_visibility = ["//visibility:private"])
 
 # OpenSSL is an explicit installed-host dependency, not a fetched package.
 # The admitted command must seal its headers and runtime with the host toolchain.
@@ -10,12 +10,14 @@ cc_library(
     hdrs = ["include/factory/capture.hpp"],
     strip_include_prefix = "include",
     linkopts = ["-lcrypto"],
+    visibility = ["//native/commit-gate:__pkg__", "//native/gameplay-build:__pkg__"],
 )
 
 cc_binary(
     name = "factory-project-capture",
     srcs = ["src/main.cpp"],
     deps = [":capture"],
+    visibility = ["//visibility:public"],
 )
 
 cc_library(
@@ -33,6 +35,7 @@ cc_binary(
     srcs = ["src/opening_main.cpp", "src/human.cpp", "include/factory/human.hpp"],
     includes = ["include"],
     deps = [":opening", "//native/build-support:runner"],
+    visibility = ["//visibility:public"],
 )
 
 cc_test(

@@ -6,6 +6,11 @@ Build `//native/factory-launch:factory-project-capture` and
 Use the [native gameplay recipe](../factory-godot-world/README.md#build-and-consume)
 for the extension descriptor/library and ordinary scene.
 
+These two executables are the public launch tools. The capture library is shared
+only with the native commit gate and gameplay installer; opening internals and
+fixture targets remain private to this package. The full project capture is an
+explicit fixture/legacy input, while normal startup selects the product profile.
+
 ## Capture
 
 ```bash
