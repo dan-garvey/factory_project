@@ -92,25 +92,21 @@ Keep concurrent writers in separate linked worktrees. Merge current main into
 committed work rather than routinely rebasing; never overwrite another checkout.
 Only the short main update/push holds the shared Git lock.
 
-For each authored commit that changes code, tests, visible assets, requirements
-or project process guidance, open an unassigned `review-request` Bead naming
-the exact commit, implementing agent, scope and checks. Never review your own
-commit or claim your own request. After opening one, claim and complete an
-available other-author review before returning to your task. Fix concrete
+For every authored commit, including merges, open an unassigned `review-request`
+Bead naming the exact commit, implementing agent, scope and checks. Never review
+your own commit or claim your own request. After opening one, claim and complete
+an available other-author review before returning to your task. Fix concrete
 findings in your own checkout, validate and publish them, and request review of
-each substantive fix. Scale review effort to the changed risk: inspect the
-relevant contract, affected consumer and evidence. For editorial-only prose,
-check claims, links and consistency in the owning Bead; a separate review
-request is unnecessary.
+each fix. Scale review effort to the changed risk: inspect the relevant contract,
+affected consumer and evidence. For editorial-only prose, check claims, links and
+consistency; reuse passing checks for unchanged inputs.
 
-A merge that only preserves disjoint changes already covered by pending or
-completed review requests needs no duplicate request. Verify both parents,
-relevant path and blob identity, unchanged test inputs and absence of a changed
-interface or combined behavior; record the result and original review references
-in the owning Bead. Changed interfaces, conflict resolutions or combined behavior
-need focused integration checks and an independent review request. Record a
-concrete verdict and evidence limits. Existing relevant review counts; review
-is not a pre-merge approval gate.
+For a disjoint preservation merge, verify both parents, relevant path and blob
+identity, unchanged test inputs and absence of changed interfaces or combined
+behavior. Record that proof in its review request and reuse the original checks
+and review evidence. Changed interfaces, conflict resolutions or combined behavior
+need focused integration checks. Record a concrete verdict and evidence limits.
+Existing relevant review counts; review is not a pre-merge approval gate.
 
 Record the actual landed revision and new results once, close satisfied work,
 flush Beads, and inspect Git status. Remaining implementation and human-play
