@@ -109,6 +109,30 @@ startup/gameplay freshness inventory. The installer checks Bazel's local source
 and BUILD dependency labels against it before compiling; new transitive
 packages must be declared there before installation.
 
+### Native package roles
+
+The product entrypoints are `//native/factory-launch:factory-project-capture`,
+`//native/factory-launch:factory-opening-startup` and
+`//native/factory-godot-world:factory-native-world.so`. Their Bazel dependency
+closure identifies native product packages; the committed
+`production-paths.txt` above owns the source inventory admitted for installation.
+Check both when adding a production dependency.
+
+The commit gate, gameplay installer, local tooling, Godot fixture runner,
+validation manifest and asset/foliage preparation packages provide delivery,
+test or offline art tools. The build-support runner also serves the product
+startup. Other mechanics workbenches, repair scenarios and focused native
+experiments remain selectable research and historical test consumers. Their
+presence under `native/` does not put them in the captured game, and absence
+from the product closure does not establish that their source is disposable.
+Use the owning Beads when changing their lifecycle.
+
+World, Host, opening-engineering and several delivery packages now default to
+private Bazel visibility, with explicit grants for their actual external
+consumers and public product entrypoints. Independent experiment packages
+retain broader visibility where workbenches compose targets across packages;
+check reverse dependencies before narrowing another target.
+
 ## Checks and local hooks
 
 Run `./scripts/install-hooks.sh` once. The hook validates the exact staged

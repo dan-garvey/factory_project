@@ -1,5 +1,6 @@
 #include "factory/world.hpp"
 #include "factory/crank_command_contract.hpp"
+#include "factory/material_command_contract.hpp"
 #include "harvest_planner.hpp"
 #include "plan_common.hpp"
 
@@ -308,17 +309,11 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 bool shape(const Object& intent, const std::string& action) {
     if (const auto crank = crank_commands::parse(action); crank != crank_commands::Action::none)
         return crank_commands::valid_intent(intent, crank);
-    if (action == "pickup_material") return keys(intent, {"center", "expected"}) && field<Object>(intent, "expected");
-    if (action == "place_sheet") return keys(intent, {"center", "sheet_id"}) &&
-        field<Value::Array>(intent, "center") && field<Integer>(intent, "sheet_id");
-    if (action == "push_channel_sheet")
-        return keys(intent, {"from", "to", "sheet_id"}) &&
-            field<Value::Array>(intent, "from") && field<Value::Array>(intent, "to") &&
-            field<Integer>(intent, "sheet_id");
-    if (action == "push_channel_small")
-        return keys(intent, {"from", "to", "form"}) &&
-            field<Value::Array>(intent, "from") && field<Value::Array>(intent, "to") &&
-            field<std::string>(intent, "form");
+    if (const auto material = material_commands::parse(action);
+        material != material_commands::Action::none)
+        return material == material_commands::Action::pickup ?
+            material_commands::valid_pickup_intent_before_geometry(intent) :
+            material_commands::valid_intent(intent, material);
     if (action == "stroke_broad_shear")
         return keys(intent, {"target", "generation", "sheet_id"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
