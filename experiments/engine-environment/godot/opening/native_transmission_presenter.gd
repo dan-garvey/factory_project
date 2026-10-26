@@ -1347,11 +1347,13 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			# feed ends clear for a future belt, within the native occupied body.
 			_support_box(anchor, "CastPedestalFoot", Vector3(0, bottom + 0.0275, 0),
 				Vector3(0.28, 0.055, 0.23), dark)
-			_support_box(anchor, "WorkbedWeb", Vector3(0, bottom + 0.15, 0),
-				Vector3(0.17, 0.245, 0.17), dark)
-			for z in [-0.091, 0.091]:
-				_support_box(anchor, "WorkbedStiffener", Vector3(0, bottom + 0.16, z),
-					Vector3(0.21, 0.205, 0.016), worked)
+			for x in [-0.10, 0.10]:
+				for z in [-0.07, 0.07]:
+					_support_box(anchor, "WorkbedLeg%d" % anchor.get_child_count(),
+						Vector3(x, bottom + 0.15125, z), Vector3(0.055, 0.1925, 0.045), dark)
+			for z in [-0.09, 0.09]:
+				_support_box(anchor, "WorkbedTopRail%d" % anchor.get_child_count(),
+					Vector3(0, bottom + 0.2225, z), Vector3(0.31, 0.05, 0.03), worked)
 			_support_box(anchor, "CastBolster", Vector3(0, top - 0.095, 0),
 				Vector3(0.34, 0.14, 0.235), dark, true)
 			_support_box(anchor, "OpenAnvilSeat", Vector3(0, top - 0.0275, 0),
@@ -1368,6 +1370,12 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var face_iron := Visuals.material(Color("707c79"), 0.63, 0.46)
 			_support_box(anchor, "JoinedWorkbedBase", Vector3(0, bottom + 0.055, 0),
 				Vector3(occupied_size.x - 0.12, 0.11, occupied_size.z - 0.12), dark, true)
+			var leg_height := occupied_size.y - 0.27
+			for x in [-1.35, 1.35]:
+				for z in [-1.35, 1.35]:
+					_support_box(anchor, "JoinedWorkbedLeg%d" % anchor.get_child_count(),
+						Vector3(x, bottom + 0.11 + leg_height * 0.5, z),
+						Vector3(0.18, leg_height, 0.18), dark, true)
 			for x in [-0.79, 0.79]:
 				for z in [-0.79, 0.79]:
 					_support_box(anchor, "WorkbedFace", Vector3(x, top - 0.08, z),

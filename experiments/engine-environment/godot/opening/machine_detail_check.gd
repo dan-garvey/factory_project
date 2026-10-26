@@ -4518,12 +4518,12 @@ func die_box_gap(a: AABB, b: AABB) -> float:
 	return maxf(maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x),
 		maxf(a.position.y - b.end.y, b.position.y - a.end.y)), maxf(a.position.z - b.end.z, b.position.z - a.end.z))
 
-func die_supports(machine: Node3D, rib: MeshInstance3D) -> bool:
+func die_supports(machine: Node3D, support: MeshInstance3D) -> bool:
 	var deck: MeshInstance3D = machine.get_node("Plinth")
 	var anvil: MeshInstance3D = machine.get_node("Anvil")
-	var probe := Vector2(rib.position.x, rib.position.z)
-	var base := die_height(rib.mesh, 0, rib.transform, probe, false)
-	var top := die_height(rib.mesh, 0, rib.transform, probe, true)
+	var probe := Vector2(support.position.x, support.position.z)
+	var base := die_height(support.mesh, 0, support.transform, probe, false)
+	var top := die_height(support.mesh, 0, support.transform, probe, true)
 	var deck_top := die_height(deck.mesh, 0, deck.transform, probe, true)
 	var anvil_base := die_height(anvil.mesh, 0, anvil.transform, probe, false)
 	return is_finite(base) and is_finite(top) and is_finite(deck_top) and is_finite(anvil_base) \
@@ -4574,10 +4574,13 @@ func check_press_die() -> void:
 				var anvil: MeshInstance3D = machine.get_node("Anvil")
 				var piston: MeshInstance3D = machine.get_node("Piston")
 				var drive: MeshInstance3D = machine.get_node("DriveStub")
-				var ribs: Array[MeshInstance3D] = [machine.get_node("AnvilPedestalLeft"), machine.get_node("AnvilPedestalRight")]
+				var legs := machine.find_children("WorkbedLeg*", "MeshInstance3D", false, false)
+				var frame_parts := machine.find_children("Workbed*", "MeshInstance3D", false, false)
 				verify(head.mesh == DieArt.tool_mesh() and anvil.mesh == DieArt.anvil_mesh()
 					and head.position.is_equal_approx(Vector3(0, 0.84, 0)) and anvil.position == Vector3(0, 0.46, 0.05),
-					"The ordinary native builder mounts the die and saddle at their literal original centres.")
+					"The ordinary native builder mounts the die and workbed at their literal original centres.")
+				verify(legs.size() == 4 and frame_parts.size() == 10,
+					"Four legs, their feet and two ties support the fixed workbed without a second machine part.")
 				verify(head.mesh.get_aabb().size.is_equal_approx(Vector3(0.56, 0.17, 0.55))
 					and anvil.mesh.get_aabb().size.is_equal_approx(Vector3(0.7, 0.16, 0.63)),
 					"The new complete head and anvil keep the exact original local envelopes.")
@@ -4590,7 +4593,7 @@ func check_press_die() -> void:
 						and part.mesh.surface_get_name(2) == "MountingHardware" and part.get_child_count() == 0 and part.get_script() == null,
 						"Each rigid tool keeps three material surfaces in one passive cached mesh, without extra controllers or detail-node motion.")
 					if not cache.has(role):
-						var volumes: Array = [[0.030, 0.036], [0.013, 0.014], [0.0020, 0.0025]] if is_head else [[0.039, 0.0401], [0.010, 0.011], [0.0003, 0.0006]]
+						var volumes: Array = [[0.030, 0.036], [0.013, 0.014], [0.0020, 0.0025]] if is_head else [[0.04, 0.05], [0.010, 0.011], [0.0003, 0.0006]]
 						for surface in range(3):
 							var isolated := SurfaceTool.new()
 							isolated.create_from(part.mesh, surface)
@@ -4600,18 +4603,22 @@ func check_press_die() -> void:
 				var rows: Array = machine.get_meta("motion_meshes")
 				verify(rows.size() == 2 and rows[0].node == head and rows[1].node == piston,
 					"Only the original head and piston consume the existing observed travel.")
-				var fixed: Array[Transform3D] = [anvil.transform, ribs[0].transform, ribs[1].transform]
-				for rib in ribs:
-					verify(rib.mesh == DieArt.pedestal_mesh() and rib.get_script() == null and rib.get_child_count() == 0
-						and rib.material_override == Coating.material(Color("394a44")) and die_supports(machine, rib),
-						"Fixed cast ribs meet the actual skid top and anvil bottom across the original visible support gap.")
-					if not cache.has("rib"):
-						check_closed_asset_mesh(rib.mesh, 0.0044, 0.0049)
-						cache.rib = rib.mesh
-					var gap := die_box_gap(rib.transform * rib.mesh.get_aabb(), drive.transform * drive.mesh.get_aabb())
+				var fixed: Array[Transform3D] = [anvil.transform]
+				for leg_node in legs:
+					var leg := leg_node as MeshInstance3D
+					fixed.append(leg.transform)
+					verify(leg.mesh == DieArt.frame_mesh(Vector3(0.065, 0.14, 0.065))
+						and leg.get_script() == null and leg.get_child_count() == 0
+						and leg.material_override == Coating.material(Color("394a44"))
+						and die_supports(machine, leg),
+						"Fixed table legs meet the grounded plinth and underside of the workbed.")
+					if not cache.has("leg"):
+						check_closed_asset_mesh(leg.mesh, 0.00055, 0.00060)
+						cache.leg = leg.mesh
+					var gap := die_box_gap(leg.transform * leg.mesh.get_aabb(), drive.transform * drive.mesh.get_aabb())
 					minimum_drive_gap = minf(minimum_drive_gap, gap)
-					verify(gap > 0.02, "The added support clears the unchanged drive journal on every native axis.")
-					check_bounds(rib, Transform3D.IDENTITY)
+					verify(gap > 0.02, "The table legs clear the unchanged drive journal on every native axis.")
+					check_bounds(leg, Transform3D.IDENTITY)
 				var picks := 0
 				for child in machine.get_children():
 					if child is StaticBody3D:
@@ -4628,9 +4635,11 @@ func check_press_die() -> void:
 					var anvil_plane := die_height(anvil.mesh, 1, anvil.transform, Vector2.ZERO, true)
 					verify(absf(head_plane - (0.755 - travel)) < 0.000001 and absf(anvil_plane - 0.54) < 0.000001,
 						"Actual centre working faces retain the old literal lower die and upper anvil planes at both endpoints and the intermediate pose.")
-					verify(anvil.transform == fixed[0] and ribs[0].transform == fixed[1] and ribs[1].transform == fixed[2]
-						and is_equal_approx((piston.transform * piston.mesh.get_aabb()).end.y, 1.365),
-						"The saddle, pedestal and original rod top stay fixed while the complete die follows its existing motion anchor.")
+					var supports_fixed := anvil.transform == fixed[0]
+					for index in range(legs.size()):
+						supports_fixed = supports_fixed and legs[index].transform == fixed[index + 1]
+					verify(supports_fixed and is_equal_approx((piston.transform * piston.mesh.get_aabb()).end.y, 1.365),
+						"The workbed, table legs and original rod top stay fixed while the die follows its motion anchor.")
 				view._apply_press_pose(rows, 0.0)
 				view.state.stock.source = 15
 				view.state.stock.held = 1
@@ -4672,9 +4681,9 @@ func check_press_die() -> void:
 					verify(die_height(head.mesh, 1, head.transform, Vector2.ZERO, false) + machine.position.y - item_top < 0.002,
 						"The same working-face oracle rejects a die displaced into the real held billet.")
 					head.transform = paused
-					ribs[0].position.y += 0.01
-					verify(not die_supports(machine, ribs[0]), "A floating pedestal fails the same actual support-plane oracle.")
-					ribs[0].transform = fixed[1]
+					legs[0].position.y += 0.01
+					verify(not die_supports(machine, legs[0]), "A floating table leg fails the same support-plane oracle.")
+					legs[0].transform = fixed[1]
 					var material := head.get_surface_override_material(0)
 					head.set_surface_override_material(0, head.get_surface_override_material(1))
 					verify(not die_materials(head, Color("58634c")), "A uniform metal substitution cannot pass the coating and working-face separation.")
@@ -4689,7 +4698,7 @@ func check_press_die() -> void:
 				view._rebuild_machines()
 				var rebuilt: Node3D = view.machine_root.get_child(0)
 				verify(rebuilt.get_node("ToolHead").mesh == cache.head and rebuilt.get_node("Anvil").mesh == cache.anvil
-					and rebuilt.get_node("AnvilPedestalLeft").mesh == cache.rib,
+					and rebuilt.find_child("WorkbedLeg*", false, false).mesh == cache.leg,
 					"Removal and rebuilding reuse passive geometry without carrying an old moving instance into a new generation.")
 				assemblies += 1
 				view.free()
@@ -4775,8 +4784,13 @@ func check_press_output_tray() -> void:
 				var tray: MeshInstance3D = machine.get_node("OutputTray")
 				var drive: MeshInstance3D = machine.get_node("DriveStub")
 				var anvil: MeshInstance3D = machine.get_node("Anvil")
-				var parts: Array[MeshInstance3D] = [tray, machine.get_node("TrayBracketLeft"), machine.get_node("TrayBracketRight"),
-					anvil, machine.get_node("AnvilPedestalLeft"), machine.get_node("AnvilPedestalRight")]
+				var parts: Array[MeshInstance3D] = [tray, machine.get_node("TrayBracketLeft"),
+					machine.get_node("TrayBracketRight"), anvil]
+				var legs := machine.find_children("WorkbedLeg*", "MeshInstance3D", false, false)
+				for frame_part in machine.find_children("Workbed*", "MeshInstance3D", false, false):
+					parts.append(frame_part as MeshInstance3D)
+				verify(parts.size() == 14 and legs.size() == 4,
+					"The outlet fixture includes every table support beside the pan and finished plate.")
 				var plate: Node3D = null
 				var plate_count := 0
 				for item in view.item_root.get_children():
@@ -4808,17 +4822,17 @@ func check_press_output_tray() -> void:
 						isolated.create_from(parts[1].mesh, surface)
 						check_closed_asset_mesh(isolated.commit(), 0.0010 if surface == 0 else 0.0000015,
 							0.0012 if surface == 0 else 0.0000021)
-					check_closed_asset_mesh(parts[4].mesh, 0.0044, 0.0049)
-					var saddle_surface := SurfaceTool.new()
-					saddle_surface.create_from(anvil.mesh, 0)
-					check_closed_asset_mesh(saddle_surface.commit(), 0.039, 0.0401)
-					cache = {"tray": tray.mesh, "bracket": parts[1].mesh, "rib": parts[4].mesh, "anvil": anvil.mesh}
+					check_closed_asset_mesh(parts[4].mesh, 0.00055, 0.00060)
+					var bolster_surface := SurfaceTool.new()
+					bolster_surface.create_from(anvil.mesh, 0)
+					check_closed_asset_mesh(bolster_surface.commit(), 0.04, 0.05)
+					cache = {"tray": tray.mesh, "bracket": parts[1].mesh, "leg": parts[4].mesh, "anvil": anvil.mesh}
 				verify(tray.mesh == cache.tray and parts[1].mesh == cache.bracket and parts[2].mesh == cache.bracket
-					and parts[4].mesh == cache.rib and anvil.mesh == cache.anvil,
+					and parts[4].mesh == cache.leg and anvil.mesh == cache.anvil,
 					"Both view classes, every axis and translated placements share the complete cached rigid meshes.")
 				verify(anvil.position == Vector3(0, 0.46, 0.05) and anvil.mesh.get_aabb().size.is_equal_approx(Vector3(0.7, 0.16, 0.63))
 					and absf(die_height(anvil.mesh, 1, anvil.transform, Vector2.ZERO, true) - 0.54) < 0.000001,
-					"The relieved saddle preserves the complete original envelope, centre and working plane around its existing machine drive interface.")
+					"The relieved bolster preserves the original envelope, centre and working plane around its drive interface.")
 				var rows: Array = machine.get_meta("motion_meshes")
 				verify(rows.size() == 2 and str(rows[0].node.name) == "ToolHead" and str(rows[1].node.name) == "Piston",
 					"The original head and piston remain the only moving press parts.")
@@ -4829,12 +4843,11 @@ func check_press_output_tray() -> void:
 					var gap := tray_mesh_gap(part, plate_box)
 					minimum_plate_gap = minf(minimum_plate_gap, gap)
 					verify(gap > 0.000001, "Every actual raw outlet, anvil and support facet clears the conservative complete output-plate box.")
-					# The original journal enters the complete anvil body. Do not
-					# confuse that retained interface with the new free-standing
-					# supports. The reseated anvil fasteners must clear it too.
+					# The original journal enters the workbed body. The added table
+					# supports and its fasteners must remain clear of that interface.
 					var drive_gap := tray_mesh_gap(part, drive.transform * drive.mesh.get_aabb(), 2 if part == anvil else -1)
 					minimum_drive_gap = minf(minimum_drive_gap, drive_gap)
-					verify(drive_gap > 0.02, "The new pan, brackets, narrowed pedestals and reseated anvil fasteners clear every original drive axis.")
+					verify(drive_gap > 0.02, "The pan, brackets, table supports and workbed fasteners clear every original drive axis.")
 					check_bounds(part, Transform3D.IDENTITY)
 				for bracket in [parts[1], parts[2]]:
 					verify(bracket.mesh.get_surface_count() == 2 and bracket.material_override == null
@@ -4842,12 +4855,12 @@ func check_press_output_tray() -> void:
 						and bracket.get_surface_override_material(1) == ProductionTransmissionFinish.material("worked", Color("b8c3bb"), 0.85, 0.38)
 						and tray_bracket_seated(machine, bracket),
 						"Fixed coated brackets and worked foot fasteners meet the actual skid and pan underside at three independent support probes.")
-				for rib in [parts[4], parts[5]]:
-					verify(die_supports(machine, rib), "The narrowed anvil pedestals still meet the actual deck and complete anvil underside.")
+				for leg in legs:
+					verify(die_supports(machine, leg), "Each table leg meets the actual plinth and workbed underside.")
 				for part in [tray, parts[1], parts[2]]:
 					var gap := tray_mesh_gap(anvil, part.transform * part.mesh.get_aabb())
 					minimum_saddle_gap = minf(minimum_saddle_gap, gap)
-					verify(gap > 0.000001, "The pan and its brackets also clear the actual relieved anvil facets.")
+					verify(gap > 0.000001, "The pan and its brackets also clear the actual relieved bolster facets.")
 				var protected_rows: Array[Dictionary] = []
 				for part in parts:
 					protected_rows.append({"name": str(part.name), "bounds": part.transform * part.mesh.get_aabb()})
@@ -4883,12 +4896,14 @@ func check_press_output_tray() -> void:
 					var old_rib := PackedVector2Array([Vector2(-0.09, -0.07), Vector2(0.09, -0.07), Vector2(0.09, -0.045),
 						Vector2(0.045, -0.045), Vector2(0.04, 0.045), Vector2(0.075, 0.045), Vector2(0.075, 0.07),
 						Vector2(-0.075, 0.07), Vector2(-0.075, 0.045), Vector2(-0.04, 0.045), Vector2(-0.045, -0.045), Vector2(-0.09, -0.045)])
-					parts[5].mesh = Visuals.prism_mesh(old_rib, 0.53, 0.003)
-					parts[5].position.x = 0.22
-					var old_rib_gap := tray_mesh_gap(parts[5], plate_box)
+					var outlet_leg := legs[3] as MeshInstance3D
+					var outlet_leg_index := parts.find(outlet_leg)
+					outlet_leg.mesh = Visuals.prism_mesh(old_rib, 0.53, 0.003)
+					outlet_leg.position.x = 0.22
+					var old_rib_gap := tray_mesh_gap(outlet_leg, plate_box)
 					verify(old_rib_gap <= 0, "The exact former wide rib and centre fail the same positive-clearance predicate; contact is not clearance.")
-					parts[5].mesh = cache.rib
-					parts[5].transform = fixed[5]
+					outlet_leg.mesh = cache.leg
+					outlet_leg.transform = fixed[outlet_leg_index]
 					var old_saddle := PackedVector2Array([Vector2(-0.35, -0.08), Vector2(0.35, -0.08), Vector2(0.35, -0.045),
 						Vector2(0.27, -0.045), Vector2(0.24, -0.015), Vector2(0.24, 0.04), Vector2(-0.24, 0.04),
 						Vector2(-0.24, -0.015), Vector2(-0.27, -0.045), Vector2(-0.35, -0.045)])
@@ -4903,7 +4918,7 @@ func check_press_output_tray() -> void:
 				view._rebuild_machines()
 				var rebuilt: Node3D = view.machine_root.get_child(0)
 				verify(rebuilt.get_node("OutputTray").mesh == cache.tray and rebuilt.get_node("TrayBracketLeft").mesh == cache.bracket
-					and rebuilt.get_node("AnvilPedestalRight").mesh == cache.rib,
+					and rebuilt.find_child("WorkbedLeg*", false, false).mesh == cache.leg,
 					"Replacement generations reuse cached geometry rather than carrying old nodes or adding structural inventory.")
 				view.state.entities.clear()
 				view.state.stock.source = 16
