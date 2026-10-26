@@ -84,6 +84,58 @@ int main() {
         check(std::holds_alternative<m::CodecRefusal>(wrong_profile),
               "The one-to-one fixture cannot load a copper checkpoint as its own schema.");
     }
+    m::State retained;
+    retained.initial_units = 2;
+    retained.cargo.emplace("P", m::Cargo{});
+    retained.cargo.emplace("Q", m::Cargo{});
+    retained.dropped_material.emplace(work, m::Cargo{1, 0, {}});
+    retained.dropped_material.emplace(exit, m::Cargo{0, 1, {}});
+    retained.dropped_material.at(exit).offcuts = 1;
+    check(m::turn_press(retained, recipe, path, work, exit, false,
+              m::PressOutputLocation::supported_work) == m::Error::none &&
+          m::turn_press(retained, recipe, path, work, exit, false,
+              m::PressOutputLocation::supported_work) == m::Error::none &&
+          m::turn_press(retained, recipe, path, work, exit, false,
+              m::PressOutputLocation::supported_work) == m::Error::none &&
+          retained.dropped_material.at(work).products == 1 &&
+          retained.dropped_material.at(work).offcuts == 1 &&
+          retained.dropped_material.at(work).work_lots.empty() &&
+          retained.dropped_material.at(exit).products == 1 &&
+          m::validate(retained, recipe, path) == m::Error::none,
+          "An occupied neighboring exit does not eject or block a newly formed supported plate.");
+    const auto held_on_support = retained;
+    check(m::turn_press(retained, recipe, path, work, exit, false,
+              m::PressOutputLocation::supported_work) == m::Error::unavailable_input &&
+          retained == held_on_support,
+          "Another stroke cannot overwrite a finished plate or reprocess its offcut.");
+    const auto retained_checkpoint = m::encode_material_state(retained, recipe, path, {"P", "Q"});
+    m::MaterialDecoding decoded_retained = m::CodecRefusal{};
+    if (const auto* value = std::get_if<v::Value>(&retained_checkpoint))
+        decoded_retained = m::decode_material_state(*value, recipe, path, {"P", "Q"});
+    check(std::holds_alternative<v::Value>(retained_checkpoint) &&
+          std::holds_alternative<m::State>(decoded_retained) &&
+          std::get<m::State>(decoded_retained) == retained,
+          "Save and reload keep a plate and its offcut at the supported work point.");
+    check(m::pickup_material(retained, recipe, path, "Q", work) == m::Error::none &&
+          retained.cargo.at("Q").products == 1 && retained.cargo.at("Q").offcuts == 1 &&
+          retained.dropped_material.at(exit).products == 1 &&
+          m::validate(retained, recipe, path) == m::Error::none,
+          "A second actor can collect the supported plate without taking the neighboring output.");
+    m::State retained_powered = held_on_support;
+    retained_powered.dropped_material.at(work) = m::Cargo{1, 0, {}};
+    retained_powered.cargo.at("P").products = 1;
+    retained_powered.cargo.at("P").offcuts = 1;
+    retained_powered.initial_units = 3;
+    m::PressStep support_step{work, exit};
+    support_step.output_location = m::PressOutputLocation::supported_work;
+    check(m::step_presses(retained_powered, recipe, path, {support_step}) == m::Error::none &&
+          m::step_presses(retained_powered, recipe, path, {support_step}) == m::Error::none &&
+          m::step_presses(retained_powered, recipe, path, {support_step}) == m::Error::none &&
+          retained_powered.dropped_material.at(work).products == 1 &&
+          retained_powered.dropped_material.at(work).offcuts == 1 &&
+          retained_powered.dropped_material.at(exit).products == 1 &&
+          m::validate(retained_powered, recipe, path) == m::Error::none,
+          "Powered pressing also keeps its finished plate on the support despite a full exit.");
     m::State compact;
     compact.initial_units = 1;
     compact.cargo.emplace("P", m::Cargo{});
@@ -175,7 +227,7 @@ int main() {
     state.cargo.at("P").offcuts = 0;
     check(m::validate(state, recipe, path) == m::Error::invalid_state,
           "Removing even one offcut unit breaks native mass conservation.");
-    check(before != formed && checks == 32, "The fixture exercised actual stock and formed states.");
+    check(before != formed && checks == 37, "The fixture exercised actual stock and formed states.");
     std::cout << "{\"checks\":" << checks << ",\"evidence\":\"copper_material_mass\"}\n";
-    return failures == 0 && checks == 33 ? 0 : 1;
+    return failures == 0 && checks == 38 ? 0 : 1;
 }

@@ -345,11 +345,14 @@ enum class Error {
 
 // A placed press uses the same work clock and material ledger as the legacy
 // processor. World authenticates the crank, assembly, selected exit and reach.
-// The first turn starts a lot; later turns advance it one tick. A ready lot
-// waits at the work point until its physical exit can receive the product.
+// The first turn starts a lot; later turns advance it one tick. The default
+// releases a ready plate at a clear exit; supported_work instead forms it at
+// the work point without moving it to a neighboring square.
+enum class PressOutputLocation { selected_exit, supported_work };
 [[nodiscard]] Error turn_press(State&, const Config&, const Path&,
                                const DropPoint& work, const DropPoint& exit,
-                               bool plate_receiver = false);
+                               bool plate_receiver = false,
+                               PressOutputLocation output_location = PressOutputLocation::selected_exit);
 
 // World admits the four-cell contact, actor reach, live coupled drive and
 // outlet footprint before these custody changes. Feeding moves three carried
@@ -399,6 +402,9 @@ struct PressStep {
     // A fitted plate tray can retain four distinct completed workpieces at
     // the exit. World owns the tray geometry and the work identity ledger.
     bool plate_receiver{};
+    // Manual or powered forming can finish on the support. A later, separately
+    // admitted transfer may move the plate to an exit or transport receiver.
+    PressOutputLocation output_location{PressOutputLocation::selected_exit};
     bool operator==(const PressStep&) const = default;
 };
 [[nodiscard]] Error step_presses(State&, const Config&, const Path&,
