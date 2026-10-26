@@ -103,7 +103,7 @@ func _record(status: String, reason: String = "") -> void:
 		status = "fail"
 		reason = "The selected keyboard popup route did not execute every custody transfer"
 	if status == "pass" and event_route_pointer and (event_route_pointer_placements !=
-			(3 if mode == "arrival-raised-starter-snap" else 2)
+			(5 if mode == "arrival-raised-press" else 3 if mode == "arrival-raised-starter-snap" else 2)
 			or event_route_pointer_suppressed != 1):
 		status = "fail"
 		reason = "The selected pointer route did not execute every placement and its pause-menu refusal"
@@ -952,7 +952,7 @@ func _run() -> void:
 	if not OpeningScene.apply_test_window_title(self):
 		return
 	if event_route_loose and mode not in ["arrival-channel-small", "arrival-channel-small-resume"] \
-			or event_route_pointer and mode not in ["arrival-first-plate", "arrival-raised-starter-snap"]:
+			or event_route_pointer and mode not in ["arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-press"]:
 		push_error("The selected event route does not apply to this fixture mode")
 		quit(1)
 		return
@@ -4262,7 +4262,26 @@ func _arrival_run() -> void:
 				if not _expect(pointed == target_id and opening._component_place_center(tile, pointed) == ghost_center,
 						"The persistent actor-eye aim keeps the guide click on the visible ghost after its rendered frame"):
 					return
-			opening._world_click(tile, pointed)
+			if raised:
+				if index == 2:
+					var paused_before: Dictionary = _construction_custody()
+					opening._open_pause_menu()
+					if not _expect(opening.pause_menu.visible,
+							"Pause opens over the aimed raised guide placement"):
+						return
+					await _ordinary_left_click(screen)
+					if not _expect(_construction_custody() == paused_before,
+							"A viewport click while paused cannot place the raised guide"):
+						return
+					event_route_pointer_suppressed += 1
+					await _ordinary_key(KEY_ESCAPE)
+					if not _expect(not opening.pause_menu.visible,
+							"Escape closes pause before the raised guide is fitted"):
+						return
+				await _ordinary_left_click(screen)
+				event_route_pointer_placements += 1
+			else:
+				opening._world_click(tile, pointed)
 		else:
 			opening.component_nudge_active = true
 			opening.component_nudge_center = requested_center.duplicate()
