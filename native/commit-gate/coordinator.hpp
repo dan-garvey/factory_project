@@ -1,17 +1,13 @@
 #pragma once
 
+#include "git_reader.hpp"
+
 #include <filesystem>
-#include <functional>
 #include <string>
 #include <vector>
 
 namespace factory::commit_gate {
 
-struct GitResult {
-    int exit_code;
-    std::string output;
-};
-using GitReader = std::function<GitResult(const std::vector<std::string>&)>;
 struct Plan {
     std::string tree;
     bool compile_gdscript;
