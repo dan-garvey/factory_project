@@ -4711,6 +4711,8 @@ var object_menu_desired_extent := Vector2i(500, 400)
 var object_menu_viewport_size := Vector2i.ZERO
 var object_menu_target := ""
 var object_menu_closed_frame := -1
+var mouse_capture_owned := false
+var mouse_capture_skip_motion := false
 var pause_menu: PanelContainer
 var pause_menu_scrim: ColorRect
 var pause_resume_button: Button
@@ -4815,6 +4817,10 @@ func _ready() -> void:
 				configure_save_slot(argument.trim_prefix("--save-slot="))
 	_build_world()
 	_build_interface()
+	for menu: Node in [object_menu, pause_menu, pause_exit_confirmation,
+			building_hotbar.catalog, manager_log_layer, lesson_panel]:
+		if menu != null:
+			menu.connect("visibility_changed", _on_mouse_menu_visibility_changed)
 	_refresh()
 	if _native_transmission():
 		if state.has("hand_sources"):
@@ -4908,7 +4914,8 @@ func _actor_failed(actor: String, reason: String) -> void:
 	get_tree().quit(1)
 
 func _can_control_character() -> bool:
-	return _actor_ready_for_actions() and not _object_menu_open() and not _pause_menu_open()
+	return _actor_ready_for_actions() and not _object_menu_open() and not _pause_menu_open() \
+		and DisplayServer.window_get_active_popup() == DisplayServer.INVALID_WINDOW_ID
 
 func _actor_ready_for_actions() -> bool:
 	return not legacy_fixture and not arrival_reveal_active and not manager_log_open and not _catalog_open() and not explanation_open \
@@ -5484,6 +5491,7 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 	return fallback
 
 func _process(delta: float) -> void:
+	_sync_mouse_capture()
 	_update_fps_counter(delta)
 	_advance_held_crank(delta)
 	if actor_world != null:
@@ -5732,8 +5740,60 @@ func _apply_press_pose(rows: Array, travel: float) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		_stop_held_crank()
+		_release_character_controls()
+		_release_mouse_capture()
+
+func _exit_tree() -> void:
+	_release_mouse_capture()
+
+func _mouse_capture_allowed(window_focused: bool, popup_open: bool) -> bool:
+	return not legacy_fixture and distance <= 0.0 and window_focused and not popup_open \
+		and _can_control_character() and (pause_exit_confirmation == null or not pause_exit_confirmation.visible)
+
+func _wants_mouse_capture() -> bool:
+	return _mouse_capture_allowed(DisplayServer.window_is_focused(),
+		DisplayServer.window_get_active_popup() != DisplayServer.INVALID_WINDOW_ID)
+
+func _release_mouse_capture() -> void:
+	if not mouse_capture_owned:
+		return
+	mouse_capture_owned = false
+	mouse_capture_skip_motion = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _on_mouse_menu_visibility_changed() -> void:
+	if not _can_control_character():
+		_release_character_controls()
+		_stop_held_crank()
+	_sync_mouse_capture()
+
+func _sync_mouse_capture() -> void:
+	if not _wants_mouse_capture():
+		if mouse_capture_owned and (not DisplayServer.window_is_focused() or not _can_control_character()):
+			_release_character_controls()
+			_stop_held_crank()
+		_release_mouse_capture()
+		return
+	if not mouse_capture_owned or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		mouse_capture_owned = true
+		# Capture can warp the pointer. Ignore that first relative event.
+		mouse_capture_skip_motion = true
+
+func _rotate_camera_from_mouse(relative: Vector2) -> void:
+	orbit_yaw -= relative.x * 0.007
+	orbit_pitch = clampf(orbit_pitch + relative.y * 0.005,
+		-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and mouse_capture_owned and _wants_mouse_capture():
+		if mouse_capture_skip_motion:
+			mouse_capture_skip_motion = false
+		else:
+			_rotate_camera_from_mouse(event.relative)
+			_update_camera()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.keycode == KEY_E and not event.pressed:
 		_stop_held_crank()
 	if arrival_reveal_active:
@@ -5980,9 +6040,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-			orbit_yaw -= event.relative.x * 0.007
-			orbit_pitch = clampf(orbit_pitch + event.relative.y * 0.005,
-				-1.25 if not legacy_fixture and distance == 0.0 else 0.35, 1.25)
+			_rotate_camera_from_mouse(event.relative)
 		elif not component_nudge_active:
 			hover_cell = _screen_cell(event.position)
 			_update_cursor()

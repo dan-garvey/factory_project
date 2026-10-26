@@ -31,6 +31,11 @@ arguments. `--render-buildable-resources` may combine its declared
 exit 2 before any case runs. Existing suite-specific completion and exit
 contracts remain; resource renders are isolated passive evidence.
 
+`guidance_cue_check.gd --mouse-look-only` emits `OPENING_MOUSE_LOOK_PASS 15`.
+It checks first-person capture policy, relative camera motion, menu release and
+held-key refusal in a headless view. It does not establish actual OS focus or
+human mouse control.
+
 Build `//native/godot-fixture:factory-godot-fixture` with the verified Bazel
 8.4.2 toolchain described in [native builds](../../docs/engineering/native-builds.md).
 Then run from a linked checkout, substituting existing absolute paths, the

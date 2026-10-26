@@ -52,6 +52,7 @@ var native_sample_frames: Dictionary = {}
 var visual_context := ""
 var eye_multitool: Node3D
 var cut_motion: Dictionary = {}
+var world_space_held := false
 
 func configure(view) -> void:
 	host = view
@@ -69,6 +70,7 @@ func _ready() -> void:
 func release() -> void:
 	held_keys.clear()
 	jump_requested = false
+	world_space_held = false
 	last_direction = Vector2.ZERO
 	if host != null:
 		host._release_character_input()
@@ -78,14 +80,25 @@ func _input(event: InputEvent) -> void:
 		return
 	if event.keycode in [KEY_W, KEY_A, KEY_S, KEY_D]:
 		if event.pressed and not event.echo:
+			if not host._can_control_character():
+				return
 			held_keys[event.keycode] = true
 		elif not event.pressed:
+			if not held_keys.has(event.keycode):
+				return
 			held_keys.erase(event.keycode)
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_SPACE:
 		if event.pressed and not event.echo:
+			if not host._can_control_character():
+				return
 			jump_requested = true
-		# Consume both edges so a focused GUI button cannot also activate.
+			world_space_held = true
+		elif not event.pressed:
+			if not world_space_held:
+				return
+			world_space_held = false
+		# Consume both edges of a world jump so a focused GUI button cannot activate.
 		get_viewport().set_input_as_handled()
 
 func _physics_process(_delta: float) -> void:

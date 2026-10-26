@@ -5,6 +5,7 @@ extends SceneTree
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
 const NativeModel = preload("res://opening/native_model.gd")
+const CharacterPresenter = preload("res://opening/character_presenter.gd")
 var checks := 0
 var camera_failed := false
 var failed := false
@@ -858,6 +859,15 @@ class ZoomView extends Opening:
 	func _ready() -> void: pass
 	func _process(_delta: float) -> void: pass
 
+class MouseLookView extends ZoomView:
+	var capture_allowed := false
+	func _wants_mouse_capture() -> bool: return capture_allowed
+
+class MouseLookPresenter extends CharacterPresenter:
+	func _ready() -> void: pass
+	func _process(_delta: float) -> void: pass
+	func _physics_process(_delta: float) -> void: pass
+
 class SharedZoomView extends SharedOpening:
 	func _ready() -> void: pass
 	func _process(_delta: float) -> void: pass
@@ -987,6 +997,88 @@ func check_camera_zoom() -> void:
 	print("OPENING_CAMERA_ZOOM_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
 	quit(1 if camera_failed else 0)
 
+func check_mouse_look() -> void:
+	var view := MouseLookView.new()
+	view.client = "P"
+	view.state = {"actors": {"P": {"ready": true}}}
+	view.distance = 0.0
+	view.orbit_yaw = 0.0
+	view.orbit_pitch = 0.0
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	root.add_child(view)
+	verify_camera(view._mouse_capture_allowed(true, false),
+		"Focused first-person world view requests button-free mouse look.")
+	verify_camera(not view._mouse_capture_allowed(false, false)
+		and not view._mouse_capture_allowed(true, true),
+		"Unfocused windows and active popups cannot capture the pointer.")
+	view.pause_menu = PanelContainer.new()
+	view.add_child(view.pause_menu)
+	verify_camera(not view._mouse_capture_allowed(true, false),
+		"The Worksite menu releases the pointer.")
+	view.pause_menu.hide()
+	view.manager_log_open = true
+	verify_camera(not view._mouse_capture_allowed(true, false),
+		"The Work log releases the pointer.")
+	view.manager_log_open = false
+	view.explanation_open = true
+	verify_camera(not view._mouse_capture_allowed(true, false),
+		"Help releases the pointer.")
+	view.explanation_open = false
+	view.arrival_reveal_active = true
+	verify_camera(not view._mouse_capture_allowed(true, false),
+		"The arrival reveal cannot capture the pointer.")
+	view.arrival_reveal_active = false
+	view.distance = 1.0
+	verify_camera(not view._mouse_capture_allowed(true, false),
+		"Third-person orbit retains its button-held pointer route.")
+	view.distance = 0.0
+	view.capture_allowed = true
+	view._sync_mouse_capture()
+	verify_camera(view.mouse_capture_owned and view.mouse_capture_skip_motion,
+		"Entering first person requests capture and arms warp suppression.")
+	var motion := InputEventMouseMotion.new()
+	motion.relative = Vector2(160, -60)
+	view._input(motion)
+	verify_camera(view.orbit_yaw == 0.0 and view.orbit_pitch == 0.0,
+		"The first relative event after capture cannot jump the camera.")
+	view._input(motion)
+	verify_camera(is_equal_approx(view.orbit_yaw, -1.12)
+		and is_equal_approx(view.orbit_pitch, -0.3),
+		"Button-free relative motion rotates the first-person camera.")
+	view.capture_allowed = false
+	view._sync_mouse_capture()
+	verify_camera(not view.mouse_capture_owned and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE,
+		"Closing world interaction restores a visible cursor.")
+	view._input(motion)
+	verify_camera(is_equal_approx(view.orbit_yaw, -1.12),
+		"Relative motion while a menu owns interaction cannot drift the camera.")
+	var presenter := MouseLookPresenter.new()
+	presenter.configure(view)
+	view.add_child(presenter)
+	view.character_presenter = presenter
+	var walk := InputEventKey.new()
+	walk.keycode = KEY_W
+	walk.pressed = true
+	presenter._input(walk)
+	verify_camera(presenter.held_keys.has(KEY_W),
+		"World movement can begin while the world owns input.")
+	view.pause_menu.show()
+	view._release_character_controls()
+	presenter._input(walk)
+	var jump := InputEventKey.new()
+	jump.keycode = KEY_SPACE
+	jump.pressed = true
+	presenter._input(jump)
+	verify_camera(presenter.held_keys.is_empty() and not presenter.jump_requested,
+		"A menu clears held world movement and cannot queue movement or jump keys.")
+	view.pause_menu.hide()
+	verify_camera(presenter.held_keys.is_empty() and not presenter.jump_requested,
+		"Closing the menu cannot resume a previously held world action.")
+	view.free()
+	print("OPENING_MOUSE_LOOK_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
+	quit(1 if camera_failed else 0)
+
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
 	if not condition:
@@ -1089,6 +1181,9 @@ func _initialize() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--camera-zoom-only"):
 		call_deferred("check_camera_zoom")
+		return
+	if OS.get_cmdline_user_args().has("--mouse-look-only"):
+		call_deferred("check_mouse_look")
 		return
 	if OS.get_cmdline_user_args().has("--verifier-negative-control"):
 		nested_failure_control()
