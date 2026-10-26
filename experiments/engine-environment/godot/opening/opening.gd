@@ -5380,7 +5380,9 @@ func _fit_guided_footer() -> void:
 	if not is_equal_approx(status_footer.offset_right, right):
 		status_footer.set_anchor_and_offset(SIDE_RIGHT, 1.0, right)
 	var left_anchor := 1.0 if redundant_intro else 0.0
-	var left_offset: float = right - status_footer.get_combined_minimum_size().x if redundant_intro else 310.0
+	var narrow_view := get_viewport().get_visible_rect().size.x < 1100.0
+	var left_offset: float = right - status_footer.get_combined_minimum_size().x if redundant_intro \
+		else 18.0 if narrow_view else 310.0
 	if not is_equal_approx(status_footer.anchor_left, left_anchor) or not is_equal_approx(status_footer.offset_left, left_offset):
 		status_footer.set_anchor_and_offset(SIDE_LEFT, left_anchor, left_offset)
 	var edge := 0.0 if _footer_above_view() else 1.0
