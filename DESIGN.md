@@ -246,6 +246,8 @@ Prefer icons, direct manipulation, keyboard paths and concise contextual text.
 Use a coherent inventory/crafting grid, a placement-options menu with rotation,
 E for machine interaction and a separate deconstruction key. Snapping must have
 visible confirmation, retain placed shafts/cogs, and work on elevated foundations.
+The carried grid shows at least 32 cells: actual owned items first, then empty
+cells. Scroll to reach further item kinds; the grid does not cap native cargo.
 Bind a carried placeable to a numbered hotbar key by dragging it onto that slot
 or by hovering or focusing its inventory tile and pressing 1–8. Outside the
 inventory, number keys select bound tools; clicking an inventory tile selects
