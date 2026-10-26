@@ -1434,10 +1434,23 @@ func check_wheel_foot_seats() -> void:
 				if child is MeshInstance3D and child.get_meta("wheel_support_role", "") == "WheelStand":
 					stands.append(child)
 					var bounds: AABB = child.mesh.get_aabb()
-					var expected := AABB(Vector3(-0.195, 0.24, -0.195), Vector3(0.39, 0.22, 0.39)) if axis_index == 1 else AABB(Vector3(-0.19, 0.24, -0.09), Vector3(0.38, 0.38, 0.18))
-					var stand_scale := Vector3(scale_factor, scale_factor if axis_index == 1 else Geometry.ANCHOR_HEIGHT / 0.78, scale_factor)
-					verify(bounds.position.is_equal_approx(expected.position * stand_scale) and bounds.size.is_equal_approx(expected.size * stand_scale),
-						"Stand bounds retain the original width while reaching the shared axle height.")
+					var height_factor := Geometry.ANCHOR_HEIGHT / 0.78
+					var expected := AABB(Vector3(-0.195, 0.24, -0.195) * scale_factor,
+						Vector3(0.39, 0.22, 0.39) * scale_factor)
+					if axis_index != 1:
+						var base := Vector3(-0.19 * scale_factor, 0.24 * height_factor, -0.09 * scale_factor)
+						var top := Geometry.ANCHOR_HEIGHT - 0.17 * scale_factor
+						expected = AABB(base, Vector3(0.38 * scale_factor, top - base.y, 0.18 * scale_factor))
+					verify(bounds.position.is_equal_approx(expected.position) and bounds.size.is_equal_approx(expected.size),
+						"Stand retains its selected width and reaches the bearing underside.")
+					var suffix := str(child.name).trim_prefix("WheelStand")
+					var bearing := machine.get_node_or_null("AxleBearing" + suffix) as MeshInstance3D
+					verify(bearing != null, "Every stand has its corresponding fixed bearing.")
+					if bearing != null:
+						var bearing_box: AABB = bearing.transform * bearing.mesh.get_aabb()
+						var contact: float = child.position.y + bounds.end.y - bearing_box.position.y
+						verify(contact > 0.005 * scale_factor and contact < 0.03 * scale_factor,
+							"The stand enters its bearing underside without a visible gap or excessive overlap.")
 					if OS.get_cmdline_user_args().has("--foot-seat-geometry") and not checked_shapes.has(axis_index == 1):
 						var volume_scale := pow(scale_factor, 3) * (1.0 if axis_index == 1 else Geometry.ANCHOR_HEIGHT / 0.5)
 						check_closed_asset_mesh(child.mesh, (0.014 if axis_index == 1 else 0.010) * volume_scale,
