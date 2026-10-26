@@ -300,6 +300,59 @@ void stacked_cog_stand_clearance() {
     }
 }
 
+void removing_lower_cog_requires_reclaiming_upper_stand() {
+    for (const char* axis : {"x", "z"}) {
+        Host host;
+        check(accepted(host.initialize("stand-test", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The removal continuity case binds the disclosed flat terrain.");
+        actor(host, 1.65, 2.0, -1.65, 1);
+        auto base = request("place_foundation", "continuity-base");
+        base.emplace("cell", Value(Array{Value(Integer{0}), Value(Integer{-1})}));
+        base.emplace("level", Value(Integer{4}));
+        check(accepted(host.command("P", base)), "The stacked cogs have a raised foundation.");
+        auto lower_wire = gear(0, 4, -4, "continuity-lower");
+        lower_wire.at("axis") = Value(axis);
+        auto upper_wire = gear(0, 8, -4, "continuity-upper");
+        upper_wire.at("axis") = Value(axis);
+        const auto lower = host.command("P", lower_wire);
+        const auto upper = host.command("P", upper_wire);
+        check(accepted(lower) && accepted(upper), "Both stacked cogs are placed before removal.");
+        const auto upper_id = field<std::string>(upper, "entity");
+        const auto before = support(host, upper_id);
+        const auto before_projection = host.projection();
+        auto remove = request("remove", "remove-continuity-lower");
+        remove.emplace("entity", Value(field<std::string>(lower, "entity")));
+        const auto refused = host.command("P", remove);
+        check(!accepted(refused) && field<std::string>(refused, "reason") == "stand_in_use",
+              "The lower cog removal names the supported neighbor dependency before any transfer.");
+        check(!factory::values::typed_difference(Value(before), Value(support(host, upper_id))),
+              "A refused lower-axle removal leaves the surviving cog's stand fixed.");
+        const auto after_projection = host.projection();
+        for (const char* key : {"transmission_parts", "parts", "part_kits", "cargo", "inventories"})
+            check(!factory::values::typed_difference(
+                      Value(field<Object>(before_projection, key)), Value(field<Object>(after_projection, key))),
+                  std::string("The refusal leaves native geometry and custody unchanged: ") + key);
+        const auto saved = host.checkpoint();
+        Host restored;
+        check(accepted(restored.initialize("stand-test", {"P"})) &&
+              accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(restored.restore_checkpoint(saved)), "The removal checkpoint restores in a fresh Host.");
+        check(!factory::values::typed_difference(Value(before), Value(support(restored, upper_id))),
+              "The same upper stand remains fixed after restoring the refused edit.");
+        auto remove_upper = request("remove", "remove-continuity-upper");
+        remove_upper.emplace("entity", Value(upper_id));
+        const auto upper_removal = host.command("P", remove_upper);
+        check(accepted(upper_removal), "The dependent upper cog can be reclaimed first: " +
+              field<std::string>(upper_removal, "reason"));
+        auto retry_lower = request("remove", "retry-continuity-lower");
+        retry_lower.emplace("entity", Value(field<std::string>(lower, "entity")));
+        const auto lower_removal = host.command("P", retry_lower);
+        check(accepted(lower_removal), "The lower cog can then be reclaimed: " +
+              field<std::string>(lower_removal, "reason"));
+    }
+}
+
 void actor_at_fixed_support() {
     Host host;
     check(accepted(host.initialize("stand-test", {"P"})) &&
@@ -324,6 +377,7 @@ int main() {
         blocked_or_excessive_stand();
         foundation_dependency();
         stacked_cog_stand_clearance();
+        removing_lower_cog_requires_reclaiming_upper_stand();
         actor_at_fixed_support();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"native_transmission_support\",\"checks\":"
                   << checks << "}\n";

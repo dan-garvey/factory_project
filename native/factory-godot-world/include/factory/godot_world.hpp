@@ -97,7 +97,7 @@ private:
     [[nodiscard]] const char* supplied_space_refusal(const world::State& state) const;
     [[nodiscard]] std::map<std::string, TransmissionSupport> transmission_supports(const world::State&) const;
     [[nodiscard]] const char* support_change_refusal(const world::State& before,
-        const world::State& after) const;
+        const world::State& after, bool preserve_surviving_stands = false) const;
     [[nodiscard]] const char* transmission_site_refusal(const world::State&, const mechanics::Point& center,
         mechanics::Axis axis, bool gear) const;
     [[nodiscard]] const char* wheel_site_refusal(const mechanics::Point& center, mechanics::Axis axis, mechanics::Integer tiles) const;
