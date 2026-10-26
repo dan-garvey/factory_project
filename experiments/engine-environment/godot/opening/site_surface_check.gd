@@ -5,6 +5,11 @@ const ActorWorld = preload("res://opening/actor_world.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const NativeModel = preload("res://opening/native_model.gd")
 const Opening = preload("res://opening/opening.gd")
+const SITE_MODES := ["--outcrop-native-only", "--belt-water-native-only",
+	"--belt-water-native-forward-only", "--water-samples-only", "--water-native-only",
+	"--flow-sections-only", "--waterwheel-visual-only", "--bank-firs-physics-only",
+	"--mature-tree-depletion-only", "--native-hull-matching-only", "--convex-only",
+	"--structures-only"]
 var checks := 0
 var failed := false
 var failures := 0
@@ -32,46 +37,57 @@ func verify(condition: bool, message: String) -> void:
 		push_error(message)
 
 func _initialize() -> void:
-	if "--outcrop-native-only" in OS.get_cmdline_user_args():
+	if not Opening.apply_test_window_title(self):
+		return
+	var selected_mode := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--test-purpose="):
+			continue
+		if not SITE_MODES.has(argument) or not selected_mode.is_empty():
+			push_error("Unknown, repeated or conflicting site surface fixture argument")
+			quit(2)
+			return
+		selected_mode = argument
+	if selected_mode == "--outcrop-native-only":
 		check_outcrop_native()
 		return
-	if "--belt-water-native-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--belt-water-native-only":
 		check_belt_water_native(false)
 		return
-	if "--belt-water-native-forward-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--belt-water-native-forward-only":
 		check_belt_water_native(true)
 		return
-	if "--water-samples-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--water-samples-only":
 		check_flow_cells()
 		return
-	if "--water-native-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--water-native-only":
 		check_water_native()
 		return
-	if "--flow-sections-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--flow-sections-only":
 		check_flow_sections()
 		return
-	if "--waterwheel-visual-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--waterwheel-visual-only":
 		check_waterwheel_visual()
 		return
-	if "--bank-firs-physics-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--bank-firs-physics-only":
 		call_deferred("check_bank_firs_physics")
 		return
-	if "--mature-tree-depletion-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--mature-tree-depletion-only":
 		call_deferred("check_mature_tree_depletion")
 		return
-	if "--native-hull-matching-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--native-hull-matching-only":
 		check_native_hull_matching()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 			"scope": "pinned native hull projection matching", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
-	if "--convex-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--convex-only":
 		check_convex_rocks()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 			"scope": "shared convex rock topology and independent capsule contacts", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
-	if "--structures-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--structures-only":
 		check_structures()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 			"scope": "changed immutable support solids and rotated box contacts", "desktop": "not_used"}))
