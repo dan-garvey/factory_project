@@ -118,6 +118,8 @@ where their selected consumer uses them.
 
 Build `//native/godot-fixture:factory-godot-fixture` with the verified Bazel
 8.4.2 toolchain described in [native builds](../../docs/engineering/native-builds.md).
+The binary is the supported external entry point; its implementation library
+and local test are private to this package.
 Then run from a linked checkout, substituting existing absolute paths, the
 verified lowercase SHA-256, an owned private artifact directory, and the full
 PASS line for that exact fixture revision:
