@@ -2412,6 +2412,24 @@ func _arrival_hotbar() -> void:
 		"scope": "native-arrival hotbar over invented projections"}))
 	quit(0 if failures == 0 else 1)
 
+func _carried_grid_state(bar) -> Dictionary:
+	var items := 0
+	var blanks := 0
+	var last_item := -1
+	var first_blank := -1
+	for tile in bar.material_grid.get_children():
+		if not tile.visible:
+			continue
+		if tile is Button:
+			items += 1
+			last_item = tile.get_index()
+		elif bar.inventory_empty.has(tile):
+			blanks += 1
+			if first_blank < 0:
+				first_blank = tile.get_index()
+	return {"items": items, "blanks": blanks,
+		"items_before_blanks": first_blank < 0 or last_item < first_blank}
+
 func _render_arrival_hotbar() -> void:
 	var prefix := ""
 	for argument in OS.get_cmdline_user_args():
@@ -2461,6 +2479,10 @@ func _render_arrival_hotbar() -> void:
 	view._refresh_ui()
 	var bar = view.building_hotbar
 	bar.open_catalog()
+	var partial_grid := _carried_grid_state(bar)
+	verify(partial_grid.items > 0 and partial_grid.items + partial_grid.blanks == 32
+		and partial_grid.items_before_blanks,
+		"Partly filled carried inventory has thirty-two cells with spare cells after owned items.")
 	var render_slide_drag: Dictionary = bar._drag_payload("component:wooden_slide")
 	bar.catalog_slots[7]._drop_data(Vector2.ZERO, render_slide_drag)
 	bar._close_catalog()
@@ -2496,13 +2518,23 @@ func _render_arrival_hotbar() -> void:
 	view.state.part_kits.P = {}
 	view._refresh_ui()
 	await settle_widgets()
+	var empty_grid := _carried_grid_state(bar)
 	verify(bar.catalog.visible and bar.carried_label.text == "CARRIED"
 		and not bar.material_buttons.timber.visible and not bar.component_buttons.wooden_frame.visible
-		and bar.recipe_buttons["component:wooden_frame"].visible,
-		"Empty carried stock leaves the finite crank recipe discoverable.")
+		and bar.recipe_buttons["component:wooden_frame"].visible
+		and empty_grid.items == 0 and empty_grid.blanks == 32,
+		"Empty carried stock shows thirty-two blank cells beside the discoverable recipe.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-empty.png") == OK,
 		"Retain the empty-inventory recipe catalog.")
+	bar.inventory_scroll.scroll_vertical = 10000
+	await settle_widgets()
+	verify(bar.inventory_scroll.scroll_vertical > 0 and
+		bar.inventory_scroll.get_global_rect().encloses(bar.inventory_empty.back().get_global_rect()),
+		"The final empty cell remains reachable by scrolling the thirty-two-cell grid.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-empty-bottom.png") == OK,
+		"Retain the lower empty inventory rows after scrolling.")
 	view.state.cargo.P = stocked_cargo
 	view.state.crank_items = {"component-1": {"holder": "P", "attached_to": ""}}
 	view.state.part_kits.P = {"foundation": 15}
@@ -2549,6 +2581,39 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-narrow-recipes-bottom.png") == OK,
 		"Retain the lower named recipe rows in the narrow inventory.")
+	bar._close_catalog()
+	root.size = Vector2i(1280, 800)
+	await settle_widgets()
+	for component: String in bar._component_names:
+		view.state.cargo.P.components[component] = 1
+	view.state.part_kits.P = {"foundation": 1, "belt": 1, "wheel": 1,
+		"gear": 1, "shaft": 1, "gearbox": 1, "vertical_gearbox": 1, "chain_drive": 1}
+	view._refresh_ui()
+	bar.open_catalog()
+	await settle_widgets()
+	var full_grid := _carried_grid_state(bar)
+	verify(full_grid.items > 32 and full_grid.blanks == 0,
+		"Every supported carried kind remains listed when owned items exceed thirty-two cells.")
+	bar.inventory_scroll.scroll_vertical = 0
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-full-catalog.png") == OK,
+		"Retain the large carried inventory at normal width.")
+	bar._close_catalog()
+	root.size = Vector2i(560, 480)
+	await settle_widgets()
+	bar.open_catalog()
+	await settle_widgets()
+	bar.component_buttons.channel_broad_z.grab_focus()
+	await settle_widgets()
+	var focused_tile: Button = bar.component_buttons.channel_broad_z
+	verify(bar.catalog.visible and bar.material_grid.columns == 3
+		and bar.catalog.gui_get_focus_owner() == focused_tile
+		and bar.inventory_scroll.get_global_rect().encloses(focused_tile.get_global_rect()),
+		"A late carried item remains keyboard reachable and scrolls into the narrow inventory.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-full-narrow-catalog.png") == OK,
+		"Retain the focused late carried item in the narrow inventory.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,

@@ -39,6 +39,7 @@ const CATALOG_KEYS := {KEY_C: "collector", KEY_F: "foundation", KEY_B: "belt",
 	KEY_H: "gearbox", KEY_V: "vertical_gearbox", KEY_N: "chain_drive"}
 const COMPONENT_PREFIX := "component:"
 const ARRIVAL_SLOTS: Array[String] = ["", "", "", "", "", "", "", ""]
+const MIN_CARRIED_CELLS := 32
 const COLLECTOR_PROJECT_COMPONENTS := ["wooden_frame", "tool_mount", "cutting_edge",
 	"receiver_tray", "wooden_shaft", "wooden_cog", "hand_crank"]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
@@ -242,7 +243,7 @@ func configure(host, ui: Control) -> void:
 		catalog_counts[tool] = _count_badge(button)
 		button.focus_entered.connect(_describe_focus.bind(button))
 	component_grid = material_grid
-	for index in 8:
+	for index in MIN_CARRIED_CELLS:
 		var empty := Panel.new()
 		empty.custom_minimum_size = Vector2(78, 66)
 		var empty_style := StyleBoxFlat.new()
@@ -371,6 +372,8 @@ func _count_badge(button: Button) -> Label:
 
 func _describe_focus(button: Button) -> void:
 	focus_description.text = button.tooltip_text
+	if inventory_scroll.is_ancestor_of(button):
+		inventory_scroll.call_deferred("ensure_control_visible", button)
 
 func _input(event: InputEvent) -> void:
 	if (not catalog.visible and not _catalog_resize_pending) or not event is InputEventKey or not event.pressed or event.echo:
@@ -537,6 +540,8 @@ func _sync_arrival(host) -> void:
 			button.tool = COMPONENT_PREFIX + component
 			button.pressed.connect(_select_inventory_tool.bind(button.tool))
 			component_grid.add_child(button)
+			# Keep spare cells after every owned item as new component kinds appear.
+			component_grid.move_child(button, inventory_empty[0].get_index())
 			_style_inventory_tile(button, component_textures[component])
 			component_buttons[component] = button
 			component_counts[component] = _count_badge(button)
@@ -867,7 +872,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 		if tile is Button and tile.visible:
 			shown += 1
 	for index in inventory_empty.size():
-		inventory_empty[index].visible = index < maxi(0, 8 - shown)
+		inventory_empty[index].visible = index < maxi(0, MIN_CARRIED_CELLS - shown)
 	_refresh_recipes(host, usable)
 
 func open_catalog() -> void:
