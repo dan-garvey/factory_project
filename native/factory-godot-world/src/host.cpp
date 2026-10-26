@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/belt_command_contract.hpp"
 #include "factory/component_command_contract.hpp"
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
@@ -566,6 +567,8 @@ bool historical_wire(const authority::Record& record) {
     if (*action == "adapter_refusal") return !*accepted;
     const auto* original_action = field<std::string>(*wire, "action");
     if (!original_action) return false;
+    if (const auto belt = belt_commands::parse(*action); belt != belt_commands::Action::none)
+        return belt_commands::historical_wire(*wire, intent, belt);
     if (const auto press = press_commands::parse(*action); press != press_commands::Action::none)
         return press_commands::historical_wire(*wire, intent, press);
     if (const auto component = component_commands::parse(*action);
@@ -721,22 +724,6 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == mapped && keys(*wire, {"from", "to"}) &&
             same("from", "target") && same("to", "to");
     }
-    if (*action == "place_belt_span")
-        return *original_action == "place_belt_span" && keys(*wire, {"from", "to"}) &&
-            same("from", "target") && same("to", "to");
-    if (*action == "place_selected_belt_span")
-        return *original_action == "place_selected_belt_span" && keys(*wire, {"from", "to", "selection"}) &&
-            same("from", "target") && same("to", "to") && same("selection", "selection");
-    if (*action == "remove_belt_span")
-        return *original_action == "remove_belt_span" && keys(*wire, {"entity"}) && same("entity", "target");
-    if (*action == "select_belt_shaft")
-        return *original_action == "select_belt_shaft" && keys(*wire, {"entity"}) && same("entity", "target");
-    if (*action == "recover_belt_slot")
-        return *original_action == "recover_belt_slot" && keys(*wire, {"entity", "slot", "expected"}) &&
-            same("entity", "target") && same("slot", "slot") && same("expected", "expected");
-    if (*action == "load_belt_slot")
-        return *original_action == "load_belt_slot" && keys(*wire, {"entity", "slot", "item", "work_id"}) &&
-            same("entity", "target") && same("slot", "slot") && same("item", "item") && same("work_id", "work_id");
     if (*action == "remove" || *action == "recover")
         return *original_action == *action && keys(*wire, {"entity"}) && same("entity", "target");
     if (*action == "remove_foundation")
@@ -1814,6 +1801,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     };
     const auto* action = field<std::string>(wire, "action");
     if (!action) return refuse("invalid_action");
+    const auto belt_action = belt_commands::parse(*action);
     const auto press_action = press_commands::parse(*action);
     const auto component_action = component_commands::parse(*action);
     const auto crank_action = crank_commands::parse(*action);
@@ -2495,15 +2483,17 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("teeth", Value(Integer{0}));
         normalized.emplace("half_span", Value(Integer{0}));
         if (relay_name) normalized.emplace("relay_axis", wire.at("relay_axis"));
-    } else if (*action == "select_belt_shaft") {
-        if (!keys(wire, {"entity"}) || !target("entity", "target", "generation")) return refuse("invalid_command");
+    } else if (belt_action == belt_commands::Action::select) {
+        if (!belt_commands::valid_wire(wire, belt_action) ||
+            !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("select_belt_shaft");
-    } else if (*action == "place_belt_span" || *action == "place_selected_belt_span") {
-        if (!(*action == "place_belt_span" ? keys(wire, {"from", "to"}) : keys(wire, {"from", "to", "selection"})) ||
-            (*action == "place_selected_belt_span" && !field<std::string>(wire, "selection")) ||
+    } else if (belt_action == belt_commands::Action::place ||
+               belt_action == belt_commands::Action::place_selected) {
+        if (!belt_commands::valid_wire(wire, belt_action) ||
             !target("from", "target", "generation") ||
             !target("to", "to", "to_generation")) return refuse("invalid_command");
-        if (*action == "place_selected_belt_span") normalized.emplace("selection", wire.at("selection"));
+        if (belt_action == belt_commands::Action::place_selected)
+            normalized.emplace("selection", wire.at("selection"));
         const auto* first = find(snapshot.state, *field<std::string>(wire, "from"));
         const auto* last = find(snapshot.state, *field<std::string>(wire, "to"));
         if (!first || !last) return refuse("unknown_target");
@@ -2549,22 +2539,22 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (terrain->second > at[1] - half[1]) return refuse("site_occupied");
         }
         normalized.at("action") = Value(*action);
-    } else if (*action == "remove_belt_span") {
-        if (!keys(wire, {"entity"}) || !target("entity", "target", "generation")) return refuse("invalid_command");
+    } else if (belt_action == belt_commands::Action::remove) {
+        if (!belt_commands::valid_wire(wire, belt_action) ||
+            !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("remove_belt_span");
     } else if (*action == "connect_drive" || *action == "disconnect_drive") {
         if (!keys(wire, {"from", "to"}) || !target("from", "target", "generation") ||
             !target("to", "to", "to_generation")) return refuse("invalid_command");
         normalized.at("action") = Value(*action == "connect_drive" ? "shaft_between" : "remove_shaft_between");
-    } else if (*action == "recover_belt_slot") {
-        if (!keys(wire, {"entity", "slot", "expected"}) || !field<Integer>(wire, "slot") ||
-            !field<Object>(wire, "expected") || !target("entity", "target", "generation")) return refuse("invalid_command");
+    } else if (belt_action == belt_commands::Action::recover_slot) {
+        if (!belt_commands::valid_wire(wire, belt_action) ||
+            !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("recover_belt_slot");
         normalized.emplace("slot", wire.at("slot"));
         normalized.emplace("expected", wire.at("expected"));
-    } else if (*action == "load_belt_slot") {
-        if (!keys(wire, {"entity", "slot", "item", "work_id"}) || !field<Integer>(wire, "slot") ||
-            !field<std::string>(wire, "item") || !field<Integer>(wire, "work_id") ||
+    } else if (belt_action == belt_commands::Action::load_slot) {
+        if (!belt_commands::valid_wire(wire, belt_action) ||
             !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("load_belt_slot");
         normalized.emplace("slot", wire.at("slot"));

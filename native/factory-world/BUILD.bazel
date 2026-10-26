@@ -58,6 +58,14 @@ cc_library(
 )
 
 cc_library(
+    name = "belt_command_contract",
+    hdrs = ["include/factory/belt_command_contract.hpp"],
+    strip_include_prefix = "include",
+    deps = [":command_contract"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
+)
+
+cc_library(
     name = "press_command_contract",
     hdrs = ["include/factory/press_command_contract.hpp"],
     strip_include_prefix = "include",
@@ -79,6 +87,7 @@ cc_library(
     hdrs = ["include/factory/world.hpp"],
     strip_include_prefix = "include",
     deps = [
+        ":belt_command_contract",
         ":component_command_contract",
         ":crank_command_contract",
         ":fabrication_command_contract",
