@@ -76,7 +76,6 @@ class HostStub extends RefCounted:
 	var state: Dictionary
 	var model: Variant = null
 	var client := "P"
-	var legacy_fixture := false
 	var explanation_open := false
 	var startup_save_pending := false
 	var mutate_allowed := true
@@ -1924,7 +1923,6 @@ func _belt_retry() -> void:
 
 func _span_guidance() -> void:
 	var view := SharedSettlement.new()
-	view.legacy_fixture = false
 	view.client = "P"
 	view.state = fixture()
 	view.state.entities = {

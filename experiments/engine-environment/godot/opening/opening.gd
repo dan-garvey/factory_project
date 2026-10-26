@@ -4365,7 +4365,6 @@ const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", 
 const COLORS := {"collector": Color("96805c"), "belt": Color("538e88"), "processor": Color("bd7054"), "wheel": Color("8b9caa")}
 
 var model
-var legacy_fixture := false
 var actor_world
 var character_presenter
 var actor_label: Label

@@ -165,7 +165,7 @@ func _context() -> Dictionary:
 	var host: Object = _host.get_ref()
 	var snapshot: Variant = host.get("state")
 	var actor: Variant = host.get("client")
-	if host.get("legacy_fixture") != false or not snapshot is Dictionary or typeof(actor) != TYPE_STRING:
+	if not snapshot is Dictionary or typeof(actor) != TYPE_STRING:
 		return {}
 	var options: Variant = snapshot.get("options")
 	if not options is Dictionary or typeof(options.get("native")) != TYPE_BOOL or not options.native:

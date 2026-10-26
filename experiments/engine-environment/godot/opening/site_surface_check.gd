@@ -17,7 +17,6 @@ class EmptyPhysicalFacts extends RefCounted:
 class NativeChallengeFacts extends RefCounted:
 	var state: Dictionary
 	var client := "P"
-	var legacy_fixture := false
 
 class MaturePhysicalFacts extends RefCounted:
 	var sources := {}
