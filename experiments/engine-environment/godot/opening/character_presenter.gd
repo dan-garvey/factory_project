@@ -366,6 +366,8 @@ func _refresh_multitools(delta: float) -> void:
 			sleeve_view.name = "QualifiedSleeve"
 			sleeve_view.mesh = sleeve
 			eye_multitool.add_child(sleeve_view)
+		# The raised grip ribs hide the curled fingertips at eye distance.
+		eye_multitool.get_node("GripRibs").visible = false
 		# Keep the sourced fingers and grip in view without covering the center aim.
 		eye_multitool.position = EYE_MULTITOOL_REST
 		eye_multitool.rotation_degrees = Vector3(18, 20, -8)
