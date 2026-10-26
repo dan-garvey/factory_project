@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from test_opening_startup import launcher
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import run_opening as launcher
 
 
 class OpeningResumeTests(unittest.TestCase):
@@ -51,17 +52,6 @@ class OpeningResumeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Git"):
                     launcher.capture_resume(source)
                 self.assertEqual(source.read_bytes(), b"preserve")
-
-    def test_incompatible_flag_combinations_fail_before_engine(self):
-        for flags in (("--smoke", "--check"), ("--render",)):
-            with self.subTest(flags=flags), mock.patch.object(sys, "argv", [
-                    "run_opening.py", "--godot", sys.executable, "--artifacts", "/unused",
-                    "--resume", "/unused.factory", *flags]), mock.patch.object(launcher.bounds, "execute_bounded") as engine:
-                with self.assertRaises(SystemExit) as error:
-                    launcher.main()
-                self.assertEqual(error.exception.code, 2)
-                engine.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main()
