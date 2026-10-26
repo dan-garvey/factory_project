@@ -788,6 +788,16 @@ class ArrivalAssemblyControls:
 		return false
 
 	func press_anvil_for(selected: String) -> String:
+		if _snapshot.get("placed_components", {}).get(selected, {}).get("component") == "broad_anvil":
+			return selected
+		for assembly: Variant in _snapshot.get("broad_press_assemblies", []):
+			if not assembly is Dictionary:
+				continue
+			var parts: Dictionary = assembly.get("parts", {})
+			var anvils: Array = parts.get("anvils", [])
+			if not anvils.is_empty() and (anvils.has(selected)
+					or parts.get("heads", []).has(selected) or parts.get("slide", "") == selected):
+				return str(anvils[0])
 		return str(_selected_press(_snapshot, selected).get("anvil", ""))
 
 	func _update_context_size() -> void:

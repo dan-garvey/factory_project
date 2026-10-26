@@ -229,13 +229,14 @@ func _initialize() -> void:
 
 class ComponentPlacementChoice extends Node:
 	var kind := "anvil"
+	var existing_anvil := ""
 	func selected_name() -> String:
 		return kind
 	func select_component_name(component_name: String) -> bool:
 		kind = component_name
 		return true
 	func press_anvil_for(_selected: String) -> String:
-		return ""
+		return existing_anvil
 
 class ComponentPlacementView extends "res://opening/opening.gd":
 	var aimed := "frame"
@@ -243,6 +244,7 @@ class ComponentPlacementView extends "res://opening/opening.gd":
 	var pointed_cell := Vector2i.ZERO
 	var hit_body: StaticBody3D
 	var issued: Array = []
+	var accepted_entity := ""
 	func _ready() -> void:
 		set_process(false)
 	func _screen_cell(_screen: Vector2) -> Vector2i:
@@ -267,6 +269,8 @@ class ComponentPlacementView extends "res://opening/opening.gd":
 		pass
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
+		if not accepted_entity.is_empty():
+			return {"accepted": true, "entity": accepted_entity}
 		return {"accepted": false, "reason": "fixture_only"}
 
 func _component_key(code: Key, pressed: bool, alt := false) -> InputEventKey:
@@ -577,6 +581,14 @@ func _component_placement_check() -> void:
 		verify(view.issued.size() == 1 and view.issued[0].component == "broad_anvil"
 			and view.issued[0].center == clear_area,
 			"One click sends one four-part workbed placement with the previewed center.")
+		view.selected = "older-small-press"
+		choice.existing_anvil = "older-small-press"
+		view.accepted_entity = "joined-workbed"
+		view._world_click(Vector2i.ZERO)
+		verify(view.selected == "joined-workbed",
+			"Placing a broad workbed selects the new support, even while an older press was selected.")
+		choice.existing_anvil = ""
+		view.accepted_entity = ""
 		view.issued.clear()
 		var blocker_center := [clear_area[0] + 2, 0, clear_area[2] + 2]
 		var blocking_box := view._component_candidate_box("wooden_frame", blocker_center)
@@ -3394,6 +3406,10 @@ func _workshop_pages() -> void:
 		view.state.cargo[view.client].raw = 3
 		view.selected = "sized-bed"
 		panel.refresh(view.state, view.client, view.selected, true)
+		verify(panel.press_anvil_for("sized-bed") == "sized-bed"
+			and panel.press_anvil_for("sized-head") == "sized-bed"
+			and panel.press_anvil_for("sized-slide") == "sized-bed",
+			"A fitted broad head or slide keeps the support selected for its material controls.")
 		panel.open_context()
 		verify(panel.press_section.visible and panel._inventory_broad
 			and panel.inventory_workbed_heading.text.contains("2×2 WORKBED")
