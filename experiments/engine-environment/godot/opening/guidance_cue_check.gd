@@ -549,6 +549,8 @@ func check_inventory_goal_view() -> void:
 	view._build_world()
 	view._build_interface()
 	view._refresh_ui()
+	verify(view.loose_material_controls == null,
+		"The constructed ordinary player interface has no diagnostic loose-material or Push menu.")
 	verify(view.get_node_or_null("ShipmentMarker") == null
 		and "FORM A PLATE · KEEP IT" in view.goal_label.text
 		and not view.manager_log_completion_entry.visible,
@@ -561,6 +563,8 @@ func check_inventory_goal_view() -> void:
 	shared._build_world()
 	shared._build_interface()
 	shared._refresh_ui()
+	verify(shared.loose_material_controls == null,
+		"The constructed shared player interface also excludes diagnostic material commands.")
 	view.state = view.state.duplicate(true)
 	view.state.cargo.P.products = 1
 	view.state.workshop_completed_actors = ["P"]

@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
             "while [ \"$#\" -gt 0 ]; do\n"
             "  case \"$1\" in --output) out=$2; shift 2;; --resume) resume=$2; shift 2;; *) shift;; esac\n"
             "done\n"
-            "mkdir -p \"$out\"\n"
+            "mkdir -p \"$out/runtime/project/opening\"\n"
             "printf '%s' \"$resume\" > \"$out/fake-resume-arg\"\n"
             "exit 0\n", true);
         write(repo / "native/factory-godot-world/native-world.gdextension", "[configuration]\nentry_symbol = fake\n");
@@ -177,6 +177,17 @@ int main(int argc, char** argv) {
         require(run(script_window).exit_code == 0 &&
                 read(launched).find("--script\nres://opening/parts_view_check.gd") != std::string::npos,
                 "A graphical fixture uses the same labeled agent window route.");
+        std::size_t installed_fixtures = 0;
+        for (const auto& entry : fs::directory_iterator(sessions)) {
+            const auto fixture = entry.path() / "native/runtime/project/opening/parts_view_check.gd";
+            if (fs::exists(fixture)) {
+                ++installed_fixtures;
+                require(read(fixture) == "extends SceneTree\n",
+                    "The agent runtime must carry the exact selected tracked fixture.");
+            }
+        }
+        require(installed_fixtures == 1,
+            "Only the selected fixture runtime gains its checked-main script.");
         fs::remove(launched);
         auto adapter_window = window_base;
         adapter_window.insert(adapter_window.end(), {"--script", "res://opening/native_adapter_check.gd",
