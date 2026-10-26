@@ -44,6 +44,7 @@ startup. The old scripted launchers remain fixtures and do not deliver this entr
 | Move / jump | WASD / Space |
 | Camera | Right-drag to orbit; wheel to zoom |
 | Interact, gather, open a machine | E |
+| Turn a fitted hand crank | Point at the crank and hold E; release to stop. |
 | Inventory/build catalog | B; 1–8 select hotbar slots |
 | Machine workbed transfer | Drag a carried input onto the workbed; drag workbed material anywhere onto the carried area to pick it up. F/R feed, P/U pick up where available. |
 | Rotate a building | R during placement |
@@ -56,8 +57,9 @@ startup. The old scripted launchers remain fixtures and do not deliver this entr
 | Developer conveniences | F3 |
 
 Use local benches for fabrication. Craft a timber hand crank, select it in the
-inventory and click an exposed input to fit it. Turn it from the machine menu;
-point at the fitted crank and press E to detach it before external power takes
+inventory and click an exposed input to fit it. Point at the fitted crank and
+hold E to turn it. Release E to stop, or select Deconstruct [F] and click the
+crank to detach it before external power takes
 over. Components and material remain owned through stalls and recovery. Saves
 use the selected native Store format;
 scripted fixture saves are separate.

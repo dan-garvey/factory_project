@@ -4743,6 +4743,8 @@ var wheel_size_controls: HBoxContainer
 var wheel_size_label: Label
 var state: Dictionary = {}
 var consumed_shortcut_keys: Dictionary = {}
+var held_crank := ""
+var held_crank_seconds := 0.0
 var catalog_button: Button
 var controls_label: Label
 var building_rotation := 0
@@ -5301,6 +5303,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"place_component": "Component placed on the shared grid.",
 			"attach_hand_crank": "Hand crank fitted to the input.",
 			"detach_hand_crank": "The same hand crank returned to your inventory.",
+			"operate_hand_crank": "Crank turning.",
 			"turn_slide_crank": "The fitted crank advanced the slide.",
 			"reclaim_component": "Component returned to your carried cargo.",
 			"stow_fabrication_hub": "Pod workshop unbolted. Place it on clear ground or a foundation top.",
@@ -5445,6 +5448,7 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 
 func _process(delta: float) -> void:
 	_update_fps_counter(delta)
+	_advance_held_crank(delta)
 	if actor_world != null:
 		actor_world.set_belt_step_seconds(STEP_SECONDS if auto_advance else 0.0)
 	if auto_advance:
@@ -5688,7 +5692,13 @@ func _apply_press_pose(rows: Array, travel: float) -> void:
 			pose.basis = pose.basis.scaled(Vector3(1, 1 + travel / 0.45, 1))
 		row.node.transform = row.parent_inverse * pose
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_stop_held_crank()
+
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.keycode == KEY_E and not event.pressed:
+		_stop_held_crank()
 	if arrival_reveal_active:
 		if event is InputEventKey and event.pressed and not event.echo \
 				and event.keycode in [KEY_SPACE, KEY_ESCAPE]:
@@ -6042,6 +6052,10 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 	if explanation_open:
 		return
 	if mode == "deconstruct":
+		var crank_id := _pointed_crank()
+		if not crank_id.is_empty():
+			issue({"action": "detach_hand_crank", "entity": crank_id})
+			return
 		var target := entity_id if _contains_target(state, entity_id) else ""
 		if target.is_empty():
 			_message("Point at a built part to dismantle it.", true)
@@ -6183,6 +6197,39 @@ func _retrieve() -> void:
 
 func _pointed_screen_position() -> Vector2:
 	return get_viewport().get_visible_rect().size * 0.5 if distance <= 0.0 else get_viewport().get_mouse_position()
+
+func _pointed_crank() -> String:
+	return _crank_at_screen(_pointed_screen_position())
+
+func _crank_at_screen(screen: Vector2) -> String:
+	var hit := _screen_pick(screen)
+	if hit.is_empty():
+		return ""
+	var id: String = str(hit.collider.get_meta("crank_entity", ""))
+	var item: Dictionary = state.get("crank_items", {}).get(id, {})
+	return id if not item.is_empty() and not str(item.get("attached_to", "")).is_empty() else ""
+
+func _stop_held_crank() -> void:
+	held_crank = ""
+	held_crank_seconds = 0.0
+
+func _advance_held_crank(delta: float) -> void:
+	if held_crank.is_empty():
+		return
+	if not _crank_hold_allowed() \
+			or mode != "inspect" or _pointed_crank() != held_crank:
+		_stop_held_crank()
+		return
+	held_crank_seconds += delta
+	if held_crank_seconds < STEP_SECONDS:
+		return
+	held_crank_seconds = 0.0
+	var outcome := issue({"action": "operate_hand_crank", "entity": held_crank})
+	if not outcome.get("accepted", false):
+		_stop_held_crank()
+
+func _crank_hold_allowed() -> bool:
+	return DisplayServer.window_is_focused() and _can_control_character()
 
 func _hand_source(id: String) -> Dictionary:
 	var source: Variant = state.get("hand_sources", {}).get(id)
@@ -6570,11 +6617,11 @@ func _screen_hand_source(screen: Vector2) -> String:
 func _interact_pointed() -> void:
 	if not _can_control_character():
 		return
-	var crank_hit := _screen_pick(_pointed_screen_position())
-	var attached_crank: String = str(crank_hit.collider.get_meta("crank_entity", "")) \
-		if not crank_hit.is_empty() else ""
-	if state.get("crank_items", {}).has(attached_crank):
-		issue({"action": "detach_hand_crank", "entity": attached_crank})
+	var attached_crank := _pointed_crank() if mode == "inspect" else ""
+	if not attached_crank.is_empty():
+		held_crank = attached_crank
+		held_crank_seconds = STEP_SECONDS
+		_advance_held_crank(0.0)
 		return
 	var source_id := _screen_hand_source(_pointed_screen_position()) if mode == "inspect" else ""
 	var source := _hand_source(source_id)
@@ -9789,7 +9836,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		elif sliding_plate_waiting:
 			next_work = "Plate at outlet. Open the press [E], then collect it [P]."
 		elif sliding_press_ready and ready_slide_has_crank:
-			next_work = "Open the fitted press [E]. Move a blank to the workbed, then crank."
+			next_work = "Open the fitted press [E]. Move a blank to the workbed, then point at the crank and hold E."
 		elif sliding_press_ready:
 			next_work = "Fit your carried crank at a slide input [B], then open the press [E]." \
 				if int(carried.get("components", {}).get("hand_crank", 0)) > 0 else \
@@ -10720,6 +10767,11 @@ func _is_collector_frame(target: String) -> bool:
 func _pointed_summary_data(screen: Vector2) -> Dictionary:
 	if camera == null or not camera.is_inside_tree():
 		return {}
+	var crank_id := _crank_at_screen(screen)
+	if not crank_id.is_empty():
+		return {"name": "Fitted hand crank",
+			"detail": "Click  Detach" if mode == "deconstruct" else "Hold E  Turn · F then click  Detach",
+			"target": crank_id}
 	var hit := _screen_pick(screen)
 	var target: String = str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
 	if _contains_target(state, target):

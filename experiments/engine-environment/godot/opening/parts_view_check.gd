@@ -1710,11 +1710,59 @@ func _interaction_controls() -> void:
 			and view.placement_options_panel.visible,
 			"Choosing a gearbox from the placement menu leaves deconstruction and shows its ghost options.")
 		key.keycode = KEY_ESCAPE
-		view._unhandled_input(key)
-		verify(view.mode == "gearbox" and view.pause_menu.visible and view.issued.size() == 2
+		view._input(key)
+		verify(view.mode == "inspect" and not view.pause_menu.visible and view.issued.size() == 2
 			and view.state.get("entities") == before.entities,
-			"Escape opens the worksite menu without changing the confirmed worksite.")
+			"Escape cancels active construction without changing the confirmed worksite.")
 		view.free()
+	var crank_view := CrankInteractionView.new()
+	crank_view.client = "P"
+	crank_view.mode = "inspect"
+	crank_view.state = _object_menu_snapshot()
+	crank_view.state.crank_items = {"fitted-crank": {"attached_to": "shaft", "port": [0, 0, 0]}}
+	root.add_child(crank_view)
+	crank_view.camera = Camera3D.new()
+	crank_view.add_child(crank_view.camera)
+	var crank_pick := StaticBody3D.new()
+	crank_pick.set_meta("crank_entity", "fitted-crank")
+	crank_view.add_child(crank_pick)
+	crank_view.hit_body = crank_pick
+	verify(crank_view._pointed_summary_data(Vector2.ZERO).detail.contains("Hold E"),
+		"A fitted world crank exposes its direct hold key before a machine panel opens.")
+	crank_view._interact_pointed()
+	verify(crank_view.issued == [{"action": "operate_hand_crank", "entity": "fitted-crank"}]
+		and crank_view.held_crank == "fitted-crank",
+		"Pointing at a fitted crank sends one native source pulse and starts its hold.")
+	crank_view._advance_held_crank(crank_view.STEP_SECONDS)
+	verify(crank_view.issued.size() == 2,
+		"Continuing the hold sends a new bounded source pulse.")
+	crank_view._stop_held_crank()
+	crank_view._advance_held_crank(crank_view.STEP_SECONDS)
+	verify(crank_view.issued.size() == 2,
+		"Release leaves no stored source that can turn on another frame.")
+	crank_view._interact_pointed()
+	crank_view.allow_hold = false
+	crank_view._advance_held_crank(crank_view.STEP_SECONDS)
+	verify(crank_view.held_crank.is_empty() and crank_view.issued.size() == 3,
+		"Loss of focus stops the ordinary hold without another source pulse.")
+	crank_view.allow_hold = true
+	crank_view._interact_pointed()
+	crank_view.hit_body = null
+	crank_view._advance_held_crank(crank_view.STEP_SECONDS)
+	verify(crank_view.held_crank.is_empty() and crank_view.issued.size() == 4,
+		"Leaving the fitted crank target stops the hold.")
+	crank_view.hit_body = crank_pick
+	crank_view.accept_pulse = false
+	crank_view._interact_pointed()
+	verify(crank_view.held_crank.is_empty() and crank_view.issued.size() == 5,
+		"A native refusal stops the hold before another request.")
+	crank_view.mode = "deconstruct"
+	verify(crank_view._pointed_summary_data(Vector2.ZERO).detail.contains("Click  Detach"),
+		"The deconstruction cue names the separate detach action.")
+	crank_view._world_click(Vector2i.ZERO)
+	verify(crank_view.issued.back() == {"action": "detach_hand_crank", "entity": "fitted-crank"},
+		"Clicking the fitted crank with F selected asks native custody to detach that item.")
+	crank_view.free()
 	print("%d placement-interaction view checks" % checks)
 	quit(1 if failures else 0)
 
@@ -3493,6 +3541,24 @@ class ObjectMenuWidgets:
 	func issue(action: Dictionary) -> Dictionary:
 		issued.append(action.duplicate(true))
 		return {"accepted": false, "reason": "fixture_only"}
+
+class CrankInteractionView:
+	extends "res://opening/opening.gd"
+	var hit_body: StaticBody3D
+	var issued: Array = []
+	var allow_hold := true
+	var accept_pulse := true
+	func _ready() -> void:
+		set_process(false)
+	func _pointed_screen_position() -> Vector2:
+		return Vector2.ZERO
+	func _screen_pick(_screen: Vector2) -> Dictionary:
+		return {"collider": hit_body} if hit_body != null else {}
+	func _crank_hold_allowed() -> bool:
+		return allow_hold and _can_control_character()
+	func issue(action: Dictionary) -> Dictionary:
+		issued.append(action.duplicate(true))
+		return {"accepted": accept_pulse}
 
 func _object_menu_snapshot() -> Dictionary:
 	return {"context": "object-menu-fixture", "revision": 1, "order": 0,
