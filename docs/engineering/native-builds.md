@@ -98,8 +98,12 @@ The native worker uses one inherited heavy permit and a bounded 300-second,
 git config --local factory.nativeBazelExecutable /absolute/verified/bazel-8.4.2
 git config --local factory.nativeBazelSHA256 VERIFIED_LOWERCASE_BAZEL_SHA256
 git config --local factory.nativeArtifacts /absolute/owned/native-gate-family
+install -d -m 700 /absolute/owned/native-gate-family/output/native-gate-base
+git config --local factory.nativeOutputBase /absolute/owned/native-gate-family/output/native-gate-base
 # With extensions.worktreeConfig=true, a linked checkout may isolate its cache:
+install -d -m 700 /absolute/owned/this-worktree/native-gate-family/output/native-gate-base
 git config --worktree factory.nativeArtifacts /absolute/owned/this-worktree/native-gate-family
+git config --worktree factory.nativeOutputBase /absolute/owned/this-worktree/native-gate-family/output/native-gate-base
 ```
 
 The gate queries the staged Bazel graph for reverse dependencies of changed

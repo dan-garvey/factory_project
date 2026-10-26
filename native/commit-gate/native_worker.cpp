@@ -99,11 +99,13 @@ fs::path run_directory(const fs::path& artifacts, const std::string& tree) {
 
 std::vector<std::string> bazel_command(const fs::path& binary,
                                         const fs::path& artifacts,
+                                        const fs::path& output_base,
                                         const fs::path& staged,
                                         const std::string& verb) {
     return {binary.string(), "--nosystem_rc", "--nohome_rc", "--batch",
         "--host_jvm_args=-Xmx1024m", "--output_user_root=" + (artifacts / "output").string(),
-        verb, "--lockfile_mode=error", "--repository_cache=" + (artifacts / "repositories").string(),
+        "--output_base=" + output_base.string(), verb, "--lockfile_mode=error",
+        "--repository_cache=" + (artifacts / "repositories").string(),
         "--disk_cache=" + (artifacts / "actions").string(), "--distdir=" + artifacts.string(),
         "--repository_disable_download", "--registry=https://bcr.bazel.build",
         "--downloader_config=" + (staged / "native/build-support/offline-downloader.cfg").string()};
@@ -118,7 +120,7 @@ int bazel_stage(const fs::path& artifacts, const fs::path& admission,
     options.timeout = 300s;
     options.owned_user_accounting = true;
     const int result = build_support::run(options, command);
-    std::cout << "Native Bazel " << command[6] << " exit " << result
+    std::cout << "Native Bazel " << command[7] << " exit " << result
               << "; retained log " << log << '\n' << std::flush;
     return result;
 }
@@ -185,6 +187,7 @@ int run_native_worker(const fs::path& checkout, const std::string& expected_tree
             "The staged candidate changed after source validation.");
 
     const fs::path artifacts(config(checkout, "factory.nativeArtifacts", true));
+    const fs::path output_base(config(checkout, "factory.nativeOutputBase", true));
     const fs::path bazel(config(checkout, "factory.nativeBazelExecutable"));
     const auto expected_digest = config(checkout, "factory.nativeBazelSHA256");
     require(expected_digest.size() == 64 &&
@@ -192,6 +195,13 @@ int run_native_worker(const fs::path& checkout, const std::string& expected_tree
                 file_digest(bazel) == expected_digest,
             "The configured native Bazel executable does not match its local pin.");
     const auto toolchain = toolchain_key();
+    struct stat output_identity{};
+    require(output_base.is_absolute() && output_base.parent_path() == artifacts / "output" &&
+                fs::canonical(output_base) == output_base &&
+                ::lstat(output_base.c_str(), &output_identity) == 0 &&
+                S_ISDIR(output_identity.st_mode) && output_identity.st_uid == ::geteuid() &&
+                (output_identity.st_mode & 0077) == 0,
+            "The native Bazel output base must be a private owned child of its artifact family.");
     const auto admission = resources::common_git_dir(checkout) / "factory-local-resources";
     auto snapshot = materialize_staged_tree(checkout, expected_tree, artifacts,
         [&](const auto& args) { return git(checkout, args); });
@@ -205,7 +215,7 @@ int run_native_worker(const fs::path& checkout, const std::string& expected_tree
         DirectoryRestore restore;
         fs::current_path(snapshot.root());
         const auto query = [&](const std::string& expression, const std::string& name) {
-            auto command = bazel_command(bazel, artifacts, snapshot.root(), "query");
+            auto command = bazel_command(bazel, artifacts, output_base, snapshot.root(), "query");
             command.insert(command.end(), {"--noimplicit_deps", "--notool_deps", "--output=label", expression});
             const auto log = run / (name + ".log");
             require(bazel_stage(artifacts, admission, log, command) == 0,
@@ -214,13 +224,13 @@ int run_native_worker(const fs::path& checkout, const std::string& expected_tree
         };
         const auto build_labels = query(selection.build_query, "build-query");
         const auto test_labels = query(selection.test_query, "test-query");
-        auto build = bazel_command(bazel, artifacts, snapshot.root(), "build");
+        auto build = bazel_command(bazel, artifacts, output_base, snapshot.root(), "build");
         build.push_back("--cxxopt=-DFACTORY_GATE_TOOLCHAIN_FINGERPRINT=0x" + toolchain.substr(0, 16));
         build.push_back("--jobs=8");
         build.insert(build.end(), build_labels.begin(), build_labels.end());
         require(bazel_stage(artifacts, admission, run / "build.log", build) == 0,
                 "An affected native target failed to build.");
-        auto test = bazel_command(bazel, artifacts, snapshot.root(), "test");
+        auto test = bazel_command(bazel, artifacts, output_base, snapshot.root(), "test");
         test.push_back("--cxxopt=-DFACTORY_GATE_TOOLCHAIN_FINGERPRINT=0x" + toolchain.substr(0, 16));
         test.insert(test.end(), {"--jobs=8", "--build_tests_only", "--test_output=errors",
             "--build_event_json_file=" + (run / "test-events.json").string()});

@@ -20,9 +20,12 @@ then the common local setting. An empty value or read error refuses.
 Engine/executable hashes remain shared. Do not wrap the hook in another
 admission command.
 
-Native validation similarly prefers worktree-specific `factory.nativeArtifacts`,
-then the common local setting. The Bazel executable and SHA256 pin are common
-repository-local settings. The artifact family is external, owned and mode 0700;
+Native validation similarly prefers worktree-specific `factory.nativeArtifacts`
+and `factory.nativeOutputBase`, then their common local settings. One fixed
+output base is reused across temporary staged paths in a checkout; separate
+concurrent checkouts should use separate families and bases. The Bazel executable
+and SHA256 pin are common repository-local settings. The artifact family is
+external, owned and mode 0700;
 it holds the offline dependency distdir, bounded cache, private logs and only
 temporary staged snapshots. A cache or dependency miss refuses. The worker
 records compiler/linker hashes and installed toolchain package versions and
