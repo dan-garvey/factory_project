@@ -122,6 +122,31 @@ Optional repository-local `factory.commitGateExecutable` and
 Both absent retain the existing Python coordinator; partial/invalid settings,
 changed hashes or native failure refuse without fallback.
 
+For native staged changes, configure the pinned offline Bazel executable and
+an owned external mode-0700 artifact/cache family before installing the new
+coordinator. Put verified dependency archives needed by Bazel in that family
+for its local `--distdir`; download-disabled queries and builds refuse on a miss.
+The native worker uses one inherited heavy permit and a bounded 300-second,
+2-GiB-artifact, 8-MiB-log runner per query/build/test command:
+
+```bash
+git config --local factory.nativeBazelExecutable /absolute/verified/bazel-8.4.2
+git config --local factory.nativeBazelSHA256 VERIFIED_LOWERCASE_BAZEL_SHA256
+git config --local factory.nativeArtifacts /absolute/owned/native-gate-family
+install -d -m 700 /absolute/owned/native-gate-family/output/native-gate-base
+git config --local factory.nativeOutputBase /absolute/owned/native-gate-family/output/native-gate-base
+# With extensions.worktreeConfig=true, a linked checkout may isolate its cache:
+install -d -m 700 /absolute/owned/this-worktree/native-gate-family/output/native-gate-base
+git config --worktree factory.nativeArtifacts /absolute/owned/this-worktree/native-gate-family
+git config --worktree factory.nativeOutputBase /absolute/owned/this-worktree/native-gate-family/output/native-gate-base
+```
+
+The gate queries the staged Bazel graph for reverse dependencies of changed
+native packages, builds every selected C++ target and requires a passing Bazel
+event summary for every selected test, including cached and host-tagged tests.
+A host test needing undeclared runtime arguments will fail this lane until its
+target contract is repaired; it is not silently excluded.
+
 Staged GDScript requires the pinned `4.7.2.stable.official.ed1daf0bf` engine:
 
 ```bash

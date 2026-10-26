@@ -52,6 +52,10 @@ void cases(const fs::path& root) {
     const auto docs = gate::select_native_changes(root, {"README.md", "native/factory-core/README.md"});
     check(!docs.required && docs.build_query.empty() && docs.test_query.empty(),
           "Documentation-only changes do not force native validation.");
+    check(!gate::requires_native_validation({"README.md", "native/factory-core/README.md"}) &&
+              gate::requires_native_validation({"native/factory-core/src/materials.cpp"}) &&
+              gate::requires_native_validation({"MODULE.bazel.lock"}),
+          "The pre-admission path decision matches source, documentation and shared Bazel inputs.");
     for (const auto& path : {".bazelrc", ".bazelversion", "MODULE.bazel", "MODULE.bazel.lock",
                              "BUILD.bazel", "native/factory-core/defs.bzl", "native/new/src/file.cpp"}) {
         const auto all = gate::select_native_changes(root, {path});
@@ -63,6 +67,9 @@ void cases(const fs::path& root) {
                              ".beads/private", "native/factory-core/src/bad\nname.cpp"}) {
         refuses([&] { (void)gate::select_native_changes(root, {path}); },
                 (std::string("An unsafe or private staged delta refuses: ") + path).c_str());
+        if (std::string(path).starts_with("native/") || std::string(path).ends_with(".bzl"))
+            refuses([&] { (void)gate::requires_native_validation({path}); },
+                    "The pre-admission decision refuses an unsafe native path.");
     }
     const auto labels = gate::native_labels_from_query(
         "Loading: 0 packages loaded\n//native/factory-core:materials_test\n"

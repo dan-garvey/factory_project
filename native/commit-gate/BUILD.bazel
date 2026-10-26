@@ -11,7 +11,7 @@ cc_library(
     name = "coordinator",
     srcs = ["coordinator.cpp"],
     hdrs = ["coordinator.hpp"],
-    deps = [":git_reader", "//native/tooling:local_resources"],
+    deps = [":git_reader", ":native_selection", "//native/tooling:local_resources"],
 )
 
 cc_library(
@@ -27,10 +27,31 @@ cc_library(
     hdrs = ["native_selection.hpp"],
 )
 
+cc_library(
+    name = "native_worker",
+    srcs = ["native_worker.cpp"],
+    hdrs = ["native_worker.hpp"],
+    deps = [
+        ":coordinator",
+        ":native_selection",
+        ":staged_tree",
+        "//native/build-support:runner",
+        "//native/factory-launch:capture",
+        "//native/tooling:local_resources",
+    ],
+)
+
 cc_test(
     name = "native_selection_test",
     srcs = ["native_selection_tests.cpp"],
     deps = [":native_selection"],
+    size = "small",
+)
+
+cc_test(
+    name = "native_worker_test",
+    srcs = ["native_worker_tests.cpp"],
+    deps = [":native_worker"],
     size = "small",
 )
 
@@ -45,7 +66,7 @@ cc_test(
 cc_binary(
     name = "factory-commit-check",
     srcs = ["main.cpp"],
-    deps = [":coordinator"],
+    deps = [":coordinator", ":native_worker"],
 )
 
 cc_test(

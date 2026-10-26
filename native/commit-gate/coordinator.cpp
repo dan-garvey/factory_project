@@ -1,4 +1,5 @@
 #include "coordinator.hpp"
+#include "native_selection.hpp"
 
 #include "native/tooling/local_resources.hpp"
 
@@ -175,10 +176,12 @@ Plan prepare(const fs::path& root, const GitReader& git, const std::string& inte
         names = checked(git, {"ls-tree", "-rz", "--name-only", tree});
     }
     bool game{};
+    std::vector<std::string> changed_paths;
     for (std::size_t offset = 0; offset < names.size();) {
         const auto end = names.find('\0', offset);
         require(end != std::string::npos, "Git returned a truncated staged path list.");
         const auto name = names.substr(offset, end - offset);
+        if (!name.empty()) changed_paths.push_back(name);
         if (!name.empty() && fs::path(name).extension() == ".gd") {
             require(name.starts_with("experiments/engine-environment/godot/"),
                     "Staged GDScript outside the supported prototype project needs an explicit parser contract.");
@@ -186,7 +189,9 @@ Plan prepare(const fs::path& root, const GitReader& git, const std::string& inte
         }
         offset = end + 1;
     }
-    Plan plan{tree, game, {interpreter, "-B", (root / "scripts/check.py").string(), "--staged", "--expected-tree", tree}};
+    Plan plan{tree, game, {interpreter, "-B", (root / "scripts/check.py").string(), "--staged", "--expected-tree", tree},
+              std::move(changed_paths), false};
+    plan.validate_native = requires_native_validation(plan.changed_paths);
     if (game) {
         const auto local = [&](const std::string& key) {
             const auto result = git({"config", "--local", "--get", key});
@@ -230,8 +235,12 @@ int run(const fs::path& root, const std::string& interpreter) {
     const auto plan = prepare(root, interpreter);
     resources::Options options;
     options.root = root;
-    options.mode = plan.compile_gdscript ? resources::Mode::heavy : resources::Mode::check;
-    options.command = plan.command;
+    options.mode = plan.compile_gdscript || plan.validate_native ? resources::Mode::heavy : resources::Mode::check;
+    if (plan.validate_native) {
+        options.inherit_permits = true;
+        options.command = {fs::canonical("/proc/self/exe").string(), "--native-worker",
+                           "--root", root.string(), "--expected-tree", plan.tree};
+    } else options.command = plan.command;
     return resources::run(options);
 }
 }  // namespace factory::commit_gate
