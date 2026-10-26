@@ -549,6 +549,8 @@ func check_inventory_goal_view() -> void:
 	view._build_world()
 	view._build_interface()
 	view._refresh_ui()
+	verify(view.loose_material_controls == null,
+		"The constructed ordinary player interface has no diagnostic loose-material or Push menu.")
 	await process_frame
 	verify(not view.build_column.get_parent().visible
 		and not view.objective_heading.visible and not view.goal_label.visible
@@ -577,6 +579,13 @@ func check_inventory_goal_view() -> void:
 	shared._build_world()
 	shared._build_interface()
 	shared._refresh_ui()
+	verify(shared.loose_material_controls == null,
+		"The constructed shared player interface also excludes diagnostic material commands.")
+	await process_frame
+	verify(not shared.build_column.get_parent().visible
+		and not shared.objective_heading.visible and not shared.goal_label.visible
+		and "J log" in shared.controls_label.text,
+		"A shared worker gets the same clear arrival view and visible Work log shortcut.")
 	view.state = view.state.duplicate(true)
 	view.state.cargo.P.products = 1
 	view.state.workshop_completed_actors = ["P"]
