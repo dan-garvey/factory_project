@@ -6020,7 +6020,7 @@ func _select_tool(tool: String) -> void:
 		"component": "Point at a part face to snap. Hold Alt and use arrows or Page Up / Down to nudge one quarter-grid step; click to place.",
 		"pod_workshop": "Click a clear full tile to reinstall the carried pod workshop. It can sit on ground or a foundation top.",
 		"drive": "Click two neighboring machines to connect a drive shaft.",
-		"inspect": "Point at a machine and press E to open it." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
+		"inspect": "E opens a pointed machine; hold E to turn a fitted crank." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
 		"deconstruct": "Point at a built part and click to dismantle it. Escape leaves dismantle mode.",
 		"collector": "Place the collector on the ore deposit.",
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
@@ -9675,7 +9675,7 @@ func _refresh_ui() -> void:
 		if component.get("component", "") == "wooden_workbench":
 			inspector.text += "\nPress E for recipes when nearby."
 	else:
-		inspector.text = "Point at a machine and press E to open it."
+		inspector.text = "E opens a pointed machine; hold E to turn a fitted crank."
 	inspector.tooltip_text = inspector.text
 	if _object_menu_open() and _contains_target(state, selected):
 		var detail_lines := inspector.text.split("\n")
