@@ -583,10 +583,13 @@ bool historical_wire(const authority::Record& record) {
             field<Integer>(*wire, "half_span") && same("entity", "target") &&
             same("role", "role") && same("half_span", "half_span");
     if (*action == "attach_hand_crank")
-        return *original_action == *action && keys(*wire, {"entity", "crank", "port"}) &&
+        return *original_action == *action &&
+            (keys(*wire, {"entity", "crank", "port"}) ||
+             keys(*wire, {"entity", "crank", "port", "face"})) &&
             field<std::string>(*wire, "entity") && field<std::string>(*wire, "crank") &&
             field<Array>(*wire, "port") && same("entity", "target") &&
-            same("crank", "crank") && same("port", "port");
+            same("crank", "crank") && same("port", "port") &&
+            (wire->contains("face") ? same("face", "face") : !intent.contains("face"));
     if (*action == "detach_hand_crank")
         return *original_action == *action && keys(*wire, {"entity"}) &&
             field<std::string>(*wire, "entity") && same("entity", "target");
@@ -1923,9 +1926,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("role", wire.at("role"));
         normalized.emplace("half_span", wire.at("half_span"));
     } else if (*action == "attach_hand_crank") {
-        if (!keys(wire, {"entity", "crank", "port"}) ||
+        if (!(keys(wire, {"entity", "crank", "port"}) ||
+                keys(wire, {"entity", "crank", "port", "face"})) ||
             !field<std::string>(wire, "entity") || !field<std::string>(wire, "crank") ||
-            !field<Array>(wire, "port") || !gear_center(*field<Array>(wire, "port")))
+            !field<Array>(wire, "port") || !gear_center(*field<Array>(wire, "port")) ||
+            (wire.contains("face") &&
+                (!field<Array>(wire, "face") || !gear_center(*field<Array>(wire, "face")))))
             return refuse("invalid_command");
         const auto slide = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "crank"));
@@ -1937,6 +1943,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("crank_generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
         normalized.emplace("port", wire.at("port"));
+        if (wire.contains("face")) normalized.emplace("face", wire.at("face"));
     } else if (*action == "detach_hand_crank") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -1966,6 +1973,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("crank_generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
         normalized.emplace("port", Value(port));
+        if (crank != snapshot.state.crank_items.end() && crank->second.face) {
+            const auto& face = *crank->second.face;
+            normalized.emplace("face", Value(Array{
+                Value(face[0]), Value(face[1]), Value(face[2])}));
+        }
     } else if (*action == "turn_hand_crank") {
         if (!keys(wire, {"entity"}) || !field<std::string>(wire, "entity"))
             return refuse("invalid_command");
@@ -3075,7 +3087,9 @@ Value Host::projection() const {
                 {"holder", Value(item.holder.value_or(""))},
                 {"attached_to", Value(item.attached_to.value_or(""))},
                 {"port", Value(item.port ? Array{Value((*item.port)[0]),
-                    Value((*item.port)[1]), Value((*item.port)[2])} : Array{})}}));
+                    Value((*item.port)[1]), Value((*item.port)[2])} : Array{})},
+                {"face", Value(item.face ? Array{Value((*item.face)[0]),
+                    Value((*item.face)[1]), Value((*item.face)[2])} : Array{})}}));
         projection.emplace("crank_items", Value(std::move(crank_items)));
         Object placed;
         for (const auto& [id, component] : state.placed_components) {
@@ -3104,6 +3118,8 @@ Value Host::projection() const {
                     Value(component.center[0]), Value(component.center[1]),
                     Value(component.center[2])})}));
             }
+            if (const auto axis = power.crank_axes.find(id); axis != power.crank_axes.end())
+                part.emplace("crank_axis", Value(static_cast<Integer>(axis->second)));
             placed.emplace(id, Value(std::move(part)));
         }
         projection.emplace("placed_components", Value(std::move(placed)));
@@ -3215,13 +3231,44 @@ Value Host::projection() const {
         }
         projection.emplace("guided_press_assemblies", Value(std::move(guided_presses)));
         Array sliding_presses;
+        std::set<mechanics::Point> belt_tiles;
+        std::map<mechanics::Point, std::pair<int, int>> mouth_roles;
+        // World accepts press handoff only at a full-tile belt endpoint.
+        // Index all lanes once so each workbed reads only its two X mouths.
+        for (const auto& span : state.topology.belt_spans) {
+            const auto* first = find(state, span.geometry.first_shaft);
+            const auto* last = find(state, span.geometry.last_shaft);
+            if (!first || !last) continue;
+            const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            if (!path) continue;
+            belt_tiles.insert(path->tiles.begin(), path->tiles.end());
+            const auto motion = power.mechanical.motion.find(span.geometry.first_shaft);
+            if (motion == power.mechanical.motion.end() ||
+                motion->second.state != mechanics::MotionState::rotating) continue;
+            const auto direction = mechanics::belt_cargo_direction(first->geometry,
+                last->geometry, motion->second.rate);
+            if (!direction || *direction == 0) continue;
+            for (const bool at_last : {false, true}) {
+                const auto& mouth = at_last ? path->tiles.back() : path->tiles.front();
+                auto& [inbound, outbound] = mouth_roles[mouth];
+                if (at_last == (*direction > 0)) ++inbound;
+                else ++outbound;
+            }
+        }
         for (const auto& anvil : parts) {
             if (anvil.kind != materials::Component::anvil) continue;
             const auto inspection = assembly::inspect_sliding_press(parts, anvil.center);
+            const mechanics::Point west_mouth{anvil.center[0] - 4, anvil.center[1], anvil.center[2]};
+            const mechanics::Point east_mouth{anvil.center[0] + 4, anvil.center[1], anvil.center[2]};
+            const bool mouth_has_belt = belt_tiles.contains(west_mouth) || belt_tiles.contains(east_mouth);
+            const bool manual_auto_route = profile_.landing_pod_center.has_value();
             Object entry{{"anvil", Value(anvil.id)},
                 {"center", Value(Array{Value(anvil.center[0]), Value(anvil.center[1]),
                     Value(anvil.center[2])})},
                 {"status", Value(press_status_name(inspection.status))}};
+            if (manual_auto_route && (inspection.status == assembly::PressStatus::ready ||
+                    inspection.status == assembly::PressStatus::blocked_feed))
+                entry.emplace("auto_route", Value(true));
             if (inspection.press) {
                 const auto& press = *inspection.press;
                 entry.emplace("parts", Value(Object{{"anvil", Value(press.anvil)},
@@ -3236,11 +3283,36 @@ Value Host::projection() const {
                     entry.emplace("selected_exit", Value(Array{Value(selected->second[0]),
                         Value(selected->second[1]), Value(selected->second[2])}));
                 Array feeds;
-                for (const auto& feed : press.open_feeds)
-                    feeds.emplace_back(Object{{"entry", Value(Array{Value(feed.entry[0]),
+                const auto selected = state.slide_press_routes.find(press.work_center);
+                const auto route_score = [&](const assembly::PressFeed& feed) {
+                    const auto entry_mouth = feed.entry[0] < press.work_center[0] ? west_mouth : east_mouth;
+                    const auto exit_mouth = feed.exit[0] < press.work_center[0] ? west_mouth : east_mouth;
+                    const auto [input_in, input_out] = mouth_roles[entry_mouth];
+                    const auto [output_in, output_out] = mouth_roles[exit_mouth];
+                    return input_out || output_in ? 0 : input_in + output_out;
+                };
+                int candidate_count = 0;
+                mechanics::Point inferred_exit{};
+                if (manual_auto_route && mouth_has_belt && selected == state.slide_press_routes.end())
+                    for (const auto& feed : press.open_feeds)
+                        if (route_score(feed) > 0) { ++candidate_count; inferred_exit = feed.exit; }
+                for (const auto& feed : press.open_feeds) {
+                    Object route{{"entry", Value(Array{Value(feed.entry[0]),
                         Value(feed.entry[1]), Value(feed.entry[2])})},
                         {"exit", Value(Array{Value(feed.exit[0]), Value(feed.exit[1]),
-                            Value(feed.exit[2])})}});
+                            Value(feed.exit[2])})}};
+                    // Retained work keeps its native outlet. With no local
+                    // belt, east is the stable manual default. A connected
+                    // lane supplies a role only when exactly one open route
+                    // agrees with its actual cargo motion.
+                    if (manual_auto_route && (selected != state.slide_press_routes.end() ?
+                            feed.exit == selected->second :
+                            mouth_has_belt ? candidate_count == 1 && feed.exit == inferred_exit :
+                            feed.exit == mechanics::Point{press.work_center[0] + 1,
+                                press.work_center[1], press.work_center[2]}))
+                        entry.emplace("auto_feed", Value(route));
+                    feeds.emplace_back(std::move(route));
+                }
                 entry.emplace("open_feeds", Value(std::move(feeds)));
             }
             sliding_presses.emplace_back(std::move(entry));

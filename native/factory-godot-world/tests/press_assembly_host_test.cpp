@@ -948,6 +948,102 @@ void belt_fed_press_projection() {
     const auto belt = get<std::string>(accepted(host, install), "entity");
     check(get<I>(V(get<O>(host.projection(), "motion").at(wheel_id)), "numerator") != 0,
           "The placed wet wheel actually rotates the raised belt shafts.");
+    Host sliding;
+    check(get<bool>(sliding.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(sliding.configure_terrain(site), "accepted") &&
+          get<bool>(sliding.restore_checkpoint(host.checkpoint()), "accepted"),
+          "A second native Host starts from the same finite powered belt before material enters it.");
+    I sliding_epoch{};
+    const auto at_slide = [&](double x, double z) {
+        check(get<bool>(sliding.publish_actor("P", {V(x), V(1.0), V(z)}, ++sliding_epoch), "accepted"),
+              "The slide builder reports a physical position.");
+    };
+    at_slide(-0.5, 0.0);
+    auto slide_ore = request("slide-auto-ore", "harvest_source");
+    slide_ore.emplace("target", V("opening-copper"));
+    accepted(sliding, slide_ore);
+    at_slide(5.8, -1.65);
+    for (int n = 0; n < 3; ++n) {
+        auto wood = request("slide-auto-timber-" + std::to_string(n), "harvest_source");
+        wood.emplace("target", V("tree-east-upstream"));
+        accepted(sliding, wood);
+    }
+    at_slide(1.65, 6.6);
+    for (const char* kind : {"flat_head", "wooden_slide"}) {
+        auto craft = request(std::string("slide-auto-craft-") + kind, "craft_component");
+        craft.emplace("entity", V("pod-fabrication-hub"));
+        craft.emplace("component", V(kind));
+        accepted(sliding, craft);
+    }
+    at_slide(1.4, 0.0);
+    const auto old_parts = get<O>(inspection(sliding), "parts");
+    for (const char* kind : {"drive_cog", "shaft", "mount", "guide", "ram", "anvil", "frame"})
+        reclaim(sliding, get<std::string>(V(old_parts), kind),
+            (std::string("slide-auto-reclaim-") + kind).c_str());
+    const auto slide_anvil = place(sliding, "anvil", 0, 4, 0, "slide-auto-anvil");
+    const auto slide_head = place(sliding, "flat_head", 0, 5, 0, "slide-auto-head");
+    const auto slide_body = place(sliding, "wooden_slide", 0, 6, 0, "slide-auto-body");
+    const auto slide_assemblies = get<A>(sliding.projection(), "sliding_press_assemblies");
+    check(slide_assemblies.size() == 1, "The powered belt neighbor has one fitted sliding press.");
+    const auto slide_press = std::get<O>(slide_assemblies.front().storage());
+    const auto auto_feed = get<O>(V(slide_press), "auto_feed");
+    check(get<bool>(V(slide_press), "auto_route") &&
+          !factory::values::typed_difference(V(get<A>(V(auto_feed), "entry")),
+              V(A{V(I{1}), V(I{4}), V(I{0})})) &&
+          !factory::values::typed_difference(V(get<A>(V(auto_feed), "exit")),
+              V(A{V(I{-1}), V(I{4}), V(I{0})})) &&
+          get<bool>(sliding.validate_checkpoint(sliding.checkpoint()), "accepted"),
+          "A live east inlet belt selects the east-to-west slide route from real native motion.");
+    reclaim(sliding, slide_body, "slide-auto-body-move");
+    reclaim(sliding, slide_head, "slide-auto-head-move");
+    reclaim(sliding, slide_anvil, "slide-auto-anvil-move");
+    at_slide(3.3, 1.65);
+    auto output_floor = request("slide-auto-output-floor", "place_foundation");
+    output_floor.emplace("cell", V(A{V(I{3}), V(I{0})}));
+    output_floor.emplace("level", V(I{4}));
+    accepted(sliding, output_floor);
+    const auto output_anvil = place(sliding, "anvil", 12, 4, 0, "slide-auto-output-anvil");
+    place(sliding, "flat_head", 12, 5, 0, "slide-auto-output-head");
+    place(sliding, "wooden_slide", 12, 6, 0, "slide-auto-output-body");
+    const auto output_assemblies = get<A>(sliding.projection(), "sliding_press_assemblies");
+    check(output_assemblies.size() == 1, "The moved slide has one native west output belt neighbor.");
+    const auto output_press = std::get<O>(output_assemblies.front().storage());
+    const auto output_feed = get<O>(V(output_press), "auto_feed");
+    check(get<bool>(V(output_press), "auto_route") &&
+          !factory::values::typed_difference(V(get<A>(V(output_feed), "entry")),
+              V(A{V(I{13}), V(I{4}), V(I{0})})) &&
+          !factory::values::typed_difference(V(get<A>(V(output_feed), "exit")),
+              V(A{V(I{11}), V(I{4}), V(I{0})})) &&
+          get<bool>(sliding.validate_checkpoint(sliding.checkpoint()), "accepted"),
+          "The same moving lane becomes a west output only when its endpoint faces away from the slide.");
+    at_slide(-0.5, 0.0);
+    auto retained_ore = request("slide-auto-retained-ore", "harvest_source");
+    retained_ore.emplace("target", V("opening-copper"));
+    accepted(sliding, retained_ore);
+    at_slide(4.95, 1.65);
+    auto manual_feed = request("slide-auto-retained-feed", "feed_press");
+    manual_feed.emplace("entity", V(output_anvil));
+    manual_feed.emplace("entry", V(A{V(I{13}), V(I{4}), V(I{0})}));
+    accepted(sliding, manual_feed);
+    const auto loaded_slide = std::get<O>(get<A>(sliding.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(!factory::values::typed_difference(V(get<A>(V(loaded_slide), "selected_exit")),
+              V(A{V(I{11}), V(I{4}), V(I{0})})),
+          "Manual inventory loading commits the inferred connected outlet in native work custody.");
+    const auto slide_saved = sliding.checkpoint();
+    Host slide_restored;
+    check(get<bool>(slide_restored.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(slide_restored.configure_terrain(site), "accepted") &&
+          get<bool>(slide_restored.restore_checkpoint(slide_saved), "accepted") &&
+          !factory::values::typed_difference(slide_saved, slide_restored.checkpoint()),
+          "A fresh native Host retains the loaded slide and powered belt identities.");
+    const auto resumed_slide = std::get<O>(get<A>(slide_restored.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(!factory::values::typed_difference(V(get<A>(V(resumed_slide), "selected_exit")),
+              V(A{V(I{11}), V(I{4}), V(I{0})})) &&
+          !factory::values::typed_difference(V(get<O>(V(resumed_slide), "auto_feed")),
+              V(output_feed)),
+          "Restored projection keeps the same selected connected route without a second feed choice.");
     auto load = request("inlet-host-load", "load_belt_slot");
     load.emplace("entity", V(belt));
     load.emplace("slot", V(I{0}));

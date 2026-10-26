@@ -807,6 +807,47 @@ func _component_placement_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(prefix + "-ore-cutter.png") == OK,
 			"Retain the allowed ore-face cutter and its floor-reaching support.")
+	view.client = "P"
+	view.component_nudge_active = false
+	view.state.placed_components = {"shaft": {"component": "wooden_shaft",
+		"center": [0, 4, 0], "position": [0.0, 2.475, 0.0],
+		"input_ports": [[0, 4, 0]], "crank_axis": 0}}
+	view.state.crank_items = {"crank-id": {"holder": "P"}}
+	view.state.cargo.P.components.hand_crank = 1
+	view.state.actors.P.position = [1.0, 1.0, 0.0]
+	choice.kind = "hand_crank"
+	view.aimed = "shaft"
+	view.aim_normal = Vector3.RIGHT
+	body.set_meta("component_entity", "shaft")
+	view._refresh_component_preview()
+	verify(view.component_preview.visible and not view.component_preview_blocked
+		and absf(view.component_preview.position.x - 0.22) < 0.001
+		and absf(view.component_preview.rotation.y) < 0.001,
+		"The ordinary crank ghost follows the native positive X spindle face.")
+	view._world_click(Vector2i.ZERO, "shaft")
+	verify(view.issued.back().face == [1, 0, 0],
+		"Fitting from the positive X side sends the projected spindle face for native validation.")
+	view.state.actors.P.position = [-1.0, 1.0, 0.0]
+	view._refresh_component_preview()
+	verify(absf(view.component_preview.position.x + 0.22) < 0.001
+		and absf(absf(view.component_preview.rotation.y) - PI) < 0.001,
+		"Approaching the other side mirrors the visible crank preview.")
+	view._world_click(Vector2i.ZERO, "shaft")
+	verify(view.issued.back().face == [-1, 0, 0],
+		"The mirrored native attachment request matches the ordinary preview.")
+	view.state.placed_components.shaft.crank_axis = 2
+	view.state.actors.P.position = [0.0, 1.0, 1.0]
+	view._refresh_component_preview()
+	verify(absf(view.component_preview.position.z - 0.22) < 0.001
+		and absf(view.component_preview.rotation.y + PI * 0.5) < 0.001,
+		"A native Z spindle rotates the preview around the actual horizontal axis.")
+	view._world_click(Vector2i.ZERO, "shaft")
+	verify(view.issued.back().face == [0, 0, 1],
+		"The ordinary Z-facing fit sends the same signed face as its preview.")
+	view.state.actors.P.position = [0.0, 1.0, -1.0]
+	view._world_click(Vector2i.ZERO, "shaft")
+	verify(view.issued.back().face == [0, 0, -1],
+		"Approaching the opposite Z face reverses the requested native winding.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,
@@ -3821,6 +3862,31 @@ func _slide_controls_check() -> void:
 	snapshot.sliding_press_assemblies[0].erase("selected_exit")
 	panel.refresh(snapshot, "P", "anvil", true)
 	view.selected = "anvil"
+	var auto_snapshot: Dictionary = snapshot.duplicate(true)
+	auto_snapshot.sliding_press_assemblies[0].auto_route = true
+	auto_snapshot.sliding_press_assemblies[0].auto_feed = {
+		"entry": [11, 0, 8], "exit": [13, 0, 8]}
+	panel._route_index = 0
+	panel.refresh(auto_snapshot, "P", "anvil", true)
+	var auto_blank: Dictionary = panel.inventory_drag("player_raw")
+	verify(not panel.route_choice.visible and panel.auto_route_cue.visible
+		and panel.auto_route_cue.text.contains("WEST → EAST")
+		and not panel.cycle_feed_route()
+		and auto_blank.get("wire", {}).get("entry", []) == [11, 0, 8],
+		"The projected Auto route feeds carried copper without a G selector, even when the manual index differs.")
+	auto_snapshot.sliding_press_assemblies[0].auto_feed = {
+		"entry": [13, 0, 8], "exit": [11, 0, 8]}
+	panel.refresh(auto_snapshot, "P", "anvil", true)
+	var connected_blank: Dictionary = panel.inventory_drag("player_raw")
+	verify(not panel.route_choice.visible and panel.auto_route_cue.text.contains("EAST → WEST")
+		and connected_blank.get("wire", {}).get("entry", []) == [13, 0, 8],
+		"A reversed native Auto projection changes the visible cue and carried-copper entry together.")
+	auto_snapshot.sliding_press_assemblies[0].erase("auto_feed")
+	panel.refresh(auto_snapshot, "P", "anvil", true)
+	verify(panel.auto_route_cue.text.contains("ROUTE BLOCKED")
+		and panel.inventory_drag("player_raw").is_empty(),
+		"A blocked native Auto route does not fall through to the other clear route.")
+	panel.refresh(snapshot, "P", "anvil", true)
 	verify(panel.cycle_feed_route() and panel._route_index == 1,
 		"G changes the next feed direction after the retained route is released.")
 	var carried_blank: Dictionary = panel.inventory_drag("player_raw")
@@ -3869,6 +3935,15 @@ func _slide_controls_check() -> void:
 	verify(panel.inventory_shortcut(KEY_P) and view.issued.back() == formed_plate.wire,
 		"P recovers the exact outlet plate through the workbed inventory.")
 	view.issued.clear()
+	var released_route: Dictionary = snapshot.duplicate(true)
+	released_route.sliding_press_assemblies[0].auto_route = true
+	released_route.sliding_press_assemblies[0].auto_feed = {
+		"entry": [11, 0, 8], "exit": [13, 0, 8]}
+	released_route.dropped_material[0].center = [11, 0, 8]
+	panel.refresh(released_route, "P", "anvil", true)
+	verify(panel.inventory_drag("workbed_output").get("wire", {}).get("center", []) == [11, 0, 8],
+		"Auto keeps a completed plate recoverable at its old selected outlet after route release.")
+	panel.refresh(snapshot, "P", "anvil", true)
 	snapshot.dropped_material.append({"center": [12, 0, 8], "raw": 0,
 		"products": 0, "offcuts": 1, "work_lots": []})
 	panel.refresh(snapshot, "P", "anvil", true)
@@ -3976,6 +4051,22 @@ func _slide_inventory_render_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(scene_root.get_texture().get_image().save_png(destination + "-wide.png") == OK,
 			"Retain the passive workbed inventory panel at 1280 by 800.")
+	var projected_press: Dictionary = view.state.sliding_press_assemblies[0]
+	projected_press.open_feeds.append({"entry": [13, 0, 8], "exit": [11, 0, 8]})
+	projected_press.auto_route = true
+	projected_press.auto_feed = {"entry": [13, 0, 8], "exit": [11, 0, 8]}
+	view._refresh_ui()
+	verify(panel.auto_route_cue.visible and panel.auto_route_cue.text.contains("EAST → WEST")
+		and not panel.route_choice.visible,
+		"The ordinary workbed renders the connected east-to-west Auto cue without a route selector.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-connected-auto.png") == OK,
+			"Retain the connected Auto cue in the actual workbed panel.")
+	projected_press.erase("auto_route")
+	projected_press.erase("auto_feed")
+	projected_press.open_feeds.pop_back()
+	view._refresh_ui()
 	var output_drag: Dictionary = panel.inventory_drag("workbed_output")
 	var output_preview := TextureRect.new()
 	output_preview.texture = panel.inventory_slots.workbed_output.icon

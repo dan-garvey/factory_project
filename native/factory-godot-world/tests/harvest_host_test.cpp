@@ -306,6 +306,13 @@ void flat_head_host_custody() {
           get<std::string>(V(fitted), "slide") == slide_id &&
           get<A>(V(press), "open_feeds").size() == 2,
           "Ordinary Host projection names the three finite parts and both open X-axis routes.");
+    const auto auto_feed = get<O>(V(press), "auto_feed");
+    check(get<bool>(V(press), "auto_route") &&
+          !factory::values::typed_difference(V(get<A>(V(auto_feed), "entry")),
+              V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+          !factory::values::typed_difference(V(get<A>(V(auto_feed), "exit")),
+              V(A{V(I{13}), V(I{0}), V(I{8})})),
+          "The isolated first-plate press projects one stable west-to-east manual Auto route.");
     check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 10), "accepted") &&
           get<bool>(resumed("press-crank-wood-1", "harvest_source",
               {{"target", V("tree-east-south")}}), "accepted") &&
@@ -344,7 +351,7 @@ void flat_head_host_custody() {
           "A further finite copper unit reaches the fitted press as an actor-held blank.");
     const auto feed = resumed("feed-slide-west", "feed_press",
         {{"entity", V(get<std::string>(support, "entity"))},
-         {"entry", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+         {"entry", V(get<A>(V(auto_feed), "entry"))}});
     if (!get<bool>(feed, "accepted"))
         throw std::runtime_error("Sliding press feed refused: " + get<std::string>(feed, "reason"));
     const auto fed_press = std::get<O>(get<A>(restored.projection(),
@@ -420,6 +427,9 @@ void flat_head_host_custody() {
         "sliding_press_assemblies").front().storage());
     check(get<std::string>(V(blocked_assembly), "status") == "blocked_feed",
           "One solid X-side part blocks both through-feed directions of the fitted slide.");
+    check(get<bool>(V(blocked_assembly), "auto_route") &&
+          !blocked_assembly.contains("auto_feed"),
+          "An obstructed manual Auto route has no alternate projected feed.");
     const auto blocked_feed = resumed("refuse-blocked-slide-feed", "feed_press",
         {{"entity", V(get<std::string>(support, "entity"))},
          {"entry", V(A{V(I{13}), V(I{0}), V(I{8})})}});
@@ -447,6 +457,12 @@ void flat_head_host_custody() {
                   "sliding_press_assemblies").front().storage())), "selected_exit")),
               V(A{V(I{11}), V(I{0}), V(I{8})})),
           "The same native blank can select the opposite clear outlet after recovery.");
+    const auto retained_assembly = std::get<O>(get<A>(restored.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(!factory::values::typed_difference(
+              V(get<O>(V(retained_assembly), "auto_feed").at("exit")),
+              V(A{V(I{11}), V(I{0}), V(I{8})})),
+          "Retained work keeps its chosen outlet in the native Auto projection.");
     check(!get<bool>(resumed("old-press-bypass", "turn_press_crank",
               {{"entity", V(get<std::string>(support, "entity"))},
                {"drive", V(slide_id)},
@@ -702,6 +718,74 @@ void flat_head_host_custody() {
           get<bool>(unlocked_restored.restore_checkpoint(unlocked_saved), "accepted") &&
           !factory::values::typed_difference(unlocked_saved, unlocked_restored.checkpoint()),
           "Fresh replay preserves the actor-specific first-plate unlock and carried plate.");
+    const auto q_command = [&](const std::string& request, const char* action, O extra) {
+        O wire{{"context", V("flat-head-site")}, {"client", V("Q")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        const auto reply = unlocked_restored.command("Q", wire);
+        if (!get<bool>(reply, "accepted"))
+            throw std::runtime_error(request + " refused: " + get<std::string>(reply, "reason"));
+        return reply;
+    };
+    check(get<bool>(unlocked_restored.publish_actor("Q", {V(-1.2375), V(1.0), V(0.0)}, 2), "accepted"),
+          "The worker with the plate can reach finite copper for a later, distant belt.");
+    q_command("remote-belt-ore", "harvest_source",
+        {{"target", V("opening-copper")}});
+    check(get<bool>(unlocked_restored.publish_actor("Q", {V(5.8), V(1.0), V(-1.0)}, 3), "accepted"),
+          "The same worker can reach finite timber for the belt kit.");
+    for (int index = 0; index < 4; ++index)
+        q_command("remote-belt-timber-" + std::to_string(index), "harvest_source",
+            {{"target", V("tree-east-upstream")}});
+    check(get<bool>(unlocked_restored.publish_actor("Q", {V(3.3), V(1.0), V(4.8)}, 4), "accepted"),
+          "The worker brings the real materials back to the native pod bench.");
+    for (int index = 0; index < 2; ++index)
+        q_command("remote-shaft-kit-" + std::to_string(index), "craft_part",
+            {{"entity", V("pod-fabrication-hub")}, {"role", V("shaft")}, {"half_span", V(I{2})}});
+    q_command("remote-belt-kit", "craft_part",
+        {{"entity", V("pod-fabrication-hub")}, {"role", V("belt")}, {"half_span", V(I{0})}});
+    check(get<bool>(unlocked_restored.publish_actor("Q", {V(10.725), V(1.0), V(0.0)}, 5), "accepted"),
+          "The worker reaches a belt site outside both material mouths of the slide.");
+    const auto distant_first = q_command("remote-shaft-first", "place_shaft",
+        {{"center", V(A{V(I{24}), V(I{0}), V(I{0})})},
+         {"axis", V("z")}, {"half_span", V(I{2})}});
+    const auto distant_last = q_command("remote-shaft-last", "place_shaft",
+        {{"center", V(A{V(I{28}), V(I{0}), V(I{0})})},
+         {"axis", V("z")}, {"half_span", V(I{2})}});
+    check(get<bool>(unlocked_restored.publish_actor("Q", {V(10.725), V(1.0), V(-1.65)}, 6), "accepted"),
+          "The worker steps clear of the real belt envelope while keeping both ends in reach.");
+    const auto distant_belt = q_command("remote-belt-place", "place_belt_span",
+        {{"from", V(get<std::string>(distant_first, "entity"))},
+         {"to", V(get<std::string>(distant_last, "entity"))}});
+    const auto distant_press = std::get<O>(get<A>(unlocked_restored.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(get<bool>(V(distant_press), "auto_route") &&
+          !factory::values::typed_difference(V(get<O>(V(distant_press), "auto_feed")), V(auto_feed)) &&
+          get<O>(unlocked_restored.projection(), "belt_spans").contains(
+              get<std::string>(distant_belt, "entity")) &&
+          get<bool>(unlocked_restored.validate_checkpoint(unlocked_restored.checkpoint()), "accepted"),
+          "A valid distant native belt does not switch an isolated slide back to manual feed selection.");
+    q_command("remote-belt-remove", "remove_belt_span",
+        {{"entity", V(get<std::string>(distant_belt, "entity"))}});
+    q_command("remote-shaft-first-remove", "remove",
+        {{"entity", V(get<std::string>(distant_first, "entity"))}});
+    q_command("remote-shaft-last-remove", "remove",
+        {{"entity", V(get<std::string>(distant_last, "entity"))}});
+    check(get<bool>(unlocked_restored.publish_actor("Q", {V(2.475), V(1.0), V(1.65)}, 7), "accepted"),
+          "The worker moves the recovered kit beside the slide's west material mouth.");
+    const auto mouth_first = q_command("mouth-shaft-first", "place_shaft",
+        {{"center", V(A{V(I{4}), V(I{0}), V(I{8})})},
+         {"axis", V("z")}, {"half_span", V(I{2})}});
+    const auto mouth_last = q_command("mouth-shaft-last", "place_shaft",
+        {{"center", V(A{V(I{8}), V(I{0}), V(I{8})})},
+         {"axis", V("z")}, {"half_span", V(I{2})}});
+    q_command("mouth-belt-place", "place_belt_span",
+        {{"from", V(get<std::string>(mouth_first, "entity"))},
+         {"to", V(get<std::string>(mouth_last, "entity"))}});
+    const auto mouth_press = std::get<O>(get<A>(unlocked_restored.projection(),
+        "sliding_press_assemblies").front().storage());
+    check(get<bool>(V(mouth_press), "auto_route") && !mouth_press.contains("auto_feed") &&
+          get<bool>(unlocked_restored.validate_checkpoint(unlocked_restored.checkpoint()), "accepted"),
+          "A stopped belt at the west mouth keeps Auto visible but cannot invent a material direction.");
 }
 
 void shared_fast_setting_and_restore() {

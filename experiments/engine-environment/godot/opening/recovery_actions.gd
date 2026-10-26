@@ -491,6 +491,7 @@ class ArrivalAssemblyControls:
 	var output_heading: Label
 	var output_actions: HBoxContainer
 	var route_choice: OptionButton
+	var auto_route_cue: Label
 	var slide_port_choice: OptionButton
 	var held_work_choice: OptionButton
 	var feed_button: Button
@@ -583,6 +584,9 @@ class ArrivalAssemblyControls:
 		route_choice.accessibility_name = "Press feed direction, shortcut G"
 		route_choice.item_selected.connect(func(index: int) -> void: _route_index = index)
 		press_section.add_child(route_choice)
+		auto_route_cue = host._label(press_section, "", 12, Color("f4bf75"))
+		auto_route_cue.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		auto_route_cue.visible = false
 		slide_port_choice = OptionButton.new()
 		slide_port_choice.name = "SlideCrankPort"
 		slide_port_choice.tooltip_text = "Choose a clear side of the slide's built-in input · V"
@@ -842,6 +846,18 @@ class ArrivalAssemblyControls:
 			route_choice.select(_route_index)
 		route_choice.disabled = not selected_exit.is_empty()
 		var sliding: bool = _press.get("parts", {}).has("slide")
+		var auto_route: bool = _press.get("auto_route", false)
+		var auto_feed: Dictionary = _press.get("auto_feed", {})
+		auto_route_cue.visible = auto_route and not _anvil.is_empty()
+		var route_description := "AUTO  ·  ROUTE BLOCKED"
+		if not auto_feed.is_empty():
+			route_description = "AUTO  ·  %s → %s" % [
+				_bearing(auto_feed.entry, work_center).to_upper(),
+				_bearing(auto_feed.exit, work_center).to_upper()]
+		auto_route_cue.text = route_description
+		auto_route_cue.tooltip_text = "The fitted slide sets this workbed route. Clear the blocked side to continue." \
+			if auto_feed.is_empty() else "The fitted slide sets this workbed route. Select or drag carried copper to feed it."
+		auto_route_cue.accessibility_name = route_description + ". " + auto_route_cue.tooltip_text
 		inventory_section.visible = _inventory_broad or (sliding and not _anvil.is_empty())
 		var work_face := "flat head" if sliding else "ram"
 		var input_id: String = str(_press.get("parts", {}).get("slide" if sliding else "shaft", ""))
@@ -889,8 +905,14 @@ class ArrivalAssemblyControls:
 				advice = "Move selected carried work onto the workbed." if not _held_work_ids.is_empty() else \
 					"Move one carried copper piece onto the workbed." if int(cargo.get("raw", 0)) > 0 else \
 					"Cut ore with the multitool, then carry copper here."
-			press_status.text = "Selected outlet blocked. Clear it before the next stroke." if not selected_route_available else \
-				"%s ready · %d clear feed routes. %s" % [
+			if auto_route and auto_feed.is_empty():
+				press_status.text = "Auto route blocked. Clear the slide feed or outlet before moving copper."
+			elif not selected_route_available:
+				press_status.text = "Selected outlet blocked. Clear it before the next stroke."
+			elif auto_route:
+				press_status.text = "Slide press ready · %s" % advice
+			else:
+				press_status.text = "%s ready · %d clear feed routes. %s" % [
 					"Slide press" if sliding else "Press", routes.size(), advice]
 		else:
 			press_status.text = "No clear through-feed route. Close [Esc], press F, then click the blocking part." if status == "blocked_feed" else {
@@ -912,9 +934,10 @@ class ArrivalAssemblyControls:
 		output_heading.visible = active_press and not sliding and not _inventory_broad
 		output_heading.text = "CRANK CUSTODY" if sliding else "OUTPUT & RECOVERY"
 		output_actions.visible = output_heading.visible
-		route_choice.visible = active_press and not _inventory_broad and not routes.is_empty() and (not sliding or routes.size() > 1)
+		route_choice.visible = active_press and not _inventory_broad and not auto_route \
+			and not routes.is_empty() and (not sliding or routes.size() > 1)
 		slide_port_choice.visible = false
-		var can_operate := ready and status == "ready" and not routes.is_empty() \
+		var can_operate := ready and status == "ready" and not _route().is_empty() \
 			and selected_route_available
 		feed_button.visible = not _inventory_broad and not _anvil.is_empty() and not sliding
 		feed_button.disabled = not can_operate or int(cargo.get("raw", 0)) < 1 or not _work_drop().is_empty()
@@ -1173,6 +1196,8 @@ class ArrivalAssemblyControls:
 		return {}
 
 	func _route() -> Dictionary:
+		if _press.get("auto_route", false):
+			return _press.get("auto_feed", {})
 		var routes: Array = _press.get("open_feeds", [])
 		return routes[_route_index] if _route_index >= 0 and _route_index < routes.size() else {}
 

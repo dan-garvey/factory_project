@@ -261,8 +261,13 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
         {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
     const auto fitted = resumed("attach-first", "attach_hand_crank", attach);
     check(get<bool>(fitted, "accepted") && get<std::string>(fitted, "entity") == first_id &&
+          get<I>(get<O>(restored.projection(), "placed_components").at(slide_id),
+              "crank_axis") == 0 &&
           get<std::string>(get<O>(restored.projection(), "crank_items").at(first_id),
               "attached_to") == slide_id &&
+          !factory::values::typed_difference(
+              V(get<A>(get<O>(restored.projection(), "crank_items").at(first_id), "face")),
+              V(A{V(I{1}), V(I{0}), V(I{0})})) &&
           get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
               "components")), "hand_crank") == 1,
           "The first crafted crank attaches at the real port while the second stays carried.");
@@ -295,6 +300,15 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
     const auto fitted_validation = restored.validate_checkpoint(fitted_checkpoint);
     check(get<bool>(fitted_validation, "accepted"),
           "Checkpoint validation preserves both paid crank identities and attached port custody.");
+    Host fitted_reopened;
+    check(get<bool>(fitted_reopened.initialize_arrival("crank-item-site", {"P", "Q"}), "accepted") &&
+          get<bool>(fitted_reopened.configure_terrain(
+              factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(fitted_reopened.restore_checkpoint(fitted_checkpoint), "accepted") &&
+          !factory::values::typed_difference(
+              V(get<A>(get<O>(fitted_reopened.projection(), "crank_items").at(first_id), "face")),
+              V(A{V(I{1}), V(I{0}), V(I{0})})),
+          "A fresh Host reopens the exact fitted crank face and finite identity.");
     const auto removed = resumed("detach-first", "detach_hand_crank", {{"entity", V(first_id)}});
     check(get<bool>(removed, "accepted") &&
           get<std::string>(get<O>(restored.projection(), "crank_items").at(first_id),
@@ -305,12 +319,23 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
               {{"entity", V(slide_id)},
                {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
           "Detaching returns the same crank identity and removes its manual drive.");
+    const auto wrong_west_face = resumed("attach-west-wrong-face", "attach_hand_crank",
+        {{"entity", V(slide_id)}, {"crank", V(second_id)},
+         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})},
+         {"face", V(A{V(I{1}), V(I{0}), V(I{0})})}});
+    check(!get<bool>(wrong_west_face, "accepted") &&
+          get<std::string>(wrong_west_face, "reason") == "invalid_crank_face",
+          "A west slide port cannot be fitted with the east-facing handle.");
     const auto west = resumed("attach-second-west", "attach_hand_crank",
         {{"entity", V(slide_id)}, {"crank", V(second_id)},
          {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}});
     if (!get<bool>(west, "accepted"))
         throw std::runtime_error("West crank attachment refused: " +
             get<std::string>(west, "reason"));
+    check(!factory::values::typed_difference(
+              V(get<A>(get<O>(restored.projection(), "crank_items").at(second_id), "face")),
+              V(A{V(I{-1}), V(I{0}), V(I{0})})),
+          "The mirrored fitted slide reports its negative X face to the ordinary view.");
     const auto west_turn = resumed("turn-west", "turn_slide_crank",
         {{"entity", V(slide_id)},
          {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}});

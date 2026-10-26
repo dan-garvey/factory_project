@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -151,7 +152,7 @@ CrankToken craft_crank(Runner& run, const std::string& label) {
 }
 
 void fit_crank(Runner& run, const CrankToken& crank, const std::string& shaft,
-               const std::string& label) {
+               const std::string& label, std::optional<g::Point> face = std::nullopt) {
     const auto snapshot = run.world->snapshot();
     const auto component = snapshot.state.placed_components.at(shaft);
     auto fit = request("P", label, "attach_hand_crank");
@@ -160,6 +161,7 @@ void fit_crank(Runner& run, const CrankToken& crank, const std::string& shaft,
     fit.emplace("crank", V(crank.id));
     fit.emplace("crank_generation", V(crank.generation));
     fit.emplace("port", V(point(component.center[0], component.center[1], component.center[2])));
+    if (face) fit.emplace("face", V(point((*face)[0], (*face)[1], (*face)[2])));
     run.accept("P", fit);
 }
 
@@ -300,8 +302,11 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
         const CrankToken token{std::get<std::string>(crafted.at("crank_id").storage()),
             std::get<I>(crafted.at("crank_generation").storage())};
         halted.p = {2, 1, 0};
-        fit_crank(halted, token, shaft, "fit-direct-press-crank");
+        fit_crank(halted, token, shaft, "fit-direct-press-crank", g::Point{1, 0, 0});
         const auto mounted = halted.world->snapshot().state.placed_components.at(shaft);
+        check(halted.world->snapshot().state.crank_items.at(token.id).face ==
+              std::optional<g::Point>(g::Point{1, 0, 0}),
+              "An explicit X face is stored on the fitted shaft despite the actor standing west.");
         const auto prior = halted.world->snapshot().state.material;
         auto pulse = request("P", "direct-press-pulse", "operate_hand_crank");
         pulse.emplace("target", V(shaft));
@@ -310,6 +315,7 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
         pulse.emplace("crank_generation", V(token.generation));
         pulse.emplace("port", V(point(mounted.center[0], mounted.center[1],
             mounted.center[2])));
+        pulse.emplace("face", V(point(1, 0, 0)));
         halted.accept("P", pulse);
         const w::ObserveActor held_actor = [&halted](const std::string& actor)
                 -> std::optional<a::ActorCut> {
@@ -320,7 +326,9 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
         check(step.error == w::TransactionError::none && step.changed &&
               pulsed.state.material != prior &&
               std::holds_alternative<V>(w::encode_checkpoint(source.profile, pulsed)) &&
-              w::World::restore("press-feed", source.profile, pulsed) != nullptr,
+              w::World::restore("press-feed", source.profile, pulsed) != nullptr &&
+              pulsed.state.crank_items.at(token.id).face ==
+                  std::optional<g::Point>(g::Point{1, 0, 0}),
               "A direct crank pulse advances the fed press through the shared tick and restores its exact work history.");
     }
     Runner automated(source);

@@ -2416,7 +2416,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not _expect(tile.icon != null and tile.focus_mode == Control.FOCUS_ALL
 				and name_label.is_visible_in_tree() and name_label.text == recipe.name
 				and Rect2(Vector2.ZERO, tile.custom_minimum_size).encloses(name_label.get_rect())
-				and cost_label.text == "%dT · %dO" % [native_cost.timber, native_cost.copper]
+				and cost_label.text == "%dT · %dCu" % [native_cost.timber, native_cost.copper]
 				and Rect2(Vector2.ZERO, tile.custom_minimum_size).encloses(cost_label.get_rect()),
 				"The %s icon shows a readable name and its native projected cost." % recipe.kind):
 			return
@@ -2549,6 +2549,9 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	var assembled: Dictionary = opening.model.projection()
 	var presses: Array = assembled.get("sliding_press_assemblies", [])
 	if not _expect(presses.size() == 1 and presses[0].status == "ready"
+			and presses[0].get("auto_route", false)
+			and presses[0].get("auto_feed", {}).get("entry", []) == [11, 0, 16]
+			and presses[0].get("auto_feed", {}).get("exit", []) == [13, 0, 16]
 			and presses[0].parts.anvil == fitted.anvil
 			and presses[0].parts.head == fitted.flat_head
 			and presses[0].parts.slide == fitted.wooden_slide
@@ -2640,7 +2643,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	opening.component_nudge_center = [11, 2, 16]
 	opening._refresh_component_preview()
 	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked
-			and absf(opening.component_preview.rotation.y - PI) < 0.001,
+			and absf(absf(opening.component_preview.rotation.y) - PI) < 0.001,
 			"The west slide input visibly reverses the crank fitting"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -2686,7 +2689,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			and cycled.workshop_completed_actors.is_empty(),
 			"The worker turns the fitted crafted crank through the slide's integral input"):
 		return
-	var route: Dictionary = presses[0].open_feeds[0]
+	var route: Dictionary = presses[0].auto_feed
 	var feed: Dictionary = {}
 	if mode == "arrival-first-plate":
 		opening._open_object_menu_for(fitted.wooden_slide)
@@ -2694,9 +2697,33 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and opening.object_menu_target == fitted.wooden_slide
 				and panel.reclaim_button.is_visible_in_tree()
 				and not panel.inventory_drag("player_raw").is_empty()
-				and panel.route_choice.get_item_count() > 0,
-			"The slide's E panel keeps reclaim and a carried blank transfer available"):
+				and not panel.route_choice.visible
+				and panel.auto_route_cue.visible
+				and panel.auto_route_cue.text.contains("WEST → EAST")
+				and not panel.press_status.text.contains("clear feed routes")
+				and not panel.cycle_feed_route(),
+			"The slide's E panel offers a native Auto route and carried blank transfer without a side choice"):
 			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await process_frame
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-auto-route-normal.png") == OK,
+					"Retain the actual first-plate Auto route menu at 1280x800"):
+				return
+			root.size = Vector2i(900, 600)
+			opening._fit_object_menu()
+			await process_frame
+			await RenderingServer.frame_post_draw
+			if not _expect(Rect2i(Vector2i.ZERO, root.size).encloses(
+					Rect2i(opening.object_menu.position, opening.object_menu.size))
+					and panel.auto_route_cue.is_visible_in_tree()
+					and root.get_texture().get_image().save_png(
+						capture_prefix + "-auto-route-narrow.png") == OK,
+					"Retain the actual first-plate Auto route menu inside 900x600"):
+				return
+			root.size = Vector2i(1280, 800)
+			opening._fit_object_menu()
 		panel.inventory_slots.player_raw.pressed.emit()
 	else:
 		feed = _issue({"action": "feed_press", "entity": fitted.anvil, "entry": route.entry})
