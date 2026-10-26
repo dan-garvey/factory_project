@@ -1946,9 +1946,10 @@ func _hotbar() -> void:
 			and bar.slot_icons.all(func(icon: TextureRect): return icon.size == Vector2(32, 32)),
 			"The hotbar gives every part the same icon area and fixed slot size without face labels.")
 		var bar_surface := bar.get_theme_stylebox("panel") as StyleBoxFlat
+		var idle_alpha: float = (bar.buttons[0].get_theme_stylebox("normal") as StyleBoxFlat).bg_color.a
 		verify(bar_surface.bg_color.a == 0.0 and bar_surface.border_width_left == 0
-			and (bar.buttons[0].get_theme_stylebox("normal") as StyleBoxFlat).bg_color.a < 0.5,
-			"The hotbar has no framing border and its idle cells leave the worksite visible.")
+			and idle_alpha >= 0.55 and idle_alpha <= 0.8,
+			"The hotbar has no framing border and its idle cells remain readable over scenery without hiding it.")
 		verify(bar.selected_slot == -1 and not view.inspector.visible
 			and not bar.buttons.any(func(button: Button): return button.button_pressed)
 			and view.issued.is_empty() and view.request_sequence == 17 and view.state == before,

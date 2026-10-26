@@ -131,12 +131,12 @@ func configure(host, ui: Control) -> void:
 	catalog_button.custom_minimum_size = Vector2(54, 54)
 	catalog_button.tooltip_text = "Build and inventory · B"
 	catalog_button.accessibility_name = "Build and inventory, shortcut B"
-	_style_slot(catalog_button)
+	_style_slot(catalog_button, true)
 	footprint_button = host._button(row, "", host._toggle_component_footprint)
 	footprint_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	footprint_button.custom_minimum_size = Vector2(48, 54)
 	footprint_button.focus_mode = Control.FOCUS_ALL
-	_style_slot(footprint_button)
+	_style_slot(footprint_button, true)
 	footprint_button.visible = false
 	for index in range(slots.size()):
 		var button := HotbarSlot.new()
@@ -146,7 +146,7 @@ func configure(host, ui: Control) -> void:
 		row.add_child(button)
 		button.toggle_mode = true
 		button.custom_minimum_size = Vector2(54, 54)
-		_style_slot(button)
+		_style_slot(button, true)
 		var icon := TextureRect.new()
 		icon.position = Vector2(11, 9)
 		icon.custom_minimum_size = Vector2(32, 32)
@@ -336,16 +336,19 @@ func configure(host, ui: Control) -> void:
 	refresh(false)
 	_fit.call_deferred()
 
-func _style_slot(button: Button) -> void:
+func _style_slot(button: Button, worksite: bool = false) -> void:
 	for state_name in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
 		var style := StyleBoxFlat.new()
-		style.bg_color = Color(0.045, 0.075, 0.09, 0.34 if state_name == "normal" else 0.52)
+		var alpha := 0.34 if state_name == "normal" else 0.52
+		if worksite:
+			alpha = 0.68 if state_name == "normal" else 0.78
+		style.bg_color = Color(0.045, 0.075, 0.09, alpha)
 		if state_name in ["pressed", "hover_pressed"]:
-			style.bg_color = Color(0.12, 0.18, 0.19, 0.68)
+			style.bg_color = Color(0.12, 0.18, 0.19, 0.86 if worksite else 0.68)
 			style.border_color = Color("e7b875")
 			style.border_width_bottom = 2
 		elif state_name == "disabled":
-			style.bg_color.a = 0.22
+			style.bg_color.a = 0.48 if worksite else 0.22
 		style.set_corner_radius_all(5)
 		button.add_theme_stylebox_override(state_name, style)
 	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
