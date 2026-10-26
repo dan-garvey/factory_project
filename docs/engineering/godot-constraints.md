@@ -47,9 +47,12 @@ and the linked implementation tasks.
 - The construction pointer requests a datum. Terrain support and build admission
   require their actual sampled/native conditions; a fallback ray cannot grant
   terrain permission. Foundations and transmission share the global datum.
-- Transmission stands and landing-pod meshes are derived presentation. They
-  must match native occupied/support geometry and the one saved pod identity;
-  art cannot create another foundation, reserve or machine.
+- Native Host saves a fixed transmission stand's chosen route with its World
+  part identity. It derives foot and collider geometry from that route, terrain
+  and explicit foundations; a neighboring edit cannot silently choose a new
+  lateral route. Godot renders and collides with the confirmed boxes only.
+  Landing-pod art still follows the one saved pod identity; art cannot create
+  another foundation, reserve or machine.
 - A carried multitool belongs to the actor presenter, not another physical actor.
   Confirmed actor updates may arrive slower than render frames; measure elapsed
   time between fresh positions. `native_epoch` is an ordinal, not a timestamp.

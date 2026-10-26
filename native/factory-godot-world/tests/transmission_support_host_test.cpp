@@ -79,7 +79,7 @@ void stand_seat_and_recovery() {
           accepted(fresh.configure_terrain(factory::godot_world::tests::flat_site())) &&
           accepted(fresh.restore_checkpoint(saved)), "A fresh native Host restores the supported shaft.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()),
-          "The stand adds no second saved state or changes the original checkpoint.");
+          "The restored checkpoint retains its chosen native support route exactly.");
     const auto restored = support(fresh, id);
     near(std::get<double>(std::get<Array>(restored.at("foot").storage())[1].storage()), 0.0,
          "The restored projection derives the same foundation seat.");
@@ -300,8 +300,8 @@ void stacked_cog_stand_clearance() {
     }
 }
 
-void removing_lower_cog_requires_reclaiming_upper_stand() {
-    for (const char* axis : {"x", "z"}) {
+void removing_lower_cog_keeps_surviving_stand() {
+    for (const char* axis : {"x", "y", "z"}) {
         Host host;
         check(accepted(host.initialize("stand-test", {"P"})) &&
               accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
@@ -321,35 +321,51 @@ void removing_lower_cog_requires_reclaiming_upper_stand() {
         const auto upper_id = field<std::string>(upper, "entity");
         const auto before = support(host, upper_id);
         const auto before_projection = host.projection();
+        const auto pre_edit_checkpoint = host.checkpoint();
         auto remove = request("remove", "remove-continuity-lower");
         remove.emplace("entity", Value(field<std::string>(lower, "entity")));
-        const auto refused = host.command("P", remove);
-        check(!accepted(refused) && field<std::string>(refused, "reason") == "stand_in_use",
-              "The lower cog removal names the supported neighbor dependency before any transfer.");
+        const auto removed = host.command("P", remove);
+        check(accepted(removed), "The lower cog can be reclaimed while its neighbor retains a clear stand.");
         check(!factory::values::typed_difference(Value(before), Value(support(host, upper_id))),
-              "A refused lower-axle removal leaves the surviving cog's stand fixed.");
+              "Reclaiming the lower axle does not move the surviving cog's native stand.");
         const auto after_projection = host.projection();
-        for (const char* key : {"transmission_parts", "parts", "part_kits", "cargo", "inventories"})
-            check(!factory::values::typed_difference(
-                      Value(field<Object>(before_projection, key)), Value(field<Object>(after_projection, key))),
-                  std::string("The refusal leaves native geometry and custody unchanged: ") + key);
+        check(field<Object>(before_projection, "transmission_parts").size() ==
+                  field<Object>(after_projection, "transmission_parts").size() + 1,
+              "Only the reclaimed cog leaves the native transmission projection.");
         const auto saved = host.checkpoint();
+        auto invalid = std::get<Object>(saved.storage());
+        auto invalid_routes = field<Object>(saved, "support_routes");
+        invalid_routes.insert_or_assign(upper_id, Value(Integer{999}));
+        invalid.insert_or_assign("support_routes", Value(std::move(invalid_routes)));
+        check(!accepted(host.validate_checkpoint(Value(std::move(invalid)))),
+              "A checkpoint cannot silently move a surviving stand to an invalid route.");
         Host restored;
         check(accepted(restored.initialize("stand-test", {"P"})) &&
               accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
               accepted(restored.restore_checkpoint(saved)), "The removal checkpoint restores in a fresh Host.");
         check(!factory::values::typed_difference(Value(before), Value(support(restored, upper_id))),
-              "The same upper stand remains fixed after restoring the refused edit.");
+              "The surviving upper stand remains fixed after restoring the successful edit.");
+        auto legacy = std::get<Object>(pre_edit_checkpoint.storage());
+        legacy.insert_or_assign("schema", Value(Integer{3}));
+        legacy.erase("support_routes");
+        Host migrated;
+        check(accepted(migrated.initialize("stand-test", {"P"})) &&
+              accepted(migrated.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(migrated.restore_checkpoint(Value(std::move(legacy)))),
+              "An existing schema-three save seeds the same initial stand choices.");
+        check(!factory::values::typed_difference(Value(before), Value(support(migrated, upper_id))),
+              "The migrated upper stand keeps its originally derived route.");
+        actor(migrated, 1.65, 2.0, -1.65, 1);
+        auto migrated_remove = request("remove", "legacy-remove-lower");
+        migrated_remove.emplace("entity", Value(field<std::string>(lower, "entity")));
+        check(accepted(migrated.command("P", migrated_remove)) &&
+                  !factory::values::typed_difference(Value(before), Value(support(migrated, upper_id))),
+              "After migration, reclaiming the lower cog keeps the surviving stand fixed.");
         auto remove_upper = request("remove", "remove-continuity-upper");
         remove_upper.emplace("entity", Value(upper_id));
         const auto upper_removal = host.command("P", remove_upper);
-        check(accepted(upper_removal), "The dependent upper cog can be reclaimed first: " +
+        check(accepted(upper_removal), "The surviving upper cog can later be reclaimed: " +
               field<std::string>(upper_removal, "reason"));
-        auto retry_lower = request("remove", "retry-continuity-lower");
-        retry_lower.emplace("entity", Value(field<std::string>(lower, "entity")));
-        const auto lower_removal = host.command("P", retry_lower);
-        check(accepted(lower_removal), "The lower cog can then be reclaimed: " +
-              field<std::string>(lower_removal, "reason"));
     }
 }
 
@@ -377,7 +393,7 @@ int main() {
         blocked_or_excessive_stand();
         foundation_dependency();
         stacked_cog_stand_clearance();
-        removing_lower_cog_requires_reclaiming_upper_stand();
+        removing_lower_cog_keeps_surviving_stand();
         actor_at_fixed_support();
         std::cout << "{\"status\":\"pass\",\"evidence\":\"native_transmission_support\",\"checks\":"
                   << checks << "}\n";

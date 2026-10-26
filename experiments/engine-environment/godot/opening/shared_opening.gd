@@ -172,7 +172,6 @@ func _welcomed(actor: String, namespace_value: String, _snapshot: Dictionary) ->
 	last_outcome = {}
 	last_submission = {}
 	last_local_result = {}
-	goal_confirmed = false
 	geometry_key = ""
 	visual_revision = -1
 	elapsed = 0.0
@@ -378,10 +377,6 @@ func _remove_selected() -> void:
 		return
 	super._remove_selected()
 
-func _confirm_goal() -> void:
-	if _can_mutate():
-		super._confirm_goal()
-
 func configure_save_slot(_path: String) -> void:
 	save_slot = ""
 	save_slot_ready = false
@@ -411,20 +406,20 @@ func _refresh_ui() -> void:
 		super._refresh_ui()
 		if not session.is_ready():
 			inspector.text = "Last confirmed state only.\nReconnect before interacting."
-			goal_label.text = "Reconnect to continue."
+			goal_text = "Reconnect to continue."
 		elif not pending_actions.is_empty() and not state.entities.has(selected):
 			inspector.text = "Action awaiting the server.\nWait for its decision."
 		if session.is_ready() and not pending_actions.is_empty():
-			goal_label.text = "Waiting for the server decision."
+			goal_text = "Waiting for the server decision."
 	else:
-		goal_label.text = "FIRST SHIFT\nWaiting for the shared worksite"
+		goal_text = "FIRST SHIFT\nWaiting for the shared worksite"
 		stock_label.text = "No server state received"
 		power_label.text = "NOT CONNECTED"
 		inspector.text = "Connect before interacting."
 		selection_ring.visible = false
 		_refresh_guided_tools(false)
 	var enabled := _can_mutate()
-	for button in [confirm_button, retrieve_button, remove_button]:
+	for button in [retrieve_button, remove_button]:
 		button.disabled = button.disabled or not enabled
 	for tool in tool_buttons:
 		tool_buttons[tool].disabled = tool_buttons[tool].disabled or not enabled

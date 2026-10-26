@@ -18,6 +18,14 @@ cc_test(
 )
 
 cc_library(
+    name = "crank_command_contract",
+    hdrs = ["include/factory/crank_command_contract.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-value:value"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
+)
+
+cc_library(
     name = "world",
     srcs = [
         "src/harvest_planner.cpp",
@@ -29,6 +37,7 @@ cc_library(
     hdrs = ["include/factory/world.hpp"],
     strip_include_prefix = "include",
     deps = [
+        ":crank_command_contract",
         ":transactions",
         "//native/factory-assembly:assembly",
         "//native/factory-core:materials",

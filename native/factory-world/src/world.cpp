@@ -1,4 +1,5 @@
 #include "factory/world.hpp"
+#include "factory/crank_command_contract.hpp"
 #include "harvest_planner.hpp"
 #include "plan_common.hpp"
 
@@ -305,6 +306,8 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
+    if (const auto crank = crank_commands::parse(action); crank != crank_commands::Action::none)
+        return crank_commands::valid_intent(intent, crank);
     if (action == "pickup_material") return keys(intent, {"center", "expected"}) && field<Object>(intent, "expected");
     if (action == "place_sheet") return keys(intent, {"center", "sheet_id"}) &&
         field<Value::Array>(intent, "center") && field<Integer>(intent, "sheet_id");
@@ -342,30 +345,6 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "center"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "center");
-    if (action == "attach_hand_crank")
-        return (keys(intent, {"target", "generation", "crank", "crank_generation", "port"}) ||
-                keys(intent, {"target", "generation", "crank", "crank_generation", "port", "face"})) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<std::string>(intent, "crank") &&
-            field<Integer>(intent, "crank_generation") && field<Value::Array>(intent, "port") &&
-            (!intent.contains("face") || field<Value::Array>(intent, "face"));
-    if (action == "detach_hand_crank")
-        return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
-            field<Integer>(intent, "generation");
-    if (action == "turn_hand_crank")
-        return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
-            field<Integer>(intent, "generation");
-    if (action == "turn_slide_crank")
-        return keys(intent, {"target", "generation", "port"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<Value::Array>(intent, "port");
-    if (action == "operate_hand_crank")
-        return (keys(intent, {"target", "generation", "crank", "crank_generation", "port"}) ||
-                keys(intent, {"target", "generation", "crank", "crank_generation", "port", "face"})) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<std::string>(intent, "crank") && field<Integer>(intent, "crank_generation") &&
-            field<Value::Array>(intent, "port") &&
-            (!intent.contains("face") || field<Value::Array>(intent, "face"));
     if (action == "feed_press")
         return keys(intent, {"target", "generation", "entry"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&

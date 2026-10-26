@@ -91,7 +91,8 @@ struct Run {
         args.emplace("context", V("upstream-drive")); args.emplace("client", V("P"));
         args.emplace("request", V(prefix + '-' + std::to_string(++serial))); args.emplace("action", V(name));
         auto result = host.command("P", args);
-        check(accepted(result), std::string(name) + " succeeds: " + field<std::string>(result, "reason"));
+        check(accepted(result), prefix + '-' + std::to_string(serial) + " " + name +
+              " succeeds: " + field<std::string>(result, "reason"));
         return result;
     }
     std::string place(const char* kind, I x, I row, const char* axis, std::optional<I> rotation = std::nullopt) {
