@@ -9458,17 +9458,12 @@ func _refresh_ui() -> void:
 	stock_label.text = "ORE DEPOSIT  %d copper\nIN THE LINE  %d copper\nPRESS OUTLET  %d copper plate" % [state.stock.source,
 		state.stock.collector + belt_raw + state.stock.input + state.stock.held, state.stock.output]
 	power_label.text = "DRIVE RUNNING" if state.get("powered", false) else "DRIVE NEEDS CONNECTIONS"
-	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or (not legacy_fixture and not state.get("actors", {}).get(client, {}).get("ready", false))
-	load_button.disabled = explanation_open or not save_slot_ready or (legacy_fixture and not save_slot_owned)
-	if legacy_fixture:
-		load_button.text = "Load worksite  [F9]"
-		for button in [save_button, load_button]:
-			button.tooltip_text = "" if save_slot_ready else "Launch a fresh worksite session to enable saving."
-	else:
-		save_button.tooltip_text = "Save worksite  [F5]" if save_slot_ready else "Saving needs a fresh worksite session."
-		load_button.tooltip_text = "How to reopen save  [F9]"
+	save_button.disabled = explanation_open or not save_slot_ready or startup_save_pending or not state.get("actors", {}).get(client, {}).get("ready", false)
+	load_button.disabled = explanation_open or not save_slot_ready
+	save_button.tooltip_text = "Save worksite  [F5]" if save_slot_ready else "Saving needs a fresh worksite session."
+	load_button.tooltip_text = "How to reopen save  [F9]"
 	if actor_label != null:
-		actor_label.visible = not legacy_fixture
+		actor_label.visible = true
 		actor_label.text = "CHARACTER READY · BUILD NEARBY" if state.get("actors", {}).get(client, {}).get("ready", false) else "CHARACTER STARTING…"
 	if developer_mode_label != null:
 		var fast_enabled: bool = state.get("options", {}).get("developer_conveniences", false)
@@ -9583,7 +9578,7 @@ func _notice_workshop_completion(complete: bool) -> void:
 	workshop_completion_cue_count += 1
 
 func _toggle_manager_log() -> void:
-	if legacy_fixture or manager_log_layer == null or arrival_reveal_active or explanation_open or _catalog_open():
+	if manager_log_layer == null or arrival_reveal_active or explanation_open or _catalog_open():
 		return
 	_release_character_controls()
 	manager_log_open = not manager_log_open
@@ -9649,8 +9644,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	_queue_footer_fit()
 	if building_hotbar != null:
 		building_hotbar.refresh(snapshot_ready)
-	if legacy_fixture:
-		return
 	# This is a view of confirmed facts, not persistent progression or admission.
 	var kinds: Dictionary = {}
 	for entity in state.get("entities", {}).values():
@@ -9877,7 +9870,7 @@ func _fit_placement_options() -> void:
 func _refresh_machine_preview() -> void:
 	if machine_preview != null:
 		machine_preview.visible = false
-	if legacy_fixture or explanation_open or not _placement_ready() or not _preview_pointer_clear():
+	if explanation_open or not _placement_ready() or not _preview_pointer_clear():
 		return
 	if _native_transmission() and transmission_controls != null \
 			and transmission_controls.active_tool in ["gear", "place_shaft"]:
@@ -10290,7 +10283,7 @@ func _queue_footer_fit() -> void:
 func _footer_above_view() -> bool:
 	# A nearby third-person worker fills the lower centre of the view. Use the
 	# free lane above the worker; Help keeps its own upper reading space.
-	return not legacy_fixture and distance > 1.0 and distance <= 6.0 and not explanation_open
+	return distance > 1.0 and distance <= 6.0 and not explanation_open
 
 func _fit_guided_footer() -> void:
 	footer_fit_pending = false
@@ -10760,22 +10753,15 @@ func _build_interface() -> void:
 	fps_style.outline_size = 4
 	fps_style.outline_color = Color("16242a")
 	fps_label.label_settings = fps_style
-	var build := _panel(root, Vector2(18, 18), Vector2(260, 620 if legacy_fixture else 0))
-	if not legacy_fixture:
-		_hud_surface(build, 0.58)
+	var build := _panel(root, Vector2(18, 18), Vector2(260, 0))
+	_hud_surface(build, 0.58)
 	build_column = build
-	if not legacy_fixture:
-		build.add_theme_constant_override("separation", 6)
+	build.add_theme_constant_override("separation", 6)
 	objective_heading = _label(build, "FIRST SHIFT  /  01", 13, Color("f4bf75"))
-	var tagline := _label(build, "A small line. Real materials.", 14, Color("9eb4b2"))
-	tagline.visible = legacy_fixture
-	if legacy_fixture:
-		build.add_child(HSeparator.new())
-	goal_label = _label(build, "", 19 if legacy_fixture else 16, Color("f4f5eb"))
-	if not legacy_fixture:
-		goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		manager_log_button = _button(build, "Work log  J", _toggle_manager_log)
-		manager_log_button.custom_minimum_size.y = 30
+	goal_label = _label(build, "", 16, Color("f4f5eb"))
+	goal_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	manager_log_button = _button(build, "Work log  J", _toggle_manager_log)
+	manager_log_button.custom_minimum_size.y = 30
 	goal_progress = ProgressBar.new()
 	goal_progress.max_value = 4
 	goal_progress.show_percentage = false
@@ -10798,8 +10784,7 @@ func _build_interface() -> void:
 	parts_label = building_hotbar.parts_label
 	catalog_button = building_hotbar.catalog_button
 	placement_options_column = _panel(root, Vector2.ZERO, Vector2(302, 0))
-	if not legacy_fixture:
-		_hud_surface(placement_options_column, 0.66)
+	_hud_surface(placement_options_column, 0.66)
 	placement_options_panel = placement_options_column.get_parent() as PanelContainer
 	placement_options_panel.name = "PlacementOptions"
 	placement_options_panel.visible = false
@@ -10838,42 +10823,35 @@ func _build_interface() -> void:
 	foundation_area_toggle.visible = false
 	var selection_tools := HBoxContainer.new()
 	build.add_child(selection_tools)
-	tool_buttons.flow = _button(selection_tools, "Link [F]" if legacy_fixture else "Link  C", _select_tool.bind("flow"))
+	tool_buttons.flow = _button(selection_tools, "Link  C", _select_tool.bind("flow"))
 	tool_buttons.flow.toggle_mode = true
-	if not legacy_fixture:
-		tool_buttons.flow.custom_minimum_size.y = 30
+	tool_buttons.flow.custom_minimum_size.y = 30
 	help_button = _button(build, "Help  H", _toggle_explanation)
 	help_button.tooltip_text = "Show the current task and controls. H opens Help; H or Escape closes it."
-	if not legacy_fixture:
-		help_button.custom_minimum_size.y = 30
-		manager_log_button.text = "Log  J"
-		var quick_actions := HBoxContainer.new()
-		quick_actions.add_theme_constant_override("separation", 4)
-		build.add_child(quick_actions)
-		for action in [manager_log_button, help_button]:
-			action.get_parent().remove_child(action)
-			quick_actions.add_child(action)
-	var right := _panel(root, Vector2(932, 18), Vector2(255 if not legacy_fixture else 330, 490 if legacy_fixture else 0))
-	if not legacy_fixture:
-		_hud_surface(right, 0.58)
+	help_button.custom_minimum_size.y = 30
+	manager_log_button.text = "Log  J"
+	var quick_actions := HBoxContainer.new()
+	quick_actions.add_theme_constant_override("separation", 4)
+	build.add_child(quick_actions)
+	for action in [manager_log_button, help_button]:
+		action.get_parent().remove_child(action)
+		quick_actions.add_child(action)
+	var right := _panel(root, Vector2(932, 18), Vector2(255, 0))
+	_hud_surface(right, 0.58)
 	var right_panel: Control = right.get_parent()
 	# Set the far anchor first so the near anchor is not clamped.
 	right_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
-	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -273 if not legacy_fixture else -348)
+	right_panel.set_anchor_and_offset(SIDE_LEFT, 1.0, -273)
 	right_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	if legacy_fixture:
-		_label(right, "WORKSITE", 13, Color("b0c4c0"))
-	else:
-		# The actor/connection rows identify the physical worksite. Leave room
-		# for a selected press and pending-server advice above the status panel.
-		right.add_theme_constant_override("separation", 6)
-		inspector_title = _label(right, "SELECTED", 12, Color("f4bf75"))
+	# The actor/connection rows identify the physical worksite. Leave room
+	# for a selected press and pending-server advice above the status panel.
+	right.add_theme_constant_override("separation", 6)
+	inspector_title = _label(right, "SELECTED", 12, Color("f4bf75"))
 	actor_label = _label(right, "", 11, Color("a3b8b4"))
-	actor_label.visible = not legacy_fixture
 	power_label = _label(right, "", 14, Color("dfbc76"))
 	stock_label = _label(right, "", 16)
-	inspector = _label(right, "", 13 if not legacy_fixture else 15)
-	inspector.custom_minimum_size.x = 195 if not legacy_fixture else 238
+	inspector = _label(right, "", 13)
+	inspector.custom_minimum_size.x = 195
 	inspector.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	inspection_actions = HBoxContainer.new()
 	inspection_actions.add_theme_constant_override("separation", 5)
@@ -10905,33 +10883,30 @@ func _build_interface() -> void:
 	right.add_child(HSeparator.new())
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
-	if not legacy_fixture:
-		_build_object_menu(root, right_panel as PanelContainer)
-		# Loose work belongs to the world, so its action menu must stay reachable
-		# while the selected-object panel is closed.
-		loose_material_controls.reparent(selection_tools)
-		loose_material_controls.text = "Loose"
-		loose_material_controls.icon = load("res://opening/assets/build-icons/ore.svg")
-		loose_material_controls.custom_minimum_size = Vector2(82, 30)
-		loose_material_controls.focus_mode = Control.FOCUS_ALL
-		loose_material_controls.accessibility_name = "Handle loose material, shortcut Control L"
-		_build_pause_menu(root)
-		_build_pointed_summary(root)
+	_build_object_menu(root, right_panel as PanelContainer)
+	# Loose work belongs to the world, so its action menu must stay reachable
+	# while the selected-object panel is closed.
+	loose_material_controls.reparent(selection_tools)
+	loose_material_controls.text = "Loose"
+	loose_material_controls.icon = load("res://opening/assets/build-icons/ore.svg")
+	loose_material_controls.custom_minimum_size = Vector2(82, 30)
+	loose_material_controls.focus_mode = Control.FOCUS_ALL
+	loose_material_controls.accessibility_name = "Handle loose material, shortcut Control L"
+	_build_pause_menu(root)
+	_build_pointed_summary(root)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))
-	if not legacy_fixture:
-		_hud_surface(bottom, 0.64, 7)
+	_hud_surface(bottom, 0.64, 7)
 	var bottom_panel: Control = bottom.get_parent()
 	status_footer = bottom_panel
 	bottom_panel.set_anchor_and_offset(SIDE_RIGHT, 1.0, -18)
 	bottom_panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, -128)
 	bottom_panel.set_anchor_and_offset(SIDE_TOP, 1.0, -216)
 	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	status_label = _label(bottom, "", 14 if not legacy_fixture else 16)
+	status_label = _label(bottom, "", 14)
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	controls_label = _label(bottom, "B catalog · 1–8 build · E open · F dismantle · H help", 12, Color("bfd1cc"))
-	if not legacy_fixture:
-		developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
-		developer_mode_label.focus_mode = Control.FOCUS_ALL
+	developer_mode_label = _label(bottom, "F3  FAST", 11, Color("64777a"))
+	developer_mode_label.focus_mode = Control.FOCUS_ALL
 	bottom_panel.minimum_size_changed.connect(_queue_footer_fit)
 	bottom_panel.resized.connect(_queue_footer_fit)
 	for column: Control in [build, right]:
@@ -10946,8 +10921,7 @@ func _build_interface() -> void:
 	help_close_button = _button(lesson_column, "Return to work  [H / Esc]", _toggle_explanation)
 	help_close_button.tooltip_text = "Close Help and return to the worksite."
 	help_panel.visible = false
-	if not legacy_fixture:
-		_build_manager_log()
+	_build_manager_log()
 
 func _build_manager_log() -> void:
 	manager_log_layer = CanvasLayer.new()
