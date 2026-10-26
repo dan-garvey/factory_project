@@ -2716,19 +2716,19 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					float(preview_position[1]), float(preview_position[2]))),
 				"Retain the west input preview in the ordinary scene"):
 			return
-	opening.component_nudge_center = [13, 2, 16]
+	opening.component_nudge_center = [11, 2, 16]
 	opening._world_click(Vector2i(3, 4), fitted.wooden_slide)
 	opening.component_nudge_active = false
 	opening.component_nudge_center.clear()
 	var attached: Dictionary = opening.model.projection()
 	if not _expect(attached.crank_items.values().any(func(item: Variant) -> bool:
-			return item.attached_to == fitted.wooden_slide and item.port == [13, 2, 16]),
-			"The ordinary component tool fits the crafted crank to the real slide input"):
+			return item.attached_to == fitted.wooden_slide and item.port == [11, 2, 16]),
+			"The ordinary component tool fits the finite crank at the west input for an east outlet"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		var slide_position: Array = attached.placed_components[fitted.wooden_slide].position
 		if not _expect(await _capture_actor_area(capture_prefix + "-crank-fitted.png",
-				Vector3(float(slide_position[0]) + OpeningGeometry.HEIGHT_STEP,
+				Vector3(float(slide_position[0]) - OpeningGeometry.HEIGHT_STEP,
 					float(slide_position[1]), float(slide_position[2]))),
 				"Retain the fitted exterior crank in the ordinary scene view"):
 			return
@@ -2740,7 +2740,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not _expect(not crank_id.is_empty(), "The fitted slide keeps its finite crank identity"):
 			return
 		opening._select_tool("inspect")
-		if not await _approach(Vector2(6.6, 6.6)):
+		if not await _approach_points([Vector2(3.3, 4.95), Vector2(3.3, 5.8)]):
 			return
 		var crank_hit := await _aim_actor_at_crank(crank_id)
 		opening._refresh_pointed_summary()
@@ -2804,21 +2804,21 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		opening._open_object_menu_for(fitted.anvil)
 		if not _expect(opening.object_menu.visible and panel.press_section.is_visible_in_tree()
 				and not panel.slide_port_choice.visible
-				and panel.inventory_section.visible and not panel.feed_button.visible
-				and panel.turn_button.visible,
-			"The physical actor opens a ready three-part sliding press with workbed inventory and crank controls"):
+				and panel.inventory_section.visible and not panel.feed_button.visible,
+			"The physical actor opens a ready three-part sliding press with workbed inventory"):
 			return
-	var prior_phase: Dictionary = opening.model.projection().slide_phases[fitted.wooden_slide]
-	var turn: Dictionary = _issue({"action": "turn_slide_crank", "entity": fitted.wooden_slide,
-		"port": [13, 2, 16]})
-	var cycled: Dictionary = opening.model.projection()
-	if not _expect(turn.get("accepted", false)
-			and cycled.slide_phases[fitted.wooden_slide].subticks > prior_phase.subticks
-			and cycled.crank_items.values().any(func(item: Variant) -> bool:
-				return item.attached_to == fitted.wooden_slide and item.port == [13, 2, 16])
-			and cycled.workshop_completed_actors.is_empty(),
+	else:
+		var prior_phase: Dictionary = opening.model.projection().slide_phases[fitted.wooden_slide]
+		var turn: Dictionary = _issue({"action": "turn_slide_crank", "entity": fitted.wooden_slide,
+			"port": [11, 2, 16]})
+		var cycled: Dictionary = opening.model.projection()
+		if not _expect(turn.get("accepted", false)
+				and cycled.slide_phases[fitted.wooden_slide].subticks > prior_phase.subticks
+				and cycled.crank_items.values().any(func(item: Variant) -> bool:
+					return item.attached_to == fitted.wooden_slide and item.port == [11, 2, 16])
+				and cycled.workshop_completed_actors.is_empty(),
 			"The worker turns the fitted crafted crank through the slide's integral input"):
-		return
+			return
 	var route: Dictionary = presses[0].auto_feed
 	var feed: Dictionary = {}
 	if mode == "arrival-first-plate":
@@ -2869,31 +2869,73 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			await RenderingServer.frame_post_draw
 			if not _expect(root.get_texture().get_image().save_png(
 					capture_prefix + "-press-controls.png") == OK,
-					"Retain the live feed and crank controls beside the loaded slide press"):
+					"Retain the loaded slide workbed and native Auto route"):
 				return
+		await _ordinary_key(KEY_ESCAPE)
+		var loaded_crank_id := ""
+		for id: String in opening.model.projection().crank_items:
+			if opening.model.projection().crank_items[id].get("attached_to") == fitted.wooden_slide:
+				loaded_crank_id = id
+		if not _expect(not opening.object_menu.visible and not loaded_crank_id.is_empty(),
+			"Closing the loaded workbed returns to the fitted exterior crank"):
+			return
+		var loaded_hit := await _aim_actor_at_crank(loaded_crank_id)
+		opening._refresh_pointed_summary()
+		if not _expect(loaded_hit.get("collider") != null
+				and opening._pointed_crank() == loaded_crank_id
+				and opening.pointed_detail.text.contains("Hold E"),
+			"The loaded slide still offers the same actor-eye direct crank hold"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-loaded-crank-cue.png") == OK,
+				"Retain the loaded workpiece and direct exterior crank cue"):
+				return
+		var direct_world_hold: bool = DisplayServer.window_is_focused()
+		facts["plate_drive_input"] = "world_e_hold" if direct_world_hold else "native_unfocused_passive"
+		var hold_key := InputEventKey.new()
+		hold_key.keycode = KEY_E
+		hold_key.pressed = true
+		var prior_held_order: int = int(opening.model.projection().order)
+		opening._unhandled_input(hold_key)
 		var formed: Dictionary = {}
+		var hold_progressed := true
+		var held_pulses := 0
 		for turn_index in range(64):
-			var prior_order: int = int(opening.model.projection().order)
-			if not _expect(panel.press_section.is_visible_in_tree()
-					and panel.turn_button.visible and not panel.turn_button.disabled,
-					"The slide crank icon remains available through stroke %d" % turn_index):
-				return
-			panel.turn_button.pressed.emit()
-			if not _expect(int(opening.model.projection().order) == prior_order + 1,
-					"The slide crank icon advances the authoritative worksite once"):
-				return
+			if direct_world_hold and turn_index > 0:
+				await create_timer(OpeningScene.STEP_SECONDS + 0.03).timeout
+			elif not direct_world_hold:
+				var passive_pulse: Dictionary = opening.issue({
+					"action": "operate_hand_crank", "entity": loaded_crank_id})
+				if not passive_pulse.get("accepted", false):
+					hold_progressed = false
+					break
+			var current_order: int = int(opening.model.projection().order)
+			if current_order <= prior_held_order or (direct_world_hold
+					and opening.held_crank != loaded_crank_id):
+				hold_progressed = false
+				break
+			held_pulses += current_order - prior_held_order
+			prior_held_order = current_order
 			for drop: Dictionary in opening.model.projection().dropped_material:
 				if drop.center == route.exit and int(drop.get("products", 0)) == 1:
 					formed = drop
 					break
 			if not formed.is_empty():
 				break
+		var release_hold := InputEventKey.new()
+		release_hold.keycode = KEY_E
+		release_hold.pressed = false
+		opening._input(release_hold)
+		facts["plate_drive_pulses"] = held_pulses
 		var before_pickup: Dictionary = opening.model.projection()
-		if not _expect(not formed.is_empty()
+		if not _expect(hold_progressed and held_pulses > 0 and opening.held_crank.is_empty()
+				and not formed.is_empty()
 				and before_pickup.cargo.P.products == 0
 				and before_pickup.workshop_completed_actors.is_empty()
 				and before_pickup.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-				"Native bottom contact conserves mass and places one formed plate at the chosen exit"):
+			"The held exterior crank conserves mass and forms one plate at the native chosen exit"):
 			return
 		if not _expect(opening.goal_label.text.contains(
 				"Plate at outlet. Open the press [E], then collect it [P].")
