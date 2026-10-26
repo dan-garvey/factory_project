@@ -2486,7 +2486,6 @@ func _render_arrival_hotbar() -> void:
 	view.state.crank_items.clear()
 	view.state.part_kits.P = {}
 	view._refresh_ui()
-	bar.open_catalog()
 	await settle_widgets()
 	verify(bar.catalog.visible and bar.carried_label.text == "CARRIED"
 		and not bar.material_buttons.timber.visible and not bar.component_buttons.wooden_frame.visible
@@ -2509,7 +2508,7 @@ func _render_arrival_hotbar() -> void:
 	verify(root.get_texture().get_image().save_png(prefix + "-components.png") == OK,
 		"Retain the visible component icon grid after scrolling.")
 	root.size = Vector2i(900, 600)
-	bar.catalog.hide()
+	bar._close_catalog()
 	await settle_widgets()
 	bar.collector_focus_button.pressed.emit()
 	bar.open_catalog()
@@ -2518,7 +2517,7 @@ func _render_arrival_hotbar() -> void:
 	verify(root.get_texture().get_image().save_png(prefix + "-project-narrow.png") == OK,
 		"Retain the project recipe group in a narrow actor viewport.")
 	root.size = Vector2i(640, 480)
-	bar.catalog.hide()
+	bar._close_catalog()
 	await settle_widgets()
 	bar.all_focus_button.pressed.emit()
 	bar.open_catalog()
