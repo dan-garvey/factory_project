@@ -2927,12 +2927,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"pause_menu_visible": opening.pause_menu.visible,
 			"focus_owner": str(focus_owner.get_path()) if focus_owner != null else ""}
 		if direct_world_hold:
-			Input.parse_input_event(hold_key)
+			root.push_input(hold_key)
 			await process_frame
 			facts["plate_drive_after_press"] = {"order_delta":
 				int(opening.model.projection().order) - prior_held_order,
 				"held_crank": opening.held_crank,
-				"key_down": Input.is_key_pressed(KEY_E),
 				"object_menu_visible": opening.object_menu.visible,
 				"pause_menu_visible": opening.pause_menu.visible}
 		var formed: Dictionary = {}
@@ -2963,7 +2962,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if direct_world_hold:
 			var release_hold: InputEventKey = hold_key.duplicate()
 			release_hold.pressed = false
-			Input.parse_input_event(release_hold)
+			root.push_input(release_hold)
 			await process_frame
 		facts["plate_drive_pulses"] = held_pulses
 		var before_pickup: Dictionary = opening.model.projection()
