@@ -3,7 +3,7 @@ extends SceneTree
 ## so neither a real Model nor a Session, body or game scene is created.
 
 const RecoveryActions = preload("res://opening/recovery_actions.gd")
-const RECOVERY_TEXT := "Use the material menu to recover its contents, then dismantle the machine."
+const RECOVERY_TEXT := "Use the material menu to recover its contents, then dismantle it."
 
 class StubModel extends RefCounted:
 	var snapshot: Dictionary
@@ -69,11 +69,10 @@ func _dispose(view: Node) -> void:
 	view.free()
 
 func _offline(label: String, native_option: Variant, reply: Dictionary,
-		expected: String, helper_kind: String = "current", legacy: bool = false) -> void:
+		expected: String, helper_kind: String = "current") -> void:
 	var view := OfflineView.new()
 	view.state = _snapshot(native_option)
 	view.selected = "collector"
-	view.legacy_fixture = legacy
 	var stub := StubModel.new()
 	stub.snapshot = view.state.duplicate(true)
 	stub.reply = reply.duplicate(true)
@@ -131,8 +130,7 @@ func _run() -> void:
 	_offline("uncertain mineral delivery", true, {"accepted": false, "reason": "source_too_deep", "uncertain": true},
 		"That action is unavailable here.")
 	_offline("offline native occupied", true, occupied, RECOVERY_TEXT)
-	_offline("offline historical profile", false, occupied, "That action is unavailable here.")
-	_offline("offline explicit legacy", true, occupied, "That action is unavailable here.", "current", true)
+	_offline("offline scripted profile", false, occupied, "That action is unavailable here.")
 	_offline("offline nonboolean native flag", 1, occupied, "That action is unavailable here.")
 	_offline("offline unrelated refusal", true, {"accepted": false, "reason": "out_of_reach"},
 		"Move closer to the target before building or interacting.")
@@ -145,7 +143,7 @@ func _run() -> void:
 	_offline("offline missing helper", true, occupied, "That action is unavailable here.", "missing")
 	_offline("offline older helper", true, occupied, "That action is unavailable here.", "older")
 	_shared("shared native occupied", true, "occupied_target", RECOVERY_TEXT)
-	_shared("shared historical profile", false, "occupied_target", "Not applied: occupied_target")
+	_shared("shared scripted profile", false, "occupied_target", "Not applied: occupied_target")
 	_shared("shared unrelated refusal", true, "out_of_reach",
 		"Not applied: move closer to the target before building or interacting.")
 	_shared("shared uncertain delivery", true, "occupied_target", "Not applied: occupied_target", "confirmed", "current", true)

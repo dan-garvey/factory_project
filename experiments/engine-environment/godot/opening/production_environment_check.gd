@@ -71,7 +71,6 @@ func check_collector_carrier() -> void:
 	for cell in [0, 1]:
 		for level in [4, 8]:
 			var view := FixtureView.new()
-			view.legacy_fixture = false
 			view.state = {"options": {"native": true}}
 			root.add_child(view)
 			var anchor := Node3D.new()
@@ -191,7 +190,7 @@ func finish() -> void:
 			"water-pattern": "straight-band normal energy and actual water-surface geometry",
 			"water-render": "isolated actual terrain and water with a fixed camera and presentation phases",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
-			"flat-fallback": "historical flat source-roster fallback", "foliage": "changed foliage bulk upload",
+			"foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
 		"rendered_quality": "not_assessed", "desktop": "not_used", "authority_started": false}))
 	quit(1 if failed else 0)
@@ -779,15 +778,6 @@ func check_water_flow() -> void:
 	second._process(1.0)
 	verify(water.uv1_offset.distance_to(Vector3(0.0, -0.512, 0.0)) < 0.000001,
 		"A second view and a different frame delta preserve the same shared visual phase.")
-	view.legacy_fixture = true
-	view.frame_seconds = 0.0
-	view._refresh_water()
-	verify(water.uv1_offset.distance_to(Vector3(0.0, -0.512, 0.0)) < 0.000001,
-		"Historical explicit fixtures do not change the new water material.")
-	var historical := Opening.FlatFixtureEnvironment.water_material()
-	verify(historical != water and historical.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
-		"The separate historical flat fixture keeps its original opaque water.")
-	view.legacy_fixture = false
 	view._build_world()
 	var stream: MeshInstance3D = view.get_node("ProductionScenery/StreamSurface")
 	verify(stream.material_override == water and stream.mesh == mesh
@@ -2063,22 +2053,6 @@ func run() -> void:
 		var rocks := Scenery._rock_outcrops()
 		check_rock_shapes(rocks.multimesh)
 		rocks.free()
-		finish()
-		return
-	if mode == "flat-fallback":
-		verify(Scenery.Surface == null, "The historical fixed-roster fixture deliberately has no site helper.")
-		var flat := FixtureView.new()
-		root.add_child(flat)
-		flat._build_world()
-		var count := 0
-		for child in flat.get_children():
-			if child is MeshInstance3D and child.get_meta("surface_role", "") == "foundation":
-				count += 1
-				verify(is_equal_approx(child.position.x / 1.65, roundf(child.position.x / 1.65))
-					and is_equal_approx(child.position.z / 1.65, roundf(child.position.z / 1.65)), "Historical panel centres retain their original grid coordinates.")
-		verify(count == 49 and flat.model == null and flat.actor_world == null, "The historical flat view creates its original deck without authority.")
-		verify(flat.get_node("ProductionScenery/GroundSurface").mesh is PlaneMesh, "A historical plane collider still has the matching flat presentation.")
-		flat.free()
 		finish()
 		return
 	if mode == "surface-composition":
