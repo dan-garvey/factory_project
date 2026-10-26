@@ -71,7 +71,7 @@ cc_library(
     srcs = ["src/host.cpp"],
     hdrs = ["include/factory/arrival_geometry.hpp", "include/factory/godot_world.hpp"],
     strip_include_prefix = "include",
-    deps = ["//native/factory-assembly:assembly", "//native/factory-world:belt_command_contract", "//native/factory-world:checkpoint", "//native/factory-world:component_command_contract", "//native/factory-world:crank_command_contract", "//native/factory-world:fabrication_command_contract", "//native/factory-world:material_command_contract", "//native/factory-world:press_command_contract", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
+    deps = ["//native/factory-assembly:assembly", "//native/factory-world:belt_command_contract", "//native/factory-world:checkpoint", "//native/factory-world:component_command_contract", "//native/factory-world:crank_command_contract", "//native/factory-world:fabrication_command_contract", "//native/factory-world:foundation_command_contract", "//native/factory-world:material_command_contract", "//native/factory-world:press_command_contract", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
     visibility = ["//native/opening-engineering:__pkg__"],
 )
 

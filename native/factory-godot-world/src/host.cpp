@@ -3,6 +3,7 @@
 #include "factory/component_command_contract.hpp"
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
+#include "factory/foundation_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
@@ -580,6 +581,9 @@ bool historical_wire(const authority::Record& record) {
     if (const auto fabrication = fabrication_commands::parse(*action);
         fabrication != fabrication_commands::Action::none)
         return fabrication_commands::historical_wire(*wire, intent, fabrication);
+    if (const auto foundation = foundation_commands::parse(*action);
+        foundation != foundation_commands::Action::none)
+        return foundation_commands::historical_wire(*wire, intent, foundation);
     if (const auto material = material_commands::parse(*action);
         material != material_commands::Action::none) {
         if (!material_commands::historical_wire(*wire, intent, material)) return false;
@@ -617,34 +621,6 @@ bool historical_wire(const authority::Record& record) {
         return *original_action == "deploy_fabrication_hub" && keys(*wire, {"entity", "center"}) &&
             field<std::string>(*wire, "entity") && field<Array>(*wire, "center") &&
             same("entity", "target") && same("center", "center");
-    if (*action == "place_foundations") {
-        const auto* cell = field<Array>(*wire, "cell");
-        const auto* end = field<Array>(*wire, "end_cell");
-        const auto* level = field<Integer>(*wire, "level");
-        if (*original_action != "place_foundations" || !keys(*wire, {"cell", "end_cell", "level"}) ||
-            !cell || !end || cell->size() != 2 || end->size() != 2 || !level ||
-            *level < -1000000 || *level > 1000000) return false;
-        const auto matches = [&](const Array& point, const char* name) {
-            const auto* x = std::get_if<Integer>(&point[0].storage());
-            const auto* z = std::get_if<Integer>(&point[1].storage());
-            return x && z && *x >= -250000 && *x <= 250000 && *z >= -250000 && *z <= 250000 &&
-                intent.contains(name) && !values::typed_difference(intent.at(name),
-                    Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
-        };
-        return matches(*cell, "center") && matches(*end, "end");
-    }
-    if (*action == "place_foundation") {
-        const auto* cell = field<Array>(*wire, "cell");
-        const auto* level = field<Integer>(*wire, "level");
-        const auto* center = field<Array>(intent, "center");
-        if (*original_action != "place_foundation" || !keys(*wire, {"cell", "level"}) ||
-            !cell || cell->size() != 2 || !level || !center || center->size() != 3) return false;
-        const auto* x = std::get_if<Integer>(&cell->at(0).storage());
-        const auto* z = std::get_if<Integer>(&cell->at(1).storage());
-        return x && z && *x >= -250000 && *x <= 250000 && *z >= -250000 && *z <= 250000 &&
-            *level >= -1000000 && *level <= 1000000 &&
-            !values::typed_difference(Value(*center), Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
-    }
     if (*action == "place" || *action == "place_connected") {
         if (*original_action == "place_shaft") {
             const auto* center = field<Array>(*wire, "center");
@@ -726,8 +702,6 @@ bool historical_wire(const authority::Record& record) {
     }
     if (*action == "remove" || *action == "recover")
         return *original_action == *action && keys(*wire, {"entity"}) && same("entity", "target");
-    if (*action == "remove_foundation")
-        return *original_action == "remove" && keys(*wire, {"entity"}) && same("entity", "target");
     if (*action == "collect" || *action == "insert_raw")
         return *original_action == (*action == "collect" ? "retrieve" : "insert_raw") &&
             keys(*wire, {"entity", "amount"}) && same("entity", "target") && same("amount", "amount");
@@ -1806,6 +1780,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto component_action = component_commands::parse(*action);
     const auto crank_action = crank_commands::parse(*action);
     const auto fabrication_action = fabrication_commands::parse(*action);
+    const auto foundation_action = foundation_commands::parse(*action);
     const auto material_action = material_commands::parse(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
@@ -2148,29 +2123,22 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
         normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
             Integer{0} : found->second.generation));
-    } else if (*action == "place_foundation" || *action == "place_foundations") {
-        const bool area = *action == "place_foundations";
-        if (!(area ? keys(wire, {"cell", "end_cell", "level"}) : keys(wire, {"cell", "level"})))
+    } else if (foundation_action == foundation_commands::Action::place_one ||
+               foundation_action == foundation_commands::Action::place_area) {
+        const bool area = foundation_action == foundation_commands::Action::place_area;
+        if (!foundation_commands::valid_wire_before_geometry(wire, foundation_action))
             return refuse("invalid_command");
-        const auto* cell = field<Array>(wire, "cell");
-        const auto* level = field<Integer>(wire, "level");
-        if (!cell || cell->size() != 2 || !level || *level < -1000000 || *level > 1000000) return refuse("invalid_cell");
-        const auto* x = std::get_if<Integer>(&cell->at(0).storage());
-        const auto* z = std::get_if<Integer>(&cell->at(1).storage());
-        if (!x || !z || *x < -250000 || *x > 250000 || *z < -250000 || *z > 250000) return refuse("invalid_cell");
-        const auto* end = area ? field<Array>(wire, "end_cell") : cell;
-        if (!end || end->size() != 2) return refuse("invalid_cell");
-        const auto* end_x = std::get_if<Integer>(&end->at(0).storage());
-        const auto* end_z = std::get_if<Integer>(&end->at(1).storage());
-        if (!end_x || !end_z || *end_x < -250000 || *end_x > 250000 || *end_z < -250000 || *end_z > 250000)
-            return refuse("invalid_cell");
-        const auto width = std::abs(*end_x - *x) + 1, depth = std::abs(*end_z - *z) + 1;
-        if (width > 256 || depth > 256 || width * depth > 256) return refuse("invalid_area");
-        const auto top = *level * pitch / 4;
+        const auto first = foundation_commands::center(wire, "cell");
+        const auto last = area ? foundation_commands::center(wire, "end_cell") : first;
+        if (!first || !last) return refuse("invalid_cell");
+        if (!foundation_commands::area_fits(*first, *last)) return refuse("invalid_area");
+        const auto x = (*first)[0] / 4, z = (*first)[2] / 4, level = (*first)[1];
+        const auto end_x = (*last)[0] / 4, end_z = (*last)[2] / 4;
+        const auto top = level * pitch / 4;
         // Foundations intentionally intersect natural ground/scenery and need
         // no gravity support. Constructed parts and actual actors still block.
-        for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
-            for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz) {
+        for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
+            for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz) {
                 if (placement_blocked({px * pitch, top - foundation_depth / 2, pz * pitch},
                     {pitch / 2, foundation_depth / 2, pitch / 2}))
                     return refuse("actor_occupied");
@@ -2180,9 +2148,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
             if (part.role == Role::shaft || part.role == Role::gear) {
-                for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
-                    for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
-                        if (transmission_intersects(foundation_bounds({{4 * px, *level, 4 * pz}, 1}),
+                for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
+                    for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
+                        if (transmission_intersects(foundation_bounds({{4 * px, level, 4 * pz}, 1}),
                                                     center, part.geometry.axis, part.role == Role::gear))
                             return refuse("occupied");
                 continue;
@@ -2193,37 +2161,37 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                         return terrain_range(sx, sz, hx, hz);
                     });
                 if (!supports) return refuse("support_required");
-                for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
-                    for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
-                        if (const auto proposed = foundation_bounds({{4 * px, *level, 4 * pz}, 1});
+                for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
+                    for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
+                        if (const auto proposed = foundation_bounds({{4 * px, level, 4 * pz}, 1});
                             overlap(part_bounds(profile_, part), proposed) || overlaps_supports(*supports, proposed))
                             return refuse("occupied");
                 continue;
             }
             for (const auto& external : part.role == Role::collector ?
                     collector_external_bounds(center) : std::vector<Bounds>{})
-                for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
-                    for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
-                        if (overlap(external, foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
+                for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
+                    for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
+                        if (overlap(external, foundation_bounds({{4 * px, level, 4 * pz}, 1})))
                             return refuse("occupied");
-            if (center[0] * pitch / 4 > std::min(*x, *end_x) * pitch - pitch &&
-                center[0] * pitch / 4 < std::max(*x, *end_x) * pitch + pitch &&
-                center[2] * pitch / 4 > std::min(*z, *end_z) * pitch - pitch &&
-                center[2] * pitch / 4 < std::max(*z, *end_z) * pitch + pitch &&
+            if (center[0] * pitch / 4 > std::min(x, end_x) * pitch - pitch &&
+                center[0] * pitch / 4 < std::max(x, end_x) * pitch + pitch &&
+                center[2] * pitch / 4 > std::min(z, end_z) * pitch - pitch &&
+                center[2] * pitch / 4 < std::max(z, end_z) * pitch + pitch &&
                 center[1] * pitch / 4 < top && center[1] * pitch / 4 + machine_height > top - foundation_depth)
                 return refuse("occupied");
         }
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
             const auto occupied = component_bounds(profile_, component.kind, component.center);
-            for (auto px = std::min(*x, *end_x); px <= std::max(*x, *end_x); ++px)
-                for (auto pz = std::min(*z, *end_z); pz <= std::max(*z, *end_z); ++pz)
-                    if (overlap(occupied, foundation_bounds({{4 * px, *level, 4 * pz}, 1})))
+            for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
+                for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
+                    if (overlap(occupied, foundation_bounds({{4 * px, level, 4 * pz}, 1})))
                         return refuse("occupied");
         }
         normalized.at("action") = Value(*action);
-        normalized.emplace("center", Value(Array{Value(4 * *x), Value(*level), Value(4 * *z)}));
-        if (area) normalized.emplace("end", Value(Array{Value(4 * *end_x), Value(*level), Value(4 * *end_z)}));
+        normalized.emplace("center", foundation_commands::center_value(*first));
+        if (area) normalized.emplace("end", foundation_commands::center_value(*last));
     } else if (*action == "place") {
         if (!place_keys(wire))
             return refuse("invalid_command");
@@ -2569,6 +2537,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto* id = field<std::string>(wire, "entity");
         const auto foundation = id ? snapshot.state.foundations.find(*id) : snapshot.state.foundations.end();
         if (*action == "remove" && foundation != snapshot.state.foundations.end()) {
+            if (!foundation_commands::valid_wire(wire, foundation_commands::Action::remove_one))
+                return refuse("invalid_command");
             normalized.at("action") = Value("remove_foundation");
             normalized.at("generation") = Value(foundation->second.generation);
         } else normalized.at("action") = Value(*action == "retrieve" ? "collect" : *action);

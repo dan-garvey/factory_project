@@ -1,4 +1,5 @@
 #include "plan_common.hpp"
+#include "factory/foundation_command_contract.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -32,7 +33,9 @@ std::vector<mechanics::Point> foundation_area(const authority::Object& intent) {
         (*finish)[0] % 4 || (*finish)[2] % 4) return {};
     const auto width = std::abs((*start)[0] - (*finish)[0]) / 4 + 1;
     const auto depth = std::abs((*start)[2] - (*finish)[2]) / 4 + 1;
-    if (width > 256 || depth > 256 || width * depth > 256) return {};
+    if (width > foundation_commands::maximum_area_side ||
+        depth > foundation_commands::maximum_area_side ||
+        width * depth > foundation_commands::maximum_area_side) return {};
     std::vector<mechanics::Point> points;
     for (auto x = std::min((*start)[0], (*finish)[0]); x <= std::max((*start)[0], (*finish)[0]); x += 4)
         for (auto z = std::min((*start)[2], (*finish)[2]); z <= std::max((*start)[2], (*finish)[2]); z += 4)

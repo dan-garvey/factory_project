@@ -269,11 +269,50 @@ void machine_clearance_on_free_foundations() {
     check(!factory::values::typed_difference(before, intruded.checkpoint()),
           "The same supporting foundation cannot bypass current terrain clearance during restore.");
 }
+
+void malformed_foundation_requests_keep_native_state() {
+    Host host; initialize(host);
+    outcome(host.publish_actor("P", {V(9.0), V(1.5), V(6.0)}, 1), true, "actor_published");
+    const auto placed = host.command("P", foundation("contract-existing", 5, 2, 1));
+    outcome(placed, true, "ok");
+    const auto before = host.projection();
+    const auto saved = host.checkpoint();
+    const auto state_before = get<O>(V(get<O>(saved, "world")), "state");
+    const auto kit_before = carried(host);
+    const auto reject = [&](O wire, const char* reason) {
+        const auto reply = host.command("P", wire);
+        outcome(reply, false, reason);
+    };
+    auto extra_single = foundation("contract-extra-single", 6, 2, 1);
+    extra_single.emplace("end_cell", V(A{V(I{7}), V(I{2})}));
+    reject(extra_single, "invalid_command");
+    auto missing_area = area("contract-missing-area", 6, 2, 7, 2, 1);
+    missing_area.erase("end_cell");
+    reject(missing_area, "invalid_command");
+    auto wrong_cell = area("contract-wrong-cell", 6, 2, 7, 2, 1);
+    wrong_cell.at("cell") = V(false);
+    reject(wrong_cell, "invalid_cell");
+    auto wrong_level = foundation("contract-wrong-level", 6, 2, 1);
+    wrong_level.at("level") = V(1.0);
+    reject(wrong_level, "invalid_cell");
+    reject(area("contract-oversized", 0, 0, 256, 0, 1), "invalid_area");
+    auto extra_remove = removal("contract-extra-remove", get<std::string>(placed, "entity"));
+    extra_remove.emplace("level", V(I{1}));
+    reject(extra_remove, "invalid_command");
+    const auto after = host.projection();
+    const auto state_after = get<O>(V(get<O>(host.checkpoint(), "world")), "state");
+    check(get<I>(before, "revision") == get<I>(after, "revision") &&
+          !factory::values::typed_difference(V(state_before), V(state_after)) &&
+          !factory::values::typed_difference(V(get<O>(before, "foundations")),
+              V(get<O>(after, "foundations"))) && carried(host) == kit_before,
+          "Malformed foundation wires preserve revision, native state, identities and finite kits.");
+    outcome(host.validate_checkpoint(host.checkpoint()), true, "valid");
+}
 }
 int main() {
     try {
         construction_and_custody(); transmission_aligned_elevations(); terrain_and_stacking(); rectangular_placement(); import_checks_current_machine_site();
-        machine_clearance_on_free_foundations();
+        machine_clearance_on_free_foundations(); malformed_foundation_requests_keep_native_state();
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << ",\"evidence\":\"synthetic_native_foundation_rules\",\"engine_calls\":0}\n";
         return 0;
     } catch (const std::exception& failure) {

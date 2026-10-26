@@ -50,6 +50,14 @@ cc_library(
 )
 
 cc_library(
+    name = "foundation_command_contract",
+    hdrs = ["include/factory/foundation_command_contract.hpp"],
+    strip_include_prefix = "include",
+    deps = [":command_contract", "//native/factory-mechanics:mechanics"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
+)
+
+cc_library(
     name = "component_command_contract",
     hdrs = ["include/factory/component_command_contract.hpp"],
     strip_include_prefix = "include",
@@ -95,6 +103,7 @@ cc_library(
         ":component_command_contract",
         ":crank_command_contract",
         ":fabrication_command_contract",
+        ":foundation_command_contract",
         ":material_command_contract",
         ":press_command_contract",
         ":transactions",

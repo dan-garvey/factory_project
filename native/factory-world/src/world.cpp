@@ -3,6 +3,7 @@
 #include "factory/component_command_contract.hpp"
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
+#include "factory/foundation_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
 #include "belt_planner.hpp"
@@ -309,6 +310,9 @@ bool shape(const Object& intent, const std::string& action) {
     if (const auto fabrication = fabrication_commands::parse(action);
         fabrication != fabrication_commands::Action::none)
         return fabrication_commands::valid_intent(intent, fabrication);
+    if (const auto foundation = foundation_commands::parse(action);
+        foundation != foundation_commands::Action::none)
+        return foundation_commands::valid_intent_before_geometry(intent, foundation);
     if (const auto material = material_commands::parse(action);
         material != material_commands::Action::none)
         return material == material_commands::Action::pickup ?
@@ -326,9 +330,6 @@ bool shape(const Object& intent, const std::string& action) {
         return keys(intent, {"target", "generation", "center"}) &&
             field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
             field<Value::Array>(intent, "center");
-    if (action == "place_foundations") return keys(intent, {"center", "end"});
-    if (action == "place_foundation") return keys(intent, {"center"});
-    if (action == "remove_foundation") return keys(intent, {"target", "generation"});
     if (action == "recover" || action == "remove")
         return keys(intent, {"target", "generation"});
     if (action == "collect" || action == "insert_raw")
