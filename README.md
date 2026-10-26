@@ -50,7 +50,7 @@ startup. The old scripted launchers remain fixtures and do not deliver this entr
 | Placement options | T; shown shortcuts depend on the selected part |
 | Lock/nudge a component ghost | Alt; Alt+arrows; Alt+PageUp/PageDown |
 | Foundation height / area placement | PageUp/PageDown / V |
-| Menus and worksite actions | Esc; Tab/arrows and Enter for controls |
+| Cancel placement / worksite menu | Esc cancels placement; Esc again opens the menu. Tab/arrows and Enter navigate controls. |
 | Save / reopen information | F5 / F9 |
 | Developer conveniences | F3 |
 
