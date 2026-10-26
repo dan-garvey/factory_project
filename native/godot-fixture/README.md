@@ -13,6 +13,14 @@ is a setup failure: keep its log and import the unchanged project before trying
 the intended component check. A zero Godot exit does not override a script-load
 error or a partial PASS line.
 
+`parts_view_check.gd` runs its default parts display suite with no user arguments,
+or one named `--...-only` suite. An unknown or repeated selector exits 2 before
+any suite starts; capture paths are accepted only with their corresponding
+suite. Select the exact completion line emitted by that suite when using this
+runner. The default suite emits an `OPENING_PARTS_VIEW_PASS` count, while
+`--buttons-only` emits its JSON status and check count. These are
+scripted view checks, not native gameplay, rendered, or human-play evidence.
+
 Build `//native/godot-fixture:factory-godot-fixture` with the verified Bazel
 8.4.2 toolchain described in [native builds](../../docs/engineering/native-builds.md).
 Then run from a linked checkout, substituting existing absolute paths, the
