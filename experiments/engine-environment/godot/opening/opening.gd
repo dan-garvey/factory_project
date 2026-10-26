@@ -11,6 +11,7 @@ const BuildingHotbar = preload("res://opening/building_hotbar.gd")
 const ArrivalRevealAudio = preload("res://opening/arrival_reveal_audio.gd")
 const ConstructionAudio = preload("res://opening/construction_audio.gd")
 const MechanicalAmbience = preload("res://opening/mechanical_ambience.gd")
+const ProductionInterface = preload("res://opening/production_interface.gd")
 
 class ProductionVisuals:
 	extends RefCounted
@@ -3830,57 +3831,6 @@ class ProductionEnvironment:
 		scenery.add_child(_bank_shrubs())
 		return scenery
 
-class ProductionInterface:
-	extends RefCounted
-	## Draw styles only. Effective content metrics remain the engine defaults.
-	static var shared_theme: Theme
-
-	static func _style(source: StyleBox, fill: Color, line: Color, focus: bool = false) -> StyleBoxFlat:
-		var style := source.duplicate() as StyleBoxFlat
-		if style == null:
-			style = StyleBoxFlat.new()
-		for side in range(4):
-			# get_margin resolves a negative raw content margin through the old
-			# border. Freeze that effective metric before drawing new borders.
-			style.set_content_margin(side, source.get_margin(side))
-		style.bg_color = fill
-		style.border_color = line
-		style.set_border_width_all(2 if focus else 1)
-		style.set_corner_radius_all(4)
-		style.corner_detail = 4
-		style.draw_center = not focus
-		return style
-
-	static func make_theme() -> Theme:
-		if shared_theme != null:
-			return shared_theme
-		var theme := Theme.new()
-		theme.default_font_size = 15
-		var original := ThemeDB.get_default_theme()
-		var fills := {"normal": Color("18252b"), "hover": Color("294048"),
-			"pressed": Color("644a29"), "hover_pressed": Color("735935"), "disabled": Color("172126")}
-		var borders := {"normal": Color("52676b"), "hover": Color("a1bdba"),
-			"pressed": Color("e4ad61"), "hover_pressed": Color("f6c77f"), "disabled": Color("35454a")}
-		for control_type in ["Button", "MenuButton"]:
-			# Resolve the actual inherited defaults. MenuButton has its own
-			# zero-padding styles; borrowing Button metrics would widen it.
-			var probe: Button = MenuButton.new() if control_type == "MenuButton" else Button.new()
-			for name_value in fills:
-				theme.set_stylebox(name_value, control_type, _style(probe.get_theme_stylebox(name_value), fills[name_value], borders[name_value]))
-			theme.set_stylebox("focus", control_type, _style(probe.get_theme_stylebox("focus"), Color.TRANSPARENT, Color("efc78a"), true))
-			for name_value in ["font_color", "font_hover_color", "font_focus_color"]:
-				theme.set_color(name_value, control_type, Color("f1f5f0"))
-			for name_value in ["font_pressed_color", "font_hover_pressed_color"]:
-				theme.set_color(name_value, control_type, Color("fff3de"))
-			theme.set_color("font_disabled_color", control_type, Color("a1b2ad"))
-			probe.free()
-		var separator := original.get_stylebox("separator", "HSeparator").duplicate() as StyleBox
-		if separator is StyleBoxLine:
-			separator.color = Color("41565e")
-		theme.set_stylebox("separator", "HSeparator", separator)
-		shared_theme = theme
-		return theme
-
 const STEP_SECONDS := 0.45
 const PITCH := Geometry.PITCH
 const NAMES := {"collector": "Collector", "belt": "Belt", "processor": "Press", "wheel": "Waterwheel", "foundation": "Foundation", "pod_workshop": "Pod workshop"}
@@ -3943,12 +3893,8 @@ var press_snap_lift_material: StandardMaterial3D
 var component_preview_kind := ""
 var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
-var component_preview_cell_materials: Dictionary = {}
 var component_preview_blocked := false
 var component_preview_snap := ""
-var component_footprint_size := 1
-var component_area_anchor: Array = []
-var component_area_kind := ""
 var mutable_machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
@@ -4031,6 +3977,7 @@ var pause_exit_button: Button
 var pause_exit_confirmation: ConfirmationDialog
 var recovery_actions
 var loose_material_controls
+var developer_material_tools := "--debug-material-tools" in OS.get_cmdline_user_args()
 var transmission_controls
 var transmission_presenter
 var construction_audio
@@ -5307,7 +5254,8 @@ func _input(event: InputEvent) -> void:
 						handled = true
 				KEY_V:
 					if mode == "component" and arrival_assembly_controls != null \
-							and arrival_assembly_controls.selected_name() in ["anvil", "ram_face"]:
+							and arrival_assembly_controls.selected_name() in [
+								"anvil", "broad_anvil", "flat_head", "broad_flat_head"]:
 						_toggle_component_footprint()
 						handled = true
 					elif foundation_area_toggle.is_visible_in_tree() and not foundation_area_toggle.disabled:
@@ -5440,6 +5388,10 @@ func _select_tool(tool: String) -> void:
 			var component_kind: String = arrival_assembly_controls.selected_name()
 			if component_kind == "flat_head":
 				instructions["component"] = "Aim at the anvil to show the head at press height. Click to fit it; the slide goes above."
+			elif component_kind == "broad_anvil":
+				instructions["component"] = "Aim at a clear 2×2 floor area. Click once to place four carried anvils as one workbed."
+			elif component_kind == "broad_flat_head":
+				instructions["component"] = "Aim at the 2×2 workbed. Click to fit four carried flat heads as one face."
 			elif component_kind in ["wooden_slide", "copper_slide"]:
 				instructions["component"] = "Aim at the anvil or flat head to show the slide at press height. Click to fit the amber ghost; red means blocked."
 	_message(instructions.get(tool,
@@ -5447,12 +5399,10 @@ func _select_tool(tool: String) -> void:
 
 func _cancel_active_construction() -> bool:
 	if mode == "inspect" and pending_link.is_empty() and not foundation_area_started \
-			and component_area_anchor.is_empty() and not component_nudge_active \
+			and not component_nudge_active \
 			and transmission_preview_point.is_empty() \
 			and (transmission_controls == null or transmission_controls.active_tool.is_empty()):
 		return false
-	component_area_anchor.clear()
-	component_area_kind = ""
 	component_preview_snap = ""
 	component_preview_blocked = false
 	component_preview_pose_key = ""
@@ -5520,23 +5470,11 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 				selected = input_id
 			_refresh_ui()
 			return
-		var area_origin := _component_area_origin(component_name, center)
-		var centers := _component_footprint_centers(component_name, area_origin)
-		if not _component_center_allowed(center):
-			return
-		if centers.size() == 4 and not centers.has(center):
-			_message("Aim at one of the four highlighted cells.", true)
-			return
-		if centers.size() == 4 and _component_area_has_part(component_name, center):
-			_message("That part is already placed.", true)
+		if not _component_area_bounds_allowed(component_name, center):
 			return
 		var selected_anvil: String = arrival_assembly_controls.press_anvil_for(selected)
 		var outcome := issue({"action": "place_component",
 			"component": component_name, "center": center})
-		if outcome.accepted or outcome.get("queued", false):
-			if centers.size() == 4:
-				component_area_anchor = area_origin.duplicate()
-				component_area_kind = component_name
 		if outcome.accepted:
 			selected = selected_anvil if component_name != "anvil" and not selected_anvil.is_empty() \
 				else str(outcome.get("entity", ""))
@@ -6043,8 +5981,28 @@ func _screen_hand_source(screen: Vector2) -> String:
 			id = deposits[0]
 	return id if not _hand_source(id).is_empty() else ""
 
+func _screen_loose_material(screen: Vector2) -> Dictionary:
+	if not _native_transmission() or camera == null or not camera.is_inside_tree():
+		return {}
+	var eye := camera.project_ray_origin(screen)
+	var query := PhysicsRayQueryParameters3D.create(eye,
+		eye + camera.project_ray_normal(screen) * 80.0,
+		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty() or hit.collider.get_meta("material_context", "") != state.get("context", ""):
+		return {}
+	var drop: Dictionary = hit.collider.get_meta("loose_material", {})
+	# A stale visible body must never collect a replacement at the same location.
+	return drop if not drop.is_empty() and state.get("dropped_material", []).has(drop) else {}
+
 func _interact_pointed() -> void:
 	if not _can_control_character():
+		return
+	var drop := _screen_loose_material(_pointed_screen_position()) if mode == "inspect" else {}
+	if not drop.is_empty():
+		var expected: Dictionary = drop.duplicate(true)
+		expected.erase("center")
+		issue({"action": "pickup_material", "center": drop.center.duplicate(), "expected": expected})
 		return
 	var attached_crank := _pointed_crank() if mode == "inspect" else ""
 	if not attached_crank.is_empty():
@@ -6229,8 +6187,13 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
 	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 2, center[2]], "label": "Slide over workbed"}
+	if kind == "broad_flat_head" and pointed_kind == "broad_anvil":
+		return {"center": [center[0], center[1] + 1, center[2]], "label": "2×2 head over workbed"}
 	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Slide over head"}
+	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "broad_flat_head":
+		return {"center": [center[0] + 2, center[1] + 1, center[2] + 2],
+			"label": "Central slide over 2×2 head"}
 	if kind == "ram_face" and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
 	if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
@@ -6296,35 +6259,26 @@ func _component_center_allowed(center: Array) -> bool:
 	return absf(center[0] * Geometry.HEIGHT_STEP) <= half \
 		and absf(center[2] * Geometry.HEIGHT_STEP) <= half
 
-func _component_footprint_centers(kind: String, anchor: Array) -> Array:
-	if anchor.size() != 3:
-		return []
-	if component_footprint_size != 2 or kind not in ["anvil", "ram_face"]:
-		return [anchor.duplicate()]
-	var centers := []
-	for z in 2:
-		for x in 2:
-			centers.append([int(anchor[0]) + x * Geometry.HEIGHT_DENOMINATOR,
-				int(anchor[1]), int(anchor[2]) + z * Geometry.HEIGHT_DENOMINATOR])
-	return centers
-
-func _component_area_origin(kind: String, pointer_center: Array) -> Array:
-	return component_area_anchor if component_area_kind == kind and component_area_anchor.size() == 3 \
-		else pointer_center
-
-func _component_area_has_part(kind: String, center: Array) -> bool:
-	for part: Dictionary in state.get("placed_components", {}).values():
-		if part.get("component", "") == kind and part.get("center", []) == center:
-			return true
-	return false
+func _component_area_bounds_allowed(kind: String, center: Array) -> bool:
+	if not _component_center_allowed(center):
+		return false
+	if kind not in ["broad_anvil", "broad_flat_head"]:
+		return true
+	var box := _component_candidate_box(kind, center)
+	return absf(box.center.x) + box.half.x <= ProductionEnvironment.Surface.HALF \
+		and absf(box.center.z) + box.half.z <= ProductionEnvironment.Surface.HALF
 
 func _toggle_component_footprint() -> void:
 	if mode != "component" or arrival_assembly_controls == null \
-			or arrival_assembly_controls.selected_name() not in ["anvil", "ram_face"]:
+			or arrival_assembly_controls.selected_name() not in [
+				"anvil", "broad_anvil", "flat_head", "broad_flat_head"]:
 		return
-	component_footprint_size = 1 if component_footprint_size == 2 else 2
-	component_area_anchor.clear()
-	component_area_kind = ""
+	var next_kind: String = {
+		"anvil": "broad_anvil", "broad_anvil": "anvil",
+		"flat_head": "broad_flat_head", "broad_flat_head": "flat_head",
+	}[arrival_assembly_controls.selected_name()]
+	if not arrival_assembly_controls.select_component_name(next_kind):
+		return
 	component_preview_pose_key = ""
 	_refresh_component_preview()
 	_update_cursor()
@@ -6385,6 +6339,12 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			var high := low + Geometry.HEIGHT_STEP
 			occupied.y = (low + high) * 0.5
 			half = Vector3(0.2025, (high - low) * 0.5, 0.14)
+		"broad_anvil":
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var high := low + Geometry.HEIGHT_STEP
+			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
+				Geometry.PITCH * 0.5)
+			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"ram_face":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
@@ -6395,6 +6355,12 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
+		"broad_flat_head":
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var high := at.y + Geometry.HEIGHT_STEP * 0.5
+			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
+				Geometry.PITCH * 0.5)
+			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"wooden_slide", "copper_slide":
 			var low: float = at.y - Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
@@ -6428,8 +6394,17 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 		for id: Variant in state.get("placed_components", {}):
 			var part: Dictionary = state.placed_components[id]
 			var part_center: Array = part.get("center", [])
-			if part_center.size() != 3 or center.size() != 3 or \
-					part_center[0] != center[0] or part_center[2] != center[2]:
+			if part_center.size() != 3 or center.size() != 3:
+				continue
+			if kind == "broad_flat_head" and part.component in ["wooden_slide", "copper_slide"] \
+					and part_center == [center[0] + 2, center[1] + 1, center[2] + 2]:
+				paired_ids[id] = true
+				continue
+			if kind in ["wooden_slide", "copper_slide"] and part.component == "broad_flat_head" \
+					and center == [part_center[0] + 2, part_center[1] + 1, part_center[2] + 2]:
+				paired_ids[id] = true
+				continue
+			if part_center[0] != center[0] or part_center[2] != center[2]:
 				continue
 			if (kind == "flat_head" and part.component in ["wooden_slide", "copper_slide"]
 					and part_center[1] == center[1] + 1) or \
@@ -6498,7 +6473,10 @@ func _refresh_component_preview() -> void:
 			or not _preview_pointer_clear():
 		return
 	var kind: String = arrival_assembly_controls.selected_name()
-	if int(state.get("cargo", {}).get(client, {}).get("components", {}).get(kind, 0)) < 1:
+	var carried_kind := "anvil" if kind == "broad_anvil" else \
+		"flat_head" if kind == "broad_flat_head" else kind
+	var needed := 4 if kind in ["broad_anvil", "broad_flat_head"] else 1
+	if int(state.get("cargo", {}).get(client, {}).get("components", {}).get(carried_kind, 0)) < needed:
 		return
 	var pointed := _screen_entity(_pointed_screen_position()) if not component_nudge_active else ""
 	var center := _component_place_center(_screen_cell(_pointed_screen_position()), pointed)
@@ -6538,64 +6516,9 @@ func _refresh_component_preview() -> void:
 		component_preview.visible = true
 		return
 	component_preview.rotation.y = 0.0
-	if component_area_kind == kind and component_area_anchor.size() == 3:
-		var finished := true
-		for area_cell: Array in _component_footprint_centers(kind, component_area_anchor):
-			finished = finished and _component_area_has_part(kind, area_cell)
-		if finished:
-			component_area_anchor.clear()
-			component_area_kind = ""
-	var area_origin := _component_area_origin(kind, center)
 	var box := _component_candidate_box(kind, center)
-	var area_centers := _component_footprint_centers(kind, area_origin)
-	if area_centers.size() == 4:
-		var area_box := _component_candidate_box(kind, area_origin)
-		component_preview_blocked = not area_centers.has(center) \
-			or not _component_center_allowed(center) \
-			or _component_area_has_part(kind, center) \
-			or _component_candidate_blocked(kind, center, box)
-		component_preview_snap = "Nudged point" if component_nudge_active else \
-			"Selected area" if component_area_anchor.size() == 3 else "Floor grid"
-		var placed_cells := []
-		for part_center: Array in area_centers:
-			placed_cells.append(_component_area_has_part(kind, part_center))
-		var area_key := "area:%s:%s:%s" % [kind, str(area_origin), str(placed_cells)]
-		if area_key != component_preview_pose_key:
-			for child in component_preview.get_children():
-				child.free()
-			component_preview_cell_materials.clear()
-			component_preview_material = StandardMaterial3D.new()
-			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			component_preview_material.roughness = 0.72
-			for index in area_centers.size():
-				if placed_cells[index]:
-					continue
-				var part_center: Array = area_centers[index]
-				var part_box := _component_candidate_box(kind, part_center)
-				var anchor := Node3D.new()
-				anchor.position = part_box.center - area_box.center
-				component_preview.add_child(anchor)
-				transmission_presenter.preview_component(anchor, kind, part_box.size)
-				var material := component_preview_material.duplicate() as StandardMaterial3D
-				component_preview_cell_materials[str(part_center)] = material
-				_style_component_preview(anchor, material)
-			component_preview_kind = kind
-			component_preview_pose_key = area_key
-		for part_center: Array in area_centers:
-			if _component_area_has_part(kind, part_center):
-				continue
-			var part_box := _component_candidate_box(kind, part_center)
-			var blocked := not _component_center_allowed(part_center) \
-				or _component_candidate_blocked(kind, part_center, part_box)
-			var material: StandardMaterial3D = component_preview_cell_materials[str(part_center)]
-			material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if blocked \
-				else Color(0.91, 0.73, 0.40, 0.56)
-		component_preview.position = area_box.center
-		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
-			else Color(0.91, 0.73, 0.40, 0.56)
-		component_preview.visible = true
-		return
-	component_preview_blocked = not _component_center_allowed(center) or _component_candidate_blocked(kind, center, box)
+	component_preview_blocked = not _component_area_bounds_allowed(kind, center) or \
+		_component_candidate_blocked(kind, center, box)
 	component_preview_snap = ""
 	if component_nudge_active:
 		component_preview_snap = "Nudged point"
@@ -6608,8 +6531,8 @@ func _refresh_component_preview() -> void:
 			("Above %s" % pointed_kind.replace("_", " ") if not hit.is_empty() and hit.normal.y > 0.5 \
 			else "Beside %s" % pointed_kind.replace("_", " "))
 		if press_snap_target != null and not press_snap.is_empty() \
-				and (kind == "flat_head" and pointed_kind == "anvil" \
-				or kind in ["wooden_slide", "copper_slide"] and pointed_kind in ["anvil", "flat_head"]):
+				and (kind in ["flat_head", "broad_flat_head"] and pointed_kind in ["anvil", "broad_anvil"] \
+				or kind in ["wooden_slide", "copper_slide"] and pointed_kind in ["anvil", "flat_head", "broad_flat_head"]):
 			var target_box := _component_candidate_box(pointed_kind, state.placed_components[pointed].center)
 			press_snap_target.position = target_box.center + Vector3.UP * (target_box.half.y + 0.015)
 			press_snap_target.scale = Vector3(target_box.half.x / 0.77, 1.0, target_box.half.z / 0.77)
@@ -6677,9 +6600,9 @@ func _component_placement_hint() -> String:
 	var location := "%s · X %d  Y %d  Z %d" % [component_preview_snap, center[0], center[1], center[2]]
 	var action := "Blocked here · move the ghost" if component_preview_blocked else "Click to place"
 	var kind: String = arrival_assembly_controls.selected_name()
-	if component_footprint_size == 2 and kind in ["anvil", "ram_face"]:
-		action = "Aim at a free area cell" if component_preview_blocked else "Click each area cell"
-	var stack_hint := "Aim at a floor or built surface" if kind == "anvil" else \
+	var stack_hint := "Aim at a clear 2×2 floor area; uses four anvils" if kind == "broad_anvil" else \
+		"Aim at the 2×2 workbed; uses four flat heads" if kind == "broad_flat_head" else \
+		"Aim at a floor or built surface" if kind == "anvil" else \
 		"Aim at the anvil to place the head above" if kind == "flat_head" else \
 		"Aim at the anvil or flat head to place the slide above" if kind in ["wooden_slide", "copper_slide"] else \
 		"Aim at the anvil top" if kind == "ram_face" else \
@@ -10209,6 +10132,17 @@ func _is_collector_frame(target: String) -> bool:
 func _pointed_summary_data(screen: Vector2) -> Dictionary:
 	if camera == null or not camera.is_inside_tree():
 		return {}
+	var drop := _screen_loose_material(screen) if mode == "inspect" else {}
+	if not drop.is_empty():
+		var items: Array[String] = []
+		for kind in [["raw", "copper"], ["products", "copper plate"],
+				["offcuts", "copper offcut"], ["sheets", "copper sheet"]]:
+			var count := int(drop.get(kind[0], 0))
+			if count > 0:
+				items.append("%d %s" % [count, kind[1]])
+		if not drop.get("work_lots", []).is_empty():
+			items.append("%d copper workpiece" % drop.work_lots.size())
+		return {"name": ", ".join(items), "detail": "E  Pick up"}
 	var crank_id := _crank_at_screen(screen)
 	if not crank_id.is_empty():
 		return {"name": "Fitted hand crank",
@@ -10428,9 +10362,10 @@ func _build_interface() -> void:
 		recovery_actions = recovery_script.new()
 		right.add_child(recovery_actions)
 		recovery_actions.configure(self)
-	loose_material_controls = load("res://opening/recovery_actions.gd").LooseMaterialControls.new()
-	right.add_child(loose_material_controls)
-	loose_material_controls.configure(self)
+	if developer_material_tools:
+		loose_material_controls = RecoveryActions.LooseMaterialControls.new()
+		right.add_child(loose_material_controls)
+		loose_material_controls.configure(self)
 	arrival_assembly_scroll = ScrollContainer.new()
 	arrival_assembly_scroll.name = "ArrivalWorkshopScroll"
 	arrival_assembly_scroll.custom_minimum_size.y = 260
@@ -10443,14 +10378,10 @@ func _build_interface() -> void:
 	save_button = _button(right, "Save worksite  [F5]", _save_worksite)
 	load_button = _button(right, "Load worksite  [F9]", _load_worksite)
 	_build_object_menu(root, right_panel as PanelContainer)
-	# Loose work belongs to the world, so its action menu must stay reachable
-	# while the selected-object panel is closed.
-	loose_material_controls.reparent(selection_tools)
-	loose_material_controls.text = "Loose"
-	loose_material_controls.icon = load("res://opening/assets/build-icons/ore.svg")
-	loose_material_controls.custom_minimum_size = Vector2(82, 30)
-	loose_material_controls.focus_mode = Control.FOCUS_ALL
-	loose_material_controls.accessibility_name = "Handle loose material, shortcut Control L"
+	if loose_material_controls != null:
+		loose_material_controls.reparent(selection_tools)
+		loose_material_controls.text = "DEBUG material"
+		loose_material_controls.accessibility_name = "Developer material commands, shortcut Control L"
 	_build_pause_menu(root)
 	_build_pointed_summary(root)
 	var bottom := _panel(root, Vector2(310, 694), Vector2(952, 88))

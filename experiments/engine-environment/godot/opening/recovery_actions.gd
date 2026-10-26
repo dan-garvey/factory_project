@@ -506,10 +506,12 @@ class ArrivalAssemblyControls:
 		["wooden_cog", "Wooden cog"], ["receiver_tray", "Receiver tray"],
 		["tool_mount", "Tool mount"], ["sliding_guide", "Sliding guide"],
 		["cutting_edge", "Cutting edge"], ["anvil", "Anvil"],
+		["broad_anvil", "2×2 anvil workbed · four anvils"],
 		["ram_face", "Ram face"], ["copper_shaft", "Copper shaft"],
 		["copper_cog", "Copper cog"], ["wooden_workbench", "Wooden workbench"],
 		["wooden_slide", "Wooden slide"], ["copper_slide", "Copper slide"],
-		["flat_head", "Flat pressing head"], ["hand_crank", "Hand crank"],
+		["flat_head", "Flat pressing head"],
+		["broad_flat_head", "2×2 flat head · four heads"], ["hand_crank", "Hand crank"],
 		["channel_narrow_x", "Narrow channel · X"],
 		["channel_narrow_z", "Narrow channel · Z"],
 		["channel_broad_x", "Broad channel · X"],
@@ -772,7 +774,7 @@ class ArrivalAssemblyControls:
 	func open_context() -> void:
 		var collector := _selected_collector(_snapshot, _selected)
 		collector_section.visible = not collector.is_empty() and _press.get("status") != "ready"
-		press_section.visible = not collector_section.visible and not _anvil.is_empty()
+		press_section.visible = not collector_section.visible and (not _anvil.is_empty() or _inventory_broad)
 		_update_context_size()
 
 	func _bearing(point: Array, center: Array) -> String:
@@ -843,16 +845,16 @@ class ArrivalAssemblyControls:
 		if _anvil.is_empty() and selected_kind == "anvil":
 			_anvil = selected
 		_broad_press = _selected_broad_press(snapshot, selected)
-		_inventory_broad = not _broad_press.is_empty() and selected_kind == "anvil"
+		_inventory_broad = not _broad_press.is_empty() and selected_kind in ["anvil", "broad_anvil"]
 		_broad_refeed_offers = _broad_work_offers(snapshot, actor, selected)
 		broad_refeed_button.visible = not _broad_refeed_offers.is_empty()
 		broad_refeed_button.disabled = not ready
-		broad_refeed_button.tooltip_text = "Reinsert carried broad work into this four-anvil press · N"
+		broad_refeed_button.tooltip_text = "Reinsert carried broad work onto this workbed · N"
 		broad_refeed_button.accessibility_name = "Reinsert copper sheet work, shortcut N"
 		_sheet_offers = _sheet_stage_offers(snapshot, actor, selected)
 		sheet_button.visible = not _sheet_offers.is_empty()
 		sheet_button.disabled = not ready
-		sheet_button.tooltip_text = "Stage a carried copper sheet on the selected four-anvil area · S"
+		sheet_button.tooltip_text = "Stage a carried copper sheet on the selected workbed · S"
 		sheet_button.accessibility_name = "Stage carried copper sheet on four anvils, shortcut S"
 		_shear = _selected_shear(snapshot, selected)
 		shear_button.visible = not _shear.is_empty()
@@ -962,11 +964,11 @@ class ArrivalAssemblyControls:
 			}.get(selected_kind, "Placed part")
 		if _inventory_broad:
 			var broad_work: Dictionary = _drop_at(_broad_press.get("origin", []))
-			press_status.text = "Four-anvil workbed · sheet ready on supports. Collect [P]." \
+			press_status.text = "2×2 workbed · sheet ready on supports. Collect [P]." \
 				if int(broad_work.get("sheets", 0)) > 0 else \
-				"Four-anvil workbed · sheet work retained. Drive or recover it." \
+				"2×2 workbed · sheet work retained. Drive or recover it." \
 				if not broad_work.get("work_lots", []).is_empty() else \
-			"Four-anvil workbed · move three carried copper pieces here [F]."
+			"2×2 workbed · move three carried copper pieces here [F]."
 		var active_press := status == "ready"
 		feed_heading.visible = active_press and not sliding and not _inventory_broad
 		feed_heading.text = "FEED & RECYCLE"
@@ -1085,7 +1087,7 @@ class ArrivalAssemblyControls:
 	func _sheet_stage_offers(snapshot: Dictionary, actor: String, selected: String) -> Array[Dictionary]:
 		var offers: Array[Dictionary] = []
 		var selected_part: Variant = snapshot.get("placed_components", {}).get(selected)
-		if not selected_part is Dictionary or selected_part.get("component") != "anvil":
+		if not selected_part is Dictionary or selected_part.get("component") not in ["anvil", "broad_anvil"]:
 			return offers
 		var center: Variant = selected_part.get("center")
 		var carried: Variant = snapshot.get("cargo", {}).get(actor, {}).get("sheet_items")
@@ -1279,7 +1281,7 @@ class ArrivalAssemblyControls:
 			"workbed_output": int(output.get("sheets", 0)) if _inventory_broad else int(output.get("products", 0)),
 		}
 		var broad_anvils: Array = _broad_press.get("parts", {}).get("anvils", [])
-		var raw_supported: bool = broad_anvils.size() == 4 if _inventory_broad else \
+		var raw_supported: bool = broad_anvils.size() in [1, 4] if _inventory_broad else \
 			(not _anvil.is_empty() and _press.get("parts", {}).has("slide"))
 		var work_supported: bool = not _inventory_broad and raw_supported
 		var route: Dictionary = _route()
@@ -1290,7 +1292,7 @@ class ArrivalAssemblyControls:
 		var inputs: Array[Dictionary] = []
 		var raw_count: int = int(cargo.get("raw", 0))
 		if raw_supported and raw_count > 0:
-			var raw_hint := "Copper ×%d. Select or drag three to the four-anvil workbed · F" % raw_count \
+			var raw_hint := "Copper ×%d. Select or drag three to the 2×2 workbed · F" % raw_count \
 				if _inventory_broad else "Copper ×%d. Select or drag one to the workbed · F" % raw_count
 			if _inventory_broad and raw_count < 3:
 				raw_hint += " (three needed)"
@@ -1340,7 +1342,7 @@ class ArrivalAssemblyControls:
 			count.visible = occupied
 			count.text = str(counts[key]) if occupied else ""
 			button.disabled = not ready or not occupied
-		inventory_workbed_heading.text = "ON FOUR ANVILS  →  SHEET" if _inventory_broad else "ON THE WORKBED  →  OUTLET"
+		inventory_workbed_heading.text = "ON 2×2 WORKBED  →  SHEET" if _inventory_broad else "ON THE WORKBED  →  OUTLET"
 		var work_icon := "offcut" if int(work.get("offcuts", 0)) > 0 else \
 			"ore" if int(work.get("raw", 0)) > 0 else \
 			"sheet" if _inventory_broad else "workpiece"
@@ -1387,7 +1389,7 @@ class ArrivalAssemblyControls:
 		match source:
 			"player_raw":
 				var anvils: Array = _broad_press.get("parts", {}).get("anvils", []) if _inventory_broad else []
-				if _inventory_broad and anvils.size() == 4 and work.is_empty() and int(cargo.get("raw", 0)) >= 3:
+				if _inventory_broad and anvils.size() in [1, 4] and work.is_empty() and int(cargo.get("raw", 0)) >= 3:
 					wire = {"action": "feed_broad_press", "entity": str(anvils[0])}
 					destination = "workbed"
 				elif not _inventory_broad and clear_route and work.is_empty() and int(cargo.get("raw", 0)) > 0:

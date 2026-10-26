@@ -360,6 +360,7 @@ private:
         std::vector<std::pair<mechanics::Point, assembly::PressInspection>> presses_by_frame;
         std::vector<std::pair<mechanics::Point, assembly::GuidedPressInspection>> presses_by_anvil;
         std::vector<std::pair<mechanics::Point, assembly::SlidingPressInspection>> slides_by_anvil;
+        std::vector<assembly::BroadSlidingPress> broad_slides;
         std::vector<assembly::BroadPress> broad_presses;
         TickLayout(std::vector<assembly::Part> parts, const std::vector<assembly::OreFace>& faces)
             : placed(std::move(parts)), layout(placed) {
@@ -380,6 +381,9 @@ private:
                     slides_by_anvil.emplace_back(part.center, layout.inspect_sliding_press(part.center));
                     const auto broad = layout.inspect_broad_press(part.center);
                     if (broad.press) broad_presses.push_back(*broad.press);
+                } else if (part.kind == materials::Component::broad_anvil) {
+                    const auto broad = layout.inspect_broad_sliding_press(part.center);
+                    if (broad.press) broad_slides.push_back(*broad.press);
                 }
         }
     };

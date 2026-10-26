@@ -31,6 +31,7 @@ const VALUE_MODES := {
 	"--capture=": ["--guided-press-components-only", "--scale-benchmark"],
 	"--crank-capture-prefix=": ["--guided-press-components-only"],
 	"--slide-material-image=": ["--slide-material-only"],
+	"--loose-material-image=": ["--loose-material-only"],
 	"--count=": ["--scale-benchmark"],
 	"--large-every=": ["--scale-benchmark"]}
 var checks := 0
@@ -42,6 +43,16 @@ class SuppliedOpening extends "res://opening/opening.gd":
 	func _process(_delta: float) -> void:
 		pass
 	func _physics_process(_delta: float) -> void:
+		pass
+
+class PickupOpening extends SuppliedOpening:
+	var calls: Array = []
+	func _pointed_screen_position() -> Vector2:
+		return get_viewport().get_visible_rect().size * 0.5
+	func issue(action: Dictionary) -> Dictionary:
+		calls.append(action.duplicate(true))
+		return {"accepted": false, "reason": "out_of_reach"}
+	func _message(_text: String, _error: bool = false) -> void:
 		pass
 
 class CountingNativeModel extends "res://opening/native_model.gd":
@@ -874,17 +885,17 @@ func _press_component_view() -> void:
 		"The seven identities form a supported anvil, die, guide and press crown.")
 	var framed_foot := anchors.anvil.get_node("CastPedestalFoot") as MeshInstance3D
 	var framed_shelf := anchors.frame.get_node("AnvilShelf") as MeshInstance3D
-	var framed_waist := anchors.anvil.get_node("CastAnvilWaist") as MeshInstance3D
+	var framed_web := anchors.anvil.get_node("WorkbedWeb") as MeshInstance3D
 	var foot_bounds: AABB = framed_foot.global_transform * framed_foot.mesh.get_aabb()
 	var shelf_bounds: AABB = framed_shelf.global_transform * framed_shelf.mesh.get_aabb()
-	var waist_bounds: AABB = framed_waist.global_transform * framed_waist.mesh.get_aabb()
+	var web_bounds: AABB = framed_web.global_transform * framed_web.mesh.get_aabb()
 	verify(absf(foot_bounds.position.y - 0.4125) < 0.0002
 		and absf(shelf_bounds.end.y - foot_bounds.position.y) < 0.0002,
 		"The framed anvil foot meets its raised shelf without a visible unsupported gap.")
 	for rail_name in ["BedCrossRailFront", "BedCrossRailRear", "BedSideRailLeft", "BedSideRailRight"]:
 		var rail := anchors.frame.get_node(rail_name) as MeshInstance3D
-		verify(not (rail.global_transform * rail.mesh.get_aabb()).intersects(waist_bounds),
-			"The frame bed leaves real clearance around the compact anvil casting.")
+		verify(not (rail.global_transform * rail.mesh.get_aabb()).intersects(web_bounds),
+			"The frame bed leaves real clearance around the anvil web.")
 	var rotor: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
 	verify(rotor != null and rotor.find_children("CogTooth*", "MeshInstance3D", false, false).size() == 12
 		and anchors.shaft.get_node_or_null("LooseDriveShaft") != null,
@@ -2515,6 +2526,101 @@ func _tool_guidance() -> void:
 	print(JSON.stringify({"popup_messages": host.messages, "requests": host.calls.size()}))
 	view.free()
 
+func _pointed_loose_material() -> void:
+	var opening := PickupOpening.new()
+	opening.state = fixture()
+	opening.state.transmission_parts = {}
+	opening.state.entities = {}
+	opening.state.motion = {}
+	root.add_child(opening)
+	opening.camera = Camera3D.new()
+	opening.add_child(opening.camera)
+	opening.camera.current = true
+	var light := DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-50, -30, 0)
+	opening.add_child(light)
+	var ui := Control.new()
+	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	opening.add_child(ui)
+	opening._build_pointed_summary(ui)
+	var presenter := Presenter.new()
+	opening.add_child(presenter)
+	var screen := opening._pointed_screen_position()
+	var key := InputEventKey.new()
+	key.keycode = KEY_E
+	key.pressed = true
+	verify(not opening.developer_material_tools and opening.loose_material_controls == null,
+		"Ordinary opening does not opt into developer material commands.")
+	for drop in [{"center": [0, 0, 0], "raw": 1, "products": 0, "work_lots": []},
+			{"center": [0, 0, 0], "raw": 0, "products": 1, "work_lots": []},
+			{"center": [0, 0, 0], "raw": 0, "products": 0, "work_lots": [{"id": 7}]},
+			{"center": [0, 0, 0], "raw": 0, "products": 0, "work_lots": [], "offcuts": 1},
+			{"center": [0, 0, 0], "raw": 0, "products": 0, "work_lots": [],
+				"sheets": 1, "sheet_items": [{"id": 9, "rotation": 1}]}]:
+		opening.state.dropped_material = [drop]
+		presenter.configure(opening)
+		await process_frame
+		var pickers := presenter.find_children("LooseMaterialPicker", "StaticBody3D", true, false)
+		verify(not pickers.is_empty(), "Every visible loose material form has a mesh-aligned picker.")
+		if pickers.is_empty():
+			continue
+		var mesh: MeshInstance3D = pickers[0].get_parent()
+		# Aim inside the rendered mesh, away from the stamped plate's open hole.
+		var target := mesh.global_transform * mesh.get_aabb().get_center()
+		opening.camera.position = target + Vector3(0.1, 2.0, 1.5)
+		opening.camera.look_at(target)
+		await physics_frame
+		await physics_frame
+		verify(opening._screen_loose_material(screen) == drop,
+			"Camera ray selects the displayed item and its exact native drop.")
+		var summary: Dictionary = opening._pointed_summary_data(screen)
+		verify(summary.get("detail") == "E  Pick up" and not str(summary.get("name", "")).begins_with("0 "),
+			"The pointed cue offers E pickup and describes occupied material only.")
+		if drop.products == 1:
+			for argument: String in OS.get_cmdline_user_args():
+				if argument.begins_with("--loose-material-image="):
+					opening._refresh_pointed_summary()
+					await process_frame
+					await RenderingServer.frame_post_draw
+					verify(root.get_texture().get_image().save_png(argument.trim_prefix("--loose-material-image=")) == OK,
+						"Capture the actual plate and pointed pickup cue.")
+		var before := opening.state.duplicate(true)
+		opening.calls.clear()
+		opening._unhandled_input(key)
+		var expected: Dictionary = drop.duplicate(true)
+		expected.erase("center")
+		verify(opening.calls == [{"action": "pickup_material", "center": drop.center, "expected": expected}]
+				and opening.state == before,
+			"E submits exact custody to the host; a refusal cannot remove or replace the item locally.")
+		opening.calls.clear()
+		opening.state.actors.P.ready = false
+		opening._unhandled_input(key)
+		verify(opening.calls.is_empty(), "An unready actor cannot submit a pickup from E.")
+		opening.state.actors.P.ready = true
+		opening.state.dropped_material = []
+		verify(opening._screen_loose_material(screen).is_empty(), "A stale rendered item cannot be picked up after removal.")
+		opening.state.dropped_material = [drop.duplicate(true)]
+		opening.state.dropped_material[0].raw += 1
+		verify(opening._screen_loose_material(screen).is_empty(), "Replacement custody at the same point cannot use an old picker.")
+		opening.state.dropped_material = [drop]
+		opening.state.context = "another-world"
+		verify(opening._screen_loose_material(screen).is_empty(), "A picker from a previous world cannot submit a command.")
+		opening.state.context = "helper-fixture"
+		var barrier := StaticBody3D.new()
+		barrier.collision_layer = Geometry.MACHINE_LAYER
+		var shape := CollisionShape3D.new()
+		shape.shape = BoxShape3D.new()
+		shape.shape.size = Vector3(0.4, 0.4, 0.4)
+		barrier.add_child(shape)
+		opening.add_child(barrier)
+		barrier.position = opening.camera.project_ray_origin(screen) + opening.camera.project_ray_normal(screen) * 0.7
+		await physics_frame
+		await physics_frame
+		verify(opening._screen_loose_material(screen).is_empty(), "A nearer machine blocks material selection through it: " + str(drop))
+		barrier.free()
+	opening.free()
+	await process_frame
+
 func _loose_material() -> void:
 	var host := HostStub.new()
 	host.state = fixture()
@@ -3579,6 +3685,7 @@ func _run() -> void:
 		_direction_basis()
 	elif "--loose-material-only" in OS.get_cmdline_user_args():
 		_loose_material()
+		await _pointed_loose_material()
 	elif "--slide-material-only" in OS.get_cmdline_user_args():
 		await _slide_material_seat()
 	elif "--mechanical-collision-only" in OS.get_cmdline_user_args():

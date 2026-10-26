@@ -1,7 +1,7 @@
 extends SceneTree
 ## Presentation styles and layout metrics only. No game or desktop input.
 const Opening = preload("res://opening/opening.gd")
-const Styles = Opening.ProductionInterface
+const Styles = preload("res://opening/production_interface.gd")
 const STATES := ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]
 var checks := 0
 var failed := false

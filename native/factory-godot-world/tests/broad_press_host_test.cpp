@@ -163,6 +163,134 @@ void broad_projection() {
         "Fresh Host restore keeps all four placed identities and the unpowered refusal.");
 }
 
+void sized_workbed_custody() {
+    Host host;
+    check(get<bool>(host.initialize_arrival_advanced_fixture("broad-site", {"P"}),
+              "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()),
+              "accepted"), "The broad-size fixture starts with finite native material.");
+    I epoch = 0;
+    pose(host, -0.5, 0.0, ++epoch);
+    harvest(host, "opening-copper", 19, "size-ore-");
+    pose(host, 1.65, 6.6, ++epoch);
+    craft(host, "anvil", 4);
+    craft(host, "flat_head", 4);
+    craft(host, "copper_slide", 1);
+    const auto before = host.projection();
+    auto no_recipe = request("size-no-recipe", "craft_component");
+    no_recipe.emplace("entity", V("pod-fabrication-hub"));
+    no_recipe.emplace("component", V("broad_anvil"));
+    const auto rejected = host.command("P", no_recipe);
+    check(!get<bool>(rejected, "accepted"),
+        "The 2x2 workbed has no separate crafting recipe.");
+    check(get<std::string>(rejected, "reason") == "unavailable_recipe",
+        "The broad workbed craft refusal names its unavailable recipe.");
+    check(!factory::values::typed_difference(
+              V(get<O>(before, "cargo")), V(get<O>(host.projection(), "cargo"))) &&
+          !factory::values::typed_difference(
+              V(get<O>(before, "placed_components")),
+              V(get<O>(host.projection(), "placed_components"))),
+        "The craft refusal leaves finite material and world state intact.");
+    pose(host, 3.3, 1.65, ++epoch);
+    auto bed = request("size-place-bed", "place_component");
+    bed.emplace("component", V("broad_anvil"));
+    bed.emplace("center", V(A{V(I{12}), V(I{0}), V(I{0})}));
+    const auto installed_bed = accepted(host, bed);
+    const auto bed_id = get<std::string>(installed_bed, "entity");
+    auto head = request("size-place-head", "place_component");
+    head.emplace("component", V("broad_flat_head"));
+    head.emplace("center", V(A{V(I{12}), V(I{1}), V(I{0})}));
+    const auto installed_head = accepted(host, head);
+    const auto head_id = get<std::string>(installed_head, "entity");
+    auto slide = request("size-place-slide", "place_component");
+    slide.emplace("component", V("copper_slide"));
+    slide.emplace("center", V(A{V(I{14}), V(I{2}), V(I{2})}));
+    const auto installed_slide = accepted(host, slide);
+    const auto slide_id = get<std::string>(installed_slide, "entity");
+    const auto placed = get<O>(host.projection(), "placed_components");
+    const auto bed_box = get<O>(placed.at(bed_id), "occupied");
+    const auto bed_half = get<A>(V(bed_box), "half");
+    const auto sized = get<A>(host.projection(), "broad_press_assemblies");
+    check(placed.size() == 3 && sized.size() == 1 &&
+          get<std::string>(sized.front(), "geometry_status") == "ready" &&
+          get<std::string>(sized.front(), "status") == "unpowered" &&
+          std::get<double>(bed_half[0].storage()) == 1.65 &&
+          std::get<double>(bed_half[2].storage()) == 1.65 &&
+          get<O>(get<O>(host.projection(), "cargo").at("P"), "components").empty(),
+        "One broad face and one sized head meet a single unpowered slide without extra local shafts.");
+    auto feed = request("size-feed", "feed_broad_press");
+    feed.emplace("entity", V(bed_id));
+    accepted(host, feed);
+    const auto fed = get<A>(host.projection(), "dropped_material");
+    check(fed.size() == 1 && get<A>(fed.front(), "work_lots").size() == 1 &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "raw") == 0,
+        "Three finite stock units enter one broad lot on the sized workbed.");
+    const auto saved = host.checkpoint();
+    Host restored;
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("broad-site", {"P"}),
+              "accepted") &&
+          get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()),
+              "accepted") &&
+          get<bool>(restored.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, restored.checkpoint()),
+        "Fresh restore verifies sized identities, slide coupling and the finite four-part debit.");
+    pose(restored, 3.3, 1.65, ++epoch);
+    const auto held = std::get<O>(get<A>(restored.projection(),
+        "dropped_material").front().storage());
+    auto recover = request("size-recover-work", "pickup_material");
+    recover.emplace("center", held.at("center"));
+    recover.emplace("expected", V(O{{"raw", held.at("raw")},
+        {"products", held.at("products")}, {"work_lots", held.at("work_lots")},
+        {"offcuts", held.at("offcuts")}, {"sheets", held.at("sheets")}}));
+    accepted(restored, recover);
+    auto reclaim_slide = request("size-reclaim-slide", "reclaim_component");
+    reclaim_slide.emplace("entity", V(slide_id));
+    accepted(restored, reclaim_slide);
+    auto reclaim_head = request("size-reclaim-head", "reclaim_component");
+    reclaim_head.emplace("entity", V(head_id));
+    accepted(restored, reclaim_head);
+    auto reclaim_bed = request("size-reclaim-bed", "reclaim_component");
+    reclaim_bed.emplace("entity", V(bed_id));
+    accepted(restored, reclaim_bed);
+    check(get<O>(restored.projection(), "placed_components").empty() &&
+          get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
+              "components")), "anvil") == 4 &&
+          get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
+              "components")), "flat_head") == 4,
+        "Reclaim restores the same four carried parts of each kind after a fresh-process reopen.");
+    auto raised = bed;
+    raised.at("request") = V("size-raised-before-support");
+    raised.at("center") = V(A{V(I{12}), V(I{4}), V(I{0})});
+    const auto before_support = restored.projection();
+    const auto unsupported = restored.command("P", raised);
+    check(!get<bool>(unsupported, "accepted") &&
+          get<std::string>(unsupported, "reason") == "support_required" &&
+          !factory::values::typed_difference(V(get<O>(before_support, "cargo")),
+              V(get<O>(restored.projection(), "cargo"))),
+        "The raised broad workbed refuses to spend four anvils until every cell is supported.");
+    for (int index = 0; index < 4; ++index) {
+        auto floor = request("size-raised-floor-" + std::to_string(index), "place_foundation");
+        floor.emplace("cell", V(A{V(I{3 + index % 2}), V(I{index / 2})}));
+        floor.emplace("level", V(I{4}));
+        accepted(restored, floor);
+    }
+    raised.at("request") = V("size-raised-supported");
+    accepted(restored, raised);
+    auto raised_head = head;
+    raised_head.at("request") = V("size-raised-head");
+    raised_head.at("center") = V(A{V(I{12}), V(I{5}), V(I{0})});
+    accepted(restored, raised_head);
+    auto raised_slide = slide;
+    raised_slide.at("request") = V("size-raised-slide");
+    raised_slide.at("center") = V(A{V(I{14}), V(I{6}), V(I{2})});
+    accepted(restored, raised_slide);
+    const auto upper = get<A>(restored.projection(), "broad_press_assemblies");
+    check(upper.size() == 1 && get<std::string>(upper.front(), "geometry_status") == "ready" &&
+          get<A>(upper.front(), "work_centers").size() == 4 &&
+          get<bool>(restored.validate_checkpoint(restored.checkpoint()), "accepted"),
+        "Four raised foundations carry one contiguous workbed, fitted head and single slide after restore.");
+}
+
 void channel_projection_and_wire() {
     Host host;
     check(get<bool>(host.initialize_arrival_advanced_fixture("broad-site", {"P", "Q"}),
@@ -243,6 +371,7 @@ void channel_projection_and_wire() {
 int main() {
     try {
         broad_projection();
+        sized_workbed_custody();
         channel_projection_and_wire();
         std::cout << "broad_press_host_test: " << checks << " checks passed\n";
         return 0;

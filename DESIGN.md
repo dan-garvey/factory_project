@@ -108,6 +108,11 @@ workbed and working-face parts to act on one broad workpiece. Matching contact,
 contiguous support, clearance, coupling and drive capacity decide validity.
 Working area does not mandate a whole actuator or shaft/cog pair per cell.
 Players with sufficient parts may attempt it early; avoid a recipe per footprint.
+The ordinary build controls expose both sizes for the anvil and current flat
+head; V switches the selected part between them. A broad placement spends four
+carried ordinary parts in one click to build one continuous surface or face,
+then returns those parts on reclaim. One slide may drive that face when its
+actual input and load permit.
 
 Conserve material mass and form through extraction, carrying, processing,
 offcuts, storage, recovery, edits, saves and shared continuation. The prototype
@@ -256,6 +261,11 @@ Machine workbeds show actual occupied material and only carried inputs accepted
 by the selected assembly. Empty work locations are blank; the whole carried area
 accepts recoverable output drops. Material tiles depict the item, with progress
 and operations explained separately.
+Point at loose material and press E to pick it up. The world interaction uses the
+visible item and confirmed native custody, with normal reach and obstruction
+limits. Manual push commands belong only to developer diagnostics. Connected,
+powered material transport must advance automatically; players do not issue
+push commands to operate it.
 Escape cancels active placement and its unfinished steps; from neutral it opens
 the worksite menu. Placement footprint outlines lie horizontally. Resizing must
 preserve usable UI.
