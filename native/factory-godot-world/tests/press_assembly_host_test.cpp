@@ -52,9 +52,6 @@ std::pair<double, double> vertical_faces(const O& placed, const std::string& id)
     const auto half = get<A>(V(occupied), "half");
     const double y = std::get<double>(center[1].storage());
     const double extent = std::get<double>(half[1].storage());
-    check(std::abs(std::get<double>(half[0].storage()) - 0.14) < 1e-9 &&
-          std::abs(std::get<double>(half[2].storage()) - 0.14) < 1e-9,
-          "Press fittings retain their narrow feed and exit clearance.");
     return {y - extent, y + extent};
 }
 
@@ -187,6 +184,43 @@ void guided_press_host_path() {
     }
     check(get<bool>(host.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 4), "accepted"),
           "The actor reaches the selected workcell and its drive shaft.");
+    Host elevated;
+    check(get<bool>(elevated.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted"),
+          "The independent raised support initializes the same arrival profile.");
+    check(get<bool>(elevated.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
+          "The independent raised support uses the same flat site.");
+    const auto elevated_restore = elevated.restore_checkpoint(host.checkpoint());
+    if (!get<bool>(elevated_restore, "accepted"))
+        throw std::runtime_error("Elevated kit restore refused: " +
+            get<std::string>(elevated_restore, "reason"));
+    ++checks;
+    check(get<bool>(elevated.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 5), "accepted"),
+          "The worker reaches a clear workcell for an elevated standalone anvil.");
+    auto raised_floor = request("guided-independent-raised-floor", "place_foundation");
+    raised_floor.emplace("cell", V(A{V(I{2}), V(I{0})}));
+    raised_floor.emplace("level", V(I{4}));
+    accepted(elevated, raised_floor);
+    const auto elevated_anvil = place(elevated, "anvil", 8, 4, 0,
+                                     "guided-independent-raised-anvil");
+    const auto elevated_faces = vertical_faces(get<O>(elevated.projection(), "placed_components"),
+                                               elevated_anvil);
+    check(std::abs(elevated_faces.first - 1.65) < 1e-9 &&
+          std::abs(elevated_faces.second - (1.65 + 0.4125)) < 1e-9 &&
+          get<A>(elevated.projection(), "press_assemblies").empty(),
+          "A frame-free anvil seats on an elevated foundation without moving its working face.");
+    Host deck;
+    check(get<bool>(deck.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
+          get<bool>(deck.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(deck.restore_checkpoint(host.checkpoint()), "accepted"),
+          "The independent pod-deck case starts with the same carried anvil kit.");
+    check(get<bool>(deck.publish_actor("P", {V(0.0), V(1.0), V(3.3)}, 5), "accepted"),
+          "The worker reaches the forward deck square from its clear edge.");
+    const auto deck_anvil = place(deck, "anvil", 0, 0, 12, "guided-pod-deck-anvil");
+    const auto deck_faces = vertical_faces(get<O>(deck.projection(), "placed_components"),
+                                           deck_anvil);
+    check(std::abs(deck_faces.first) < 1e-9 && std::abs(deck_faces.second - 0.4125) < 1e-9 &&
+          get<A>(deck.projection(), "press_assemblies").empty(),
+          "A frame-free anvil seats on the pod's existing deck without changing its crown.");
     const auto anvil = place(host, "anvil", 8, 0, 0, "guided-place-anvil");
     check(get<A>(host.projection(), "press_assemblies").empty() &&
           get<std::string>(get<A>(host.projection(), "guided_press_assemblies").front(), "status") ==
@@ -197,9 +231,14 @@ void guided_press_host_path() {
     const auto placed_work = get<O>(host.projection(), "placed_components");
     const auto anvil_faces = vertical_faces(placed_work, anvil);
     const auto ram_faces = vertical_faces(placed_work, ram);
-    check(std::abs(anvil_faces.second - 0.907) < 1e-9 &&
+    const auto anvil_box = get<O>(V(placed_work.at(anvil)), "occupied");
+    const auto anvil_half = get<A>(V(anvil_box), "half");
+    check(std::abs(anvil_faces.first) < 1e-9 &&
+          std::abs(anvil_faces.second - 0.4125) < 1e-9 &&
+          std::abs(std::get<double>(anvil_half[0].storage()) - 0.2025) < 1e-9 &&
+          std::abs(std::get<double>(anvil_half[2].storage()) - 0.14) < 1e-9 &&
           std::abs(ram_faces.first - anvil_faces.second) < 1e-9,
-          "The guided anvil and swept ram meet at the retained copper crown without overlapping.");
+          "The compact anvil's horn stays in its pick body while the ram reaches its floor-seated face.");
     const auto shaft = place(host, "wooden_shaft", 9, 4, 0, "guided-place-shaft");
     check(get<std::string>(get<A>(host.projection(), "guided_press_assemblies").front(), "status") ==
               "missing_cog", "A guided head still needs the actual drive cog.");
@@ -553,11 +592,12 @@ void placed_press_projection() {
     const auto mount_half = get<A>(V(mount_box), "half");
     const double mount_bottom = std::get<double>(mount_center[1].storage()) -
         std::get<double>(mount_half[1].storage());
-    check(std::abs(frame_top - anvil_faces.first) < 1e-9 &&
+    check(std::abs(anvil_faces.first - 0.4125) < 1e-9 &&
+          anvil_faces.first < frame_top &&
           std::abs(anvil_faces.second - ram_faces.first) < 1e-9 &&
           std::abs(ram_faces.second - guide_faces.first - 0.4125) < 1e-9 &&
           std::abs(guide_faces.second - mount_bottom) < 1e-9,
-          "The guide's selected rail volume wraps the fitted ram and meets the press crown.");
+          "The frame surrounds the same floor-seated anvil while guide, ram and crown contacts remain fitted.");
     check(get<std::string>(ready, "status") == "ready" &&
           get<std::string>(V(parts), "frame") == frame &&
           get<std::string>(V(parts), "anvil") == anvil &&
@@ -983,6 +1023,14 @@ void belt_fed_press_projection() {
     const auto slide_anvil = place(sliding, "anvil", 0, 4, 0, "slide-auto-anvil");
     const auto slide_head = place(sliding, "flat_head", 0, 5, 0, "slide-auto-head");
     const auto slide_body = place(sliding, "wooden_slide", 0, 6, 0, "slide-auto-body");
+    const auto slide_placed = get<O>(sliding.projection(), "placed_components");
+    const auto slide_anvil_faces = vertical_faces(slide_placed, slide_anvil);
+    const auto slide_head_faces = vertical_faces(slide_placed, slide_head);
+    const auto slide_body_faces = vertical_faces(slide_placed, slide_body);
+    check(std::abs(slide_anvil_faces.first - 1.65) < 1e-9 &&
+          std::abs(slide_anvil_faces.second - slide_head_faces.first) < 1e-9 &&
+          std::abs(slide_body_faces.first - slide_anvil_faces.second - 0.61875) < 1e-9,
+          "The raised head reaches its compact anvil while the slide rails clear the work face.");
     const auto slide_assemblies = get<A>(sliding.projection(), "sliding_press_assemblies");
     check(slide_assemblies.size() == 1, "The powered belt neighbor has one fitted sliding press.");
     const auto slide_press = std::get<O>(slide_assemblies.front().storage());

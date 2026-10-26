@@ -370,8 +370,8 @@ func _component_view() -> void:
 			joinery_pegs += 1
 			verify(is_equal_approx(child.position.y, 0.384),
 				"Each visible post peg is seated in the confirmed work bed.")
-	verify(formed_stock == 13 and joinery_pegs == 4,
-		"The grounded frame keeps four posts and shoes, two braces, a bed, two straps and four pegged joints.")
+	verify(formed_stock == 18 and joinery_pegs == 4,
+		"The grounded frame keeps four posts and shoes, two braces, an open bed, a supported shelf, two straps and four pegged joints.")
 	var clamp: Node3D = anchors.mount.get_node_or_null("CastToolClamp")
 	verify(clamp != null and clamp.get_child_count() == 2
 		and clamp.get_node_or_null("ClampCastBody") is MeshInstance3D
@@ -485,7 +485,7 @@ func _component_view() -> void:
 		and hooks_reach_near_edge,
 		"The open receiver has two frame-facing hooks, underside rails and restrained rolled-rim fasteners: %s, near=%s." %
 		[str(receiver_detail), str(hooks_reach_near_edge)])
-	var bed: MeshInstance3D = anchors.frame.get_node("OpenWorkBed")
+	var bed: MeshInstance3D = anchors.frame.get_node("BedCrossRailRear")
 	var near_hook: MeshInstance3D = anchors.tray.get_node("ReceiverHookLeft")
 	var bed_box: AABB = bed.mesh.get_aabb()
 	var hook_box: AABB = near_hook.mesh.get_aabb()
@@ -709,7 +709,7 @@ func _component_view() -> void:
 		and edge_dock_bounds.position.y < rail_bounds.end.y,
 		"The framed mount rails physically meet the independently placed edge dock.")
 	var frame_tie := supported_anchors.mount.get_node("MountFrameTie") as MeshInstance3D
-	var frame_bed := supported_anchors.frame.get_node("OpenWorkBed") as MeshInstance3D
+	var frame_bed := supported_anchors.frame.get_node("BedCrossRailRear") as MeshInstance3D
 	var tie_bounds: AABB = frame_tie.global_transform * frame_tie.mesh.get_aabb()
 	var bed_bounds: AABB = frame_bed.global_transform * frame_bed.mesh.get_aabb()
 	verify(absf(tie_bounds.position.z - bed_bounds.end.z) < 0.001
@@ -819,8 +819,8 @@ func _press_component_view() -> void:
 		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
 		"collector_assemblies": [], "placed_components": {
 			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
-			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 1.10975, 0.0], [0.14, 0.20975, 0.14]),
-			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.587875, 0.0], [0.14, 0.268375, 0.14]),
+			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 0.61875, 0.0], [0.2025, 0.20625, 0.14]),
+			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.340625, 0.0], [0.14, 0.515625, 0.14]),
 			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
 			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2075, 0.18, 0.2075]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
@@ -850,6 +850,19 @@ func _press_component_view() -> void:
 		and anchors.guide.get_node_or_null("GuideRail") != null
 		and anchors.mount.get_node_or_null("PressCrown") != null,
 		"The seven identities form a supported anvil, die, guide and press crown.")
+	var framed_foot := anchors.anvil.get_node("CastPedestalFoot") as MeshInstance3D
+	var framed_shelf := anchors.frame.get_node("AnvilShelf") as MeshInstance3D
+	var framed_waist := anchors.anvil.get_node("CastAnvilWaist") as MeshInstance3D
+	var foot_bounds: AABB = framed_foot.global_transform * framed_foot.mesh.get_aabb()
+	var shelf_bounds: AABB = framed_shelf.global_transform * framed_shelf.mesh.get_aabb()
+	var waist_bounds: AABB = framed_waist.global_transform * framed_waist.mesh.get_aabb()
+	verify(absf(foot_bounds.position.y - 0.4125) < 0.0002
+		and absf(shelf_bounds.end.y - foot_bounds.position.y) < 0.0002,
+		"The framed anvil foot meets its raised shelf without a visible unsupported gap.")
+	for rail_name in ["BedCrossRailFront", "BedCrossRailRear", "BedSideRailLeft", "BedSideRailRight"]:
+		var rail := anchors.frame.get_node(rail_name) as MeshInstance3D
+		verify(not (rail.global_transform * rail.mesh.get_aabb()).intersects(waist_bounds),
+			"The frame bed leaves real clearance around the compact anvil casting.")
 	var rotor: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
 	verify(rotor != null and rotor.find_children("CogTooth*", "MeshInstance3D", false, false).size() == 12
 		and anchors.shaft.get_node_or_null("LooseDriveShaft") != null,
@@ -940,8 +953,8 @@ func _broad_press_component_view() -> void:
 		var cell: Vector3i = cells[pad]
 		var side: Vector3i = sides[pad]
 		var entries := [
-			["anvils", "anvil", "anvil", cell, 0.69725, 0.20975, 0.14],
-			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0), 1.175375, 0.268375, 0.14],
+			["anvils", "anvil", "anvil", cell, 0.20625, 0.20625, 0.2025],
+			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0), 0.928125, 0.515625, 0.14],
 			["guides", "guide", "sliding_guide", cell + Vector3i(0, 3, 0), 1.919375, 0.475625, 0.14],
 			["shafts", "shaft", "wooden_shaft", cell + Vector3i(0, 4, 0) + side, 2.475, 0.12, 0.205],
 			["drive_cogs", "cog", "wooden_cog", cell + Vector3i(0, 4, 0) + side * 2, 2.475, 0.14, 0.2075]]
@@ -950,7 +963,7 @@ func _broad_press_component_view() -> void:
 			var point: Vector3i = entry[3]
 			state.placed_components[id] = _component_record(entry[2], [point.x, point.y, point.z],
 				[float(point.x) * step, entry[4] + float(base_y) * step, float(point.z) * step],
-				[entry[6], entry[5], entry[6]])
+				[entry[6], entry[5], 0.14 if entry[2] == "anvil" else entry[6]])
 			parts[entry[0]].append(id)
 	state.broad_press_assemblies = [{"origin": [0, base_y, 0], "geometry_status": "ready",
 		"status": "ready", "work_centers": [[0, base_y, 0], [4, base_y, 0],
@@ -1231,8 +1244,8 @@ func _guided_press_component_view() -> void:
 			"shaft": {"state": "rotating", "numerator": 1, "denominator": 1},
 			"cog": {"state": "rotating", "numerator": 1, "denominator": 1}},
 		"collector_assemblies": [], "press_assemblies": [], "placed_components": {
-			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.69725, 0.0], [0.14, 0.20975, 0.14]),
-			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 1.175375, 0.0], [0.14, 0.268375, 0.14]),
+			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.20625, 0.0], [0.2025, 0.20625, 0.14]),
+			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 0.928125, 0.0], [0.14, 0.515625, 0.14]),
 			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
 			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
@@ -1261,6 +1274,17 @@ func _guided_press_component_view() -> void:
 		and anchors.shaft.get_node_or_null("GuidedBearingSeat") != null
 		and anchors.anvil.get_node_or_null("PressCrown") == null,
 		"The confirmed anvil, ram and guide render with a floating shaft bearing and no frame crown.")
+	var anvil_foot := anchors.anvil.get_node("CastPedestalFoot") as MeshInstance3D
+	var anvil_foot_bounds: AABB = anvil_foot.global_transform * anvil_foot.mesh.get_aabb()
+	verify(absf(anvil_foot_bounds.position.y) < 0.0002
+		and absf(parsed.boxes.anvil.center.y - parsed.boxes.anvil.size.y * 0.5) < 0.0002,
+		"The frame-free anvil mesh and native occupied body both meet the ground datum.")
+	var anvil_preview := Node3D.new()
+	root.add_child(anvil_preview)
+	view.preview_component(anvil_preview, "anvil", parsed.boxes.anvil.size)
+	verify(_component_mesh_shapes(anchors.anvil) == _component_mesh_shapes(anvil_preview),
+		"The anvil preview uses the same floor-seated casting as its committed mesh.")
+	anvil_preview.free()
 	verify(shaft != null and cog != null and shaft.basis.y.x < -0.99 and cog.basis.y.x < -0.99,
 		"The guided shaft and cog point toward the confirmed anvil work column.")
 	var ready_guide_shapes := _component_mesh_shapes(anchors.guide)
@@ -2520,9 +2544,9 @@ func _slide_material_seat() -> void:
 		"motion": {}, "collector_assemblies": [], "press_assemblies": [],
 		"guided_press_assemblies": []}
 	state.placed_components = {
-		"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.69725, 0.0], [0.14, 0.20975, 0.14]),
-		"head": _component_record("flat_head", [0, 1, 0], [0.0, 1.1859375, 0.0], [0.14, 0.2578125, 0.14]),
-		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.44375, 0.0], [0.21, 0.4125, 0.21])}
+		"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.20625, 0.0], [0.2025, 0.20625, 0.14]),
+		"head": _component_record("flat_head", [0, 1, 0], [0.0, 0.928125, 0.0], [0.14, 0.515625, 0.14]),
+		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.134375, 0.0], [0.21, 0.721875, 0.21])}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
 		"status": "ready", "work_center": [0, 0, 0],
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"}}]
@@ -2539,10 +2563,10 @@ func _slide_material_seat() -> void:
 	var seat: MeshInstance3D = anvil.get_node_or_null("OpenAnvilSeat") if anvil != null else null
 	var edge: MeshInstance3D = anvil.get_node_or_null("AnvilEdge") if anvil != null else null
 	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")
-	var crown: float = 0.907
+	var crown: float = 0.4125
 	verify(seat != null and edge != null and blank != null
-		and is_equal_approx(seat.global_position.y + 0.0275, crown - 0.02)
-		and is_equal_approx(edge.global_position.y + 0.03, crown)
+		and is_equal_approx(seat.global_position.y + 0.025, crown)
+		and is_equal_approx(edge.global_position.y + 0.055, crown)
 		and is_equal_approx(blank.position.y - 0.04, crown - 0.02),
 		"The admitted anvil crown, visible seat and native-confirmed blank share one work surface.")
 	var raw_label: Label3D
@@ -2591,9 +2615,17 @@ func _slide_material_seat() -> void:
 		"denominator": 1, "cycle_subticks": 4096}}
 	presenter.refresh()
 	var work: MeshInstance3D = presenter.get_node_or_null("PressedWorkpiece")
+	var head_face: MeshInstance3D = null
+	for child: Node in presenter.get_children():
+		if child.get_meta("component_entity", "") == "head":
+			head_face = child.get_node_or_null("FlatHeadMovingDie/FlatHeadFace") as MeshInstance3D
+	var work_top: float = (work.global_transform * work.mesh.get_aabb()).end.y if work != null else INF
+	var die_bottom: float = (head_face.global_transform * head_face.mesh.get_aabb()).position.y \
+		if head_face != null else -INF
 	verify(work != null and is_equal_approx(work.position.y - 0.03, crown - 0.02)
+		and absf(die_bottom - work_top) < 0.001
 		and presenter.get_node_or_null("LooseBlank") == null,
-		"The same confirmed work point shows a thinner copper workpiece during the stroke.")
+		"The half-cycle die meets the thinner copper workpiece on the supported anvil.")
 	if not image_path.is_empty():
 		await process_frame
 		await RenderingServer.frame_post_draw

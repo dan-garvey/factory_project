@@ -13,6 +13,9 @@ var event_route_pointer := false
 var event_route_loose_activations := 0
 var event_route_pointer_placements := 0
 var event_route_pointer_suppressed := 0
+var anvil_seat_only := false
+var anvil_deck_only := false
+var anvil_ready_only := false
 var mode := ""
 var checks := 0
 var deadline := 0
@@ -29,6 +32,12 @@ func _init() -> void:
 			event_route_loose = true
 		if argument == "--event-route-pointer":
 			event_route_pointer = true
+		if argument == "--anvil-seat-only":
+			anvil_seat_only = true
+		if argument == "--anvil-deck-only":
+			anvil_deck_only = true
+		if argument == "--anvil-ready-only":
+			anvil_ready_only = true
 		if argument.begins_with("--native-check-mode="):
 			mode = argument.trim_prefix("--native-check-mode=")
 	deadline = Time.get_ticks_msec() + (45000 if mode == "foundations" else 60000)
@@ -288,6 +297,25 @@ func _capture_slide_shaft(slide_id: String, path: String) -> bool:
 	camera.fov = 28.0
 	camera.position = spindle.global_position + Vector3(0.0, 0.06, 0.62)
 	camera.look_at(spindle.global_position)
+	camera.make_current()
+	for frame in range(3):
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var captured: bool = close.get_texture().get_image().save_png(path) == OK
+	close.queue_free()
+	return captured
+
+func _capture_anvil_side(path: String, target: Vector3, support_y: float) -> bool:
+	var close := SubViewport.new()
+	close.size = Vector2i(1280, 800)
+	close.world_3d = root.world_3d
+	close.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(close)
+	var camera := Camera3D.new()
+	close.add_child(camera)
+	camera.fov = 38.0
+	camera.position = Vector3(target.x + 0.95, support_y + 0.70, target.z + 1.05)
+	camera.look_at(target)
 	camera.make_current()
 	for frame in range(3):
 		await process_frame
@@ -3990,6 +4018,74 @@ func _arrival_run() -> void:
 			and opening.model.projection().cargo.P.components.values().reduce(func(total, amount): return total + amount, 0) == (10 if mode == "arrival-guide-geometry" else 11),
 			"The finite press, collector and optional crafted crank retain two copper inputs"):
 		return
+	if anvil_deck_only:
+		if not await _approach(Vector2(1.65, 4.95)):
+			return
+		opening._select_tool("component")
+		if not _select_inventory_item("component:anvil"):
+			return
+		var deck_center := [0, 0, 12]
+		var before_deck: Dictionary = opening.model.projection()
+		opening.component_nudge_active = true
+		opening.component_nudge_center = deck_center.duplicate()
+		opening._world_click(Vector2i(0, 3))
+		opening.component_nudge_active = false
+		opening.component_nudge_center.clear()
+		var on_deck: Dictionary = opening.model.projection()
+		var deck_anvil: Dictionary = {}
+		for id: String in on_deck.placed_components:
+			if not before_deck.placed_components.has(id):
+				deck_anvil = on_deck.placed_components[id]
+				deck_anvil["id"] = id
+		if not _expect(on_deck.order == before_deck.order + 1
+				and deck_anvil.get("component") == "anvil" and deck_anvil.get("center") == deck_center
+				and on_deck.foundations.values().any(func(floor: Variant) -> bool:
+					return floor.cell == [0, 3] and floor.level == 0),
+				"The ordinary component tool places one anvil on the pod's existing forward deck"):
+			return
+		var deck_box: Dictionary = deck_anvil.occupied
+		var deck_body: StaticBody3D = opening.actor_world.component_bodies.get(deck_anvil.id)
+		var deck_casting: Node3D = null
+		for node: Node in opening.transmission_presenter.get_children():
+			if node.get_meta("component_entity", "") == deck_anvil.id:
+				deck_casting = node as Node3D
+				break
+		var deck_foot: MeshInstance3D = deck_casting.get_node_or_null("CastPedestalFoot") as MeshInstance3D if deck_casting != null else null
+		var deck_foot_bottom: float = (deck_foot.global_transform * deck_foot.mesh.get_aabb()).position.y if deck_foot != null else INF
+		var deck_collision_bottom: float = deck_body.position.y - ((deck_body.get_child(0) as CollisionShape3D).shape as BoxShape3D).size.y * 0.5 if deck_body != null else INF
+		var deck_preview: Dictionary = opening._component_candidate_box("anvil", deck_center)
+		if not _expect(absf(float(deck_box.center[1]) - float(deck_box.half[1])) < 0.0002
+				and absf(deck_collision_bottom) < 0.0002 and absf(deck_foot_bottom) < 0.0002
+				and deck_preview.center.distance_to(Vector3(deck_box.center[0], deck_box.center[1], deck_box.center[2])) < 0.0002
+				and deck_preview.half.distance_to(Vector3(deck_box.half[0], deck_box.half[1], deck_box.half[2])) < 0.0002,
+				"The pod-deck anvil's native box, casting, actor collision and preview meet its floor"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			opening._select_tool("inspect")
+			opening.distance = 0.0
+			opening._update_camera()
+			var deck_target := Vector3(0.0, 0.18, 4.95)
+			var deck_direction: Vector3 = (deck_target - opening.camera.global_position).normalized()
+			opening.orbit_yaw = atan2(-deck_direction.x, -deck_direction.z)
+			opening.orbit_pitch = asin(clampf(-deck_direction.y, -1.0, 1.0))
+			opening._update_camera()
+			await RenderingServer.frame_post_draw
+			var first_deck: bool = root.get_texture().get_image().save_png(capture_prefix + "-anvil-deck-first.png") == OK
+			opening.distance = 2.0
+			opening.orbit_yaw += 0.35
+			opening._update_camera()
+			await RenderingServer.frame_post_draw
+			var third_deck: bool = root.get_texture().get_image().save_png(
+				capture_prefix + "-anvil-deck-third.png") == OK
+			var side_deck: bool = await _capture_anvil_side(
+				capture_prefix + "-anvil-deck-side.png", Vector3(0, 0.22, 4.95), 0.0)
+			if not _expect(first_deck and third_deck and side_deck,
+					"Retain the native-placed pod-deck anvil in first and third person"):
+				return
+		facts.anvil_support_height = 0.0
+		facts.anvil_occupied = deck_box
+		_record("pass")
+		return
 	if raised:
 		var before_floor: Dictionary = opening.model.projection()
 		if not _press_inventory_recipe("foundation", str(before_floor.fabrication_hub.id)):
@@ -4105,6 +4201,107 @@ func _arrival_run() -> void:
 				and projection.guided_press_assemblies[0].status == expected_status[index],
 				"The native recognizer reports the current fitted press stage"):
 			return
+		if index == 0 and not capture_prefix.is_empty() \
+				and mode in ["arrival-press", "arrival-raised-press"] \
+				and DisplayServer.get_name() != "headless":
+			var prior_distance: float = opening.distance
+			var prior_yaw: float = opening.orbit_yaw
+			var prior_pitch: float = opening.orbit_pitch
+			opening._select_tool("inspect")
+			opening.distance = 0.0
+			opening._update_camera()
+			var foot_target := Vector3(4.95, 1.83 if raised else 0.18, 6.6)
+			var foot_direction: Vector3 = (foot_target - opening.camera.global_position).normalized()
+			opening.orbit_yaw = atan2(-foot_direction.x, -foot_direction.z)
+			opening.orbit_pitch = asin(clampf(-foot_direction.y, -1.0, 1.0))
+			opening._update_camera()
+			await RenderingServer.frame_post_draw
+			var seat_name := "raised" if raised else "ground"
+			var first_seat: bool = root.get_texture().get_image().save_png(
+				capture_prefix + "-anvil-" + seat_name + "-first.png") == OK
+			opening.distance = 2.0
+			opening.orbit_yaw += 0.35
+			if raised:
+				opening.orbit_pitch = 0.25
+			opening._update_camera()
+			await RenderingServer.frame_post_draw
+			var third_seat: bool = root.get_texture().get_image().save_png(
+				capture_prefix + "-anvil-" + seat_name + "-third.png") == OK
+			var side_support: float = 1.65 if raised else 0.0
+			var side_seat: bool = await _capture_anvil_side(
+				capture_prefix + "-anvil-" + seat_name + "-side.png",
+				Vector3(4.95, side_support + 0.22, 6.6), side_support)
+			if not _expect(first_seat and third_seat and side_seat,
+					"Retain the native-placed anvil and its support in first and third person"):
+				return
+			opening.distance = prior_distance
+			opening.orbit_yaw = prior_yaw
+			opening.orbit_pitch = prior_pitch
+			opening._update_camera()
+			opening._select_tool("component")
+		if index == 0 and anvil_seat_only:
+			var placed_anvil: Dictionary = projection.placed_components[press_parts.anvil]
+			var occupied: Dictionary = placed_anvil.occupied
+			var support_y: float = 1.65 if raised else 0.0
+			var anvil_top: float = float(occupied.center[1]) + float(occupied.half[1])
+			var ram_snap: Dictionary = opening._guided_press_part_snap(
+				"ram_face", "anvil", requested_center, Vector3.RIGHT)
+			var guide_snap: Dictionary = opening._guided_press_part_snap(
+				"sliding_guide", "anvil", requested_center, Vector3.RIGHT)
+			var head_snap: Dictionary = opening._guided_press_part_snap(
+				"flat_head", "anvil", requested_center, Vector3.UP)
+			var slide_snap: Dictionary = opening._guided_press_part_snap(
+				"wooden_slide", "flat_head", head_snap.get("center", []), Vector3.UP)
+			var shaft_snap: Dictionary = opening._guided_press_part_snap(
+				"wooden_shaft", "anvil", requested_center, Vector3.RIGHT)
+			var cog_snap: Dictionary = opening._guided_press_part_snap(
+				"wooden_cog", "anvil", requested_center, Vector3.RIGHT)
+			var expected_column := [requested_center[0], requested_center[1] + 1, requested_center[2]]
+			var head_box: Dictionary = opening._component_candidate_box("flat_head", expected_column)
+			var slide_box: Dictionary = opening._component_candidate_box("wooden_slide",
+				[requested_center[0], requested_center[1] + 2, requested_center[2]])
+			if not _expect(ram_snap.get("center") == expected_column
+					and head_snap.get("center") == expected_column
+					and guide_snap.get("center") == [requested_center[0], requested_center[1] + 3, requested_center[2]]
+					and slide_snap.get("center") == [requested_center[0], requested_center[1] + 2, requested_center[2]]
+					and shaft_snap.get("center") == [requested_center[0] + 1, requested_center[1] + 4, requested_center[2]]
+					and cog_snap.get("center") == [requested_center[0] + 2, requested_center[1] + 4, requested_center[2]]
+					and absf(head_box.center.y - head_box.half.y - anvil_top) < 0.0002
+					and slide_box.center.y - slide_box.half.y > anvil_top,
+					"Ground and raised snap targets retain the fitted column and slide rail clearance"):
+				return
+			var body: StaticBody3D = opening.actor_world.component_bodies.get(press_parts.anvil)
+			if raised:
+				await physics_frame
+				var side_ray := PhysicsRayQueryParameters3D.create(
+					Vector3(4.95, 1.55, 4.95), Vector3(4.95, 1.95, 7.4))
+				side_ray.collision_mask = OpeningGeometry.MACHINE_LAYER
+				var side_hit: Dictionary = opening.get_world_3d().direct_space_state.intersect_ray(side_ray)
+				if not _expect(side_hit.get("collider") == body
+						and absf(side_hit.get("normal", Vector3.UP).y) < 0.5,
+						"A standing ground-level ray reaches the raised anvil side for fitted snaps"):
+					return
+			var casting: Node3D = null
+			for node: Node in opening.transmission_presenter.get_children():
+				if node.get_meta("component_entity", "") == press_parts.anvil:
+					casting = node as Node3D
+					break
+			var foot: MeshInstance3D = casting.get_node_or_null("CastPedestalFoot") as MeshInstance3D if casting != null else null
+			var foot_bottom: float = (foot.global_transform * foot.mesh.get_aabb()).position.y if foot != null else INF
+			var native_bottom: float = float(occupied.center[1]) - float(occupied.half[1])
+			var collision_bottom: float = body.position.y - ((body.get_child(0) as CollisionShape3D).shape as BoxShape3D).size.y * 0.5 if body != null else INF
+			var preview_box: Dictionary = opening._component_candidate_box("anvil", requested_center)
+			if not _expect(absf(native_bottom - support_y) < 0.0002
+					and absf(collision_bottom - support_y) < 0.0002
+					and absf(foot_bottom - support_y) < 0.0002
+					and preview_box.center.distance_to(Vector3(occupied.center[0], occupied.center[1], occupied.center[2])) < 0.0002
+					and preview_box.half.distance_to(Vector3(occupied.half[0], occupied.half[1], occupied.half[2])) < 0.0002,
+					"The native anvil, physical body, casting foot and placement preview meet the selected floor"):
+				return
+			facts.anvil_support_height = support_y
+			facts.anvil_occupied = occupied
+			_record("pass")
+			return
 		if mode == "arrival-guide-geometry" and index == 2:
 			guide_view_position = Vector2(opening.actor_world.bodies.P.position.x,
 				opening.actor_world.bodies.P.position.z)
@@ -4129,12 +4326,12 @@ func _arrival_run() -> void:
 		if not await _approach_points([Vector2(6.6, 3.3), Vector2(4.95, 3.3)]):
 			return
 	var ready: Dictionary = opening.model.projection().guided_press_assemblies[0]
-	if mode in ["arrival-press", "arrival-guide-geometry"] and not capture_prefix.is_empty() \
+	if mode in ["arrival-press", "arrival-guide-geometry", "arrival-raised-press"] and not capture_prefix.is_empty() \
 			and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
 		opening.distance = 0.0
 		opening._update_camera()
-		var press_target := Vector3(4.95, 1.35, 6.6)
+		var press_target := Vector3(4.95, 3.0 if raised else 1.35, 6.6)
 		var press_direction: Vector3 = (press_target - opening.camera.global_position).normalized()
 		opening.orbit_yaw = atan2(-press_direction.x, -press_direction.z)
 		opening.orbit_pitch = asin(clampf(-press_direction.y, -1.0, 1.0))
@@ -4149,6 +4346,13 @@ func _arrival_run() -> void:
 		if not _expect(ordinary_captured and third_person_captured,
 				"Retain the fitted press in first-person and third-person actor views"):
 			return
+	if anvil_ready_only:
+		if not _expect(ready.status == "ready" and ready.anvil == press_parts.anvil,
+				"The native recognizer keeps the floor-seated anvil in the ready press"):
+			return
+		facts.ready_press = ready
+		_record("pass")
+		return
 	if mode == "arrival-guide-geometry":
 		var guide_id: String = str(press_parts.sliding_guide)
 		var guide_before: Dictionary = opening.model.projection().placed_components[guide_id]
