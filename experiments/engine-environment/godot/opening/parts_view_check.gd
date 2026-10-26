@@ -10,6 +10,39 @@ const Geometry = preload("res://opening/site_geometry.gd")
 const ComponentPresenter = preload("res://opening/native_transmission_presenter.gd")
 const RecoveryActions = preload("res://opening/recovery_actions.gd")
 const BuildingHotbar = preload("res://opening/building_hotbar.gd")
+const SUITES := {
+	"--slide-view-only": "_slide_view_check",
+	"--component-placement-only": "_component_placement_check",
+	"--object-menu-only": "_object_menu_check",
+	"--slide-controls-only": "_slide_controls_check",
+	"--slide-inventory-render-only": "_slide_inventory_render_check",
+	"--workshop-pages-only": "_workshop_pages",
+	"--field-craft-widget-only": "_field_craft_widget",
+	"--pod-floor-only": "_pod_floor_views",
+	"--multitool-view-only": "_multitool_presentation",
+	"--hand-trees-only": "_hand_tree_views",
+	"--multitool-only": "_multitool_controls",
+	"--ui-shortcuts-only": "_ui_shortcuts",
+	"--interaction-only": "_interaction_controls",
+	"--shared-crank-hold-only": "_shared_crank_hold_check",
+	"--building-rotation-only": "_building_rotation",
+	"--hotbar-render-only": "_render_hotbar",
+	"--arrival-hotbar-render-only": "_render_arrival_hotbar",
+	"--hotbar-only": "_hotbar",
+	"--arrival-hotbar-only": "_arrival_hotbar",
+	"--carried-guidance-only": "_carried_guidance",
+	"--shared-component-results-only": "_shared_component_results",
+	"--buttons-only": "_buttons",
+}
+const CAPTURE_SUITES := {
+	"--image-prefix=": ["--component-placement-only", "--object-menu-only"],
+	"--arrival-hotbar-image-prefix=": ["--arrival-hotbar-render-only"],
+	"--hotbar-image-prefix=": ["--hotbar-render-only"],
+	"--inventory-resize-capture-prefix=": ["--field-craft-widget-only"],
+	"--slide-image=": ["--slide-view-only"],
+	"--slide-inventory-image-prefix=": ["--slide-inventory-render-only"],
+	"--workshop-pages-image-prefix=": ["--workshop-pages-only"],
+}
 var checks := 0
 var failures := 0
 
@@ -115,73 +148,37 @@ func fixture() -> Dictionary:
 		"stock": {"output": 0}, "inventories": {"P": 0, "Q": 0}}
 
 func _initialize() -> void:
+	var selected := ""
+	var captures: Array[String] = []
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--test-purpose="):
+			continue
+		if SUITES.has(argument):
+			if not selected.is_empty():
+				push_error("Select exactly one parts-view fixture suite")
+				quit(2)
+				return
+			selected = argument
+			continue
+		var capture := ""
+		for prefix: String in CAPTURE_SUITES:
+			if argument.begins_with(prefix) and argument.length() > prefix.length():
+				capture = prefix
+				break
+		if capture.is_empty() or captures.has(capture):
+			push_error("Unknown or duplicate parts-view fixture argument: " + argument)
+			quit(2)
+			return
+		captures.append(capture)
+	for capture in captures:
+		if selected not in CAPTURE_SUITES[capture]:
+			push_error("The parts-view capture argument does not belong to the selected suite: " + capture)
+			quit(2)
+			return
 	if not Opening.apply_test_window_title(self):
 		return
-	if "--slide-view-only" in OS.get_cmdline_user_args():
-		call_deferred("_slide_view_check")
-		return
-	if "--component-placement-only" in OS.get_cmdline_user_args():
-		call_deferred("_component_placement_check")
-		return
-	if "--object-menu-only" in OS.get_cmdline_user_args():
-		call_deferred("_object_menu_check")
-		return
-	if "--slide-controls-only" in OS.get_cmdline_user_args():
-		call_deferred("_slide_controls_check")
-		return
-	if "--slide-inventory-render-only" in OS.get_cmdline_user_args():
-		call_deferred("_slide_inventory_render_check")
-		return
-	if "--workshop-pages-only" in OS.get_cmdline_user_args():
-		call_deferred("_workshop_pages")
-		return
-	if "--field-craft-widget-only" in OS.get_cmdline_user_args():
-		call_deferred("_field_craft_widget")
-		return
-	if "--pod-floor-only" in OS.get_cmdline_user_args():
-		call_deferred("_pod_floor_views")
-		return
-	if "--multitool-view-only" in OS.get_cmdline_user_args():
-		call_deferred("_multitool_presentation")
-		return
-	if "--hand-trees-only" in OS.get_cmdline_user_args():
-		call_deferred("_hand_tree_views")
-		return
-	if "--multitool-only" in OS.get_cmdline_user_args():
-		call_deferred("_multitool_controls")
-		return
-	if "--ui-shortcuts-only" in OS.get_cmdline_user_args():
-		call_deferred("_ui_shortcuts")
-		return
-	if "--interaction-only" in OS.get_cmdline_user_args():
-		call_deferred("_interaction_controls")
-		return
-	if "--shared-crank-hold-only" in OS.get_cmdline_user_args():
-		call_deferred("_shared_crank_hold_check")
-		return
-	if "--building-rotation-only" in OS.get_cmdline_user_args():
-		call_deferred("_building_rotation")
-		return
-	if "--hotbar-render-only" in OS.get_cmdline_user_args():
-		call_deferred("_render_hotbar")
-		return
-	if "--arrival-hotbar-render-only" in OS.get_cmdline_user_args():
-		call_deferred("_render_arrival_hotbar")
-		return
-	if "--hotbar-only" in OS.get_cmdline_user_args():
-		call_deferred("_hotbar")
-		return
-	if "--arrival-hotbar-only" in OS.get_cmdline_user_args():
-		call_deferred("_arrival_hotbar")
-		return
-	if "--carried-guidance-only" in OS.get_cmdline_user_args():
-		call_deferred("_carried_guidance")
-		return
-	if "--shared-component-results-only" in OS.get_cmdline_user_args():
-		call_deferred("_shared_component_results")
-		return
-	if "--buttons-only" in OS.get_cmdline_user_args():
-		call_deferred("_buttons")
+	if not selected.is_empty():
+		call_deferred(SUITES[selected])
 		return
 	var offline = Opening.new()
 	offline.state = fixture()
