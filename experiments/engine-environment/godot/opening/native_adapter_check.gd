@@ -252,6 +252,45 @@ func _capture_guided_close(ram_id: String, path: String) -> bool:
 	close.queue_free()
 	return captured
 
+func _capture_slide_shaft(slide_id: String, path: String) -> bool:
+	var shaft: MeshInstance3D
+	var spindle: MeshInstance3D
+	for child: Node in opening.transmission_presenter.get_children():
+		if child.get_meta("component_entity", "") == slide_id:
+			shaft = child.get_node_or_null("IntegralInputShaft") as MeshInstance3D
+		elif child.name == "AttachedHandCrank":
+			spindle = child.get_node_or_null("CrankSpindle") as MeshInstance3D
+	if shaft == null or spindle == null:
+		return false
+	var axis: Vector3 = shaft.global_basis.y.normalized()
+	var offset: Vector3 = spindle.global_position - shaft.global_position
+	var along: float = offset.dot(axis)
+	var transverse: float = (offset - axis * along).length()
+	var shaft_half: float = (shaft.mesh as CylinderMesh).height * 0.5
+	var spindle_half: float = (spindle.mesh as CylinderMesh).height * 0.5
+	var overlap: float = minf(shaft_half, along + spindle_half) - maxf(-shaft_half, along - spindle_half)
+	facts["shaft_probe"] = {"axial_overlap_m": overlap, "center_offset_m": transverse,
+		"shaft_radius_m": (shaft.mesh as CylinderMesh).top_radius,
+		"spindle_radius_m": (spindle.mesh as CylinderMesh).top_radius,
+		"parallel": absf(axis.dot(spindle.global_basis.y.normalized()))}
+	var close := SubViewport.new()
+	close.size = Vector2i(1280, 800)
+	close.world_3d = root.world_3d
+	close.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(close)
+	var camera := Camera3D.new()
+	close.add_child(camera)
+	camera.fov = 28.0
+	camera.position = shaft.global_position + Vector3(0.0, 0.06, 0.62)
+	camera.look_at(shaft.global_position)
+	camera.make_current()
+	for frame in range(3):
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var captured: bool = close.get_texture().get_image().save_png(path) == OK
+	close.queue_free()
+	return captured
+
 func _capture_actor_area(path: String, target: Vector3) -> bool:
 	var prior_distance: float = opening.distance
 	var prior_yaw: float = opening.orbit_yaw
@@ -2746,6 +2785,10 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				Vector3(float(slide_position[0]) - OpeningGeometry.HEIGHT_STEP,
 					float(slide_position[1]), float(slide_position[2]))),
 				"Retain the fitted exterior crank in the ordinary scene view"):
+			return
+		if "--shaft-clip-probe" in OS.get_cmdline_user_args() and not _expect(
+				await _capture_slide_shaft(str(fitted.wooden_slide), capture_prefix + "-shaft-close.png"),
+				"Retain the fitted slide shaft at a fixed close view"):
 			return
 	if mode == "arrival-first-plate":
 		var crank_id := ""
