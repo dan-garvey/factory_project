@@ -1,4 +1,5 @@
 #include "factory/world.hpp"
+#include "factory/belt_command_contract.hpp"
 #include "factory/component_command_contract.hpp"
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
@@ -301,6 +302,8 @@ bool keys(const Object& object, std::initializer_list<const char*> extra) {
 }
 
 bool shape(const Object& intent, const std::string& action) {
+    if (const auto belt = belt_commands::parse(action); belt != belt_commands::Action::none)
+        return belt_commands::valid_intent(intent, belt);
     if (const auto press = press_commands::parse(action); press != press_commands::Action::none)
         return press_commands::valid_intent(intent, press);
     if (const auto component = component_commands::parse(action);
@@ -331,12 +334,8 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "place_foundations") return keys(intent, {"center", "end"});
     if (action == "place_foundation") return keys(intent, {"center"});
     if (action == "remove_foundation") return keys(intent, {"target", "generation"});
-    if (action == "recover" || action == "remove" || action == "remove_belt_span" || action == "select_belt_shaft")
+    if (action == "recover" || action == "remove")
         return keys(intent, {"target", "generation"});
-    if (action == "recover_belt_slot") return keys(intent, {"target", "generation", "slot", "expected"}) &&
-        field<Integer>(intent, "slot") && field<Object>(intent, "expected");
-    if (action == "load_belt_slot") return keys(intent, {"target", "generation", "slot", "item", "work_id"}) &&
-        field<Integer>(intent, "slot") && field<std::string>(intent, "item") && field<Integer>(intent, "work_id");
     if (action == "collect" || action == "insert_raw")
         return keys(intent, {"target", "generation", "amount"}) && field<Integer>(intent, "amount");
     if (action == "insert_work")
@@ -350,10 +349,8 @@ bool shape(const Object& intent, const std::string& action) {
     if (placement(action))
         return intent.contains("wheel_tiles") ? keys(intent, {"role", "center", "axis", "teeth", "half_span", "wheel_tiles"}) :
             keys(intent, {"role", "center", "axis", "teeth", "half_span"});
-    if (action == "shaft_between" || action == "remove_shaft_between" || action == "place_belt_span")
+    if (action == "shaft_between" || action == "remove_shaft_between")
         return keys(intent, {"target", "generation", "to", "to_generation"});
-    if (action == "place_selected_belt_span")
-        return keys(intent, {"target", "generation", "to", "to_generation", "selection"}) && field<std::string>(intent, "selection");
     return false;
 }
 
