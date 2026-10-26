@@ -17,4 +17,5 @@ struct Case {
 const Case* find_case(std::string_view name) noexcept;
 std::span<const Case> registered_cases() noexcept;
 bool accepts_case_arguments(const Case& selected, std::span<const std::string> arguments);
+bool distinct_case_output_paths(std::span<const std::string> arguments);
 }  // namespace factory::godot_fixture
