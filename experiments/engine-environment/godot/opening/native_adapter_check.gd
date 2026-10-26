@@ -65,6 +65,19 @@ func _record(status: String, reason: String = "") -> void:
 		status = "fail"
 		reason = "The selected pointer route did not execute both placements and its pause-menu refusal"
 	written = true
+	var prefetch_wait_frames := 0
+	if opening != null and not opening.preview_prefetch_complete \
+			and not opening.preview_prefetch_paths.is_empty():
+		var prefetch_deadline := Time.get_ticks_msec() + 5000
+		while not opening.preview_prefetch_complete and Time.get_ticks_msec() < prefetch_deadline:
+			await process_frame
+			prefetch_wait_frames += 1
+		if not opening.preview_prefetch_complete:
+			push_error("Machine preview prefetch did not finish before fixture teardown")
+			if status == "pass":
+				status = "fail"
+				reason = "Machine preview prefetch did not finish before fixture teardown"
+	facts["preview_prefetch_wait_frames"] = prefetch_wait_frames
 	facts.merge({"status": status, "reason": reason, "mode": mode, "checks": checks,
 		"process_id": OS.get_process_id(), "physics_frames": Engine.get_physics_frames(),
 		"event_route_loose_activations": event_route_loose_activations,
