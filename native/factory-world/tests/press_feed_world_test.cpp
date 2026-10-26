@@ -286,6 +286,43 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
           halted.world->snapshot().state.material.dropped_material.at(center).raw_units == 1 &&
           w::World::restore("press-feed", source.profile, halted.world->snapshot()) != nullptr,
           "Stopping the drive retains the exact frame-free input for later continuation.");
+    if (center[1] == 0) {
+        halted.p = {6.6, 1, 4.95};
+        for (int index = 0; index < 2; ++index) {
+            auto timber = request("P", "direct-crank-tree-" + std::to_string(index),
+                "harvest_source");
+            timber.emplace("target", V("crank-tree"));
+            halted.accept("P", timber);
+        }
+        auto crank = request("P", "direct-crank-craft", "field_craft");
+        crank.emplace("component", V("hand_crank"));
+        const auto crafted = halted.accept("P", crank);
+        const CrankToken token{std::get<std::string>(crafted.at("crank_id").storage()),
+            std::get<I>(crafted.at("crank_generation").storage())};
+        halted.p = {2, 1, 0};
+        fit_crank(halted, token, shaft, "fit-direct-press-crank");
+        const auto mounted = halted.world->snapshot().state.placed_components.at(shaft);
+        const auto prior = halted.world->snapshot().state.material;
+        auto pulse = request("P", "direct-press-pulse", "operate_hand_crank");
+        pulse.emplace("target", V(shaft));
+        pulse.emplace("generation", V(mounted.generation));
+        pulse.emplace("crank", V(token.id));
+        pulse.emplace("crank_generation", V(token.generation));
+        pulse.emplace("port", V(point(mounted.center[0], mounted.center[1],
+            mounted.center[2])));
+        halted.accept("P", pulse);
+        const w::ObserveActor held_actor = [&halted](const std::string& actor)
+                -> std::optional<a::ActorCut> {
+            return a::ActorCut{actor, halted.p, 1, true, 4};
+        };
+        const auto step = halted.world->tick(held_actor);
+        const auto pulsed = halted.world->snapshot();
+        check(step.error == w::TransactionError::none && step.changed &&
+              pulsed.state.material != prior &&
+              std::holds_alternative<V>(w::encode_checkpoint(source.profile, pulsed)) &&
+              w::World::restore("press-feed", source.profile, pulsed) != nullptr,
+              "A direct crank pulse advances the fed press through the shared tick and restores its exact work history.");
+    }
     Runner automated(source);
     automated.world = w::World::restore("press-feed", source.profile, fed);
     check(automated.world != nullptr, "The same fed frame-free press restores for powered continuation.");
