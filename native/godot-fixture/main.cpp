@@ -1,3 +1,4 @@
+#include "cases.hpp"
 #include "fixture.hpp"
 #include "native/build-support/runner.hpp"
 
@@ -128,6 +129,32 @@ unsigned seconds(const std::string& text) {
     return result;
 }
 
+void validate_case_paths(const std::vector<std::string>& arguments, const fs::path& artifact_root) {
+    require(artifact_root.is_absolute() && fs::canonical(artifact_root) == artifact_root,
+            "Registered fixture artifacts must use one canonical directory.");
+    for (const auto& argument : arguments) {
+        const bool output = argument.starts_with("--native-check-output=") ||
+                            argument.starts_with("--save-slot=");
+        if (!output && !argument.starts_with("--resume-input=") &&
+            !argument.starts_with("--native-check-prior=")) continue;
+        const fs::path path(argument.substr(argument.find('=') + 1));
+        require(path.is_absolute() && path.lexically_normal() == path,
+                "Registered fixture paths must be absolute and normalized.");
+        if (!output) continue;
+        const fs::path parent = fs::canonical(path.parent_path());
+        auto root_part = artifact_root.begin();
+        auto parent_part = parent.begin();
+        while (root_part != artifact_root.end() && parent_part != parent.end() &&
+               *root_part == *parent_part) {
+            ++root_part;
+            ++parent_part;
+        }
+        require(root_part == artifact_root.end() &&
+                fs::symlink_status(path).type() == fs::file_type::not_found,
+                "Registered fixture outputs must be fresh files inside their artifact directory.");
+    }
+}
+
 volatile std::sig_atomic_t cancelled = 0;
 void stop(int signal) { cancelled = signal; }
 }  // namespace
@@ -136,10 +163,22 @@ int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--help") {
             std::cout << "factory-godot-fixture --godot ABSOLUTE_BINARY --godot-sha256 SHA256 "
-                         "--project CANONICAL_PROJECT --script res://PATH.gd --pass-line EXACT_LINE "
+                         "--project CANONICAL_PROJECT (--script res://PATH.gd --pass-line EXACT_LINE "
+                         "| --case REGISTERED_CASE) "
                          "--artifacts PRIVATE_ROOT --log FRESH_LOG --admission CANONICAL_DIRECTORY "
                          "[--seconds 1..300] [-- USER_ARGUMENTS...]\n"
-                         "Run inside one factory-local heavy admission; import resources before fixture runs.\n";
+                         "Run inside one factory-local heavy admission; import resources before fixture runs.\n"
+                         "Use --list-cases to inspect registered selections.\n";
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--list-cases") {
+            for (const auto& selected : fixture::registered_cases()) {
+                std::cout << selected.name << "\t" << selected.script << "\t"
+                          << selected.pass_line << "\t" << selected.seconds << "s";
+                for (const auto argument : selected.fixed_arguments) std::cout << "\t" << argument;
+                for (const auto prefix : selected.value_prefixes) std::cout << "\t" << prefix << "VALUE";
+                std::cout << '\n';
+            }
             return 0;
         }
         std::map<std::string, std::string> options;
@@ -150,17 +189,38 @@ int main(int argc, char** argv) {
             if (name == "--") { user_tail = true; while (++i < argc) user_arguments.emplace_back(argv[i]); break; }
             require(i + 1 < argc && (name == "--godot" || name == "--godot-sha256" ||
                     name == "--project" || name == "--script" || name == "--pass-line" ||
+                    name == "--case" ||
                     name == "--artifacts" || name == "--log" || name == "--admission" ||
                     name == "--seconds") && options.emplace(name, argv[++i]).second,
                     "Use each documented fixture option exactly once.");
         }
-        for (const auto* name : {"--godot", "--godot-sha256", "--project", "--script",
-                                 "--pass-line", "--artifacts", "--log", "--admission"})
+        for (const auto* name : {"--godot", "--godot-sha256", "--project",
+                                 "--artifacts", "--log", "--admission"})
             require(options.count(name) == 1, "A required fixture option is missing.");
         require(user_arguments.size() <= 64, "Too many fixture user arguments.");
         for (const auto& argument : user_arguments)
             require(argument.size() <= 4096 && printable(argument), "Fixture user arguments must be printable and bounded.");
-        const auto& expected = options.at("--pass-line");
+        std::string script;
+        std::string expected;
+        unsigned timeout_seconds = options.count("--seconds") ? seconds(options.at("--seconds")) : 180;
+        if (options.count("--case")) {
+            require(!options.count("--script") && !options.count("--pass-line") &&
+                    !options.count("--seconds"),
+                    "A registered fixture case owns its script, PASS line and timeout.");
+            const auto* selected = fixture::find_case(options.at("--case"));
+            require(selected != nullptr, "Unknown registered fixture case.");
+            require(fixture::accepts_case_arguments(*selected, user_arguments),
+                    "The registered fixture case requires its exact mode, route and inputs.");
+            validate_case_paths(user_arguments, options.at("--artifacts"));
+            script = selected->script;
+            expected = selected->pass_line;
+            timeout_seconds = selected->seconds;
+        } else {
+            require(options.count("--script") && options.count("--pass-line"),
+                    "A generic fixture needs its script and exact PASS line.");
+            script = options.at("--script");
+            expected = options.at("--pass-line");
+        }
         require(!expected.empty() && expected.size() <= 256 && printable(expected),
                 "Use one exact printable PASS line.");
         const auto& pin = options.at("--godot-sha256");
@@ -170,7 +230,6 @@ int main(int argc, char** argv) {
         require(project.is_absolute() && fs::canonical(project) == project &&
                 fs::is_regular_file(fs::symlink_status(project / "project.godot")),
                 "Use an existing canonical Godot project.");
-        const auto& script = options.at("--script");
         require(script.starts_with("res://") && script.size() > 9 && printable(script),
                 "Use a project-relative GDScript fixture.");
         const fs::path relative(script.substr(6));
@@ -192,7 +251,7 @@ int main(int argc, char** argv) {
         run.admission_directory = options.at("--admission");
         run.log_limit = 2 * 1024 * 1024;
         run.artifact_limit = 128 * 1024 * 1024;
-        run.timeout = std::chrono::seconds(options.count("--seconds") ? seconds(options.at("--seconds")) : 180);
+        run.timeout = std::chrono::seconds(timeout_seconds);
         run.cancellation = &cancelled;
         std::vector<std::string> command{options.at("--godot"), "--headless", "--path", project.string(),
                                          "--script", script};

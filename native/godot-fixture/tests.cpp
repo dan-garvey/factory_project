@@ -1,8 +1,10 @@
+#include "cases.hpp"
 #include "fixture.hpp"
 
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fixture = factory::godot_fixture;
 
@@ -48,6 +50,53 @@ int main() {
         check(fixture::inspect_log(std::string("noise\0", 6) + complete + "\n", complete)
                   == fixture::Verdict::malformed_log,
               "Binary controls cannot hide a diagnostic or forge a marker.");
+        const auto* first = fixture::find_case("arrival-first-plate");
+        const auto* small = fixture::find_case("arrival-channel-small");
+        const auto* resumed = fixture::find_case("arrival-channel-small-resume");
+        check(fixture::registered_cases().size() == 3 && first && small && resumed &&
+                  !fixture::find_case("arrival-first-plste"),
+              "Only the three declared scene event routes are registered.");
+        check(first->script == "res://opening/native_adapter_check.gd" &&
+                  first->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate" &&
+                  small->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small" &&
+                  resumed->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume" &&
+                  first->seconds == 180 && small->seconds == 300 && resumed->seconds == 180,
+              "Named cases own the script, exact completion marker and deadline.");
+        const std::vector<std::string> first_args{
+            "--event-route-pointer", "--native-check-output=/tmp/first.result",
+            "--native-check-mode=arrival-first-plate"};
+        const std::vector<std::string> small_args{
+            "--native-check-output=/tmp/small.result", "--save-slot=/tmp/small.worksite",
+            "--event-route-loose", "--resume-input=/tmp/broad.worksite",
+            "--native-check-mode=arrival-channel-small"};
+        const std::vector<std::string> resume_args{
+            "--native-check-mode=arrival-channel-small-resume", "--event-route-loose",
+            "--resume-input=/tmp/small.worksite", "--save-slot=/tmp/recovered.worksite",
+            "--native-check-prior=/tmp/small.result", "--native-check-output=/tmp/recovered.result"};
+        check(fixture::accepts_case_arguments(*first, first_args) &&
+                  fixture::accepts_case_arguments(*small, small_args) &&
+                  fixture::accepts_case_arguments(*resumed, resume_args),
+              "Every registered route accepts its required arguments in any order.");
+        check(!fixture::accepts_case_arguments(*first, {first_args.data(), first_args.size() - 1}) &&
+                  !fixture::accepts_case_arguments(*small, {small_args.data(), small_args.size() - 1}) &&
+                  !fixture::accepts_case_arguments(*resumed, {resume_args.data(), resume_args.size() - 1}),
+              "Omitted required inputs refuse for every route.");
+        check(!fixture::accepts_case_arguments(*first,
+                  std::vector<std::string>{"--native-check-mode=arrival-first-plate",
+                                           "--event-route-pointer", "--native-check-output="}) &&
+                  !fixture::accepts_case_arguments(*first,
+                  std::vector<std::string>{"--native-check-mode=arrival-first-plate",
+                                           "--event-route-pointer", "--native-check-output=/tmp/x",
+                                           "--native-check-output=/tmp/y"}),
+              "Empty or duplicated output inputs refuse.");
+        check(!fixture::accepts_case_arguments(*first,
+                  std::vector<std::string>{"--native-check-mode=arrival-first-plate",
+                                           "--event-route-loose", "--native-check-output=/tmp/x"}) &&
+                  !fixture::accepts_case_arguments(*small, first_args) &&
+                  !fixture::accepts_case_arguments(*first,
+                  std::vector<std::string>{"--native-check-mode=arrival-first-plate",
+                                           "--event-route-pointer", "--unexpected=/tmp/x"}),
+              "Wrong route, conflicting case or stray input cannot satisfy a named case.");
         std::cout << "PASS " << checks << " native Godot fixture-log controls.\n";
         return 0;
     } catch (const std::exception& error) {
