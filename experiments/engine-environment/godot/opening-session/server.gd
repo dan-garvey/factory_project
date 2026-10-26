@@ -20,7 +20,6 @@ var checkpoint_store
 var resume_result: Dictionary = {}
 var incoming_sha256 := ""
 var loaded_checkpoint: Dictionary = {}
-var legacy_fixture := false
 var native_authority := false
 var advanced_fixture := false
 var actor_roster: Array = ["P", "Q"]
@@ -29,7 +28,10 @@ func _initialize() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--session-port="): port = int(argument.trim_prefix("--session-port="))
 		elif argument == "--frozen-clock": frozen = true
-		elif argument == "--legacy-fixture": legacy_fixture = true
+		elif argument == "--legacy-fixture":
+			push_error("The historical shared profile is unavailable")
+			quit(2)
+			return
 		elif argument == "--native-world": native_authority = true
 		elif argument == "--advanced-fixture": advanced_fixture = true
 		elif argument.begins_with("--actor-roster="): actor_roster = Array(argument.trim_prefix("--actor-roster=").split(","))
@@ -68,9 +70,6 @@ func _boot() -> void:
 	if not actor_roster in [["P"], ["P", "Q"]]:
 		checkpoint_failure("invalid_actor_roster")
 		return
-	if native_authority and legacy_fixture:
-		checkpoint_failure("native_world_requires_physical_profile")
-		return
 	if advanced_fixture and not native_authority:
 		checkpoint_failure("advanced_fixture_requires_native_world")
 		return
@@ -93,7 +92,7 @@ func _boot() -> void:
 	session.outcome_hold_path = outcome_hold
 	container.add_child(session)
 	root.add_child(container)
-	var error: Error = session.serve_loopback(port, frozen, not legacy_fixture, actor_roster, native_authority, advanced_fixture)
+	var error: Error = session.serve_loopback(port, frozen, true, actor_roster, native_authority, advanced_fixture)
 	if error != OK:
 		push_error("Loopback bind refused: " + str(error))
 		quit(1)
@@ -117,25 +116,24 @@ func _boot() -> void:
 		# transport serial, socket bindings and join namespaces start fresh.
 		session.context = session.world.context
 		resume_result = {"accepted": true, "reason": "restored", "source_sha256": incoming_sha256}
-	if not legacy_fixture:
-		if session.start_physical_world() != OK:
-			checkpoint_failure("physical_adapter_unavailable:" + session.actor_error)
-			return
-		# Initial/restored bodies must really register at the declared poses.
-		# No client or ready marker is admitted while that native proof is pending.
-		for _tick in range(120):
-			if not session.actor_error.is_empty() or session.physical_ready():
-				break
-			await physics_frame
-		if not session.actor_error.is_empty() or not session.physical_ready():
-			checkpoint_failure("physical_initialization_refused:" + session.actor_error)
-			return
+	if session.start_physical_world() != OK:
+		checkpoint_failure("physical_adapter_unavailable:" + session.actor_error)
+		return
+	# Initial/restored bodies must really register at the declared poses.
+	# No client or ready marker is admitted while that native proof is pending.
+	for _tick in range(120):
+		if not session.actor_error.is_empty() or session.physical_ready():
+			break
+		await physics_frame
+	if not session.actor_error.is_empty() or not session.physical_ready():
+		checkpoint_failure("physical_initialization_refused:" + session.actor_error)
+		return
 	started = Time.get_ticks_msec()
 	session.server_joined.connect(func(_actor): _status())
 	session.server_lost.connect(func(_actor): _status())
 	session.server_event.connect(_status)
 	var ready := {"schema": 1, "port": port, "pid": OS.get_process_id(), "context": session.context, "clock_frozen": frozen,
-		"physical_profile": not legacy_fixture, "physical_ready": session.physical_ready()}
+		"physical_profile": true, "physical_ready": session.physical_ready()}
 	if checkpoint_enabled():
 		ready["persistence"] = {"resume": resume_result, "loaded_checkpoint": loaded_checkpoint,
 			"save_file": save_path, "resume_input": resume_path}
@@ -186,9 +184,7 @@ func compatible_opening(capture: Dictionary) -> bool:
 		return validated.get("accepted", false) and snapshot.recipe_input == 1 and snapshot.options.get("native", false) and Array(capture.get("actors", {}).keys()) == actor_roster
 	if capture.initial_feed != 16 or capture.recipe_input != 1 or capture.options.get("opening") != true:
 		return false
-	if not legacy_fixture and (capture.schema != 2 or capture.options.get("physical") != true):
-		return false
-	if legacy_fixture and capture.schema != 1:
+	if capture.schema != 2 or capture.options.get("physical") != true:
 		return false
 	for actor in capture.inventories:
 		if not actor in ["P", "Q"]:

@@ -68,10 +68,10 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(func(): _lost("server_disconnected"))
 	multiplayer.peer_disconnected.connect(_peer_lost)
 
-func serve_loopback(port: int, frozen_clock := false, physical_profile := false, actor_ids: Array = ["P", "Q"], native_authority := false, advanced_fixture := false) -> Error:
+func serve_loopback(port: int, frozen_clock := false, physical_profile := true, actor_ids: Array = ["P", "Q"], native_authority := false, advanced_fixture := false) -> Error:
 	if _transport != null or world != null:
 		return ERR_ALREADY_IN_USE
-	if port < 1 or port > 65535 or (native_authority and not physical_profile) or (advanced_fixture and not native_authority):
+	if port < 1 or port > 65535 or not physical_profile or (advanced_fixture and not native_authority):
 		return ERR_INVALID_PARAMETER
 	var next_context := "opening-shared-" + Crypto.new().generate_random_bytes(16).hex_encode()
 	var candidate
@@ -83,7 +83,7 @@ func serve_loopback(port: int, frozen_clock := false, physical_profile := false,
 		if not candidate.boot_result.get("accepted", false):
 			return ERR_UNAVAILABLE
 	else:
-		candidate = Model.new(16, next_context, 1, {"opening": true, "physical": true} if physical_profile else {"opening": true}, actor_ids)
+		candidate = Model.new(16, next_context, 1, {"opening": true, "physical": true}, actor_ids)
 	var peer := ENetMultiplayerPeer.new()
 	peer.set_bind_ip("127.0.0.1")
 	var error := peer.create_server(port, 2)
@@ -747,8 +747,6 @@ func close() -> void:
 func prepare_checkpoint() -> Dictionary:
 	if world == null or not _authoritative:
 		return {"accepted": false, "reason": "not_authority"}
-	if not world.projection().options.get("physical", false):
-		return {"accepted": true, "reason": "legacy_fixture"}
 	if actor_world == null or not actor_error.is_empty():
 		return {"accepted": false, "reason": "actor_unready"}
 	# The producer reads and publishes a CURRENT native observation for every

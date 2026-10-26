@@ -26,6 +26,7 @@ class SharedLauncherTests(unittest.TestCase):
         cases = ((['--clients', '3'], 'invalid choice: 3'),
                  (['--duration-seconds', '1101'], 'Duration must be1..1100 seconds and port0..65535'),
                  (['--duration-seconds', '0'], 'Duration must be1..1100 seconds and port0..65535'),
+                 (['--legacy-fixture'], 'unrecognized arguments: --legacy-fixture'),
                  (['--observer', '/missing.gd'], '--observer requires --smoke'))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -66,19 +67,24 @@ class SharedLauncherTests(unittest.TestCase):
                           'save_owned': False, 'save_disabled': True, 'load_disabled': True,
                           'model_script': 'res://opening-session/session.gd', 'save_slot': '',
                           'namespace': 'owned-', 'session_namespace': 'owned-', 'sequence': 0, 'session_sequence': 0},
-                 'projection': {'context': 'authority', 'initial_feed': 16, 'recipe_input': 1, 'options': {'opening': True},
+                 'projection': {'context': 'authority', 'initial_feed': 16, 'recipe_input': 1,
+                      'options': {'opening': True, 'physical': True},
+                      'actors': {role: {'ready': True, 'native_epoch': 1,
+                                        'position': [0.0, 1.0, 0.0], 'capabilities': {'build_reach': 4.0}}
+                                 for role in ('P', 'Q')},
                       'stock': {'source': 16, 'collector': 0, 'belt': 0,
                       'input': 0, 'held': 0, 'output': 0, 'player': 0}, 'inventories': {},
                       'parts': {'collector': 1, 'belt': 1, 'processor': 1, 'wheel': 1, 'shaft': 3},
                       'entities': {}, 'drive_links': []}}
         launcher.validate_observation(value, 'P', 123, 'authority')
-        for kind in ('identity', 'pid', 'authority', 'clock', 'save', 'quantity'):
+        for kind in ('identity', 'pid', 'authority', 'clock', 'save', 'profile', 'quantity'):
             bad = copy.deepcopy(value)
             if kind == 'identity': bad['actor'] = 'Q'
             elif kind == 'pid': bad['pid'] = 124
             elif kind == 'authority': bad['view']['client_world_is_null'] = False
             elif kind == 'clock': bad['view']['auto_advance'] = True
             elif kind == 'save': bad['view']['save_owned'] = True
+            elif kind == 'profile': bad['projection']['options']['physical'] = False
             else:
                 bad['projection']['stock']['source'] = 15
                 bad['projection']['stock']['collector'] = True

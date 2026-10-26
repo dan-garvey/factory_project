@@ -30,7 +30,12 @@ func _ready() -> void:
 	var offline_argument := false
 	for argument in OS.get_cmdline_user_args():
 		if argument == "--legacy-fixture":
-			legacy_fixture = true
+			push_error("The historical shared profile is unavailable")
+			set_process(false)
+			set_process_input(false)
+			set_process_unhandled_input(false)
+			get_tree().quit(2)
+			return
 		elif argument.begins_with("--session-port="):
 			var value := argument.trim_prefix("--session-port=")
 			session_port = value.to_int() if value.is_valid_int() else 0
@@ -50,8 +55,7 @@ func _ready() -> void:
 	session.changed.connect(_changed)
 	session.outcome.connect(_outcome_received)
 	session.disconnected.connect(_disconnected)
-	if not legacy_fixture:
-		_start_character_presenter()
+	_start_character_presenter()
 	_refresh_ui()
 	_message("Connect to the shared worksite to begin.")
 	if offline_argument:
@@ -63,7 +67,7 @@ func _ready() -> void:
 		_reconnect()
 
 func _install_shared_ore_picker() -> void:
-	if legacy_fixture or ProductionEnvironment.Surface == null:
+	if ProductionEnvironment.Surface == null:
 		return
 	var spec: Dictionary = ProductionEnvironment.Surface.source_outcrop()
 	var body := StaticBody3D.new()
@@ -89,7 +93,8 @@ func _input(event: InputEvent) -> void:
 	super._input(event)
 
 func _usable_snapshot() -> bool:
-	return state.has("entities") and state.has("stock") and state.has("inventories") and state.has("parts") and (legacy_fixture or (state.get("options", {}).get("physical", false) and state.has("actors")))
+	return state.has("entities") and state.has("stock") and state.has("inventories") and state.has("parts") \
+		and state.get("options", {}).get("physical", false) and state.has("actors")
 
 func _can_control_character() -> bool:
 	# Build acknowledgements do not stop movement. Only the current connected
@@ -130,9 +135,8 @@ func _reconnect() -> void:
 		return
 	# Prepare reusable presentation data before receiving live snapshots. Cold
 	# waveform synthesis must not block the first running drive's network poll.
-	if not legacy_fixture:
-		for kind: String in ["collector", "belt", "processor", "wheel"]:
-			MechanicalAmbience.make_loop(kind)
+	for kind: String in ["collector", "belt", "processor", "wheel"]:
+		MechanicalAmbience.make_loop(kind)
 	connecting = true
 	var error: Error = session.join_loopback(session_port, session_role)
 	if error != OK:
@@ -151,7 +155,7 @@ func _disconnect() -> void:
 func _welcomed(actor: String, namespace_value: String, _snapshot: Dictionary) -> void:
 	_release_character_controls()
 	_stop_held_crank()
-	if _snapshot.get("options", {}).get("physical", false) == legacy_fixture or (not legacy_fixture and not _snapshot.get("actors", {}).has(actor)):
+	if not _snapshot.get("options", {}).get("physical", false) or not _snapshot.get("actors", {}).has(actor):
 		push_error("Shared opening profile must match its declared authority and actor; no unrestricted fallback")
 		session.close()
 		get_tree().quit(1)
@@ -405,11 +409,10 @@ func _refresh_ui() -> void:
 		super._refresh_ui()
 		if not session.is_ready():
 			inspector.text = "Last confirmed state only.\nReconnect before interacting."
-			if not legacy_fixture:
-				goal_label.text = "Reconnect to continue."
+			goal_label.text = "Reconnect to continue."
 		elif not pending_actions.is_empty() and not state.entities.has(selected):
 			inspector.text = "Action awaiting the server.\nWait for its decision."
-		if not legacy_fixture and session.is_ready() and not pending_actions.is_empty():
+		if session.is_ready() and not pending_actions.is_empty():
 			goal_label.text = "Waiting for the server decision."
 	else:
 		goal_label.text = "FIRST SHIFT\nWaiting for the shared worksite"

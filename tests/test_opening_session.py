@@ -17,8 +17,8 @@ with mock.patch.object(sys, 'path', [str(ROOT / 'scripts'), *sys.path]):
 
 
 class OpeningSessionTests(unittest.TestCase):
-    def test_physical_profile_requires_actual_ui_and_explicit_driver(self):
-        for extra in (['--physical'], ['--physical', '--ui']):
+    def test_only_explicit_physical_ui_profile_is_admitted(self):
+        for extra in ([], ['--ui'], ['--legacy-fixture']):
             with self.subTest(extra=extra), mock.patch.object(sys, 'argv', [
                     'check_opening_session.py', '--godot', sys.executable, '--sha256', 'unused',
                     '--artifacts', '/unused', *extra]), mock.patch.object(session.subprocess, 'Popen') as child:

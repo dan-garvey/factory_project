@@ -19,7 +19,7 @@ import check_engine_environment as bounds
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'experiments/engine-environment/godot'
-FILES = bounds.FILES + tuple('opening-session/' + name for name in ('session.gd', 'server.gd', 'transport_check.gd'))
+FILES = bounds.FILES + ('opening-session/session.gd', 'opening-session/server.gd')
 UI_FILES = ('opening/shared_opening.gd', 'opening/shared_opening.tscn', 'opening/shared_check.gd', 'opening/character_presenter.gd')
 MAX_BYTES = 256 * 1024**2
 MAX_LOG_BYTES = 8 * 1024**2
@@ -209,132 +209,6 @@ def ledger(snapshot):
         raise ValueError('Finite shaft accounting differs')
 
 
-def cohort_worker(specification):
-    spec = read_json(specification)
-    if spec.get('ui'):
-        return ui_cohort_worker(spec)
-    run = Path(spec['run'])
-    group = ActorGroup(run)
-    result = {'status': 'running', 'mode': 'transport_only', 'operations': [],
-              'worker_pid': os.getpid(), 'worker_pgid': os.getpgrp()}
-    sequences = {'P': 0, 'Q': 0}
-    started = time.monotonic()
-    try:
-        if os.getpgrp() != os.getpid():
-            raise ValueError('Cohort worker must be the process-group leader owned by the bounded helper')
-        for role in ('server', 'P', 'Q'):
-            actor = spec['actors'][role]
-            environment = dict(os.environ, **actor['environment'])
-            process = group.launch(role, actor['command'], actor['project'], environment)
-            if os.getpgid(process.pid) != os.getpgrp():
-                raise ValueError('Actor escaped the bounded helper-owned cohort group')
-            if role == 'server':
-                group.wait(lambda: (run / 'server-ready.json').is_file())
-                ready = read_json(run / 'server-ready.json')
-                if ready['pid'] != group.actors['server']['process'].pid:
-                    raise ValueError('Readiness does not belong to the launched server')
-        group.wait(lambda: all((run / role / 'controls/ready.json').is_file() for role in ('P', 'Q')))
-        initial = {role: read_json(run / role / 'controls/ready.json') for role in ('P', 'Q')}
-        if any(x['actor'] != role or x['live_model'] or not x['ready'] or x['server_relay'] is not False
-               for role, x in initial.items()):
-            raise ValueError('Role binding/readiness/client authority differs')
-        if initial['P']['context'] != initial['Q']['context']:
-            raise ValueError('Clients did not join the same actual world')
-
-        def send(roles, operation, payload=None):
-            for role in roles:
-                sequences[role] += 1
-                publish(run / role / 'controls/control.json', {'sequence': sequences[role],
-                        'operation': operation, 'payload': payload or {}})
-            paths = {role: run / role / f'controls/ack-{sequences[role]}.json' for role in roles}
-            group.wait(lambda: all(path.is_file() for path in paths.values()))
-            replies = {role: read_json(path) for role, path in paths.items()}
-            for role, reply in replies.items():
-                if reply['status'] != 'pass' or reply['failures'] or reply['data']['live_model']:
-                    raise ValueError('Actual client operation failed: ' + role)
-                ledger(reply['data']['snapshot'])
-            result['operations'].append({'roles': list(roles), 'operation': operation,
-                                         'payload': payload, 'responses': replies})
-            return replies
-
-        conflict = send(('P', 'Q'), 'submit', {'action': 'place', 'kind': 'collector', 'cell': [0, 0]})
-        outcomes = [x['data']['outcome'] for x in conflict.values()]
-        if sorted(x['accepted'] for x in outcomes) != [False, True] or not any(x['reason'] == 'occupied' for x in outcomes):
-            raise ValueError('Real contested placement did not yield exactly one success and refusal')
-        setup = [
-            ('P', {'action': 'place', 'kind': 'wheel', 'cell': [-1, 0]}),
-            ('Q', {'action': 'place', 'kind': 'belt', 'cell': [1, 0]}),
-            ('P', {'action': 'place', 'kind': 'processor', 'cell': [2, 0]}),
-            ('P', {'action': 'connect', 'from': 'collector-1', 'to': 'belt-1'}),
-            ('Q', {'action': 'connect', 'from': 'belt-1', 'to': 'processor-1'}),
-            ('P', {'action': 'connect_drive', 'from': 'wheel-1', 'to': 'collector-1'}),
-            ('Q', {'action': 'connect_drive', 'from': 'collector-1', 'to': 'belt-1'}),
-            ('P', {'action': 'connect_drive', 'from': 'belt-1', 'to': 'processor-1'})]
-        for role, intent in setup:
-            if send((role,), 'submit', intent)[role]['data']['outcome']['accepted'] is not True:
-                raise ValueError('Actual shared construction refused')
-        retry = send(('P',), 'retry')['P']['data']['outcome']
-        if not retry['accepted'] or not retry['duplicate']:
-            raise ValueError('Actual exact retry did not preserve cached successful disposition')
-        for operation, reason in [('reuse', 'request_reuse'), ('wrong_actor', 'wrong_actor'), ('wrong_context', 'wrong_context')]:
-            outcome = send(('P',), operation)['P']['data']['outcome']
-            if outcome['accepted'] or outcome['reason'] != reason:
-                raise ValueError('Actual refusal differs: ' + operation)
-        send(('Q',), 'disconnect')
-        group.wait(lambda: 'Q' not in read_json(run / 'server-status.json')['roles'])
-        for operation, reason in [('role_occupied', 'role_unavailable'), ('unjoined', 'not_joined')]:
-            negative = send(('Q',), operation)['Q']['data']
-            if negative['ready'] or negative['refusal'] != reason:
-                raise ValueError('Real inadmissible connection did not refuse: ' + operation)
-            group.wait(lambda: read_json(run / 'server-status.json')['peer_count'] == 1)
-        before = send(('P',), 'snapshot')['P']['data']['snapshot']
-        rejoined = send(('Q',), 'join')['Q']['data']
-        if rejoined['namespace'] == initial['Q']['namespace'] or rejoined['snapshot'] != before:
-            raise ValueError('Actual rejoin did not preserve authority and refresh namespace')
-        old = send(('Q',), 'old_namespace')['Q']['data']['outcome']
-        if old['accepted'] or old['reason'] != 'stale_namespace':
-            raise ValueError('Old connection request was not explicitly refused')
-        refused = send(('Q',), 'submit', {'action': 'retrieve', 'entity': 'processor-1'})['Q']['data']['outcome']
-        if refused['accepted'] or refused['reason'] != 'unavailable_output':
-            raise ValueError('Frozen empty output must refuse without local speculation')
-        final = send(('P', 'Q'), 'snapshot', {'minimum_order': 11})
-        if final['P']['data']['snapshot'] != final['Q']['data']['snapshot']:
-            raise ValueError('Real client projections did not converge')
-        for role in ('P', 'Q'):
-            group.actors[role]['expected_exit'] = True
-        send(('P', 'Q'), 'finish')
-        group.wait(lambda: all(group.actors[role]['process'].poll() is not None for role in ('P', 'Q')))
-        group.actors['server']['expected_exit'] = True
-        (run / 'server.stop').touch()
-        group.wait(lambda: (run / 'server-report.json').is_file() and group.actors['server']['process'].poll() is not None)
-        server = read_json(run / 'server-report.json')
-        snapshot = server['snapshot']
-        ledger(snapshot)
-        if (server['status'] != 'pass' or server['server_relay'] is not False or not server['clock_frozen'] or server['tick_count'] != 0
-                or snapshot != final['P']['data']['snapshot'] or snapshot['order'] != 11
-                or snapshot['revision'] != 9 or snapshot['stock']['source'] != 16
-                or len(snapshot['entities']) != 4 or len(snapshot['links']) != 2
-                or len(snapshot['drive_links']) != 3 or len(server['checkpoint']['requests']) != 11):
-            raise ValueError('Server diagnostic differs from independent final ownership/order oracle')
-        result.update(status='pass', initial=initial, final=snapshot, server_report=str(run / 'server-report.json'))
-    except BaseException as error:
-        result.update(status='fail', error=str(error))
-        if isinstance(getattr(error, 'report', None), dict):
-            result['scenario'] = error.report
-        raise
-    finally:
-        try:
-            group.close()
-        except BaseException as error:
-            result.update(status='fail', error=str(error))
-            raise
-        finally:
-            result.update(actors=group.evidence(), peak_live_engines=group.peak_live,
-                          elapsed_seconds=time.monotonic() - started)
-            (run / 'cohort.json').write_text(json.dumps(result, indent=2) + '\n')
-    print('OPENING_SESSION_TRANSPORT_PASS', flush=True)
-
-
 def ui_cohort_worker(spec):
     """Same sole ActorGroup lifecycle; the sealed driver owns input/oracles only."""
     run = Path(spec['run'])
@@ -486,15 +360,12 @@ def main():
     parser.add_argument('--sha256', required=True)
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--port', type=int, default=0, help='zero chooses one unused loopback UDP port; bind conflict fails')
-    parser.add_argument('--ui', action='store_true', help='actual two-UI consumer; no transport-only substitute')
-    parser.add_argument('--physical', action='store_true', help='physical P/Q profile; requires --ui and an explicit physical UI driver')
+    parser.add_argument('--ui', action='store_true', help='actual two-UI physical consumer')
     parser.add_argument('--clock', choices=('frozen', 'live'), default='frozen')
-    parser.add_argument('--ui-driver', type=Path, help='explicit sealed local pure case driver; default scripts/opening_ui_cases.py')
+    parser.add_argument('--ui-driver', type=Path, help='explicit sealed local pure case driver')
     args = parser.parse_args()
-    if args.physical and (not args.ui or not args.ui_driver):
-        parser.error('--physical requires --ui and an explicit physical UI driver')
-    if not args.ui and (args.ui_driver or args.clock != 'frozen'):
-        parser.error('UI driver/live clock requires --ui; transport proof is explicitly frozen')
+    if not args.ui or not args.ui_driver:
+        parser.error('The physical shared proof requires --ui and an explicit UI driver')
     binary, artifacts = args.godot, args.artifacts
     if not binary.is_absolute() or binary.resolve() != binary or not binary.is_file() or not os.access(binary, os.X_OK) or sha(binary) != args.sha256:
         parser.error('Use the explicit existing verified executable and SHA256 pin')
@@ -515,8 +386,8 @@ def main():
             reservation.bind(('127.0.0.1', 0))
             port = reservation.getsockname()[1]
     run = Path(tempfile.mkdtemp(prefix='session-', dir=artifacts))
-    receipt = {'status': 'running', 'mode': 'actual_ui' if args.ui else 'transport_only', 'started': datetime.now(timezone.utc).isoformat(),
-               'profile': 'physical' if args.physical else 'legacy_fixture',
+    receipt = {'status': 'running', 'mode': 'actual_ui', 'started': datetime.now(timezone.utc).isoformat(),
+               'profile': 'physical',
                'source_hashes': {}, 'runner_hashes': {name: sha(path) for name, path in
                [('check_opening_session.py', Path(__file__)), ('check_engine_environment.py', Path(bounds.__file__))]},
                'port': port, 'loopback': '127.0.0.1', 'user_play': 'not_assessed', 'stages': [],
@@ -531,10 +402,8 @@ def main():
         if version.returncode or (run / 'version.log').read_text().strip() != '4.7.2.stable.official.ed1daf0bf':
             raise ValueError('Require the separately verified supported Godot version')
         receipt['stages'].append({'name': 'version', 'exit': version.returncode})
-        files = FILES
-        if args.ui:
-            from run_opening import FILES as OFFLINE_FILES
-            files = tuple(dict.fromkeys((*OFFLINE_FILES, *FILES, *UI_FILES)))
+        from run_opening import FILES as OFFLINE_FILES
+        files = tuple(dict.fromkeys((*OFFLINE_FILES, *FILES, *UI_FILES)))
         originals = {}
         for name in files:
             path = PROJECT / name
@@ -544,16 +413,15 @@ def main():
             receipt['source_hashes'][name] = hashlib.sha256(originals[name]).hexdigest()
         if sum(map(len, originals.values())) > 2 * 1024**2:
             raise ValueError('Session sources exceed2MiB allowance')
-        spec = {'run': str(run), 'port': port, 'actors': {}, 'ui': args.ui, 'frozen_clock': args.clock == 'frozen',
-                'profile': 'physical' if args.physical else 'legacy_fixture'}
-        if args.ui:
-            driver = args.ui_driver or ROOT / 'scripts/opening_ui_cases.py'
-            if not driver.is_absolute() or driver.resolve() != driver or not driver.is_file() or driver.stat().st_size > 128 * 1024:
-                raise ValueError('Use the explicit bounded regular local pure UI driver')
-            captured = run / 'ui_case_driver.py'
-            captured.write_bytes(driver.read_bytes())
-            spec.update(driver=str(captured), driver_sha256=sha(captured))
-            receipt['ui_driver'] = {'source': str(driver), 'captured': str(captured), 'sha256': sha(captured)}
+        spec = {'run': str(run), 'port': port, 'actors': {}, 'ui': True, 'frozen_clock': args.clock == 'frozen',
+                'profile': 'physical'}
+        driver = args.ui_driver
+        if not driver.is_absolute() or driver.resolve() != driver or not driver.is_file() or driver.stat().st_size > 128 * 1024:
+            raise ValueError('Use the explicit bounded regular local pure UI driver')
+        captured = run / 'ui_case_driver.py'
+        captured.write_bytes(driver.read_bytes())
+        spec.update(driver=str(captured), driver_sha256=sha(captured))
+        receipt['ui_driver'] = {'source': str(driver), 'captured': str(captured), 'sha256': sha(captured)}
         for role in ('server', 'P', 'Q'):
             directory = run / role
             project = directory / 'project'
@@ -573,18 +441,15 @@ def main():
             if result.returncode or 'ERROR:' in log.read_text(errors='replace'):
                 raise ValueError('Session import failed: ' + str(log))
             command = [str(binary), '--path', str(project)]
-            if role == 'server' or not args.ui:
+            if role == 'server':
                 command += ['--headless']
             else:
                 command += ['--rendering-method', 'gl_compatibility', '--audio-driver', 'Dummy']
             command += ['--script', 'res://opening-session/server.gd' if role == 'server'
-                        else 'res://opening/shared_check.gd' if args.ui else 'res://opening-session/transport_check.gd',
+                        else 'res://opening/shared_check.gd',
                         '--', '--session-port=' + str(port)]
-            if not args.physical:
-                command += ['--legacy-fixture']
             if role == 'server':
-                if args.physical:
-                    command += ['--actor-roster=P,Q']
+                command += ['--actor-roster=P,Q']
                 if args.clock == 'frozen':
                     command += ['--frozen-clock']
                 command += ['--ready-file=' + str(run / 'server-ready.json'),
@@ -596,10 +461,7 @@ def main():
                             '--observe-response=' + str(run / 'observe-response.json')]
             else:
                 command += ['--session-role=' + role]
-                if args.ui:
-                    command += ['--ui-control-root=' + str(directory / 'controls'), '--ui-defer-connect']
-                else:
-                    command += ['--control-dir=' + str(directory / 'controls')]
+                command += ['--ui-control-root=' + str(directory / 'controls'), '--ui-defer-connect']
             spec['actors'][role] = {'project': str(project), 'environment': env, 'command': command}
             receipt['stages'].append({'name': 'import-' + role, 'exit': result.returncode})
         spec_path = run / 'cohort-spec.json'
@@ -608,7 +470,7 @@ def main():
         result = bounds.execute_bounded(command, cwd=ROOT, env=os.environ.copy(), log=run / 'cohort.log', artifacts=artifacts,
                                         timeout=min(900, deadline - time.monotonic()))
         receipt['stages'].append({'name': 'server-two-clients', 'exit': result.returncode})
-        marker = 'OPENING_SESSION_UI_PASS' if args.ui else 'OPENING_SESSION_TRANSPORT_PASS'
+        marker = 'OPENING_SESSION_UI_PASS'
         if result.returncode or marker not in (run / 'cohort.log').read_text():
             raise ValueError('Real server/two-client proof failed; inspect retained cohort/actor diagnostics')
         receipt['cohort'] = read_json(run / 'cohort.json')
@@ -634,11 +496,11 @@ def main():
     finally:
         receipt.update(owned_bytes=bounds.owned_bytes(artifacts), finished=datetime.now(timezone.utc).isoformat())
         (run / 'result.json').write_text(json.dumps(receipt, indent=2) + '\n')
-    print('Shared transport passed; evidence=' + str(run), flush=True)
+    print('Shared physical UI passed; evidence=' + str(run), flush=True)
 
 
 if __name__ == '__main__':
     if len(sys.argv) == 3 and sys.argv[1] == '--cohort-worker':
-        cohort_worker(Path(sys.argv[2]))
+        ui_cohort_worker(read_json(Path(sys.argv[2])))
     else:
         main()

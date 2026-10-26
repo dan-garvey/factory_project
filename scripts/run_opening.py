@@ -36,14 +36,3 @@ def capture_resume(path):
     if len(content) > RESUME_LIMIT:
         raise ValueError("Resume input exceeds the bounded local input allowance")
     return content
-
-
-def _same_value(actual, expected):
-    # JSON bools/floats must not masquerade as integer item quantities.
-    if type(actual) is not type(expected):
-        return False
-    if isinstance(expected, dict):
-        return actual.keys() == expected.keys() and all(_same_value(actual[k], v) for k, v in expected.items())
-    if isinstance(expected, list):
-        return len(actual) == len(expected) and all(_same_value(a, b) for a, b in zip(actual, expected))
-    return actual == expected
