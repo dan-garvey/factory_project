@@ -1246,8 +1246,9 @@ func _multitool_controls() -> void:
 			"A standalone work support retains component-level inspection guidance.")
 		view.state = before.duplicate(true)
 		view._refresh_ui()
-		verify(not view.confirm_button.visible and view.help_button.visible,
-			"Arrival offers current Help without the old objective confirmation.")
+		verify(not view.confirm_button.visible and not view.help_button.visible
+			and "H help" in view.controls_label.text,
+			"Arrival keeps Help on H without the old objective confirmation or HUD button.")
 		view._toggle_explanation()
 		verify(view.explanation_open and view.help_panel.visible
 			and view.help_body.text.contains(view.goal_label.text),
