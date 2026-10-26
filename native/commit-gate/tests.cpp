@@ -4,18 +4,13 @@
 #include "native/tooling/local_resources.hpp"
 
 #include <array>
-#include <cerrno>
 #include <csignal>
 #include <cstdlib>
-#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <map>
-#include <poll.h>
 #include <sstream>
 #include <stdexcept>
-#include <sys/file.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 extern char** environ;
@@ -273,38 +268,20 @@ int compiled_checker(int argc, char** argv) {
     if (outcome == "signal") { ::raise(SIGTERM); return 99; }
     return std::stoi(outcome);
 }
-struct Buddy {
-    pid_t pid;
-    explicit Buddy(const fs::path& common) : pid(-1) {
-        int pipe[2];
-        check(::pipe2(pipe, O_CLOEXEC) == 0, "The sibling admission fixture has a ready pipe.");
-        pid = ::fork();
-        check(pid >= 0, "The sibling admission fixture starts.");
-        if (pid == 0) {
-            ::close(pipe[0]);
-            try {
-                resources::Admission hold(common, resources::Mode::heavy, false);
-                const char ready = 'R';
-                if (::write(pipe[1], &ready, 1) != 1) ::_exit(2);
-                ::close(pipe[1]);
-                for (;;) ::pause();
-            } catch (...) { ::_exit(2); }
-        }
-        ::close(pipe[1]);
-        pollfd ready{pipe[0], POLLIN, 0};
-        const int available = ::poll(&ready, 1, 3000);
-        char value{};
-        const auto count = available > 0 ? ::read(pipe[0], &value, 1) : -1;
-        ::close(pipe[0]);
-        if (count != 1 || value != 'R') { ::kill(pid, SIGKILL); (void)::waitpid(pid, nullptr, 0); pid = -1; }
-        check(pid > 0, "The independent sibling holds one native heavy slot.");
+int fixture_resources(const resources::Options& options) {
+    check(options.disk_floor_gib == 20 && options.memory_reserve_gib == 8,
+          "The coordinator retains the production disk and memory floors.");
+    if (options.mode == resources::Mode::heavy)
+        resources::enforce_capacity({20 * resources::gib, 8 * resources::gib},
+                                    options.disk_floor_gib, options.memory_reserve_gib);
+    std::vector<std::string> command = options.command;
+    if (const auto* index = ::getenv("GIT_INDEX_FILE")) {
+        command.insert(command.begin(), "GIT_INDEX_FILE=" + std::string(index));
+        command.insert(command.begin(), "/usr/bin/env");
     }
-    ~Buddy() {
-        if (pid <= 0) return;
-        ::kill(pid, SIGKILL);
-        while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {}
-    }
-};
+    return factory_launch::run_process(command, std::chrono::seconds(10),
+                                       1024 * 1024, nullptr, true).exit_code;
+}
 void actual(const fs::path& base, const std::string& self, const std::string& executable) {
     const auto root = base / "repository with spaces";
     repository(root);
@@ -327,7 +304,8 @@ void actual(const fs::path& base, const std::string& self, const std::string& ex
     check(temporary.compile_gdscript && temporary.tree == game_tree && temporary.tree != doc_tree,
           "Actual Git reads honor the temporary index before selecting heavy admission.");
     write(root / "fixture-outcome", "37\n");
-    check(gate::run(root, self) == 37, "The new coordinator preserves a real compiled child exit.");
+    check(gate::run_with_resources(root, self, fixture_resources) == 37,
+          "The coordinator preserves the compiled child exit through bounded synthetic admission.");
     const auto observed = read(root / "observed-arguments");
     check(observed.find(game_tree) != std::string::npos && observed.find("index=" + alternate.string()) != std::string::npos,
           "The exact temporary tree and hook environment reach the admitted outer checker.");
@@ -348,19 +326,20 @@ void actual(const fs::path& base, const std::string& self, const std::string& ex
               "Command exit 127 and signal-derived exits are forwarded without fallback.");
     }
     write(root / "fixture-outcome", "37\n");
-    {
-        Buddy buddy(root / ".git");
-        const int legacy = ::open((root / ".git/factory-local-resources/heavy.lock").c_str(), O_RDWR);
-        check(legacy >= 0, "The native and legacy gate use the same retained lock inode.");
-        const int exclusive = ::flock(legacy, LOCK_EX | LOCK_NB);
-        const int failure = errno;
-        ::close(legacy);
-        check(exclusive < 0 && (failure == EAGAIN || failure == EWOULDBLOCK),
-              "An exclusive legacy heavy lock would serialize this fixture.");
-        const auto result = factory_launch::run_process({self, "--run-fixture", root.string()}, std::chrono::seconds(5), 1024 * 1024, nullptr, true);
-        check(result.exit_code == 37 && result.output.find("admitted heavy") != std::string::npos,
-              "The coordinator completes beside another native heavy holder without weakening admission.");
-    }
+    fs::remove(root / "observed-arguments");
+    bool refused_capacity{};
+    try {
+        (void)gate::run_with_resources(root, self, [&](const resources::Options& options) -> int {
+            check(options.mode == resources::Mode::heavy && options.disk_floor_gib == 20 &&
+                      options.memory_reserve_gib == 8,
+                  "A staged script still asks for real heavy admission at unchanged floors.");
+            resources::enforce_capacity({20 * resources::gib, 8 * resources::gib - 1},
+                                        options.disk_floor_gib, options.memory_reserve_gib);
+            return 0;
+        });
+    } catch (const resources::AdmissionError&) { refused_capacity = true; }
+    check(refused_capacity && !fs::exists(root / "observed-arguments"),
+          "A deterministic below-reserve admission refuses before starting the checker.");
     const auto missing = factory_launch::run_process({executable, "--root", (base / "missing").string()}, std::chrono::seconds(5), 1024 * 1024);
     check(missing.exit_code == 1, "A nonexistent checkout fails without starting a checker.");
     const auto malformed = factory_launch::run_process({executable, "--unexpected"}, std::chrono::seconds(5), 1024 * 1024);
@@ -371,7 +350,8 @@ int main(int argc, char** argv) {
     try {
         const auto self = fs::canonical(argv[0]).string();
         if (argc > 1 && std::string(argv[1]) == "-B") return compiled_checker(argc, argv);
-        if (argc == 3 && std::string(argv[1]) == "--run-fixture") return gate::run(argv[2], self);
+        if (argc == 3 && std::string(argv[1]) == "--run-fixture")
+            return gate::run_with_resources(argv[2], self, fixture_resources);
         const bool worktree_only = argc == 3 && std::string(argv[2]) == "--worktree-only";
         const bool linked_only = argc == 3 && std::string(argv[2]) == "--linked-worktree-only";
         check(argc == 2 || worktree_only || linked_only, "Provide the native coordinator executable fixture.");

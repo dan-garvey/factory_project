@@ -43,3 +43,9 @@ public command, interpreter or resource-floor override. Git metadata reads have
 a five-second deadline and 2 MiB bound. The worker uses bounded raw-blob reads
 for the staged snapshot. Host fixtures and scripted checks do not establish
 human gameplay acceptance.
+
+The coordinator control runs its staged-child cases with a synthetic capacity
+probe at the unchanged 20 GiB disk and 8 GiB memory floors. The separate
+`//native/tooling:local_resources_test` owns real lock, permit and refusal
+coverage. This keeps the coordinator test independent of transient memory
+usage after the outer gate has already admitted Bazel.

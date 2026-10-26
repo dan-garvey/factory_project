@@ -231,7 +231,9 @@ Plan prepare(const fs::path& root, const std::string& interpreter) {
     return prepare(root, [&](const auto& arguments) { return read_git(root, arguments); }, interpreter);
 }
 
-int run(const fs::path& root, const std::string& interpreter) {
+int run_with_resources(const fs::path& root, const std::string& interpreter,
+                       const ResourceRunner& resource_runner) {
+    require(static_cast<bool>(resource_runner), "A coordinator resource runner is required.");
     require(root.is_absolute() && fs::canonical(root) == root && fs::is_directory(root),
             "Use the canonical absolute checkout root.");
     require(fs::is_regular_file(root / "scripts/check.py"), "The checkout is missing scripts/check.py.");
@@ -244,6 +246,10 @@ int run(const fs::path& root, const std::string& interpreter) {
         options.command = {fs::canonical("/proc/self/exe").string(), "--native-worker",
                            "--root", root.string(), "--expected-tree", plan.tree};
     } else options.command = plan.command;
-    return resources::run(options);
+    return resource_runner(options);
+}
+
+int run(const fs::path& root, const std::string& interpreter) {
+    return run_with_resources(root, interpreter, resources::run);
 }
 }  // namespace factory::commit_gate
