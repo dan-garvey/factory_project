@@ -4355,7 +4355,8 @@ func _broad_part(state: Dictionary, kind: String, center: Array) -> Dictionary:
 			return {"id": id, "generation": part.generation}
 	return {}
 
-func _place_carried_channel(kind: String, center: Array) -> String:
+func _place_carried_channel(kind: String, center: Array,
+		capture_path: String = "", capture_target: Vector3 = Vector3.ZERO) -> String:
 	if not _select_inventory_item("component:" + kind):
 		return ""
 	opening.component_nudge_active = true
@@ -4364,6 +4365,10 @@ func _place_carried_channel(kind: String, center: Array) -> String:
 	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked,
 			"The carried %s shows a supported placement preview at %s" % [kind, str(center)]):
 		return ""
+	if not capture_path.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_path, capture_target),
+				"Retain the actor-eye %s placement ghost before its ordinary world click" % kind):
+			return ""
 	var before: Dictionary = opening.model.projection().placed_components
 	opening._world_click(Vector2i(int(center[0] / 4), int(center[2] / 4)))
 	opening.component_nudge_active = false
@@ -4444,7 +4449,7 @@ func _arrival_channel_broad_run(capture_prefix: String) -> void:
 	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, -1.2),
 			Vector2(5.8, -1.2), Vector2(6.6, -1.2)]):
 		return
-	var narrow_id := _place_carried_channel("channel_narrow_x", [20, 0, 0])
+	var narrow_id: String = await _place_carried_channel("channel_narrow_x", [20, 0, 0])
 	if narrow_id.is_empty():
 		return
 	var before_refusal: Dictionary = opening.model.projection()
@@ -4463,7 +4468,9 @@ func _arrival_channel_broad_run(capture_prefix: String) -> void:
 		return
 	if _construct({"action": "reclaim_component", "entity": narrow_id}).is_empty():
 		return
-	var first_id := _place_carried_channel("channel_broad_x", [20, 0, 0])
+	var first_id: String = await _place_carried_channel("channel_broad_x", [20, 0, 0],
+			capture_prefix + "-broad-placement-ghost.png" if not capture_prefix.is_empty() else "",
+			Vector3(6.6, 0.7, 0.825))
 	if first_id.is_empty():
 		return
 	await _ordinary_key(KEY_ESCAPE)
@@ -4492,9 +4499,9 @@ func _arrival_channel_broad_run(capture_prefix: String) -> void:
 			and opening.status_label.text.contains("supported squares"),
 			"A missing receiving segment retains the sheet at its last real owner"):
 		return
-	if not await _approach(Vector2(8.25, -1.2)):
+	if not await _approach(Vector2(7.18, -1.2)):
 		return
-	if _place_carried_channel("channel_broad_x", [24, 0, 0]).is_empty():
+	if (await _place_carried_channel("channel_broad_x", [24, 0, 0])).is_empty():
 		return
 	if not await _push_loose_from_menu([16, 0, 0], [20, 0, 0], "copper sheet"):
 		return
@@ -4503,7 +4510,9 @@ func _arrival_channel_broad_run(capture_prefix: String) -> void:
 			return (drop is Dictionary and drop.center == [20, 0, 0]
 				and drop.sheet_items.size() == 1 and drop.sheet_items[0].id == sheet_id))
 			and final.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-			"The repaired broad route keeps one sheet identity and all finite material"):
+			"The repaired broad route keeps one sheet identity and all finite material: %s" % str({
+				"drops": final.dropped_material, "message": opening.status_label.text,
+				"actor": final.actors.P.position})):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		if not _expect(await _capture_actor_area(capture_prefix + "-sheet-second-cell.png",
@@ -4557,7 +4566,9 @@ func _arrival_channel_small_run(capture_prefix: String) -> void:
 	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, -1.2),
 			Vector2(5.8, -1.2), Vector2(6.6, -1.2)]):
 		return
-	if _place_carried_channel("channel_narrow_x", [20, 0, 0]).is_empty():
+	if (await _place_carried_channel("channel_narrow_x", [20, 0, 0],
+			capture_prefix + "-narrow-placement-ghost.png" if not capture_prefix.is_empty() else "",
+			Vector3(7.425, 0.7, 0.825))).is_empty():
 		return
 	await _ordinary_key(KEY_ESCAPE)
 	if not _expect(opening.mode == "inspect" and not opening.component_preview.visible,
@@ -4593,9 +4604,7 @@ func _arrival_channel_small_run(capture_prefix: String) -> void:
 			and opening.status_label.text.contains("supported square"),
 			"A missing receiving rail retains the plate at the occupied channel cell"):
 		return
-	if not await _approach(Vector2(8.25, -1.2)):
-		return
-	if _place_carried_channel("channel_narrow_x", [24, 0, 0]).is_empty():
+	if (await _place_carried_channel("channel_narrow_x", [24, 0, 0])).is_empty():
 		return
 	if not await _push_loose_from_menu([20, 0, 0], [24, 0, 0], "copper plate"):
 		return
