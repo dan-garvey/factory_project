@@ -36,6 +36,22 @@ int main() {
         refuses(first + first + second, selected);
         refuses(first + summary("//native/other:unselected_test", "PASSED") + second, selected);
         refuses("", selected);
+        const auto id = "{\"id\":{\"testSummary\":{\"label\":\"" + selected[1] + "\"}}";
+        refuses(first + id + "\n", selected);
+        refuses(first + id + ",\"unrelated\":{\"overallStatus\":\"PASSED\"}}\n", selected);
+        refuses(first + id + ",\"testSummary\":{\"overallStatus\":\"FAILED\"},"
+                "\"unrelated\":{\"overallStatus\":\"PASSED\"}}\n", selected);
+        refuses(first + id + ",\"testSummary\":{\"overallStatus\":\"FAILED\","
+                "\"overallStatus\":\"PASSED\"}}\n", selected);
+        refuses(first + second.substr(0, second.size() - 3), selected);
+        refuses(first + id + ",\"testSummary\":{\"overallStatus\":\"PASSED\"},"
+                "\"id\":{\"testSummary\":{\"label\":\"" + selected[1] + "\"}}}\n", selected);
+        const auto bazel_shape = "{\"id\":{\"testSummary\":{\"label\":\"" + selected[1] +
+            "\",\"configuration\":{\"id\":\"abc\"}}},\"testSummary\":{\"totalRunCount\":1,"
+            "\"passed\":[{\"uri\":\"file:///fixture/test.log\"}],\"overallStatus\":\"PASSED\","
+            "\"totalRunDuration\":\"0.035s\"}}\n";
+        gate::require_passing_test_events(first + bazel_shape, selected);
+        check(true, "The pinned Bazel 8.4.2 test summary shape passes.");
         std::cout << "Native worker summaries: " << checks << " checks passed.\n";
         return 0;
     } catch (const std::exception& error) {

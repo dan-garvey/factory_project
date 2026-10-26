@@ -13,9 +13,11 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -135,27 +137,183 @@ std::string bounded_file(const fs::path& path, std::size_t maximum) {
 
 } // namespace
 
+namespace {
+class TestSummaryEvent {
+public:
+    explicit TestSummaryEvent(std::string_view input) : input_(input) {}
+
+    std::optional<std::pair<std::string_view, std::string_view>> parse() {
+        value(Scope::root, 0);
+        spaces();
+        require(position_ == input_.size(), "Bazel returned a malformed test event.");
+        if (!id_summary_ && !payload_) return std::nullopt;
+        require(id_summary_ && payload_ && label_ && status_,
+                "Bazel returned an incomplete test summary.");
+        return std::pair{*label_, *status_};
+    }
+
+private:
+    enum class Scope { other, root, id, id_summary, payload, label, status };
+    std::string_view input_;
+    std::size_t position_{};
+    bool id_{};
+    bool id_summary_{};
+    bool payload_{};
+    std::optional<std::string_view> label_;
+    std::optional<std::string_view> status_;
+
+    void spaces() {
+        while (position_ < input_.size() &&
+               (input_[position_] == ' ' || input_[position_] == '\t' ||
+                input_[position_] == '\r' || input_[position_] == '\n')) ++position_;
+    }
+
+    bool take(char expected) {
+        spaces();
+        if (position_ < input_.size() && input_[position_] == expected) {
+            ++position_;
+            return true;
+        }
+        return false;
+    }
+
+    std::string_view quoted() {
+        require(take('"'), "Bazel returned malformed JSON in a test event.");
+        const auto begin = position_;
+        while (position_ < input_.size()) {
+            const unsigned char current = input_[position_++];
+            if (current == '"') return input_.substr(begin, position_ - begin - 1);
+            require(current >= 0x20, "Bazel returned a control byte in a test event.");
+            if (current != '\\') continue;
+            require(position_ < input_.size(), "Bazel returned a truncated JSON escape.");
+            const char escaped = input_[position_++];
+            if (escaped == 'u') {
+                for (int digit = 0; digit < 4; ++digit) {
+                    require(position_ < input_.size() &&
+                            ((input_[position_] >= '0' && input_[position_] <= '9') ||
+                             (input_[position_] >= 'a' && input_[position_] <= 'f') ||
+                             (input_[position_] >= 'A' && input_[position_] <= 'F')),
+                            "Bazel returned a malformed JSON unicode escape.");
+                    ++position_;
+                }
+            } else {
+                require(escaped == '"' || escaped == '\\' || escaped == '/' ||
+                        escaped == 'b' || escaped == 'f' || escaped == 'n' ||
+                        escaped == 'r' || escaped == 't',
+                        "Bazel returned a malformed JSON escape.");
+            }
+        }
+        throw std::runtime_error("Bazel returned a truncated JSON string.");
+    }
+
+    void literal(std::string_view token) {
+        require(input_.substr(position_, token.size()) == token,
+                "Bazel returned malformed JSON in a test event.");
+        position_ += token.size();
+    }
+
+    void number() {
+        if (input_[position_] == '-') ++position_;
+        require(position_ < input_.size(), "Bazel returned a truncated JSON number.");
+        if (input_[position_] == '0') ++position_;
+        else {
+            require(input_[position_] >= '1' && input_[position_] <= '9',
+                    "Bazel returned a malformed JSON number.");
+            while (position_ < input_.size() && input_[position_] >= '0' && input_[position_] <= '9')
+                ++position_;
+        }
+        if (position_ < input_.size() && input_[position_] == '.') {
+            ++position_;
+            require(position_ < input_.size() && input_[position_] >= '0' && input_[position_] <= '9',
+                    "Bazel returned a malformed JSON number.");
+            while (position_ < input_.size() && input_[position_] >= '0' && input_[position_] <= '9')
+                ++position_;
+        }
+        if (position_ < input_.size() && (input_[position_] == 'e' || input_[position_] == 'E')) {
+            ++position_;
+            if (position_ < input_.size() && (input_[position_] == '+' || input_[position_] == '-'))
+                ++position_;
+            require(position_ < input_.size() && input_[position_] >= '0' && input_[position_] <= '9',
+                    "Bazel returned a malformed JSON number.");
+            while (position_ < input_.size() && input_[position_] >= '0' && input_[position_] <= '9')
+                ++position_;
+        }
+    }
+
+    void value(Scope scope, int depth) {
+        require(depth <= 64, "Bazel returned an over-nested test event.");
+        spaces();
+        require(position_ < input_.size(), "Bazel returned a truncated test event.");
+        if (scope == Scope::label || scope == Scope::status) {
+            const auto text = quoted();
+            require(text.find('\\') == std::string_view::npos,
+                    "Bazel escaped a test label or status unexpectedly.");
+            auto& destination = scope == Scope::label ? label_ : status_;
+            require(!destination, "Bazel repeated a test label or status.");
+            destination = text;
+        } else if (take('{')) {
+            bool first = true;
+            while (!take('}')) {
+                require(first || take(','), "Bazel returned a malformed JSON object.");
+                const auto key = quoted();
+                require(take(':'), "Bazel returned a malformed JSON object.");
+                Scope child = Scope::other;
+                if (scope == Scope::root && key == "id") {
+                    require(!id_, "Bazel repeated a test event ID.");
+                    id_ = true;
+                    child = Scope::id;
+                }
+                else if (scope == Scope::root && key == "testSummary") {
+                    require(!payload_, "Bazel repeated a test summary payload.");
+                    payload_ = true;
+                    child = Scope::payload;
+                } else if (scope == Scope::id && key == "testSummary") {
+                    require(!id_summary_, "Bazel repeated a test summary ID.");
+                    id_summary_ = true;
+                    child = Scope::id_summary;
+                } else if (scope == Scope::id_summary && key == "label") child = Scope::label;
+                else if (scope == Scope::payload && key == "overallStatus") child = Scope::status;
+                value(child, depth + 1);
+                first = false;
+            }
+        } else if (scope == Scope::root || scope == Scope::id ||
+                   scope == Scope::id_summary || scope == Scope::payload) {
+            throw std::runtime_error("Bazel returned a malformed test summary object.");
+        } else if (take('[')) {
+            bool first = true;
+            while (!take(']')) {
+                require(first || take(','), "Bazel returned a malformed JSON array.");
+                value(Scope::other, depth + 1);
+                first = false;
+            }
+        } else if (input_[position_] == '"') (void)quoted();
+        else if (input_[position_] == 't') literal("true");
+        else if (input_[position_] == 'f') literal("false");
+        else if (input_[position_] == 'n') literal("null");
+        else number();
+    }
+};
+} // namespace
+
 void require_passing_test_events(std::string_view data,
                                  const std::vector<std::string>& expected) {
     require(data.size() <= 8 * 1024 * 1024 &&
                 std::is_sorted(expected.begin(), expected.end()) && !expected.empty(),
             "The selected native test result is oversized or has invalid labels.");
     std::set<std::string> passed;
-    constexpr std::string_view marker = "\"id\":{\"testSummary\":{\"label\":\"";
     for (std::size_t begin = 0; begin < data.size();) {
         const auto end = data.find('\n', begin);
         const std::string_view line(data.data() + begin,
             (end == std::string_view::npos ? data.size() : end) - begin);
-        const auto found = line.find(marker);
-        if (found != std::string_view::npos) {
-            const auto name_begin = found + marker.size();
-            const auto name_end = line.find('"', name_begin);
-            require(name_end != std::string_view::npos, "Bazel returned an incomplete test summary.");
-            const std::string label(line.substr(name_begin, name_end - name_begin));
-            require(std::binary_search(expected.begin(), expected.end(), label) &&
-                        line.find("\"overallStatus\":\"PASSED\"") != std::string_view::npos &&
-                        passed.insert(label).second,
-                    "An affected native test was skipped, failed or summarized twice: " + label);
+        if (!line.empty()) {
+            const auto event = TestSummaryEvent(line).parse();
+            if (event) {
+                const auto& [name, status] = *event;
+                const std::string label(name);
+                require(std::binary_search(expected.begin(), expected.end(), label) &&
+                            status == "PASSED" && passed.insert(label).second,
+                        "An affected native test was skipped, failed or summarized twice: " + label);
+            }
         }
         if (end == std::string_view::npos) break;
         begin = end + 1;
@@ -232,7 +390,8 @@ int run_native_worker(const fs::path& checkout, const std::string& expected_tree
                 "An affected native target failed to build.");
         auto test = bazel_command(bazel, artifacts, output_base, snapshot.root(), "test");
         test.push_back("--cxxopt=-DFACTORY_GATE_TOOLCHAIN_FINGERPRINT=0x" + toolchain.substr(0, 16));
-        test.insert(test.end(), {"--jobs=8", "--build_tests_only", "--test_output=errors",
+        test.insert(test.end(), {"--jobs=8", "--local_test_jobs=1", "--build_tests_only",
+            "--test_output=errors",
             "--build_event_json_file=" + (run / "test-events.json").string()});
         test.insert(test.end(), test_labels.begin(), test_labels.end());
         require(bazel_stage(artifacts, admission, run / "test.log", test) == 0,
