@@ -136,11 +136,7 @@ func _changed_context_and_disabled_views() -> void:
 	_new_fixture()
 	fixture.snapshot.options.native = false
 	controls.refresh()
-	_expect(not controls.visible and controls.action_button.disabled, "The scripted and legacy profiles do not gain unimplemented actions.")
-	fixture.snapshot.options.native = true
-	host.legacy_fixture = true
-	controls.refresh()
-	_expect(not controls.visible and controls.action_button.disabled, "The legacy view cannot enable native recovery from a mismatched flag.")
+	_expect(not controls.visible and controls.action_button.disabled, "The scripted profile does not gain unimplemented actions.")
 
 func _stale_holdings_do_not_retarget() -> void:
 	_new_fixture()

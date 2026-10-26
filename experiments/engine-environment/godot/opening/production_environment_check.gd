@@ -71,7 +71,6 @@ func check_collector_carrier() -> void:
 	for cell in [0, 1]:
 		for level in [4, 8]:
 			var view := FixtureView.new()
-			view.legacy_fixture = false
 			view.state = {"options": {"native": true}}
 			root.add_child(view)
 			var anchor := Node3D.new()

@@ -42,14 +42,10 @@ func _initialize() -> void:
 					"Inspecting an invented projection changes no state, request or authority.")
 				view.free()
 	var view := Opening.new()
-	view.legacy_fixture = true
 	view.state = fixture()
 	view.state.powered = true
 	view.selected = "belt"
-	verify(not view._inspection_hint().contains("Stop"),
-		"The legacy fixture also omits the drive switch from guidance.")
 	view.state.options.native = true
-	view.legacy_fixture = false
 	verify(not view._inspection_hint().contains("Stop"),
 		"Native guidance describes connection state without a stop instruction.")
 	view.state.stock.output = 1
@@ -58,5 +54,5 @@ func _initialize() -> void:
 		"A ready product retains priority over connection advice.")
 	view.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
-		"scope": "native and historical scripted inspector advice", "desktop": "not_used"}))
+		"scope": "native and scripted inspector advice", "desktop": "not_used"}))
 	quit(1 if failed else 0)
