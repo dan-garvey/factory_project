@@ -223,6 +223,39 @@ void coupled_native_mechanical_graph() {
               w::BroadPressDriveStatus::stalled,
         "Conflicting prescribed signed sources stall the entire coupled broad head.");
 }
+
+void one_slide_broad_load() {
+    const std::vector<a::Part> placed{
+        {"broad-bed", m::Component::broad_anvil, {0, 0, 0}, 1},
+        {"broad-head", m::Component::broad_flat_head, {0, 1, 0}, 1},
+        {"slide", m::Component::copper_slide, {2, 2, 2}, 1},
+    };
+    const a::Layout layout(placed);
+    const auto inspected = layout.inspect_broad_sliding_press({0, 0, 0});
+    check(inspected.status == a::PressStatus::ready && inspected.press &&
+          inspected.press->work_centers == std::array<g::Point, 4>{
+              g::Point{0, 0, 0}, g::Point{4, 0, 0},
+              g::Point{0, 0, 4}, g::Point{4, 0, 4}},
+        "One broad support, matching face and central slide cover four contiguous workcells.");
+    w::Profile profile;
+    w::State state;
+    for (const auto& part : placed)
+        state.placed_components.emplace(part.id,
+            w::PlacedComponent{part.kind, part.center, part.generation});
+    const auto power = w::hand_crank_power(profile, state, "slide", {3, 2, 2});
+    check(power.mechanical.accepted(), "The broad slide graph is mechanically valid.");
+    check(power.mechanical.motion.contains("slide"),
+        "The central slide appears in the actual mechanical graph.");
+    check(power.mechanical.motion.at("slide").state == g::MotionState::rotating,
+        "The fitted crank rotates the central slide through its X input.");
+    check(power.load.contains("slide") && !power.load.at("slide").overloaded &&
+          power.load.at("slide").impact == 12 && power.load.at("slide").capacity == 12,
+        "One copper slide carries the broad head at the crank's real capacity.");
+    state.placed_components.at("slide").kind = m::Component::wooden_slide;
+    const auto weak = w::hand_crank_power(profile, state, "slide", {3, 2, 2});
+    check(weak.mechanical.accepted() && weak.load.at("slide").overloaded,
+        "The same broad contact exceeds the wooden slide rating without changing the workbed.");
+}
 }  // namespace
 
 int main() {
@@ -232,6 +265,7 @@ int main() {
         actual_unpowered_topology();
         actual_powered_world_topology();
         coupled_native_mechanical_graph();
+        one_slide_broad_load();
         std::cout << "broad_press_drive_world_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

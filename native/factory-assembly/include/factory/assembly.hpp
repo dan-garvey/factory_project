@@ -163,6 +163,25 @@ struct SlidingPressInspection {
 [[nodiscard]] SlidingPressInspection inspect_sliding_press(
     const std::vector<Part>& placed, const mechanics::Point& anvil_center);
 
+// One 2x2 workbed and one matching face use four ordinary parts each while a
+// single reusable slide supplies the stroke. The lower-left workcell remains
+// the material-custody origin for the whole twelve-mass sheet.
+struct BroadSlidingPress {
+    std::string anvil;
+    std::string head;
+    std::string slide;
+    mechanics::Point origin{};
+    mechanics::Point slide_center{};
+    materials::Component slide_material{};
+    std::array<mechanics::Point, 4> work_centers{};
+    bool operator==(const BroadSlidingPress&) const = default;
+};
+
+struct BroadSlidingPressInspection {
+    PressStatus status{PressStatus::invalid_input};
+    std::optional<BroadSlidingPress> press;
+};
+
 [[nodiscard]] GuidedPressInspection inspect_guided_press(
     const std::vector<Part>& placed, const mechanics::Point& anvil_center);
 
@@ -258,6 +277,8 @@ public:
         const mechanics::Point& anvil_center) const;
     [[nodiscard]] SlidingPressInspection inspect_sliding_press(
         const mechanics::Point& anvil_center) const;
+    [[nodiscard]] BroadSlidingPressInspection inspect_broad_sliding_press(
+        const mechanics::Point& origin) const;
     [[nodiscard]] BroadPressInspection inspect_broad_press(
         const mechanics::Point& lowest_anvil_center) const;
     [[nodiscard]] BroadShearInspection inspect_broad_shear(

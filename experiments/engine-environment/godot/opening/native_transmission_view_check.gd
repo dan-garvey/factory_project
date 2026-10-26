@@ -874,17 +874,17 @@ func _press_component_view() -> void:
 		"The seven identities form a supported anvil, die, guide and press crown.")
 	var framed_foot := anchors.anvil.get_node("CastPedestalFoot") as MeshInstance3D
 	var framed_shelf := anchors.frame.get_node("AnvilShelf") as MeshInstance3D
-	var framed_waist := anchors.anvil.get_node("CastAnvilWaist") as MeshInstance3D
+	var framed_web := anchors.anvil.get_node("WorkbedWeb") as MeshInstance3D
 	var foot_bounds: AABB = framed_foot.global_transform * framed_foot.mesh.get_aabb()
 	var shelf_bounds: AABB = framed_shelf.global_transform * framed_shelf.mesh.get_aabb()
-	var waist_bounds: AABB = framed_waist.global_transform * framed_waist.mesh.get_aabb()
+	var web_bounds: AABB = framed_web.global_transform * framed_web.mesh.get_aabb()
 	verify(absf(foot_bounds.position.y - 0.4125) < 0.0002
 		and absf(shelf_bounds.end.y - foot_bounds.position.y) < 0.0002,
 		"The framed anvil foot meets its raised shelf without a visible unsupported gap.")
 	for rail_name in ["BedCrossRailFront", "BedCrossRailRear", "BedSideRailLeft", "BedSideRailRight"]:
 		var rail := anchors.frame.get_node(rail_name) as MeshInstance3D
-		verify(not (rail.global_transform * rail.mesh.get_aabb()).intersects(waist_bounds),
-			"The frame bed leaves real clearance around the compact anvil casting.")
+		verify(not (rail.global_transform * rail.mesh.get_aabb()).intersects(web_bounds),
+			"The frame bed leaves real clearance around the anvil web.")
 	var rotor: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
 	verify(rotor != null and rotor.find_children("CogTooth*", "MeshInstance3D", false, false).size() == 12
 		and anchors.shaft.get_node_or_null("LooseDriveShaft") != null,

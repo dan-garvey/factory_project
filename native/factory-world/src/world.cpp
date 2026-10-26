@@ -2064,6 +2064,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                         carried > profile.material.component_capacity))) return false;
         return true;
     };
+    std::map<std::string, State::SlidePhase> historical_slide_phases;
     const auto replay_broad_ticks = [&](Integer first, Integer last) {
         if (first > last || std::none_of(broad_work.begin(), broad_work.end(),
                 [](const auto& entry) { return !entry.second.work_lots.empty(); })) return true;
@@ -2079,6 +2080,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (!at_revision || (normal_enabled && !normal_power)) return false;
         const auto historical = assembly_parts(*at_revision);
         const assembly::Layout layout(historical);
+        auto broad_slide_phases = historical_slide_phases;
         struct BroadRate { Integer subticks{}, remainder{}, denominator{1}; };
         const auto rates_for = [&](const DrivePower& power)
                 -> std::optional<std::map<mechanics::Point, BroadRate>> {
@@ -2106,19 +2108,54 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             std::optional<std::map<mechanics::Point, BroadRate>>{
                 std::map<mechanics::Point, BroadRate>{}};
         if (!normal_rates) return false;
-        if (normal_rates->empty() && !has_pulse) return true;
+        const bool sized_work = std::any_of(broad_work.begin(), broad_work.end(),
+            [&](const auto& entry) {
+                return !entry.second.work_lots.empty() &&
+                    layout.inspect_broad_sliding_press(entry.first).press.has_value();
+            });
+        if (normal_rates->empty() && !sized_work && !has_pulse) return true;
         for (Integer revision = first; revision <= last; ++revision) {
             std::optional<std::map<mechanics::Point, BroadRate>> manual_rates;
             const auto* rates = &*normal_rates;
+            const DrivePower* revision_power = normal_power;
             if (crank_pulses.contains(revision)) {
                 const auto* power = power_at(revision);
                 if (!power || !power->mechanical.accepted()) return false;
                 manual_rates = rates_for(*power);
                 if (!manual_rates) return false;
                 rates = &*manual_rates;
+                revision_power = power;
             } else if (!normal_enabled) continue;
             for (auto& [point, cargo] : broad_work) {
                 if (cargo.work_lots.empty()) continue;
+                const auto sized = layout.inspect_broad_sliding_press(point);
+                if (sized.press) {
+                    const auto phase = broad_slide_phases.find(sized.press->slide);
+                    const auto motion = revision_power->mechanical.motion.find(sized.press->slide);
+                    if (phase == broad_slide_phases.end() ||
+                        motion == revision_power->mechanical.motion.end()) return false;
+                    if (motion->second.state != mechanics::MotionState::rotating ||
+                        (revision_power->load.contains(sized.press->slide) &&
+                         revision_power->load.at(sized.press->slide).overloaded)) continue;
+                    const auto contact = powered_slide_contact(phase->second, motion->second.rate);
+                    if (!contact || !advance_slide_phase(phase->second, motion->second.rate))
+                        return false;
+                    if (!*contact) continue;
+                    auto& lot = cargo.work_lots.front();
+                    const auto before = lot.remaining_ticks;
+                    const auto id = lot.id;
+                    materials::advance_work_lot(lot, materials::work_subticks_per_tick, 0, 1);
+                    if (lot.remaining_ticks < before) {
+                        broad_reductions[id] += before - lot.remaining_ticks;
+                        broad_transitions[id].push_back({revision, point, before,
+                            lot.remaining_ticks});
+                    }
+                    if (lot.remaining_ticks == 0) {
+                        cargo.work_lots.clear();
+                        cargo.sheets.push_back({id, 0});
+                    }
+                    continue;
+                }
                 const auto rate = rates->find(point);
                 if (rate == rates->end()) continue;
                 auto& lot = cargo.work_lots.front();
@@ -2141,7 +2178,6 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         }
         return true;
     };
-    std::map<std::string, State::SlidePhase> historical_slide_phases;
     const State* replay_slide_state = nullptr;
     std::vector<assembly::Part> replay_slide_parts;
     std::optional<assembly::Layout> replay_slide_layout;
@@ -2634,7 +2670,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto* center = field<Value::Array>(record.result, "work_center");
             const auto work = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
             if (placed == placed_components.end() ||
-                placed->second.first != materials::Component::anvil || !work ||
+                (placed->second.first != materials::Component::anvil &&
+                 placed->second.first != materials::Component::broad_anvil) || !work ||
                 placed->second.second != *work) return false;
             if (!historical_layout) {
                 historical_parts.clear();
@@ -2646,15 +2683,19 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 historical_layout.emplace(historical_parts);
             }
             const auto geometry = historical_layout->inspect_broad_press(*work);
-            if (!geometry.press || geometry.press->anvils.front() != *entity) return false;
-            for (const auto& cell : geometry.press->work_centers)
+            const auto sized = historical_layout->inspect_broad_sliding_press(*work);
+            if ((!geometry.press || geometry.press->anvils.front() != *entity) &&
+                (!sized.press || sized.press->anvil != *entity)) return false;
+            const auto& work_centers = sized.press ? sized.press->work_centers :
+                geometry.press->work_centers;
+            for (const auto& cell : work_centers)
                 if (broad_work.contains(cell) || press_work.contains(cell) ||
                     press_products.contains(cell) || expected_offcuts.contains(cell)) return false;
             for (const auto& [other, cargo] : broad_work) {
                 (void)cargo;
                 const auto occupied = broad_cells(other);
-                if (std::any_of(geometry.press->work_centers.begin(),
-                        geometry.press->work_centers.end(), [&](const auto& cell) {
+                if (std::any_of(work_centers.begin(),
+                        work_centers.end(), [&](const auto& cell) {
                             return std::find(occupied.begin(), occupied.end(), cell) != occupied.end();
                         })) return false;
             }
@@ -3509,18 +3550,19 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto component = materials::component_from_name(*field<std::string>(record.result, "component"));
             const auto center = grid_point(Object{{"center", record.result.at("component_center")}});
             if (!component || !center) return false;
-            auto& carried = crafted_components[{*actor, *component}];
+            const auto [carried_kind, parts] = materials::placement_parts(*component);
+            auto& carried = crafted_components[{*actor, carried_kind}];
             if (*action == "place_component") {
-                if (carried < 1 || !placed_components.emplace(*entity, std::make_pair(*component, *center)).second)
+                if (carried < parts || !placed_components.emplace(*entity, std::make_pair(*component, *center)).second)
                     return false;
                 if (slide_component(*component) &&
                     !historical_slide_phases.emplace(*entity, State::SlidePhase{}).second) return false;
-                --carried;
+                carried -= parts;
             } else {
                 const auto found = placed_components.find(*entity);
                 if (found == placed_components.end() || found->second != std::make_pair(*component, *center) ||
                     (profile.material.component_capacity > 0 &&
-                        carried >= profile.material.component_capacity)) return false;
+                        carried > profile.material.component_capacity - parts)) return false;
                 if (*component == materials::Component::anvil &&
                     historical_slide_routes.contains(*center)) return false;
                 if (*component == materials::Component::anvil &&
@@ -3532,7 +3574,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 placed_components.erase(found);
                 if (slide_component(*component) && historical_slide_phases.erase(*entity) != 1)
                     return false;
-                ++carried;
+                carried += parts;
             }
             if (carried != *field<Integer>(record.result, "component_count") ||
                 !within_component_capacity(*actor)) return false;
@@ -4196,6 +4238,11 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         const auto inspected = layout.inspect_sliding_press(item.center);
         if (inspected.press) impacts.at(inspected.press->slide) += 4;
     }
+    for (const auto& item : placed) {
+        if (item.kind != materials::Component::broad_anvil) continue;
+        const auto inspected = layout.inspect_broad_sliding_press(item.center);
+        if (inspected.press) impacts.at(inspected.press->slide) += 8;
+    }
     // A placed collector mount owns its spindle even while its cutter or
     // receiver is missing. Readiness controls ore cutting, not crank custody.
     std::map<mechanics::Point, std::optional<mechanics::Axis>> collector_mount_axes;
@@ -4765,23 +4812,24 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             !add(component_totals[placed.kind], 1)) return false;
         for (const auto coordinate : placed.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
-        const auto channel = materials::channel_spec(placed.kind);
-        if (channel && (placed.center[0] % 4 != 0 || placed.center[2] % 4 != 0))
+        const auto occupied = materials::component_workcells(placed.kind, placed.center);
+        const bool area = occupied.has_value();
+        const bool needs_support = materials::channel_spec(placed.kind).has_value() ||
+            placed.kind == materials::Component::broad_anvil;
+        if (area && (placed.center[0] % 4 != 0 || placed.center[2] % 4 != 0 ||
+            ((placed.kind == materials::Component::broad_anvil && placed.center[1] % 4 != 0) ||
+             (placed.kind == materials::Component::broad_flat_head && placed.center[1] % 4 != 1))))
             return false;
-        const auto channel_cells = channel ?
-            materials::channel_workcells(placed.kind, placed.center) :
-            std::optional<std::vector<materials::DropPoint>>{};
-        if (channel && !channel_cells) return false;
-        const auto cells = channel ? *channel_cells :
+        const auto cells = area ? *occupied :
             std::vector<materials::DropPoint>{placed.center};
         for (const auto& cell : cells) {
             if (!component_cells.insert(cell).second ||
-                (channel && state.fabrication_hub && !state.fabrication_hub->holder &&
+                (area && state.fabrication_hub && !state.fabrication_hub->holder &&
                  state.fabrication_hub->center == cell) ||
-                (channel && placed.center[1] != 0 &&
+                (needs_support && placed.center[1] != 0 &&
                  std::none_of(state.foundations.begin(), state.foundations.end(),
                      [&](const auto& entry) { return entry.second.center == cell; })) ||
-                (channel && std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
+                (area && std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
                      [&](const auto& item) { return item.geometry.center == cell; })))
                 return false;
         }
@@ -5182,8 +5230,13 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         if (!occupied) return refused("invalid_sheet_target");
         const auto& cells = *occupied;
         std::vector<materials::DropPoint> supports;
+        const bool sized_bed = std::any_of(state.placed_components.begin(),
+            state.placed_components.end(), [&](const auto& entry) {
+                return entry.second.kind == materials::Component::broad_anvil &&
+                    entry.second.center == *origin;
+            });
         for (const auto& cell : cells) {
-            if (std::any_of(state.placed_components.begin(), state.placed_components.end(),
+            if (sized_bed || std::any_of(state.placed_components.begin(), state.placed_components.end(),
                     [&](const auto& entry) {
                         return entry.second.kind == materials::Component::anvil &&
                             entry.second.center == cell;
@@ -6046,20 +6099,26 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto found = state.placed_components.find(*id);
         if (found == state.placed_components.end()) return refused("unknown_target", *id);
         if (found->second.generation != *generation) return refused("stale_generation", *id);
-        if (found->second.kind != materials::Component::anvil)
+        if (found->second.kind != materials::Component::anvil &&
+            found->second.kind != materials::Component::broad_anvil)
             return refused("not_press_anvil", *id);
         const auto parts = assembly_parts(state);
-        const auto geometry = assembly::Layout(parts).inspect_broad_press(found->second.center);
-        if (!geometry.press || geometry.press->anvils.front() != *id)
+        const assembly::Layout layout(parts);
+        const auto geometry = layout.inspect_broad_press(found->second.center);
+        const auto sized = layout.inspect_broad_sliding_press(found->second.center);
+        if ((!geometry.press || geometry.press->anvils.front() != *id) &&
+            (!sized.press || sized.press->anvil != *id))
             return refused("incomplete_assembly", *id);
-        const auto& press = *geometry.press;
-        for (const auto& center : press.work_centers)
+        const auto& origin = found->second.center;
+        const auto& work_centers = sized.press ? sized.press->work_centers :
+            geometry.press->work_centers;
+        for (const auto& center : work_centers)
             if (state.material.dropped_material.contains(center))
                 return refused("input_full", *id);
         for (const auto& [point, cargo] : state.material.dropped_material) {
             if (!broad_item(cargo)) continue;
             const auto occupied = broad_cells(point);
-            if (std::any_of(press.work_centers.begin(), press.work_centers.end(),
+            if (std::any_of(work_centers.begin(), work_centers.end(),
                     [&](const auto& cell) {
                         return std::find(occupied.begin(), occupied.end(), cell) != occupied.end();
                     })) return refused("input_full", *id);
@@ -6069,7 +6128,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         auto checked_cut = *cut;
         checked_cut.build_reach = profile_.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
-            broad_reach_targets(profile_, press.origin));
+            broad_reach_targets(profile_, origin));
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
@@ -6082,21 +6141,21 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             return refused("incompatible_work", *id, std::move(facts));
         auto candidate = state;
         const auto error = materials::feed_broad_press(candidate.material, profile_.material,
-            material_path(candidate.topology), binding.actor, press.origin,
+            material_path(candidate.topology), binding.actor, origin,
             refeed ? std::optional<materials::WorkId>(*work_id) : std::nullopt);
         if (error != materials::Error::none)
             return refused(materials::error_name(error), *id, std::move(facts));
         if (!refeed) candidate.press_progress.try_emplace(
-            candidate.material.dropped_material.at(press.origin).work_lots.front().id);
+            candidate.material.dropped_material.at(origin).work_lots.front().id);
         else candidate.press_progress.at(*work_id).refeed_seen = true;
         facts.emplace("generation", Value(*generation));
-        facts.emplace("work_center", Value(Value::Array{Value(press.origin[0]),
-            Value(press.origin[1]), Value(press.origin[2])}));
+        facts.emplace("work_center", Value(Value::Array{Value(origin[0]),
+            Value(origin[1]), Value(origin[2])}));
         if (refeed) facts.emplace("moved_work", lots_value({*lot}));
         else {
             facts.emplace("moved_raw", Value(Integer{3}));
             facts.emplace("formed_work_id", Value(candidate.material.dropped_material.at(
-                press.origin).work_lots.front().id));
+                origin).work_lots.front().id));
         }
         return accepted(std::move(candidate), *id, std::move(facts));
     }
@@ -6342,17 +6401,19 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         const auto center = placing ? *location : found->second.center;
         const auto kind = placing ? *component : found->second.kind;
         const auto channel = materials::channel_spec(kind);
-        const auto channel_cells = channel ?
-            materials::channel_workcells(kind, center) :
-            std::optional<std::vector<materials::DropPoint>>{};
+        const auto area_cells = materials::component_workcells(kind, center);
+        const bool broad = kind == materials::Component::broad_anvil ||
+            kind == materials::Component::broad_flat_head;
         if (kind == materials::Component::hand_crank)
             return refused("crank_requires_port");
-        if (channel && (!channel_cells || center[0] % 4 != 0 ||
-                        center[1] % 4 != 0 || center[2] % 4 != 0))
-            return refused("invalid_channel_target");
-        if (channel) {
-            for (const auto& cell : *channel_cells) {
-                if (center[1] != 0 &&
+        if ((channel || broad) && (!area_cells || center[0] % 4 != 0 ||
+                        center[2] % 4 != 0 ||
+                        (kind != materials::Component::broad_flat_head && center[1] % 4 != 0) ||
+                        (kind == materials::Component::broad_flat_head && center[1] % 4 != 1)))
+            return refused("invalid_area_target");
+        if (area_cells) {
+            for (const auto& cell : *area_cells) {
+                if ((channel || kind == materials::Component::broad_anvil) && center[1] != 0 &&
                     std::none_of(state.foundations.begin(), state.foundations.end(),
                         [&](const auto& entry) { return entry.second.center == cell; }))
                     return refused("missing_support");
@@ -6367,7 +6428,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                       state.fabrication_hub->center == cell) ||
                      std::any_of(state.placed_components.begin(), state.placed_components.end(),
                         [&](const auto& entry) {
-                            const auto occupied = materials::channel_workcells(
+                            const auto occupied = materials::component_workcells(
                                 entry.second.kind, entry.second.center);
                             return occupied ?
                                 std::find(occupied->begin(), occupied->end(), cell) != occupied->end() :
@@ -6394,11 +6455,13 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             return refused(authority::error_name(checked.error), target ? *target : "", std::move(facts));
         auto candidate = state;
         auto& cargo = candidate.material.cargo.at(binding.actor).components;
+        const auto [carried_kind, part_count] = materials::placement_parts(kind);
         std::string entity;
         Integer serial{};
         if (placing) {
-            const auto owned = cargo.find(kind);
-            if (owned == cargo.end() || owned->second < 1) return refused("no_component", "", std::move(facts));
+            const auto owned = cargo.find(carried_kind);
+            if (owned == cargo.end() || owned->second < part_count)
+                return refused("no_component", "", std::move(facts));
             if (state.placed_components.size() >= maximum_issued_entities ||
                 state.issued_entities.size() == maximum_issued_entities ||
                 state.next_entity_serial == std::numeric_limits<Integer>::max())
@@ -6407,7 +6470,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                  center == state.fabrication_hub->center) ||
                 std::any_of(state.placed_components.begin(), state.placed_components.end(),
                     [&](const auto& entry) {
-                        const auto occupied = materials::channel_workcells(
+                        const auto occupied = materials::component_workcells(
                             entry.second.kind, entry.second.center);
                         return occupied ?
                             std::find(occupied->begin(), occupied->end(), center) != occupied->end() :
@@ -6416,7 +6479,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
                     [&](const auto& item) { return item.geometry.center == center; }))
                 return refused("occupied", "", std::move(facts));
-            if (--owned->second == 0) cargo.erase(owned);
+            owned->second -= part_count;
+            if (owned->second == 0) cargo.erase(owned);
             serial = candidate.next_entity_serial++;
             entity = std::string(allocated_prefix) + std::to_string(serial);
             if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
@@ -6431,12 +6495,14 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 if (!add(carried, count)) return refused("inventory_full", *target, std::move(facts));
             }
             if (profile_.material.component_capacity > 0 &&
-                carried >= profile_.material.component_capacity)
+                carried > profile_.material.component_capacity - part_count)
                 return refused("inventory_full", *target, std::move(facts));
-            if (kind == materials::Component::anvil &&
+            if ((kind == materials::Component::anvil ||
+                 kind == materials::Component::broad_anvil) &&
                 state.slide_press_routes.contains(center))
                 return refused("work_on_anvil", *target, std::move(facts));
-            if (kind == materials::Component::anvil &&
+            if ((kind == materials::Component::anvil ||
+                 kind == materials::Component::broad_anvil) &&
                 std::any_of(state.material.dropped_material.begin(),
                     state.material.dropped_material.end(), [&](const auto& entry) {
                         if (!broad_item(entry.second)) return false;
@@ -6448,7 +6514,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 return refused("receiver_full", *target, std::move(facts));
             entity = *target;
             serial = *generation;
-            ++cargo[kind];
+            cargo[carried_kind] += part_count;
             candidate.placed_components.erase(entity);
             if (slide_component(kind)) candidate.slide_phases.erase(entity);
             auto& placed = candidate.material.placed_components.at(kind);
@@ -6456,8 +6522,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         }
         facts.emplace("generation", Value(serial));
         facts.emplace("component", Value(materials::component_name(kind)));
-        facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.contains(kind) ?
-            candidate.material.cargo.at(binding.actor).components.at(kind) : Integer{0}));
+        facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.contains(carried_kind) ?
+            candidate.material.cargo.at(binding.actor).components.at(carried_kind) : Integer{0}));
         facts.emplace("component_center", Value(Value::Array{Value(center[0]), Value(center[1]), Value(center[2])}));
         return accepted(std::move(candidate), entity, std::move(facts));
     }
@@ -6520,7 +6586,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
                 return refused("foundation_in_use", *id);
             if (std::any_of(state.placed_components.begin(), state.placed_components.end(),
                     [&](const auto& entry) {
-                        const auto occupied = materials::channel_workcells(
+                        const auto occupied = materials::component_workcells(
                             entry.second.kind, entry.second.center);
                         return occupied ? std::find(occupied->begin(), occupied->end(),
                             found->second.center) != occupied->end() :
@@ -7070,6 +7136,42 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
                         press.origin, before_remaining, remaining});
                 }
             }
+        }
+        for (const auto& press : tick_layout.broad_slides) {
+            const auto found = candidate.material.dropped_material.find(press.origin);
+            if (found == candidate.material.dropped_material.end() ||
+                found->second.work_lots.size() != 1 ||
+                found->second.work_lots.front().recipe.output != materials::WorkOutput::sheet ||
+                std::any_of(press.work_centers.begin() + 1, press.work_centers.end(),
+                    [&](const auto& cell) {
+                        return candidate.material.dropped_material.contains(cell);
+                    })) continue;
+            const auto shaft = motion.motion.find(press.slide);
+            const auto before = snapshot.state.slide_phases.find(press.slide);
+            if (shaft == motion.motion.end() || before == snapshot.state.slide_phases.end())
+                throw materials::Error::invalid_state;
+            if (shaft->second.state != mechanics::MotionState::rotating ||
+                (drive.load.contains(press.slide) && drive.load.at(press.slide).overloaded))
+                continue;
+            const auto contact = powered_slide_contact(before->second, shaft->second.rate);
+            if (!contact) throw materials::Error::invalid_state;
+            if (!*contact) continue;
+            const auto id = found->second.work_lots.front().id;
+            const auto remaining_before = found->second.work_lots.front().remaining_ticks;
+            const auto error = materials::turn_broad_press(candidate.material, profile_.material,
+                material_path(candidate.topology), press.origin, 0,
+                materials::work_subticks_per_tick, 0, 1);
+            if (error != materials::Error::none) throw error;
+            const auto& after = candidate.material.dropped_material.at(press.origin);
+            const auto remaining = after.work_lots.size() == 1 ?
+                after.work_lots.front().remaining_ticks : Integer{0};
+            auto& witness = candidate.press_progress[id];
+            if (remaining > remaining_before ||
+                !add(witness.automatic_remaining_ticks, remaining_before - remaining))
+                throw materials::Error::invalid_state;
+            if (remaining < remaining_before)
+                witness.automatic_transitions.push_back({snapshot.revision + 1,
+                    press.origin, remaining_before, remaining});
         }
         // A placed press owns work at its anvil. Its provisional
         // unattended exit is opposite its drive shaft, so adding an obstacle
