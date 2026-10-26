@@ -39,6 +39,15 @@ contracts remain; resource renders are isolated passive evidence.
 It checks first-person capture policy, relative camera motion, menu release and
 held-key refusal in a headless view. It does not establish actual OS focus or
 human mouse control.
+The guidance fixture's no-argument default and `--route-report-only` run its
+route report; one other `--...-only` selector runs its named suite. These modes
+emit `OPENING_GUIDANCE_CUE_PASS` with that suite's check count, except camera
+profile, zoom and mouse look, which emit their own `OPENING_CAMERA_*_PASS` or
+`OPENING_MOUSE_LOOK_PASS` line. The explicit `--verifier-negative-control` must
+fail. Unknown, duplicate or combined suite selectors exit 2 before checks.
+Screenshot paths belong only to their channel hotbar, slide manager or inventory
+goal suites; empty, repeated or unrelated screenshot arguments also exit 2.
+Select the complete revision-matched PASS line for a positive generic run.
 
 `native_adapter_check.gd` requires exactly one nonempty `--native-check-mode`
 and `--native-check-output`. It refuses unknown, repeated or empty arguments

@@ -6,6 +6,23 @@ const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
 const NativeModel = preload("res://opening/native_model.gd")
 const CharacterPresenter = preload("res://opening/character_presenter.gd")
+const SUITES := ["--channel-hotbar-icons-only", "--slide-manager-cue-only",
+	"--inventory-goal-only", "--manager-controls-only", "--reveal-controls-only",
+	"--route-report-only", "--foundation-inspector-only", "--foundation-view-only",
+	"--footer-layout-only", "--manager-log-shared-only", "--camera-profile-only",
+	"--camera-zoom-only", "--mouse-look-only", "--verifier-negative-control"]
+const CAPTURE_SUITES := {
+	"--channel-icon-normal-screenshot=": "--channel-hotbar-icons-only",
+	"--channel-icon-narrow-screenshot=": "--channel-hotbar-icons-only",
+	"--slide-missing-crank-screenshot=": "--slide-manager-cue-only",
+	"--slide-manager-screenshot=": "--slide-manager-cue-only",
+	"--slide-outlet-cue-screenshot=": "--slide-manager-cue-only",
+	"--slide-outlet-cue-narrow-screenshot=": "--slide-manager-cue-only",
+	"--slide-partial-screenshot=": "--slide-manager-cue-only",
+	"--inventory-goal-screenshot=": "--inventory-goal-only",
+	"--manager-complete-log-screenshot=": "--inventory-goal-only",
+	"--manager-complete-log-narrow-screenshot=": "--inventory-goal-only",
+}
 var checks := 0
 var camera_failed := false
 var failed := false
@@ -1144,50 +1161,61 @@ func run_native_route_report() -> void:
 	finish_checks()
 
 func _initialize() -> void:
-	if OS.get_cmdline_user_args().has("--channel-hotbar-icons-only"):
-		call_deferred("check_channel_hotbar_icons")
+	var selected := ""
+	var captures: Dictionary = {}
+	var purpose_seen := false
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--test-purpose="):
+			if purpose_seen or argument.trim_prefix("--test-purpose=").is_empty():
+				push_error("Duplicate or empty guidance fixture window purpose")
+				quit(2)
+				return
+			purpose_seen = true
+			continue
+		if SUITES.has(argument):
+			if not selected.is_empty():
+				push_error("Select exactly one guidance fixture suite")
+				quit(2)
+				return
+			selected = argument
+			continue
+		var capture := ""
+		for prefix: String in CAPTURE_SUITES:
+			if argument.begins_with(prefix):
+				capture = prefix
+				break
+		if capture.is_empty() or captures.has(capture) or argument.length() <= capture.length():
+			push_error("Unknown, duplicate or empty guidance fixture argument: " + argument)
+			quit(2)
+			return
+		captures[capture] = true
+	for capture: String in captures:
+		if selected != CAPTURE_SUITES[capture]:
+			push_error("The guidance fixture screenshot does not belong to the selected suite: " + capture)
+			quit(2)
+			return
+	if not Opening.apply_test_window_title(self):
 		return
-	if OS.get_cmdline_user_args().has("--slide-manager-cue-only"):
-		call_deferred("check_slide_manager_cue")
-		return
-	if OS.get_cmdline_user_args().has("--inventory-goal-only"):
-		call_deferred("check_inventory_goal_view")
-		return
-	if OS.get_cmdline_user_args().has("--manager-controls-only"):
-		call_deferred("check_manager_controls")
-		return
-	if OS.get_cmdline_user_args().has("--reveal-controls-only"):
-		call_deferred("check_reveal_controls")
-		return
-	if OS.get_cmdline_user_args().has("--route-report-only"):
-		run_native_route_report.call_deferred()
-		return
-	if OS.get_cmdline_user_args().has("--foundation-inspector-only"):
-		call_deferred("check_foundation_inspector")
-		return
-	if OS.get_cmdline_user_args().has("--foundation-view-only"):
-		check_foundation_view.call_deferred()
-		return
-	if OS.get_cmdline_user_args().has("--footer-layout-only"):
-		call_deferred("check_footer_layout")
-		return
-	if OS.get_cmdline_user_args().has("--manager-log-shared-only"):
-		call_deferred("check_shared_manager_log")
-		return
-	if OS.get_cmdline_user_args().has("--camera-profile-only"):
-		check_camera_profiles()
-		print("OPENING_CAMERA_PROFILE_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
-		quit(1 if camera_failed else 0)
-		return
-	if OS.get_cmdline_user_args().has("--camera-zoom-only"):
-		call_deferred("check_camera_zoom")
-		return
-	if OS.get_cmdline_user_args().has("--mouse-look-only"):
-		call_deferred("check_mouse_look")
-		return
-	if OS.get_cmdline_user_args().has("--verifier-negative-control"):
-		nested_failure_control()
-		finish_checks()
-		return
-	check_native_route_report()
-	finish_checks()
+	match selected:
+		"--channel-hotbar-icons-only": call_deferred("check_channel_hotbar_icons")
+		"--slide-manager-cue-only": call_deferred("check_slide_manager_cue")
+		"--inventory-goal-only": call_deferred("check_inventory_goal_view")
+		"--manager-controls-only": call_deferred("check_manager_controls")
+		"--reveal-controls-only": call_deferred("check_reveal_controls")
+		"--route-report-only": run_native_route_report.call_deferred()
+		"--foundation-inspector-only": call_deferred("check_foundation_inspector")
+		"--foundation-view-only": check_foundation_view.call_deferred()
+		"--footer-layout-only": call_deferred("check_footer_layout")
+		"--manager-log-shared-only": call_deferred("check_shared_manager_log")
+		"--camera-profile-only":
+			check_camera_profiles()
+			print("OPENING_CAMERA_PROFILE_%s %d" % ["FAIL" if camera_failed else "PASS", checks])
+			quit(1 if camera_failed else 0)
+		"--camera-zoom-only": call_deferred("check_camera_zoom")
+		"--mouse-look-only": call_deferred("check_mouse_look")
+		"--verifier-negative-control":
+			nested_failure_control()
+			finish_checks()
+		_:
+			check_native_route_report()
+			finish_checks()
