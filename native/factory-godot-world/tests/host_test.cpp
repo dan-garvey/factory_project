@@ -350,6 +350,13 @@ void nonarrival_tick_schema() {
     const auto full_before = std::get<O>(host.projection().storage());
     check(factory::godot_world::projection_contract::complete(V(full_before)),
           "The ordinary Host exports every stable typed projection field.");
+    check(!field<bool>(V(field<O>(V(full_before), "options")), "arrival") &&
+          !full_before.contains("landing_pod"),
+          "An ordinary site advertises its profile without requiring arrival hardware.");
+    auto malformed_optional_hardware = full_before;
+    malformed_optional_hardware.emplace("supplied_hardware_boxes", V(O{{"broken", V(O{})}}));
+    check(!factory::godot_world::projection_contract::complete(V(malformed_optional_hardware)),
+          "Present arrival hardware still needs its typed physical bounds on an ordinary site.");
     auto optional_arrival_record = full_before;
     optional_arrival_record.emplace("collector_assemblies", V(A{}));
     auto malformed_optional_arrival_record = optional_arrival_record;

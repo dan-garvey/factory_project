@@ -16,11 +16,12 @@ using Object = Value::Object;
 
 enum class Type { string, integer, floating, boolean, array, object, integer2, integer3,
                   floating2, floating3, string_pairs, integer_pairs, integer_values,
-                  string_array };
+                  string_array, nullable_string, integer3_or_empty, integer3_array };
 
 struct Field {
     std::string_view name;
     Type type;
+    bool optional{};
 };
 
 // Every Host projection has these fields in both ordinary and arrival worlds.
@@ -67,9 +68,9 @@ struct ConditionalField {
 };
 
 inline constexpr std::array conditional_fields{
-    ConditionalField{"component_capacity", Type::integer, "landing_pod"},
-    ConditionalField{"workshop_completed_actors", Type::string_array, "landing_pod"},
-    ConditionalField{"first_plate_unlock", Type::boolean, "landing_pod"},
+    ConditionalField{"component_capacity", Type::integer, "options.arrival"},
+    ConditionalField{"workshop_completed_actors", Type::string_array, "options.arrival"},
+    ConditionalField{"first_plate_unlock", Type::boolean, "options.arrival"},
 };
 
 // These records have the same required shape in ordinary and arrival worlds.
@@ -80,7 +81,7 @@ struct Record {
     std::string_view name;
     Container container;
     std::span<const Field> fields;
-    // Arrival-only records are required when this top-level field is present.
+    // A dotted native projection fact decides profile-specific presence.
     std::string_view required_with{};
 };
 
@@ -156,7 +157,8 @@ inline constexpr std::array adapter_profile_fields{
 };
 inline constexpr std::array option_fields{
     Field{"opening", Type::boolean}, Field{"physical", Type::boolean},
-    Field{"native", Type::boolean}, Field{"foundations", Type::boolean},
+    Field{"native", Type::boolean}, Field{"arrival", Type::boolean},
+    Field{"foundations", Type::boolean},
     Field{"developer_conveniences", Type::boolean},
 };
 inline constexpr std::array collector_lift_fields{
@@ -205,6 +207,42 @@ inline constexpr std::array part_recipe_fields{
     Field{"half_span", Type::integer}, Field{"timber", Type::integer},
     Field{"copper", Type::integer},
 };
+inline constexpr std::array supplied_hardware_fields{
+    Field{"entity", Type::string}, Field{"generation", Type::integer},
+    Field{"center", Type::floating3}, Field{"half", Type::floating3},
+};
+inline constexpr std::array landing_pod_fields{
+    Field{"id", Type::string}, Field{"generation", Type::integer},
+    Field{"center", Type::integer3}, Field{"deployed", Type::boolean},
+    Field{"hub_ready", Type::boolean},
+};
+inline constexpr std::array fabrication_hub_fields{
+    Field{"id", Type::string}, Field{"generation", Type::integer},
+    Field{"installed", Type::boolean}, Field{"holder", Type::nullable_string},
+    Field{"center", Type::integer3}, Field{"position", Type::floating3},
+};
+inline constexpr std::array fabrication_bench_fields{
+    Field{"id", Type::string}, Field{"generation", Type::integer},
+    Field{"center", Type::integer3}, Field{"position", Type::floating3},
+};
+inline constexpr std::array crank_item_fields{
+    Field{"id", Type::string}, Field{"generation", Type::integer},
+    Field{"holder", Type::string}, Field{"attached_to", Type::string},
+    Field{"port", Type::integer3_or_empty}, Field{"face", Type::integer3_or_empty},
+};
+inline constexpr std::array placed_component_fields{
+    Field{"component", Type::string}, Field{"generation", Type::integer},
+    Field{"center", Type::integer3}, Field{"occupied", Type::object},
+    Field{"occupied.center", Type::floating3},
+    Field{"occupied.half", Type::floating3},
+    Field{"position", Type::floating3},
+    Field{"input_ports", Type::integer3_array, true},
+    Field{"crank_axis", Type::integer, true},
+};
+inline constexpr std::array slide_phase_fields{
+    Field{"subticks", Type::integer}, Field{"remainder", Type::integer},
+    Field{"denominator", Type::integer}, Field{"cycle_subticks", Type::integer},
+};
 inline constexpr std::array records{
     Record{"stock", Container::object, stock_fields},
     Record{"cargo", Container::object_values, cargo_fields},
@@ -225,24 +263,36 @@ inline constexpr std::array records{
     Record{"parts", Container::object, kit_fields},
     Record{"part_specifications", Container::object_array_elements,
         part_specification_fields},
+    Record{"supplied_hardware_boxes", Container::object_values,
+        supplied_hardware_fields, "options.arrival"},
+    Record{"landing_pod", Container::object, landing_pod_fields, "options.arrival"},
+    Record{"fabrication_hub", Container::object, fabrication_hub_fields, "options.arrival"},
+    Record{"fabrication_benches", Container::array_elements,
+        fabrication_bench_fields, "options.arrival"},
+    Record{"crank_items", Container::object_values, crank_item_fields,
+        "options.arrival"},
+    Record{"placed_components", Container::object_values,
+        placed_component_fields, "options.arrival"},
+    Record{"slide_phases", Container::object_values, slide_phase_fields,
+        "options.arrival"},
     Record{"component_recipes", Container::object_values, recipe_fields,
-        "landing_pod"},
+        "options.arrival"},
     Record{"part_recipes", Container::array_elements, part_recipe_fields,
-        "landing_pod"},
+        "options.arrival"},
     Record{"foundation_recipe", Container::object, recipe_fields,
-        "landing_pod"},
+        "options.arrival"},
     Record{"collector_assemblies", Container::array_elements, collector_assembly_fields,
-        "landing_pod"},
+        "options.arrival"},
     Record{"press_assemblies", Container::array_elements, press_assembly_fields,
-        "landing_pod"},
+        "options.arrival"},
     Record{"guided_press_assemblies", Container::array_elements,
-        guided_press_assembly_fields, "landing_pod"},
+        guided_press_assembly_fields, "options.arrival"},
     Record{"sliding_press_assemblies", Container::array_elements,
-        guided_press_assembly_fields, "landing_pod"},
+        guided_press_assembly_fields, "options.arrival"},
     Record{"broad_press_assemblies", Container::array_elements, broad_assembly_fields,
-        "landing_pod"},
+        "options.arrival"},
     Record{"broad_shear_assemblies", Container::array_elements, broad_assembly_fields,
-        "landing_pod"},
+        "options.arrival"},
 };
 
 inline bool typed(const Value& value, Type type) {
@@ -295,14 +345,34 @@ inline bool typed(const Value& value, Type type) {
                 if (!typed(entry, Type::string)) return false;
             return true;
         }
+        case Type::nullable_string:
+            return std::holds_alternative<std::nullptr_t>(value.storage()) ||
+                typed(value, Type::string);
+        case Type::integer3_or_empty: {
+            const auto* entries = std::get_if<Value::Array>(&value.storage());
+            return entries && (entries->empty() || typed(value, Type::integer3));
+        }
+        case Type::integer3_array: {
+            const auto* entries = std::get_if<Value::Array>(&value.storage());
+            if (!entries) return false;
+            for (const auto& entry : *entries)
+                if (!typed(entry, Type::integer3)) return false;
+            return true;
+        }
     }
     return false;
 }
 
+inline const Value* record_at(const Object& projection, std::string_view path);
+
 inline bool required_fields(const Object& object, std::span<const Field> fields) {
     for (const auto& field : fields) {
-        const auto found = object.find(std::string(field.name));
-        if (found == object.end() || !typed(found->second, field.type)) return false;
+        const auto* found = record_at(object, field.name);
+        if (!found) {
+            if (field.optional) continue;
+            return false;
+        }
+        if (!typed(*found, field.type)) return false;
     }
     return true;
 }
@@ -350,6 +420,12 @@ inline const Value* record_at(const Object& projection, std::string_view path) {
     }
 }
 
+inline bool required_with(const Object& projection, std::string_view path) {
+    const auto* marker = record_at(projection, path);
+    const auto* enabled = marker ? std::get_if<bool>(&marker->storage()) : nullptr;
+    return enabled && *enabled;
+}
+
 inline bool complete(const Value& value, bool engine_view = false) {
     const auto* object = std::get_if<Object>(&value.storage());
     if (!object) return false;
@@ -357,7 +433,7 @@ inline bool complete(const Value& value, bool engine_view = false) {
     for (const auto& field : conditional_fields) {
         const auto found = object->find(std::string(field.name));
         if (found == object->end()) {
-            if (!object->contains(std::string(field.required_with))) continue;
+            if (!required_with(*object, field.required_with)) continue;
             return false;
         }
         if (!typed(found->second, field.type)) return false;
@@ -366,7 +442,7 @@ inline bool complete(const Value& value, bool engine_view = false) {
         const auto* found = record_at(*object, record.name);
         if (!found) {
             if (!record.required_with.empty() &&
-                !object->contains(std::string(record.required_with))) continue;
+                !required_with(*object, record.required_with)) continue;
             return false;
         }
         if (!complete_record(*found, record)) return false;
@@ -394,6 +470,9 @@ inline const char* type_name(Type type) {
         case Type::integer_pairs: return "integer_pairs";
         case Type::integer_values: return "integer_values";
         case Type::string_array: return "string_array";
+        case Type::nullable_string: return "nullable_string";
+        case Type::integer3_or_empty: return "integer3_or_empty";
+        case Type::integer3_array: return "integer3_array";
     }
     return "";
 }
@@ -412,8 +491,14 @@ inline Value record_fields() {
     Object output;
     for (const auto& record : records) {
         Object fields;
-        for (const auto& field : record.fields)
-            fields.emplace(std::string(field.name), Value(type_name(field.type)));
+        for (const auto& field : record.fields) {
+            if (field.optional)
+                fields.emplace(std::string(field.name), Value(Object{
+                    {"type", Value(type_name(field.type))},
+                    {"optional", Value(true)}}));
+            else
+                fields.emplace(std::string(field.name), Value(type_name(field.type)));
+        }
         Object definition{{"container", Value(container_name(record.container))},
             {"fields", Value(std::move(fields))}};
         if (!record.required_with.empty())

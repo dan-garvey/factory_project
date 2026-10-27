@@ -126,7 +126,7 @@ func _complete_projection(value: Dictionary) -> bool:
 			required_with = expected.required_with
 			expected = expected.type
 		if not value.has(name):
-			if not required_with.is_empty() and not value.has(required_with):
+			if not required_with.is_empty() and not _projection_requires(value, required_with):
 				continue
 			return false
 		if not _projection_type_matches(value[name], expected):
@@ -149,7 +149,7 @@ func _complete_projection(value: Dictionary) -> bool:
 				break
 			nested = nested[segment]
 		if missing:
-			if not required_with.is_empty() and not value.has(required_with):
+			if not required_with.is_empty() and not _projection_requires(value, required_with):
 				continue
 			return false
 		var entries: Array = []
@@ -173,16 +173,44 @@ func _complete_projection(value: Dictionary) -> bool:
 			if not entry is Dictionary:
 				return false
 			for field in record.fields:
-				if not field is String or not entry.has(field) \
-					or not _projection_type_matches(entry[field], record.fields[field]):
+				if not field is String:
+					return false
+				var expected_field: Variant = record.fields[field]
+				var optional := false
+				if expected_field is Dictionary:
+					if not expected_field.get("type") is String \
+						or typeof(expected_field.get("optional")) != TYPE_BOOL:
+						return false
+					optional = expected_field.optional
+					expected_field = expected_field.type
+				var nested_field: Variant = entry
+				var field_missing := false
+				for segment in field.split("."):
+					if not nested_field is Dictionary or not nested_field.has(segment):
+						field_missing = true
+						break
+					nested_field = nested_field[segment]
+				if field_missing:
+					if optional: continue
+					return false
+				if not _projection_type_matches(nested_field, expected_field):
 					return false
 	return true
+
+func _projection_requires(value: Dictionary, path: String) -> bool:
+	var marker: Variant = value
+	for segment in path.split("."):
+		if not marker is Dictionary or not marker.has(segment):
+			return false
+		marker = marker[segment]
+	return typeof(marker) == TYPE_BOOL and marker
 
 func _projection_type_matches(value: Variant, expected: Variant) -> bool:
 	if not expected is String:
 		return false
 	match expected:
 		"string": return typeof(value) == TYPE_STRING
+		"nullable_string": return typeof(value) in [TYPE_NIL, TYPE_STRING]
 		"integer": return typeof(value) == TYPE_INT
 		"floating": return typeof(value) == TYPE_FLOAT
 		"boolean": return typeof(value) == TYPE_BOOL
@@ -205,6 +233,13 @@ func _projection_type_matches(value: Variant, expected: Variant) -> bool:
 			for coordinate in value:
 				if typeof(coordinate) != scalar_type:
 					return false
+			return true
+		"integer3_or_empty":
+			return value is Array and (value.is_empty() or _projection_type_matches(value, "integer3"))
+		"integer3_array":
+			if not value is Array: return false
+			for point in value:
+				if not _projection_type_matches(point, "integer3"): return false
 			return true
 		"string_pairs", "integer_pairs":
 			if not value is Array:

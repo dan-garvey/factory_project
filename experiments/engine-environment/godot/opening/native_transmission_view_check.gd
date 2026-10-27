@@ -74,6 +74,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_assembly_delta := false
 	var inject_bad_catalog_full := false
 	var inject_bad_catalog_delta := false
+	var inject_bad_worksite_full := false
+	var inject_bad_worksite_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -106,6 +108,9 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "projection" and inject_bad_catalog_full:
 			inject_bad_catalog_full = false
 			delivered.erase("component_recipes")
+		elif method == "projection" and inject_bad_worksite_full:
+			inject_bad_worksite_full = false
+			delivered.erase("landing_pod")
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -136,6 +141,12 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "advance_delta" and inject_bad_catalog_delta:
 			inject_bad_catalog_delta = false
 			return {"changes": {"part_kits": {"P": {"foundation": "many"}}}, "removed": []}
+		elif method == "advance_delta" and inject_bad_worksite_delta:
+			inject_bad_worksite_delta = false
+			return {"changes": {"placed_components": {"broken": {
+				"component": "wooden_frame", "generation": 1, "center": [0, 0, 0],
+				"occupied": {"center": [0.0, 0.0, 0.0], "half": [1.0, 1.0]},
+				"position": [0.0, 0.0, 0.0]}}}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3908,7 +3919,7 @@ func _native_view_cache_regression() -> void:
 		missing_assembly.erase(name)
 		var wrong_assembly := complete.duplicate(true)
 		wrong_assembly[name] = [{"status": "ready", "center": [0, 0]}]
-		assembly_shapes_valid = assembly_shapes_valid and record.get("required_with") == "landing_pod" \
+		assembly_shapes_valid = assembly_shapes_valid and record.get("required_with") == "options.arrival" \
 			and not trusted._complete_projection(missing_assembly) \
 			and not trusted._complete_projection(wrong_assembly)
 	verify(assembly_shapes_valid,
@@ -3924,9 +3935,50 @@ func _native_view_cache_regression() -> void:
 		catalog_presence_valid = catalog_presence_valid and not trusted._complete_projection(missing_catalog)
 	verify(catalog_presence_valid and trusted._projection_fields.inventories == "integer_values"
 		and trusted._projection_records.part_specifications.container == "object_array_elements"
-		and trusted._projection_fields.first_plate_unlock.required_with == "landing_pod"
-		and trusted._projection_records.component_recipes.required_with == "landing_pod",
+		and trusted._projection_fields.first_plate_unlock.required_with == "options.arrival"
+		and trusted._projection_records.component_recipes.required_with == "options.arrival",
 		"The native catalog contract requires every arrival choice and progress field.")
+	var worksite_presence_valid: bool = complete.options.arrival == true
+	for name in ["supplied_hardware_boxes", "landing_pod", "fabrication_hub",
+			"fabrication_benches", "crank_items", "placed_components", "slide_phases"]:
+		var missing_worksite := complete.duplicate(true)
+		missing_worksite.erase(name)
+		worksite_presence_valid = worksite_presence_valid \
+			and trusted._projection_records[name].required_with == "options.arrival" \
+			and not trusted._complete_projection(missing_worksite)
+	verify(worksite_presence_valid and ordinary.projection().options.arrival == false,
+		"The native profile requires every physical arrival readout, even when the pod itself is missing.")
+	var wrong_hardware := complete.duplicate(true)
+	wrong_hardware.supplied_hardware_boxes = {"broken": {"entity": "box", "generation": 1,
+		"center": [0.0, 0.0], "half": [1.0, 1.0, 1.0]}}
+	var wrong_hub := complete.duplicate(true)
+	wrong_hub.fabrication_hub.holder = false
+	var wrong_bench := complete.duplicate(true)
+	wrong_bench.fabrication_benches = [{"id": "bench"}]
+	var wrong_crank := complete.duplicate(true)
+	wrong_crank.crank_items = {"broken": {"id": "crank", "generation": 1,
+		"holder": "", "attached_to": "", "port": [1, 2], "face": []}}
+	var wrong_placed := complete.duplicate(true)
+	wrong_placed.placed_components = {"broken": {"component": "wooden_frame",
+		"generation": 1, "center": [0, 0, 0],
+		"occupied": {"center": [0.0, 0.0, 0.0], "half": [1.0, 1.0]},
+		"position": [0.0, 0.0, 0.0]}}
+	var wrong_ports := complete.duplicate(true)
+	wrong_ports.placed_components.broken = {"component": "wooden_frame",
+		"generation": 1, "center": [0, 0, 0],
+		"occupied": {"center": [0.0, 0.0, 0.0], "half": [1.0, 1.0, 1.0]},
+		"position": [0.0, 0.0, 0.0], "input_ports": [[1, 2]]}
+	var wrong_phase := complete.duplicate(true)
+	wrong_phase.slide_phases = {"broken": {"subticks": 0, "remainder": 0,
+		"denominator": "one", "cycle_subticks": 1}}
+	verify(not trusted._complete_projection(wrong_hardware)
+		and not trusted._complete_projection(wrong_hub)
+		and not trusted._complete_projection(wrong_bench)
+		and not trusted._complete_projection(wrong_crank)
+		and not trusted._complete_projection(wrong_placed)
+		and not trusted._complete_projection(wrong_ports)
+		and not trusted._complete_projection(wrong_phase),
+		"Arrival hardware, custody, occupied bounds, optional ports and slide phases keep native types.")
 	var wrong_inventory := complete.duplicate(true)
 	wrong_inventory.inventories.P = "one"
 	var wrong_kit := complete.duplicate(true)
@@ -4059,6 +4111,20 @@ func _native_view_cache_regression() -> void:
 		"A merged delta with a malformed kit count cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"A fresh native view recovers after a malformed kit delta.")
+	trusted._view_cache = {}
+	trusted.inject_bad_worksite_full = true
+	var bad_worksite_full: Dictionary = trusted.view_projection()
+	verify(bad_worksite_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full arrival view missing its pod cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after a missing pod.")
+	trusted.view_projection()
+	trusted.inject_bad_worksite_delta = true
+	var bad_worksite_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_worksite_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with malformed placed bounds cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after malformed worksite bounds.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

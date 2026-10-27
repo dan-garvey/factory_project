@@ -44,6 +44,44 @@ void arrival_projection_contract() {
         check(factory::godot_world::projection_contract::complete(host.projection()),
               "Both supported arrival profiles publish complete nested topology records.");
         const auto complete = std::get<O>(host.projection().storage());
+        check(get<bool>(V(get<O>(V(complete), "options")), "arrival"),
+              "The native profile identifies an arrival independently of its pod record.");
+        for (const char* name : {"supplied_hardware_boxes", "landing_pod",
+                 "fabrication_hub", "fabrication_benches", "crank_items",
+                 "placed_components", "slide_phases"}) {
+            auto missing = complete;
+            missing.erase(name);
+            check(!factory::godot_world::projection_contract::complete(V(missing)),
+                  "Every arrival worksite readout is required by the native profile fact.");
+        }
+        const auto malformed_worksite = [&](const char* name, V replacement) {
+            auto malformed = complete;
+            malformed.at(name) = std::move(replacement);
+            return !factory::godot_world::projection_contract::complete(V(malformed));
+        };
+        check(malformed_worksite("supplied_hardware_boxes", V(O{{"broken", V(O{
+                  {"entity", V("box")}, {"generation", V(I{1})},
+                  {"center", V(A{V(1.0), V(2.0)})},
+                  {"half", V(A{V(1.0), V(1.0), V(1.0)})}})}})) &&
+              malformed_worksite("fabrication_hub", V(O{{"id", V("hub")},
+                  {"generation", V(I{1})}, {"installed", V(true)},
+                  {"holder", V(false)}, {"center", V(A{V(I{0}), V(I{0}), V(I{0})})},
+                  {"position", V(A{V(0.0), V(0.0), V(0.0)})}})) &&
+              malformed_worksite("fabrication_benches", V(A{V(O{{"id", V("bench")}})})) &&
+              malformed_worksite("crank_items", V(O{{"broken", V(O{
+                  {"id", V("crank")}, {"generation", V(I{1})},
+                  {"holder", V("")}, {"attached_to", V("")},
+                  {"port", V(A{V(I{1}), V(I{2})})}, {"face", V(A{})}})}})) &&
+              malformed_worksite("placed_components", V(O{{"broken", V(O{
+                  {"component", V("wooden_frame")}, {"generation", V(I{1})},
+                  {"center", V(A{V(I{0}), V(I{0}), V(I{0})})},
+                  {"occupied", V(O{{"center", V(A{V(0.0), V(0.0), V(0.0)})},
+                      {"half", V(A{V(1.0), V(1.0)})}})},
+                  {"position", V(A{V(0.0), V(0.0), V(0.0)})}})}})) &&
+              malformed_worksite("slide_phases", V(O{{"broken", V(O{
+                  {"subticks", V(I{0})}, {"remainder", V(I{0})},
+                  {"denominator", V("one")}, {"cycle_subticks", V(I{1})}})}})),
+              "Physical arrival records reject missing bounds, bad custody and mistyped phases.");
         for (const char* name : {"collector_assemblies", "press_assemblies",
                  "guided_press_assemblies", "sliding_press_assemblies",
                  "broad_press_assemblies", "broad_shear_assemblies"}) {

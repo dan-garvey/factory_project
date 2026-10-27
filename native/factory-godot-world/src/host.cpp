@@ -2533,6 +2533,7 @@ Value Host::projection() const {
         {"powered", Value(local.collector || local.belt || local.processor)},
         {"power_enabled", Value(state.topology.drive_enabled)},
         {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)},
+            {"arrival", Value(profile_.landing_pod_center.has_value())},
             {"foundations", Value(true)}, {"developer_conveniences", Value(state.developer_conveniences)}})},
         {"adapter_profile", Value(Object{{"pitch", Value(pitch)}, {"anchor_height", Value(anchor_height)},
             {"height_denominator", Value(height_denominator)}, {"height_step", Value(height_step)},

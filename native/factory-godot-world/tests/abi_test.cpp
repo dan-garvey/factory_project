@@ -264,6 +264,7 @@ void run() {
                   field<std::string>(lift_fields, "flight_count") == "integer" &&
                   field<std::string>(lift_fields, "head_z_size") == "floating2" &&
                   field<std::string>(option_fields, "native") == "boolean" &&
+                  field<std::string>(option_fields, "arrival") == "boolean" &&
                   factory::godot_world::projection_contract::complete(projection, true),
               "The real extension exposes the same top-level and nested contract it publishes.");
         const auto capacity_rule = Value(field<Object>(schema, "component_capacity"));
@@ -279,15 +280,15 @@ void run() {
                   field<std::string>(capacity_rule, "type") == "integer" &&
                   field<std::string>(completion_rule, "type") == "string_array" &&
                   field<std::string>(unlock_rule, "type") == "boolean" &&
-                  field<std::string>(capacity_rule, "required_with") == "landing_pod" &&
-                  field<std::string>(completion_rule, "required_with") == "landing_pod" &&
-                  field<std::string>(unlock_rule, "required_with") == "landing_pod" &&
+                  field<std::string>(capacity_rule, "required_with") == "options.arrival" &&
+                  field<std::string>(completion_rule, "required_with") == "options.arrival" &&
+                  field<std::string>(unlock_rule, "required_with") == "options.arrival" &&
                   field<std::string>(kit_record, "container") == "object_values" &&
                   field<std::string>(kit_fields, "foundation") == "integer" &&
                   field<std::string>(specification_record, "container") ==
                       "object_array_elements" &&
                   field<std::string>(specification_fields, "count") == "integer" &&
-                  field<std::string>(recipe_record, "required_with") == "landing_pod" &&
+                  field<std::string>(recipe_record, "required_with") == "options.arrival" &&
                   field<std::string>(recipe_fields, "copper") == "integer",
               "The extension exposes native kit, recipe and first-workshop types to Godot.");
         for (const char* name : {"collector_assemblies", "press_assemblies",
@@ -296,10 +297,27 @@ void run() {
             const auto record = Value(field<Object>(records, name));
             const auto fields = Value(field<Object>(record, "fields"));
             check(field<std::string>(record, "container") == "array_elements" &&
-                  field<std::string>(record, "required_with") == "landing_pod" &&
+                  field<std::string>(record, "required_with") == "options.arrival" &&
                   field<std::string>(fields, "status") == "string",
                   "The extension publishes each arrival assembly as a native-owned typed record.");
         }
+        const auto pod_record = Value(field<Object>(records, "landing_pod"));
+        const auto pod_fields = Value(field<Object>(pod_record, "fields"));
+        const auto placed_record = Value(field<Object>(records, "placed_components"));
+        const auto placed_fields = Value(field<Object>(placed_record, "fields"));
+        const auto input_ports = Value(field<Object>(placed_fields, "input_ports"));
+        const auto hub_fields = Value(field<Object>(Value(field<Object>(records,
+            "fabrication_hub")), "fields"));
+        const auto crank_fields = Value(field<Object>(Value(field<Object>(records,
+            "crank_items")), "fields"));
+        check(field<std::string>(pod_record, "required_with") == "options.arrival" &&
+                  field<std::string>(pod_fields, "center") == "integer3" &&
+                  field<std::string>(placed_fields, "occupied.half") == "floating3" &&
+                  field<std::string>(input_ports, "type") == "integer3_array" &&
+                  field<bool>(input_ports, "optional") &&
+                  field<std::string>(hub_fields, "holder") == "nullable_string" &&
+                  field<std::string>(crank_fields, "port") == "integer3_or_empty",
+              "The extension exposes complete arrival worksite shapes and optional placement ports.");
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,
               "The powered line consumes three physical shafts.");
         bool blocked_ready = false;
