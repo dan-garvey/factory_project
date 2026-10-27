@@ -239,6 +239,8 @@ void run() {
         const auto engagement_record = Value(field<Object>(records, "engagements"));
         const auto deposit_fields = Value(field<Object>(Value(field<Object>(records, "source_deposit")), "fields"));
         const auto profile_fields = Value(field<Object>(Value(field<Object>(records, "adapter_profile")), "fields"));
+        const auto lift_record = Value(field<Object>(records, "adapter_profile.collector_lift"));
+        const auto lift_fields = Value(field<Object>(lift_record, "fields"));
         const auto option_fields = Value(field<Object>(Value(field<Object>(records, "options")), "fields"));
         check(field<std::string>(schema, "context") == "string" &&
                   field<std::string>(schema, "stock") == "object" &&
@@ -256,6 +258,11 @@ void run() {
                   field<std::string>(engagement_record, "container") == "array_elements" &&
                   field<std::string>(deposit_fields, "cells") == "integer_pairs" &&
                   field<std::string>(profile_fields, "collector_intake_size") == "floating3" &&
+                  field<std::string>(lift_record, "container") == "object" &&
+                  field<std::string>(lift_fields, "pickup_size") == "floating3" &&
+                  field<std::string>(lift_fields, "carrier_size_xz") == "floating2" &&
+                  field<std::string>(lift_fields, "flight_count") == "integer" &&
+                  field<std::string>(lift_fields, "head_z_size") == "floating2" &&
                   field<std::string>(option_fields, "native") == "boolean" &&
                   factory::godot_world::projection_contract::complete(projection, true),
               "The real extension exposes the same top-level and nested contract it publishes.");
