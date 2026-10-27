@@ -126,11 +126,20 @@ func _complete_projection(value: Dictionary) -> bool:
 		if not record is Dictionary or not record.get("fields") is Dictionary \
 			or record.fields.is_empty():
 			return false
+		var required_with: Variant = record.get("required_with", "")
+		if not required_with is String:
+			return false
 		var nested: Variant = value
+		var missing := false
 		for segment in name.split("."):
 			if not nested is Dictionary or not nested.has(segment):
-				return false
+				missing = true
+				break
 			nested = nested[segment]
+		if missing:
+			if not required_with.is_empty() and not value.has(required_with):
+				continue
+			return false
 		var entries: Array = []
 		match record.get("container"):
 			"object":

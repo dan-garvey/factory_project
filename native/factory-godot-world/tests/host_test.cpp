@@ -350,6 +350,15 @@ void nonarrival_tick_schema() {
     const auto full_before = std::get<O>(host.projection().storage());
     check(factory::godot_world::projection_contract::complete(V(full_before)),
           "The ordinary Host exports every stable typed projection field.");
+    auto optional_arrival_record = full_before;
+    optional_arrival_record.emplace("collector_assemblies", V(A{}));
+    auto malformed_optional_arrival_record = optional_arrival_record;
+    malformed_optional_arrival_record.at("collector_assemblies") = V(A{V(O{})});
+    check(!full_before.contains("collector_assemblies") &&
+          factory::godot_world::projection_contract::complete(V(optional_arrival_record)) &&
+          !factory::godot_world::projection_contract::complete(
+              V(malformed_optional_arrival_record)),
+          "An ordinary world can omit arrival machines, but validates an arrival record if present.");
     auto missing_stock = full_before;
     missing_stock.erase("stock");
     auto wrong_cargo = full_before;
