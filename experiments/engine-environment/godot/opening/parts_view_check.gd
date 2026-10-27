@@ -2501,8 +2501,9 @@ func _arrival_hotbar() -> void:
 	await settle_widgets()
 	verify(bar.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
 		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size)))
-		and bar.catalog.size.y <= 464,
-		"The combined inventory stays inside the narrow viewport with a scrollable item grid.")
+		and bar.catalog.size.y <= 464
+		and bar.catalog.position.y + bar.catalog.size.y <= bar.position.y - 8.0,
+		"The narrow inventory leaves the single world hotbar visible as its drop target.")
 	bar._close_catalog()
 	view.client = "Q"
 	view._refresh_ui()
@@ -2717,8 +2718,9 @@ func _render_arrival_hotbar() -> void:
 		and catalog_surface.bg_color.a == 1.0,
 		"The narrow inventory covers the HUD edge and blocks underlying text from showing through.")
 	verify(bar.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
-		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size))),
-		"The rendered inventory fits the narrow viewport.")
+		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size)))
+		and bar.catalog.position.y + bar.catalog.size.y <= bar.position.y - 8.0,
+		"The rendered narrow inventory fits above the visible world hotbar.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-narrow-catalog.png") == OK,
 		"Retain the rendered narrow inventory window.")
@@ -2757,6 +2759,7 @@ func _render_arrival_hotbar() -> void:
 	await settle_widgets()
 	var focused_tile: Button = bar.component_buttons.channel_broad_z
 	verify(bar.catalog.visible and bar.material_grid.columns == 3
+		and bar.catalog.position.y + bar.catalog.size.y <= bar.position.y - 8.0
 		and bar.catalog.gui_get_focus_owner() == focused_tile
 		and bar.inventory_scroll.get_global_rect().encloses(focused_tile.get_global_rect()),
 		"A late carried item remains keyboard reachable and scrolls into the narrow inventory.")
