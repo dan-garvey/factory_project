@@ -41,6 +41,19 @@ arguments. `--render-buildable-resources` may combine its declared
 exit 2 before any case runs. Existing suite-specific completion and exit
 contracts remain; resource renders are isolated passive evidence.
 
+`machine_preview_check.gd` runs the full invented-observation preview suite
+with no user arguments, or exactly one of `--variant-assemblies-only`,
+`--assemblies-only`, `--transmission-previews-only`,
+`--selection-cursor-only` and `--foundation-heights-only`. Each check mode
+and the default emit a JSON `status` and `checks` count; require `status: pass`
+and exit zero for the selected mode. `--bake-packed-previews` and
+`--bake-preview-variants` are separate source asset-writing operations; they
+emit `PACKED_MACHINE_PREVIEWS` or `PACKED_PREVIEW_VARIANTS`, respectively, and
+exit nonzero if a save fails. Use them only in a source checkout where those
+generated assets are intended. Unknown, repeated, conflicting, empty and
+orphan options exit 2 before either checks or asset writes begin. The check
+results are scripted presentation evidence, not native gameplay or human play.
+
 `native_transmission_view_check.gd` runs its default transmission suite with
 no user arguments or exactly one direct `--...-only` mode. The supported
 component modes are `--supplied-hardware-only`, `--component-boxes-only`,
