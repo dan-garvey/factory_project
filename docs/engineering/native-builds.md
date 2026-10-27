@@ -261,10 +261,12 @@ and a `direction_reason`; this still requires final human approval.
 `CODEX_THREAD_ID` and the owning Bead's assignee. End the turn immediately after
 submission. The native bridge pauses an active goal under the user's review
 policy; no model polling loop runs. The Windows review decision queues notes,
-original images and marked frames as a user message to that exact thread, then
+original images and marked frames through the daemon's structured queue API to that exact thread, then
 resumes only the goal it paused. Clip paths and timestamps accompany marked
-frames. Budgets and unrelated goals remain unchanged. A delivery uncertainty
-requires a matching user-message receipt before any retry can succeed.
+frames, without expanding a clip into every frame. Budgets and unrelated goals
+remain unchanged. Connection failures and invalid-request refusals retain their
+diagnostics and can be retried. An uncertain delivery requires a matching pending
+queue entry or user-message receipt; retry never blindly sends a duplicate.
 
 The viewer keeps drafts until Send, and cannot approve a bundle with missing or
 unapproved cases. A bundle allows 64 media items, including at most 32 images;

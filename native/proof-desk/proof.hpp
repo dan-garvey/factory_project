@@ -31,7 +31,7 @@ Json submit(const fs::path &store, const fs::path &repo, Json manifest,
             const std::string &thread);
 Json decide(const fs::path &store, const std::string &id, Json decision);
 Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
-             const std::string &codex, const std::string &beads);
+             const std::string &socket, const std::string &beads);
 void check_gate(const fs::path &store, const fs::path &repo,
                 const std::string &before, const std::string &after);
 } // namespace factory::proof

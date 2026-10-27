@@ -80,7 +80,6 @@ int main(int argc, char **argv) {
       write_json(
           config_path,
           Json{{"store", fs::canonical(store).string()},
-               {"codex", env("HOME") + "/.local/bin/codex"},
                {"beads", env("HOME") + "/.local/bin/br"},
                {"socket", (env("CODEX_HOME").empty() ? env("HOME") + "/.codex"
                                                      : env("CODEX_HOME")) +
@@ -90,8 +89,7 @@ int main(int argc, char **argv) {
     }
     auto config = read_json(config_path);
     fs::path store(config.at("store").get<std::string>());
-    auto codex = config.at("codex").get<std::string>(),
-         br = config.at("beads").get<std::string>();
+    auto br = config.at("beads").get<std::string>();
     if (command == "check-connection") {
       auto result =
           codex_rpc(config.at("socket").get<std::string>(), "thread/goal/get",
@@ -168,7 +166,11 @@ int main(int argc, char **argv) {
                   "No originating-thread receipt was found. Delivery remains "
                   "uncertain; no duplicate was sent.");
       }
-      auto state = deliver(store, repo, id, codex, br);
+      auto state = deliver(store, repo, id, config.at("socket"), br);
+      if (state.at("status") == "delivered" || state.at("status") == "queued") {
+        start_queued_feedback(config, store / id);
+        state = read_json(store / id / "delivery.json");
+      }
       if (state.at("status") == "delivered" &&
           fs::exists(store / id / "goal-wait.json"))
         resume_after_review(

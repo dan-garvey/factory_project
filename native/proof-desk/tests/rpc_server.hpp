@@ -127,8 +127,62 @@ struct RpcFixture {
             if (method == "thread/items/list")
               result =
                   Json{{"data", state.at("items")}, {"nextCursor", nullptr}};
-            auto response =
-                Json{{"id", request.at("id")}, {"result", result}}.dump();
+            if (method == "thread/queue/list")
+              result = Json{{"data", state.value("queue", Json::array())},
+                            {"nextCursor", nullptr}};
+            if (method == "thread/read")
+              result =
+                  Json{{"thread",
+                        {{"status",
+                          {{"type", state.value("runtime_status", "idle")}}}}}};
+            if (method == "thread/queue/start") {
+              const auto requested =
+                  request.at("params").at("queuedSubmissionId");
+              auto queue = state.at("queue");
+              bool found = false;
+              for (size_t i = 0; i < queue.size(); ++i) {
+                if (queue[i].at("id") != requested)
+                  continue;
+                state["items"].push_back(
+                    Json{{"item",
+                          {{"id", "started-user-item"},
+                           {"type", "userMessage"},
+                           {"content", queue[i].at("input")}}}});
+                queue.erase(i);
+                found = true;
+                break;
+              }
+              require(found, "Fixture queued submission missing");
+              state["queue"] = queue;
+              state["start_calls"] = state.value("start_calls", 0) + 1;
+              write_json(stateFile, state);
+              result = Json{{"turn", {{"id", "started-review-turn"}}}};
+            }
+            if (method == "thread/queue/add") {
+              state["queue_calls"] = state.value("queue_calls", 0) + 1;
+              if (!state.value("queue_refuse", false)) {
+                auto entry = request.at("params");
+                entry["id"] =
+                    "queued-" +
+                    std::to_string(state.at("queue_calls").get<int>());
+                if (!state.contains("queue"))
+                  state["queue"] = Json::array();
+                state["queue"].push_back(entry);
+                result = Json{{"queuedSubmission", entry}};
+              }
+              write_json(stateFile, state);
+              if (state.value("drop_queue_reply", false))
+                throw std::runtime_error(
+                    "Fixture lost the reply after enqueue");
+            }
+            Json envelope{{"id", request.at("id")}, {"result", result}};
+            if (method == "thread/queue/add" &&
+                state.value("queue_refuse", false))
+              envelope = Json{{"id", request.at("id")},
+                              {"error",
+                               {{"code", -32602},
+                                {"message", "Fixture rejected queue input"}}}};
+            auto response = envelope.dump();
             sendFrame(0x89,
                       "ping"); // The client must answer this control frame.
             auto split = response.size() / 2;

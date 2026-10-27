@@ -342,10 +342,8 @@ public:
     auto *tabs = new QHBoxLayout;
     auto *pending = button("Pending");
     auto *past = button("History");
-    auto *refresh = button("↻", "Refresh the queue (F5)");
     tabs->addWidget(pending);
     tabs->addWidget(past);
-    tabs->addWidget(refresh);
     ll->addLayout(tabs);
     queue = new QListWidget;
     queue->setAccessibleName("Changes awaiting review");
@@ -377,10 +375,14 @@ public:
     compare->setChecked(true);
     controls->addWidget(compare);
     controls->addStretch();
+    auto *fit = button("Fit", "Fit both views (0)");
+    fit->setFixedWidth(76);
+    controls->addWidget(fit);
     auto *tools = new QButtonGroup(this);
     int index = 0;
     for (auto name : {"Pan", "Pin", "Arrow"}) {
       auto *b = button(name);
+      b->setFixedWidth(76);
       b->setCheckable(true);
       if (index++ == 0)
         b->setChecked(true);
@@ -390,8 +392,6 @@ public:
         before->tool = after->tool = QString(name).toLower();
       });
     }
-    auto *fit = button("Fit", "Fit both views (0)");
-    controls->addWidget(fit);
     cl->addLayout(controls);
     auto *pictures = new QHBoxLayout;
     beforePanel = new QWidget;
@@ -493,7 +493,6 @@ public:
     fl->addWidget(reject);
     fl->addWidget(approve);
     outer->addWidget(footer);
-    connect(refresh, &QPushButton::clicked, this, [this] { refreshQueue(); });
     connect(pending, &QPushButton::clicked, this, [this] {
       history = false;
       refreshQueue();
@@ -652,7 +651,7 @@ public:
             bridge("deliver", {});
             return;
           }
-          delivery->setText("Delivered to the originating agent");
+          delivery->setText("Feedback queued to the originating agent");
           refreshQueue();
         });
     connect(&process, &QProcess::errorOccurred, this,

@@ -210,7 +210,8 @@ int main() {
     auto finalId = result.at("id").get<std::string>();
     auto finalDecision = reviewedDecision(finalId);
     finalDecision["cases"]["cogs"]["annotations"] = {annotation};
-    finalDecision["attachments"] = {(root / "media/view.png").string()};
+    finalDecision["attachments"] = {(root / "media/view.png").string(),
+                                    (root / "media/view.png").string()};
     decide(store, finalId, finalDecision);
     ok(!reconcile_delivery(config, store / finalId));
     auto decisionId = read_json(store / finalId / "decision.json")
@@ -228,34 +229,78 @@ int main() {
     check_gate(store, repo, baseline, candidate);
     ++checks;
     // Shell metacharacters are literal user feedback, never command text.
-    auto fakeQueue = root / "queue-spy";
     auto fakeBr = root / "beads-spy";
-    std::ofstream(fakeQueue)
-        << "#!/bin/sh\nprintf 'call\\n' >> '" << (root / "queue-calls").string()
-        << "'\nprintf '%s\\0' \"$@\" > '" << (root / "queue-args").string()
-        << "'\n";
     std::ofstream(fakeBr) << "#!/bin/sh\nexit 0\n";
-    fs::permissions(fakeQueue, fs::perms::owner_all);
     fs::permissions(fakeBr, fs::perms::owner_all);
     auto delivery =
-        deliver(store, repo, finalId, fakeQueue.string(), fakeBr.string());
+        deliver(store, repo, finalId, "@missing-proof-peer", fakeBr.string());
+    ok(delivery.at("status") == "failed");
+    rpcState["queue_refuse"] = true;
+    write_json(rpcFile, rpcState);
+    delivery = deliver(store, repo, finalId, endpoint, fakeBr.string());
+    ok(delivery.at("status") == "failed");
+    ok(delivery.at("detail").get<std::string>().find(
+           "Fixture rejected queue input") != std::string::npos);
+    rpcState = read_json(rpcFile);
+    ok(rpcState.value("queue", Json::array()).empty());
+    rpcState["queue_refuse"] = false;
+    write_json(rpcFile, rpcState);
+    delivery = deliver(store, repo, finalId, endpoint, fakeBr.string());
     ok(delivery.at("status") == "delivered");
-    std::ifstream argsIn(root / "queue-args", std::ios::binary);
-    std::string args((std::istreambuf_iterator<char>(argsIn)), {});
-    ok(args.find("00000000-0000-0000-0000-000000000001") != std::string::npos);
-    ok(args.find("3420 ms") != std::string::npos);
-    ok(args.find("--image") != std::string::npos);
-    ok(args.find("proof-decision:") != std::string::npos);
-    deliver(store, repo, finalId, fakeQueue.string(), fakeBr.string());
-    std::ifstream callsIn(root / "queue-calls");
-    std::string calls((std::istreambuf_iterator<char>(callsIn)), {});
-    ok(calls == "call\n");
+    rpcState = read_json(rpcFile);
+    const auto queued = rpcState.at("queue").at(0);
+    ok(queued.at("threadId") == "00000000-0000-0000-0000-000000000001");
+    ok(queued.at("clientUserMessageId") == "factory-proof-" + decisionId);
+    ok(queued.at("input")[0].at("text").get<std::string>().find("3420 ms") !=
+       std::string::npos);
+    ok(queued.at("input")[1].at("type") == "localImage");
+    ok(queued.at("input").size() ==
+       4); // Before/after plus one deduplicated marked frame.
+    deliver(store, repo, finalId, endpoint, fakeBr.string());
+    ok(read_json(rpcFile).at("queue_calls") == 2);
+    // A lost acknowledgement must recover a pending queue receipt without
+    // appending a second copy. A missing receipt must continue to refuse.
+    rpcState["queue"] = Json::array();
+    rpcState["drop_queue_reply"] = true;
+    write_json(rpcFile, rpcState);
+    write_json(store / finalId / "delivery.json", Json{{"status", "pending"}});
+    delivery = deliver(store, repo, finalId, endpoint, fakeBr.string());
+    ok(delivery.at("status") == "uncertain");
+    refuses([&] { deliver(store, repo, finalId, endpoint, fakeBr.string()); });
+    ok(reconcile_delivery(config, store / finalId));
+    deliver(store, repo, finalId, endpoint, fakeBr.string());
+    ok(read_json(rpcFile).at("queue_calls") == 3);
+    rpcState = read_json(rpcFile);
+    rpcState["drop_queue_reply"] = false;
+    rpcState["queue"] = Json::array();
+    write_json(rpcFile, rpcState);
+    write_json(store / finalId / "delivery.json",
+               Json{{"status", "uncertain"}});
+    ok(!reconcile_delivery(config, store / finalId));
+    refuses([&] { deliver(store, repo, finalId, endpoint, fakeBr.string()); });
     rpcState["items"][0]["item"]["type"] = "userMessage";
     rpcState["items"][0]["item"]["id"] = "human-receipt";
     write_json(rpcFile, rpcState);
     ok(reconcile_delivery(config, store / finalId));
     ok(read_json(store / finalId / "delivery.json").at("item") ==
        "human-receipt");
+    rpcState["queue"] = {queued};
+    rpcState["runtime_status"] = "active";
+    write_json(rpcFile, rpcState);
+    write_json(store / finalId / "delivery.json",
+               Json{{"status", "delivered"},
+                    {"queued_submission_id", queued.at("id")}});
+    ok(start_queued_feedback(config, store / finalId));
+    ok(read_json(rpcFile).value("start_calls", 0) == 0);
+    rpcState["runtime_status"] = "idle";
+    write_json(rpcFile, rpcState);
+    ok(start_queued_feedback(config, store / finalId));
+    ok(read_json(rpcFile).at("queue").empty());
+    ok(read_json(rpcFile).at("start_calls") == 1);
+    ok(read_json(store / finalId / "delivery.json").at("turn_id") ==
+       "started-review-turn");
+    ok(start_queued_feedback(config, store / finalId));
+    ok(read_json(rpcFile).at("start_calls") == 1);
     // Disjoint changes can reuse approval; a changed visual input cannot.
     std::ofstream(repo / "unrelated.txt") << "unrelated\n";
     commitAll();

@@ -1,4 +1,5 @@
 #include "proof.hpp"
+#include "codex_rpc.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -536,7 +537,7 @@ Json decide(const fs::path &store, const std::string &id, Json d) {
   return d;
 }
 Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
-             const std::string &codex, const std::string &beads) {
+             const std::string &socket, const std::string &beads) {
   Lock lock(store);
   auto m = load_bundle(store, id);
   auto dir = store / id;
@@ -548,7 +549,7 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
   auto state = fs::exists(dir / "delivery.json")
                    ? read_json(dir / "delivery.json")
                    : Json{{"status", "pending"}};
-  if (state.at("status") == "delivered")
+  if (state.at("status") == "delivered" || state.at("status") == "queued")
     return state;
   require(
       state.at("status") != "sending" && state.at("status") != "uncertain",
@@ -585,7 +586,8 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
   for (const auto &a : d.value("attachments", Json::array())) {
     auto path = dir / a.at("path").get<std::string>();
     require(digest(path) == a.at("sha256"), "Marked feedback changed");
-    images.push_back(path.string());
+    if (std::find(images.begin(), images.end(), path.string()) == images.end())
+      images.push_back(path.string());
   }
   require(images.size() <= 64, "Too many images for one feedback message; "
                                "reduce this proof's media before sending");
@@ -597,19 +599,31 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
             "Decision saved; Beads record failed: " + result.output);
     write_json(dir / "beads-receipt.json", Json{{"recorded", true}});
   }
-  std::vector<std::string> command{codex,          "queue",     "--thread",
-                                   m.at("thread"), "--message", message.str()};
-  for (const auto &image : images) {
-    command.push_back("--image");
-    command.push_back(image);
-  }
+  Json input = Json::array({Json{{"type", "text"}, {"text", message.str()}}});
+  for (const auto &image : images)
+    input.push_back(Json{{"type", "localImage"}, {"path", image}});
+  const auto clientId = "factory-proof-" + d.at("id").get<std::string>();
   save_state(dir, "sending");
-  auto result = run(command, repo, 45);
-  save_state(dir, result.code == 0 ? "delivered" : "uncertain",
-             result.code == 0
-                 ? "Queued to the exact originating Codex thread"
-                 : "Codex delivery was not acknowledged. Inspect the decision "
-                   "marker in that thread before retrying.");
+  try {
+    const auto response = codex_rpc(socket, "thread/queue/add",
+                                    Json{{"threadId", m.at("thread")},
+                                         {"clientUserMessageId", clientId},
+                                         {"input", input}});
+    const auto &receipt = response.at("queuedSubmission");
+    require(receipt.at("clientUserMessageId") == clientId,
+            "Codex returned a receipt for another message");
+    write_json(
+        dir / "delivery.json",
+        Json{{"status", "delivered"},
+             {"detail", "Feedback and images queued to the originating agent"},
+             {"client_message_id", clientId},
+             {"queued_submission_id", receipt.at("id")}});
+  } catch (const RpcFailure &error) {
+    save_state(dir, error.may_have_submitted ? "uncertain" : "failed",
+               error.what());
+  } catch (const std::exception &error) {
+    save_state(dir, "uncertain", error.what());
+  }
   return read_json(dir / "delivery.json");
 }
 bool visual_path(const std::string &path) {
