@@ -3354,7 +3354,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and before_pickup.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 			"The held exterior crank conserves mass and forms one plate on the native workbed"):
 			return
-		var pickup_cue := "Plate and offcut on the workbed. Aim at the offcuts and press E to collect both."
+		var pickup_cue := "Plate on the workbed. Aim at the offcuts and press [E]."
 		if not _expect(opening.goal_text.contains(pickup_cue)
 				and opening.manager_log_current.text.ends_with(pickup_cue),
 				"The first-shift cue and replayable log name the supported workbed pickup"):
@@ -3449,7 +3449,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				Vector2(inventory.catalog.size))
 			var narrow_capture: Error = root.get_texture().get_image().save_png(
 				capture_prefix + "-unlocked-catalog-narrow.png")
-			var narrow_visible: bool = inventory.catalog.is_visible_in_tree()
+			var narrow_visible: bool = inventory.catalog.visible
 			if not _expect(narrow_visible
 					and inventory.recipe_focus == "collector"
 					and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(narrow_rect)

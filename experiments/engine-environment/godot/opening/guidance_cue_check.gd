@@ -460,8 +460,8 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_text.contains("Plate and offcut on the workbed. Aim at the offcuts and press E to collect both.")
-		and view.manager_log_current.text.ends_with("Plate and offcut on the workbed. Aim at the offcuts and press E to collect both.")
+	verify(view.goal_text.contains("Plate on the workbed. Aim at the offcuts and press [E].")
+		and view.manager_log_current.text.ends_with("Plate on the workbed. Aim at the offcuts and press [E].")
 		and shared.goal_text == view.goal_text
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"Ordinary and shared first-shift cues guide direct pickup of the supported plate and offcut.")
@@ -484,7 +484,7 @@ func check_slide_manager_cue() -> void:
 			root.size = Vector2i(1280, 800)
 	view.state.sliding_press_assemblies[0].selected_exit = [2, 0, 0]
 	view._refresh_guided_tools()
-	verify(view.goal_text.contains("Plate and offcut on the workbed"),
+	verify(view.goal_text.contains("Plate on the workbed"),
 		"Changing the feed route leaves supported finished work available for pickup.")
 	view.state.dropped_material.clear()
 	view._refresh_guided_tools()
