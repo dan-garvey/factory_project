@@ -236,6 +236,8 @@ int main(int argc, char** argv) {
             ++installed_environment_fixtures;
             require(read(fixture) == "extends SceneTree\n",
                 "The scenery fixture comes from checked main rather than the source checkout.");
+            require(read(entry.path() / "native/runtime/project/opening/shared_opening.gd") ==
+                "extends Node\n", "The scenery fixture also receives its checked shared view class.");
         }
         require(installed_environment_fixtures == 1,
             "Only the selected scenery runtime receives its checked fixture.");
