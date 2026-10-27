@@ -18,6 +18,9 @@ extends SceneTree
 ## --inclined-span to construct its elevated 45-degree counterpart. Add
 ## --reverse-endpoints to submit either span in the opposite endpoint order.
 ## Add --middle-pulley to --powered-span to insert and restore a driven pulley.
+## Every span case requires --previous=ABSOLUTE_PATH to a normal-arrival shared
+## first-plate Store file. P gathers and crafts the route's finite parts after
+## that milestone; there is no gifted transmission kit in Chapter 1.
 ## Add --cog-train to exercise a powered large/small pair and its restore.
 ## Add --overload to exercise speed-weighted load and recovery across restart.
 ## Add --fractional-press to exercise workpiece recovery and continuation.
@@ -47,6 +50,7 @@ var overload := false
 var fractional_press := false
 var belt_loading := false
 var chapter_product := false
+var previous := ""
 var serial := 0
 var epoch := 0
 
@@ -55,6 +59,7 @@ func _initialize() -> void:
 		if arg.begins_with("--role="): role = arg.trim_prefix("--role=")
 		elif arg.begins_with("--directory="): directory = arg.trim_prefix("--directory=")
 		elif arg.begins_with("--port="): port = int(arg.trim_prefix("--port="))
+		elif arg.begins_with("--previous="): previous = arg.trim_prefix("--previous=")
 		elif arg == "--reverse-belt": reverse_belt = true
 		elif arg == "--span-belt": span_belt = true
 		elif arg == "--powered-span":
@@ -105,6 +110,10 @@ func issue(action: Dictionary) -> Dictionary:
 	var queued: Dictionary = session.submit(action)
 	verify(queued.get("queued", false), "A client request must enter the Session transport")
 	if not queued.get("queued", false): return {}
+	if span_belt and action.get("action") == "place_selected_belt_span":
+		verify(session.world == null and session.projection().belt_spans.is_empty(),
+			"An unanswered incline request cannot create local belt geometry")
+		if failed: return {}
 	var request: String = queued.request
 	if not await until(func(): return replies.has(request), "The authority must answer " + request): return {}
 	var result: Dictionary = replies[request]
@@ -255,26 +264,61 @@ func run_span() -> void:
 	var resumed := role.begins_with("resume-") or role == "server-resume"
 	var prefix := "resume-" if resumed else ""
 	var save_path := directory.path_join("span.factory")
+	var available_shafts := 3 if middle_pulley else 2
+	var available_belts := 1
+	var timber_bill := available_shafts + 2 + (2 if powered_span else 0)
+	var copper_bill := 1 + (1 if powered_span else 0)
 	if role in ["server", "server-resume"]:
-		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, true) == OK, "Start the native span authority")
+		verify(session.serve_loopback(port, true, true, ["P", "Q"], true, false) == OK, "Start the native span authority")
 		if failed: quit(1); return
 		var saved_hash := ""
 		if resumed:
 			saved_hash = FileAccess.get_sha256(save_path)
 			verify(not saved_hash.is_empty() and Store.read_into(session.world, save_path).get("accepted", false), "A fresh authority restores the belt Store")
 			session.context = session.world.context
-		var p_pose := [0.0, 2.15, 3.3] if powered_span else [1.65, 1.0, -1.65]
-		verify(session.world.publish_actor("P", p_pose, 1).get("accepted", false), "Synthetic P remains within reach")
-		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0], 1).get("accepted", false), "Synthetic Q remains clear")
+		else:
+			verify(previous.is_absolute_path() and FileAccess.file_exists(previous)
+				and Store.read_into(session.world, previous).get("accepted", false),
+				"The inclined route continues a real Chapter 1 first-plate worksite")
+			if failed: quit(1); return
+			session.context = session.world.context
+			var first_plate: Dictionary = session.world.projection()
+			verify(first_plate.first_plate_unlock and first_plate.workshop_completed_actors.has("P")
+				and first_plate.cargo.P.products == 1 and first_plate.part_kits.P.wheel == 0
+				and first_plate.part_kits.P.shaft == 0 and first_plate.part_kits.P.belt == 0,
+				"The first plate unlocks finite parts without a gifted transmission kit")
+			if failed: quit(1); return
+		var p_pose := [6.0, 1.0, 10.05] if not resumed else ([0.0, 2.15, 3.3] if powered_span else [1.65, 1.0, -1.65])
+		verify(session.world.publish_actor("P", p_pose,
+			int(session.world.projection().actors.P.native_epoch) + 1).get("accepted", false), "Synthetic P remains within reach")
+		verify(session.world.publish_actor("Q", [20.0, 1.0, 20.0],
+			int(session.world.projection().actors.Q.native_epoch) + 1).get("accepted", false), "Synthetic Q remains clear")
 		if failed: quit(1); return
 		mark(prefix + "server-ready")
+		if not resumed:
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("timber-done")), "P gathers the finite timber bill"): quit(1); return
+			verify(session.world.publish_actor("P", [-0.5, 1.0, 0.0],
+				int(session.world.projection().actors.P.native_epoch) + 1).get("accepted", false), "P reaches the finite copper deposit")
+			if failed: quit(1); return
+			mark("copper-ready")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("copper-done")), "P gathers the finite copper bill"): quit(1); return
+			verify(session.world.publish_actor("P", [3.3, 1.0, 4.95],
+				int(session.world.projection().actors.P.native_epoch) + 1).get("accepted", false), "P reaches the fabrication hub")
+			if failed: quit(1); return
+			mark("craft-ready")
+			if not await until(func(): return FileAccess.file_exists(directory.path_join("kits-done")), "P crafts the real transmission parts"): quit(1); return
+			var build_pose := [0.0, 2.15, 3.3] if powered_span else [1.65, 1.0, -1.65]
+			verify(session.world.publish_actor("P", build_pose,
+				int(session.world.projection().actors.P.native_epoch) + 1).get("accepted", false), "P reaches the inclined build site")
+			if failed: quit(1); return
+			mark("placement-ready")
 		if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "clients-done")), "Both span clients finish"): quit(1); return
 		var state: Dictionary = session.world.projection()
 		if resumed:
-			verify(state.belt_spans.is_empty() and state.part_kits.P.belt == 2, "The restored belt is removed and refunded once")
+			verify(state.belt_spans.is_empty() and state.part_kits.P.belt == available_belts, "The restored belt is removed and refunded once")
 			verify(FileAccess.get_sha256(save_path) == saved_hash, "Continuation leaves the saved bytes unchanged")
 		else:
-			verify(state.belt_spans.size() == 1 and state.part_kits.P.belt == 1, "The authority owns the constructed belt")
+			verify(state.belt_spans.size() == 1 and state.part_kits.P.belt == available_belts - 1, "The authority owns the constructed belt")
 			verify(Store.write(session.world, save_path).get("accepted", false), "The Store writes the constructed span")
 		if failed: quit(1); return
 		mark(prefix + "server-done")
@@ -285,9 +329,37 @@ func run_span() -> void:
 		mark(prefix + actor + "-ready")
 		if actor == "P":
 			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "Q-ready")), "Q joins before the span request"): quit(1); return
+			if not resumed:
+				for index in range(timber_bill):
+					verify((await issue({"action": "harvest_source", "target": "tree-east-north"})).get("accepted", false), "P gathers finite timber %d" % index)
+					if failed: quit(1); return
+				mark("timber-done")
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("copper-ready")), "P reaches the copper deposit"): quit(1); return
+				for index in range(copper_bill):
+					verify((await issue({"action": "harvest_source", "target": "opening-copper"})).get("accepted", false), "P gathers finite copper %d" % index)
+					if failed: quit(1); return
+				mark("copper-done")
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("craft-ready")), "P reaches the fabrication hub"): quit(1); return
+				var bench: String = str(session.projection().fabrication_hub.id)
+				var parts := []
+				if powered_span: parts.append({"role": "waterwheel", "half_span": 0})
+				for index in range(available_shafts):
+					parts.append({"role": "shaft", "half_span": 2})
+				parts.append({"role": "belt", "half_span": 0})
+				for part in parts:
+					verify((await issue({"action": "craft_part", "entity": bench, "role": part.role,
+						"half_span": part.half_span})).get("accepted", false), "P crafts a paid " + str(part.role))
+					if failed: quit(1); return
+				verify(session.projection().part_kits.P.wheel == (1 if powered_span else 0)
+					and session.projection().part_kits.P.shaft == available_shafts
+					and session.projection().part_kits.P.belt == 1 and session.projection().cargo.P.timber == 0
+					and session.projection().cargo.P.raw == 0, "Gathered materials become the exact P-owned inclined-route kit")
+				if failed: quit(1); return
+				mark("kits-done")
+				if not await until(func(): return FileAccess.file_exists(directory.path_join("placement-ready")), "P reaches the inclined build site"): quit(1); return
 			if resumed:
 				var restored: Dictionary = session.projection()
-				verify(restored.belt_spans.size() == 1 and restored.part_kits.P.belt == 1, "P receives the exact saved belt custody")
+				verify(restored.belt_spans.size() == 1 and restored.part_kits.P.belt == available_belts - 1, "P receives the exact saved belt custody")
 				if failed: quit(1); return
 				var id: String = str(restored.belt_spans.keys()[0])
 				if powered_span:
@@ -341,14 +413,19 @@ func run_span() -> void:
 				if not await until(func(): return FileAccess.file_exists(directory.path_join("pulley-removed")), "P removes the restored pulley"): quit(1); return
 				if not await until(func(): return session.projection().get("transmission_parts", {}).size() == 2, "Q receives the pulley removal"): quit(1); return
 				var remaining: Dictionary = session.projection()
-				verify(remaining.belt_spans.size() == 1 and remaining.part_kits.P.shaft == 6 and _span_powered(remaining, remaining.belt_spans.values()[0]), "Q sees the refund and both endpoints still powered")
+				verify(remaining.belt_spans.size() == 1 and remaining.part_kits.P.shaft == 1 and _span_powered(remaining, remaining.belt_spans.values()[0]), "Q sees the refund and both endpoints still powered")
 				if failed: quit(1); return
 				mark("pulley-observed")
 			if not await until(func(): return FileAccess.file_exists(directory.path_join(prefix + "P-done")), "P completes the span request"): quit(1); return
 			if not await until(func(): return session.projection().get("belt_spans", {}).size() == (0 if resumed else 1), "Q receives the confirmed belt change"): quit(1); return
 			var view: Dictionary = session.projection()
 			var shaft_count := 3 if middle_pulley and not resumed else 2
-			verify(view.transmission_parts.size() == shaft_count and view.part_kits.P.shaft == 8 - shaft_count and view.part_kits.P.belt == (2 if resumed else 1), "Q sees the shafts and correct belt custody")
+			verify(view.transmission_parts.size() == shaft_count and view.part_kits.P.shaft == available_shafts - shaft_count
+				and view.part_kits.P.belt == available_belts - (0 if resumed else 1),
+				"Q sees the shafts and correct belt custody")
+			verify(view.part_kits.Q.shaft == 0 and view.part_kits.Q.belt == 0
+				and view.part_kits.Q.wheel == 0 and view.material_mass.accounted_mass == view.material_mass.initial_mass,
+				"The other worker gains no parts and the native copper ledger remains exact")
 			if not resumed:
 				var span: Dictionary = view.belt_spans.values()[0]
 				verify(view.transmission_parts.has(span.from) and view.transmission_parts.has(span.to), "Q sees both actual belt endpoint identities")
@@ -1276,6 +1353,11 @@ func run() -> void:
 	if middle_pulley and (not powered_span or inclined_span or reverse_belt):
 		push_error("The middle-pulley case requires the horizontal powered span")
 		quit(1)
+		return
+	if (span_belt and (not previous.is_absolute_path() or not FileAccess.file_exists(previous))) \
+			or (not span_belt and not previous.is_empty()):
+		push_error("A belt span requires one absolute saved first-plate worksite")
+		quit(2)
 		return
 	if not directory.is_absolute_path() or not DirAccess.dir_exists_absolute(directory) or not role in ["server", "P", "Q", "server-resume", "resume-P", "resume-Q"]:
 		push_error("Expected an owned directory and a server, P, or Q role")
