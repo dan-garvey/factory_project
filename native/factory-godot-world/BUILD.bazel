@@ -42,6 +42,20 @@ cc_library(
     deps = ["//native/factory-world:checkpoint"],
 )
 
+cc_library(
+    name = "assembly_projection",
+    srcs = ["src/assembly_projection.cpp"],
+    hdrs = ["src/assembly_projection.hpp"],
+    deps = ["//native/factory-assembly:assembly", "//native/factory-world:checkpoint"],
+)
+
+cc_test(
+    name = "assembly_projection_test",
+    srcs = ["tests/assembly_projection_test.cpp"],
+    deps = [":arrival_configuration", ":assembly_projection", "//native/factory-value:value"],
+    size = "small",
+)
+
 cc_test(
     name = "drive_projection_test",
     srcs = ["tests/drive_projection_test.cpp"],
@@ -175,7 +189,7 @@ cc_library(
     srcs = ["src/host.cpp"],
     hdrs = ["include/factory/arrival_geometry.hpp", "include/factory/godot_world.hpp"],
     strip_include_prefix = "include",
-    deps = [":arrival_configuration", ":build_catalog_projection", ":drive_projection", ":host_command_admission", ":material_projection", ":projection_contract", ":site_geometry_contract", "//native/factory-assembly:assembly", "//native/factory-world:belt_command_contract", "//native/factory-world:checkpoint", "//native/factory-world:component_command_contract", "//native/factory-world:crank_command_contract", "//native/factory-world:fabrication_command_contract", "//native/factory-world:foundation_command_contract", "//native/factory-world:machine_placement_contract", "//native/factory-world:material_command_contract", "//native/factory-world:press_command_contract", "//native/factory-world:stationary_target_command_contract", "//native/factory-world:transmission_placement_contract", "//native/factory-world:worksite_command_contract", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
+    deps = [":arrival_configuration", ":assembly_projection", ":build_catalog_projection", ":drive_projection", ":host_command_admission", ":material_projection", ":projection_contract", ":site_geometry_contract", "//native/factory-world:belt_command_contract", "//native/factory-world:checkpoint", "//native/factory-world:component_command_contract", "//native/factory-world:crank_command_contract", "//native/factory-world:fabrication_command_contract", "//native/factory-world:foundation_command_contract", "//native/factory-world:machine_placement_contract", "//native/factory-world:material_command_contract", "//native/factory-world:press_command_contract", "//native/factory-world:stationary_target_command_contract", "//native/factory-world:transmission_placement_contract", "//native/factory-world:worksite_command_contract", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
     visibility = ["//native/opening-engineering:__pkg__"],
 )
 
