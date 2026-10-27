@@ -54,6 +54,28 @@ construction or a success receipt. Use
 the labeled tracked launcher for rendered checks on checked clean main. Headless
 geometry and parser checks do not establish rendered quality or human play.
 
+`production_environment_check.gd` runs `environment` with no case argument, or
+one `--environment-case=NAME`: `botanical-species`, `collector-carrier`,
+`foundation-depth-vegetation`, `construction-vegetation`,
+`bank-fir-lifecycle`, `bank-firs`, `fir-resource`, `pine-reflectance`,
+`pine-roots`, `pine-understory`, `stone-material`, `sourced-sky`,
+`meadow-patches`, `foliage-mipmaps`, `sourced-foliage`, `ground-material`,
+`ground-render`, `site-render`, `water-flow`, `water-pattern`, `water-render`,
+`bank-ferns`, `rock-collision-shape`, `surface-composition`,
+`foreground-bank`, or `foliage`. The resource and capture cases `bank-firs`,
+`fir-resource`, `pine-reflectance`, `pine-understory`, `stone-material`,
+`sourced-sky`, `sourced-foliage`, `ground-material`, `ground-render`,
+`site-render`, `water-render`, and `bank-ferns` require
+`--artifacts=EXISTING_ABSOLUTE_DIRECTORY`. The `bank-firs` case instead accepts
+`--fir-layout-only` without an artifact directory to inspect its existing
+layout without moving the optional source asset. The three `*-render` cases
+require an actual renderer and a labeled tracked agent launch. Every selected
+case emits JSON `mode`, `status` and `checks`; require the selected mode,
+`status: pass`, a positive check count, zero exit and no engine or script errors.
+Unknown, repeated, empty, unsupported-renderer and orphan arguments exit 2
+before the case starts. This fixture tests scenery and presentation; it does
+not establish gameplay authority, ordinary use or human play.
+
 `parts_view_check.gd` runs its default parts display suite with no user arguments,
 or one named `--...-only` suite. An unknown or repeated selector exits 2 before
 any suite starts; capture paths are accepted only with their corresponding
