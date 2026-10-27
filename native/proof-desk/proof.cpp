@@ -1,5 +1,6 @@
 #include "proof.hpp"
 #include "codex_rpc.hpp"
+#include "revision_history.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -91,13 +92,18 @@ Json load_bundle(const fs::path &store, const std::string &id) {
   return m;
 }
 void require_latest(const fs::path &store, const std::string &id) {
+  RevisionHistory revisions;
   for (const auto &entry : fs::directory_iterator(store)) {
-    if (!entry.is_directory() || !fs::exists(entry.path() / "manifest.json"))
+    if (!entry.is_directory() || entry.path().filename().string().front() == '.' ||
+        !fs::exists(entry.path() / "manifest.json"))
       continue;
     auto other = read_json(entry.path() / "manifest.json");
-    require(other.value("previous", std::string()) != id,
-            "A newer revision supersedes this proof");
+    const auto other_id = entry.path().filename().string();
+    revisions.previous.emplace(other_id, other.value("previous", std::string()));
+    if (fs::exists(entry.path() / "discarded.json"))
+      revisions.discarded.insert(other_id);
   }
+  require(revisions.current(id), "A newer active revision supersedes this proof");
 }
 Json approved(const fs::path &store, const std::string &id) {
   require_latest(store, id);

@@ -369,6 +369,59 @@ int main() {
     ok(general.size() == 1);
     ok(general[0].at("text").get<std::string>().find(
            overall.at("note").get<std::string>()) != std::string::npos);
+    // A discarded replacement cannot invalidate an earlier approved proof or
+    // block a fresh replacement. Restore must not create competing branches.
+    auto replacement = final;
+    replacement["previous"] = finalId;
+    auto replace = [&](const Json &manifest) {
+      return submit(store, repo, manifest,
+                    "00000000-0000-0000-0000-000000000001")
+          .at("id").get<std::string>();
+    };
+    auto discard = [&](const std::string &proofId, bool value = true) {
+      return set_discarded(store, proofId,
+                           digest(store / proofId / "manifest.json"), value);
+    };
+    const auto abandoned = replace(replacement);
+    refuses([&] { check_gate(store, repo, baseline, candidate); });
+    discard(abandoned);
+    check_gate(store, repo, baseline, candidate);
+    ++checks;
+    const auto fresh = replace(replacement);
+    refuses([&] { check_gate(store, repo, baseline, candidate); });
+    refuses([&] { discard(abandoned, false); });
+    replacement["previous"] = abandoned;
+    refuses([&] { replace(replacement); });
+    discard(fresh);
+    discard(abandoned, false);
+    refuses([&] { check_gate(store, repo, baseline, candidate); });
+    discard(abandoned);
+    const auto descendant = replace(replacement);
+    // This active successor still supersedes the approved ancestor through
+    // the discarded middle revision; discard never becomes approval.
+    refuses([&] { check_gate(store, repo, baseline, candidate); });
+    refuses([&] { discard(abandoned, false); });
+    decide(store, descendant, reviewedDecision(descendant));
+    check_gate(store, repo, baseline, candidate);
+    ++checks;
+    auto directionReplacement = m;
+    directionReplacement["previous"] = id;
+    const auto abandonedDirection = replace(directionReplacement);
+    replacement["previous"] = descendant;
+    refuses([&] { replace(replacement); });
+    discard(abandonedDirection);
+    const auto nextFinal = replace(replacement);
+    discard(nextFinal);
+    check_gate(store, repo, baseline, candidate);
+    ++checks;
+    const auto pending = replace(m);
+    directionReplacement["previous"] = pending;
+    const auto pendingReplacement = replace(directionReplacement);
+    refuses([&] { decide(store, pending, reviewedDecision(pending)); });
+    discard(pendingReplacement);
+    decide(store, pending, reviewedDecision(pending));
+    ok(!fs::exists(store / abandoned / "decision.json") &&
+       !fs::exists(store / abandoned / "delivery.json"));
     // Disjoint changes can reuse approval; a changed visual input cannot.
     std::ofstream(repo / "unrelated.txt") << "unrelated\n";
     commitAll();

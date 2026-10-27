@@ -4,6 +4,7 @@
 #include <QtWidgets>
 #include <cmath>
 #include <functional>
+#include "revision_history.hpp"
 
 namespace {
 QJsonObject readObject(const QString &path) {
@@ -774,16 +775,21 @@ public:
     QDir dir(store);
     auto folders =
         dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
-    QSet<QString> superseded;
+    factory::proof::RevisionHistory revisions;
     for (const auto &folder : folders) {
+      if (folder.fileName().startsWith('.'))
+        continue;
       if (QFileInfo::exists(folder.absoluteFilePath() + "/manifest.json"))
         try {
           auto m = readObject(folder.absoluteFilePath() + "/manifest.json");
-          if (m.contains("previous"))
-            superseded.insert(m["previous"].toString());
+          const auto id = folder.fileName().toStdString();
+          revisions.previous.emplace(id, m["previous"].toString().toStdString());
+          if (QFileInfo::exists(folder.absoluteFilePath() + "/discarded.json"))
+            revisions.discarded.insert(id);
         } catch (const std::exception &) {
         }
     }
+    const auto superseded = revisions.superseded();
     for (const auto &folder : folders) {
       if (folder.fileName().startsWith('.'))
         continue;
@@ -795,7 +801,7 @@ public:
       if (!QFileInfo::exists(path + "/manifest.json") ||
           !QFileInfo::exists(path + "/registered.json"))
         continue;
-      if (!history && superseded.contains(folder.fileName()))
+      if (!history && superseded.contains(folder.fileName().toStdString()))
         continue;
       try {
         auto m = readObject(path + "/manifest.json");
@@ -1376,6 +1382,41 @@ int main(int argc, char **argv) {
             desk.pendingTab->isChecked() && !desk.historyTab->isChecked() &&
             !desk.caseNote->isReadOnly() && desk.localAction->isEnabled() &&
             desk.localAction->accessibleName().contains("Discard");
+        // A discarded replacement must stop hiding its predecessor. An active
+        // descendant still hides every ancestor through a discarded revision.
+        QDir().mkpath(probe);
+        next["previous"] = completed;
+        saveObject(probe + "/manifest.json", next);
+        saveObject(probe + "/registered.json",
+                   QJsonObject{{"registered", true}});
+        desk.refreshQueue();
+        (*state)["replacement_hides_previous"] =
+            desk.queue->count() == 1 && desk.bundleId == "watcher-probe";
+        saveObject(probe + "/discarded.json",
+                   QJsonObject{{"status", "discarded"}});
+        desk.refreshQueue();
+        (*state)["discarded_replacement_releases_previous"] =
+            desk.queue->count() == 1 && desk.bundleId == completed &&
+            !desk.caseNote->isReadOnly();
+        QFile::remove(probe + "/discarded.json");
+        desk.refreshQueue();
+        (*state)["restored_replacement_hides_previous"] =
+            desk.queue->count() == 1 && desk.bundleId == "watcher-probe";
+        saveObject(probe + "/discarded.json",
+                   QJsonObject{{"status", "discarded"}});
+        const auto successor = desk.store + "/successor-probe";
+        QDir().mkpath(successor);
+        next["id"] = "successor-probe";
+        next["previous"] = "watcher-probe";
+        saveObject(successor + "/manifest.json", next);
+        saveObject(successor + "/registered.json",
+                   QJsonObject{{"registered", true}});
+        desk.refreshQueue();
+        (*state)["active_descendant_hides_discarded_ancestry"] =
+            desk.queue->count() == 1 && desk.bundleId == "successor-probe";
+        QDir(successor).removeRecursively();
+        QDir(probe).removeRecursively();
+        desk.refreshQueue();
         bool passed = true;
         for (auto key :
              {"partial_bundle_blocks_approval", "image_loaded", "clip_advanced",
@@ -1386,7 +1427,10 @@ int main(int argc, char **argv) {
               "history_to_empty_pending", "new_pending_selected",
               "next_pending_selected", "discard_action_available",
               "discard_clears_pending", "discarded_history_readonly",
-              "restored_pending_editable"})
+              "restored_pending_editable", "replacement_hides_previous",
+              "discarded_replacement_releases_previous",
+              "restored_replacement_hides_previous",
+              "active_descendant_hides_discarded_ancestry"})
           passed &= (*state)[key].toBool();
         if (parser.isSet("capture"))
           for (auto key : {"review_capture_saved", "empty_capture_saved",
