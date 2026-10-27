@@ -517,7 +517,9 @@ func _pulse_fitted_world_crank(id: String) -> bool:
 			"One fitted world-crank interaction commits exactly one native pulse")
 
 func _approach(target: Vector2, actor: String = "P") -> bool:
-	if not await _walk_to(target, false, actor):
+	# Scene waypoints establish physical reach, not exact foot coordinates.
+	# Keep the stricter 8 cm bound for direct motor and jump checks.
+	if not await _walk_to(target, false, actor, OpeningGeometry.CAPSULE_RADIUS):
 		return false
 	for frame in range(30):
 		await physics_frame
@@ -1136,7 +1138,8 @@ func _run() -> void:
 		return
 	_record("pass")
 
-func _walk_to(target: Vector2, jump: bool = false, actor: String = "P") -> bool:
+func _walk_to(target: Vector2, jump: bool = false, actor: String = "P",
+		arrival_radius: float = 0.08) -> bool:
 	# This fixture drives the trusted motor directly. The ordinary keyboard
 	# presenter otherwise sends its idle direction in the same physics frame,
 	# making the walk depend on the render and physics callback order.
@@ -1150,7 +1153,7 @@ func _walk_to(target: Vector2, jump: bool = false, actor: String = "P") -> bool:
 		var at: Vector3 = body.global_position
 		highest_foot = maxf(highest_foot, at.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0)
 		var gap := target - Vector2(at.x, at.z)
-		if gap.length() < 0.08:
+		if gap.length() < arrival_radius:
 			opening.actor_world.release_control(actor)
 			opening.character_presenter.set_physics_process(presenter_was_processing)
 			if jump:
