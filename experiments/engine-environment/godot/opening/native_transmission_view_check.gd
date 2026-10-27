@@ -133,7 +133,7 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "projection" and inject_bad_actor_full:
 			inject_bad_actor_full = false
 			delivered.actors = delivered.actors.duplicate(true)
-			delivered.actors.P.capabilities.harvest_reach = "far"
+			delivered.actors.P.harvest_clear.erase("opening-copper")
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -186,7 +186,7 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "advance_delta" and inject_bad_actor_delta:
 			inject_bad_actor_delta = false
 			var actors: Dictionary = _view_cache.actors.duplicate(true)
-			actors.P.harvest_clear["opening-copper"] = "clear"
+			actors.P.harvest_clear.erase("opening-copper")
 			return {"changes": {"actors": actors}, "removed": []}
 		elif method == "actor_projection" and not inject_actor_narrow.is_empty():
 			var mode := inject_actor_narrow
@@ -3904,12 +3904,21 @@ func _native_view_cache_regression() -> void:
 	bad_reach.actors.P.capabilities.build_reach = 4
 	var bad_clearance := complete.duplicate(true)
 	bad_clearance.actors.P.harvest_clear["opening-copper"] = "clear"
+	var missing_clearance := complete.duplicate(true)
+	missing_clearance.actors.P.harvest_clear.erase("opening-copper")
+	var extra_clearance := complete.duplicate(true)
+	extra_clearance.actors.P.harvest_clear["invented-source"] = true
 	verify(trusted._projection_records.actors.fields["capabilities.harvest_reach"] == "floating"
 		and trusted._projection_records.actors.fields.harvest_clear == "boolean_values"
+		and trusted._projection_records.actors.entry_key_map == "harvest_clear"
+		and trusted._projection_records.actors.entry_keys_with == "hand_sources"
+		and trusted._projection_records.actors.entry_keys_when == "ready"
 		and not trusted._complete_projection(missing_reach)
 		and not trusted._complete_projection(bad_reach)
-		and not trusted._complete_projection(bad_clearance),
-		"Actor reach and per-source path clearance follow the exported native record types.")
+		and not trusted._complete_projection(bad_clearance)
+		and not trusted._complete_projection(missing_clearance)
+		and not trusted._complete_projection(extra_clearance),
+		"Actor reach and every source-clearance key follow the exported native record contract.")
 	var wrong_lots := complete.duplicate(true)
 	wrong_lots.cargo.P.work_lots = {}
 	var wrong_drop := complete.duplicate(true)
@@ -4304,14 +4313,14 @@ func _native_view_cache_regression() -> void:
 	trusted.inject_bad_actor_full = true
 	var bad_actor_full: Dictionary = trusted.view_projection()
 	verify(bad_actor_full.get("uncertain", false) and trusted._view_cache.is_empty(),
-		"A full view with a mistyped harvest reach cannot enter the scene cache.")
+		"A full view missing a source clearance cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
-		"A fresh native view recovers after the rejected actor reach.")
+		"A fresh native view recovers after the rejected actor clearance.")
 	trusted.view_projection()
 	trusted.inject_bad_actor_delta = true
 	var bad_actor_delta: Dictionary = trusted._advance_borrowed()
 	verify(bad_actor_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
-		"A merged tick with a mistyped source clearance cannot enter the scene cache.")
+		"A merged tick missing a source clearance cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"A fresh native view recovers after the rejected clearance delta.")
 	var actor_epoch := 2

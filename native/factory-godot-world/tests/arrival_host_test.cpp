@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <string_view>
 #include <tuple>
 
 namespace {
@@ -178,6 +179,27 @@ void arrival_projection_contract() {
         check(get<I>(tick, "revision") == get<I>(refreshed, "revision") &&
               factory::godot_world::projection_contract::complete(refreshed),
               "A native arrival tick retains the complete nested topology record shapes.");
+        const auto spawn = get<A>(get<O>(refreshed, "actors").at("P"), "position");
+        check(get<bool>(host.publish_actor("P", spawn, 1), "accepted") &&
+                  factory::godot_world::projection_contract::complete(host.projection()),
+              "A ready native actor publishes one clearance for each hand source.");
+        const auto ready_view = std::get<O>(host.projection().storage());
+        const auto invalid_clearance = [&](const char* mode) {
+            auto malformed = ready_view;
+            auto actors = get<O>(V(malformed), "actors");
+            auto actor = get<O>(actors.at("P"), "harvest_clear");
+            if (std::string_view(mode) == "missing") actor.erase("opening-copper");
+            if (std::string_view(mode) == "extra") actor.emplace("invented-source", V(true));
+            if (std::string_view(mode) == "mistyped") actor.at("opening-copper") = V("clear");
+            auto record = std::get<O>(actors.at("P").storage());
+            record.at("harvest_clear") = V(std::move(actor));
+            actors.at("P") = V(std::move(record));
+            malformed.at("actors") = V(std::move(actors));
+            return !factory::godot_world::projection_contract::complete(V(malformed));
+        };
+        check(invalid_clearance("missing") && invalid_clearance("extra") &&
+                  invalid_clearance("mistyped"),
+              "A ready actor refuses omitted, invented or mistyped source-clearance entries.");
     }
 }
 
