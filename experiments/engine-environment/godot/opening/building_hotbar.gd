@@ -251,6 +251,25 @@ func configure(host, ui: Control) -> void:
 		catalog_counts[tool] = _count_badge(button)
 		button.focus_entered.connect(_describe_focus.bind(button))
 		_track_tile_hover(button)
+	for teeth in [2, 4]:
+		var tool := "gear:%d" % teeth
+		var button := PlaceableTile.new()
+		button.owner_view = weakref(self)
+		button.tool = tool
+		button.pressed.connect(_select_inventory_tool.bind(tool))
+		material_grid.add_child(button)
+		_style_inventory_tile(button, catalog_buttons.gear.icon)
+		var size_badge := Label.new()
+		size_badge.text = "%dT" % teeth
+		size_badge.position = Vector2(5, 3)
+		size_badge.add_theme_font_size_override("font_size", 11)
+		size_badge.add_theme_color_override("font_color", Color("e7b875"))
+		size_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(size_badge)
+		catalog_buttons[tool] = button
+		catalog_counts[tool] = _count_badge(button)
+		button.focus_entered.connect(_describe_focus.bind(button))
+		_track_tile_hover(button)
 	component_grid = material_grid
 	for index in MIN_CARRIED_CELLS:
 		var empty := Panel.new()
@@ -467,6 +486,15 @@ func _view():
 	return _host.get_ref() if _host != null else null
 
 func _count(tool: String, parts: Dictionary) -> int:
+	if tool.begins_with("gear:"):
+		var host = _view()
+		if host == null:
+			return 0
+		var teeth := int(tool.trim_prefix("gear:"))
+		for specification: Dictionary in host.state.get("part_specifications", {}).get(host.client, []):
+			if specification.get("kind") == "gear" and int(specification.get("teeth", 0)) == teeth:
+				return maxi(0, int(specification.get("count", 0)))
+		return 0
 	if tool == "pod_workshop":
 		var hub_host = _view()
 		return _material_count("fabrication_hub", hub_host) if hub_host != null else 0
@@ -490,6 +518,8 @@ func _material_count(kind: String, host) -> int:
 	return maxi(0, int(cargo.get(kind, 0)))
 
 func _tool_label(tool: String) -> String:
+	if tool.begins_with("gear:"):
+		return "Cogwheel · %s teeth" % tool.trim_prefix("gear:")
 	if tool == "pod_workshop":
 		return "Pod workshop"
 	return str(_component_labels.get(tool.trim_prefix(COMPONENT_PREFIX), "Component")) \
@@ -511,7 +541,8 @@ func _offered(tool: String, host) -> bool:
 		return tool in ["component:anvil", "component:flat_head", "component:broad_anvil",
 			"component:broad_flat_head", "component:wooden_slide",
 			"component:hand_crank"]
-	return not (_arrival_active and tool in ["collector", "processor"]) \
+	return not (_arrival_active and tool in ["collector", "processor", "gear"]) \
+		and not (tool.begins_with("gear:") and not _arrival_active) \
 		and not (tool == "foundation" and not host.state.get("options", {}).get("foundations", false)) \
 		and not (tool in ["gear", "gearbox", "vertical_gearbox", "chain_drive"] and not host._native_transmission())
 
@@ -767,6 +798,8 @@ func _craft_recipe(key: String) -> void:
 				action = {"action": "craft_part", "entity": context_bench,
 					"role": "waterwheel" if cost.get("kind") == "wheel" else cost.get("kind"),
 					"half_span": cost.get("half_span", 0)}
+				if cost.get("kind") == "gear":
+					action["teeth"] = int(cost.get("teeth", 0))
 	if cost.is_empty() or action.is_empty():
 		focus_description.text = "Open a fabrication bench with E for this recipe."
 		return
@@ -837,6 +870,8 @@ func refresh(snapshot_ready: bool = true) -> void:
 		area_button.accessibility_name = "%s, shortcut V toggles size" % area_tip
 	if host.transmission_controls != null and not host.transmission_controls.active_tool.is_empty():
 		active = {"place_shaft": "drive", "belt_span": "belt"}.get(host.transmission_controls.active_tool, host.transmission_controls.active_tool)
+		if active == "gear" and _arrival_active:
+			active = "gear:%d" % host.transmission_controls.gear_teeth
 	if selected_slot < 0 or slots[selected_slot] != active:
 		selected_slot = slots.find(active)
 	for index in range(slots.size()):
@@ -858,8 +893,8 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var amount := _count(tool, parts)
 		button.text = ""
 		catalog_counts[tool].text = str(amount)
-		button.tooltip_text = "%s · %d %s · drag to hotbar or hover and press 1–8 · click to place" % [TOOLS[tool], amount, scope]
-		button.accessibility_name = "%s, %d %s; drag to hotbar or focus and press a number to bind; click to place" % [TOOLS[tool], amount, scope]
+		button.tooltip_text = "%s · %d %s · drag to hotbar or hover and press 1–8 · click to place" % [_tool_label(tool), amount, scope]
+		button.accessibility_name = "%s, %d %s; drag to hotbar or focus and press a number to bind; click to place" % [_tool_label(tool), amount, scope]
 		button.disabled = not usable or amount < 1 or not _offered(tool, host)
 		button.visible = _offered(tool, host) and (not _arrival_active or amount > 0)
 	if _arrival_active:
@@ -1034,5 +1069,7 @@ func _select_tool(tool: String, index: int) -> void:
 					chosen = part.teeth
 		if chosen > 0:
 			host.transmission_controls.gear_teeth = chosen
+	if tool.begins_with("gear:") and host.transmission_controls != null:
+		host.transmission_controls.gear_teeth = int(tool.trim_prefix("gear:"))
 	selected_slot = index
-	host._select_tool(tool)
+	host._select_tool("gear" if tool.begins_with("gear:") else tool)

@@ -618,13 +618,16 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* target = field<std::string>(record.intent, "target");
         const auto* requested_generation = field<Integer>(record.intent, "generation");
         const auto* requested_role = field<std::string>(record.intent, "role");
+        const auto* requested_teeth = field<Integer>(record.intent, "teeth");
         const auto* requested_span = field<Integer>(record.intent, "half_span");
         const auto selected = requested_role ? role(*requested_role) : std::nullopt;
         const auto recipe = selected && requested_span ?
-            profile.fabrication_parts.find({*selected, 0, *requested_span}) : profile.fabrication_parts.end();
+            profile.fabrication_parts.find({*selected, requested_teeth ? *requested_teeth : 0,
+                *requested_span}) : profile.fabrication_parts.end();
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
         const auto* made_role = field<std::string>(result, "role");
+        const auto* made_teeth = field<Integer>(result, "teeth");
         const auto* made_span = field<Integer>(result, "half_span");
         const auto* timber = field<Integer>(result, "spent_timber");
         const auto* raw = field<Integer>(result, "spent_raw");
@@ -633,10 +636,12 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         return bench_center && target && requested_generation && *requested_generation > 0 &&
             entity && *entity == *target && generation && *generation == *requested_generation &&
             requested_role && made_role && *made_role == *requested_role &&
+            (requested_teeth ? made_teeth && *made_teeth == *requested_teeth : !made_teeth) &&
             requested_span && made_span && *made_span == *requested_span &&
             recipe != profile.fabrication_parts.end() && timber && *timber == recipe->second.timber &&
             raw && *raw == recipe->second.ore && count && *count > 0 && *count <= 4096 &&
-            targets.front() == anchor(profile, *bench_center) && result.size() == 21;
+            targets.front() == anchor(profile, *bench_center) &&
+            result.size() == (requested_teeth ? 22U : 21U);
     }
     if (action == "craft_foundation") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -1977,7 +1982,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (*action == "craft_part") {
             const auto selected = role(*field<std::string>(record.intent, "role"));
             if (!selected) return false;
-            const stationary::PartSpec spec{*selected, 0, *field<Integer>(record.intent, "half_span")};
+            const auto* teeth = field<Integer>(record.intent, "teeth");
+            const stationary::PartSpec spec{*selected, teeth ? *teeth : 0,
+                *field<Integer>(record.intent, "half_span")};
             const auto recipe = profile.fabrication_parts.find(spec);
             if (recipe == profile.fabrication_parts.end() ||
                 carried_timber[*actor] < recipe->second.timber ||
@@ -4226,7 +4233,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         if (!spec_valid(spec) || profile.finite_parts.contains(spec) ||
             (spec.role != Role::waterwheel && spec.role != Role::shaft &&
              spec.role != Role::belt && spec.role != Role::gearbox &&
-             spec.role != Role::vertical_gearbox) ||
+             spec.role != Role::vertical_gearbox && spec.role != Role::gear) ||
             cost.timber < 0 || cost.ore < 0 || (cost.timber == 0 && cost.ore == 0) ||
             cost.timber > 256 || cost.ore > profile.initial_units) return false;
     if (profile.landing_pod_center) {

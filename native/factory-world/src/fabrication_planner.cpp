@@ -71,8 +71,9 @@ std::optional<FabricationCommand> fabrication_command(
     const auto* selected_role = field<std::string>(intent, "role");
     const auto* half_span = field<Integer>(intent, "half_span");
     if (!selected_role || !half_span) return std::nullopt;
+    const auto* teeth = field<Integer>(intent, "teeth");
     return FabricationCommand{Kind::part, *target, *generation, *selected_role, *half_span,
-        std::nullopt};
+        std::nullopt, teeth ? *teeth : 0};
 }
 
 Owner::Decision plan_fabrication(const Profile& profile, const Binding& binding,
@@ -232,12 +233,13 @@ Owner::Decision plan_fabrication(const Profile& profile, const Binding& binding,
         const auto& generation = command.generation;
         const auto& requested = command.recipe_name;
         const auto& half_span = command.half_span;
+        const auto& teeth = command.teeth;
         const auto bench = workshop_bench(state, id);
         if (!bench) return refused("unknown_target", id);
         if (generation != bench->generation)
             return refused("stale_generation", id);
         const auto selected = role(requested);
-        const auto recipe = selected ? profile.fabrication_parts.find({*selected, 0, half_span}) :
+        const auto recipe = selected ? profile.fabrication_parts.find({*selected, teeth, half_span}) :
             profile.fabrication_parts.end();
         if (recipe == profile.fabrication_parts.end()) return refused("unavailable_recipe", id);
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
@@ -264,6 +266,7 @@ Owner::Decision plan_fabrication(const Profile& profile, const Binding& binding,
             return refused("quantity_overflow", id, std::move(facts));
         facts.emplace("generation", Value(generation));
         facts.emplace("role", Value(requested));
+        if (teeth != 0) facts.emplace("teeth", Value(teeth));
         facts.emplace("half_span", Value(half_span));
         facts.emplace("spent_timber", Value(cost.timber));
         facts.emplace("spent_raw", Value(cost.ore));

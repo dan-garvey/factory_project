@@ -2352,6 +2352,34 @@ func _arrival_hotbar() -> void:
 		and not bar.recipe_buttons["component:anvil"].visible
 		and not bar.recipe_buttons.foundation.visible,
 		"The post-plate Build view offers the collector kit while retaining full native availability.")
+	view.state.part_kits.P.gear = 2
+	view.state.part_specifications.P = [
+		{"kind": "gear", "count": 1, "teeth": 2, "half_span": 0},
+		{"kind": "gear", "count": 1, "teeth": 4, "half_span": 0}]
+	view._refresh_ui()
+	verify(not bar.catalog_buttons.gear.visible and bar.catalog_buttons["gear:2"].visible
+		and bar.catalog_buttons["gear:4"].visible
+		and bar.catalog_counts["gear:2"].text == "1" and bar.catalog_counts["gear:4"].text == "1"
+		and bar.catalog_buttons["gear:4"].tooltip_text.contains("4 teeth"),
+		"The carried grid gives each native cogwheel size its own icon, count and size description.")
+	bar.open_catalog()
+	bar.catalog_buttons["gear:2"].grab_focus()
+	var size_binding_key := InputEventKey.new()
+	size_binding_key.pressed = true
+	size_binding_key.keycode = KEY_4
+	bar.catalog.window_input.emit(size_binding_key)
+	bar.catalog_buttons["gear:4"].grab_focus()
+	size_binding_key.keycode = KEY_5
+	bar.catalog.window_input.emit(size_binding_key)
+	verify(bar.slots[3] == "gear:2" and bar.slots[4] == "gear:4",
+		"Keyboard focus binds each carried cogwheel size to a distinct numbered slot.")
+	bar._close_catalog()
+	bar.select_slot(3)
+	verify(view.mode == "gear" and view.transmission_controls.gear_teeth == 2,
+		"The small cogwheel slot selects the matching native placement size.")
+	bar.select_slot(4)
+	verify(view.mode == "gear" and view.transmission_controls.gear_teeth == 4,
+		"The large cogwheel slot selects the matching native placement size.")
 	bar.open_catalog()
 	bar.all_focus_button.grab_focus()
 	await settle_widgets()
@@ -2598,6 +2626,9 @@ func _render_arrival_hotbar() -> void:
 	view.state.first_plate_unlock = true
 	view.state.workshop_completed_actors = ["P"]
 	view.state.part_kits.P = {"foundation": 15}
+	view.state.part_specifications.P = [
+		{"kind": "gear", "count": 1, "teeth": 2, "half_span": 0},
+		{"kind": "gear", "count": 1, "teeth": 4, "half_span": 0}]
 	view.state.cargo = {"P": {"components": {"wooden_frame": 2, "wooden_shaft": 1,
 		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "copper_cog": 1,
 		"wooden_slide": 1, "copper_slide": 1, "hand_crank": 1},
@@ -2619,7 +2650,9 @@ func _render_arrival_hotbar() -> void:
 		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "copper": 0}
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
-		"teeth": 0, "half_span": 2}]
+		"teeth": 0, "half_span": 2},
+		{"kind": "gear", "timber": 1, "copper": 1, "teeth": 2, "half_span": 0},
+		{"kind": "gear", "timber": 2, "copper": 1, "teeth": 4, "half_span": 0}]
 	view.state.component_capacity = 20
 	view.state.placed_components = {}
 	root.add_child(view)
@@ -2644,6 +2677,11 @@ func _render_arrival_hotbar() -> void:
 		"Retain the rendered arrival component hotbar.")
 	bar.open_catalog()
 	var inventory_scroll: ScrollContainer = bar.catalog.find_child("InventoryItems", true, false)
+	inventory_scroll.ensure_control_visible(bar.catalog_buttons["gear:4"])
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-cogwheels.png") == OK,
+		"Retain both carried cogwheel sizes in the surrounding inventory and recipe view.")
 	inventory_scroll.ensure_control_visible(bar.component_buttons.copper_slide)
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
@@ -2663,9 +2701,11 @@ func _render_arrival_hotbar() -> void:
 	verify(root.get_texture().get_image().save_png(prefix + "-all-recipes.png") == OK,
 		"Retain the full unlocked recipe view reached from the project group.")
 	var stocked_cargo: Dictionary = view.state.cargo.P.duplicate(true)
+	var stocked_specifications: Array = view.state.part_specifications.P.duplicate(true)
 	view.state.cargo.P = {"components": {}}
 	view.state.crank_items.clear()
 	view.state.part_kits.P = {}
+	view.state.part_specifications.P = []
 	view._refresh_ui()
 	await settle_widgets()
 	var empty_grid := _carried_grid_state(bar)
@@ -2688,6 +2728,7 @@ func _render_arrival_hotbar() -> void:
 	view.state.cargo.P = stocked_cargo
 	view.state.crank_items = {"component-1": {"holder": "P", "attached_to": ""}}
 	view.state.part_kits.P = {"foundation": 15}
+	view.state.part_specifications.P = stocked_specifications
 	view._refresh_ui()
 	await settle_widgets()
 	inventory_scroll.scroll_vertical = int(inventory_scroll.get_v_scroll_bar().max_value)

@@ -894,6 +894,7 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
         // Every kit remains in the one World inventory and history ledger.
         profile.fabrication_parts = {{{Role::shaft, 0, 2}, {1, 0}},
             {{Role::belt, 0, 0}, {2, 1}}, {{Role::waterwheel, 0, 0}, {2, 1}},
+            {{Role::gear, 2, 0}, {1, 1}}, {{Role::gear, 4, 0}, {2, 1}},
             {{Role::gearbox, 0, 0}, {1, 1}},
             {{Role::vertical_gearbox, 0, 0}, {1, 1}}};
     }
@@ -1786,6 +1787,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("generation", Value(crafting_bench_generation(snapshot.state,
             *field<std::string>(wire, "entity"))));
         normalized.emplace("role", wire.at("role"));
+        if (wire.contains("teeth")) normalized.emplace("teeth", wire.at("teeth"));
         normalized.emplace("half_span", wire.at("half_span"));
     } else if (crank_action == crank_commands::Action::attach) {
         if (!crank_commands::valid_wire(wire, crank_action) ||
