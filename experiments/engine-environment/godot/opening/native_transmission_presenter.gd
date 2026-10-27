@@ -932,31 +932,29 @@ static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> 
 	_relay_shells[key] = shell
 	return shell
 
-func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictionary) -> void:
-	if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
-		return
-	var first: Variant = parts.get(span.from)
-	var last: Variant = parts.get(span.to)
+func belt_visual_frame(first: Variant, last: Variant) -> Dictionary:
+	# This shared pose describes the visible loop only. A preview using it does
+	# not decide reach, clearance, custody or native placement admission.
 	if not _valid_part(first) or not _valid_part(last) or first.kind != "shaft" or last.kind != "shaft" or first.axis != last.axis or first.half_span != 2 or last.half_span != 2:
-		return
+		return {}
 	var first_point := Vector3i(first.center[0], first.center[1], first.center[2])
 	var last_point := Vector3i(last.center[0], last.center[1], last.center[2])
 	var delta := last_point - first_point
 	var steps: int = maxi(absi(delta.x), maxi(absi(delta.y), absi(delta.z))) / 4
 	if steps < 1 or steps > 19 or delta[first.axis] != 0:
-		return
+		return {}
 	var step := Vector3i.ZERO
 	var changed := 0
 	for axis in 3:
 		if first_point[axis] % 4 != 0 or last_point[axis] % 4 != 0:
-			return
+			return {}
 		if delta[axis] != 0:
 			if absi(delta[axis]) != steps * 4:
-				return
+				return {}
 			changed += 1
 			step[axis] = 4 if delta[axis] > 0 else -4
 	if changed > 2 or (first.axis == 1 and changed != 1):
-		return
+		return {}
 	var distance: float = Vector3(delta).length() * UNIT
 	var tangent := Vector3(delta).normalized()
 	if delta.x < 0 or (delta.x == 0 and delta.y < 0) or (delta.x == 0 and delta.y == 0 and delta.z < 0):
@@ -968,11 +966,31 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 		spindle = -spindle
 		normal = -normal
 	var loop_basis := Basis(tangent, normal, spindle)
+	return {"first_point": first_point, "last_point": last_point, "delta": delta,
+		"steps": steps, "step": step, "distance": distance, "loop_basis": loop_basis,
+		"spindle": spindle, "position": (world_center(first.center) + world_center(last.center)) / 2.0}
+
+func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictionary) -> void:
+	if not span is Dictionary or typeof(span.get("from")) != TYPE_STRING or typeof(span.get("to")) != TYPE_STRING:
+		return
+	var first: Variant = parts.get(span.from)
+	var last: Variant = parts.get(span.to)
+	var frame := belt_visual_frame(first, last)
+	if frame.is_empty():
+		return
+	var first_point: Vector3i = frame.first_point
+	var last_point: Vector3i = frame.last_point
+	var delta: Vector3i = frame.delta
+	var steps: int = frame.steps
+	var step: Vector3i = frame.step
+	var distance: float = frame.distance
+	var loop_basis: Basis = frame.loop_basis
+	var spindle: Vector3 = frame.spindle
 	var anchor := Node3D.new()
 	anchor.name = "ConfirmedBelt"
 	anchor.set_meta("entity", id)
 	anchor.set_meta("kind", "belt_span")
-	anchor.position = (world_center(first.center) + world_center(last.center)) / 2.0
+	anchor.position = frame.position
 	anchor.set_meta("cargo_start", world_center(first.center) - anchor.position)
 	anchor.set_meta("cargo_end", world_center(last.center) - anchor.position)
 	anchor.set_meta("cargo_slots", steps + 1)
