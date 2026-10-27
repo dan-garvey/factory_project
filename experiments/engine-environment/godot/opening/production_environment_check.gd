@@ -11,7 +11,19 @@ var failed := false
 var error_count := 0
 var mode := "environment"
 var fixture_directory := ""
+var fir_layout_only := false
 const TANGENT_EPSILON := 0.0005
+const CASES := ["environment", "botanical-species", "collector-carrier",
+	"foundation-depth-vegetation", "construction-vegetation", "bank-fir-lifecycle",
+	"bank-firs", "fir-resource", "pine-reflectance", "pine-roots", "pine-understory",
+	"stone-material", "sourced-sky", "meadow-patches", "foliage-mipmaps",
+	"sourced-foliage", "ground-material", "ground-render", "site-render",
+	"water-flow", "water-pattern", "water-render", "bank-ferns",
+	"rock-collision-shape", "surface-composition", "foreground-bank", "foliage"]
+const ARTIFACT_CASES := ["bank-firs", "fir-resource", "pine-reflectance",
+	"pine-understory", "stone-material", "sourced-sky", "sourced-foliage",
+	"ground-material", "ground-render", "site-render", "water-render", "bank-ferns"]
+const RENDER_CASES := ["ground-render", "site-render", "water-render"]
 
 class FixtureView:
 	extends "res://opening/opening.gd"
@@ -129,11 +141,54 @@ func check_mesh_attributes(mesh: ArrayMesh, label: String, sample_step: int = 1)
 			label + " tangents are finite and orthogonal to the surface normal.")
 
 func _initialize() -> void:
-	for argument in OS.get_cmdline_user_args():
+	var seen := {}
+	for argument: String in OS.get_cmdline_user_args():
+		var option := ""
+		var value := ""
 		if argument.begins_with("--environment-case="):
-			mode = argument.trim_prefix("--environment-case=")
+			option = "--environment-case="
+			value = argument.trim_prefix(option)
 		elif argument.begins_with("--artifacts="):
-			fixture_directory = argument.trim_prefix("--artifacts=")
+			option = "--artifacts="
+			value = argument.trim_prefix(option)
+		elif argument.begins_with("--test-purpose="):
+			option = "--test-purpose="
+			value = argument.trim_prefix(option)
+		elif argument == "--fir-layout-only":
+			option = argument
+		if option.is_empty() or seen.has(option) or (option.ends_with("=") and value.is_empty()):
+			push_error("Unknown, repeated or empty environment fixture argument: " + argument)
+			quit(2)
+			return
+		seen[option] = true
+		match option:
+			"--environment-case=": mode = value
+			"--artifacts=": fixture_directory = value
+			"--fir-layout-only": fir_layout_only = true
+	if not CASES.has(mode):
+		push_error("Choose a supported production environment fixture case.")
+		quit(2)
+		return
+	if fir_layout_only and mode != "bank-firs":
+		push_error("The fir layout control belongs only to the bank-firs case.")
+		quit(2)
+		return
+	var needs_artifacts := ARTIFACT_CASES.has(mode) and not (mode == "bank-firs" and fir_layout_only)
+	if seen.has("--artifacts=") != needs_artifacts:
+		push_error("The selected environment case requires exactly its declared artifact directory.")
+		quit(2)
+		return
+	if needs_artifacts and (not fixture_directory.is_absolute_path()
+			or not DirAccess.dir_exists_absolute(fixture_directory)):
+		push_error("Environment fixture artifacts need an existing absolute directory.")
+		quit(2)
+		return
+	if RENDER_CASES.has(mode) and DisplayServer.get_name().to_lower() == "headless":
+		push_error("The selected environment render case needs an actual renderer.")
+		quit(2)
+		return
+	if not Opening.apply_test_window_title(self):
+		return
 	call_deferred("run")
 
 func check_multimesh(instances: MultiMesh, min_pad_clearance: float, label: String) -> void:
@@ -1878,7 +1933,7 @@ func check_botanical_species() -> void:
 func check_bank_firs() -> void:
 	# Exercise the actual absent-file branch before any fir layout cache is
 	# built. Only this private captured project's optional asset is moved.
-	if not OS.get_cmdline_user_args().has("--fir-layout-only"):
+	if not fir_layout_only:
 		var original := ProjectSettings.globalize_path(Scenery.Surface.FIR_FILE)
 		var retained := fixture_directory.path_join("optional-fir-control.res")
 		if not verify(DirAccess.rename_absolute(original, retained) == OK, "The optional resource can be retained outside the private case project."):

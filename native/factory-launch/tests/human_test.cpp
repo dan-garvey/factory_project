@@ -80,6 +80,8 @@ int main(int argc, char** argv) {
         write(repo / "experiments/engine-environment/godot/opening/parts_view_check.gd", "extends SceneTree\n");
         write(repo / "experiments/engine-environment/godot/opening/machine_body_motion_check.gd", "extends SceneTree\n");
         write(repo / "experiments/engine-environment/godot/opening/machine_visual_test.gd", "extends SceneTree\n");
+        write(repo / "experiments/engine-environment/godot/opening/production_environment_check.gd",
+            "extends SceneTree\n");
         write(repo / "experiments/engine-environment/godot/opening/shared_opening.gd", "extends Node\n");
         write(repo / "experiments/engine-environment/godot/opening/native_transmission_view_check.gd",
             "extends SceneTree\n");
@@ -216,6 +218,27 @@ int main(int argc, char** argv) {
             }
             require(installed == 1, "Only the selected runtime receives each motion fixture.");
         }
+        fs::remove(launched);
+        auto environment_window = window_base;
+        const auto render_artifacts = root / "scenery captures with spaces";
+        environment_window.insert(environment_window.end(), {"--script",
+            "res://opening/production_environment_check.gd", "--test-purpose", "Scenery render check",
+            "--", "--environment-case=site-render", "--artifacts=" + render_artifacts.string()});
+        require(run(environment_window).exit_code == 0 &&
+                read(launched).find("--script\nres://opening/production_environment_check.gd") != std::string::npos &&
+                read(launched).find("--test-purpose=Scenery render check") != std::string::npos &&
+                read(launched).find("--artifacts=" + render_artifacts.string()) != std::string::npos,
+                "A labeled scenery case forwards its capture directory through the tracked agent window.");
+        std::size_t installed_environment_fixtures = 0;
+        for (const auto& entry : fs::directory_iterator(sessions)) {
+            const auto fixture = entry.path() / "native/runtime/project/opening/production_environment_check.gd";
+            if (!fs::exists(fixture)) continue;
+            ++installed_environment_fixtures;
+            require(read(fixture) == "extends SceneTree\n",
+                "The scenery fixture comes from checked main rather than the source checkout.");
+        }
+        require(installed_environment_fixtures == 1,
+            "Only the selected scenery runtime receives its checked fixture.");
         fs::remove(launched);
         auto transmission_window = window_base;
         transmission_window.insert(transmission_window.end(), {"--script",
