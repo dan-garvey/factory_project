@@ -4785,7 +4785,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if workshop_complete:
 			next_work = "Open Work log [J] for the collector project, or keep building."
 		elif sliding_plate_waiting:
-			next_work = "Plate and offcut on the workbed. Aim at the offcuts and press E to collect both."
+			next_work = "Plate on the workbed. Aim at the offcuts and press [E]."
 		elif sliding_press_ready and ready_slide_has_crank:
 			next_work = "Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."
 		elif sliding_press_ready:
