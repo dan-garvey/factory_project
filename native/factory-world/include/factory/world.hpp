@@ -100,12 +100,13 @@ struct FabricationHub {
 struct HandCrank {
     std::string id;
     authority::Integer generation{};
-    // Carried items retain identity when attached and detached. Exactly one of
-    // holder and attached_to is present after a crank is crafted.
+    // A crank is carried or occupies its own world position at port. The
+    // connected input is optional: removing that part leaves the crank in
+    // place, with the same finite identity, until it is reclaimed separately.
     std::optional<std::string> holder;
     std::optional<std::string> attached_to;
     std::optional<mechanics::Point> port;
-    // Outward unit normal of the fitted spindle face. Older checkpoints may
+    // Outward unit normal of the crank face. Older checkpoints may
     // omit it; their central input keeps the historical positive winding.
     std::optional<mechanics::Point> face;
     HandCrank(std::string name, authority::Integer serial,
@@ -310,8 +311,10 @@ private:
 
 [[nodiscard]] DrivePower drive_power(const stationary::Topology&);
 [[nodiscard]] DrivePower drive_power(const Profile&, const State&);
-// A held crank engages one fitted input for one command. This projects a
-// temporary source into the same native graph; it is never a placed part.
+// The placed crank engages one connected input while held. A manual turn
+// projects a temporary source into the same native graph as water power.
+[[nodiscard]] bool has_self_powered_source(const DrivePower&,
+    const stationary::Topology&, const std::string& input);
 [[nodiscard]] DrivePower hand_crank_power(const Profile&, const State&,
     const std::string& input, const mechanics::Point& port,
     std::optional<mechanics::Point> face = std::nullopt);

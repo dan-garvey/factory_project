@@ -55,8 +55,9 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         if (requested_face_value && !requested_face) return refused("invalid_crank_face", *id);
         const auto input_id = attaching ? *id : crank->second.attached_to.value_or("");
         const auto input = state.placed_components.find(input_id);
-        if (!port || input == state.placed_components.end() ||
-            !crank_input_port(input->second, *port)) return refused("not_rotary_input", *id);
+        if (!port || (attaching && (input == state.placed_components.end() ||
+            !crank_input_port(input->second, *port))))
+            return refused("not_rotary_input", *id);
         if (attaching && input->second.generation != *requested_generation)
             return refused("stale_generation", *id);
         if (!attaching && crank->second.holder) return refused("crank_not_attached", *id);
@@ -93,6 +94,8 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
             const auto axis = existing.crank_axes.find(input_id);
             if (axis == existing.crank_axes.end())
                 return refused("not_rotary_input", *id, std::move(facts));
+            if (has_self_powered_source(existing, state.topology, input_id))
+                return refused("input_already_driven", *id, std::move(facts));
             if (!manual_input_available(motion->second))
                 return refused("input_already_driven", *id, std::move(facts));
             mechanics::Point face = requested_face.value_or(
@@ -156,6 +159,8 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         if (crank == state.crank_items.end()) return refused("unknown_crank", *crank_id);
         if (crank->second.generation != *crank_generation)
             return refused("stale_generation", *crank_id);
+        if (!crank->second.attached_to)
+            return refused("crank_disconnected", *crank_id);
         const auto input = state.placed_components.find(*input_id);
         if (input == state.placed_components.end()) return refused("unknown_target", *input_id);
         if (input->second.generation != *input_generation)
@@ -180,6 +185,8 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         const auto existing = drive_power(profile, state);
         if (!existing.mechanical.accepted())
             return refused("invalid_mechanics", *crank_id, std::move(facts));
+        if (has_self_powered_source(existing, state.topology, *input_id))
+            return refused("input_already_driven", *crank_id, std::move(facts));
         const auto prior_motion = existing.mechanical.motion.find(*input_id);
         if (prior_motion != existing.mechanical.motion.end() &&
             !manual_input_available(prior_motion->second))
@@ -214,6 +221,9 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
             return refused("not_collector_input", *id);
         if (!has_attached_crank(state, *id, found->second.center))
             return refused("crank_not_attached", *id);
+        const auto source_power = drive_power(profile, state);
+        if (has_self_powered_source(source_power, state.topology, *id))
+            return refused("input_already_driven", *id);
         const auto assembly = collector_for_input(profile, assembly_parts(state), *id);
         if (assembly.ambiguous) return refused("ambiguous_assembly", *id);
         if (!assembly.collector) return refused("incomplete_assembly", *id);
@@ -278,6 +288,8 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         const auto existing = drive_power(profile, state);
         if (!existing.mechanical.accepted())
             return refused("invalid_mechanics", *id, std::move(facts));
+        if (has_self_powered_source(existing, state.topology, *id))
+            return refused("input_already_driven", *id, std::move(facts));
         const auto prior_motion = existing.mechanical.motion.find(*id);
         if (prior_motion == existing.mechanical.motion.end() ||
             !manual_input_available(prior_motion->second))

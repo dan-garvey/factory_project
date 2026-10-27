@@ -212,6 +212,9 @@ Owner::Decision plan_press(const Profile& profile, const Binding& binding,
             return refused("wrong_drive_shaft", *id);
         if (compacting && !has_attached_crank(state, *drive, inspected.press->shaft_center))
             return refused("crank_not_attached", *id);
+        if (compacting && has_self_powered_source(drive_power(profile, state),
+                state.topology, *drive))
+            return refused("input_already_driven", *id);
         const auto selected_feed = std::find_if(inspected.press->open_feeds.begin(),
             inspected.press->open_feeds.end(), [&](const assembly::PressFeed& feed) {
                 return feed.entry == *selected_entry;
@@ -314,6 +317,8 @@ Owner::Decision plan_press(const Profile& profile, const Binding& binding,
         if (inspected.press->shaft != *drive) return refused("wrong_drive_shaft", *id);
         if (!has_attached_crank(state, *drive, inspected.press->shaft_center))
             return refused("crank_not_attached", *id);
+        if (has_self_powered_source(drive_power(profile, state), state.topology, *drive))
+            return refused("input_already_driven", *id);
         if (std::none_of(inspected.press->open_feeds.begin(), inspected.press->open_feeds.end(),
                 [&](const assembly::PressFeed& feed) { return feed.exit == *selected_exit; }))
             return refused("blocked_exit", *id);

@@ -473,10 +473,8 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
     check(get<bool>(resumed("attach-first", "attach_hand_crank", attach), "duplicate") &&
           !get<bool>(resumed("attach-second", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(second_id)},
-               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted") &&
-          !get<bool>(resumed("reclaim-with-crank", "reclaim_component",
-              {{"entity", V(slide_id)}}), "accepted"),
-          "A retry cannot mint a crank, and one occupied port blocks another crank and slide reclaim.");
+               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
+          "A retry cannot mint a crank, and one occupied port blocks another crank.");
     const auto before_bad_crank_commands = restored.projection();
     for (const auto& refused : {
              resumed("bad-attach", "attach_hand_crank",
@@ -533,6 +531,38 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
               V(get<A>(get<O>(fitted_reopened.projection(), "crank_items").at(first_id), "face")),
               V(A{V(I{1}), V(I{0}), V(I{0})})),
           "A fresh Host reopens the exact fitted crank face and finite identity.");
+    check(get<bool>(fitted_reopened.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 4),
+              "accepted"),
+          "The service branch refreshes the actor observation beside the placed crank.");
+    const auto service = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("crank-item-site")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return fitted_reopened.command("P", wire);
+    };
+    const auto slide_reclaim = service("reclaim-slide-beside-crank", "reclaim_component",
+        {{"entity", V(slide_id)}});
+    const auto disconnected = fitted_reopened.projection();
+    const auto& separate_crank = get<O>(disconnected, "crank_items").at(first_id);
+    check(get<bool>(slide_reclaim, "accepted") &&
+          !get<O>(disconnected, "placed_components").contains(slide_id) &&
+          get<std::string>(separate_crank, "holder").empty() &&
+          get<std::string>(separate_crank, "attached_to").empty() &&
+          get<A>(separate_crank, "port").size() == 3 &&
+          get<I>(V(get<O>(get<O>(disconnected, "cargo").at("P"), "components")),
+              "hand_crank") == 1 &&
+          get<bool>(fitted_reopened.validate_checkpoint(fitted_reopened.checkpoint()), "accepted"),
+          "Reclaiming a connected slide leaves one independently placed crank and valid custody.");
+    const auto disconnected_pulse = service("pulse-disconnected-crank", "operate_hand_crank",
+        {{"entity", V(first_id)}});
+    check(!get<bool>(disconnected_pulse, "accepted") &&
+          get<std::string>(disconnected_pulse, "reason") == "crank_disconnected" &&
+          get<bool>(service("reclaim-separate-crank", "detach_hand_crank",
+              {{"entity", V(first_id)}}), "accepted") &&
+          get<I>(V(get<O>(get<O>(fitted_reopened.projection(), "cargo").at("P"),
+              "components")), "hand_crank") == 2 &&
+          get<bool>(fitted_reopened.validate_checkpoint(fitted_reopened.checkpoint()), "accepted"),
+          "A disconnected crank refuses power and returns once to the actor when reclaimed.");
     const auto removed = resumed("detach-first", "detach_hand_crank", {{"entity", V(first_id)}});
     check(get<bool>(removed, "accepted") &&
           get<std::string>(get<O>(restored.projection(), "crank_items").at(first_id),

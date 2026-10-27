@@ -748,7 +748,7 @@ func _construction_feedback(intent: Dictionary, outcome: Dictionary) -> void:
 	construction_audio.confirmed(intent, outcome, str(outcome.get("context", state.get("context", ""))))
 
 func _crank_turn_refusal(machine: String) -> String:
-	return "Fit a crafted hand crank to this %s's input before turning it." % machine
+	return "Place a crafted hand crank at this %s's input before turning it." % machine
 
 func _confirm_hand_crank_visual(action: Dictionary, outcome: Dictionary) -> void:
 	if action.get("action") == "operate_hand_crank" and outcome.get("accepted", false) \
@@ -838,10 +838,10 @@ func issue(action: Dictionary) -> Dictionary:
 			"field_craft": "Wooden component shaped with your multitool.",
 			"craft_part": "Transmission kit made from carried timber and copper.",
 			"place_component": "Component placed on the shared grid.",
-			"attach_hand_crank": "Hand crank fitted to the input.",
+			"attach_hand_crank": "Hand crank placed beside the rotary input.",
 			"detach_hand_crank": "The same hand crank returned to your inventory.",
 			"operate_hand_crank": "Crank turning.",
-			"turn_slide_crank": "The fitted crank advanced the slide.",
+			"turn_slide_crank": "The placed crank advanced the slide.",
 			"reclaim_component": "Component returned to your carried cargo.",
 			"stow_fabrication_hub": "Pod workshop unbolted. Place it on clear ground or a foundation top.",
 			"deploy_fabrication_hub": "Pod workshop installed at its new worksite.",
@@ -865,10 +865,11 @@ func issue(action: Dictionary) -> Dictionary:
 			"already_connected": "Those ports are already connected.",
 			"unavailable_output": "There is no finished copper plate to collect yet.",
 			"out_of_reach": "Move closer to the target before building or interacting.",
-			"crank_not_attached": "Fit a crafted hand crank to the input before turning it.",
+			"crank_not_attached": "Place a crafted hand crank at a rotary input before turning it.",
+			"crank_disconnected": "This crank has no connected shaft. Rebuild the route or reclaim it [F].",
+			"input_already_driven": "A self-powered source already drives this shaft network.",
 			"input_port_occupied": "That input already holds a crank or another part.",
-			"wrong_input_port": "Fit the crank at an exposed rotary input.",
-			"attached_crank": "Remove the fitted crank before reclaiming its input.",
+			"wrong_input_port": "Place the crank at an exposed rotary input.",
 			"wrong_drive_shaft": "Use this press's fitted drive shaft.",
 			"incomplete_assembly": "The press still needs the indicated component.",
 			"receiver_full": "Pick up the copper in the collector receiver before cutting again.",
@@ -1563,7 +1564,7 @@ func _select_tool(tool: String) -> void:
 		"component": "Point at a part face to snap. Hold Alt and use arrows or Page Up / Down to nudge one quarter-grid step; click to place.",
 		"pod_workshop": "Click a clear full tile to reinstall the carried pod workshop. It can sit on ground or a foundation top.",
 		"drive": "Click two neighboring machines to connect a drive shaft.",
-		"inspect": "E picks up pointed items or opens machines. Hold E at a fitted crank." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
+		"inspect": "E picks up pointed items or opens machines. Hold E at a placed crank." if _native_transmission() else "Click a machine to inspect it or collect its finished work.",
 		"deconstruct": "Point at a built part and click to dismantle it. Escape leaves dismantle mode.",
 		"collector": "Place the collector on the ore deposit.",
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
@@ -1640,7 +1641,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		if component_name == "hand_crank":
 			var input_id := _rotary_at_input_port(center)
 			if input_id.is_empty():
-				_message("Point at a visible rotary input to fit the crank.", true)
+				_message("Point at a visible rotary input to place the crank.", true)
 				return
 			var carried_id := ""
 			for item_id: String in state.get("crank_items", {}):
@@ -1648,7 +1649,7 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 					carried_id = item_id
 					break
 			if carried_id.is_empty():
-				_message("Craft and carry a hand crank before fitting an input.", true)
+				_message("Craft and carry a hand crank before placing it at an input.", true)
 				return
 			var attach_wire := {"action": "attach_hand_crank", "entity": input_id,
 				"crank": carried_id, "port": center}
@@ -1752,7 +1753,7 @@ func _crank_at_screen(screen: Vector2) -> String:
 		return ""
 	var id: String = str(hit.collider.get_meta("crank_entity", ""))
 	var item: Dictionary = state.get("crank_items", {}).get(id, {})
-	return id if not item.is_empty() and not str(item.get("attached_to", "")).is_empty() else ""
+	return id if item.get("port", []).size() == 3 and str(item.get("holder", "")).is_empty() else ""
 
 func _stop_held_crank() -> void:
 	held_crank = ""
@@ -2194,9 +2195,12 @@ func _interact_pointed() -> void:
 		expected.erase("center")
 		issue({"action": "pickup_material", "center": drop.center.duplicate(), "expected": expected})
 		return
-	var attached_crank := _pointed_crank() if mode == "inspect" else ""
-	if not attached_crank.is_empty():
-		held_crank = attached_crank
+	var pointed_crank := _pointed_crank() if mode == "inspect" else ""
+	if not pointed_crank.is_empty():
+		if str(state.get("crank_items", {}).get(pointed_crank, {}).get("attached_to", "")).is_empty():
+			_message("This crank has no connected shaft. Reclaim it with F, then click.", true)
+			return
+		held_crank = pointed_crank
 		held_crank_context = str(state.get("context", ""))
 		held_crank_request = ""
 		held_crank_seconds = STEP_SECONDS
@@ -2688,7 +2692,8 @@ func _refresh_component_preview() -> void:
 	if kind == "hand_crank":
 		var input_id := _rotary_at_input_port(center)
 		var input: Dictionary = state.get("placed_components", {}).get(input_id, {})
-		component_preview_blocked = input_id.is_empty()
+		component_preview_blocked = input_id.is_empty() or \
+			not bool(input.get("crank_source_available", true))
 		for item: Dictionary in state.get("crank_items", {}).values():
 			if item.get("port", []) == center:
 				component_preview_blocked = true
@@ -2696,7 +2701,7 @@ func _refresh_component_preview() -> void:
 		if component_preview_pose_key != "hand_crank":
 			for child in component_preview.get_children():
 				child.free()
-			transmission_presenter.preview_component(component_preview, kind, Vector3(0.15, 0.2, 0.15))
+			transmission_presenter.preview_component(component_preview, kind, Vector3(0.25, 0.38, 0.22))
 			component_preview_pose_key = "hand_crank"
 			component_preview_kind = kind
 			component_preview_material = StandardMaterial3D.new()
@@ -2711,8 +2716,7 @@ func _refresh_component_preview() -> void:
 			face = [-1, 0, 0] if input_cell.size() == 3 and center[0] < input_cell[0] \
 				else [1, 0, 0]
 		var outward := Vector3(float(face[0]), 0.0, float(face[2]))
-		if input_cell == center:
-			component_preview.position += outward * 0.22
+		component_preview.position += outward * 0.22
 		component_preview.rotation.y = -atan2(outward.z, outward.x)
 		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
 			else Color(0.91, 0.73, 0.40, 0.56)
@@ -2796,7 +2800,13 @@ func _component_placement_hint() -> String:
 	if component_preview == null or not component_preview.visible:
 		return "Point at a floor or built part"
 	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "hand_crank":
-		return "Point at a slide input shaft end · click to fit the carried crank" \
+		var crank_center := _component_place_center(_screen_cell(_pointed_screen_position()),
+			_screen_entity(_pointed_screen_position()))
+		var input_id := _rotary_at_input_port(crank_center)
+		if not input_id.is_empty() and not bool(state.get("placed_components", {}).get(
+				input_id, {}).get("crank_source_available", true)):
+			return "A waterwheel already powers this shaft network"
+		return "Point at a slide input shaft end · click to place the carried crank" \
 			if not component_preview_blocked else "Point at a clear slide input shaft end"
 	var center := _component_place_center(_screen_cell(_pointed_screen_position()),
 		_screen_entity(_pointed_screen_position()))
@@ -4596,7 +4606,7 @@ func _refresh_ui() -> void:
 		if component.get("component", "") == "wooden_workbench":
 			inspector.text += "\nPress E for recipes when nearby."
 	else:
-		inspector.text = "E picks up pointed items or opens machines. Hold E at a fitted crank."
+		inspector.text = "E picks up pointed items or opens machines. Hold E at a placed crank."
 	inspector.tooltip_text = inspector.text
 	if _object_menu_open() and _contains_target(state, selected):
 		var detail_lines := inspector.text.split("\n")
@@ -4802,15 +4812,15 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		elif sliding_plate_waiting:
 			next_work = "Plate on the workbed. Aim at the offcuts and press [E]."
 		elif sliding_press_ready and ready_slide_has_crank:
-			next_work = "Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."
+			next_work = "Open the press [E]. Move copper to the workbed, then point at the crank and hold E."
 		elif sliding_press_ready:
-			next_work = "Fit your carried crank at a slide input [B], then open the press [E]." \
+			next_work = "Place your carried crank at a slide input [B], then open the press [E]." \
 				if int(carried.get("components", {}).get("hand_crank", 0)) > 0 else \
-				"Craft a hand crank [B], fit it at a slide input, then open the press [E]."
+				"Craft a hand crank [B], place it at a slide input, then open the press [E]."
 		elif state.get("first_plate_unlock", false) and sliding_feed_blocked:
 			next_work = "Clear an X-side feed path [F], then open the press [E]."
 		elif press_ready:
-			next_work = "Feed copper at the press [E], then hold E on its fitted crank in the world."
+			next_work = "Feed copper at the press [E], then hold E on its placed crank in the world."
 		elif state.get("first_plate_unlock", false) and not state.get("placed_components", {}).is_empty():
 			next_work = "Inspect placed parts [E] and use Build [B] for what the press still needs."
 		elif state.get("first_plate_unlock", false) and (
@@ -5757,8 +5767,14 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 		return {"name": ", ".join(items), "detail": "E  Pick up"}
 	var crank_id := _crank_at_screen(screen)
 	if not crank_id.is_empty():
-		return {"name": "Fitted hand crank",
-			"detail": "Click  Detach" if mode == "deconstruct" else "Hold E  Turn · F then click  Detach",
+		var connected: bool = not str(state.crank_items[crank_id].get("attached_to", "")).is_empty()
+		var detail := "F then click  Reclaim"
+		if mode == "deconstruct":
+			detail = "Click  Reclaim"
+		elif connected:
+			detail = "Hold E  Turn · F then click  Reclaim"
+		return {"name": "Placed hand crank" if connected else "Disconnected hand crank",
+			"detail": detail,
 			"target": crank_id}
 	var hit := _screen_pick(screen)
 	var target := _picked_target_id(hit)

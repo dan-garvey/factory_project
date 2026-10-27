@@ -935,6 +935,35 @@ void actor_feed_is_physical_custody() {
             record.result.at("formed_products") = V(I{1});
     check(!w::World::restore("press-feed", source.profile, false_output),
           "A saved crank receipt cannot report output absent from the physical exit.");
+    Runner crank_beside_wheel(source);
+    crank_beside_wheel.world = w::World::restore("press-feed", source.profile, first_work);
+    crank_beside_wheel.p = {2, 1, 0};
+    auto engage_wheel_beside_crank = request("P", "engage-wheel-beside-crank", "set_drive");
+    engage_wheel_beside_crank.emplace("target", V("press-wheel"));
+    engage_wheel_beside_crank.emplace("generation", V(I{1}));
+    engage_wheel_beside_crank.emplace("enabled", V(true));
+    crank_beside_wheel.accept("P", engage_wheel_beside_crank);
+    const auto crank_with_wheel = crank_beside_wheel.world->snapshot();
+    check(crank_with_wheel.state.crank_items.at(hand_crank.id).port.has_value() &&
+          w::World::restore("press-feed", source.profile, crank_with_wheel) != nullptr,
+          "Engaging the wheel leaves the separately placed crank intact and restorable.");
+    auto redundant_turn = turn;
+    redundant_turn.at("request") = V("turn-crank-beside-engaged-wheel");
+    crank_beside_wheel.refuses("P", redundant_turn, "input_already_driven");
+    const auto& crank_item = crank_with_wheel.state.crank_items.at(hand_crank.id);
+    const auto& drive_item = crank_with_wheel.state.placed_components.at(shaft);
+    auto redundant_pulse = request("P", "pulse-crank-beside-engaged-wheel", "operate_hand_crank");
+    redundant_pulse.emplace("target", V(shaft));
+    redundant_pulse.emplace("generation", V(drive_item.generation));
+    redundant_pulse.emplace("crank", V(hand_crank.id));
+    redundant_pulse.emplace("crank_generation", V(hand_crank.generation));
+    redundant_pulse.emplace("port", V(point((*crank_item.port)[0], (*crank_item.port)[1],
+        (*crank_item.port)[2])));
+    if (crank_item.face) redundant_pulse.emplace("face", V(point((*crank_item.face)[0],
+        (*crank_item.face)[1], (*crank_item.face)[2])));
+    crank_beside_wheel.refuses("P", redundant_pulse, "input_already_driven");
+    check(crank_beside_wheel.world->snapshot().state == crank_with_wheel.state,
+          "Neither manual command advances work or consumes the crank beside an engaged wheel.");
     Runner powered_after_manual(source);
     powered_after_manual.world = w::World::restore("press-feed", source.profile, first_work);
     powered_after_manual.p = {2, 1, 0};
@@ -1368,11 +1397,32 @@ void actor_feed_is_physical_custody() {
     auto remove = request("P", "remove-shaft", "reclaim_component");
     remove.emplace("target", V(shaft));
     remove.emplace("generation", V(I{6}));
-    auto remove_with_crank = remove;
-    remove_with_crank.at("request") = V("remove-shaft-with-crank");
-    run.refuses("P", remove_with_crank, "attached_crank");
-    carry_crank(run, hand_crank, "detach-crank-before-remove-shaft");
     run.accept("P", remove);
+    const auto removed_shaft = run.world->snapshot();
+    const auto& preserved_crank = removed_shaft.state.crank_items.at(hand_crank.id);
+    check(!preserved_crank.holder && !preserved_crank.attached_to && preserved_crank.port &&
+          preserved_crank.generation == hand_crank.generation &&
+          removed_shaft.state.material.placed_components.at(m::Component::hand_crank) == 1 &&
+          w::World::restore("press-feed", source.profile, removed_shaft) != nullptr,
+          "Reclaiming the shaft leaves its separate placed crank and finite identity in a valid checkpoint.");
+    auto forged_crank = removed_shaft;
+    forged_crank.state.crank_items.at(hand_crank.id).face = g::Point{1, 0, 1};
+    check(!w::World::restore("press-feed", source.profile, forged_crank),
+          "A disconnected crank cannot invent a diagonal face in a saved World.");
+    forged_crank = removed_shaft;
+    forged_crank.state.crank_items.at(hand_crank.id).port =
+        g::Point{g::maximum_coordinate + 1, 4, 0};
+    check(!w::World::restore("press-feed", source.profile, forged_crank),
+          "A disconnected crank cannot move outside the native construction grid in a checkpoint.");
+    auto disconnected_turn = request("P", "turn-crank-after-shaft-reclaim", "operate_hand_crank");
+    disconnected_turn.emplace("target", V(shaft));
+    disconnected_turn.emplace("generation", V(I{6}));
+    disconnected_turn.emplace("crank", V(hand_crank.id));
+    disconnected_turn.emplace("crank_generation", V(hand_crank.generation));
+    disconnected_turn.emplace("port", V(point((*preserved_crank.port)[0],
+        (*preserved_crank.port)[1], (*preserved_crank.port)[2])));
+    run.refuses("P", disconnected_turn, "crank_disconnected");
+    carry_crank(run, hand_crank, "reclaim-crank-after-remove-shaft");
     check(run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots ==
           std::vector<m::WorkLot>{partial},
           "Dismantling a drive leaves the exact partial WorkLot under the work head.");

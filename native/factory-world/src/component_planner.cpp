@@ -43,9 +43,6 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
     if (!placing && (!target || !generation)) return refused("invalid_target");
     if (!placing && found == state.placed_components.end()) return refused("unknown_target", *target);
     if (!placing && found->second.generation != *generation) return refused("stale_generation", *target);
-    if (!placing && std::any_of(state.crank_items.begin(), state.crank_items.end(),
-            [&](const auto& entry) { return entry.second.attached_to == *target; }))
-        return refused("attached_crank", *target);
     const auto center = placing ? *location : found->second.center;
     const auto kind = placing ? *component : found->second.kind;
     const auto channel = materials::channel_spec(kind);
@@ -164,6 +161,12 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
         serial = *generation;
         cargo[carried_kind] += part_count;
         candidate.placed_components.erase(entity);
+        // A crank is a separate placed source. Removing its former input
+        // disconnects it; the crank keeps its position and finite identity.
+        for (auto& [id, crank] : candidate.crank_items) {
+            (void)id;
+            if (crank.attached_to == entity) crank.attached_to.reset();
+        }
         if (slide_component(kind)) candidate.slide_phases.erase(entity);
         auto& placed = candidate.material.placed_components.at(kind);
         if (--placed == 0) candidate.material.placed_components.erase(kind);

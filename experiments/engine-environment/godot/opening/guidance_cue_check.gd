@@ -404,7 +404,7 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	verify(view.goal_text.contains("Craft a hand crank [B]")
 		and view.manager_log_current.text.ends_with(
-			"Craft a hand crank [B], fit it at a slide input, then open the press [E]."),
+			"Craft a hand crank [B], place it at a slide input, then open the press [E]."),
 		"A geometrically ready slide without a crank asks for the missing portable input.")
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--slide-missing-crank-screenshot="):
@@ -418,16 +418,16 @@ func check_slide_manager_cue() -> void:
 	view.state.cargo.P.components.hand_crank = 1
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(view.goal_text.contains("Fit your carried crank at a slide input [B]")
+	verify(view.goal_text.contains("Place your carried crank at a slide input [B]")
 		and not view.goal_text.contains("Craft a hand crank"),
-		"A carried crank is fitted rather than crafted again.")
+		"A carried crank is placed rather than crafted again.")
 	view.state.cargo.P.components.hand_crank = 0
 	view.state.crank_items = {"crank-1": {"holder": "", "attached_to": "slide", "port": [1, 2, 0]}}
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
-	verify(view.goal_text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
-		and view.manager_log_current.text.ends_with("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."),
-		"The ordinary first-shift cue and replayable log recognize a ready slide with its fitted crank.")
+	verify(view.goal_text.contains("Open the press [E]. Move copper to the workbed, then point at the crank and hold E.")
+		and view.manager_log_current.text.ends_with("Open the press [E]. Move copper to the workbed, then point at the crank and hold E."),
+		"The ordinary first-shift cue and replayable log recognize a ready slide with its placed crank.")
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--slide-manager-screenshot="):
 			for _frame in range(12):
@@ -442,8 +442,8 @@ func check_slide_manager_cue() -> void:
 	shared._build_interface()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(shared.goal_text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
-		and shared.manager_log_current.text.ends_with("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."),
+	verify(shared.goal_text.contains("Open the press [E]. Move copper to the workbed, then point at the crank and hold E.")
+		and shared.manager_log_current.text.ends_with("Open the press [E]. Move copper to the workbed, then point at the crank and hold E."),
 		"The shared worker receives the same ready-slide cue without creating local authority.")
 	view.state.sliding_press_assemblies[0].work_center = [0, 0, 0]
 	view.state.sliding_press_assemblies[0].open_feeds = [
@@ -531,7 +531,7 @@ func check_slide_manager_cue() -> void:
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
+	verify(view.goal_text.contains("Open the press [E]. Move copper to the workbed, then point at the crank and hold E.")
 		and shared.goal_text == view.goal_text
 		and shared.manager_log_current.text == view.manager_log_current.text,
 		"Clearing one native feed route restores the first-plate press cue for ordinary and shared workers.")

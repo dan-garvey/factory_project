@@ -69,6 +69,24 @@ bool manual_input_available(const mechanics::Motion& motion) {
         (motion.state == mechanics::MotionState::stopped && motion.rate.numerator == 0);
 }
 
+bool has_self_powered_source(const DrivePower& power,
+        const stationary::Topology& topology, const std::string& input) {
+    // A stopped wheel remains present, but it is not supplying power. The
+    // manual source may drive that idle route until the wheel is re-engaged.
+    if (!topology.drive_enabled) return false;
+    const auto connected = std::find_if(power.mechanical.components.begin(),
+        power.mechanical.components.end(), [&](const mechanics::Component& component) {
+            return std::find(component.parts.begin(), component.parts.end(), input) !=
+                component.parts.end();
+        });
+    if (connected == power.mechanical.components.end()) return false;
+    return std::any_of(topology.sources.begin(), topology.sources.end(),
+        [&](const mechanics::Drive& source) {
+            return std::find(connected->parts.begin(), connected->parts.end(), source.hub) !=
+                connected->parts.end();
+        });
+}
+
 bool slide_input_port_clear(const State& state, const std::string& slide,
         const mechanics::Point& port) {
     for (const auto& [id, crank] : state.crank_items) {

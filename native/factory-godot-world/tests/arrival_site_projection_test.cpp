@@ -86,9 +86,28 @@ void native_arrival_readout() {
     const auto& shaft = entry(parts, "shaft-3");
     check(parts.size() == 3 && field<Array>(slide, "input_ports").size() == 2 &&
           field<Array>(shaft, "input_ports").size() == 1 &&
+          field<bool>(slide, "crank_source_available") &&
+          field<bool>(shaft, "crank_source_available") &&
           field<Integer>(shaft, "crank_axis") ==
               static_cast<Integer>(factory::mechanics::Axis::x),
           "Slide and shaft ports and the driven axis follow the native component and power facts.");
+    state.topology.sources.push_back({"wheel-1", {1, 1}});
+    state.topology.drive_enabled = true;
+    power.mechanical.components.push_back({{"wheel-1", "shaft-3"},
+        factory::mechanics::MotionState::rotating});
+    const auto sourced = site::fields(arrival->profile, state, power);
+    check(!field<bool>(entry(field<Object>(sourced, "placed_components"), "shaft-3"),
+              "crank_source_available") &&
+          field<bool>(entry(field<Object>(sourced, "placed_components"), "slide-2"),
+              "crank_source_available"),
+          "The projected crank cue blocks only the native network containing an engaged wheel.");
+    state.topology.drive_enabled = false;
+    const auto stopped = site::fields(arrival->profile, state, power);
+    check(field<bool>(entry(field<Object>(stopped, "placed_components"), "shaft-3"),
+              "crank_source_available"),
+          "A stopped wheel exposes its idle shaft route to manual power.");
+    state = original;
+    power.mechanical.components.clear();
     const auto actual = geometry::component_bounds(arrival->profile,
         materials::Component::wooden_slide, {4, 4, 0});
     const auto& occupied = entry(slide, "occupied");

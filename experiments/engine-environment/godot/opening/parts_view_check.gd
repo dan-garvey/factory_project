@@ -1988,11 +1988,24 @@ func _interaction_controls() -> void:
 	verify(crank_view.held_crank.is_empty() and crank_view.issued.size() == 5,
 		"A native refusal stops the hold before another request.")
 	crank_view.mode = "deconstruct"
-	verify(crank_view._pointed_summary_data(Vector2.ZERO).detail.contains("Click  Detach"),
-		"The deconstruction cue names the separate detach action.")
+	verify(crank_view._pointed_summary_data(Vector2.ZERO).detail.contains("Click  Reclaim"),
+		"The deconstruction cue names the separate crank reclaim action.")
 	crank_view._world_click(Vector2i.ZERO)
 	verify(crank_view.issued.back() == {"action": "detach_hand_crank", "entity": "fitted-crank"},
 		"Clicking the fitted crank with F selected asks native custody to detach that item.")
+	crank_view.mode = "inspect"
+	crank_view.state.crank_items["fitted-crank"].attached_to = ""
+	verify(crank_view._pointed_summary_data(Vector2.ZERO).name == "Disconnected hand crank",
+		"A disconnected crank remains selectable and advertises its separate reclaim route.")
+	var issued_before := crank_view.issued.size()
+	crank_view._interact_pointed()
+	verify(crank_view.issued.size() == issued_before and crank_view.held_crank.is_empty(),
+		"The ordinary E cue does not pulse a disconnected crank.")
+	crank_view.mode = "deconstruct"
+	crank_view._world_click(Vector2i.ZERO)
+	verify(crank_view.issued.size() == issued_before + 1
+		and crank_view.issued.back() == {"action": "detach_hand_crank", "entity": "fitted-crank"},
+		"F click still reclaims the disconnected crank by its own identity.")
 	crank_view.free()
 	print("%d placement-interaction view checks" % checks)
 	quit(1 if failures else 0)

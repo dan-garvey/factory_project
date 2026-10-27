@@ -1259,17 +1259,17 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 	var dark := Finish.material("cast", Color("354442"), 0.72, 0.52)
 	match kind:
 		"hand_crank":
-			# A removable hand grip seats on the slide's actual horizontal input.
-			# The sleeve covers the input rod without coincident cylinder surfaces.
-			var spindle := _support_cylinder(anchor, "CrankSpindle", 0.031, 0.15, worked)
+			# The free-floating crank is large enough to read as a source beside
+			# the slide while its spindle still meets the native input.
+			var spindle := _support_cylinder(anchor, "CrankSpindle", 0.048, 0.46, worked)
 			spindle.rotation.z = PI * 0.5
 			var rotor := Node3D.new()
 			rotor.name = "CrankRotor"
 			anchor.add_child(rotor)
-			_support_box(rotor, "CrankArm", Vector3(0.045, 0.065, 0),
-				Vector3(0.055, 0.16, 0.035), dark, true)
-			var grip := _support_cylinder(rotor, "CrankGrip", 0.025, 0.11, timber)
-			grip.position = Vector3(0.05, 0.145, 0)
+			_support_box(rotor, "CrankArm", Vector3(0.065, 0.115, 0),
+				Vector3(0.075, 0.29, 0.05), dark, true)
+			var grip := _support_cylinder(rotor, "CrankGrip", 0.036, 0.16, timber)
+			grip.position = Vector3(0.08, 0.25, 0)
 			grip.rotation.z = PI * 0.5
 		"wooden_workbench":
 			# The issued component box seats this whole work surface on the floor.
@@ -2025,11 +2025,10 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		var item: Dictionary = snapshot.crank_items[id]
 		var input_id: String = str(item.get("attached_to", ""))
 		var port: Array = item.get("port", [])
-		if not boxes.has(input_id) or not placed is Dictionary or not placed.has(input_id) \
-				or port.size() != 3:
+		if port.size() != 3:
 			continue
-		var input_cell: Array = placed[input_id].get("center", [])
-		var central: bool = input_cell == port
+		var input_cell: Array = placed[input_id].get("center", []) if placed is Dictionary \
+			and placed.has(input_id) else []
 		var face: Array = item.get("face", [])
 		if face.size() != 3:
 			face = [-1, 0, 0] if input_cell.size() == 3 and port[0] < input_cell[0] \
@@ -2039,11 +2038,11 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		crank.name = "AttachedHandCrank"
 		crank.position = Vector3(float(port[0]) * UNIT,
 			float(port[1]) * UNIT + Geometry.ANCHOR_HEIGHT,
-			float(port[2]) * UNIT) + (outward * 0.22 if central else Vector3.ZERO)
+			float(port[2]) * UNIT) + outward * 0.22
 		crank.rotation.y = -atan2(outward.z, outward.x)
 		crank.set_meta("crank_entity", id)
 		add_child(crank)
-		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.15, 0.2, 0.15),
+		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.25, 0.38, 0.22),
 			"", 0.0, 0.0, Vector3.ZERO)
 		var rotor := crank.get_node("CrankRotor") as Node3D
 		_crank_rotors[id] = rotor
@@ -2059,9 +2058,9 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		pick.collision_mask = 0
 		var shape := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		box.size = Vector3(0.19, 0.25, 0.19)
+		box.size = Vector3(0.28, 0.41, 0.28)
 		shape.shape = box
-		shape.position.y = 0.07
+		shape.position.y = 0.13
 		pick.add_child(shape)
 		crank.add_child(pick)
 

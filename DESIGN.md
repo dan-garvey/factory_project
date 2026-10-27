@@ -50,15 +50,19 @@ gantries, moving factories and trains remain intended-game requirements.
   hand-tended press are viable before collector or belt automation.
 - The experimental first-plate opening starts with an empty hotbar. Only an
   anvil, flat head, wooden slide and timber hand crank are craftable before
-  the actor carries a plate; the slide's integral shaft accepts a fitted
+  the actor carries a plate; the slide's integral shaft accepts a placed
   crank. Carrying that plate unlocks the other construction recipes for that actor. The
   advanced catalog includes external shafts and cogs, waterwheels, belts,
   collector parts, foundations, receiver trays and broad-work parts. Later
   introductions remain an open teaching and progression choice.
-- A finite crafted crank supplies rotation while an actor turns it at an input.
-  Its identity, fitting and custody persist as it moves between machines. A
-  waterwheel in flowing water supplies unattended rotation from local flow speed/direction;
-  its axle aligns with elevated shafts on the common grid.
+- A finite crafted crank is a separate, free-floating source placed at a rotary
+  input. It supplies rotation only while an actor turns it. Reclaiming a
+  connected shaft or machine part leaves the crank in place for separate
+  recovery, and a disconnected crank supplies no power. An engaged waterwheel
+  precludes placing or operating a crank on the same shaft network; a stopped
+  wheel may be driven manually. Waterwheels in flowing water supply unattended
+  rotation from local flow speed and direction; compatible wheels may share a
+  route, and their axles align with elevated shafts on the common grid.
 - The collector needs a supporting frame, cutting head/mount, exposed stock
   contact, a receiver at the discharge and physical drive. Direction, support
   and clearance determine operation. A full receiver pauses the next cut

@@ -1665,6 +1665,17 @@ func _guided_press_component_view() -> void:
 		"Mirroring the fitted face moves and turns the visible grip with its shaft.")
 	if not crank_capture_prefix.is_empty():
 		await _capture_guided_component_view(crank_capture_prefix + "-west.png", true)
+	state.placed_components.erase("shaft")
+	state.crank_items["fitted-crank"].attached_to = ""
+	state.revision = 12
+	host.state = state
+	view.refresh()
+	var disconnected := view.get_node_or_null("AttachedHandCrank") as Node3D
+	verify(disconnected != null and disconnected.get_meta("crank_entity", "") == "fitted-crank"
+		and disconnected.get_node_or_null("AttachedCrankPick") != null,
+		"Reclaiming the shaft leaves the separate crank visible and directly selectable.")
+	if not crank_capture_prefix.is_empty():
+		await _capture_guided_component_view(crank_capture_prefix + "-disconnected.png", true)
 	view.free()
 	await process_frame
 
