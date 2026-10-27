@@ -721,6 +721,36 @@ void belt_span_host_commands() {
               field<std::string>(projected.at(id), "to") == right &&
               field<I>(V(field<O>(host.projection(), "parts")), "belt") == 1,
           "The projection identifies the actual endpoints and consumed finite belt.");
+    const auto before_bad_belt = host.projection();
+    const auto before_bad_belt_world = world_state(host);
+    auto bad_place = wire("place_belt_span", "bad-belt-place");
+    bad_place.emplace("from", V(I{1})); bad_place.emplace("to", V(right));
+    auto bad_selected = wire("place_selected_belt_span", "bad-belt-selected");
+    bad_selected.emplace("from", V(left)); bad_selected.emplace("to", V(right));
+    bad_selected.emplace("selection", V(I{1}));
+    auto bad_remove = target("remove_belt_span", id, "bad-belt-remove");
+    bad_remove.emplace("slot", V(I{0}));
+    auto bad_select = target("select_belt_shaft", left, "bad-belt-select");
+    bad_select.at("entity") = V(I{1});
+    auto bad_recover = target("recover_belt_slot", id, "bad-belt-recover");
+    bad_recover.emplace("slot", V(1.0)); bad_recover.emplace("expected", V(O{}));
+    auto bad_load = target("load_belt_slot", id, "bad-belt-load");
+    bad_load.emplace("slot", V(I{1})); bad_load.emplace("item", V(false));
+    bad_load.emplace("work_id", V(I{0}));
+    for (const auto& malformed : {bad_place, bad_selected, bad_remove,
+                                  bad_select, bad_recover, bad_load}) {
+        const auto refused = host.command("P", malformed);
+        check(!accepted(refused) && field<std::string>(refused, "reason") == "invalid_command",
+              "Malformed belt requests refuse before topology or slot custody changes.");
+    }
+    const auto after_bad_belt = host.projection();
+    check(field<I>(before_bad_belt, "revision") == field<I>(after_bad_belt, "revision") &&
+          !factory::values::typed_difference(before_bad_belt_world, world_state(host)) &&
+          !factory::values::typed_difference(V(field<O>(before_bad_belt, "belt_spans")),
+              V(field<O>(after_bad_belt, "belt_spans"))) &&
+          !factory::values::typed_difference(V(field<O>(before_bad_belt, "cargo")),
+              V(field<O>(after_bad_belt, "cargo"))),
+          "All six malformed belt requests preserve revision, native state, slots and cargo.");
     const auto before_pulley = world_state(host);
     const auto wrong_pulley = host.command("P", shaft(4, 0, 0, "span-wrong-pulley", "x"));
     check(!accepted(wrong_pulley) && !factory::values::typed_difference(before_pulley, world_state(host)),

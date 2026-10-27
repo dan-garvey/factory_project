@@ -8,12 +8,13 @@
 namespace factory::world {
 
 struct FabricationCommand {
-    enum class Kind { field_component, foundation, component, part };
+    enum class Kind { field_component, foundation, component, part, stow_hub, deploy_hub };
     Kind kind{};
     std::string target;
     authority::Integer generation{};
     std::string recipe_name;
     authority::Integer half_span{};
+    std::optional<mechanics::Point> center;
 };
 
 // World admits shape, progression and pending-actor rules before this planner.

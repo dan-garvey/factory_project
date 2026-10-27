@@ -46,23 +46,33 @@ std::optional<FabricationCommand> fabrication_command(
     if (selected == ContractAction::field_craft) {
         const auto* component = field<std::string>(intent, "component");
         if (!component) return std::nullopt;
-        return FabricationCommand{Kind::field_component, {}, 0, *component, 0};
+        return FabricationCommand{Kind::field_component, {}, 0, *component, 0, std::nullopt};
+    }
+    if (action == "stow_fabrication_hub" || action == "deploy_fabrication_hub") {
+        const auto* target = field<std::string>(intent, "target");
+        const auto* generation = field<Integer>(intent, "generation");
+        if (!target || !generation) return std::nullopt;
+        const bool deploy = action == "deploy_fabrication_hub";
+        return FabricationCommand{deploy ? Kind::deploy_hub : Kind::stow_hub,
+            *target, *generation, {}, 0, deploy ? grid_point(intent) : std::nullopt};
     }
     if (selected == ContractAction::none) return std::nullopt;
     const auto* target = field<std::string>(intent, "target");
     const auto* generation = field<Integer>(intent, "generation");
     if (!target || !generation) return std::nullopt;
     if (selected == ContractAction::foundation)
-        return FabricationCommand{Kind::foundation, *target, *generation, {}, 0};
+        return FabricationCommand{Kind::foundation, *target, *generation, {}, 0, std::nullopt};
     if (selected == ContractAction::component) {
         const auto* component = field<std::string>(intent, "component");
         if (!component) return std::nullopt;
-        return FabricationCommand{Kind::component, *target, *generation, *component, 0};
+        return FabricationCommand{Kind::component, *target, *generation, *component, 0,
+            std::nullopt};
     }
     const auto* selected_role = field<std::string>(intent, "role");
     const auto* half_span = field<Integer>(intent, "half_span");
     if (!selected_role || !half_span) return std::nullopt;
-    return FabricationCommand{Kind::part, *target, *generation, *selected_role, *half_span};
+    return FabricationCommand{Kind::part, *target, *generation, *selected_role, *half_span,
+        std::nullopt};
 }
 
 Owner::Decision plan_fabrication(const Profile& profile, const Binding& binding,
@@ -102,6 +112,50 @@ Owner::Decision plan_fabrication(const Profile& profile, const Binding& binding,
         facts.emplace("spent_raw", Value(Integer{0}));
         facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.at(*component)));
         return accepted(std::move(candidate), {}, std::move(facts));
+    }
+    if (command.kind == FabricationCommand::Kind::stow_hub ||
+        command.kind == FabricationCommand::Kind::deploy_hub) {
+        const auto& id = command.target;
+        const auto generation = command.generation;
+        if (!state.fabrication_hub || id != state.fabrication_hub->id)
+            return refused("unknown_target", id);
+        const auto& hub = *state.fabrication_hub;
+        if (generation != hub.generation) return refused("stale_generation", id);
+        const bool deploy = command.kind == FabricationCommand::Kind::deploy_hub;
+        if (deploy ? (!hub.holder || *hub.holder != binding.actor) : hub.holder.has_value())
+            return refused(deploy ? "not_holder" : "already_stowed", id);
+        const auto location = deploy ? command.center :
+            std::optional<mechanics::Point>(hub.center);
+        if (!location) return refused("invalid_cell", id);
+        const auto center = *location;
+        if (deploy &&
+            (center[0] % 4 != 0 || center[2] % 4 != 0 ||
+             (center[1] != 0 &&
+              std::none_of(state.foundations.begin(), state.foundations.end(),
+                  [&](const auto& entry) { return entry.second.center == center; }))))
+            return refused("unsupported_bench", id);
+        if (deploy &&
+            (std::any_of(state.placed_components.begin(), state.placed_components.end(),
+                [&](const auto& entry) { return entry.second.center == center; }) ||
+             std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
+                [&](const auto& item) { return item.geometry.center == center; })))
+            return refused("occupied", id);
+        const auto cut = observe ? observe(binding.actor) : std::nullopt;
+        if (!cut) return refused("actor_unready", id);
+        auto checked_cut = *cut;
+        checked_cut.build_reach = profile.build_reach;
+        const auto checked = authority::check_reach(binding.actor, checked_cut,
+            {anchor(profile, center)});
+        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
+        if (checked.error != authority::Error::none)
+            return refused(authority::error_name(checked.error), id, std::move(facts));
+        auto candidate = state;
+        candidate.fabrication_hub->center = center;
+        candidate.fabrication_hub->holder = deploy ? std::nullopt :
+            std::optional<std::string>(binding.actor);
+        facts.emplace("generation", Value(generation));
+        facts.emplace("holder", Value(deploy ? "installed" : binding.actor));
+        return accepted(std::move(candidate), id, std::move(facts));
     }
     if (command.kind == FabricationCommand::Kind::foundation) {
         const auto& id = command.target;

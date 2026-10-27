@@ -2,26 +2,57 @@
 
 #include "factory/world.hpp"
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace factory::world {
 
 inline constexpr std::size_t maximum_issued_entities = 4096;
 inline constexpr std::string_view allocated_prefix = "native-part-";
+inline constexpr authority::Integer foundation_depth_levels = 2;
 
 template<class T> const T* field(const authority::Object& object, const char* name) {
     const auto found = object.find(name);
     return found == object.end() ? nullptr : std::get_if<T>(&found->second.storage());
 }
 
+[[nodiscard]] bool placement(const std::string& action);
+[[nodiscard]] bool material_machine(stationary::Role);
+[[nodiscard]] bool transmission_role(stationary::Role);
+[[nodiscard]] bool transmission_center(stationary::Role, const mechanics::Point&,
+    mechanics::Axis, authority::Integer half_span);
+[[nodiscard]] std::optional<mechanics::Rate> wheel_rate(
+    const Profile&, const stationary::PlacedPart&);
+[[nodiscard]] bool spec_valid(const stationary::PartSpec&);
+[[nodiscard]] std::optional<mechanics::Axis> axis(const std::string&);
+[[nodiscard]] bool two_endpoints(const std::string& action);
 [[nodiscard]] values::Value point_value(const authority::Point& point);
+[[nodiscard]] values::Value grid_value(const mechanics::Point& point);
+[[nodiscard]] std::array<mechanics::Point, 4> broad_cells(const mechanics::Point&);
+[[nodiscard]] bool broad_item(const materials::Cargo&);
+[[nodiscard]] std::vector<authority::Point> broad_reach_targets(const Profile&, const mechanics::Point&);
+[[nodiscard]] std::optional<std::vector<materials::DropPoint>> channel_swept_cells(
+    const mechanics::Point&, const mechanics::Point&, materials::Footprint,
+    authority::Integer rotation, bool small_move);
+[[nodiscard]] bool channel_cells_fit(const std::vector<materials::DropPoint>&,
+    const std::vector<materials::DropPoint>& supports,
+    const std::vector<materials::DropPoint>& blocked);
+[[nodiscard]] std::optional<mechanics::Point> grid_point(
+    const authority::Object&, authority::Integer limit = mechanics::maximum_coordinate);
+[[nodiscard]] std::vector<mechanics::Point> foundation_area(const authority::Object&);
 [[nodiscard]] bool add(authority::Integer& total, authority::Integer count);
 [[nodiscard]] std::optional<stationary::Role> role(const std::string& value);
+[[nodiscard]] const stationary::PlacedPart* part(const stationary::Topology&, const std::string& id);
 [[nodiscard]] authority::Point anchor(const Profile&, const mechanics::Point&);
+[[nodiscard]] values::Value removed_span_value(const stationary::PlacedBeltSpan&);
+[[nodiscard]] values::Value lots_value(const std::vector<materials::WorkLot>&);
+[[nodiscard]] bool copper_profile(const materials::Config&);
+[[nodiscard]] values::Value belt_cargo_value(const materials::Cargo&, bool copper = false);
 [[nodiscard]] authority::Object reach_facts(const Binding&, const authority::ReachReceipt&);
 [[nodiscard]] Owner::Decision refused(std::string reason, std::string entity = {},
                                       authority::Object facts = {});

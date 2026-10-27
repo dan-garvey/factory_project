@@ -1590,6 +1590,18 @@ void placed_bench_preserves_two_actor_custody() {
     const O stow{{"context", V("bench-site")}, {"client", V("P")},
         {"request", V("stow-pod-bench")}, {"action", V("stow_fabrication_hub")},
         {"entity", V("pod-fabrication-hub")}};
+    const auto before_stow = host.projection();
+    const auto stow_state = get<O>(V(get<O>(host.checkpoint(), "world")), "state");
+    auto wrong_stow = stow;
+    wrong_stow.at("request") = V("wrong-stow-entity-type");
+    wrong_stow.at("entity") = V(I{1});
+    const auto wrong_stow_result = host.command("P", wrong_stow);
+    check(!get<bool>(wrong_stow_result, "accepted") &&
+          get<std::string>(wrong_stow_result, "reason") == "invalid_command" &&
+          get<I>(host.projection(), "revision") == get<I>(before_stow, "revision") &&
+          !factory::values::typed_difference(V(stow_state),
+              V(get<O>(V(get<O>(host.checkpoint(), "world")), "state"))),
+          "Malformed stow input cannot move or duplicate the issued workshop.");
     check(get<bool>(host.command("P", stow), "accepted") &&
           !get<bool>(V(get<O>(host.projection(), "fabrication_hub")), "installed") &&
           get<std::string>(V(get<O>(host.projection(), "fabrication_hub")), "holder") == "P",
@@ -1654,6 +1666,30 @@ void placed_bench_preserves_two_actor_custody() {
         {"request", V("redeploy-pod-bench")}, {"action", V("deploy_fabrication_hub")},
         {"entity", V("pod-fabrication-hub")},
         {"center", V(A{V(I{24}), V(I{2}), V(I{8})})}};
+    const auto before_deploy = restored.projection();
+    const auto deploy_state = get<O>(V(get<O>(restored.checkpoint(), "world")), "state");
+    auto missing_center = deploy;
+    missing_center.at("request") = V("deploy-missing-center");
+    missing_center.erase("center");
+    const auto missing_result = restored.command("P", missing_center);
+    auto wrong_center = deploy;
+    wrong_center.at("request") = V("deploy-wrong-center-type");
+    wrong_center.at("center") = V("invalid");
+    const auto wrong_result = restored.command("P", wrong_center);
+    auto extra_deploy = deploy;
+    extra_deploy.at("request") = V("deploy-extra-field");
+    extra_deploy.emplace("extra", V(I{1}));
+    const auto extra_result = restored.command("P", extra_deploy);
+    check(!get<bool>(missing_result, "accepted") &&
+          get<std::string>(missing_result, "reason") == "invalid_command" &&
+          !get<bool>(wrong_result, "accepted") &&
+          get<std::string>(wrong_result, "reason") == "invalid_center" &&
+          !get<bool>(extra_result, "accepted") &&
+          get<std::string>(extra_result, "reason") == "invalid_command" &&
+          get<I>(restored.projection(), "revision") == get<I>(before_deploy, "revision") &&
+          !factory::values::typed_difference(V(deploy_state),
+              V(get<O>(V(get<O>(restored.checkpoint(), "world")), "state"))),
+          "Malformed deploy requests preserve the carried workshop and native state.");
     const auto redeployed = restored.command("P", deploy);
     if (!get<bool>(redeployed, "accepted"))
         throw std::runtime_error("Pod workshop redeploy refused: " + get<std::string>(redeployed, "reason"));
