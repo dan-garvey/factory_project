@@ -24,9 +24,17 @@ cc_library(
 
 cc_library(
     name = "physical_support",
+    srcs = ["src/physical_support.cpp"],
     hdrs = ["include/factory/physical_support.hpp"],
     strip_include_prefix = "include",
-    deps = ["//native/factory-world:checkpoint"],
+    deps = [":component_geometry", ":physical_geometry", ":site_geometry_contract", "//native/factory-world:checkpoint"],
+)
+
+cc_test(
+    name = "physical_support_test",
+    srcs = ["tests/physical_support_test.cpp"],
+    deps = [":physical_support"],
+    size = "small",
 )
 
 cc_library(
