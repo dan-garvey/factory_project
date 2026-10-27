@@ -30,5 +30,10 @@ struct Site {
     std::optional<materials::Component> kind, const mechanics::Point& center,
     const std::string* current_id = nullptr);
 [[nodiscard]] const char* supplied_space_refusal(const Site& site, const world::State& state);
+[[nodiscard]] bool harvest_path_clear(const Site& site, const world::State& state,
+    const std::string& source, const authority::Point& actor,
+    const authority::Point& contact);
+[[nodiscard]] std::map<std::string, bool> harvest_clearances(const Site& site,
+    const world::State& state, const authority::Point& actor);
 
 }  // namespace factory::godot_world::physical_site

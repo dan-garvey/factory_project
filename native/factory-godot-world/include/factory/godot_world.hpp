@@ -78,8 +78,6 @@ private:
 
     world::Profile profile_;
     terrain_surface::Surface terrain_;
-    [[nodiscard]] bool clear_harvest_path(const world::State& state, const std::string& source,
-        const authority::Point& actor, const authority::Point& contact) const;
     [[nodiscard]] values::Value::Object harvest_clearances(const world::State& state,
         const Actor& actor) const;
     [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high,

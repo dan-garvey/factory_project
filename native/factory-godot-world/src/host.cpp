@@ -262,73 +262,12 @@ Value Host::configure_terrain(const Object& input) {
     return result(true, "terrain_bound");
 }
 
-bool Host::clear_harvest_path(const world::State& state, const std::string& source,
-        const authority::Point& actor, const authority::Point& contact) const {
-    // The held tool just above the actor center is the origin; the selected source's own obstacle
-    // is the destination, not a wall between the two. Other trusted solids
-    // and the emitted ground can still stop a cut despite valid radial reach.
-    auto start = actor;
-    start[1] += 0.20;
-    const authority::Point delta{contact[0] - start[0], contact[1] - start[1], contact[2] - start[2]};
-    const auto intersects = [&](const authority::Point& low, const authority::Point& high) {
-        double entry = 0.0, exit = 1.0;
-        for (std::size_t axis = 0; axis < 3; ++axis) {
-            if (std::abs(delta[axis]) < 1e-9) {
-                if (start[axis] < low[axis] || start[axis] > high[axis]) return false;
-                continue;
-            }
-            const double a = (low[axis] - start[axis]) / delta[axis];
-            const double b = (high[axis] - start[axis]) / delta[axis];
-            entry = std::max(entry, std::min(a, b));
-            exit = std::min(exit, std::max(a, b));
-        }
-        return entry <= exit && entry < 1.0 - 1e-6 && exit > 1e-6;
-    };
-    for (std::size_t index = 0; index < terrain_.obstacles.size(); ++index) {
-        if (terrain_.source_obstacle == index && profile_.material.manual_ore &&
-            profile_.material.manual_ore->id == source) continue;
-        if (const auto tree = terrain_.tree_obstacles.find(index);
-            tree != terrain_.tree_obstacles.end() &&
-            (tree->second == source || state.material.timber_remaining.at(tree->second) == 0)) continue;
-        const auto& [low, high] = terrain_.obstacles[index];
-        if (intersects(low, high)) return false;
-    }
-    const auto blocked_volume = [&](const Bounds& bounds) {
-        authority::Point low{}, high{};
-        for (std::size_t axis = 0; axis < 3; ++axis) {
-            low[axis] = bounds.center[axis] - bounds.half[axis];
-            high[axis] = bounds.center[axis] + bounds.half[axis];
-        }
-        return intersects(low, high);
-    };
-    for (const auto& [id, part] : state.placed_components) {
-        (void)id;
-        if (blocked_volume(component_bounds(profile_, part.kind, part.center))) return false;
-    }
-    for (const auto& part : state.topology.parts)
-        if (blocked_volume(part_bounds(profile_, part))) return false;
-    const double span = std::hypot(delta[0], delta[2]);
-    const int steps = std::max(1, static_cast<int>(std::ceil(span / 0.15)));
-    for (int step = 1; step < steps; ++step) {
-        const double t = static_cast<double>(step) / steps;
-        const auto ground = terrain_range(start[0] + delta[0] * t,
-            start[2] + delta[2] * t, 0, 0);
-        if (!ground || ground->second > start[1] + delta[1] * t - 0.02) return false;
-    }
-    return true;
-}
-
 Object Host::harvest_clearances(const world::State& state, const Actor& actor) const {
     Object clear;
     if (!actor.ready) return clear;
-    const auto examine = [&](const std::string& id, const materials::DropPoint& center, bool ore) {
-        const auto contact = world::manual_cut_target(profile_, center, actor.position, ore);
-        clear.emplace(id, Value(clear_harvest_path(state, id, actor.position, contact)));
-    };
-    if (profile_.material.manual_ore)
-        examine(profile_.material.manual_ore->id, profile_.material.manual_ore->center, true);
-    for (const auto& [id, site] : profile_.material.timber_sites)
-        examine(id, site.center, false);
+    for (const auto& [id, path_clear] : physical_site::harvest_clearances(
+            {profile_, terrain_}, state, actor.position))
+        clear.emplace(id, Value(path_clear));
     return clear;
 }
 
@@ -494,7 +433,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             const auto observed = observe()(bound_actor);
             if (observed && observed->ready) {
                 const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
-                if (!clear_harvest_path(snapshot.state, id, observed->position,
+                if (!physical_site::harvest_path_clear({profile_, terrain_}, snapshot.state,
+                    id, observed->position,
                     world::manual_cut_target(profile_, center, observed->position, ore)))
                     return refuse("source_occluded");
             }
@@ -1351,7 +1291,8 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
         const auto target = world::manual_cut_target(profile_, center, actor_cut.position, ore);
         const bool lost_reach = !sampled || authority::check_reach(actor, actor_cut,
             {target}).error != authority::Error::none ||
-            !clear_harvest_path(snapshot.state, cut.target, actor_cut.position, target);
+            !physical_site::harvest_path_clear({profile_, terrain_}, snapshot.state,
+                cut.target, actor_cut.position, target);
         const bool interrupted = cut.interrupted_revision != 0 || lost_reach;
         if (!interrupted && cut.remaining_ticks != 0) continue;
         const Object wire{{"context", Value(snapshot.history.context)},

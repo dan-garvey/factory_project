@@ -1,5 +1,6 @@
 #include "factory/physical_site.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -87,11 +88,65 @@ void physical_admission() {
     check(profile.water.size() == 1 && terrain.obstacles.empty(),
           "Read-only admission leaves World inputs and trusted terrain unchanged.");
 }
+
+void hand_harvest_clearance() {
+    factory::world::Profile profile;
+    profile.material.manual_ore = factory::materials::OreSite{"ore", {1, 1, 0}};
+    profile.material.timber_sites.emplace("tree", factory::materials::TimberSite{{1, 1, 0}, 2});
+    profile.material.timber_sites.emplace("spent", factory::materials::TimberSite{{1, 1, 0}, 1});
+    auto terrain = bank();
+    const policy::Site site{profile, terrain};
+    factory::world::State state;
+    state.material.timber_remaining.emplace("tree", 2);
+    state.material.timber_remaining.emplace("spent", 0);
+    const factory::authority::Point actor{-1.0, 1.0, 0.0};
+    const factory::authority::Point contact{1.0, 1.0, 0.0};
+    check(policy::harvest_path_clear(site, state, "ore", actor, contact),
+          "A clear hand-cut ray reaches the finite ore source.");
+    const auto clear = policy::harvest_clearances(site, state, actor);
+    check(clear.size() == 3 && clear.at("ore") && clear.at("tree") && clear.at("spent"),
+          "The same physical rule projects every named hand source.");
+
+    terrain.obstacles.emplace_back(factory::authority::Point{0.8, 0.0, -0.2},
+        factory::authority::Point{1.2, 2.0, 0.2});
+    terrain.source_obstacle = 0;
+    check(policy::harvest_path_clear(site, state, "ore", actor, contact) &&
+          !policy::harvest_path_clear(site, state, "tree", actor, contact),
+          "The selected ore's own hull is contact, while that hull blocks another source.");
+    terrain.obstacles.clear();
+    terrain.source_obstacle.reset();
+    terrain.obstacles.emplace_back(factory::authority::Point{0.0, 0.0, -0.2},
+        factory::authority::Point{0.2, 2.0, 0.2});
+    terrain.tree_obstacles.emplace(0, "spent");
+    check(policy::harvest_path_clear(site, state, "ore", actor, contact) &&
+          policy::harvest_path_clear(site, state, "spent", actor, contact),
+          "A depleted tree hull no longer blocks the ray to another source.");
+    state.material.timber_remaining.at("spent") = 1;
+    check(!policy::harvest_path_clear(site, state, "ore", actor, contact) &&
+          policy::harvest_path_clear(site, state, "spent", actor, contact),
+          "A standing tree blocks ore contact but not contact with its own hull.");
+    terrain.tree_obstacles.clear();
+    terrain.obstacles.clear();
+    terrain.source_obstacle.reset();
+
+    state.placed_components.emplace("table", factory::world::PlacedComponent{
+        Component::wooden_workbench, {0, 2, 0}, 1});
+    check(!policy::harvest_path_clear(site, state, "ore", actor, contact),
+          "A placed workshop table blocks the hand-cut ray.");
+    state.placed_components.clear();
+    std::fill(terrain.heights.begin(), terrain.heights.end(), 1.5);
+    check(!policy::harvest_path_clear(site, state, "ore", actor, contact),
+          "The emitted ground blocks a ray that passes beneath its surface.");
+    check(state.material.timber_remaining.at("tree") == 2 &&
+          state.material.timber_remaining.at("spent") == 1 &&
+          state.placed_components.empty() && terrain.obstacles.empty(),
+          "Physical queries do not change source stock, built parts or terrain obstacles.");
+}
 }  // namespace
 
 int main() {
     try {
-        physical_admission();
+        physical_admission(); hand_harvest_clearance();
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks << "}\n";
         return 0;
     } catch (const std::exception& error) {

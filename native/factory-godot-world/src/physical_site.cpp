@@ -285,4 +285,75 @@ const char* supplied_space_refusal(const Site& site, const world::State& state) 
     return nullptr;
 }
 
+bool harvest_path_clear(const Site& site, const world::State& state,
+        const std::string& source, const authority::Point& actor,
+        const authority::Point& contact) {
+    // The held tool just above the actor center is the origin; the selected source's own obstacle
+    // is the destination, not a wall between the two. Other trusted solids
+    // and the emitted ground can still stop a cut despite valid radial reach.
+    auto start = actor;
+    start[1] += 0.20;
+    const authority::Point delta{contact[0] - start[0], contact[1] - start[1], contact[2] - start[2]};
+    const auto intersects = [&](const authority::Point& low, const authority::Point& high) {
+        double entry = 0.0, exit = 1.0;
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            if (std::abs(delta[axis]) < 1e-9) {
+                if (start[axis] < low[axis] || start[axis] > high[axis]) return false;
+                continue;
+            }
+            const double a = (low[axis] - start[axis]) / delta[axis];
+            const double b = (high[axis] - start[axis]) / delta[axis];
+            entry = std::max(entry, std::min(a, b));
+            exit = std::min(exit, std::max(a, b));
+        }
+        return entry <= exit && entry < 1.0 - 1e-6 && exit > 1e-6;
+    };
+    for (std::size_t index = 0; index < site.terrain.obstacles.size(); ++index) {
+        if (site.terrain.source_obstacle == index && site.profile.material.manual_ore &&
+            site.profile.material.manual_ore->id == source) continue;
+        if (const auto tree = site.terrain.tree_obstacles.find(index);
+            tree != site.terrain.tree_obstacles.end() &&
+            (tree->second == source || state.material.timber_remaining.at(tree->second) == 0)) continue;
+        const auto& [low, high] = site.terrain.obstacles[index];
+        if (intersects(low, high)) return false;
+    }
+    const auto blocked_volume = [&](const Bounds& bounds) {
+        authority::Point low{}, high{};
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            low[axis] = bounds.center[axis] - bounds.half[axis];
+            high[axis] = bounds.center[axis] + bounds.half[axis];
+        }
+        return intersects(low, high);
+    };
+    for (const auto& [id, part] : state.placed_components) {
+        (void)id;
+        if (blocked_volume(component_bounds(site.profile, part.kind, part.center))) return false;
+    }
+    for (const auto& part : state.topology.parts)
+        if (blocked_volume(part_bounds(site.profile, part))) return false;
+    const double span = std::hypot(delta[0], delta[2]);
+    const int steps = std::max(1, static_cast<int>(std::ceil(span / 0.15)));
+    for (int step = 1; step < steps; ++step) {
+        const double t = static_cast<double>(step) / steps;
+        const auto ground = site.terrain.range(start[0] + delta[0] * t,
+            start[2] + delta[2] * t, 0, 0);
+        if (!ground || ground->second > start[1] + delta[1] * t - 0.02) return false;
+    }
+    return true;
+}
+
+std::map<std::string, bool> harvest_clearances(const Site& site,
+        const world::State& state, const authority::Point& actor) {
+    std::map<std::string, bool> clear;
+    const auto examine = [&](const std::string& id, const materials::DropPoint& center, bool ore) {
+        const auto contact = world::manual_cut_target(site.profile, center, actor, ore);
+        clear.emplace(id, harvest_path_clear(site, state, id, actor, contact));
+    };
+    if (site.profile.material.manual_ore)
+        examine(site.profile.material.manual_ore->id, site.profile.material.manual_ore->center, true);
+    for (const auto& [id, timber] : site.profile.material.timber_sites)
+        examine(id, timber.center, false);
+    return clear;
+}
+
 }  // namespace factory::godot_world::physical_site
