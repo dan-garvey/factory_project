@@ -82,6 +82,9 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_material_delta := false
 	var inject_bad_sources_full := false
 	var inject_bad_sources_delta := false
+	var inject_bad_actor_full := false
+	var inject_bad_actor_delta := false
+	var inject_actor_narrow := ""
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -127,6 +130,10 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			inject_bad_sources_full = false
 			delivered.hand_sources = delivered.hand_sources.duplicate(true)
 			delivered.hand_sources["opening-copper"].position = [0.0, 0.0]
+		elif method == "projection" and inject_bad_actor_full:
+			inject_bad_actor_full = false
+			delivered.actors = delivered.actors.duplicate(true)
+			delivered.actors.P.capabilities.harvest_reach = "far"
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -176,6 +183,18 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			var sources: Dictionary = _view_cache.hand_sources.duplicate(true)
 			sources["opening-copper"].remaining = "unknown"
 			return {"changes": {"hand_sources": sources}, "removed": []}
+		elif method == "advance_delta" and inject_bad_actor_delta:
+			inject_bad_actor_delta = false
+			var actors: Dictionary = _view_cache.actors.duplicate(true)
+			actors.P.harvest_clear["opening-copper"] = "clear"
+			return {"changes": {"actors": actors}, "removed": []}
+		elif method == "actor_projection" and not inject_actor_narrow.is_empty():
+			var mode := inject_actor_narrow
+			inject_actor_narrow = ""
+			match mode:
+				"wrong_clearance": delivered.harvest_clear["opening-copper"] = "clear"
+				"missing_clearance": delivered.harvest_clear = {}
+				"wrong_position": delivered.position = [1.0, 1.0, 0.0]
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3879,6 +3898,18 @@ func _native_view_cache_regression() -> void:
 		and not trusted._complete_projection(missing_ready)
 		and not trusted._complete_projection(short_position),
 		"Nested stock and actor records need their typed counts, readiness and full position.")
+	var missing_reach := complete.duplicate(true)
+	missing_reach.actors.P.capabilities.erase("harvest_reach")
+	var bad_reach := complete.duplicate(true)
+	bad_reach.actors.P.capabilities.build_reach = 4
+	var bad_clearance := complete.duplicate(true)
+	bad_clearance.actors.P.harvest_clear["opening-copper"] = "clear"
+	verify(trusted._projection_records.actors.fields["capabilities.harvest_reach"] == "floating"
+		and trusted._projection_records.actors.fields.harvest_clear == "boolean_values"
+		and not trusted._complete_projection(missing_reach)
+		and not trusted._complete_projection(bad_reach)
+		and not trusted._complete_projection(bad_clearance),
+		"Actor reach and per-source path clearance follow the exported native record types.")
 	var wrong_lots := complete.duplicate(true)
 	wrong_lots.cargo.P.work_lots = {}
 	var wrong_drop := complete.duplicate(true)
@@ -4269,6 +4300,32 @@ func _native_view_cache_regression() -> void:
 		"A merged tick with mistyped finite stock cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"A fresh native view recovers after the rejected hand-source delta.")
+	trusted._view_cache = {}
+	trusted.inject_bad_actor_full = true
+	var bad_actor_full: Dictionary = trusted.view_projection()
+	verify(bad_actor_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full view with a mistyped harvest reach cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after the rejected actor reach.")
+	trusted.view_projection()
+	trusted.inject_bad_actor_delta = true
+	var bad_actor_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_actor_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged tick with a mistyped source clearance cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after the rejected clearance delta.")
+	var actor_epoch := 2
+	for bad_mode in ["wrong_clearance", "missing_clearance", "wrong_position"]:
+		trusted.view_projection()
+		trusted.inject_actor_narrow = bad_mode
+		var full_reads := trusted.full_projection_calls
+		var refused_actor: Dictionary = trusted.publish_actor("P", [0.0, 1.0, 0.0], actor_epoch)
+		verify(refused_actor.get("uncertain", false) and trusted._view_cache.is_empty()
+			and trusted.full_projection_calls == full_reads,
+			"A malformed narrow actor update cannot become a confirmed cached interaction cue.")
+		verify(trusted.view_projection() == trusted.projection(),
+			"A valid full observation recovers after a refused narrow actor readout.")
+		actor_epoch += 1
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

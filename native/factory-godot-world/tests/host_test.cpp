@@ -423,6 +423,23 @@ void nonarrival_tick_schema() {
     actor.erase("ready");
     actors.at("P") = V(std::move(actor));
     missing_ready.at("actors") = V(std::move(actors));
+    const auto invalid_actor_field = [&](const char* field, V bad) {
+        auto malformed = full_before;
+        auto actor_map = std::get<O>(malformed.at("actors").storage());
+        auto player = std::get<O>(actor_map.at("P").storage());
+        player.at(field) = std::move(bad);
+        actor_map.at("P") = V(std::move(player));
+        malformed.at("actors") = V(std::move(actor_map));
+        return !factory::godot_world::projection_contract::complete(V(malformed));
+    };
+    auto missing_reach = full_before;
+    auto reach_actors = std::get<O>(missing_reach.at("actors").storage());
+    auto reach_actor = std::get<O>(reach_actors.at("P").storage());
+    auto capabilities = std::get<O>(reach_actor.at("capabilities").storage());
+    capabilities.erase("harvest_reach");
+    reach_actor.at("capabilities") = V(std::move(capabilities));
+    reach_actors.at("P") = V(std::move(reach_actor));
+    missing_reach.at("actors") = V(std::move(reach_actors));
     auto wrong_drop_center = full_before;
     wrong_drop_center.at("dropped_material") = V(A{V(O{
         {"center", V(A{V(I{0}), V(I{0})})}, {"raw", V(I{0})},
@@ -430,8 +447,10 @@ void nonarrival_tick_schema() {
     check(!factory::godot_world::projection_contract::complete(V(missing_source)) &&
           !factory::godot_world::projection_contract::complete(V(wrong_work_lots)) &&
           !factory::godot_world::projection_contract::complete(V(missing_ready)) &&
+          !factory::godot_world::projection_contract::complete(V(missing_reach)) &&
+          invalid_actor_field("harvest_clear", V(O{{"ore", V("clear")}})) &&
           !factory::godot_world::projection_contract::complete(V(wrong_drop_center)),
-          "Nested stock, carried work, actor readiness and three-coordinate drop shapes are required.");
+          "Nested stock, actor reach and clearance, and three-coordinate drops keep native types.");
     const auto invalid_map_record = [&](const char* name, O fields) {
         auto malformed = full_before;
         malformed.at(name) = V(O{{"broken-record", V(std::move(fields))}});
