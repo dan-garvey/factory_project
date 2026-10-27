@@ -1265,8 +1265,9 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			spindle.rotation.z = PI * 0.5
 			var rotor := Node3D.new()
 			rotor.name = "CrankRotor"
+			rotor.position.x = 0.22
 			anchor.add_child(rotor)
-			_support_box(rotor, "CrankArm", Vector3(0.065, 0.115, 0),
+			_support_box(rotor, "CrankArm", Vector3(0, 0.115, 0),
 				Vector3(0.075, 0.29, 0.05), dark, true)
 			var grip := _support_cylinder(rotor, "CrankGrip", 0.036, 0.16, timber)
 			grip.position = Vector3(0.08, 0.25, 0)
