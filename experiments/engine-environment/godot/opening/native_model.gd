@@ -141,8 +141,12 @@ func _complete_projection(value: Dictionary) -> bool:
 		var required_with: Variant = record.get("required_with", "")
 		var keys_with: Variant = record.get("keys_with", "")
 		var identity_field: Variant = record.get("identity_field", "")
+		var entry_key_map: Variant = record.get("entry_key_map", "")
+		var entry_keys_with: Variant = record.get("entry_keys_with", "")
+		var entry_keys_when: Variant = record.get("entry_keys_when", "")
 		if not required_with is String or not keys_with is String \
-			or not identity_field is String \
+			or not identity_field is String or not entry_key_map is String \
+			or not entry_keys_with is String or not entry_keys_when is String \
 			or typeof(record.get("engine_view_only", false)) != TYPE_BOOL:
 			return false
 		var nested: Variant = value
@@ -190,8 +194,42 @@ func _complete_projection(value: Dictionary) -> bool:
 			_:
 				return false
 		for entry in entries:
-			if not _projection_record_complete(entry, record.fields):
+			if not _projection_record_complete(entry, record.fields) \
+				or not _projection_entry_keys_complete(entry, record, value):
 				return false
+	return true
+
+func _projection_entry_keys_complete(entry: Variant, record: Dictionary,
+		projection: Dictionary) -> bool:
+	var map_field: Variant = record.get("entry_key_map", "")
+	var keys_with: Variant = record.get("entry_keys_with", "")
+	var when_true: Variant = record.get("entry_keys_when", "")
+	if not map_field is String or not keys_with is String or not when_true is String:
+		return false
+	if map_field.is_empty() and keys_with.is_empty() and when_true.is_empty():
+		return true
+	if map_field.is_empty() or keys_with.is_empty() or when_true.is_empty() \
+		or not entry is Dictionary:
+		return false
+	var expected: Variant = projection
+	for segment in keys_with.split("."):
+		if not expected is Dictionary or not expected.has(segment):
+			return true # The source record is absent in this profile.
+		expected = expected[segment]
+	if not expected is Dictionary:
+		return false
+	if not _projection_requires(entry, when_true):
+		return true
+	var actual: Variant = entry
+	for segment in map_field.split("."):
+		if not actual is Dictionary or not actual.has(segment):
+			return false
+		actual = actual[segment]
+	if not actual is Dictionary or actual.size() != expected.size():
+		return false
+	for key in expected:
+		if not actual.has(key):
+			return false
 	return true
 
 func _projection_record_complete(entry: Variant, fields: Variant) -> bool:
@@ -358,7 +396,7 @@ func publish_actor(actor: String, position: Array, native_epoch: int) -> Diction
 			# A narrow native read must agree with the accepted publication and
 			# satisfy the same actor record schema as a complete view.
 			var observed: Dictionary = _invoke("actor_projection", [actor])
-			var actor_fields: Variant = _projection_records.get("actors", {}).get("fields")
+			var actor_record: Dictionary = _projection_records.get("actors", {})
 			var updated: Dictionary = _view_cache.duplicate()
 			var actors: Dictionary = _view_cache.actors.duplicate()
 			var current: Dictionary = actors[actor].duplicate()
@@ -368,18 +406,10 @@ func publish_actor(actor: String, position: Array, native_epoch: int) -> Diction
 			current.harvest_clear = observed.get("harvest_clear")
 			if observed.get("accepted") != true or current.ready != true \
 				or current.native_epoch != native_epoch or current.position != position \
-				or not _projection_record_complete(current, actor_fields):
+				or not _projection_record_complete(current, actor_record.get("fields")) \
+				or not _projection_entry_keys_complete(current, actor_record, _view_cache):
 				_view_cache = {}
 				return _projection_unavailable()
-			if _view_cache.get("options", {}).get("manual_sources") == true:
-				var sources: Variant = _view_cache.get("hand_sources")
-				if not sources is Dictionary or current.harvest_clear.size() != sources.size():
-					_view_cache = {}
-					return _projection_unavailable()
-				for source in sources:
-					if not current.harvest_clear.has(source):
-						_view_cache = {}
-						return _projection_unavailable()
 			actors[actor] = current
 			updated.actors = actors
 			_view_cache = updated

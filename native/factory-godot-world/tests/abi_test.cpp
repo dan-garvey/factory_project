@@ -247,7 +247,8 @@ void run() {
         const auto source_record = Value(field<Object>(records, "hand_sources"));
         const auto source_fields = Value(field<Object>(source_record, "fields"));
         const auto source_bounds = Value(field<Object>(source_fields, "contact_bounds"));
-        const auto actor_fields = Value(field<Object>(Value(field<Object>(records, "actors")), "fields"));
+        const auto actor_record = Value(field<Object>(records, "actors"));
+        const auto actor_fields = Value(field<Object>(actor_record, "fields"));
         check(field<std::string>(schema, "context") == "string" &&
                   field<std::string>(schema, "stock") == "object" &&
                   field<std::string>(schema, "links") == "string_pairs" &&
@@ -291,8 +292,11 @@ void run() {
               "The extension exports native material and hand-source rules for Godot cache validation.");
         check(field<std::string>(actor_fields, "capabilities.build_reach") == "floating" &&
                   field<std::string>(actor_fields, "capabilities.harvest_reach") == "floating" &&
-                  field<std::string>(actor_fields, "harvest_clear") == "boolean_values",
-              "The extension exports actor reach and source-clearance types from the native contract.");
+                  field<std::string>(actor_fields, "harvest_clear") == "boolean_values" &&
+                  field<std::string>(actor_record, "entry_key_map") == "harvest_clear" &&
+                  field<std::string>(actor_record, "entry_keys_with") == "hand_sources" &&
+                  field<std::string>(actor_record, "entry_keys_when") == "ready",
+              "The extension exports actor reach and source-clearance membership from the native contract.");
         const auto capacity_rule = Value(field<Object>(schema, "component_capacity"));
         const auto completion_rule = Value(field<Object>(schema, "workshop_completed_actors"));
         const auto unlock_rule = Value(field<Object>(schema, "first_plate_unlock"));

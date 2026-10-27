@@ -85,6 +85,12 @@ inline constexpr std::array conditional_fields{
 // Counts and profile-specific additions may differ without changing the wire.
 enum class Container { object, object_values, array_elements, object_array_elements };
 
+struct EntryKeyRule {
+    std::string_view map_field;
+    std::string_view keys_with;
+    std::string_view when_true;
+};
+
 struct Record {
     std::string_view name;
     Container container;
@@ -94,6 +100,7 @@ struct Record {
     bool engine_view_only{};
     std::string_view keys_with{};
     std::string_view identity_field{};
+    std::optional<EntryKeyRule> entry_keys{};
 };
 
 inline constexpr std::array stock_fields{
@@ -296,7 +303,8 @@ inline constexpr std::array records{
         "options.manual_sources"},
     Record{"cargo", Container::object_values, cargo_fields},
     Record{"dropped_material", Container::array_elements, dropped_fields},
-    Record{"actors", Container::object_values, actor_fields},
+    Record{"actors", Container::object_values, actor_fields, {}, false, {}, {},
+        EntryKeyRule{"harvest_clear", "hand_sources", "ready"}},
     Record{"manual_cuts", Container::object_values, cut_fields},
     Record{"source_deposit", Container::object, deposit_fields},
     Record{"entities", Container::object_values, entity_fields},
@@ -528,6 +536,26 @@ inline bool complete(const Value& value, bool engine_view = false) {
             return false;
         }
         if (!complete_record(*found, record)) return false;
+        if (record.entry_keys) {
+            const auto* source = record_at(*object, record.entry_keys->keys_with);
+            if (source) {
+                const auto* expected = std::get_if<Object>(&source->storage());
+                const auto* entries = std::get_if<Object>(&found->storage());
+                if (!expected || !entries) return false;
+                for (const auto& [key, entry] : *entries) {
+                    (void)key;
+                    const auto& fields = std::get<Object>(entry.storage());
+                    if (!required_with(fields, record.entry_keys->when_true)) continue;
+                    const auto* map = record_at(fields, record.entry_keys->map_field);
+                    const auto* actual = map ? std::get_if<Object>(&map->storage()) : nullptr;
+                    if (!actual || actual->size() != expected->size()) return false;
+                    for (const auto& [source_key, source_entry] : *expected) {
+                        (void)source_entry;
+                        if (!actual->contains(source_key)) return false;
+                    }
+                }
+            }
+        }
         if (!record.keys_with.empty()) {
             const auto* source = record_at(*object, record.keys_with);
             const auto* expected = source ? std::get_if<Object>(&source->storage()) : nullptr;
@@ -615,6 +643,11 @@ inline Value record_fields() {
             definition.emplace("keys_with", Value(std::string(record.keys_with)));
         if (!record.identity_field.empty())
             definition.emplace("identity_field", Value(std::string(record.identity_field)));
+        if (record.entry_keys) {
+            definition.emplace("entry_key_map", Value(std::string(record.entry_keys->map_field)));
+            definition.emplace("entry_keys_with", Value(std::string(record.entry_keys->keys_with)));
+            definition.emplace("entry_keys_when", Value(std::string(record.entry_keys->when_true)));
+        }
         output.emplace(std::string(record.name), Value(std::move(definition)));
     }
     return Value(std::move(output));
