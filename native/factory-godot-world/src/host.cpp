@@ -1,11 +1,11 @@
 #include "factory/godot_world.hpp"
-#include "build_catalog_projection.hpp"
 #include "checkpoint_envelope.hpp"
 #include "complete_projection.hpp"
 #include "component_geometry.hpp"
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
 #include "physical_geometry.hpp"
+#include "support_edit_preview.hpp"
 #include "restore_site_validation.hpp"
 #include "factory/physical_site.hpp"
 #include "arrival_configuration.hpp"
@@ -38,7 +38,6 @@ using Object = Value::Object;
 using Array = Value::Array;
 using Integer = Value::Integer;
 using Role = stationary::Role;
-using build_catalog_projection::kind;
 using component_geometry::component_bounds;
 using material_projection::point_value;
 using material_projection::tick_fields;
@@ -1130,67 +1129,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (work) normalized.emplace("work_id", wire.at("work_id"));
     } else return refuse("unsupported_action");
     const auto& edit = *field<std::string>(normalized, "action");
-    const bool support_edit = edit == "place" || edit == "place_connected" || edit == "remove" ||
-        edit == "place_foundation" || edit == "place_foundations" || edit == "remove_foundation" ||
-        edit == "place_belt_span" || edit == "place_selected_belt_span" || edit == "remove_belt_span";
+    const bool support_edit = support_edit_preview::applies(edit);
     if (support_edit) {
-        // Preview only the geometry fields. World still owns the transaction,
-        // inventory, material and history; no second World or clock is created.
-        world::State geometry;
-        geometry.topology = snapshot.state.topology;
-        geometry.foundations = snapshot.state.foundations;
-        geometry.placed_components = snapshot.state.placed_components;
-        geometry.landing_pod = snapshot.state.landing_pod;
-        geometry.fabrication_hub = snapshot.state.fabrication_hub;
-        std::string preview_id = "support-preview";
-        while (find_part(geometry, preview_id) || geometry.foundations.contains(preview_id) ||
-               std::any_of(geometry.topology.belt_spans.begin(), geometry.topology.belt_spans.end(),
-                   [&](const auto& span) { return span.geometry.id == preview_id; })) preview_id += '-';
-        if (edit == "place" || edit == "place_connected") {
-            stationary::PlacedPart part{};
-            const auto& name = *field<std::string>(normalized, "role");
-            std::optional<Role> role;
-            for (const auto value : {Role::collector, Role::belt, Role::processor, Role::waterwheel,
-                                    Role::shaft, Role::gear, Role::gearbox, Role::vertical_gearbox, Role::chain_drive})
-                if (name == (value == Role::waterwheel ? "waterwheel" : kind(value))) role = value;
-            if (!role) return refuse("invalid_command");
-            part.role = *role;
-            part.geometry.id = preview_id;
-            const auto& center = *field<Array>(normalized, "center");
-            for (std::size_t dimension = 0; dimension < 3; ++dimension)
-                part.geometry.center[dimension] = std::get<Integer>(center[dimension].storage());
-            part.geometry.axis = axis_value(*field<std::string>(normalized, "axis")).value();
-            if (const auto* teeth = field<Integer>(normalized, "teeth")) part.geometry.teeth = *teeth;
-            if (const auto* span = field<Integer>(normalized, "half_span")) part.geometry.half_span = *span;
-            part.geometry.kind = part.role == Role::shaft ? mechanics::Kind::shaft :
-                part.role == Role::gear ? mechanics::Kind::gear : mechanics::Kind::hub;
-            part.wheel_tiles = part.role == Role::waterwheel ? 3 : 1;
-            if (const auto* tiles = field<Integer>(normalized, "wheel_tiles")) part.wheel_tiles = *tiles;
-            if (std::any_of(geometry.topology.parts.begin(), geometry.topology.parts.end(),
-                    [&](const auto& old) { return old.geometry.center == part.geometry.center; })) return refuse("occupied");
-            geometry.topology.parts.push_back(std::move(part));
-        } else if (edit == "remove") {
-            const auto& target_id = *field<std::string>(normalized, "target");
-            std::erase_if(geometry.topology.parts, [&](const auto& part) { return part.geometry.id == target_id; });
-        } else if (edit == "place_foundation" || edit == "place_foundations") {
-            const auto& start = *field<Array>(normalized, "center");
-            const auto* end = field<Array>(normalized, "end");
-            const auto x = std::get<Integer>(start[0].storage()), y = std::get<Integer>(start[1].storage());
-            const auto z = std::get<Integer>(start[2].storage());
-            const auto ex = end ? std::get<Integer>((*end)[0].storage()) : x;
-            const auto ez = end ? std::get<Integer>((*end)[2].storage()) : z;
-            for (auto px = std::min(x, ex); px <= std::max(x, ex); px += 4)
-                for (auto pz = std::min(z, ez); pz <= std::max(z, ez); pz += 4)
-                    geometry.foundations.emplace(preview_id + ':' + std::to_string(px) + ':' + std::to_string(pz),
-                                                 world::Foundation{{px, y, pz}, 0});
-        } else if (edit == "remove_foundation") geometry.foundations.erase(*field<std::string>(normalized, "target"));
-        else if (edit == "remove_belt_span") {
-            const auto& target_id = *field<std::string>(normalized, "target");
-            std::erase_if(geometry.topology.belt_spans, [&](const auto& span) { return span.geometry.id == target_id; });
-        } else {
-            geometry.topology.belt_spans.push_back({{preview_id,
-                *field<std::string>(normalized, "target"), *field<std::string>(normalized, "to")}, 0});
-        }
+        auto preview = support_edit_preview::build(snapshot.state, normalized);
+        if (const auto* refusal = std::get_if<const char*>(&preview)) return refuse(*refusal);
+        const auto& geometry = std::get<world::State>(preview);
         if (const auto* refusal = supplied_space_refusal(geometry)) return refuse(refusal);
         if (const auto* refusal = support_change_refusal(snapshot.state, geometry)) return refuse(refusal);
     }
