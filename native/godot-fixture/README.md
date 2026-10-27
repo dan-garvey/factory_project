@@ -97,6 +97,27 @@ selected `mode`, a positive check count and no engine or script errors. These
 checks cover image/material wiring and a nonauthoritative foundation scene, not
 native gameplay, rendered quality or human play.
 
+`transmission_asset_check.gd` runs its tooth and fitted assembly checks by
+default. One exact selector may instead run `--tooth-only`,
+`--shaft-coupling-only`, `--gear-batch-only`, `--gear-bore-only`,
+`--material-only`, or the currently retained `--historical-material-only`
+diagnostic. These routes emit JSON `status`, `mode` and `checks`; require a
+positive count, zero exit and no engine or script errors. Asset preparation
+uses `--prepare-transmission-maps SOURCE_DIRECTORY OUTPUT_DIRECTORY` with the
+pinned source images and a separate existing external output directory whose
+four map names are absent; require JSON `status: pass`, matching `mode` and four
+map results. Imported-image comparison uses
+`--resource-images FAMILY_DIRECTORY REPORT_PATH [--packed-images]`: the family
+holds `image-paths.json` and matching `reference/` files, and the external
+report path must be fresh. Require matching JSON `mode`, `status: pass`, a
+positive check count and the saved report. Packed comparison additionally
+expects raw image files to be absent from the imported project. The declared
+alpha-border import of the second worker's opacity image may change RGB below
+full opacity, but its alpha and fully opaque colors must remain exact. Unknown,
+duplicate, conflicting, orphan, unsafe and incomplete arguments exit 2 before
+the selected check or output begins. Invented projection and image comparisons
+do not establish native gameplay, rendered quality or human play.
+
 `parts_view_check.gd` runs its default parts display suite with no user arguments,
 or one named `--...-only` suite. An unknown or repeated selector exits 2 before
 any suite starts; capture paths are accepted only with their corresponding
