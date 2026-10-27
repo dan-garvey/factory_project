@@ -20,6 +20,13 @@ cc_binary(
     visibility = ["//visibility:public"],
 )
 
+cc_binary(
+    name = "factory-gdscript-compiler",
+    srcs = ["src/gdscript_compiler_main.cpp"],
+    deps = [":capture", "//native/build-support:runner"],
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "opening",
     srcs = ["src/opening.cpp"],
@@ -44,6 +51,16 @@ cc_test(
     srcs = ["tests/capture_test.cpp"],
     args = ["$(rootpath :factory-project-capture)"],
     data = [":factory-project-capture"],
+    deps = [":capture"],
+    size = "small",
+)
+
+cc_test(
+    name = "gdscript_compiler_test",
+    tags = ["host"],
+    srcs = ["tests/gdscript_compiler_test.cpp"],
+    args = ["$(rootpath :factory-gdscript-compiler)"],
+    data = [":factory-gdscript-compiler"],
     deps = [":capture"],
     size = "small",
 )
@@ -96,5 +113,6 @@ cc_test(
 
 test_suite(
     name = "tests",
-    tests = [":capture_test", ":opening_test", ":extension_test", ":source_budget_test", ":human_test"],
+    tests = [":capture_test", ":gdscript_compiler_test", ":opening_test", ":extension_test",
+             ":source_budget_test", ":human_test"],
 )
