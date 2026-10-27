@@ -19,8 +19,13 @@ the intended component check. A zero Godot exit does not override a script-load
 error or a partial PASS line.
 
 `machine_body_motion_check.gd` needs an actual renderer for its batched cutter
-transform readback. Run it through `launch-factory-latest.sh --agent-window`
-with `--test-purpose` and its `--script` path. The same labeled route supports
+transform readback. Its default suite reports JSON `mode: default`; its sole
+selector `--clearance-only` reports `mode: clearance-only` for the held head and
+workpiece check. Unknown, repeated, malformed and empty arguments exit 2 before
+either suite starts. Run both selections through
+`launch-factory-latest.sh --agent-window` with `--test-purpose` and its
+`--script` path. Require exit zero, `status: pass`, the selected `mode`, a
+positive check count and no engine or script errors. The same labeled route supports
 `machine_visual_test.gd -- --batch-motion-check`; its rendered run additionally
 checks the GPU instance transforms that the headless dummy renderer cannot read.
 

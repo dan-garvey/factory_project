@@ -336,12 +336,23 @@ func check_static_composite_render_flags() -> void:
 		view.free()
 
 func _initialize() -> void:
+	var clearance_only := false
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--test-purpose="):
+			continue
+		if argument == "--clearance-only" and not clearance_only:
+			clearance_only = true
+			continue
+		push_error("Unknown or duplicate machine body motion fixture argument: " + argument)
+		quit(2)
+		return
 	if not Opening.apply_test_window_title(self):
 		return
-	if "--clearance-only" in OS.get_cmdline_user_args():
+	if clearance_only:
 		check_held_workpiece_clearance()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
-			"scope": "actual head and redrawn billet clearance", "native_gameplay": "not_run", "desktop": "not_used"}))
+			"mode": "clearance-only", "scope": "actual head and redrawn billet clearance",
+			"native_gameplay": "not_run", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
 	var view := Opening.new()
@@ -449,5 +460,6 @@ func _initialize() -> void:
 	check_conveyor_motion(false)
 	check_conveyor_motion(true)
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
-		"scope": "actual mesh transforms over invented observations", "native_gameplay": "not_run", "desktop": "not_used"}))
+		"mode": "default", "scope": "actual mesh transforms over invented observations",
+		"native_gameplay": "not_run", "desktop": "not_used"}))
 	quit(1 if failed else 0)
