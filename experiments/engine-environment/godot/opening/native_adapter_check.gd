@@ -195,6 +195,10 @@ func _record(status: String, reason: String = "") -> void:
 		"failure_step": facts.steps[-1] if status == "fail" and not facts.steps.is_empty() else {}}))
 	if status == "pass" and mode == "arrival-nonhorizontal-incline":
 		print("CHAPTER 1 PLAYER-BUILT INCLINE PASS")
+	if status == "pass" and mode in ["arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume"]:
+		print("CHAPTER 1 PLAYER-BUILT POWER BELT PASS: " + mode)
+	if status == "pass" and mode == "arrival-nonhorizontal-power-reopen-resume":
+		print("CHAPTER 1 POWER BELT REOPEN PASS")
 	if status == "pass" and (event_route_loose or event_route_pointer):
 		print("CHAPTER 1 SCENE EVENTS PASS: " + mode)
 	quit(0 if status == "pass" else 1)
@@ -1073,7 +1077,7 @@ func _run() -> void:
 	if mode == "arrival-nonhorizontal-incline":
 		await _arrival_run()
 		return
-	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -1912,7 +1916,54 @@ func _arrival_nonhorizontal_incline_run(capture_prefix: String) -> void:
 			return
 	_record("pass")
 
-func _capture_nonhorizontal_incline_close(path: String) -> bool:
+func _arrival_nonhorizontal_power_reopen_run() -> void:
+	var input := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--resume-input="):
+			input = argument.trim_prefix("--resume-input=")
+	var saved: Variant = bytes_to_var(FileAccess.get_file_as_bytes(input).slice(
+		"FACTORY-SAVE-1\n".length() + 65))
+	var reopened: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and saved is Dictionary and saved.has("world")
+			and _same(saved.world, opening.model.checkpoint().world)
+			and _same(saved.actors, opening.actor_world.seeds)
+			and reopened.actors.Q.ready and reopened.belt_spans.size() == 1,
+			"A fresh scene restores the exact saved native world and physical worker seeds"):
+		return
+	var span_id: String = str(reopened.belt_spans.keys()[0])
+	var span: Dictionary = reopened.belt_spans[span_id]
+	var first: Dictionary = reopened.transmission_parts.get(span.from, {})
+	var last: Dictionary = reopened.transmission_parts.get(span.to, {})
+	var vertical: bool = (first.get("axis", -1) == 0 and last.get("axis", -1) == 0
+		and first.get("center", []).size() == 3 and last.get("center", []).size() == 3
+		and first.center[1] != last.center[1])
+	var sideways: bool = (first.get("axis", -1) == 1 and last.get("axis", -1) == 1
+		and first.get("center", []).size() == 3 and last.get("center", []).size() == 3
+		and first.center[0] != last.center[0])
+	if not _expect((vertical or sideways) and span.slots == [null, null]
+			and reopened.part_kits.P.belt == 0,
+			"The fresh projection retains one paid vertical or sideways power-only belt"):
+		return
+	var view: Node3D
+	for child: Node in opening.transmission_presenter.get_children():
+		if child is Node3D and child.get_meta("entity", "") == span_id:
+			view = child
+	if not _expect(view != null and view.get_node_or_null("Pick") != null,
+			"The reopened power belt still has a selectable rendered body"):
+		return
+	opening._select_tool("inspect")
+	opening._world_click(Vector2i.ZERO, span_id)
+	if not _expect(opening.selected == span_id
+			and opening.inspector.text.begins_with("Mechanical belt\n"),
+			"The fresh inspector binds to the saved native belt identity"):
+		return
+	facts["belt"] = {"span": span_id, "vertical": vertical, "sideways": sideways,
+		"revision": reopened.revision}
+	_record("pass")
+
+func _capture_nonhorizontal_incline_close(path: String, camera_position := Vector3(1.4, 4.0, 5.2),
+		target := Vector3(-1.65, 2.5, 2.5)) -> bool:
 	var view := SubViewport.new()
 	view.size = Vector2i(1280, 800)
 	view.world_3d = root.world_3d
@@ -1921,8 +1972,8 @@ func _capture_nonhorizontal_incline_close(path: String) -> bool:
 	var camera := Camera3D.new()
 	view.add_child(camera)
 	camera.fov = 64.0
-	camera.position = Vector3(1.4, 4.0, 5.2)
-	camera.look_at(Vector3(-1.65, 2.5, 2.5))
+	camera.position = camera_position
+	camera.look_at(target)
 	camera.make_current()
 	for frame in 6:
 		await process_frame
@@ -1930,6 +1981,108 @@ func _capture_nonhorizontal_incline_close(path: String) -> bool:
 	var captured: bool = view.get_texture().get_image().save_png(path) == OK
 	view.queue_free()
 	return captured
+
+func _arrival_nonhorizontal_power_belt_run(capture_prefix: String) -> void:
+	# A normal, paid incline is the input. Recover its parts through the same
+	# native commands available to a player, then change the shaft arrangement.
+	var sideways := mode == "arrival-nonhorizontal-sideways-resume"
+	var start: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and start.first_plate_unlock and start.actors.Q.ready
+			and opening.actor_world.bodies.P.is_on_floor()
+			and opening.actor_world.bodies.Q.is_on_floor()
+			and start.belt_spans.size() == 1 and start.part_kits.P.belt == 0,
+			"The paid incline and both physical workers reopen before changing the route"):
+		return
+	var old_id: String = str(start.belt_spans.keys()[0])
+	var old: Dictionary = start.belt_spans[old_id]
+	if not _expect(old.slots == [null, null] and old.from != old.to,
+			"The input route has two distinct shafts and no cargo to duplicate"):
+		return
+	if not await _approach(Vector2(0.0, 2.15)):
+		return
+	if _construct({"action": "remove_belt_span", "entity": old_id}).is_empty():
+		return
+	if _construct({"action": "remove", "entity": str(old.to)}).is_empty():
+		return
+	if sideways and _construct({"action": "remove", "entity": str(old.from)}).is_empty():
+		return
+	var recovered: Dictionary = opening.model.projection()
+	if not _expect(recovered.belt_spans.is_empty() and recovered.part_kits.P.belt == 1
+			and recovered.part_kits.P.shaft == (2 if sideways else 1),
+			"Removing a paid belt refunds exactly its kit and the removed shaft kits"):
+		return
+	if not _select_inventory_item("drive"):
+		return
+	var first: Dictionary = {"entity": old.from}
+	if sideways:
+		first = _construct({"action": "place_shaft", "center": [0, 4, 0],
+			"axis": "y", "half_span": 2})
+	var last: Dictionary = _construct({"action": "place_shaft",
+		"center": [4, 4, 0] if sideways else [-4, 8, 4],
+		"axis": "y" if sideways else "x", "half_span": 2})
+	if first.is_empty() or last.is_empty() or not _select_inventory_item("belt"):
+		return
+	var before_order: int = int(opening.model.projection().order)
+	opening._world_click(Vector2i.ZERO, str(first.entity))
+	if not _expect(opening.transmission_controls._belt_start.get("id", "") == first.entity
+			and opening.model.projection().part_kits.P.belt == 1
+			and opening.model.projection().belt_spans.is_empty(),
+			"Selecting the first power shaft retains the belt kit until the route is confirmed"):
+		return
+	opening._world_click(Vector2i.ZERO, str(last.entity))
+	var built: Dictionary = opening.model.projection()
+	if not _expect(built.order > before_order and built.belt_spans.size() == 1
+			and built.part_kits.P.belt == 0 and built.part_kits.P.shaft == 0,
+			"Two ordinary shaft clicks spend one belt kit for the requested power route"):
+		return
+	var span_id: String = str(built.belt_spans.keys()[0])
+	var span: Dictionary = built.belt_spans[span_id]
+	if not _expect(span.from == first.entity and span.to == last.entity
+			and span.slots == [null, null]
+			and built.transmission_parts[first.entity].axis == (1 if sideways else 0)
+			and built.transmission_parts[last.entity].axis == (1 if sideways else 0),
+			"The native route joins the exact parallel shafts and carries no items"):
+		return
+	var refused: Dictionary = _issue({"action": "load_belt_slot", "entity": span_id,
+		"slot": 1, "item": "product", "work_id": 0})
+	if not _expect(not refused.get("accepted", false)
+			and refused.get("reason", "") == "belt_path_cannot_carry"
+			and opening.model.projection().cargo.P == built.cargo.P
+			and opening.model.projection().belt_spans[span_id].slots == [null, null],
+			"A power-only route refuses a carried plate without changing native custody"):
+		return
+	var span_view: Node3D
+	for child: Node in opening.transmission_presenter.get_children():
+		if child is Node3D and child.get_meta("entity", "") == span_id:
+			span_view = child
+	if not _expect(span_view != null and span_view.get_node_or_null("Pick") != null,
+			"The player-built power loop has a selectable rendered body"):
+		return
+	opening._select_tool("inspect")
+	opening._world_click(Vector2i.ZERO, span_id)
+	if not _expect(opening.selected == span_id
+			and opening.inspector.text.begins_with("Mechanical belt\n"),
+			"Inspect identifies the exact native power belt"):
+		return
+	if not await _approach(Vector2(1.1, 3.3)):
+		return
+	var save: Dictionary = opening._save_worksite()
+	if not _expect(save.get("accepted", false) and save.get("native_preflight", {}).get("accepted", false),
+			"The physical worker and paid power route pass native save preflight"):
+		return
+	facts["belt"] = {"span": span_id, "from": first.entity, "to": last.entity,
+		"revision": built.revision, "save_slot": opening.save_slot, "sideways": sideways}
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		var label := "sideways" if sideways else "vertical"
+		if not _expect(await _capture_nonhorizontal_incline_close(capture_prefix + "-" + label + "-close.png",
+				Vector3(4.0, 4.5, 7.0) if sideways else Vector3(1.4, 4.0, 5.2),
+				Vector3(1.7, 2.5, 0.0) if sideways else Vector3(-1.65, 2.5, 2.5))
+				and await _capture_actor_area(capture_prefix + "-" + label + "-eye.png",
+					Vector3(2.0, 2.0, 0.0) if sideways else Vector3(-1.65, 3.2, 2.0)),
+				"Retain passive close and actor-eye frames of the power route"):
+			return
+	_record("pass")
 
 func _arrival_reveal_run(capture_prefix: String) -> void:
 	while not opening.arrival_reveal_active and Time.get_ticks_msec() < deadline:
@@ -4137,7 +4290,7 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
-	if mode == "arrival-nonhorizontal-incline":
+	if mode in ["arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume"]:
 		deadline = Time.get_ticks_msec() + 300000
 	if mode == "arrival-raised-starter-belt":
 		deadline = Time.get_ticks_msec() + 180000
@@ -4147,16 +4300,16 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	var advanced_fixture := mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-reveal", "arrival-reveal-skip"]
+	var advanced_fixture := mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-reveal", "arrival-reveal-skip"]
 	# Channel command fixtures deliberately exercise developer diagnostics.
 	# Ordinary players pick up pointed material with E and never issue pushes.
 	opening.developer_material_tools = mode.begins_with("arrival-channel-")
-	if mode in ["arrival-nonhorizontal-incline", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume"]:
+	if mode in ["arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -4238,6 +4391,12 @@ func _arrival_run() -> void:
 		return
 	if mode == "arrival-nonhorizontal-incline":
 		await _arrival_nonhorizontal_incline_run(capture_prefix)
+		return
+	if mode in ["arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume"]:
+		await _arrival_nonhorizontal_power_belt_run(capture_prefix)
+		return
+	if mode == "arrival-nonhorizontal-power-reopen-resume":
+		await _arrival_nonhorizontal_power_reopen_run()
 		return
 	if mode == "arrival-slide":
 		await _arrival_slide_run(panel, capture_prefix)

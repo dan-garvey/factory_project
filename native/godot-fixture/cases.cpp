@@ -47,6 +47,9 @@ constexpr std::array channel_resume_values{
     std::string_view{"--native-check-output="},
 };
 constexpr std::array incline_fixed{std::string_view{"--native-check-mode=arrival-nonhorizontal-incline"}};
+constexpr std::array vertical_fixed{std::string_view{"--native-check-mode=arrival-nonhorizontal-vertical-resume"}};
+constexpr std::array sideways_fixed{std::string_view{"--native-check-mode=arrival-nonhorizontal-sideways-resume"}};
+constexpr std::array power_reopen_fixed{std::string_view{"--native-check-mode=arrival-nonhorizontal-power-reopen-resume"}};
 constexpr std::array incline_values{
     std::string_view{"--resume-input="},
     std::string_view{"--native-check-output="},
@@ -64,6 +67,14 @@ const std::array cases{
          180, first_plate_fixed, first_plate_values},
     Case{"arrival-nonhorizontal-incline", script, "CHAPTER 1 PLAYER-BUILT INCLINE PASS",
          300, incline_fixed, incline_values},
+    Case{"arrival-nonhorizontal-vertical-resume", script,
+         "CHAPTER 1 PLAYER-BUILT POWER BELT PASS: arrival-nonhorizontal-vertical-resume",
+         300, vertical_fixed, incline_values},
+    Case{"arrival-nonhorizontal-sideways-resume", script,
+         "CHAPTER 1 PLAYER-BUILT POWER BELT PASS: arrival-nonhorizontal-sideways-resume",
+         300, sideways_fixed, incline_values},
+    Case{"arrival-nonhorizontal-power-reopen-resume", script,
+         "CHAPTER 1 POWER BELT REOPEN PASS", 180, power_reopen_fixed, incline_values},
     Case{"arrival-cog-repair", cog_script,
          "CHAPTER 1 COG REPAIR CHECKS COMPLETE",
          300, cog_repair_fixed, cog_values},

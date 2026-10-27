@@ -56,6 +56,9 @@ int main() {
               "Binary controls cannot hide a diagnostic or forge a marker.");
         const auto* first = fixture::find_case("arrival-first-plate");
         const auto* incline = fixture::find_case("arrival-nonhorizontal-incline");
+        const auto* vertical = fixture::find_case("arrival-nonhorizontal-vertical-resume");
+        const auto* sideways = fixture::find_case("arrival-nonhorizontal-sideways-resume");
+        const auto* power_reopen = fixture::find_case("arrival-nonhorizontal-power-reopen-resume");
         const auto* cog_repair = fixture::find_case("arrival-cog-repair");
         const auto* cog_reopen = fixture::find_case("arrival-cog-reopen");
         const auto* raised_starter = fixture::find_case("arrival-raised-starter-snap");
@@ -66,12 +69,12 @@ int main() {
         const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
         const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
         const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
-        check(fixture::registered_cases().size() == 12 && first && incline && cog_repair && cog_reopen &&
+        check(fixture::registered_cases().size() == 15 && first && incline && vertical && sideways && power_reopen && cog_repair && cog_reopen &&
                   raised_starter && raised_press &&
                   small && resumed && endpoint_default && endpoint_common && endpoint_inspection &&
                   endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),
-              "Only the eight scene routes and four endpoint modes are registered.");
+              "Only the eleven scene routes and four endpoint modes are registered.");
         const std::vector<std::string> incline_args{
             "--native-check-mode=arrival-nonhorizontal-incline",
             "--resume-input=/tmp/first-plate.worksite", "--native-check-output=/tmp/incline.result",
@@ -86,6 +89,22 @@ int main() {
                           "--resume-input=", "--native-check-output=/tmp/incline.result",
                           "--save-slot=/tmp/incline.worksite"}),
               "The paid incline route requires a real first-plate save and fresh outputs.");
+        for (const auto* route : {vertical, sideways}) {
+            const std::vector<std::string> args{
+                std::string("--native-check-mode=") + std::string(route->name),
+                "--resume-input=/tmp/paid-incline.worksite", "--native-check-output=/tmp/route.result",
+                "--save-slot=/tmp/route.worksite"};
+            check(route->script == first->script && route->seconds == 300 &&
+                      fixture::accepts_case_arguments(*route, args) &&
+                      !fixture::accepts_case_arguments(*route, {args.data(), args.size() - 1}),
+                  "Each power route requires a paid incline input and its own fresh save.");
+        }
+        check(power_reopen->script == first->script && power_reopen->seconds == 180 &&
+                  fixture::accepts_case_arguments(*power_reopen,
+                      std::vector<std::string>{"--native-check-mode=arrival-nonhorizontal-power-reopen-resume",
+                          "--resume-input=/tmp/power.worksite", "--native-check-output=/tmp/reopen.result",
+                          "--save-slot=/tmp/reopen.worksite"}),
+              "A fresh scene can reopen either paid power route without a fixture shortcut.");
         check(cog_repair->script == "res://opening/native_cog_check.gd" &&
                   cog_reopen->script == cog_repair->script &&
                   cog_repair->seconds == 300 && cog_reopen->seconds == 180 &&
