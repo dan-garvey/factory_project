@@ -17,6 +17,7 @@ using Object = Value::Object;
 
 enum class Type { string, integer, floating, boolean, array, object, integer2, integer3,
                   floating2, floating3, string_pairs, integer_pairs, integer_values,
+                  boolean_values,
                   string_array, nullable_string, integer3_or_empty, integer3_array,
                   floating3_pair };
 
@@ -125,8 +126,10 @@ inline constexpr std::array dropped_fields{
 };
 inline constexpr std::array actor_fields{
     Field{"position", Type::floating3}, Field{"capabilities", Type::object},
+    Field{"capabilities.build_reach", Type::floating},
+    Field{"capabilities.harvest_reach", Type::floating},
     Field{"ready", Type::boolean}, Field{"native_epoch", Type::integer},
-    Field{"harvest_clear", Type::object},
+    Field{"harvest_clear", Type::boolean_values},
 };
 inline constexpr std::array cut_fields{
     Field{"target", Type::string}, Field{"remaining_ticks", Type::integer},
@@ -386,6 +389,15 @@ inline bool typed(const Value& value, Type type) {
             }
             return true;
         }
+        case Type::boolean_values: {
+            const auto* entries = std::get_if<Object>(&value.storage());
+            if (!entries) return false;
+            for (const auto& [key, entry] : *entries) {
+                (void)key;
+                if (!typed(entry, Type::boolean)) return false;
+            }
+            return true;
+        }
         case Type::string_array: {
             const auto* entries = std::get_if<Value::Array>(&value.storage());
             if (!entries) return false;
@@ -549,6 +561,7 @@ inline const char* type_name(Type type) {
         case Type::string_pairs: return "string_pairs";
         case Type::integer_pairs: return "integer_pairs";
         case Type::integer_values: return "integer_values";
+        case Type::boolean_values: return "boolean_values";
         case Type::string_array: return "string_array";
         case Type::nullable_string: return "nullable_string";
         case Type::integer3_or_empty: return "integer3_or_empty";

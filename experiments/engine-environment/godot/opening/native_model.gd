@@ -190,43 +190,48 @@ func _complete_projection(value: Dictionary) -> bool:
 			_:
 				return false
 		for entry in entries:
-			if not entry is Dictionary:
+			if not _projection_record_complete(entry, record.fields):
 				return false
-			for field in record.fields:
-				if not field is String:
-					return false
-				var expected_field: Variant = record.fields[field]
-				var descriptor: Dictionary = {}
-				var optional := false
-				if expected_field is Dictionary:
-					descriptor = expected_field
-					if not expected_field.get("type") is String \
-						or typeof(expected_field.get("optional", false)) != TYPE_BOOL:
-						return false
-					optional = expected_field.get("optional", false)
-					expected_field = expected_field.type
-				var nested_field: Variant = entry
-				var field_missing := false
-				for segment in field.split("."):
-					if not nested_field is Dictionary or not nested_field.has(segment):
-						field_missing = true
-						break
-					nested_field = nested_field[segment]
-				if field_missing:
-					if optional: continue
-					return false
-				if not _projection_type_matches(nested_field, expected_field):
-					return false
-				if descriptor.has("equals"):
-					if not _projection_type_matches(descriptor.equals, expected_field) \
-						or nested_field != descriptor.equals:
-						return false
-				if descriptor.has("allowed"):
-					var allowed: Variant = descriptor.allowed
-					if not allowed is Array or allowed.is_empty(): return false
-					for candidate in allowed:
-						if not _projection_type_matches(candidate, expected_field): return false
-					if not allowed.has(nested_field): return false
+	return true
+
+func _projection_record_complete(entry: Variant, fields: Variant) -> bool:
+	if not entry is Dictionary or not fields is Dictionary or fields.is_empty():
+		return false
+	for field in fields:
+		if not field is String:
+			return false
+		var expected_field: Variant = fields[field]
+		var descriptor: Dictionary = {}
+		var optional := false
+		if expected_field is Dictionary:
+			descriptor = expected_field
+			if not expected_field.get("type") is String \
+				or typeof(expected_field.get("optional", false)) != TYPE_BOOL:
+				return false
+			optional = expected_field.get("optional", false)
+			expected_field = expected_field.type
+		var nested_field: Variant = entry
+		var field_missing := false
+		for segment in field.split("."):
+			if not nested_field is Dictionary or not nested_field.has(segment):
+				field_missing = true
+				break
+			nested_field = nested_field[segment]
+		if field_missing:
+			if optional: continue
+			return false
+		if not _projection_type_matches(nested_field, expected_field):
+			return false
+		if descriptor.has("equals"):
+			if not _projection_type_matches(descriptor.equals, expected_field) \
+				or nested_field != descriptor.equals:
+				return false
+		if descriptor.has("allowed"):
+			var allowed: Variant = descriptor.allowed
+			if not allowed is Array or allowed.is_empty(): return false
+			for candidate in allowed:
+				if not _projection_type_matches(candidate, expected_field): return false
+			if not allowed.has(nested_field): return false
 	return true
 
 func _projection_requires(value: Dictionary, path: String) -> bool:
@@ -252,6 +257,11 @@ func _projection_type_matches(value: Variant, expected: Variant) -> bool:
 			if not value is Dictionary: return false
 			for entry in value.values():
 				if typeof(entry) != TYPE_INT: return false
+			return true
+		"boolean_values":
+			if not value is Dictionary: return false
+			for entry in value.values():
+				if typeof(entry) != TYPE_BOOL: return false
 			return true
 		"string_array":
 			if not value is Array: return false
@@ -345,15 +355,31 @@ func publish_actor(actor: String, position: Array, native_epoch: int) -> Diction
 		if not _view_cache.actors.has(actor):
 			_view_cache = {}
 		else:
-			# Scene readers may still hold the previous snapshot. Replace only the
-			# actor path so their first-ready decision observes its original state.
+			# A narrow native read must agree with the accepted publication and
+			# satisfy the same actor record schema as a complete view.
+			var observed: Dictionary = _invoke("actor_projection", [actor])
+			var actor_fields: Variant = _projection_records.get("actors", {}).get("fields")
 			var updated: Dictionary = _view_cache.duplicate()
 			var actors: Dictionary = _view_cache.actors.duplicate()
 			var current: Dictionary = actors[actor].duplicate()
-			current.position = [float(position[0]), float(position[1]), float(position[2])]
-			current.ready = true
-			current.native_epoch = native_epoch
-			current.harvest_clear = _invoke("actor_projection", [actor]).get("harvest_clear", {})
+			current.position = observed.get("position")
+			current.ready = observed.get("ready")
+			current.native_epoch = observed.get("native_epoch")
+			current.harvest_clear = observed.get("harvest_clear")
+			if observed.get("accepted") != true or current.ready != true \
+				or current.native_epoch != native_epoch or current.position != position \
+				or not _projection_record_complete(current, actor_fields):
+				_view_cache = {}
+				return _projection_unavailable()
+			if _view_cache.get("options", {}).get("manual_sources") == true:
+				var sources: Variant = _view_cache.get("hand_sources")
+				if not sources is Dictionary or current.harvest_clear.size() != sources.size():
+					_view_cache = {}
+					return _projection_unavailable()
+				for source in sources:
+					if not current.harvest_clear.has(source):
+						_view_cache = {}
+						return _projection_unavailable()
 			actors[actor] = current
 			updated.actors = actors
 			_view_cache = updated
