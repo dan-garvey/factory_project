@@ -5,6 +5,7 @@
 #include <array>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -329,6 +330,21 @@ void nonarrival_tick_schema() {
           invalid_object_field("adapter_profile", "collector_intake_size", V(A{V(0.28), V(0.20)})) &&
           invalid_object_field("options", "native", V("true")),
           "Links, deposit cells, adapter geometry and options need complete typed native fields.");
+    const auto invalid_lift = [&](const char* field, std::optional<V> replacement) {
+        auto malformed = full_before;
+        auto profile = std::get<O>(malformed.at("adapter_profile").storage());
+        auto lift = std::get<O>(profile.at("collector_lift").storage());
+        if (replacement) lift.at(field) = std::move(*replacement);
+        else lift.erase(field);
+        profile.at("collector_lift") = V(std::move(lift));
+        malformed.at("adapter_profile") = V(std::move(profile));
+        return !factory::godot_world::projection_contract::complete(V(malformed));
+    };
+    check(invalid_lift("pickup_size", V(A{V(0.34), V(0.30)})) &&
+          invalid_lift("carrier_size_xz", V(A{V(0.34), V(0.42), V(0.50)})) &&
+          invalid_lift("flight_count", V(5.0)) &&
+          invalid_lift("head_z_size", std::nullopt),
+          "Every collector lift dimension and count follows the nested native projection schema.");
     const auto fields = std::get<O>(host.advance_tick_fields().storage());
     const auto full_after = std::get<O>(host.projection().storage());
     check(!full_before.contains("slide_phases") && !fields.contains("slide_phases") &&

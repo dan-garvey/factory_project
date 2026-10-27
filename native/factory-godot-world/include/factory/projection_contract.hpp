@@ -15,7 +15,7 @@ using Value = values::Value;
 using Object = Value::Object;
 
 enum class Type { string, integer, floating, boolean, array, object, integer2, integer3,
-                  floating3, string_pairs, integer_pairs };
+                  floating2, floating3, string_pairs, integer_pairs };
 
 struct Field {
     std::string_view name;
@@ -144,6 +144,17 @@ inline constexpr std::array option_fields{
     Field{"native", Type::boolean}, Field{"foundations", Type::boolean},
     Field{"developer_conveniences", Type::boolean},
 };
+inline constexpr std::array collector_lift_fields{
+    Field{"pickup_x", Type::floating}, Field{"pickup_y", Type::floating},
+    Field{"pickup_size", Type::floating3}, Field{"carrier_x", Type::floating},
+    Field{"carrier_bottom", Type::floating}, Field{"carrier_top_offset", Type::floating},
+    Field{"carrier_size_xz", Type::floating2}, Field{"guide_offset", Type::floating2},
+    Field{"guide_size", Type::floating2}, Field{"flight_offset_x", Type::floating},
+    Field{"flight_raise_y", Type::floating}, Field{"flight_size", Type::floating3},
+    Field{"flight_count", Type::integer}, Field{"flight_span", Type::floating},
+    Field{"head_x", Type::floating}, Field{"head_y_offset", Type::floating},
+    Field{"head_size_xy", Type::floating2}, Field{"head_z_size", Type::floating2},
+};
 inline constexpr std::array records{
     Record{"stock", Container::object, stock_fields},
     Record{"cargo", Container::object_values, cargo_fields},
@@ -158,6 +169,7 @@ inline constexpr std::array records{
     Record{"foundations", Container::object_values, foundation_fields},
     Record{"engagements", Container::array_elements, engagement_fields},
     Record{"adapter_profile", Container::object, adapter_profile_fields},
+    Record{"adapter_profile.collector_lift", Container::object, collector_lift_fields},
     Record{"options", Container::object, option_fields},
 };
 
@@ -171,11 +183,14 @@ inline bool typed(const Value& value, Type type) {
         case Type::object: return std::holds_alternative<Object>(value.storage());
         case Type::integer2:
         case Type::integer3:
+        case Type::floating2:
         case Type::floating3: {
             const auto* entries = std::get_if<Value::Array>(&value.storage());
-            if (!entries || entries->size() != (type == Type::integer2 ? 2 : 3)) return false;
+            if (!entries || entries->size() !=
+                    (type == Type::integer2 || type == Type::floating2 ? 2 : 3)) return false;
             for (const auto& entry : *entries)
-                if (!typed(entry, type == Type::floating3 ? Type::floating : Type::integer))
+                if (!typed(entry, type == Type::floating2 || type == Type::floating3 ?
+                        Type::floating : Type::integer))
                     return false;
             return true;
         }
@@ -225,13 +240,26 @@ inline bool complete_record(const Value& value, const Record& record) {
     return true;
 }
 
+inline const Value* record_at(const Object& projection, std::string_view path) {
+    const Object* object = &projection;
+    for (;;) {
+        const auto separator = path.find('.');
+        const auto found = object->find(std::string(path.substr(0, separator)));
+        if (found == object->end()) return nullptr;
+        if (separator == std::string_view::npos) return &found->second;
+        object = std::get_if<Object>(&found->second.storage());
+        if (!object) return nullptr;
+        path.remove_prefix(separator + 1);
+    }
+}
+
 inline bool complete(const Value& value, bool engine_view = false) {
     const auto* object = std::get_if<Object>(&value.storage());
     if (!object) return false;
     if (!required_fields(*object, host_fields)) return false;
     for (const auto& record : records) {
-        const auto found = object->find(std::string(record.name));
-        if (found == object->end() || !complete_record(found->second, record)) return false;
+        const auto* found = record_at(*object, record.name);
+        if (!found || !complete_record(*found, record)) return false;
     }
     if (engine_view) {
         const auto found = object->find(std::string(engineering_field.name));
@@ -250,6 +278,7 @@ inline const char* type_name(Type type) {
         case Type::object: return "object";
         case Type::integer2: return "integer2";
         case Type::integer3: return "integer3";
+        case Type::floating2: return "floating2";
         case Type::floating3: return "floating3";
         case Type::string_pairs: return "string_pairs";
         case Type::integer_pairs: return "integer_pairs";

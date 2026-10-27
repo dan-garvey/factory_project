@@ -120,13 +120,17 @@ func _complete_projection(value: Dictionary) -> bool:
 			or not _projection_type_matches(value[name], _projection_fields[name]):
 			return false
 	for name in _projection_records:
-		if not name is String or not value.has(name):
+		if not name is String:
 			return false
 		var record: Variant = _projection_records[name]
 		if not record is Dictionary or not record.get("fields") is Dictionary \
 			or record.fields.is_empty():
 			return false
-		var nested: Variant = value[name]
+		var nested: Variant = value
+		for segment in name.split("."):
+			if not nested is Dictionary or not nested.has(segment):
+				return false
+			nested = nested[segment]
 		var entries: Array = []
 		match record.get("container"):
 			"object":
@@ -158,10 +162,10 @@ func _projection_type_matches(value: Variant, expected: Variant) -> bool:
 		"boolean": return typeof(value) == TYPE_BOOL
 		"array": return typeof(value) == TYPE_ARRAY
 		"object": return typeof(value) == TYPE_DICTIONARY
-		"integer2", "integer3", "floating3":
-			if not value is Array or value.size() != (2 if expected == "integer2" else 3):
+		"integer2", "integer3", "floating2", "floating3":
+			if not value is Array or value.size() != (2 if expected in ["integer2", "floating2"] else 3):
 				return false
-			var scalar_type := TYPE_FLOAT if expected == "floating3" else TYPE_INT
+			var scalar_type := TYPE_FLOAT if expected in ["floating2", "floating3"] else TYPE_INT
 			for coordinate in value:
 				if typeof(coordinate) != scalar_type:
 					return false

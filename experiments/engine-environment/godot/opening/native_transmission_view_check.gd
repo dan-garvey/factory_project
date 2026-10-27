@@ -67,6 +67,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_topology_delta := false
 	var inject_bad_structure_full := false
 	var inject_bad_structure_delta := false
+	var inject_bad_lift_full := false
+	var inject_bad_lift_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -89,6 +91,10 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "projection" and inject_bad_structure_full:
 			inject_bad_structure_full = false
 			delivered.links = [["first", 2]]
+		elif method == "projection" and inject_bad_lift_full:
+			inject_bad_lift_full = false
+			delivered.adapter_profile = delivered.adapter_profile.duplicate(true)
+			delivered.adapter_profile.collector_lift.flight_count = "five"
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -107,6 +113,11 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			var profile: Dictionary = _view_cache.adapter_profile.duplicate(true)
 			profile.pitch = "wrong"
 			return {"changes": {"adapter_profile": profile}, "removed": []}
+		elif method == "advance_delta" and inject_bad_lift_delta:
+			inject_bad_lift_delta = false
+			var lift_profile: Dictionary = _view_cache.adapter_profile.duplicate(true)
+			lift_profile.collector_lift.head_z_size = [0.40]
+			return {"changes": {"adapter_profile": lift_profile}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3821,6 +3832,16 @@ func _native_view_cache_regression() -> void:
 		and not trusted._complete_projection(bad_intake)
 		and not trusted._complete_projection(bad_options),
 		"Projected adapter geometry and site options retain their native scalar types.")
+	var short_lift := complete.duplicate(true)
+	short_lift.adapter_profile.collector_lift.pickup_size = [0.34, 0.30]
+	var missing_lift := complete.duplicate(true)
+	missing_lift.adapter_profile.collector_lift.erase("head_z_size")
+	var wrong_lift := complete.duplicate(true)
+	wrong_lift.adapter_profile.collector_lift.flight_count = 5.0
+	verify(not trusted._complete_projection(short_lift)
+		and not trusted._complete_projection(missing_lift)
+		and not trusted._complete_projection(wrong_lift),
+		"Collector lift dimensions and flight count follow the native nested record contract.")
 	trusted._view_cache = {}
 	trusted.inject_bad_full = true
 	var bad_full: Dictionary = trusted.view_projection()
@@ -3877,6 +3898,20 @@ func _native_view_cache_regression() -> void:
 		"A merged delta with a mistyped native geometry value cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"A later full native view recovers after geometry delta refusal.")
+	trusted._view_cache = {}
+	trusted.inject_bad_lift_full = true
+	var bad_lift_full: Dictionary = trusted.view_projection()
+	verify(bad_lift_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full native view with a mistyped lift count cannot become confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after lift full-view refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_lift_delta = true
+	var bad_lift_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_lift_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with an incomplete lift dimension cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after lift delta refusal.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
