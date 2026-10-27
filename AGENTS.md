@@ -68,6 +68,18 @@ The integration owner maintains the separate authorized unlisted-gist
   [register](docs/engineering/godot-constraints.md), separately from game rules.
 - Use icons, direct manipulation and spatial grouping; text buttons are a last
   resort. Provide tooltips, keyboard focus descriptions and keyboard routes.
+- Visual/UI changes and factory-component connections use Factory Proof Desk:
+  obtain human direction approval before substantial implementation, and final
+  contextual approval before updating `main`. Early sketches and independent
+  renders are valid direction proofs; final proofs show the actual candidate.
+  Declare every affected use as a required case, with multiple images or clips
+  where needed. Existing elements need before/after evidence. Small corrections
+  preserving approved direction need final approval only. See the existing
+  [build guide](docs/engineering/native-builds.md#human-visual-review).
+  After `scripts/proof.sh submit`, end the turn and wait exclusively. Do not poll,
+  watch a task, continue unrelated work or fabricate human decisions. Submission
+  pauses active goal continuation under the user's blocking-review policy; the
+  human decision returns notes and media to the originating thread.
 - Use [resource admission](docs/engineering/local-resources.md) for checks,
   builds and measurements. Never nest wrappers, unlink live locks, delete
   active files or lower floors without a documented resource decision. Follow
@@ -122,7 +134,8 @@ behavior. Record that proof in its review request and reuse the original checks
 and review evidence, including a contextual screenshot for unchanged visual
 inputs. Changed interfaces, conflict resolutions or combined behavior
 need focused integration checks. Record a concrete verdict and evidence limits.
-Existing relevant review counts; review is not a pre-merge approval gate.
+Existing relevant code review counts; code review is not a pre-merge approval
+gate. The separate human visual approval above is blocking.
 
 Record the actual landed revision and new results once, close satisfied work,
 flush Beads, and inspect Git status. Remaining implementation and human-play

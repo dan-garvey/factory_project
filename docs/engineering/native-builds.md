@@ -241,6 +241,57 @@ source-matched native library and labels the window. Neither fixture supplies
 desktop interaction; keep ordinary use, performance and human-play findings in
 their own records.
 
+## Human visual review
+
+Factory Proof Desk runs on Windows; its C++ WSL bridge owns immutable proof
+bundles, Beads records and exact-thread feedback. No additional API key or hosted
+review service is needed. The local Codex daemon must be running. Images, clips, annotations and
+thread identifiers remain private in the configured Windows-local store.
+
+Start with [the JSON example](../../native/proof-desk/example-proof.json). Each
+required case declares its acceptance criteria, view conditions and media.
+Use `stage: "direction"` for sketches or independent renders. A `final` bundle
+requires a clean committed candidate, its approved `direction` proof ID, and
+actual `after` evidence; existing elements also require `before` media. Keep all
+required direction cases. `previous` links a replacement revision. A small
+correction can reference a prior approved proof with `minor_correction: true`
+and a `direction_reason`; this still requires final human approval.
+
+`./scripts/proof.sh submit --manifest /absolute/proof.json` binds the proof to
+`CODEX_THREAD_ID` and the owning Bead's assignee. End the turn immediately after
+submission. The native bridge pauses an active goal under the user's review
+policy; no model polling loop runs. The Windows review decision queues notes,
+original images and marked frames as a user message to that exact thread, then
+resumes only the goal it paused. Clip paths and timestamps accompany marked
+frames. Budgets and unrelated goals remain unchanged. A delivery uncertainty
+requires a matching user-message receipt before any retry can succeed.
+
+The viewer keeps drafts until Send, and cannot approve a bundle with missing or
+unapproved cases. A bundle allows 64 media items, including at most 32 images;
+feedback allows 32 annotations. Split larger changes into bounded reviews.
+Retain media while its approval is needed; missing or altered media invalidates
+approval. Follow the existing artifact lifecycle after integration and review.
+
+Build `//native/proof-desk:factory-proof` and run its two Bazel tests. On Windows,
+configure `native/proof-desk/CMakeLists.txt` with MSVC 2022 and the Qt SDK pinned in
+`qt-sdk.json`, build Release, and deploy dynamic dependencies with `windeployqt`.
+The viewer reads `%LOCALAPPDATA%/FactoryProofDesk/config.json`: `store` is a local
+Windows path, `distro` selects WSL, and `root`/`bridge` are absolute Linux paths.
+Initialize the bridge with `factory-proof init --root REPO --store /mnt/c/...`.
+Repository configuration pins `factory.proofExecutable`/`factory.proofSHA256`
+and `factory.proofViewer`/`factory.proofViewerSHA256`. Agent viewer launches use
+`scripts/launch-proof-desk.sh --test-purpose=TEXT`; `--fixture`, `--capture` and
+`--self-test` provide passive, isolated checks, not human usability evidence.
+
+After human acceptance of the installed tool, set `factory.proofRequired=true`.
+The reference-transaction hook blocks unapproved changes before `main` moves;
+pre-push is a second check. Approval is tied to the complete declared source
+inputs, permitting unchanged disjoint joins. Native C++ changes require either
+visual evidence or `declare-nonvisual --manifest FILE`, whose JSON declares the
+owned `bead`, `actor`, exact `paths` and a concrete `reason`. Known visual files
+cannot use that declaration. Existing compiler, test and code-review gates stay
+in force. Never generate a human decision to satisfy a gate.
+
 ## Publish
 
 Follow [AGENTS.md](../../AGENTS.md) for ownership and independent review.

@@ -1,0 +1,12 @@
+{
+  "version": "6.11.3",
+  "platform": "MSVC 2022 x64",
+  "repository": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6113/qt6_6113_msvc2022_64/",
+  "archive_prefix": "6.11.3-0-202610220312",
+  "archive_suffix": "-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+  "packages": [
+    {"module": "qtbase", "package": "qt.qt6.6113.win64_msvc2022_64", "sha256": "68be61b613b963daf206834fdcc57dd3b84baff3082e50679e5846ca4a7a8b86"},
+    {"module": "qtmultimedia", "package": "qt.qt6.6113.addons.qtmultimedia.win64_msvc2022_64", "sha256": "344fb1b0185ab810cfc247dabd1470d14e23999e6861f3a7e62d217fa6ec5fc5"}
+  ],
+  "deployment": "Dynamic Qt DLLs and plugins, deployed by the SDK windeployqt. Keep the SDK licenses with the local installation."
+}

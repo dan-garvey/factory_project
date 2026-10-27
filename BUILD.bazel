@@ -1,6 +1,9 @@
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    ".githooks/reference-transaction",
+    ".githooks/pre-push",
+    "scripts/check-visual-approval.sh",
     ".githooks/pre-commit",
     "scripts/check_gdscript.py",
     "scripts/check_engine_environment.py",

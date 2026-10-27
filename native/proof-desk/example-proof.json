@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "title": "Hand crank connections",
+  "bead": "REPLACE_WITH_OWNED_BEAD",
+  "actor": "REPLACE_WITH_ASSIGNEE",
+  "stage": "direction",
+  "paths": ["REPLACE_WITH_AFFECTED_SOURCE_PATH"],
+  "cases": [
+    {
+      "id": "shaft-contact",
+      "title": "Machine shaft attachment",
+      "criteria": "The crank meets the shaft with readable scale, orientation and contact.",
+      "context": "Whole machine and neighbouring parts, plus a side view of the connection.",
+      "existing": true,
+      "media": [
+        {"id": "proposal", "kind": "image", "role": "concept", "caption": "Attachment direction", "path": "/absolute/path/to/proposal.png"}
+      ]
+    },
+    {
+      "id": "free-shaft",
+      "title": "Turning free shafts",
+      "criteria": "A standalone crank visibly drives an exposed shaft.",
+      "context": "Show the crank, entire shaft and intended player action together.",
+      "existing": false,
+      "media": [
+        {"id": "proposal", "kind": "image", "role": "concept", "caption": "Free shaft direction", "path": "/absolute/path/to/free-shaft.png"}
+      ]
+    },
+    {
+      "id": "cog-drive",
+      "title": "Cogwheel drive",
+      "criteria": "Both connected cogs turn with clear contact and rotation direction.",
+      "context": "Final proof needs a clip showing the complete drive through a full turn.",
+      "existing": false,
+      "media": [
+        {"id": "proposal", "kind": "image", "role": "concept", "caption": "Cog drive direction", "path": "/absolute/path/to/cogs.png"}
+      ]
+    }
+  ]
+}

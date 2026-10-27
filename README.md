@@ -37,6 +37,11 @@ headless startup record without a window, use `--prepare-session-only`, with
 optional `--resume /absolute/path/to/player.factory`. These are local
 development entrypoints, not a portable installer.
 
+**Factory Proof Desk** is the local Windows queue for human visual review.
+Agents submit required evidence cases with `./scripts/proof.sh submit --manifest
+/absolute/proof.json`; feedback returns to their original conversation. See
+[setup and review workflow](docs/engineering/native-builds.md#human-visual-review).
+
 Agent graphical runs require a visible purpose label (at most 60 Unicode
 characters). The label is a runtime argument, so changing it reuses the same
 native and Godot artifacts:

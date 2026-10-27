@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+while read -r local_ref local_oid remote_ref remote_oid; do
+    if [[ $remote_ref == refs/heads/main ]]; then
+        "$root/scripts/check-visual-approval.sh" "$remote_oid" "$local_oid"
+    fi
+done

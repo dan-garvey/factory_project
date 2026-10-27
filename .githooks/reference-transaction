@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ${1:-} == prepared ]] || exit 0
+root=$(git rev-parse --show-toplevel)
+while read -r before after ref; do
+    if [[ $ref == refs/heads/main ]]; then
+        "$root/scripts/check-visual-approval.sh" "$before" "$after"
+    fi
+done

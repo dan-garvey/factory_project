@@ -1,0 +1,26 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+package(default_visibility = ["//visibility:public"])
+cc_library(
+    name = "proof",
+    srcs = ["proof.cpp", "codex_rpc.cpp"],
+    hdrs = ["proof.hpp", "codex_rpc.hpp", "vendor/json.hpp"],
+    linkopts = ["-lcrypto"],
+)
+cc_binary(name = "factory-proof", srcs = ["main.cpp"], deps = [":proof"])
+cc_test(name = "proof_test", srcs = ["tests/proof_test.cpp", "tests/rpc_server.hpp"], deps = [":proof"], size = "small")
+cc_test(
+    name = "hooks_test",
+    srcs = ["tests/hooks_test.cpp"],
+    args = [
+        "$(rootpath :factory-proof)",
+        "$(rootpath //:.githooks/reference-transaction)",
+        "$(rootpath //:.githooks/pre-push)",
+        "$(rootpath //:scripts/check-visual-approval.sh)",
+    ],
+    data = [":factory-proof", "//:.githooks/reference-transaction", "//:.githooks/pre-push", "//:scripts/check-visual-approval.sh"],
+    deps = [":proof"],
+    size = "small",
+    tags = ["host", "local"],
+)
+# The Windows viewer is built with the pinned Qt/MSVC SDK through CMake.
+exports_files(["CMakeLists.txt", "viewer.cpp"])
