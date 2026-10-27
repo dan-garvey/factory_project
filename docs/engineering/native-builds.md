@@ -260,10 +260,12 @@ and a `direction_reason`; this still requires final human approval.
 `./scripts/proof.sh submit --manifest /absolute/proof.json` binds the proof to
 `CODEX_THREAD_ID` and the owning Bead's assignee. End the turn immediately after
 submission. The native bridge pauses an active goal under the user's review
-policy; no model polling loop runs. The Windows review decision queues notes,
-original images and marked frames through the daemon's structured queue API to that exact thread, then
-resumes only the goal it paused. Clip paths and timestamps accompany marked
-frames, without expanding a clip into every frame. Budgets and unrelated goals
+policy; no model polling loop runs. The Windows review decision queues a compact
+approval receipt or requested corrections to that exact thread, then resumes
+only the goal it paused. Approvals carry no images or repeated evidence lists.
+Corrections carry human notes and marked frames, or original context for an
+unmarked case; untouched cases are omitted. Clip paths and timestamps accompany
+marked frames without expanding every frame. Budgets and unrelated goals
 remain unchanged. Connection failures and invalid-request refusals retain their
 diagnostics and can be retried. An uncertain delivery requires a matching pending
 queue entry or user-message receipt; retry never blindly sends a duplicate.

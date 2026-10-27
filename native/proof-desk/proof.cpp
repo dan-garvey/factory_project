@@ -330,7 +330,9 @@ void validate_decision(const Json &m, const Json &d) {
               "Whole-change approval requires every case approved");
     if (status == "changes_requested") {
       changes = true;
-      str(review, "note", 16000);
+      require(!review.value("note", std::string()).empty() ||
+                  !review.value("annotations", Json::array()).empty(),
+              "A case change request needs a note or annotation");
     }
     require(review.value("note", std::string()).size() <= 16000,
             "Feedback exceeds limit");
@@ -564,30 +566,55 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
   message << "Bead: " << m.at("bead").get<std::string>()
           << "\nCandidate: " << m.at("revision").get<std::string>()
           << "\nProof: " << id << "\n";
-  message << d.value("note", std::string()) << "\n";
+  const bool corrections = d.at("verdict") == "changes_requested";
+  if (!d.value("note", std::string()).empty())
+    message << d.at("note").get<std::string>() << "\n";
   std::vector<std::string> images;
+  std::set<std::string> imageHashes;
+  auto addImage = [&](const fs::path &path, const std::string &hash) {
+    if (imageHashes.insert(hash).second)
+      images.push_back(path.string());
+  };
   for (const auto &c : m.at("cases")) {
     const auto &review = d.at("cases").at(c.at("id").get<std::string>());
+    const auto marks = review.value("annotations", Json::array());
+    const auto note = review.value("note", std::string());
+    if (note.empty() && marks.empty() &&
+        review.at("status") != "changes_requested")
+      continue;
     message << "\n"
             << c.at("title").get<std::string>() << ": "
-            << review.at("status").get<std::string>() << "\n"
-            << review.value("note", std::string()) << "\n";
-    for (const auto &a : review.value("annotations", Json::array()))
+            << review.at("status").get<std::string>() << "\n";
+    if (!note.empty())
+      message << note << "\n";
+    for (const auto &a : marks)
       message << "Media " << a.at("media").get<std::string>() << " at "
               << a.at("time_ms") << " ms, (" << a.at("x") << ", " << a.at("y")
               << "): " << a.at("text").get<std::string>() << "\n";
+    if (!corrections)
+      continue;
     for (const auto &media : c.at("media")) {
+      // Marked frames already supply the corrected view. Keep clip references
+      // and fall back to original context only for unmarked case feedback.
+      if (!marks.empty() &&
+          std::none_of(marks.begin(), marks.end(), [&](const Json &a) {
+            return a.at("media") == media.at("id");
+          }))
+        continue;
+      if (media.at("kind") == "image" && !marks.empty() &&
+          !d.value("attachments", Json::array()).empty())
+        continue;
       auto path = (dir / media.at("path").get<std::string>()).string();
       message << media.at("caption").get<std::string>() << ": " << path << "\n";
       if (media.at("kind") == "image")
-        images.push_back(path);
+        addImage(path, media.at("sha256"));
     }
   }
   for (const auto &a : d.value("attachments", Json::array())) {
     auto path = dir / a.at("path").get<std::string>();
     require(digest(path) == a.at("sha256"), "Marked feedback changed");
-    if (std::find(images.begin(), images.end(), path.string()) == images.end())
-      images.push_back(path.string());
+    if (corrections)
+      addImage(path, a.at("sha256"));
   }
   require(images.size() <= 64, "Too many images for one feedback message; "
                                "reduce this proof's media before sending");
@@ -612,12 +639,11 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
     const auto &receipt = response.at("queuedSubmission");
     require(receipt.at("clientUserMessageId") == clientId,
             "Codex returned a receipt for another message");
-    write_json(
-        dir / "delivery.json",
-        Json{{"status", "delivered"},
-             {"detail", "Feedback and images queued to the originating agent"},
-             {"client_message_id", clientId},
-             {"queued_submission_id", receipt.at("id")}});
+    write_json(dir / "delivery.json",
+               Json{{"status", "delivered"},
+                    {"detail", "Review queued to the originating agent"},
+                    {"client_message_id", clientId},
+                    {"queued_submission_id", receipt.at("id")}});
   } catch (const RpcFailure &error) {
     save_state(dir, error.may_have_submitted ? "uncertain" : "failed",
                error.what());

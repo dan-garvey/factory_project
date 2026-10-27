@@ -119,6 +119,8 @@ public:
     player.setVideoSink(&sink);
     connect(&sink, &QVideoSink::videoFrameChanged, this,
             [this](const QVideoFrame &frame) {
+              if (kind != "clip")
+                return;
               auto next = frame.toImage();
               if (!next.isNull()) {
                 image = next;
@@ -142,12 +144,22 @@ public:
               update();
             });
   }
-  void load(const QString &path, const QJsonObject &media,
-            const QJsonArray &all) {
+  void clear() {
+    kind.clear();
+    mediaId.clear();
     player.stop();
     player.setSource(QUrl());
     image = {};
-    error = {};
+    marks = {};
+    error.clear();
+    frameTime = 0;
+    zoom = 1;
+    pan = {};
+    update();
+  }
+  void load(const QString &path, const QJsonObject &media,
+            const QJsonArray &all) {
+    clear();
     mediaId = media["id"].toString();
     kind = media["kind"].toString();
     marks = {};
@@ -302,7 +314,7 @@ public:
   QPlainTextEdit *caseNote, *generalNote;
   QCheckBox *compare;
   Canvas *before, *after;
-  QWidget *beforePanel;
+  QWidget *beforePanel, *evidencePanel, *feedbackPanel, *caseHeading;
   QSlider *scrub;
   QFileSystemWatcher watcher;
   QProcess process;
@@ -349,7 +361,8 @@ public:
     queue->setAccessibleName("Changes awaiting review");
     queue->setMaximumHeight(190);
     ll->addWidget(queue);
-    ll->addWidget(label("REQUIRED EVIDENCE", "eyebrow"));
+    caseHeading = label("REQUIRED EVIDENCE", "eyebrow");
+    ll->addWidget(caseHeading);
     cases = new QListWidget;
     cases->setAccessibleName("Required evidence cases and decisions");
     ll->addWidget(cases, 1);
@@ -366,6 +379,12 @@ public:
         "The agent's evidence and review requirements appear here.", "muted");
     cl->addWidget(title);
     cl->addWidget(subtitle);
+    cl->setAlignment(Qt::AlignTop);
+    evidencePanel = new QWidget;
+    cl->addWidget(evidencePanel, 1);
+    cl = new QVBoxLayout(evidencePanel);
+    cl->setContentsMargins(0, 0, 0, 0);
+    cl->setSpacing(12);
     caseTitle = label("Required evidence", "heading");
     context = label("", "muted");
     cl->addWidget(caseTitle);
@@ -428,6 +447,7 @@ public:
     cl->addWidget(mediaList);
     split->addWidget(center);
     auto *right = new QWidget;
+    feedbackPanel = right;
     right->setObjectName("feedback");
     auto *rl = new QVBoxLayout(right);
     rl->setContentsMargins(22, 22, 22, 18);
@@ -752,10 +772,37 @@ public:
     if (auto *item = queue->currentItem()) {
       if (item->data(Qt::UserRole).toString() != bundleId)
         loadBundle(item->data(Qt::UserRole).toString());
-    } else if (!selected.isEmpty() && decided()) {
-      delivery->setText("Review sent. Open History to revisit it.");
-      updateDecision();
-    }
+    } else
+      clearSelection();
+  }
+  void clearSelection() {
+    saveDraft();
+    changing = true;
+    bundleId.clear();
+    caseId.clear();
+    reviewedManifestHash.clear();
+    manifest = {};
+    draft = {};
+    cases->clear();
+    mediaList->clear();
+    notes->clear();
+    caseNote->clear();
+    generalNote->clear();
+    before->clear();
+    after->clear();
+    timeLabel->setText("00:00.000 / 00:00.000");
+    scrub->setRange(0, 0);
+    play->setEnabled(false);
+    scrub->setEnabled(false);
+    caseTitle->clear();
+    context->clear();
+    delivery->clear();
+    title->setText(history ? "No completed reviews" : "No pending reviews");
+    subtitle->setText(history ? "Submitted decisions will appear here."
+                              : "Completed reviews are in History. New proofs "
+                                "appear automatically.");
+    changing = false;
+    updateDecision();
   }
   void loadBundle(const QString &id) {
     saveDraft();
@@ -871,6 +918,8 @@ public:
       before->player.stop();
     play->setEnabled(media["kind"] == "clip");
     scrub->setEnabled(media["kind"] == "clip");
+    if (media["kind"] != "clip")
+      after->onPosition(0, 0);
     updateDecision();
   }
   void refreshNotes() {
@@ -913,10 +962,19 @@ public:
                                                                  : "#dce6f4"));
     }
     int total = manifest["cases"].toArray().size();
-    summary->setText(QString("%1 approved / %2 need changes / %3 not reviewed")
-                         .arg(passed)
-                         .arg(changes)
-                         .arg(total - passed - changes));
+    const bool selected = !bundleId.isEmpty();
+    evidencePanel->setVisible(selected);
+    feedbackPanel->setVisible(selected);
+    caseHeading->setVisible(selected);
+    cases->setVisible(selected);
+    approve->setVisible(selected);
+    reject->setVisible(selected);
+    summary->setText(
+        !selected ? (history ? "History is empty" : "Pending queue is empty")
+                  : QString("%1 approved / %2 need changes / %3 not reviewed")
+                        .arg(passed)
+                        .arg(changes)
+                        .arg(total - passed - changes));
     bool active = !bundleId.isEmpty() && !decided() &&
                   process.state() == QProcess::NotRunning;
     approve->setText(manifest["stage"] == "direction" ? "Approve direction"
@@ -955,22 +1013,12 @@ public:
       decision["verdict"] = verdict;
       decision["reviewed_manifest_sha256"] = reviewedManifestHash;
       auto reviews = decision["cases"].toObject();
-      for (auto it = reviews.begin(); it != reviews.end(); ++it) {
-        auto c = it.value().toObject();
-        if (c["status"] == "changes_requested" &&
-            c["note"].toString().trimmed().isEmpty()) {
-          QString combined;
-          for (auto a : c["annotations"].toArray())
-            combined += a.toObject()["text"].toString() + "\n";
-          c["note"] = combined;
-          it.value() = c;
-        }
-      }
-      decision["cases"] = reviews;
       QJsonArray paths;
       auto folder = directory() + "/marked-frames";
       QDir().mkpath(folder);
       for (auto it = reviews.begin(); it != reviews.end(); ++it) {
+        if (verdict == "approved")
+          break;
         auto marks = it.value().toObject()["annotations"].toArray();
         for (auto value : marks) {
           auto a = value.toObject();
@@ -1161,18 +1209,74 @@ int main(int argc, char **argv) {
         desk.after->fit();
         (*state)["zoom_and_fit"] =
             zoomed.width() > desk.after->imageRect().width();
+        if (parser.isSet("capture"))
+          (*state)["review_capture_saved"] =
+              desk.grab().save(parser.value("capture"));
+        // Isolated sample decisions exercise the same watcher/selection path
+        // as Send, without contacting an agent or accepting real source.
+        const auto completed = desk.bundleId;
+        auto completedDraft = desk.draft;
+        saveObject(desk.directory() + "/decision.json", completedDraft);
+        desk.refreshQueue();
+        (*state)["completed_pending_cleared"] =
+            desk.queue->count() == 0 && desk.bundleId.isEmpty() &&
+            desk.cases->count() == 0 && desk.mediaList->count() == 0 &&
+            desk.notes->count() == 0 &&
+            desk.caseNote->toPlainText().isEmpty() &&
+            desk.generalNote->toPlainText().isEmpty() &&
+            desk.after->image.isNull() && desk.before->image.isNull() &&
+            desk.after->player.source().isEmpty() &&
+            !desk.evidencePanel->isVisible() &&
+            !desk.feedbackPanel->isVisible() && !desk.approve->isVisible() &&
+            !desk.reject->isVisible();
+        if (parser.isSet("capture"))
+          (*state)["empty_capture_saved"] =
+              desk.grab().save(parser.value("capture") + ".empty.png");
+        desk.history = true;
+        desk.refreshQueue();
+        (*state)["completed_in_history"] =
+            desk.bundleId == completed && desk.cases->count() > 0 &&
+            desk.evidencePanel->isVisible() && !desk.approve->isEnabled();
+        if (parser.isSet("capture"))
+          (*state)["history_capture_saved"] =
+              desk.grab().save(parser.value("capture") + ".history.png");
+        desk.history = false;
+        desk.refreshQueue();
+        (*state)["history_to_empty_pending"] = desk.bundleId.isEmpty();
+        QFile::remove(desk.store + "/" + completed + "/decision.json");
+        desk.refreshQueue();
+        (*state)["new_pending_selected"] =
+            desk.bundleId == completed && desk.cases->count() > 0;
+        // Completing one of two queued proofs must move to the other.
+        QDir().mkpath(probe);
+        auto next = desk.manifest;
+        next["id"] = "watcher-probe";
+        next["cases"] = QJsonArray{}; // No duplicated media is needed here.
+        saveObject(probe + "/manifest.json", next);
+        saveObject(probe + "/registered.json",
+                   QJsonObject{{"registered", true}});
+        saveObject(desk.directory() + "/decision.json", completedDraft);
+        desk.refreshQueue();
+        (*state)["next_pending_selected"] = desk.bundleId == "watcher-probe";
+        QDir(probe).removeRecursively();
+        QFile::remove(desk.store + "/" + completed + "/decision.json");
+        desk.refreshQueue();
         bool passed = true;
         for (auto key :
              {"partial_bundle_blocks_approval", "image_loaded", "clip_advanced",
               "media_error_free", "clip_seek", "controls_in_client",
               "zoom_and_fit", "single_media_fills_area",
-              "annotation_frame_saved", "late_registration_detected"})
+              "annotation_frame_saved", "late_registration_detected",
+              "completed_pending_cleared", "completed_in_history",
+              "history_to_empty_pending", "new_pending_selected",
+              "next_pending_selected"})
           passed &= (*state)[key].toBool();
+        if (parser.isSet("capture"))
+          for (auto key : {"review_capture_saved", "empty_capture_saved",
+                           "history_capture_saved"})
+            passed &= (*state)[key].toBool();
         (*state)["status"] = passed ? "pass" : "fail";
         saveObject(parser.value("self-test"), *state);
-        if (parser.isSet("capture") &&
-            !desk.grab().save(parser.value("capture")))
-          passed = false;
         app.exit(passed ? 0 : 1);
       });
     }

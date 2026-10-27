@@ -253,9 +253,10 @@ int main() {
     ok(queued.at("clientUserMessageId") == "factory-proof-" + decisionId);
     ok(queued.at("input")[0].at("text").get<std::string>().find("3420 ms") !=
        std::string::npos);
-    ok(queued.at("input")[1].at("type") == "localImage");
-    ok(queued.at("input").size() ==
-       4); // Before/after plus one deduplicated marked frame.
+    // Even an approval with human notes/marks sends no image attachments.
+    ok(queued.at("input").size() == 1);
+    ok(queued.at("input")[0].at("text").get<std::string>().find("Side view") ==
+       std::string::npos);
     deliver(store, repo, finalId, endpoint, fakeBr.string());
     ok(read_json(rpcFile).at("queue_calls") == 2);
     // A lost acknowledgement must recover a pending queue receipt without
@@ -301,6 +302,56 @@ int main() {
        "started-review-turn");
     ok(start_queued_feedback(config, store / finalId));
     ok(read_json(rpcFile).at("start_calls") == 1);
+    auto feedback = [&](Json review) {
+      auto bundle =
+          submit(store, repo, m, "00000000-0000-0000-0000-000000000001");
+      const auto proofId = bundle.at("id").get<std::string>();
+      review["reviewed_manifest_sha256"] =
+          digest(store / proofId / "manifest.json");
+      decide(store, proofId, review);
+      deliver(store, repo, proofId, endpoint, fakeBr.string());
+      return read_json(rpcFile).at("queue").back().at("input");
+    };
+    auto compact = feedback(decision());
+    const auto receipt = compact[0].at("text").get<std::string>();
+    ok(compact.size() == 1 && receipt.size() < 400);
+    ok(receipt.find("approved") != std::string::npos &&
+       receipt.find("Candidate: " + candidate) != std::string::npos);
+    ok(receipt.find("Shaft connection") == std::string::npos &&
+       receipt.find("Cog drive") == std::string::npos &&
+       receipt.find("/media/") == std::string::npos);
+    auto rejection = decision();
+    rejection["verdict"] = "changes_requested";
+    rejection["cases"]["cogs"]["status"] = "changes_requested";
+    rejection["cases"]["cogs"]["annotations"] = {annotation};
+    rejection["attachments"] = {(root / "media/view.png").string(),
+                                (root / "media/view.png").string()};
+    auto marked = feedback(rejection);
+    const auto markedText = marked[0].at("text").get<std::string>();
+    ok(marked.size() == 2 && marked[1].at("type") == "localImage");
+    ok(markedText.find("3420 ms") != std::string::npos &&
+       markedText.find("cogs-motion.mp4") != std::string::npos);
+    ok(markedText.find("shaft-view.png") == std::string::npos &&
+       markedText.find("Shaft connection") == std::string::npos);
+    ok(markedText.find("Wrong direction") ==
+       markedText.rfind("Wrong direction"));
+    auto unmarked = decision();
+    unmarked["verdict"] = "changes_requested";
+    unmarked["cases"]["shaft"]["status"] = "changes_requested";
+    unmarked["cases"]["shaft"]["note"] = "Show the contact from the side";
+    auto contextual = feedback(unmarked);
+    ok(contextual.size() == 2);
+    ok(contextual[1].at("path").get<std::string>().find("shaft-view.png") !=
+       std::string::npos);
+    ok(contextual[0].at("text").get<std::string>().find("Cog drive") ==
+       std::string::npos);
+    auto overall = decision();
+    overall["verdict"] = "changes_requested";
+    overall["note"] = "Please adjust the spacing consistently.";
+    auto general = feedback(overall);
+    ok(general.size() == 1);
+    ok(general[0].at("text").get<std::string>().find(
+           overall.at("note").get<std::string>()) != std::string::npos);
     // Disjoint changes can reuse approval; a changed visual input cannot.
     std::ofstream(repo / "unrelated.txt") << "unrelated\n";
     commitAll();
