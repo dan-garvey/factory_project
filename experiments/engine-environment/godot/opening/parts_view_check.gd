@@ -3216,6 +3216,19 @@ func _workshop_pages() -> void:
 			and view.pause_resume_button.has_focus()
 			and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(view.pause_menu.get_global_rect()),
 			"A repeated Escape menu opening stays centered and focused during a window resize.")
+		root.size = Vector2i(640, 480)
+		await process_frame
+		await process_frame
+		var narrow_view := Rect2(Vector2.ZERO, Vector2(root.size))
+		for control: Control in [view.pause_menu, view.pause_resume_button, view.save_button,
+			view.load_button, view.pause_exit_button, view.actor_label, view.power_label,
+			view.stock_label]:
+			verify(control.is_visible_in_tree() and narrow_view.encloses(control.get_global_rect()),
+				"Every Esc worksite action and status row remains reachable at 640x480: %s." % control.name)
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-escape-narrow.png") == OK,
+				"Retain the compact 640x480 Esc worksite layout.")
 		view.pause_resume_button.pressed.emit()
 		verify(not view.pause_menu.visible and not view.pause_menu_scrim.visible,
 			"The Resume icon closes the worksite menu after resizing.")
@@ -3253,7 +3266,7 @@ func _workshop_pages() -> void:
 			"The foundation recipe and cost fit inside the narrow inventory window.")
 		root.size = Vector2i(1280, 800)
 		inventory._configure_catalog_layout(Vector2i(1280, 800))
-		inventory._input(escape)
+		inventory.catalog.window_input.emit(escape)
 		verify(not inventory.catalog.visible and not view.pause_menu.visible,
 			"Escape closes inventory without opening the worksite menu underneath it.")
 		view._input(escape)
@@ -3935,7 +3948,7 @@ func _field_craft_widget() -> void:
 	var escape := InputEventKey.new()
 	escape.keycode = KEY_ESCAPE
 	escape.pressed = true
-	inventory._input(escape)
+	inventory.catalog.window_input.emit(escape)
 	root.size = Vector2i(640, 480)
 	await process_frame
 	await process_frame
@@ -3954,7 +3967,7 @@ func _field_craft_widget() -> void:
 		verify(inventory.catalog.visible, "The inventory opens before the resize-close race.")
 		root.size = Vector2i(640, 480)
 		match close_mode:
-			"escape": inventory._input(escape)
+			"escape": inventory.catalog.window_input.emit(escape)
 			"button": close_button.pressed.emit()
 			"toggle": inventory.open_catalog()
 		await process_frame
@@ -4677,7 +4690,7 @@ func _object_menu_check() -> void:
 	view._refresh_ui()
 	verify(view.issued.is_empty(), "Read-only inventory navigation creates no native command.")
 	key.keycode = KEY_ESCAPE
-	inventory._input(key)
+	inventory.catalog.window_input.emit(key)
 	await process_frame
 	verify(not inventory.catalog.visible and not view.object_menu_scrim.visible
 		and view.issued.is_empty(),
