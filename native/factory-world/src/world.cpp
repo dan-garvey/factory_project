@@ -6,6 +6,7 @@
 #include "factory/foundation_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
+#include "factory/stationary_target_command_contract.hpp"
 #include "belt_planner.hpp"
 #include "component_planner.hpp"
 #include "crank_planner.hpp"
@@ -174,19 +175,14 @@ bool shape(const Object& intent, const std::string& action) {
         return material == material_commands::Action::pickup ?
             material_commands::valid_pickup_intent_before_geometry(intent) :
             material_commands::valid_intent(intent, material);
+    if (const auto stationary_target = stationary_target_commands::parse(action);
+        stationary_target != stationary_target_commands::Action::none)
+        return stationary_target_commands::valid_intent_before_target(intent, stationary_target);
     if (action == "harvest_source" || action == "fast_harvest_source")
         return keys(intent, {"target"}) && field<std::string>(intent, "target");
     if (action == "finish_harvest" || action == "cancel_harvest") return keys(intent, {});
     if (action == "set_developer_conveniences")
         return keys(intent, {"enabled"}) && field<bool>(intent, "enabled");
-    if (action == "recover" || action == "remove")
-        return keys(intent, {"target", "generation"});
-    if (action == "collect" || action == "insert_raw")
-        return keys(intent, {"target", "generation", "amount"}) && field<Integer>(intent, "amount");
-    if (action == "insert_work")
-        return keys(intent, {"target", "generation", "work_id"}) && field<Integer>(intent, "work_id");
-    if (action == "set_drive")
-        return keys(intent, {"target", "generation", "enabled"}) && field<bool>(intent, "enabled");
     if (placement(action) && intent.contains("rotation"))
         return keys(intent, {"role", "center", "axis", "teeth", "half_span", "rotation"});
     if (placement(action) && intent.contains("relay_axis"))
@@ -194,8 +190,6 @@ bool shape(const Object& intent, const std::string& action) {
     if (placement(action))
         return intent.contains("wheel_tiles") ? keys(intent, {"role", "center", "axis", "teeth", "half_span", "wheel_tiles"}) :
             keys(intent, {"role", "center", "axis", "teeth", "half_span"});
-    if (action == "shaft_between" || action == "remove_shaft_between")
-        return keys(intent, {"target", "generation", "to", "to_generation"});
     return false;
 }
 

@@ -6,6 +6,7 @@
 #include "factory/foundation_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
+#include "factory/stationary_target_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
@@ -597,6 +598,9 @@ bool historical_wire(const authority::Record& record) {
         }
         return true;
     }
+    if (const auto stationary_target = stationary_target_commands::parse(*action);
+        stationary_target != stationary_target_commands::Action::none)
+        return stationary_target_commands::historical_wire(*wire, intent, stationary_target);
     const auto same = [&](const char* original, const char* normalized) {
         const auto left = wire->find(original);
         const auto right = intent.find(normalized);
@@ -688,19 +692,6 @@ bool historical_wire(const authority::Record& record) {
         }
         return true;
     }
-    if (*action == "shaft_between" || *action == "remove_shaft_between") {
-        const auto mapped = *action == "shaft_between" ? "connect_drive" : "disconnect_drive";
-        return *original_action == mapped && keys(*wire, {"from", "to"}) &&
-            same("from", "target") && same("to", "to");
-    }
-    if (*action == "remove" || *action == "recover")
-        return *original_action == *action && keys(*wire, {"entity"}) && same("entity", "target");
-    if (*action == "collect" || *action == "insert_raw")
-        return *original_action == (*action == "collect" ? "retrieve" : "insert_raw") &&
-            keys(*wire, {"entity", "amount"}) && same("entity", "target") && same("amount", "amount");
-    if (*action == "insert_work")
-        return *original_action == "insert_work" && keys(*wire, {"entity", "work_id"}) &&
-            same("entity", "target") && same("work_id", "work_id");
     return false;
 }
 
@@ -1775,6 +1766,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto fabrication_action = fabrication_commands::parse(*action);
     const auto foundation_action = foundation_commands::parse(*action);
     const auto material_action = material_commands::parse(*action);
+    const auto stationary_target_action = stationary_target_commands::parse_wire(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
         if (!id) return false;
@@ -2504,10 +2496,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!belt_commands::valid_wire(wire, belt_action) ||
             !target("entity", "target", "generation")) return refuse("invalid_command");
         normalized.at("action") = Value("remove_belt_span");
-    } else if (*action == "connect_drive" || *action == "disconnect_drive") {
-        if (!keys(wire, {"from", "to"}) || !target("from", "target", "generation") ||
+    } else if (stationary_target_action == stationary_target_commands::Action::shaft_between ||
+               stationary_target_action == stationary_target_commands::Action::remove_shaft_between) {
+        if (!stationary_target_commands::valid_wire_before_target(wire, stationary_target_action) ||
+            !target("from", "target", "generation") ||
             !target("to", "to", "to_generation")) return refuse("invalid_command");
-        normalized.at("action") = Value(*action == "connect_drive" ? "shaft_between" : "remove_shaft_between");
+        normalized.at("action") = Value(std::string(stationary_target_commands::schema(stationary_target_action).name));
     } else if (belt_action == belt_commands::Action::recover_slot) {
         if (!belt_commands::valid_wire(wire, belt_action) ||
             !target("entity", "target", "generation")) return refuse("invalid_command");
@@ -2521,20 +2515,21 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("slot", wire.at("slot"));
         normalized.emplace("item", wire.at("item"));
         normalized.emplace("work_id", wire.at("work_id"));
-    } else if (*action == "remove" || *action == "recover" || *action == "retrieve" ||
-               *action == "insert_raw" || *action == "insert_work") {
-        const bool amount = *action == "retrieve" || *action == "insert_raw";
-        const bool work = *action == "insert_work";
-        if (!(amount ? keys(wire, {"entity", "amount"}) : work ? keys(wire, {"entity", "work_id"}) : keys(wire, {"entity"})) ||
+    } else if (stationary_target_action != stationary_target_commands::Action::none) {
+        const bool amount = stationary_target_action == stationary_target_commands::Action::collect ||
+            stationary_target_action == stationary_target_commands::Action::insert_raw;
+        const bool work = stationary_target_action == stationary_target_commands::Action::insert_work;
+        if (!stationary_target_commands::valid_wire_before_target(wire, stationary_target_action) ||
             !target("entity", "target", "generation")) return refuse("invalid_command");
         const auto* id = field<std::string>(wire, "entity");
         const auto foundation = id ? snapshot.state.foundations.find(*id) : snapshot.state.foundations.end();
-        if (*action == "remove" && foundation != snapshot.state.foundations.end()) {
+        if (stationary_target_action == stationary_target_commands::Action::remove &&
+            foundation != snapshot.state.foundations.end()) {
             if (!foundation_commands::valid_wire(wire, foundation_commands::Action::remove_one))
                 return refuse("invalid_command");
             normalized.at("action") = Value("remove_foundation");
             normalized.at("generation") = Value(foundation->second.generation);
-        } else normalized.at("action") = Value(*action == "retrieve" ? "collect" : *action);
+        } else normalized.at("action") = Value(std::string(stationary_target_commands::schema(stationary_target_action).name));
         if (amount) normalized.emplace("amount", wire.at("amount"));
         if (work) normalized.emplace("work_id", wire.at("work_id"));
     } else return refuse("unsupported_action");

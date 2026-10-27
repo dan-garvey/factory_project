@@ -1,4 +1,5 @@
 #include "stationary_planner.hpp"
+#include "factory/stationary_target_command_contract.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -45,15 +46,20 @@ std::optional<StationaryCommand> stationary_command(
     StationaryCommand command;
     if (action == "place") command.action = Action::place;
     else if (action == "place_connected") command.action = Action::place_connected;
-    else if (action == "remove") command.action = Action::remove;
-    else if (action == "set_drive") command.action = Action::set_drive;
-    else if (action == "collect") command.action = Action::collect;
-    else if (action == "recover") command.action = Action::recover;
-    else if (action == "insert_raw") command.action = Action::insert_raw;
-    else if (action == "insert_work") command.action = Action::insert_work;
-    else if (action == "shaft_between") command.action = Action::shaft_between;
-    else if (action == "remove_shaft_between") command.action = Action::remove_shaft_between;
-    else return std::nullopt;
+    else {
+        using TargetAction = stationary_target_commands::Action;
+        switch (stationary_target_commands::parse(action)) {
+            case TargetAction::remove: command.action = Action::remove; break;
+            case TargetAction::recover: command.action = Action::recover; break;
+            case TargetAction::collect: command.action = Action::collect; break;
+            case TargetAction::insert_raw: command.action = Action::insert_raw; break;
+            case TargetAction::insert_work: command.action = Action::insert_work; break;
+            case TargetAction::shaft_between: command.action = Action::shaft_between; break;
+            case TargetAction::remove_shaft_between: command.action = Action::remove_shaft_between; break;
+            case TargetAction::set_drive: command.action = Action::set_drive; break;
+            case TargetAction::none: return std::nullopt;
+        }
+    }
     if (const auto* value = field<std::string>(intent, "target")) command.target = *value;
     if (const auto* value = field<Integer>(intent, "generation")) command.generation = *value;
     if (const auto* value = field<std::string>(intent, "to")) command.to = *value;
