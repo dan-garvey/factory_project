@@ -1563,7 +1563,10 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	var span: Dictionary = _construct({"action": "place_belt_span", "from": inlet, "to": far})
 	if span.is_empty():
 		return
-	if not await _approach(Vector2(0.7, 3.3)):
+	# Approach the collector foundation around the installed belt and site
+	# collision instead of cutting diagonally across their corner.
+	if not await _approach_points([Vector2(1.65, 1.3), Vector2(1.65, 3.3),
+			Vector2(0.7, 3.3)]):
 		return
 	if _construct({"action": "place_foundation", "cell": [0, 1], "level": 4}).is_empty():
 		return
