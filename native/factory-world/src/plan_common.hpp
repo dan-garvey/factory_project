@@ -21,6 +21,16 @@ template<class T> const T* field(const authority::Object& object, const char* na
     return found == object.end() ? nullptr : std::get_if<T>(&found->second.storage());
 }
 
+[[nodiscard]] bool placement(const std::string& action);
+[[nodiscard]] bool material_machine(stationary::Role);
+[[nodiscard]] bool transmission_role(stationary::Role);
+[[nodiscard]] bool transmission_center(stationary::Role, const mechanics::Point&,
+    mechanics::Axis, authority::Integer half_span);
+[[nodiscard]] std::optional<mechanics::Rate> wheel_rate(
+    const Profile&, const stationary::PlacedPart&);
+[[nodiscard]] bool spec_valid(const stationary::PartSpec&);
+[[nodiscard]] std::optional<mechanics::Axis> axis(const std::string&);
+[[nodiscard]] bool two_endpoints(const std::string& action);
 [[nodiscard]] values::Value point_value(const authority::Point& point);
 [[nodiscard]] values::Value grid_value(const mechanics::Point& point);
 [[nodiscard]] std::array<mechanics::Point, 4> broad_cells(const mechanics::Point&);

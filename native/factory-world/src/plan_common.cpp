@@ -9,6 +9,73 @@
 
 namespace factory::world {
 
+std::optional<mechanics::Axis> axis(const std::string& value) {
+    if (value == "x") return mechanics::Axis::x;
+    if (value == "y") return mechanics::Axis::y;
+    if (value == "z") return mechanics::Axis::z;
+    return std::nullopt;
+}
+
+bool two_endpoints(const std::string& action) {
+    return action == "shaft_between" || action == "remove_shaft_between" ||
+        action == "place_belt_span" || action == "place_selected_belt_span";
+}
+
+using Integer = authority::Integer;
+using Role = stationary::Role;
+
+bool placement(const std::string& action) {
+    return action == "place" || action == "place_connected";
+}
+
+bool material_machine(Role role) {
+    return role == Role::collector || role == Role::processor;
+}
+
+bool transmission_role(Role role) {
+    return role == Role::gear || role == Role::shaft || role == Role::gearbox ||
+           role == Role::vertical_gearbox || role == Role::chain_drive;
+}
+
+bool transmission_center(Role role, const mechanics::Point& center,
+        mechanics::Axis axis, Integer half_span) {
+    if (!transmission_role(role)) return true;
+    const std::size_t along = axis == mechanics::Axis::x ? 0 :
+        axis == mechanics::Axis::y ? 1 : 2;
+    for (std::size_t index = 0; index < center.size(); ++index) {
+        const auto remainder = center[index] % 4;
+        if (remainder == 0) continue;
+        // A two-half-span shaft bridges adjacent full-grid ports from their
+        // common half-tile center. It still uses the same quarter-grid origin.
+        if (role != Role::shaft || half_span != 2 || index != along ||
+            std::abs(remainder) != 2) return false;
+    }
+    return true;
+}
+
+std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationary::PlacedPart& placed) {
+    if (profile.water.empty()) return profile.waterwheel_rate;
+    const auto& part = placed.geometry;
+    const auto sample = profile.water.find({part.center[0], part.center[2]});
+    if (sample == profile.water.end()) return mechanics::Rate{0, 1};
+    return waterwheel::rate(part.center[1] * 100 + profile.wheel_axle_offset,
+                            profile.wheel_radius * placed.wheel_tiles, part.axis, sample->second);
+}
+
+bool spec_valid(const stationary::PartSpec& spec) {
+    switch (spec.role) {
+        case Role::collector: case Role::belt: case Role::processor: case Role::waterwheel:
+            return spec.teeth == 0 && spec.half_span == 0;
+        case Role::gear:
+            return spec.teeth > 0 && spec.teeth <= mechanics::maximum_dimension && spec.half_span == 0;
+        case Role::shaft:
+            return spec.teeth == 0 && spec.half_span == 2;
+        case Role::gearbox: case Role::vertical_gearbox: case Role::chain_drive:
+            return spec.teeth == 0 && spec.half_span == 0;
+    }
+    return false;
+}
+
 values::Value grid_value(const mechanics::Point& point) {
     using Value = values::Value;
     return Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])});

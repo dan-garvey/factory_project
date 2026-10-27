@@ -96,6 +96,8 @@ cc_library(
         "src/material_planner.hpp",
         "src/plan_common.cpp",
         "src/plan_common.hpp",
+        "src/stationary_planner.cpp",
+        "src/stationary_planner.hpp",
         "src/world.cpp",
     ],
     hdrs = ["include/factory/world.hpp"],
