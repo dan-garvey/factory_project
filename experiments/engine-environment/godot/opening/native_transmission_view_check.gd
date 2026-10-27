@@ -65,6 +65,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_nested_delta := false
 	var inject_bad_topology_full := false
 	var inject_bad_topology_delta := false
+	var inject_bad_structure_full := false
+	var inject_bad_structure_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -84,6 +86,9 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			inject_bad_topology_full = false
 			delivered.entities = delivered.entities.duplicate(true)
 			delivered.entities["broken"] = {"kind": "processor"}
+		elif method == "projection" and inject_bad_structure_full:
+			inject_bad_structure_full = false
+			delivered.links = [["first", 2]]
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -97,6 +102,11 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			return {"changes": {"belt_spans": {"broken": {"generation": 1,
 				"order": 0, "from": "first", "to": "last", "phase": 0,
 				"slots": {}}}}, "removed": []}
+		elif method == "advance_delta" and inject_bad_structure_delta:
+			inject_bad_structure_delta = false
+			var profile: Dictionary = _view_cache.adapter_profile.duplicate(true)
+			profile.pitch = "wrong"
+			return {"changes": {"adapter_profile": profile}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3791,6 +3801,26 @@ func _native_view_cache_regression() -> void:
 		and not trusted._complete_projection(bad_foundation)
 		and not trusted._complete_projection(bad_engagement),
 		"Motion, foundation and drive engagement records use native required field types.")
+	var bad_links := complete.duplicate(true)
+	bad_links.links = [["first", 2]]
+	var bad_drive_links := complete.duplicate(true)
+	bad_drive_links.drive_links = [["only-one"]]
+	var bad_cells := complete.duplicate(true)
+	bad_cells.source_deposit.cells = [[0, "wrong"]]
+	verify(not trusted._complete_projection(bad_links)
+		and not trusted._complete_projection(bad_drive_links)
+		and not trusted._complete_projection(bad_cells),
+		"Topology links and finite deposit cells need typed pairs from the native contract.")
+	var bad_profile := complete.duplicate(true)
+	bad_profile.adapter_profile.pitch = 1
+	var bad_intake := complete.duplicate(true)
+	bad_intake.adapter_profile.collector_intake_size = [0.28, 0.20]
+	var bad_options := complete.duplicate(true)
+	bad_options.options.native = "true"
+	verify(not trusted._complete_projection(bad_profile)
+		and not trusted._complete_projection(bad_intake)
+		and not trusted._complete_projection(bad_options),
+		"Projected adapter geometry and site options retain their native scalar types.")
 	trusted._view_cache = {}
 	trusted.inject_bad_full = true
 	var bad_full: Dictionary = trusted.view_projection()
@@ -3833,6 +3863,20 @@ func _native_view_cache_regression() -> void:
 		"A merged delta with mistyped belt slots cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"The next full native view recovers after topology delta refusal.")
+	trusted._view_cache = {}
+	trusted.inject_bad_structure_full = true
+	var bad_structure_full: Dictionary = trusted.view_projection()
+	verify(bad_structure_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full native view with a malformed link pair cannot become confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after link-pair refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_structure_delta = true
+	var bad_structure_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_structure_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with a mistyped native geometry value cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A later full native view recovers after geometry delta refusal.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

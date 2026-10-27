@@ -14,7 +14,8 @@ namespace factory::godot_world::projection_contract {
 using Value = values::Value;
 using Object = Value::Object;
 
-enum class Type { string, integer, floating, boolean, array, object, integer2, integer3, floating3 };
+enum class Type { string, integer, floating, boolean, array, object, integer2, integer3,
+                  floating3, string_pairs, integer_pairs };
 
 struct Field {
     std::string_view name;
@@ -32,8 +33,8 @@ inline constexpr std::array host_fields{
     Field{"recipe_input", Type::integer},
     Field{"entities", Type::object},
     Field{"transmission_parts", Type::object},
-    Field{"links", Type::array},
-    Field{"drive_links", Type::array},
+    Field{"links", Type::string_pairs},
+    Field{"drive_links", Type::string_pairs},
     Field{"engagements", Type::array},
     Field{"motion", Type::object},
     Field{"inventories", Type::object},
@@ -92,7 +93,7 @@ inline constexpr std::array cut_fields{
     Field{"duration_ticks", Type::integer}, Field{"interrupted", Type::boolean},
 };
 inline constexpr std::array deposit_fields{
-    Field{"id", Type::string}, Field{"cells", Type::array},
+    Field{"id", Type::string}, Field{"cells", Type::integer_pairs},
     Field{"initial_units", Type::integer}, Field{"collector_capacity", Type::integer},
     Field{"maximum_depth", Type::floating},
 };
@@ -126,6 +127,23 @@ inline constexpr std::array engagement_fields{
     Field{"a", Type::string}, Field{"b", Type::string},
     Field{"kind", Type::integer},
 };
+inline constexpr std::array adapter_profile_fields{
+    Field{"pitch", Type::floating}, Field{"anchor_height", Type::floating},
+    Field{"height_denominator", Type::integer}, Field{"height_step", Type::floating},
+    Field{"foundation_depth", Type::floating}, Field{"wheel_radius", Type::integer},
+    Field{"wheel_axle_offset", Type::integer}, Field{"capsule_radius", Type::floating},
+    Field{"capsule_height", Type::floating},
+    Field{"collector_intake_size", Type::floating3},
+    Field{"collector_intake_x", Type::floating},
+    Field{"collector_intake_y", Type::floating},
+    Field{"collector_second_cell_z", Type::floating},
+    Field{"collector_lift", Type::object},
+};
+inline constexpr std::array option_fields{
+    Field{"opening", Type::boolean}, Field{"physical", Type::boolean},
+    Field{"native", Type::boolean}, Field{"foundations", Type::boolean},
+    Field{"developer_conveniences", Type::boolean},
+};
 inline constexpr std::array records{
     Record{"stock", Container::object, stock_fields},
     Record{"cargo", Container::object_values, cargo_fields},
@@ -139,6 +157,8 @@ inline constexpr std::array records{
     Record{"motion", Container::object_values, motion_fields},
     Record{"foundations", Container::object_values, foundation_fields},
     Record{"engagements", Container::array_elements, engagement_fields},
+    Record{"adapter_profile", Container::object, adapter_profile_fields},
+    Record{"options", Container::object, option_fields},
 };
 
 inline bool typed(const Value& value, Type type) {
@@ -157,6 +177,19 @@ inline bool typed(const Value& value, Type type) {
             for (const auto& entry : *entries)
                 if (!typed(entry, type == Type::floating3 ? Type::floating : Type::integer))
                     return false;
+            return true;
+        }
+        case Type::string_pairs:
+        case Type::integer_pairs: {
+            const auto* entries = std::get_if<Value::Array>(&value.storage());
+            if (!entries) return false;
+            for (const auto& entry : *entries) {
+                const auto* pair = std::get_if<Value::Array>(&entry.storage());
+                if (!pair || pair->size() != 2) return false;
+                for (const auto& member : *pair)
+                    if (!typed(member, type == Type::string_pairs ? Type::string : Type::integer))
+                        return false;
+            }
             return true;
         }
     }
@@ -218,6 +251,8 @@ inline const char* type_name(Type type) {
         case Type::integer2: return "integer2";
         case Type::integer3: return "integer3";
         case Type::floating3: return "floating3";
+        case Type::string_pairs: return "string_pairs";
+        case Type::integer_pairs: return "integer_pairs";
     }
     return "";
 }

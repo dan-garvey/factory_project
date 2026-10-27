@@ -7,6 +7,7 @@
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
 #include "factory/projection_contract.hpp"
+#include "factory/site_geometry_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
@@ -32,22 +33,22 @@ using Array = Value::Array;
 using Integer = Value::Integer;
 using Role = stationary::Role;
 
-// Current opening geometry, explicitly checked by the thin scene adapter.
-constexpr double pitch = 1.65;
-constexpr Integer height_denominator = 4;
-constexpr double height_step = pitch / height_denominator;
-constexpr double foundation_depth = 2 * height_step;
-constexpr double anchor_height = pitch / 2;
+// Current opening geometry is authored once for native and the scene adapter.
+using site_geometry::pitch;
+using site_geometry::height_denominator;
+using site_geometry::height_step;
+using site_geometry::foundation_depth;
+using site_geometry::anchor_height;
+using site_geometry::capsule_radius;
+using site_geometry::capsule_height;
+using site_geometry::machine_width;
+using site_geometry::machine_height;
+using site_geometry::machine_center_height;
 constexpr double component_shaft_half = 0.205;
 // Hundredths of a height step, shared with the native opening rotor.
-constexpr Integer wheel_radius = 224;
-constexpr Integer wheel_axle_offset = 200;
-constexpr double reach = 4.0;
-constexpr double capsule_radius = 0.3;
-constexpr double capsule_height = 1.8;
-constexpr double machine_width = 1.45;
-constexpr double machine_height = 1.65;
-constexpr double machine_center_height = 0.8;
+constexpr Integer wheel_radius = site_geometry::wheel_radius_hundredths;
+constexpr Integer wheel_axle_offset = site_geometry::wheel_axle_offset_hundredths;
+constexpr double reach = site_geometry::base_reach;
 constexpr double press_work_crown_rise = 0.082;
 constexpr double anvil_work_height = height_step;
 
@@ -2950,24 +2951,38 @@ Value Host::projection() const {
             {"foundation_depth", Value(foundation_depth)},
             {"wheel_radius", Value(wheel_radius)}, {"wheel_axle_offset", Value(wheel_axle_offset)},
             {"capsule_radius", Value(capsule_radius)}, {"capsule_height", Value(capsule_height)},
-            {"collector_intake_size", Value(Array{Value(0.28), Value(0.20), Value(0.24)})},
-            {"collector_intake_x", Value(-0.84)}, {"collector_intake_y", Value(0.50)},
-            {"collector_second_cell_z", Value(-0.60)},
-            {"collector_lift", Value(Object{{"pickup_x", Value(-1.04)},
-                {"pickup_y", Value(0.55)},
-                {"pickup_size", Value(Array{Value(0.34), Value(0.30), Value(0.40)})},
-                {"carrier_x", Value(-1.05)}, {"carrier_bottom", Value(0.67)},
-                {"carrier_top_offset", Value(1.95)},
-                {"carrier_size_xz", Value(Array{Value(0.34), Value(0.42)})},
-                {"guide_offset", Value(Array{Value(0.09), Value(0.17)})},
-                {"guide_size", Value(Array{Value(0.055), Value(0.055)})},
-                {"flight_offset_x", Value(-0.025)},
-                {"flight_raise_y", Value(0.05)},
-                {"flight_size", Value(Array{Value(0.25), Value(0.16), Value(0.30)})},
-                {"flight_count", Value(Integer{5})}, {"flight_span", Value(0.88)},
-                {"head_x", Value(-0.60)}, {"head_y_offset", Value(1.77)},
-                {"head_size_xy", Value(Array{Value(0.90), Value(0.36)})},
-                {"head_z_size", Value(Array{Value(0.40), Value(0.86)})}})}})}};
+            {"collector_intake_size", Value(Array{Value(site_geometry::collector_intake_size[0]),
+                Value(site_geometry::collector_intake_size[1]), Value(site_geometry::collector_intake_size[2])})},
+            {"collector_intake_x", Value(site_geometry::collector_intake_x)},
+            {"collector_intake_y", Value(site_geometry::collector_intake_y)},
+            {"collector_second_cell_z", Value(site_geometry::collector_second_cell_z)},
+            {"collector_lift", Value(Object{{"pickup_x", Value(site_geometry::collector_lift.pickup_x)},
+                {"pickup_y", Value(site_geometry::collector_lift.pickup_y)},
+                {"pickup_size", Value(Array{Value(site_geometry::collector_lift.pickup_size[0]),
+                    Value(site_geometry::collector_lift.pickup_size[1]),
+                    Value(site_geometry::collector_lift.pickup_size[2])})},
+                {"carrier_x", Value(site_geometry::collector_lift.carrier_x)},
+                {"carrier_bottom", Value(site_geometry::collector_lift.carrier_bottom)},
+                {"carrier_top_offset", Value(site_geometry::collector_lift.carrier_top_offset)},
+                {"carrier_size_xz", Value(Array{Value(site_geometry::collector_lift.carrier_size_xz[0]),
+                    Value(site_geometry::collector_lift.carrier_size_xz[1])})},
+                {"guide_offset", Value(Array{Value(site_geometry::collector_lift.guide_offset[0]),
+                    Value(site_geometry::collector_lift.guide_offset[1])})},
+                {"guide_size", Value(Array{Value(site_geometry::collector_lift.guide_size[0]),
+                    Value(site_geometry::collector_lift.guide_size[1])})},
+                {"flight_offset_x", Value(site_geometry::collector_lift.flight_offset_x)},
+                {"flight_raise_y", Value(site_geometry::collector_lift.flight_raise_y)},
+                {"flight_size", Value(Array{Value(site_geometry::collector_lift.flight_size[0]),
+                    Value(site_geometry::collector_lift.flight_size[1]),
+                    Value(site_geometry::collector_lift.flight_size[2])})},
+                {"flight_count", Value(site_geometry::collector_lift.flight_count)},
+                {"flight_span", Value(site_geometry::collector_lift.flight_span)},
+                {"head_x", Value(site_geometry::collector_lift.head_x)},
+                {"head_y_offset", Value(site_geometry::collector_lift.head_y_offset)},
+                {"head_size_xy", Value(Array{Value(site_geometry::collector_lift.head_size_xy[0]),
+                    Value(site_geometry::collector_lift.head_size_xy[1])})},
+                {"head_z_size", Value(Array{Value(site_geometry::collector_lift.head_z_size[0]),
+                    Value(site_geometry::collector_lift.head_z_size[1])})}})}})}};
     if (state.landing_pod) {
         const auto& pod = *state.landing_pod;
         Object supplied;

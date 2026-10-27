@@ -166,6 +166,17 @@ func _projection_type_matches(value: Variant, expected: Variant) -> bool:
 				if typeof(coordinate) != scalar_type:
 					return false
 			return true
+		"string_pairs", "integer_pairs":
+			if not value is Array:
+				return false
+			var member_type := TYPE_STRING if expected == "string_pairs" else TYPE_INT
+			for pair in value:
+				if not pair is Array or pair.size() != 2:
+					return false
+				for member in pair:
+					if typeof(member) != member_type:
+						return false
+			return true
 	return false
 
 func _projection_unavailable() -> Dictionary:

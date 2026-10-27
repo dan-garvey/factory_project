@@ -7,6 +7,7 @@ exports_files([
     "scripts/ensure-gameplay-library.sh",
     "scripts/ensure-startup-launcher.sh",
     "scripts/tests/ensure-gameplay-library.sh",
+    "experiments/engine-environment/godot/opening/site_geometry.gd",
 ])
 
 test_suite(
