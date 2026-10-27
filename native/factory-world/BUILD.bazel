@@ -86,6 +86,8 @@ cc_library(
     srcs = [
         "src/belt_planner.cpp",
         "src/belt_planner.hpp",
+        "src/component_planner.cpp",
+        "src/component_planner.hpp",
         "src/fabrication_planner.cpp",
         "src/fabrication_planner.hpp",
         "src/foundation_planner.cpp",
@@ -96,6 +98,8 @@ cc_library(
         "src/material_planner.hpp",
         "src/plan_common.cpp",
         "src/plan_common.hpp",
+        "src/press_planner.cpp",
+        "src/press_planner.hpp",
         "src/stationary_planner.cpp",
         "src/stationary_planner.hpp",
         "src/world.cpp",

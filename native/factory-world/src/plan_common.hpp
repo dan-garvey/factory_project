@@ -21,7 +21,30 @@ template<class T> const T* field(const authority::Object& object, const char* na
     return found == object.end() ? nullptr : std::get_if<T>(&found->second.storage());
 }
 
+struct WorkingPress {
+    std::string anchor;
+    mechanics::Point anchor_center{};
+    mechanics::Point work_center{};
+    mechanics::Point shaft_center{};
+    std::string shaft;
+    std::vector<assembly::PressFeed> open_feeds;
+    std::optional<mechanics::Point> offcut_receiver;
+    std::optional<mechanics::Point> plate_receiver;
+    bool sliding{};
+};
+
+struct WorkingPressInspection {
+    assembly::PressStatus status{assembly::PressStatus::invalid_input};
+    std::optional<WorkingPress> press;
+};
+
+[[nodiscard]] bool has_attached_crank(const State&, const std::string&,
+    const mechanics::Point&);
+[[nodiscard]] std::vector<assembly::Part> assembly_parts(const State&);
+[[nodiscard]] WorkingPressInspection inspect_working_press(const assembly::Layout&,
+    materials::Component anchor_kind, const mechanics::Point&);
 [[nodiscard]] bool placement(const std::string& action);
+[[nodiscard]] bool slide_component(materials::Component);
 [[nodiscard]] bool material_machine(stationary::Role);
 [[nodiscard]] bool transmission_role(stationary::Role);
 [[nodiscard]] bool transmission_center(stationary::Role, const mechanics::Point&,
