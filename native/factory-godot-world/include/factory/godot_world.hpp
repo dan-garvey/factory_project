@@ -78,8 +78,6 @@ private:
 
     world::Profile profile_;
     terrain_surface::Surface terrain_;
-    [[nodiscard]] values::Value::Object harvest_clearances(const world::State& state,
-        const Actor& actor) const;
     [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high,
         std::optional<std::size_t> ignored = std::nullopt) const;
     [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z,

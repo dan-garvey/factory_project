@@ -1,13 +1,10 @@
 #include "factory/godot_world.hpp"
-#include "arrival_site_projection.hpp"
-#include "assembly_projection.hpp"
 #include "build_catalog_projection.hpp"
 #include "checkpoint_envelope.hpp"
+#include "complete_projection.hpp"
 #include "component_geometry.hpp"
-#include "drive_projection.hpp"
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
-#include "topology_projection.hpp"
 #include "physical_geometry.hpp"
 #include "factory/physical_site.hpp"
 #include "arrival_configuration.hpp"
@@ -19,13 +16,11 @@
 #include "factory/machine_placement_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
-#include "factory/projection_contract.hpp"
 #include "factory/site_geometry_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
 #include "factory/transmission_placement_contract.hpp"
 #include "factory/worksite_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
-#include "factory/mineral_site.hpp"
 
 #include <algorithm>
 #include <array>
@@ -68,18 +63,12 @@ using physical_geometry::intersects_belt;
 
 // Current opening geometry is authored once for native and the scene adapter.
 using site_geometry::pitch;
-using site_geometry::height_denominator;
 using site_geometry::height_step;
 using site_geometry::foundation_depth;
 using site_geometry::anchor_height;
-using site_geometry::capsule_radius;
-using site_geometry::capsule_height;
 using site_geometry::machine_width;
 using site_geometry::machine_height;
 using site_geometry::machine_center_height;
-// Hundredths of a height step, shared with the native opening rotor.
-constexpr Integer wheel_radius = site_geometry::wheel_radius_hundredths;
-constexpr Integer wheel_axle_offset = site_geometry::wheel_axle_offset_hundredths;
 constexpr double reach = site_geometry::base_reach;
 
 Integer crafting_bench_generation(const world::State& state, const std::string& id) {
@@ -260,15 +249,6 @@ Value Host::configure_terrain(const Object& input) {
     }
     terrain_ = std::move(binding.surface);
     return result(true, "terrain_bound");
-}
-
-Object Host::harvest_clearances(const world::State& state, const Actor& actor) const {
-    Object clear;
-    if (!actor.ready) return clear;
-    for (const auto& [id, path_clear] : physical_site::harvest_clearances(
-            {profile_, terrain_}, state, actor.position))
-        clear.emplace(id, Value(path_clear));
-    return clear;
 }
 
 bool Host::site_blocked(const authority::Point& low, const authority::Point& high,
@@ -1247,7 +1227,8 @@ Value Host::actor_projection(const std::string& actor) const {
     const auto& current = found->second;
     return Value(Object{{"accepted", Value(true)}, {"ready", Value(current.ready)},
         {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)},
-        {"harvest_clear", Value(harvest_clearances(owned_->world->snapshot().state, current))}});
+        {"harvest_clear", Value(complete_projection::harvest_clearances(profile_, terrain_,
+            owned_->world->snapshot().state, current.position, current.ready))}});
 }
 
 Value Host::invalidate_actor(const std::string& actor) {
@@ -1330,96 +1311,13 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
 
 Value Host::projection() const {
     if (!owned_) return result(false, "not_initialized");
-    const auto snapshot = owned_->world->snapshot();
-    const auto& state = snapshot.state;
-    const auto support_layout = transmission_supports(state, &owned_->support_routes);
-    topology_projection::WheelSupports wheel_supports;
-    for (const auto& part : state.topology.parts) {
-        if (part.role != Role::waterwheel) continue;
-        if (const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
-                [this](double sx, double sz, double hx, double hz) {
-                    return terrain_range(sx, sz, hx, hz);
-                }))
-            wheel_supports.emplace(part.geometry.id, *supports);
-    }
-    auto topology = topology_projection::fields(state, support_layout, wheel_supports);
-    Object actors;
-    const auto power = world::drive_power(profile_, state);
-    auto drive = drive_projection::fields(state, power);
-    for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
-        {"position", point_value(sample.position)}, {"capabilities", Value(Object{
-            {"build_reach", Value(profile_.build_reach)},
-            {"harvest_reach", Value(profile_.manual_cut_reach > 0 ?
-                profile_.manual_cut_reach : profile_.build_reach)}})},
-        {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)},
-        {"harvest_clear", Value(harvest_clearances(state, sample))}}));
-    Array mineral_cells;
-    for (const auto& cell : mineral_site::opening_cells)
-        mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
-    const auto local = world::machine_power(state.topology, power);
-    Object projection{{"context", Value(snapshot.history.context)},
-        {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
-        {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(topology.entities))},
-        {"transmission_parts", Value(std::move(topology.transmission_parts))}, {"links", Value(std::move(drive.links))},
-        {"drive_links", Value(std::move(drive.drive_links))}, {"engagements", Value(std::move(drive.engagements))},
-        {"motion", Value(std::move(drive.motion))}, {"actors", Value(std::move(actors))},
-        {"foundations", Value(std::move(topology.foundations))},
-        {"source_deposit", Value(Object{{"id", Value(profile_.material.manual_ore ?
-            profile_.material.manual_ore->id : std::string{})},
-            {"cells", Value(std::move(mineral_cells))}, {"initial_units", Value(profile_.initial_units)},
-            {"collector_capacity", Value(profile_.material.collector_capacity)},
-            {"maximum_depth", Value(mineral_site::extraction_depth_steps * height_step)}})},
-        {"powered", Value(local.collector || local.belt || local.processor)},
-        {"power_enabled", Value(state.topology.drive_enabled)},
-        {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)},
-            {"arrival", Value(profile_.landing_pod_center.has_value())},
-            {"copper_material", Value(material_projection::copper_forms(profile_.material))},
-            {"manual_sources", Value(profile_.material.manual_ore.has_value())},
-            {"foundations", Value(true)}, {"developer_conveniences", Value(state.developer_conveniences)}})},
-        {"adapter_profile", Value(Object{{"pitch", Value(pitch)}, {"anchor_height", Value(anchor_height)},
-            {"height_denominator", Value(height_denominator)}, {"height_step", Value(height_step)},
-            {"foundation_depth", Value(foundation_depth)},
-            {"wheel_radius", Value(wheel_radius)}, {"wheel_axle_offset", Value(wheel_axle_offset)},
-            {"capsule_radius", Value(capsule_radius)}, {"capsule_height", Value(capsule_height)},
-            {"collector_intake_size", Value(Array{Value(site_geometry::collector_intake_size[0]),
-                Value(site_geometry::collector_intake_size[1]), Value(site_geometry::collector_intake_size[2])})},
-            {"collector_intake_x", Value(site_geometry::collector_intake_x)},
-            {"collector_intake_y", Value(site_geometry::collector_intake_y)},
-            {"collector_second_cell_z", Value(site_geometry::collector_second_cell_z)},
-            {"collector_lift", Value(Object{{"pickup_x", Value(site_geometry::collector_lift.pickup_x)},
-                {"pickup_y", Value(site_geometry::collector_lift.pickup_y)},
-                {"pickup_size", Value(Array{Value(site_geometry::collector_lift.pickup_size[0]),
-                    Value(site_geometry::collector_lift.pickup_size[1]),
-                    Value(site_geometry::collector_lift.pickup_size[2])})},
-                {"carrier_x", Value(site_geometry::collector_lift.carrier_x)},
-                {"carrier_bottom", Value(site_geometry::collector_lift.carrier_bottom)},
-                {"carrier_top_offset", Value(site_geometry::collector_lift.carrier_top_offset)},
-                {"carrier_size_xz", Value(Array{Value(site_geometry::collector_lift.carrier_size_xz[0]),
-                    Value(site_geometry::collector_lift.carrier_size_xz[1])})},
-                {"guide_offset", Value(Array{Value(site_geometry::collector_lift.guide_offset[0]),
-                    Value(site_geometry::collector_lift.guide_offset[1])})},
-                {"guide_size", Value(Array{Value(site_geometry::collector_lift.guide_size[0]),
-                    Value(site_geometry::collector_lift.guide_size[1])})},
-                {"flight_offset_x", Value(site_geometry::collector_lift.flight_offset_x)},
-                {"flight_raise_y", Value(site_geometry::collector_lift.flight_raise_y)},
-                {"flight_size", Value(Array{Value(site_geometry::collector_lift.flight_size[0]),
-                    Value(site_geometry::collector_lift.flight_size[1]),
-                    Value(site_geometry::collector_lift.flight_size[2])})},
-                {"flight_count", Value(site_geometry::collector_lift.flight_count)},
-                {"flight_span", Value(site_geometry::collector_lift.flight_span)},
-                {"head_x", Value(site_geometry::collector_lift.head_x)},
-                {"head_y_offset", Value(site_geometry::collector_lift.head_y_offset)},
-                {"head_size_xy", Value(Array{Value(site_geometry::collector_lift.head_size_xy[0]),
-                    Value(site_geometry::collector_lift.head_size_xy[1])})},
-                {"head_z_size", Value(Array{Value(site_geometry::collector_lift.head_z_size[0]),
-                    Value(site_geometry::collector_lift.head_z_size[1])})}})}})}};
-    projection.merge(arrival_site_projection::fields(profile_, state, power));
-    projection.merge(assembly_projection::fields(profile_, state, power));
-    projection.merge(build_catalog_projection::fields(profile_, snapshot));
-    projection.merge(tick_fields(profile_, snapshot));
-    Value complete(std::move(projection));
-    return projection_contract::complete(complete) ?
-        std::move(complete) : result(false, "incomplete_projection");
+    complete_projection::Actors actors;
+    for (const auto& [id, sample] : owned_->actors)
+        actors.emplace(id, complete_projection::ActorObservation{
+            sample.position, sample.epoch, sample.ready});
+    auto projected = complete_projection::build(profile_, owned_->world->snapshot(),
+        terrain_, owned_->support_routes, actors);
+    return projected ? std::move(*projected) : result(false, "incomplete_projection");
 }
 
 Value Host::checkpoint() const {
