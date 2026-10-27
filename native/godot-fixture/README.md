@@ -47,8 +47,10 @@ batching, `--mesh-lod` and `--spatial-cells=NONNEGATIVE_INTEGER` with production
 batching, `--camera-close`, `--capture=PATH`, `--inventory-only`, or
 `--profile-scene` with optional `--profile-hidden-control`. Inventory-only and
 scene profiling exclude ignored frame and capture options; inventory-only also
-excludes camera and profiling options. Unknown, duplicate, conflicting, empty
-and orphan options exit 2 before scene construction or a success receipt. Use
+excludes camera and profiling options. `--capture=PATH` needs an actual renderer;
+the headless dummy renderer refuses capture before building a scene. Unknown,
+duplicate, conflicting, empty and orphan options exit 2 before scene
+construction or a success receipt. Use
 the labeled tracked launcher for rendered checks on checked clean main. Headless
 geometry and parser checks do not establish rendered quality or human play.
 

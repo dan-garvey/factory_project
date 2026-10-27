@@ -313,6 +313,8 @@ func _fixture_selection() -> Dictionary:
 	for key: String in options:
 		if not allowed.has(key):
 			return {"error": "Option does not belong to the selected machine visual mode: " + key}
+	if options.has("--capture=") and DisplayServer.get_name() == "headless":
+		return {"error": "Frame capture needs an actual renderer."}
 	for key: String in ["--count=", "--spatial-cells=", "--frames="]:
 		if not options.has(key):
 			continue
