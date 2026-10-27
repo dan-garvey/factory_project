@@ -54,6 +54,18 @@ generated assets are intended. Unknown, repeated, conflicting, empty and
 orphan options exit 2 before either checks or asset writes begin. The check
 results are scripted presentation evidence, not native gameplay or human play.
 
+`native_transmission_endpoint_check.gd` runs its full detached shaft, pointer
+and guidance suite with no user arguments. Select exactly one of
+`--common-frame-only` for shared placement-frame barriers,
+`--inspection-only` for synthetic inspection guidance, or
+`--terrain-host-only` for terrain-cleared pointer requests through the native
+Host. Each mode emits JSON with `status`, `checks`, `failures` and an
+`evidence` label; require `status: pass`, a positive check count, zero failures
+and exit zero for the selected mode. The terrain Host mode needs the captured
+native library. Unknown, repeated, conflicting, malformed and orphan arguments
+exit 2 before any suite begins. These headless checks do not assess rendered
+quality or human play.
+
 `native_transmission_view_check.gd` runs its default transmission suite with
 no user arguments or exactly one direct `--...-only` mode. The supported
 component modes are `--supplied-hardware-only`, `--component-boxes-only`,

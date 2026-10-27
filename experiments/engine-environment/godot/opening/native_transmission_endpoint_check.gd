@@ -2,6 +2,7 @@ extends SceneTree
 ## Detached callbacks over invented projections and a request sink, never a game.
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const Opening = preload("res://opening/opening.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
 
 class OfflineHarness:
@@ -607,22 +608,34 @@ func check_terrain_host() -> void:
 	await process_frame
 
 func _initialize() -> void:
-	call_deferred("_run")
+	var selected_mode := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--test-purpose="):
+			continue
+		if argument not in ["--inspection-only", "--terrain-host-only", "--common-frame-only"] \
+				or not selected_mode.is_empty():
+			push_error("Unknown, repeated or conflicting transmission endpoint fixture argument")
+			quit(2)
+			return
+		selected_mode = argument
+	if not Opening.apply_test_window_title(self):
+		return
+	call_deferred("_run", selected_mode)
 
-func _run() -> void:
-	if "--inspection-only" in OS.get_cmdline_user_args():
+func _run(selected_mode: String) -> void:
+	if selected_mode == "--inspection-only":
 		check_transmission_guidance(false)
 		check_transmission_guidance(true)
 		print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "synthetic_transmission_inspection", "desktop_operations": 0}))
 		quit(0 if failures == 0 else 1)
 		return
-	if "--terrain-host-only" in OS.get_cmdline_user_args():
+	if selected_mode == "--terrain-host-only":
 		await check_terrain_host()
 		print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks, "failures": failures, "evidence": "synthetic_terrain_pointer_native_host", "desktop_operations": 0}))
 		quit(0 if failures == 0 else 1)
 		return
 	check_shared_barriers()
-	if "--common-frame-only" not in OS.get_cmdline_user_args():
+	if selected_mode.is_empty():
 		check_direct_shaft_entry(false)
 		check_direct_shaft_entry(true)
 		check_transmission_guidance(false)
