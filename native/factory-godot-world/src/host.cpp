@@ -1,6 +1,7 @@
 #include "factory/godot_world.hpp"
 #include "assembly_projection.hpp"
 #include "build_catalog_projection.hpp"
+#include "checkpoint_envelope.hpp"
 #include "drive_projection.hpp"
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
@@ -2541,41 +2542,21 @@ Value Host::projection() const {
 
 Value Host::checkpoint() const {
     if (!owned_) return result(false, "not_initialized");
-    const auto encoded = world::encode_checkpoint(profile_, owned_->world->snapshot());
-    if (!std::holds_alternative<Value>(encoded)) return result(false, "native_checkpoint_refused");
-    Object actors;
-    for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, point_value(sample.position));
-    Object support_routes;
-    for (const auto& [id, route] : owned_->support_routes)
-        support_routes.emplace(id, Value(static_cast<Integer>(route)));
-    return Value(Object{{"schema", Value(Integer{4})}, {"format", Value("factory-native-physical")},
-        {"world", std::get<Value>(encoded)}, {"actors", Value(std::move(actors))},
-        {"support_routes", Value(std::move(support_routes))}});
+    std::map<std::string, authority::Point> actor_positions;
+    for (const auto& [actor, sample] : owned_->actors)
+        actor_positions.emplace(actor, sample.position);
+    auto encoded = checkpoint_envelope::encode(profile_, owned_->world->snapshot(),
+        actor_positions, owned_->support_routes);
+    return encoded ? std::move(*encoded) : result(false, "native_checkpoint_refused");
 }
 
 Host::Decoded Host::decode(const Value& input) const {
     if (!owned_) return {nullptr, "not_initialized"};
-    const auto* root = std::get_if<Object>(&input.storage());
-    const auto* schema = root ? field<Integer>(*root, "schema") : nullptr;
-    if (!root || !schema || (*schema != 3 && *schema != 4) ||
-        root->size() != (*schema == 4 ? 5u : 4u) ||
-        !field<std::string>(*root, "format") || *field<std::string>(*root, "format") != "factory-native-physical" ||
-        !root->contains("world") || !field<Object>(*root, "actors")) return {nullptr, "invalid_checkpoint"};
-    std::map<std::string, std::size_t> saved_routes;
-    if (*schema == 4) {
-        const auto* routes = field<Object>(*root, "support_routes");
-        if (!routes) return {nullptr, "invalid_checkpoint"};
-        for (const auto& [id, value] : *routes) {
-            const auto* route = std::get_if<Integer>(&value.storage());
-            if (!route || *route < 0) return {nullptr, "invalid_support_route"};
-            saved_routes.emplace(id, static_cast<std::size_t>(*route));
-        }
-    }
-    const auto* native = std::get_if<Object>(&root->at("world").storage());
-    const auto* history = native ? field<Object>(*native, "history") : nullptr;
-    const auto* context = history ? field<std::string>(*history, "context") : nullptr;
-    if (!context) return {nullptr, "invalid_context"};
-    auto decoded = world::decode_checkpoint(profile_, *context, root->at("world"));
+    const auto envelope = checkpoint_envelope::parse(input);
+    if (const auto* refusal = std::get_if<const char*>(&envelope)) return {nullptr, *refusal};
+    const auto& parsed = std::get<checkpoint_envelope::Parsed>(envelope);
+    const auto& saved_routes = parsed.support_routes;
+    auto decoded = world::decode_checkpoint(profile_, *parsed.context, *parsed.world);
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
     if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
@@ -2597,7 +2578,7 @@ Host::Decoded Host::decode(const Value& input) const {
                 component.center, &id)) return {nullptr, refusal};
     }
     const auto restored_supports = transmission_supports(snapshot.state,
-        *schema == 4 ? &saved_routes : nullptr);
+        parsed.schema == 4 ? &saved_routes : nullptr);
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};
         if (!historical_wire(record)) return {nullptr, "inconsistent_wire_history"};
@@ -2747,7 +2728,7 @@ Host::Decoded Host::decode(const Value& input) const {
             if (terrain->second > at[1] - half[1]) return {nullptr, "site_occupied"};
         }
     }
-    if (*schema == 4) {
+    if (parsed.schema == 4) {
         if (restored_supports.size() != saved_routes.size()) return {nullptr, "invalid_support_route"};
         for (const auto& [id, route] : saved_routes) {
             const auto found = restored_supports.find(id);
@@ -2755,7 +2736,7 @@ Host::Decoded Host::decode(const Value& input) const {
                 return {nullptr, "invalid_support_route"};
         }
     }
-    const auto& actors = *field<Object>(*root, "actors");
+    const auto& actors = *parsed.actors;
     if (actors.size() != profile_.actors.size()) return {nullptr, "actor_roster_mismatch"};
     auto candidate = std::make_unique<Owned>();
     for (const auto& actor : profile_.actors) {
@@ -2773,7 +2754,7 @@ Host::Decoded Host::decode(const Value& input) const {
         }
         candidate->actors.emplace(actor, Actor{*at, 0, false});
     }
-    candidate->world = world::World::restore(*context, profile_, snapshot);
+    candidate->world = world::World::restore(*parsed.context, profile_, snapshot);
     if (!candidate->world) return {nullptr, "native_checkpoint_refused"};
     for (const auto& [id, support] : restored_supports)
         candidate->support_routes.emplace(id, support.route);
