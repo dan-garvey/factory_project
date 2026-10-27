@@ -1528,11 +1528,22 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				var bearing := _support_cylinder(anchor, "InputBearing", 0.052, 0.03, worked)
 				bearing.position = Vector3(x, half_height - 0.08, 0)
 				bearing.rotation.z = PI * 0.5
+			# The shaft turns inside a fixed crown cylinder. Its piston always
+			# overlaps the moving carriage, including at the bottom of the native
+			# stroke, so the head reads as driven rather than suspended below it.
+			var cylinder_bottom := half_height - 0.255
+			var cylinder := _support_cylinder(anchor, "SlideCylinder", 0.085, 0.18, dark)
+			cylinder.position.y = cylinder_bottom + 0.09
 			var carriage := Node3D.new()
 			carriage.name = "SlideCarriage"
 			carriage.position.y = -occupied_size.y * 0.5 + 0.1225 + SLIDE_VISIBLE_STROKE \
 				+ slide_carriage_drop(slide_phase, SLIDE_VISIBLE_STROKE)
 			anchor.add_child(carriage)
+			var piston_top := cylinder_bottom + 0.08
+			var piston_bottom := carriage.position.y + 0.045
+			var piston := _support_cylinder(anchor, "SlidePiston", 0.055,
+				piston_top - piston_bottom, worked)
+			piston.position.y = (piston_top + piston_bottom) * 0.5
 			_support_box(carriage, "CarriageBody", Vector3.ZERO,
 				Vector3(0.235, 0.14, 0.23), dark, true)
 			var drive_rod := _support_cylinder(carriage, "CarriageDieRod", 0.045, 0.10, worked)

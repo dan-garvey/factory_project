@@ -24,6 +24,7 @@ const SUITES := {
 	"--multitool-only": "_multitool_controls",
 	"--ui-shortcuts-only": "_ui_shortcuts",
 	"--interaction-only": "_interaction_controls",
+	"--crank-input-only": "_crank_input_check",
 	"--shared-crank-hold-only": "_shared_crank_hold_check",
 	"--building-rotation-only": "_building_rotation",
 	"--hotbar-render-only": "_render_hotbar",
@@ -414,8 +415,9 @@ func _component_placement_check() -> void:
 	presenter.preview_component(slide_sample, "copper_slide", slide_box.size)
 	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace")
 		and head_sample.has_node("FlatHeadMovingDie/FlatHeadStem")
-		and slide_sample.has_node("SlideCarriage/CarriageDieRod"),
-		"The fitted flat die and slide carriage have a visible shaft connection.")
+		and slide_sample.has_node("SlideCarriage/CarriageDieRod")
+		and slide_sample.has_node("SlideCylinder") and slide_sample.has_node("SlidePiston"),
+		"The fitted die joins a piston running from the slide crown to its carriage.")
 	var stroke_phase := {"subticks": 2048, "remainder": 0, "denominator": 1,
 		"cycle_subticks": 4096}
 	var stroked_head := Node3D.new()
@@ -456,6 +458,28 @@ func _component_placement_check() -> void:
 		+ slide_sample.get_node("SlideCarriage").position.y - 0.07
 	var resting_carriage_body_top: float = slide_sample.position.y \
 		+ slide_sample.get_node("SlideCarriage").position.y + 0.07
+	var cylinder: MeshInstance3D = slide_sample.get_node_or_null("SlideCylinder")
+	var resting_piston: MeshInstance3D = slide_sample.get_node_or_null("SlidePiston")
+	var working_piston: MeshInstance3D = stroked_slide.get_node_or_null("SlidePiston")
+	if cylinder != null and resting_piston != null and working_piston != null:
+		var cylinder_bottom: float = slide_sample.position.y + cylinder.position.y \
+			- (cylinder.mesh as CylinderMesh).height * 0.5
+		var cylinder_top: float = slide_sample.position.y + cylinder.position.y \
+			+ (cylinder.mesh as CylinderMesh).height * 0.5
+		var resting_piston_bottom: float = slide_sample.position.y + resting_piston.position.y \
+			- (resting_piston.mesh as CylinderMesh).height * 0.5
+		var resting_piston_top: float = slide_sample.position.y + resting_piston.position.y \
+			+ (resting_piston.mesh as CylinderMesh).height * 0.5
+		var working_piston_bottom: float = stroked_slide.position.y + working_piston.position.y \
+			- (working_piston.mesh as CylinderMesh).height * 0.5
+		var working_piston_top: float = stroked_slide.position.y + working_piston.position.y \
+			+ (working_piston.mesh as CylinderMesh).height * 0.5
+		verify(cylinder_top > slide_sample.position.y + input_shaft.position.y - 0.02
+			and cylinder_bottom < resting_piston_top - 0.06
+			and resting_piston_bottom < resting_carriage_body_top - 0.02
+			and absf(working_piston_top - resting_piston_top) < 0.0001
+			and absf(working_piston_bottom - resting_piston_bottom - carriage_drop) < 0.0001,
+			"The crown masks the shaft center while an overlapping piston stays connected through the native stroke.")
 	verify(absf(head_drop + 0.20) < 0.0001 and absf(carriage_drop - head_drop) < 0.0001
 		and absf(resting_face_bottom - anvil_top - 0.24) < 0.0001
 		and absf(working_face_bottom - anvil_top - 0.04) < 0.0001
@@ -1971,6 +1995,40 @@ func _interaction_controls() -> void:
 		"Clicking the fitted crank with F selected asks native custody to detach that item.")
 	crank_view.free()
 	print("%d placement-interaction view checks" % checks)
+	quit(1 if failures else 0)
+
+func _crank_input_check() -> void:
+	var view := CrankInteractionView.new()
+	view.client = "P"
+	view.mode = "inspect"
+	view.state = _object_menu_snapshot()
+	view.state.crank_items = {"fitted-crank": {"attached_to": "slide", "port": [0, 0, 0]}}
+	root.add_child(view)
+	view.camera = Camera3D.new()
+	view.add_child(view.camera)
+	var crank_pick := StaticBody3D.new()
+	crank_pick.set_meta("crank_entity", "fitted-crank")
+	view.add_child(crank_pick)
+	view.hit_body = crank_pick
+	var press_key := InputEventKey.new()
+	press_key.keycode = KEY_E
+	press_key.pressed = true
+	view._unhandled_input(press_key)
+	for pulse in 8:
+		view._advance_held_crank(view.STEP_SECONDS)
+	verify(view.issued.size() == 9 and view.held_crank == "fitted-crank"
+		and view.issued.all(func(action: Variant) -> bool:
+			return action == {"action": "operate_hand_crank", "entity": "fitted-crank"}),
+		"The real E input and sustained hold send nine bounded pulses to the fitted crank.")
+	var release_key := InputEventKey.new()
+	release_key.keycode = KEY_E
+	release_key.pressed = false
+	view._input(release_key)
+	view._advance_held_crank(view.STEP_SECONDS)
+	verify(view.issued.size() == 9 and view.held_crank.is_empty(),
+		"Releasing E stops the held crank before another pulse.")
+	view.free()
+	print("CRANK_INPUT_%s %d" % ["PASS" if failures == 0 else "FAIL", checks])
 	quit(1 if failures else 0)
 
 func _shared_crank_hold_check() -> void:
