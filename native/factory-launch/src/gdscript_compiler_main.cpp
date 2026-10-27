@@ -157,6 +157,13 @@ Options options(int argc, char** argv) {
     require(::lstat(result.artifacts.c_str(), &status) == 0 && S_ISDIR(status.st_mode) &&
                 status.st_uid == ::geteuid() && (status.st_mode & 0077) == 0,
             "Use an owned mode-0700 external artifact directory.");
+    const auto git_location = factory_launch::run_process(
+        {"/usr/bin/git", "-C", result.artifacts.string(), "rev-parse",
+         "--is-inside-work-tree", "--is-inside-git-dir"},
+        10s, 4096, nullptr, true);
+    require(git_location.exit_code == 128 &&
+                git_location.output.starts_with("fatal: not a git repository"),
+            "Keep compiler artifacts outside Git worktrees and administration directories.");
     require(fs::space(result.artifacts).available >= 22ULL * 1024 * 1024 * 1024,
             "Require 22 GiB free for the staged Godot compiler.");
     require(factory::build_support::owned_bytes(result.artifacts, artifact_limit) < artifact_limit,

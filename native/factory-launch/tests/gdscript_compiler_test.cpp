@@ -126,6 +126,10 @@ int main(int argc, char** argv) {
         const auto valid = invoke(root / "valid-artifacts", initial_tree, pin);
         check(valid.exit_code == 0 && valid.output.find("Parsed 2 immutable staged GDScripts") != std::string::npos,
               "A two-script immutable capture reaches every fake compiler stage.");
+        const auto in_worktree = invoke(repository / "inside-artifacts", initial_tree, pin);
+        check(in_worktree.exit_code == 2 && fs::is_empty(repository / "inside-artifacts") &&
+                  in_worktree.output.find("outside Git worktrees") != std::string::npos,
+              "Compiler artifacts inside a Git worktree refuse before capturing source.");
         const auto valid_receipt = read(result_in(root / "valid-artifacts"));
         check(valid_receipt.find("\"status\":\"pass\"") != std::string::npos &&
                   valid_receipt.find("\"script_count\":2") != std::string::npos &&
