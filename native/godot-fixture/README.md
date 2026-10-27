@@ -86,6 +86,17 @@ before checking or writing. Require zero exit, JSON `status: pass`, the selected
 `mode`, a positive `checks` count and no engine or script errors. The waveform
 metrics and invented observations do not establish audible quality or human play.
 
+`steel_floor_check.gd` runs material and foundation assembly checks together
+with `--controls-dir=FRESH_ABSOLUTE_PATH`, or selects `--material-only` with the
+same control path. `--foundation-only` uses no control path. Material checks
+create three deliberately incomplete or wrong-sized images at the fresh path;
+its parent directory must already exist outside the project. Unknown, repeated,
+conflicting, missing, existing, linked and ignored path options exit 2 before
+the checks or control files begin. Require zero exit, JSON `status: pass`, the
+selected `mode`, a positive check count and no engine or script errors. These
+checks cover image/material wiring and a nonauthoritative foundation scene, not
+native gameplay, rendered quality or human play.
+
 `parts_view_check.gd` runs its default parts display suite with no user arguments,
 or one named `--...-only` suite. An unknown or repeated selector exits 2 before
 any suite starts; capture paths are accepted only with their corresponding

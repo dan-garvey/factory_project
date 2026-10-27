@@ -14,6 +14,49 @@ var controls_dir := ""
 var material_only := false
 var foundation_only := false
 
+func refuse_option(message: String) -> bool:
+	push_error(message)
+	quit(2)
+	return false
+
+func parse_options() -> bool:
+	var selected_mode := false
+	var selected_controls := false
+	for argument in OS.get_cmdline_user_args():
+		if argument == "--material-only" or argument == "--foundation-only":
+			if selected_mode:
+				return refuse_option("Select one steel floor fixture mode.")
+			selected_mode = true
+			material_only = argument == "--material-only"
+			foundation_only = argument == "--foundation-only"
+		elif argument.begins_with("--controls-dir="):
+			if selected_controls:
+				return refuse_option("Select one steel floor control directory.")
+			selected_controls = true
+			controls_dir = argument.trim_prefix("--controls-dir=")
+		else:
+			return refuse_option("Unknown steel floor fixture option: " + argument)
+	if foundation_only:
+		if selected_controls:
+			return refuse_option("Foundation-only checks cannot use material controls.")
+		return true
+	if not selected_controls:
+		return refuse_option("Material checks require one fresh external control directory.")
+	var project_root := ProjectSettings.globalize_path("res://").trim_suffix("/")
+	if controls_dir.is_empty() or not controls_dir.is_absolute_path() \
+			or controls_dir.simplify_path() != controls_dir \
+			or controls_dir == project_root or controls_dir.begins_with(project_root + "/") \
+			or DirAccess.dir_exists_absolute(controls_dir) or FileAccess.file_exists(controls_dir) \
+			or not DirAccess.dir_exists_absolute(controls_dir.get_base_dir()):
+		return refuse_option("Use a fresh absolute control path outside the project with an existing parent.")
+	var root_directory := DirAccess.open("/")
+	var ancestor := "/"
+	for segment in controls_dir.split("/", false):
+		ancestor = ancestor.path_join(segment)
+		if root_directory.is_link(ancestor):
+			return refuse_option("Steel floor controls cannot follow a linked path.")
+	return true
+
 func verify(condition: bool, message: String) -> void:
 	checks += 1
 	if not condition:
@@ -113,26 +156,18 @@ func check_foundation() -> void:
 	view.free()
 
 func _initialize() -> void:
-	for argument in OS.get_cmdline_user_args():
-		if argument.begins_with("--controls-dir="):
-			controls_dir = argument.trim_prefix("--controls-dir=")
-		elif argument == "--material-only":
-			material_only = true
-		elif argument == "--foundation-only":
-			foundation_only = true
+	if not parse_options():
+		return
 	call_deferred("_check")
 
 func _check() -> void:
-	if material_only and foundation_only:
-		push_error("Choose either material-only or foundation-only checks.")
-		quit(2)
-		return
 	if not foundation_only:
 		check_material()
 		check_invalid_sets()
 	if not material_only:
 		check_foundation()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		"mode": "material-only" if material_only else "foundation-only" if foundation_only else "full",
 		"scope": "current foundation assembly" if foundation_only else "image/material and literal foundation assembly", "native_gameplay": "not_run",
 		"rendered_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
