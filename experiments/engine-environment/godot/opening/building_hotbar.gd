@@ -43,7 +43,10 @@ const ARRIVAL_SLOTS: Array[String] = ["", "", "", "", "", "", "", ""]
 const MIN_CARRIED_CELLS := 32
 const COLLECTOR_PROJECT_COMPONENTS := ["wooden_frame", "tool_mount", "cutting_edge",
 	"receiver_tray", "wooden_shaft", "wooden_cog", "hand_crank"]
+const BELT_ROUTE_COMPONENTS := ["wooden_shaft", "wooden_cog", "hand_crank"]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
+const COLLECTOR_ICON = preload("res://opening/assets/build-icons/collector.svg")
+const BELT_ICON = preload("res://opening/assets/build-icons/belt.svg")
 const FOOTPRINT_ONE_ICON = preload("res://opening/assets/build-icons/footprint-one.svg")
 const FOOTPRINT_FOUR_ICON = preload("res://opening/assets/build-icons/footprint-four.svg")
 const MATERIALS := {
@@ -91,9 +94,9 @@ var recipe_side: VBoxContainer
 var recipe_focus_row: HBoxContainer
 var recipe_focus_label: Label
 var recipe_tip_label: Label
-var collector_focus_button: Button
+var project_focus_button: Button
 var all_focus_button: Button
-var recipe_focus := "collector"
+var recipe_focus := "project"
 var recipe_scroll: ScrollContainer
 var inventory_scroll: ScrollContainer
 var catalog_columns: BoxContainer
@@ -290,14 +293,14 @@ func configure(host, ui: Control) -> void:
 	recipe_side.add_child(recipe_focus_row)
 	var recipe_heading: Label = Widgets.label(recipe_focus_row, "CRAFT / BUILD", 13)
 	recipe_heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	collector_focus_button = Widgets.button(recipe_focus_row, "", _set_recipe_focus.bind("collector"))
-	collector_focus_button.icon = load("res://opening/assets/build-icons/collector.svg")
-	collector_focus_button.custom_minimum_size = Vector2(38, 34)
-	collector_focus_button.toggle_mode = true
-	collector_focus_button.tooltip_text = "Collector project · show parts for a finite ore collector"
-	collector_focus_button.accessibility_name = "Collector project recipes"
-	_style_slot(collector_focus_button)
-	collector_focus_button.focus_entered.connect(_describe_focus.bind(collector_focus_button))
+	project_focus_button = Widgets.button(recipe_focus_row, "", _set_recipe_focus.bind("project"))
+	project_focus_button.icon = COLLECTOR_ICON
+	project_focus_button.custom_minimum_size = Vector2(38, 34)
+	project_focus_button.toggle_mode = true
+	project_focus_button.tooltip_text = "Collector project · show parts for a finite ore collector"
+	project_focus_button.accessibility_name = "Collector project recipes"
+	_style_slot(project_focus_button)
+	project_focus_button.focus_entered.connect(_describe_focus.bind(project_focus_button))
 	all_focus_button = Widgets.button(recipe_focus_row, "", _set_recipe_focus.bind("all"))
 	all_focus_button.icon = COMPONENT_ICON
 	all_focus_button.custom_minimum_size = Vector2(38, 34)
@@ -459,9 +462,9 @@ func _configure_catalog_layout(extent: Vector2) -> void:
 	var compact := extent.x <= 720.0
 	var stacked := extent.x < 600.0
 	var starter := _arrival_active and _view() != null and not _plate_unlocked(_view())
-	for button: Button in [collector_focus_button, all_focus_button]:
+	for button: Button in [project_focus_button, all_focus_button]:
 		button.custom_minimum_size = Vector2(28, 28) if compact else Vector2(38, 34)
-	recipe_focus_label.visible = collector_focus_button.visible and not compact
+	recipe_focus_label.visible = project_focus_button.visible and not compact
 	catalog_columns.vertical = stacked
 	material_grid.columns = 3 if compact else 4
 	recipe_grid.columns = 3 if compact else 4
@@ -471,7 +474,7 @@ func _configure_catalog_layout(extent: Vector2) -> void:
 	recipe_scroll.custom_minimum_size = Vector2(0, scroll_height)
 	for side in ["left", "right", "top", "bottom"]:
 		catalog_margin.add_theme_constant_override("margin_" + side,
-			7 if compact and collector_focus_button.visible else 8 if compact else 16)
+			7 if compact and project_focus_button.visible else 8 if compact else 16)
 
 func _catalog_dimensions(extent: Vector2) -> Vector2i:
 	var width := int(extent.x) if extent.x <= 720.0 else mini(800, int(extent.x) - 16)
@@ -556,12 +559,22 @@ func _set_recipe_focus(value: String) -> void:
 	recipe_focus = value
 	refresh()
 
+func _suggested_project(host) -> String:
+	if host == null:
+		return "collector"
+	for assembly: Dictionary in host.state.get("collector_assemblies", []):
+		if assembly.get("status") == "ready":
+			return "belt"
+	return "collector"
+
 func _recipe_in_focus(key: String, kind: String = "") -> bool:
 	if recipe_focus == "all":
 		return true
+	var belt_route: bool = _suggested_project(_view()) == "belt"
 	if key.begins_with(COMPONENT_PREFIX):
-		return COLLECTOR_PROJECT_COMPONENTS.has(key.trim_prefix(COMPONENT_PREFIX))
-	return kind in ["shaft", "gear"]
+		return (BELT_ROUTE_COMPONENTS if belt_route else COLLECTOR_PROJECT_COMPONENTS).has(
+			key.trim_prefix(COMPONENT_PREFIX))
+	return kind in (["shaft", "gear", "belt", "wheel"] if belt_route else ["shaft", "gear"])
 
 func _sync_arrival(host) -> void:
 	var arrival: bool = host._native_transmission() and host.state.has("hand_sources")
@@ -693,12 +706,19 @@ func _refresh_recipes(host, ready: bool) -> void:
 	if not _plate_unlocked(host):
 		context_label.text = "First plate: build a press with a hand crank. Feed copper, turn the crank, collect the plate."
 	var project_focus: bool = _arrival_active and _plate_unlocked(host) and bool(host.state.get("first_plate_unlock", false))
-	collector_focus_button.visible = project_focus
+	var belt_route: bool = _suggested_project(host) == "belt"
+	project_focus_button.visible = project_focus
+	project_focus_button.icon = BELT_ICON if belt_route else COLLECTOR_ICON
+	project_focus_button.tooltip_text = "Belt route · connect two shafts and power a belt toward the press" if belt_route else \
+		"Collector project · show parts for a finite ore collector"
+	project_focus_button.accessibility_name = "Belt route recipes" if belt_route else "Collector project recipes"
+	if catalog.gui_get_focus_owner() == project_focus_button:
+		_describe_focus(project_focus_button)
 	all_focus_button.visible = project_focus
 	recipe_focus_label.visible = project_focus and get_parent().size.x > 720.0
 	recipe_tip_label.visible = not project_focus
-	recipe_focus_label.text = "COLLECTOR PROJECT" if recipe_focus == "collector" else "ALL UNLOCKED PARTS"
-	collector_focus_button.button_pressed = recipe_focus == "collector"
+	recipe_focus_label.text = ("BELT ROUTE" if belt_route else "COLLECTOR PROJECT") if recipe_focus == "project" else "ALL UNLOCKED PARTS"
+	project_focus_button.button_pressed = recipe_focus == "project"
 	all_focus_button.button_pressed = recipe_focus == "all"
 	var recipes: Dictionary = host.state.get("component_recipes", {})
 	var recipe_names: Array[String] = []
@@ -723,7 +743,7 @@ func _refresh_recipes(host, ready: bool) -> void:
 		_recipe_state(host, "foundation", "Foundation", foundation,
 			catalog_buttons.foundation.icon, false, ready)
 		if project_focus:
-			recipe_buttons.foundation.visible = recipe_focus == "all"
+			recipe_buttons.foundation.visible = recipe_focus == "all" or belt_route
 	var parts: Array = host.state.get("part_recipes", [])
 	for index in parts.size():
 		if not _plate_unlocked(host):
@@ -961,8 +981,8 @@ func _focus_inventory_item() -> void:
 		if _binding_available(tile.tool):
 			_focus_catalog_button(tile)
 			return
-	if collector_focus_button.visible and not collector_focus_button.disabled:
-		_focus_catalog_button(collector_focus_button)
+	if project_focus_button.visible and not project_focus_button.disabled:
+		_focus_catalog_button(project_focus_button)
 		return
 	for tile: Button in recipe_grid.get_children():
 		if tile.visible and not tile.disabled:
