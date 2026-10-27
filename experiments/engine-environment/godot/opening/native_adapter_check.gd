@@ -390,8 +390,8 @@ func _capture_press_standing_approach(path: String, workface: Vector3) -> bool:
 	# The neighboring raised foundation supports this eye-height viewpoint.
 	# It reveals the working surface, head, slide feet and separate belt fitting.
 	camera.fov = 64.0
-	camera.position = workface + Vector3(1.45, 0.55, 0.60)
-	camera.look_at(workface + Vector3(0.25, 0.05, 0))
+	camera.position = workface + Vector3(-0.75, 0.60, 0.60)
+	camera.look_at(workface + Vector3(0.45, 0.15, 0))
 	camera.make_current()
 	for frame in range(3):
 		await process_frame

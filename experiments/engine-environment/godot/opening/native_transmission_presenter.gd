@@ -2116,7 +2116,7 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 			if shaft is Dictionary and shaft.get("center") is Array and shaft.center.size() == 3:
 				endpoints[shaft.center] = span_id
 	var connector_finish: Material = Finish.material("cast", Color("293b3d"), 0.66, 0.48)
-	var edge_finish: Material = Finish.material("worked", Color("8b9b97"), 0.82, 0.36)
+	var edge_finish: Material = Finish.material("worked", Color("506669"), 0.82, 0.36)
 	var joint_finish: Material = Finish.material("worked", Color("bdc7bd"), 0.82, 0.36)
 	for press: Variant in presses:
 		if not press is Dictionary or press.get("status") != "ready" \
