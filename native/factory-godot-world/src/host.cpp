@@ -1,5 +1,6 @@
 #include "factory/godot_world.hpp"
 #include "build_catalog_projection.hpp"
+#include "host_command_admission.hpp"
 #include "material_projection.hpp"
 #include "arrival_configuration.hpp"
 #include "factory/belt_command_contract.hpp"
@@ -1433,10 +1434,13 @@ bool Host::placement_blocked(const authority::Point& target, const authority::Po
 
 Value Host::command(const std::string& bound_actor, const Object& wire) {
     if (!owned_) return result(false, "not_initialized");
-    const auto* client = field<std::string>(wire, "client");
-    if (!profile_.actors.contains(bound_actor) || !client || *client != bound_actor)
-        return result(false, "wrong_actor");
+    const auto bound = command_admission::bind_actor(profile_.actors, bound_actor, wire);
+    if (!bound) return result(false, "wrong_actor");
     const auto snapshot = owned_->world->snapshot();
+    auto admitted = command_admission::examine(*bound, snapshot.history, wire);
+    if (const auto* refusal = std::get_if<command_admission::Refusal>(&admitted))
+        return result(false, refusal->reason);
+    const auto* client = &bound->client;
     const auto* request = field<std::string>(wire, "request");
     const auto complete_crank_pulse = [&](world::Delivery delivered) -> Value {
         if (delivered.completed() && field<bool>(*delivered.result, "accepted") &&
@@ -1463,26 +1467,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         return Value(outward(delivered, owned_->world->snapshot()));
     };
-    // Server-owned completion IDs cannot be occupied by a client request.
-    if (request && request->starts_with("native-cut-"))
-        return result(false, "reserved_request");
-    // Original wire comparison precedes generation lookup or translation. The
-    // only cache is World's existing history; no adapter request map is created.
-    if (request) for (const auto& record : snapshot.history.records) {
-        if (field<std::string>(record.intent, "client") && *field<std::string>(record.intent, "client") == *client &&
-            field<std::string>(record.intent, "request") && *field<std::string>(record.intent, "request") == *request) {
-            auto replay = record.intent;
-            replay.insert_or_assign("wire", Value(wire));
-            auto delivered = owned_->world->command({bound_actor, *client}, replay, observe());
-            if (field<std::string>(record.intent, "action") &&
-                *field<std::string>(record.intent, "action") == "operate_hand_crank")
-                return complete_crank_pulse(std::move(delivered));
-            return Value(outward(delivered, snapshot));
-        }
+    if (const auto* replay = std::get_if<command_admission::Replay>(&admitted)) {
+        auto delivered = owned_->world->command({bound_actor, *client}, replay->intent, observe());
+        if (field<std::string>(replay->intent, "action") &&
+            *field<std::string>(replay->intent, "action") == "operate_hand_crank")
+            return complete_crank_pulse(std::move(delivered));
+        return Value(outward(delivered, snapshot));
     }
-    Object normalized{{"context", wire.contains("context") ? wire.at("context") : Value()},
-        {"client", Value(*client)}, {"request", request ? Value(*request) : Value()},
-        {"actor", Value(bound_actor)}, {"action", Value("adapter_refusal")}, {"wire", Value(wire)}};
+    Object normalized = std::move(std::get<command_admission::Fresh>(admitted).normalized);
     const auto refuse = [&](const char* reason) {
         return Value(outward(owned_->world->refuse({bound_actor, *client}, normalized, reason), owned_->world->snapshot()));
     };
