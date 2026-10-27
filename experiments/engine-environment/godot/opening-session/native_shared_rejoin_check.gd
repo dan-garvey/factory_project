@@ -8,7 +8,7 @@ var outcomes: Dictionary = {}
 
 func _init() -> void:
 	super._init()
-	if phase in ["firstplate", "firstplate-resume"]:
+	if phase in ["firstplate", "firstplate-resume", "running-cog", "running-cog-resume"]:
 		deadline = Time.get_ticks_msec() + 240000
 		facts.evidence = "ordinary_shared_first_plate_scene"
 	else:
@@ -196,6 +196,9 @@ func _run() -> void:
 	if phase in ["firstplate", "firstplate-resume"]:
 		await _run_firstplate()
 		return
+	if phase in ["running-cog", "running-cog-resume"]:
+		await _run_running_cog()
+		return
 	if actor not in ["P", "Q"] or phase != "resume" or not directory.is_absolute_path() or not previous.is_absolute_path():
 		push_error("The reconnect consumer requires P or Q and the original producer directory")
 		quit(1)
@@ -268,10 +271,10 @@ func _send(action: Dictionary, label: String) -> Dictionary:
 	return reply
 
 func _walk(target: Vector2) -> bool:
-	var start: Dictionary = session.projection().actors.P.duplicate(true)
+	var start: Dictionary = session.projection().actors[actor].duplicate(true)
 	var leg_deadline := mini(deadline, Time.get_ticks_msec() + 25000)
 	while Time.get_ticks_msec() < leg_deadline:
-		var sample: Dictionary = session.projection().actors.P
+		var sample: Dictionary = session.projection().actors[actor]
 		var position: Array = sample.position
 		var gap := target - Vector2(float(position[0]), float(position[2]))
 		if gap.length() < 0.10:
@@ -281,7 +284,7 @@ func _walk(target: Vector2) -> bool:
 		opening._send_character_input(gap.normalized(), false)
 		await process_frame
 	opening._release_character_input()
-	facts["failed_walk"] = {"target": target, "at": session.projection().actors.P.position}
+	facts["failed_walk"] = {"target": target, "at": session.projection().actors[actor].position}
 	return _expect(false, "The physical shared actor reaches " + str(target))
 
 func _walk_points(points: Array[Vector2]) -> bool:
@@ -368,7 +371,8 @@ func _initial_p() -> bool:
 	if not _expect(session.projection().crank_items[crank].attached_to == slide,
 		"Both clients can identify the same fitted crank"):
 		return false
-	var route: Dictionary = session.projection().sliding_press_assemblies[0].open_feeds[0]
+	var press: Dictionary = session.projection().sliding_press_assemblies[0]
+	var route: Dictionary = press.open_feeds[0]
 	if (await _send({"action": "feed_press", "entity": anvil, "entry": route.entry},
 		"Feed the final carried blank to the workbed")).is_empty():
 		return false
@@ -378,26 +382,26 @@ func _initial_p() -> bool:
 			"port": [13, 2, 16]}, "Turn fitted slide %d" % index)).is_empty():
 			return false
 		for drop: Dictionary in session.projection().dropped_material:
-			if drop.center == route.exit and drop.products == 1:
+			if drop.center == press.work_center and drop.products == 1:
 				formed = true
 				break
 		if formed:
 			break
 	if not _expect(formed and session.projection().cargo.P.products == 0
 			and session.projection().workshop_completed_actors.is_empty(),
-		"Forming at the press outlet does not complete the carried-item milestone"):
+		"Forming on the supported workbed does not complete the carried-item milestone"):
 		return false
 	if not await _walk(Vector2(4.1, 6.0)):
 		return false
 	var expected_output: Dictionary = {}
 	for drop: Dictionary in session.projection().dropped_material:
-		if drop.center == route.exit:
+		if drop.center == press.work_center:
 			expected_output = drop.duplicate(true)
 			break
-	if not _expect(not expected_output.is_empty(), "The same confirmed outlet remains occupied"):
+	if not _expect(not expected_output.is_empty(), "The same supported workbed retains the plate"):
 		return false
 	expected_output.erase("center")
-	if (await _send({"action": "pickup_material", "center": route.exit,
+	if (await _send({"action": "pickup_material", "center": press.work_center,
 			"expected": expected_output},
 		"Carry the first copper plate")).is_empty():
 		return false
@@ -470,6 +474,301 @@ func _firstplate_resume_q() -> bool:
 		and not view.crank_items[complete.crank].attached_to.is_empty()
 		and view.hand_sources["opening-copper"].remaining == INITIAL_ORE - 4,
 		"Q sees the same crank ID fitted after restart without extra material")
+
+func _running_cog_p() -> bool:
+	if (await _barrier("Q-ready.bin")).is_empty():
+		return false
+	var start: Dictionary = session.projection()
+	if not _expect(start.first_plate_unlock and start.workshop_completed_actors.has("P")
+			and start.cargo.P.products == 1 and start.part_kits.P.gear == 0
+			and start.part_kits.Q.gear == 0,
+		"The saved first plate unlocks finite transmission crafting without a gifted cog"):
+		return false
+	if not await _walk_points([Vector2(6.6, 4.95), Vector2(6.6, 9.9), Vector2(6.0, 10.05)]):
+		return false
+	for index in range(6):
+		if (await _send({"action": "harvest_source", "target": "tree-east-north"},
+			"Gather cog-route timber %d" % index)).is_empty():
+			return false
+	if not await _walk_points([Vector2(6.6, 4.95), Vector2(4.1, 4.95),
+			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return false
+	for index in range(3):
+		if (await _send({"action": "harvest_source", "target": "opening-copper"},
+			"Gather cog-route copper %d" % index)).is_empty():
+			return false
+	if not await _walk_points([Vector2(0.0, 1.65), Vector2(4.1, 4.95)]):
+		return false
+	var bench: String = str(session.projection().fabrication_hub.id)
+	for part in [{"role": "waterwheel", "half_span": 0},
+			{"role": "gear", "half_span": 0, "teeth": 4},
+			{"role": "gear", "half_span": 0, "teeth": 4}]:
+		var wire: Dictionary = {"action": "craft_part", "entity": bench,
+			"role": part.role, "half_span": part.half_span}
+		if part.has("teeth"):
+			wire["teeth"] = part.teeth
+		if (await _send(wire, "Craft paid " + str(part.role))).is_empty():
+			return false
+	var crafted: Dictionary = session.projection()
+	if not _expect(crafted.cargo.P.timber == 0 and crafted.cargo.P.raw == 0
+			and crafted.part_kits.P.wheel == 1 and crafted.part_kits.P.gear == 2
+			and crafted.part_kits.Q.gear == 0,
+		"Gathered ingredients become one P-owned waterwheel and two large cogs"):
+		return false
+	if not await _walk_points([Vector2(3.3, 3.3), Vector2(0.0, 3.3)]):
+		return false
+	var wheel := await _send({"action": "place", "kind": "wheel", "cell": [-2, 2],
+		"axis": "x", "level": 4}, "Place the paid waterwheel")
+	if wheel.is_empty() or not await _walk(Vector2(0.0, 4.95)):
+		return false
+	var source := await _send({"action": "place_gear", "center": [-4, 4, 8],
+		"axis": "x", "teeth": 4}, "Place source cog")
+	if source.is_empty() or not await _walk(Vector2(0.0, 6.6)):
+		return false
+	var output := await _send({"action": "place_gear", "center": [0, 4, 12],
+		"axis": "z", "teeth": 4}, "Place output cog")
+	if output.is_empty():
+		return false
+	var ids := {"wheel": str(wheel.entity), "source": str(source.entity), "output": str(output.entity)}
+	var running: Dictionary = session.projection()
+	if not _expect(running.motion[ids.wheel].state == "rotating"
+			and running.motion[ids.source].state == "rotating"
+			and running.motion[ids.output].state == "rotating",
+		"The current placed gear train actually runs before either worker removes a part"):
+		return false
+	if not _expect(_write("train-running.bin", {"status": "pass", "ids": ids,
+			"order": running.order, "cargo": running.cargo.duplicate(true)}),
+		"Publish exact server-confirmed running part identities"):
+		return false
+	var removed: Dictionary = await _barrier("Q-removed.bin")
+	if removed.is_empty() or not await _wait_for(func(): return session.projection().order >= removed.order,
+		"P observes Q's confirmed removal"):
+		return false
+	var after: Dictionary = session.projection()
+	if not _expect(not after.transmission_parts.has(ids.output)
+			and after.part_kits.P.gear == 0 and after.part_kits.Q.gear == 1
+			and after.motion[ids.wheel].state == "rotating"
+			and after.motion[ids.source].state == "rotating"
+			and after.cargo.P == running.cargo.P and after.cargo.Q == running.cargo.Q,
+		"P sees only Q receive the removed cog while the waterwheel and source keep running"):
+		return false
+	if not _expect(_write("P-observed-removal.bin", {"status": "pass", "order": after.order}),
+		"P confirms Q's removal before Q rebuilds the branch"):
+		return false
+	var rebuilt: Dictionary = await _barrier("Q-rebuilt.bin")
+	if rebuilt.is_empty() or not await _wait_for(func(): return session.projection().order >= rebuilt.order,
+		"P observes the server-confirmed replacement"):
+		return false
+	var final: Dictionary = session.projection()
+	return _expect(rebuilt.new_output != ids.output and final.transmission_parts.has(rebuilt.new_output)
+		and final.motion[rebuilt.new_output].state == "rotating"
+		and final.part_kits.P.gear == 0 and final.part_kits.Q.gear == 0
+		and _write("P-complete.bin", {"status": "pass", "ids": ids,
+			"new_output": rebuilt.new_output, "order": final.order}),
+		"P sees Q's replacement return the output branch to live motion")
+
+func _running_cog_q() -> bool:
+	if not await _walk(Vector2(4.1, 3.3)):
+		return false
+	if not _expect(_write("Q-ready.bin", {"status": "pass"}),
+		"Q clears the output tile before P builds the running train"):
+		return false
+	var train: Dictionary = await _barrier("train-running.bin")
+	if train.is_empty() or not await _wait_for(func(): return session.projection().order >= train.order,
+		"Q receives P's running line from the native host"):
+		return false
+	var ids: Dictionary = train.ids
+	if not await _walk(Vector2(2.5, 3.3)):
+		return false
+	var before: Dictionary = session.projection()
+	if not _expect(before.motion[ids.output].state == "rotating" and before.part_kits.Q.gear == 0
+		and before.part_kits.P.gear == 0,
+		"Q reaches the live output cog without borrowing P's paid kit"):
+		return false
+	_key(KEY_F)
+	if not _expect(opening.mode == "deconstruct", "F selects the ordinary dismantling control"):
+		return false
+	var removed := await _callback("Q removes P's running output cog",
+		{"action": "remove", "entity": ids.output}, [_anchor([0, 4, 12])],
+		func(): opening._world_click(Vector2i(0, 3), ids.output))
+	if removed.is_empty():
+		return false
+	var after: Dictionary = session.projection()
+	if not _expect(not after.transmission_parts.has(ids.output)
+			and after.part_kits.Q.gear == 1 and after.part_kits.P.gear == 0
+			and after.motion[ids.wheel].state == "rotating"
+			and after.motion[ids.source].state == "rotating"
+			and after.cargo == before.cargo and after.material_mass.accounted_mass == after.material_mass.initial_mass,
+		"The server refunds only Q, interrupts the output, and conserves carried material"):
+		return false
+	if not _expect(_write("Q-removed.bin", {"status": "pass", "order": after.order}),
+		"Publish Q's confirmed removal for P's independent view"):
+		return false
+	if (await _barrier("P-observed-removal.bin")).is_empty():
+		return false
+	var locked_before: Dictionary = session.projection()
+	var locked_wire := {"action": "place_gear", "center": [0, 4, 12],
+		"axis": "z", "teeth": 4}
+	var locked_queue: Dictionary = opening.issue(locked_wire)
+	if not _expect(locked_queue.get("queued") == true and not locked_queue.get("accepted", true)
+			and _same(_material_view(session.projection()), _material_view(locked_before)),
+		"Q's preplate rebuild request remains pending without local part or motion changes"):
+		return false
+	var locked_request: String = str(locked_queue.get("request", ""))
+	if not await _wait_for(func(): return outcomes.has(locked_request) and \
+			not opening.pending_actions.has(locked_request),
+		"The native host decides Q's preplate rebuild attempt"):
+		return false
+	var locked_reply: Dictionary = outcomes[locked_request]
+	var locked_after: Dictionary = session.projection()
+	var unchanged: Dictionary = _material_view(locked_before)
+	unchanged.order = locked_after.order
+	facts.steps.append({"label": "Q's preplate rebuild is refused", "wire": locked_wire,
+		"queue": locked_queue, "reply": locked_reply})
+	if not _expect(locked_reply.get("accepted") == false
+			and locked_reply.get("duplicate") == false
+			and locked_reply.get("reason") == "first_plate_required"
+			and locked_reply.get("order") == locked_before.order + 1
+			and _same(_material_view(locked_after), unchanged)
+			and locked_after.part_kits.Q.gear == 1,
+		"Q keeps the refunded cog when the per-worker first-plate gate refuses placement"):
+		return false
+	if not await _walk_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return false
+	if (await _send({"action": "harvest_source", "target": "opening-copper"},
+		"Q gathers a separate copper blank for the first-plate lesson")).is_empty():
+		return false
+	if not await _walk_points([Vector2(0.0, 1.65), Vector2(4.1, 4.95), Vector2(4.1, 6.0)]):
+		return false
+	var press: Dictionary = session.projection().sliding_press_assemblies[0]
+	var route: Dictionary = press.open_feeds[0]
+	var anvil: String = str(press.anvil)
+	var slide: String = str(press.parts.slide)
+	if (await _send({"action": "feed_press", "entity": anvil, "entry": route.entry},
+		"Q feeds a paid blank onto the shared workbed")).is_empty():
+		return false
+	var formed := false
+	for index in range(64):
+		if (await _send({"action": "turn_slide_crank", "entity": slide,
+				"port": [13, 2, 16]}, "Q turns the fitted slide %d" % index)).is_empty():
+			return false
+		for drop: Dictionary in session.projection().dropped_material:
+			if drop.center == press.work_center and drop.products == 1:
+				formed = true
+				break
+		if formed:
+			break
+	if not _expect(formed and not session.projection().workshop_completed_actors.has("Q"),
+		"Q's new plate stays on the workbed until Q carries it"):
+		return false
+	var output: Dictionary = {}
+	for drop: Dictionary in session.projection().dropped_material:
+		if drop.center == press.work_center:
+			output = drop.duplicate(true)
+			break
+	if not _expect(not output.is_empty(), "Q's formed plate remains at the native workbed center"):
+		return false
+	output.erase("center")
+	if (await _send({"action": "pickup_material", "center": press.work_center,
+			"expected": output}, "Q carries the independently made plate")).is_empty():
+		return false
+	if not _expect(session.projection().workshop_completed_actors.has("Q")
+			and session.projection().cargo.P.products == 1
+			and session.projection().cargo.Q.products == 1
+			and session.projection().part_kits.Q.gear == 1,
+		"Q's own carried plate unlocks rebuilding without transferring P's plate or cog"):
+		return false
+	if not await _walk_points([Vector2(4.1, 4.95), Vector2(2.5, 3.3)]):
+		return false
+	opening.transmission_controls._size_selected(1)
+	opening.transmission_controls._axis_selected(2)
+	opening.transmission_controls.auto_height = false
+	opening.transmission_controls.gear_height = 4
+	opening._select_tool("gear")
+	var target: Array = _anchor([0, 4, 12])
+	var target_point := Vector3(target[0], target[1], target[2])
+	var snap_views: Array = []
+	var clear_view := false
+	for yaw in [2.15, 2.4, 1.9, 2.7, 1.6, PI]:
+		opening.orbit_yaw = yaw
+		opening.orbit_pitch = 0.35
+		opening._update_camera()
+		await process_frame
+		opening._update_camera()
+		var screen: Vector2 = opening.camera.unproject_position(target_point)
+		var snapped: Array = opening._transmission_center(screen)
+		snap_views.append({"yaw": yaw, "screen": [screen.x, screen.y],
+			"snapped": snapped.duplicate(), "picked": opening._screen_entity(screen)})
+		if snapped == [0, 4, 12]:
+			clear_view = true
+			break
+	facts["rebuild_snap_views"] = snap_views
+	if not _expect(clear_view, "Q can point at the vacated output tile from a clear camera angle"):
+		return false
+	var rebuilt := await _callback("Q replaces the cog from Q's refunded kit",
+		{"action": "place_gear", "center": [0, 4, 12], "axis": "z", "teeth": 4},
+		[_anchor([0, 4, 12])], func(): _click([0, 4, 12]))
+	if rebuilt.is_empty():
+		return false
+	var final: Dictionary = session.projection()
+	var retry_before: int = replies[locked_request].size()
+	var sequence_before: int = session.request_sequence
+	var retry_queue: Dictionary = session.retry(locked_request)
+	if not await _wait_for(func(): return replies[locked_request].size() == retry_before + 1,
+		"The prior refusal returns its original decision on retry"):
+		return false
+	var retry_reply: Dictionary = replies[locked_request][-1]
+	facts["preplate_retry"] = {"queued": retry_queue, "reply": retry_reply,
+		"original": locked_reply}
+	return _expect(rebuilt.entity != ids.output and final.motion[str(rebuilt.entity)].state == "rotating"
+		and final.part_kits.Q.gear == 0 and final.part_kits.P.gear == 0
+		and final.material_mass.accounted_mass == final.material_mass.initial_mass
+		and retry_queue.get("queued") == true and retry_reply.get("duplicate") == true
+		and retry_reply.get("accepted") == false
+		and retry_reply.get("reason") == "first_plate_required"
+		and retry_reply.get("order") == locked_reply.get("order")
+		and session.request_sequence == sequence_before
+		and _same(_material_view(session.projection()), _material_view(final))
+		and _write("Q-rebuilt.bin", {"status": "pass", "new_output": str(rebuilt.entity),
+			"order": final.order}),
+		"Q's same refunded part rebuilds a running output under a new identity")
+
+func _run_running_cog() -> void:
+	if actor not in ["P", "Q"] or not directory.is_absolute_path() or not previous.is_absolute_path():
+		push_error("The shared running cog needs both clients and the previous saved cohort")
+		quit(1)
+		return
+	opening = load("res://opening/shared_opening.tscn").instantiate()
+	root.add_child(opening)
+	session = opening.session
+	session.outcome.connect(func(reply: Dictionary):
+		var request: String = str(reply.get("request", ""))
+		outcomes[request] = reply.duplicate(true)
+		if not replies.has(request):
+			replies[request] = []
+		replies[request].append(reply.duplicate(true)))
+	if not await _wait_for(func(): return session.is_ready(),
+		"Both ordinary clients join the current native arrival host"):
+		return
+	var passed := false
+	if phase == "running-cog":
+		passed = await _running_cog_p() if actor == "P" else await _running_cog_q()
+	else:
+		var saved: Dictionary = _read(previous.path_join("P-complete.bin"))
+		var view: Dictionary = session.projection()
+		passed = _expect(saved.get("status") == "pass" and view.transmission_parts.has(saved.new_output)
+			and not view.transmission_parts.has(saved.ids.output)
+			and view.motion[saved.ids.wheel].state == "rotating"
+			and view.motion[saved.ids.source].state == "rotating"
+			and view.motion[saved.new_output].state == "rotating"
+			and view.part_kits.P.gear == 0 and view.part_kits.Q.gear == 0
+			and view.cargo.P.products == 1 and view.cargo.Q.products == 1
+			and view.workshop_completed_actors.has("P")
+			and view.workshop_completed_actors.has("Q")
+			and view.material_mass.accounted_mass == view.material_mass.initial_mass,
+			"Fresh P and Q clients restore the exact rebuilt running line and separate kits")
+	if passed and not written:
+		_record("pass")
 
 func _run_firstplate() -> void:
 	if actor not in ["P", "Q"] or phase not in ["firstplate", "firstplate-resume"] \
