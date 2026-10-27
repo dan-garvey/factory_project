@@ -1588,10 +1588,11 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		if collector.get("status") == "ready":
 			drive = str(collector.parts.mount)
 			break
-	# Walk around the east side of the fitted collector. Its frame closes the
-	# direct path from the receiver aisle to the wheel, while both inputs stay
-	# within the same physical actor's build reach from the south approach.
-	if not await _approach_points([Vector2(1.1, 3.3), Vector2(1.1, 0.2), Vector2(0.2, 0.55)]):
+	# Walk around the east side of the fitted collector. The direct first east
+	# step meets installed collision; the open southern detour keeps the actor
+	# on real floor and both inputs within build reach at the wheel.
+	if not await _approach_points([Vector2(0.7, 4.95), Vector2(1.65, 4.95),
+			Vector2(1.65, 0.2), Vector2(0.2, 0.55)]):
 		return
 	if _construct({"action": "remove", "entity": wheel.entity}).is_empty():
 		return
