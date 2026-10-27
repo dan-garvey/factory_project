@@ -4,6 +4,7 @@
 #include "factory/crank_command_contract.hpp"
 #include "factory/fabrication_command_contract.hpp"
 #include "factory/foundation_command_contract.hpp"
+#include "factory/machine_placement_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
@@ -192,13 +193,10 @@ bool shape(const Object& intent, const std::string& action) {
                 return transmission_placement::valid_intent(intent, transmission);
         }
     }
-    if (placement(action) && intent.contains("rotation"))
-        return keys(intent, {"role", "center", "axis", "teeth", "half_span", "rotation"});
     if (placement(action) && intent.contains("relay_axis"))
         return keys(intent, {"role", "center", "axis", "teeth", "half_span", "relay_axis"});
     if (placement(action))
-        return intent.contains("wheel_tiles") ? keys(intent, {"role", "center", "axis", "teeth", "half_span", "wheel_tiles"}) :
-            keys(intent, {"role", "center", "axis", "teeth", "half_span"});
+        return machine_placement::valid_intent(intent, action);
     return false;
 }
 

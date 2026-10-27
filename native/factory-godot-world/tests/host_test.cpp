@@ -7,6 +7,7 @@
 #include <iostream>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -90,6 +91,8 @@ void historical_translation() {
         auto wire = request("place", id);
         wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(z)})); wire.emplace("axis", V(axis_name));
         wire.emplace("level", V(level));
+        if (std::string_view(kind) == "collector") wire.emplace("rotation", V(I{0}));
+        if (std::string_view(kind) == "wheel") wire.emplace("tiles", V(I{3}));
         const auto reply = host.command("P", wire);
         check(accepted(reply), (std::string("The starter placement succeeds: ") + kind + ", " + field<std::string>(reply, "reason")).c_str());
         return field<std::string>(reply, "entity");
@@ -163,6 +166,38 @@ void historical_translation() {
         check(!accepted(reply) && field<std::string>(reply, "reason") == "invalid_command",
               "Malformed target and material-port requests refuse with the original command reason.");
     }
+    const auto bad_place = [&](const char* id, const char* kind) {
+        auto wire = request("place", id);
+        wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(I{0}), V(I{1})}));
+        wire.emplace("axis", V("z")); wire.emplace("level", V(I{4}));
+        return wire;
+    };
+    const auto place_refuses = [&](O wire, const char* reason) {
+        const auto reply = host.command("P", wire);
+        check(!accepted(reply) && field<std::string>(reply, "reason") == reason,
+              (std::string("Malformed machine placement must refuse as ") + reason).c_str());
+    };
+    auto wrong_optional = bad_place("wrong-optional", "wheel");
+    wrong_optional.emplace("rotation", V(I{0}));
+    place_refuses(wrong_optional, "invalid_command");
+    auto wrong_axis = bad_place("wrong-axis", "collector");
+    wrong_axis.at("axis") = V(I{1}); wrong_axis.emplace("rotation", V(I{4}));
+    place_refuses(wrong_axis, "invalid_axis");
+    auto wrong_rotation = bad_place("wrong-rotation", "collector");
+    wrong_rotation.emplace("rotation", V(I{4})); wrong_rotation.at("cell") = V(false);
+    place_refuses(wrong_rotation, "invalid_rotation");
+    auto wrong_cell = bad_place("wrong-cell", "unknown");
+    wrong_cell.at("cell") = V(A{V(I{250001}), V(I{0})});
+    place_refuses(wrong_cell, "invalid_cell");
+    auto unknown_kind = bad_place("unknown-kind", "unknown");
+    unknown_kind.at("level") = V(I{5});
+    place_refuses(unknown_kind, "unknown_kind");
+    auto unaligned = bad_place("unaligned", "collector");
+    unaligned.at("level") = V(I{5});
+    place_refuses(unaligned, "unaligned_elevation");
+    auto bad_wheel = bad_place("bad-wheel", "wheel");
+    bad_wheel.emplace("tiles", V(false));
+    place_refuses(bad_wheel, "invalid_wheel_size");
     check(field<I>(before_targets, "revision") == field<I>(host.projection(), "revision") &&
           !factory::values::typed_difference(V(before_target_state),
               V(field<O>(V(field<O>(host.checkpoint(), "world")), "state"))),
@@ -194,6 +229,8 @@ void historical_translation() {
     reject("span", "from", V(collector));
     reject("collector", "cell", V(A{V(I{0}), V(I{0})}));
     reject("collector", "kind", V("belt"));
+    reject("collector", "rotation", V(I{1}));
+    reject("wheel", "tiles", V(I{6}));
     reject("input-cog", "teeth", V(I{1}));
     reject("first-shaft", "half_span", V(I{3}));
     Host fresh;
