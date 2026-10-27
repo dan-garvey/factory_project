@@ -23,6 +23,13 @@ cc_library(
 )
 
 cc_library(
+    name = "physical_support",
+    hdrs = ["include/factory/physical_support.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-world:checkpoint"],
+)
+
+cc_library(
     name = "component_geometry",
     srcs = ["src/component_geometry.cpp"],
     hdrs = ["src/component_geometry.hpp"],
@@ -68,6 +75,20 @@ cc_library(
     srcs = ["src/drive_projection.cpp"],
     hdrs = ["src/drive_projection.hpp"],
     deps = ["//native/factory-world:checkpoint"],
+)
+
+cc_library(
+    name = "topology_projection",
+    srcs = ["src/topology_projection.cpp"],
+    hdrs = ["src/topology_projection.hpp"],
+    deps = [":arrival_geometry", ":build_catalog_projection", ":material_projection", ":physical_support", ":site_geometry_contract", "//native/factory-world:checkpoint"],
+)
+
+cc_test(
+    name = "topology_projection_test",
+    srcs = ["tests/topology_projection_test.cpp"],
+    deps = [":arrival_configuration", ":topology_projection", "//native/factory-value:value"],
+    size = "small",
 )
 
 cc_library(
@@ -231,7 +252,7 @@ cc_library(
     srcs = ["src/host.cpp"],
     hdrs = ["include/factory/godot_world.hpp"],
     strip_include_prefix = "include",
-    deps = [":arrival_configuration", ":arrival_geometry", ":arrival_site_projection", ":assembly_projection", ":build_catalog_projection", ":checkpoint_envelope", ":component_geometry", ":drive_projection", ":host_command_admission", ":material_projection", ":projection_contract", ":site_geometry_contract", "//native/factory-world:belt_command_contract", "//native/factory-world:checkpoint", "//native/factory-world:component_command_contract", "//native/factory-world:crank_command_contract", "//native/factory-world:fabrication_command_contract", "//native/factory-world:foundation_command_contract", "//native/factory-world:machine_placement_contract", "//native/factory-world:material_command_contract", "//native/factory-world:press_command_contract", "//native/factory-world:stationary_target_command_contract", "//native/factory-world:transmission_placement_contract", "//native/factory-world:worksite_command_contract", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
+    deps = [":arrival_configuration", ":arrival_geometry", ":arrival_site_projection", ":assembly_projection", ":build_catalog_projection", ":checkpoint_envelope", ":component_geometry", ":drive_projection", ":host_command_admission", ":material_projection", ":physical_support", ":projection_contract", ":site_geometry_contract", ":topology_projection", "//native/factory-world:belt_command_contract", "//native/factory-world:checkpoint", "//native/factory-world:component_command_contract", "//native/factory-world:crank_command_contract", "//native/factory-world:fabrication_command_contract", "//native/factory-world:foundation_command_contract", "//native/factory-world:machine_placement_contract", "//native/factory-world:material_command_contract", "//native/factory-world:press_command_contract", "//native/factory-world:stationary_target_command_contract", "//native/factory-world:transmission_placement_contract", "//native/factory-world:worksite_command_contract", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
     visibility = ["//native/opening-engineering:__pkg__"],
 )
 

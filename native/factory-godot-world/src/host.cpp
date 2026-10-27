@@ -7,6 +7,7 @@
 #include "drive_projection.hpp"
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
+#include "topology_projection.hpp"
 #include "arrival_configuration.hpp"
 #include "factory/belt_command_contract.hpp"
 #include "factory/component_command_contract.hpp"
@@ -46,6 +47,7 @@ using build_catalog_projection::kind;
 using component_geometry::component_bounds;
 using material_projection::point_value;
 using material_projection::tick_fields;
+using physical_support::fixed_transmission;
 
 // Current opening geometry is authored once for native and the scene adapter.
 using site_geometry::pitch;
@@ -84,11 +86,6 @@ bool capsule_intersects(const authority::Point& actor, const Bounds& box, double
     const auto dy = std::max({below, above, 0.0});
     const auto radius = capsule_radius - tolerance;
     return dx * dx + dy * dy + dz * dz < radius * radius;
-}
-
-bool fixed_transmission(Role role) {
-    return role == Role::shaft || role == Role::gear || role == Role::gearbox ||
-           role == Role::vertical_gearbox || role == Role::chain_drive;
 }
 
 // The fixed bearings stand just outside the rotating disc. Terrain supplies
@@ -2224,43 +2221,17 @@ Value Host::projection() const {
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
     const auto support_layout = transmission_supports(state, &owned_->support_routes);
-    Object entities, transmissions, actors, foundations;
+    topology_projection::WheelSupports wheel_supports;
     for (const auto& part : state.topology.parts) {
-        Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
-            {"center", Value(Array{Value(part.geometry.center[0]), Value(part.geometry.center[1]), Value(part.geometry.center[2])})},
-            {"axis", Value(static_cast<Integer>(part.geometry.axis))},
-            {"relay_axis", Value(static_cast<Integer>(part.geometry.relay_axis))},
-            {"teeth", Value(part.geometry.teeth)}, {"half_span", Value(part.geometry.half_span)},
-            {"rotation", Value(part.rotation)}};
-        if (part.role == Role::waterwheel) {
-            projected.emplace("tiles", Value(part.wheel_tiles));
-            if (const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
-                    [this](double sx, double sz, double hx, double hz) {
-                        return terrain_range(sx, sz, hx, hz);
-                    })) {
-                Array occupied;
-                for (const auto& support : *supports)
-                    occupied.emplace_back(Object{{"center", point_value(support.center)},
-                                                 {"half", point_value(support.half)}});
-                projected.emplace("supports", Value(std::move(occupied)));
-            }
-        }
-        if (fixed_transmission(part.role)) {
-            if (const auto support = support_layout.find(part.geometry.id); support != support_layout.end()) {
-                Array boxes;
-                for (const auto& [center, half] : support->second.boxes)
-                    boxes.emplace_back(Object{{"center", point_value(center)}, {"half", point_value(half)}});
-                projected.emplace("support", Value(Object{{"foot", point_value(support->second.foot)},
-                    {"bearing", point_value(support->second.bearing)}, {"boxes", Value(std::move(boxes))}}));
-            }
-            transmissions.emplace(part.geometry.id, Value(std::move(projected)));
-        }
-        else {
-            projected.emplace("cell", Value(Array{Value(part.geometry.center[0] / 4), Value(part.geometry.center[2] / 4)}));
-            if (part.geometry.center[1] != 0) projected.emplace("level", Value(part.geometry.center[1]));
-            entities.emplace(part.geometry.id, Value(std::move(projected)));
-        }
+        if (part.role != Role::waterwheel) continue;
+        if (const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
+                [this](double sx, double sz, double hx, double hz) {
+                    return terrain_range(sx, sz, hx, hz);
+                }))
+            wheel_supports.emplace(part.geometry.id, *supports);
     }
+    auto topology = topology_projection::fields(state, support_layout, wheel_supports);
+    Object actors;
     const auto power = world::drive_power(profile_, state);
     auto drive = drive_projection::fields(state, power);
     for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
@@ -2274,16 +2245,13 @@ Value Host::projection() const {
     for (const auto& cell : mineral_site::opening_cells)
         mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
     const auto local = world::machine_power(state.topology, power);
-    for (const auto& [id, foundation] : state.foundations)
-        foundations.emplace(id, Value(Object{{"cell", Value(Array{Value(foundation.center[0] / 4), Value(foundation.center[2] / 4)})},
-            {"level", Value(foundation.center[1])}, {"generation", Value(foundation.generation)}}));
     Object projection{{"context", Value(snapshot.history.context)},
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
-        {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(entities))},
-        {"transmission_parts", Value(std::move(transmissions))}, {"links", Value(std::move(drive.links))},
+        {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(topology.entities))},
+        {"transmission_parts", Value(std::move(topology.transmission_parts))}, {"links", Value(std::move(drive.links))},
         {"drive_links", Value(std::move(drive.drive_links))}, {"engagements", Value(std::move(drive.engagements))},
         {"motion", Value(std::move(drive.motion))}, {"actors", Value(std::move(actors))},
-        {"foundations", Value(std::move(foundations))},
+        {"foundations", Value(std::move(topology.foundations))},
         {"source_deposit", Value(Object{{"id", Value(profile_.material.manual_ore ?
             profile_.material.manual_ore->id : std::string{})},
             {"cells", Value(std::move(mineral_cells))}, {"initial_units", Value(profile_.initial_units)},
