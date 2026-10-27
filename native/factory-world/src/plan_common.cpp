@@ -28,6 +28,11 @@ bool placement(const std::string& action) {
     return action == "place" || action == "place_connected";
 }
 
+bool slide_component(materials::Component kind) {
+    return kind == materials::Component::wooden_slide ||
+           kind == materials::Component::copper_slide;
+}
+
 bool material_machine(Role role) {
     return role == Role::collector || role == Role::processor;
 }

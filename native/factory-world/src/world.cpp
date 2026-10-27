@@ -7,6 +7,7 @@
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
 #include "belt_planner.hpp"
+#include "component_planner.hpp"
 #include "fabrication_planner.hpp"
 #include "foundation_planner.hpp"
 #include "harvest_planner.hpp"
@@ -69,11 +70,6 @@ constexpr std::size_t maximum_current_work = materials::maximum_live_work_lots;
 
 bool identity(const std::string& value) {
     return !value.empty() && value.size() <= 128 && value.find('\0') == std::string::npos;
-}
-
-bool slide_component(materials::Component kind) {
-    return kind == materials::Component::wooden_slide ||
-           kind == materials::Component::copper_slide;
 }
 
 bool crank_input_port(const PlacedComponent& component, const mechanics::Point& port) {
@@ -5441,151 +5437,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             completed_id : materials::WorkId{0}));
         return accepted(std::move(candidate), *id, std::move(facts));
     }
-    if (*action == "place_component" || *action == "reclaim_component") {
-        if (!profile_.landing_pod_center) return refused("components_unavailable");
-        const bool placing = *action == "place_component";
-        const auto* requested = placing ? field<std::string>(intent, "component") : nullptr;
-        const auto component = requested ? materials::component_from_name(*requested) : std::nullopt;
-        const auto location = placing ? grid_point(intent) : std::nullopt;
-        const auto* target = placing ? nullptr : field<std::string>(intent, "target");
-        const auto* generation = placing ? nullptr : field<Integer>(intent, "generation");
-        const auto found = target ? state.placed_components.find(*target) : state.placed_components.end();
-        if (placing && (!component || !location)) return refused("invalid_component");
-        if (!placing && (!target || !generation)) return refused("invalid_target");
-        if (!placing && found == state.placed_components.end()) return refused("unknown_target", *target);
-        if (!placing && found->second.generation != *generation) return refused("stale_generation", *target);
-        if (!placing && std::any_of(state.crank_items.begin(), state.crank_items.end(),
-                [&](const auto& entry) { return entry.second.attached_to == *target; }))
-            return refused("attached_crank", *target);
-        const auto center = placing ? *location : found->second.center;
-        const auto kind = placing ? *component : found->second.kind;
-        const auto channel = materials::channel_spec(kind);
-        const auto area_cells = materials::component_workcells(kind, center);
-        const bool broad = kind == materials::Component::broad_anvil ||
-            kind == materials::Component::broad_flat_head;
-        if (kind == materials::Component::hand_crank)
-            return refused("crank_requires_port");
-        if ((channel || broad) && (!area_cells || center[0] % 4 != 0 ||
-                        center[2] % 4 != 0 ||
-                        (kind != materials::Component::broad_flat_head && center[1] % 4 != 0) ||
-                        (kind == materials::Component::broad_flat_head && center[1] % 4 != 1)))
-            return refused("invalid_area_target");
-        if (area_cells) {
-            for (const auto& cell : *area_cells) {
-                if ((channel || kind == materials::Component::broad_anvil) && center[1] != 0 &&
-                    std::none_of(state.foundations.begin(), state.foundations.end(),
-                        [&](const auto& entry) { return entry.second.center == cell; }))
-                    return refused("missing_support");
-                if (std::any_of(state.material.dropped_material.begin(),
-                        state.material.dropped_material.end(), [&](const auto& entry) {
-                            if (!broad_item(entry.second)) return entry.first == cell;
-                            const auto occupied = broad_cells(entry.first);
-                            return std::find(occupied.begin(), occupied.end(), cell) != occupied.end();
-                        })) return refused("occupied");
-                if (placing &&
-                    ((state.fabrication_hub && !state.fabrication_hub->holder &&
-                      state.fabrication_hub->center == cell) ||
-                     std::any_of(state.placed_components.begin(), state.placed_components.end(),
-                        [&](const auto& entry) {
-                            const auto occupied = materials::component_workcells(
-                                entry.second.kind, entry.second.center);
-                            return occupied ?
-                                std::find(occupied->begin(), occupied->end(), cell) != occupied->end() :
-                                entry.second.center == cell;
-                        }) ||
-                     std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
-                         [&](const auto& item) { return item.geometry.center == cell; })))
-                    return refused("occupied");
-            }
-        }
-        if (placing && kind == materials::Component::wooden_workbench &&
-            (center[0] % 4 != 0 || center[2] % 4 != 0 ||
-             (center[1] != 0 &&
-              std::none_of(state.foundations.begin(), state.foundations.end(),
-                  [&](const auto& entry) { return entry.second.center == center; }))))
-            return refused("unsupported_bench");
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready");
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut, {anchor(profile_, center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), target ? *target : "", std::move(facts));
-        auto candidate = state;
-        auto& cargo = candidate.material.cargo.at(binding.actor).components;
-        const auto [carried_kind, part_count] = materials::placement_parts(kind);
-        std::string entity;
-        Integer serial{};
-        if (placing) {
-            const auto owned = cargo.find(carried_kind);
-            if (owned == cargo.end() || owned->second < part_count)
-                return refused("no_component", "", std::move(facts));
-            if (state.placed_components.size() >= maximum_issued_entities ||
-                state.issued_entities.size() == maximum_issued_entities ||
-                state.next_entity_serial == std::numeric_limits<Integer>::max())
-                return refused("identity_limit", "", std::move(facts));
-            if ((state.fabrication_hub && !state.fabrication_hub->holder &&
-                 center == state.fabrication_hub->center) ||
-                std::any_of(state.placed_components.begin(), state.placed_components.end(),
-                    [&](const auto& entry) {
-                        const auto occupied = materials::component_workcells(
-                            entry.second.kind, entry.second.center);
-                        return occupied ?
-                            std::find(occupied->begin(), occupied->end(), center) != occupied->end() :
-                            entry.second.center == center;
-                    }) ||
-                std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
-                    [&](const auto& item) { return item.geometry.center == center; }))
-                return refused("occupied", "", std::move(facts));
-            owned->second -= part_count;
-            if (owned->second == 0) cargo.erase(owned);
-            serial = candidate.next_entity_serial++;
-            entity = std::string(allocated_prefix) + std::to_string(serial);
-            if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
-            candidate.issued_entities.emplace(entity, serial);
-            candidate.placed_components.emplace(entity, PlacedComponent{kind, center, serial});
-            if (slide_component(kind)) candidate.slide_phases.emplace(entity, State::SlidePhase{});
-            ++candidate.material.placed_components[kind];
-        } else {
-            Integer carried = 0;
-            for (const auto& [name, count] : cargo) {
-                (void)name;
-                if (!add(carried, count)) return refused("inventory_full", *target, std::move(facts));
-            }
-            if (profile_.material.component_capacity > 0 &&
-                carried > profile_.material.component_capacity - part_count)
-                return refused("inventory_full", *target, std::move(facts));
-            if ((kind == materials::Component::anvil ||
-                 kind == materials::Component::broad_anvil) &&
-                state.slide_press_routes.contains(center))
-                return refused("work_on_anvil", *target, std::move(facts));
-            if ((kind == materials::Component::anvil ||
-                 kind == materials::Component::broad_anvil) &&
-                std::any_of(state.material.dropped_material.begin(),
-                    state.material.dropped_material.end(), [&](const auto& entry) {
-                        if (!broad_item(entry.second)) return false;
-                        const auto cells = broad_cells(entry.first);
-                        return std::find(cells.begin(), cells.end(), center) != cells.end();
-                    })) return refused("occupied", *target, std::move(facts));
-            if (kind == materials::Component::receiver_tray &&
-                state.press_output_at_receiver.contains(center))
-                return refused("receiver_full", *target, std::move(facts));
-            entity = *target;
-            serial = *generation;
-            cargo[carried_kind] += part_count;
-            candidate.placed_components.erase(entity);
-            if (slide_component(kind)) candidate.slide_phases.erase(entity);
-            auto& placed = candidate.material.placed_components.at(kind);
-            if (--placed == 0) candidate.material.placed_components.erase(kind);
-        }
-        facts.emplace("generation", Value(serial));
-        facts.emplace("component", Value(materials::component_name(kind)));
-        facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.contains(carried_kind) ?
-            candidate.material.cargo.at(binding.actor).components.at(carried_kind) : Integer{0}));
-        facts.emplace("component_center", Value(Value::Array{Value(center[0]), Value(center[1]), Value(center[2])}));
-        return accepted(std::move(candidate), entity, std::move(facts));
-    }
+    if (const auto component = component_command(*action, intent))
+        return plan_component(profile_, binding, snapshot, *component, observe);
     if (const auto stationary = stationary_command(*action, intent))
         return plan_stationary(profile_, binding, snapshot, *stationary, observe);
     return refused("invalid_command");

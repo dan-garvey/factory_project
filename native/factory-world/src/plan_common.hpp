@@ -22,6 +22,7 @@ template<class T> const T* field(const authority::Object& object, const char* na
 }
 
 [[nodiscard]] bool placement(const std::string& action);
+[[nodiscard]] bool slide_component(materials::Component);
 [[nodiscard]] bool material_machine(stationary::Role);
 [[nodiscard]] bool transmission_role(stationary::Role);
 [[nodiscard]] bool transmission_center(stationary::Role, const mechanics::Point&,
