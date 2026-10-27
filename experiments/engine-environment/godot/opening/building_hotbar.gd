@@ -70,6 +70,7 @@ var slot_counts: Array[Label] = []
 var catalog_buttons: Dictionary = {}
 var catalog_counts: Dictionary = {}
 var catalog_button: Button
+var catalog_close_button: Button
 var footprint_button: Button
 var footprint_catalog_button: Button
 var catalog: PopupPanel
@@ -330,10 +331,11 @@ func configure(host, ui: Control) -> void:
 	clear.icon = load("res://opening/assets/build-icons/slot-clear.svg")
 	clear.tooltip_text = "Clear last assigned or selected hotbar key · Delete"
 	clear.accessibility_name = "Clear last assigned or selected hotbar key, shortcut Delete"
-	var close: Button = Widgets.button(actions, "", _close_catalog)
-	close.icon = load("res://opening/assets/menu-icons/close.svg")
-	close.tooltip_text = "Close build and inventory · Esc"
-	close.accessibility_name = "Close build and inventory, shortcut Escape"
+	catalog_close_button = Widgets.button(actions, "", _close_catalog)
+	catalog_close_button.icon = load("res://opening/assets/menu-icons/close.svg")
+	catalog_close_button.tooltip_text = "Close build and inventory · Esc"
+	catalog_close_button.accessibility_name = "Close build and inventory, shortcut Escape"
+	catalog_close_button.focus_entered.connect(_describe_focus.bind(catalog_close_button))
 	ui.resized.connect(_fit)
 	minimum_size_changed.connect(func(): _fit.call_deferred())
 	resized.connect(host._queue_footer_fit)
@@ -957,9 +959,20 @@ func open_at_bench(bench_id: String) -> void:
 func _focus_inventory_item() -> void:
 	for tile: PlaceableTile in catalog_buttons.values() + component_buttons.values() + [material_buttons.fabrication_hub]:
 		if _binding_available(tile.tool):
-			tile.grab_focus()
+			_focus_catalog_button(tile)
 			return
-	collector_focus_button.grab_focus()
+	if collector_focus_button.visible and not collector_focus_button.disabled:
+		_focus_catalog_button(collector_focus_button)
+		return
+	for tile: Button in recipe_grid.get_children():
+		if tile.visible and not tile.disabled:
+			_focus_catalog_button(tile)
+			return
+	_focus_catalog_button(catalog_close_button)
+
+func _focus_catalog_button(button: Button) -> void:
+	button.grab_focus()
+	_describe_focus(button)
 
 func _slot_input(event: InputEvent, index: int) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:

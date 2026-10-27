@@ -2324,6 +2324,14 @@ func _arrival_hotbar() -> void:
 		"Before the first carried plate, the inventory exposes only the four required press recipes.")
 	verify(not bar.collector_focus_button.visible and bar.recipe_tip_label.visible,
 		"The post-plate project choices do not crowd the starter build view.")
+	bar.open_catalog()
+	await settle_widgets()
+	var first_recipe: Button = bar.recipe_buttons["component:anvil"]
+	verify(first_recipe.visible and not first_recipe.disabled
+		and bar.focus_description.text == first_recipe.tooltip_text
+		and not bar.focus_description.text.contains("Collector project"),
+		"A fresh Build window describes its first visible press recipe, not the hidden collector project.")
+	bar.catalog.hide()
 	var initial: Dictionary = view.state.duplicate(true)
 	view.state.cargo.P.components = {"wooden_frame": 2, "copper_cog": 1,
 		"anvil": 1, "ram_face": 1, "hand_crank": 1}
