@@ -55,9 +55,12 @@ native and Godot artifacts:
 For a shared client with an already running server, use `--agent-window`
 with `--scene res://opening/shared_opening.tscn`, then pass the session port
 and role after `--`. Supported script fixtures are `parts_view_check.gd`,
-`native_adapter_check.gd`, `native_transmission_view_check.gd`, and
-`worker_wardrobe_view_check.gd` in
-`res://opening/`; other targets refuse until they initialize the same title.
+`native_adapter_check.gd`, `native_transmission_view_check.gd`,
+`machine_body_motion_check.gd`, `machine_visual_test.gd`, and
+`worker_wardrobe_view_check.gd` in `res://opening/`; other targets refuse until
+they initialize the same title. The two machine motion fixtures require an
+actual renderer; the [consumer lane guide](docs/engineering/native-builds.md#executable-consumer-lanes)
+gives a labeled launch and its completion line.
 The first-plate fixture also writes a `.bin.worksite` save beside its result.
 The normal player shortcut needs no test purpose.
 
