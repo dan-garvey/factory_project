@@ -1159,8 +1159,15 @@ func _walk_to(target: Vector2, jump: bool = false, actor: String = "P") -> bool:
 		await process_frame
 	opening.actor_world.release_control(actor)
 	var stopped_at: Vector3 = opening.actor_world.bodies[actor].global_position
-	facts["failed_walk"] = {"actor": actor, "target": target, "stopped_at": stopped_at}
-	return _expect(false, "The bounded native walk must reach %s; stopped at %s" % [target, stopped_at])
+	var contacts: Array[String] = []
+	for index in opening.actor_world.bodies[actor].get_slide_collision_count():
+		var collision: KinematicCollision3D = opening.actor_world.bodies[actor].get_slide_collision(index)
+		var collider: Object = collision.get_collider()
+		contacts.append("%s %s" % [collider.name if collider is Node else str(collider), collision.get_normal()])
+	facts["failed_walk"] = {"actor": actor, "target": target, "stopped_at": stopped_at,
+		"contacts": contacts}
+	return _expect(false, "The bounded native walk must reach %s; stopped at %s; contacts %s" %
+		[target, stopped_at, contacts])
 
 func _foundations() -> void:
 	# A new automated construction case, not a replay of produce/resume, a
@@ -1563,10 +1570,9 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	var span: Dictionary = _construct({"action": "place_belt_span", "from": inlet, "to": far})
 	if span.is_empty():
 		return
-	# Approach the collector foundation around the installed belt and site
-	# collision instead of cutting diagonally across their corner.
-	if not await _approach_points([Vector2(1.65, 1.3), Vector2(1.65, 3.3),
-			Vector2(0.7, 3.3)]):
+	# Follow the open southward aisle before turning east to the collector
+	# foundation; a diagonal from the belt cuts across scene collision.
+	if not await _approach_points([Vector2(0.0, 3.3), Vector2(0.7, 3.3)]):
 		return
 	if _construct({"action": "place_foundation", "cell": [0, 1], "level": 4}).is_empty():
 		return
