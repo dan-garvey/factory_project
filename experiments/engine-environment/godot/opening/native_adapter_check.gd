@@ -3348,30 +3348,46 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and before_pickup.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
 			"The held exterior crank conserves mass and forms one plate on the native workbed"):
 			return
-		if not _expect(opening.goal_text.contains(
-				"Plate on the workbed. Open the press [E], then collect it [P] or drag it into inventory.")
-				and opening.manager_log_current.text.ends_with(
-					"Plate on the workbed. Open the press [E], then collect it [P] or drag it into inventory."),
-				"The ordinary first-shift cue and replayable log direct pickup of the native formed plate"):
+		var pickup_cue := "Plate and offcut on the workbed. Aim at the offcuts and press E to collect both."
+		if not _expect(opening.goal_text.contains(pickup_cue)
+				and opening.manager_log_current.text.ends_with(pickup_cue),
+				"The first-shift cue and replayable log name the supported workbed pickup"):
 			return
-		if not await _approach(Vector2(4.1, 6.0)):
+		var work_point := Vector2(float(press_x) * OpeningGeometry.HEIGHT_STEP,
+			float(press_z) * OpeningGeometry.HEIGHT_STEP)
+		if not await _approach(work_point + Vector2(1.1, 1.05)):
 			return
-		opening._open_object_menu_for(fitted.anvil)
-		if not _expect(panel.inventory_slots.workbed_output.visible
-				and not panel.inventory_drag("workbed_output").is_empty(),
-			"The fitted press exposes the formed plate on its workbed"):
+		opening._select_tool("inspect")
+		var plate_visual: Node3D = opening.transmission_presenter.get_node_or_null("LoosePlateStack")
+		var offcut_visual: Node3D = plate_visual.get_node_or_null("CopperOffcuts") if plate_visual != null else null
+		if not _expect(offcut_visual != null,
+			"The native plate and offcut have a visible workbed pickup target"):
 			return
-		var output_drag: Dictionary = panel.inventory_drag("workbed_output")
-		if not _expect(panel.inventory_player_region._can_drop_data(Vector2.ZERO, output_drag),
-				"The whole carried-inventory region accepts the formed plate without an input tile"):
+		opening.distance = 0.0
+		opening._update_camera()
+		var target_direction: Vector3 = (offcut_visual.global_position - opening.camera.global_position).normalized()
+		opening.orbit_yaw = atan2(-target_direction.x, -target_direction.z)
+		opening.orbit_pitch = asin(clampf(-target_direction.y, -1.0, 1.0))
+		opening._update_camera()
+		await physics_frame
+		var pointed_drop: Dictionary = opening._screen_loose_material(opening._pointed_screen_position())
+		if not _expect(pointed_drop == formed and not opening.object_menu.visible,
+			"The standing worker points at the visible offcut without opening a press menu"):
 			return
-		panel.inventory_player_region._drop_data(Vector2(230, 30), output_drag)
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-workbed-pickup-cue.png") == OK,
+				"Retain the supported plate, visible offcut and pickup cue in the worksite"):
+				return
+		await _ordinary_key(KEY_E)
 		var completed: Dictionary = opening.model.projection()
-		if not _expect(completed.cargo.P.products == 1
+		if not _expect(completed.cargo.P.products == 1 and completed.cargo.P.offcuts == 1
+				and completed.dropped_material.is_empty()
 				and completed.workshop_completed_actors.has("P")
 				and completed.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS
 				and opening.objective_title.contains("COMPLETE"),
-				"The first copper plate in carried inventory completes the native and visible milestone"):
+			"Pointed E pickup carries the plate and offcut and completes the inventory milestone"):
 			return
 		inventory.open_catalog()
 		if not _expect(inventory.recipe_buttons.has("component:wooden_cog")
