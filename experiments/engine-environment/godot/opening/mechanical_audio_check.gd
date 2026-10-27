@@ -20,6 +20,48 @@ class SessionStub extends RefCounted:
 var checks := 0
 var failed := false
 var digital: Dictionary = {}
+var scene_only := false
+var preview_directory := ""
+
+func refuse_option(message: String) -> bool:
+	push_error(message)
+	quit(2)
+	return false
+
+func parse_options() -> bool:
+	var preview_selected := false
+	for argument in OS.get_cmdline_user_args():
+		if argument == "--scene-only":
+			if scene_only:
+				return refuse_option("The mechanical audio scene mode was selected twice.")
+			scene_only = true
+		elif argument.begins_with("--preview-dir="):
+			if preview_selected:
+				return refuse_option("Select one mechanical audio preview directory.")
+			preview_selected = true
+			preview_directory = argument.trim_prefix("--preview-dir=")
+		else:
+			return refuse_option("Unknown mechanical audio fixture option: " + argument)
+	if scene_only and preview_selected:
+		return refuse_option("A scene-only check cannot save digital audio previews.")
+	if preview_selected:
+		var project_root := ProjectSettings.globalize_path("res://").trim_suffix("/")
+		if preview_directory.is_empty() or not preview_directory.is_absolute_path() \
+				or preview_directory.simplify_path() != preview_directory \
+				or preview_directory == project_root or preview_directory.begins_with(project_root + "/") \
+				or not DirAccess.dir_exists_absolute(preview_directory):
+			return refuse_option("Use an existing absolute preview directory outside the project.")
+		var root_directory := DirAccess.open("/")
+		var ancestor := "/"
+		for segment in preview_directory.split("/", false):
+			ancestor = ancestor.path_join(segment)
+			if root_directory.is_link(ancestor):
+				return refuse_option("Mechanical audio previews cannot follow a directory link.")
+		for kind in ["collector", "belt", "processor", "wheel"]:
+			var target := preview_directory.path_join(kind + ".wav")
+			if FileAccess.file_exists(target) or root_directory.is_link(target):
+				return refuse_option("Refuse to replace an existing mechanical audio preview.")
+	return true
 
 func verify(condition: bool, message: String) -> void:
 	checks += 1
@@ -37,10 +79,6 @@ func observation() -> Dictionary:
 	return snapshot
 
 func check_digital() -> void:
-	var output := ""
-	for argument in OS.get_cmdline_user_args():
-		if argument.begins_with("--preview-dir="):
-			output = argument.trim_prefix("--preview-dir=")
 	verify(Ambience.make_loop("unknown") == null, "Unknown kinds cannot synthesize an operating sound.")
 	var signatures: Dictionary = {}
 	for kind in ["collector", "belt", "processor", "wheel"]:
@@ -72,8 +110,9 @@ func check_digital() -> void:
 		verify(not signatures.has(signature), "The four machines have distinct original loop data.")
 		signatures[signature] = true
 		digital[kind] = {"peak": peak, "rms": rms, "seam_step": seam}
-		if not output.is_empty():
-			verify(stream.save_to_wav(output.path_join(kind + ".wav")) == OK, "The exact generated stream is retained for human listening.")
+		if not preview_directory.is_empty():
+			verify(stream.save_to_wav(preview_directory.path_join(kind + ".wav")) == OK,
+				"The exact generated stream is retained for human listening.")
 
 func check_projection_audio() -> void:
 	var bed := Ambience.new()
@@ -293,7 +332,9 @@ func check_view_callbacks(shared: bool) -> void:
 	view.free()
 
 func _initialize() -> void:
-	if "--scene-only" not in OS.get_cmdline_user_args():
+	if not parse_options():
+		return
+	if not scene_only:
 		check_digital()
 	# SceneTree._initialize runs before the root enters the tree. Real 3D audio
 	# needs that boundary; deferred execution changes no product lifecycle.
@@ -303,6 +344,8 @@ func _check_scene() -> void:
 	check_projection_audio()
 	check_view_callbacks(false)
 	check_view_callbacks(true)
-	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "digital": digital,
+	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		"mode": "scene-only" if scene_only else "full", "preview_saved": not preview_directory.is_empty(),
+		"digital": digital,
 		"observations": "invented", "audible_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
