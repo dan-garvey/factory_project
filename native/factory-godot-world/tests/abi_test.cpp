@@ -228,11 +228,20 @@ void run() {
         at(-1.65, 0);
         auto projection = host.call("projection", {});
         const auto schema = host.call("projection_fields", {});
+        const auto records = host.call("projection_record_fields", {});
+        const auto stock_record = Value(field<Object>(records, "stock"));
+        const auto stock_fields = Value(field<Object>(stock_record, "fields"));
+        const auto drop_record = Value(field<Object>(records, "dropped_material"));
+        const auto drop_fields = Value(field<Object>(drop_record, "fields"));
         check(field<std::string>(schema, "context") == "string" &&
                   field<std::string>(schema, "stock") == "object" &&
                   field<std::string>(schema, "opening_engineering") == "object" &&
+                  field<std::string>(stock_record, "container") == "object" &&
+                  field<std::string>(stock_fields, "source") == "integer" &&
+                  field<std::string>(drop_record, "container") == "array_elements" &&
+                  field<std::string>(drop_fields, "center") == "integer3" &&
                   factory::godot_world::projection_contract::complete(projection, true),
-              "The real extension exposes the same typed complete-view contract it publishes.");
+              "The real extension exposes the same top-level and nested contract it publishes.");
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,
               "The powered line consumes three physical shafts.");
         bool blocked_ready = false;

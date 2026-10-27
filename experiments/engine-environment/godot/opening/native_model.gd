@@ -6,6 +6,7 @@ var native: Object
 var boot_result: Dictionary = {"accepted": false, "reason": "native_library_missing"}
 var _view_cache: Dictionary = {}
 var _projection_fields: Dictionary = {}
+var _projection_records: Dictionary = {}
 var context: String:
 	get:
 		return str(projection().get("context", ""))
@@ -66,6 +67,7 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 	if not boot_result.get("accepted", false):
 		return
 	_projection_fields = _invoke("projection_fields", [])
+	_projection_records = _invoke("projection_record_fields", [])
 	var current: Dictionary = projection()
 	if not _complete_projection(current):
 		boot_result = {"accepted": false, "reason": "native_projection_schema_mismatch"}
@@ -111,26 +113,60 @@ func _view_projection_borrowed() -> Dictionary:
 	return _view_cache
 
 func _complete_projection(value: Dictionary) -> bool:
-	if _projection_fields.is_empty():
+	if _projection_fields.is_empty() or _projection_records.is_empty():
 		return false
 	for name in _projection_fields:
+		if not name is String or not value.has(name) \
+			or not _projection_type_matches(value[name], _projection_fields[name]):
+			return false
+	for name in _projection_records:
 		if not name is String or not value.has(name):
 			return false
-		var actual: int = typeof(value[name])
-		match _projection_fields[name]:
-			"string":
-				if actual != TYPE_STRING: return false
-			"integer":
-				if actual != TYPE_INT: return false
-			"boolean":
-				if actual != TYPE_BOOL: return false
-			"array":
-				if actual != TYPE_ARRAY: return false
+		var record: Variant = _projection_records[name]
+		if not record is Dictionary or not record.get("fields") is Dictionary \
+			or record.fields.is_empty():
+			return false
+		var nested: Variant = value[name]
+		var entries: Array = []
+		match record.get("container"):
 			"object":
-				if actual != TYPE_DICTIONARY: return false
+				entries = [nested]
+			"object_values":
+				if not nested is Dictionary: return false
+				entries = nested.values()
+			"array_elements":
+				if not nested is Array: return false
+				entries = nested
 			_:
 				return false
+		for entry in entries:
+			if not entry is Dictionary:
+				return false
+			for field in record.fields:
+				if not field is String or not entry.has(field) \
+					or not _projection_type_matches(entry[field], record.fields[field]):
+					return false
 	return true
+
+func _projection_type_matches(value: Variant, expected: Variant) -> bool:
+	if not expected is String:
+		return false
+	match expected:
+		"string": return typeof(value) == TYPE_STRING
+		"integer": return typeof(value) == TYPE_INT
+		"floating": return typeof(value) == TYPE_FLOAT
+		"boolean": return typeof(value) == TYPE_BOOL
+		"array": return typeof(value) == TYPE_ARRAY
+		"object": return typeof(value) == TYPE_DICTIONARY
+		"integer3", "floating3":
+			if not value is Array or value.size() != 3:
+				return false
+			var scalar_type := TYPE_INT if expected == "integer3" else TYPE_FLOAT
+			for coordinate in value:
+				if typeof(coordinate) != scalar_type:
+					return false
+			return true
+	return false
 
 func _projection_unavailable() -> Dictionary:
 	return {"accepted": false, "reason": "native_projection_unavailable", "uncertain": true}

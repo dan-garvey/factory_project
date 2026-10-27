@@ -96,7 +96,7 @@ struct EmptyText {
     void* get() { return storage.data(); }
 };
 
-enum class Method { initialize, initialize_arrival, initialize_arrival_advanced_fixture, terrain, command, publish, actor_projection, invalidate, advance, advance_delta, projection, projection_fields, checkpoint, restore, validate };
+enum class Method { initialize, initialize_arrival, initialize_arrival_advanced_fixture, terrain, command, publish, actor_projection, invalidate, advance, advance_delta, projection, projection_fields, projection_record_fields, checkpoint, restore, validate };
 struct Description { const char* name; Method method; std::uint32_t arguments; };
 std::array methods{
     Description{"initialize", Method::initialize, 2},
@@ -109,6 +109,7 @@ std::array methods{
     Description{"advance", Method::advance, 0}, Description{"advance_delta", Method::advance_delta, 0},
     Description{"projection", Method::projection, 0},
     Description{"projection_fields", Method::projection_fields, 0},
+    Description{"projection_record_fields", Method::projection_record_fields, 0},
     Description{"checkpoint", Method::checkpoint, 0}, Description{"restore_checkpoint", Method::restore, 1},
     Description{"validate_checkpoint", Method::validate, 1}};
 
@@ -166,6 +167,7 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
         case Method::publish: return host.publish_actor(typed<std::string>(args, 0), typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));
         case Method::actor_projection: return host.actor_projection(typed<std::string>(args, 0));
         case Method::projection_fields: return factory::godot_world::projection_contract::fields(true);
+        case Method::projection_record_fields: return factory::godot_world::projection_contract::record_fields();
         case Method::invalidate: return host.invalidate_actor(typed<std::string>(args, 0));
         case Method::advance:
         case Method::projection: {

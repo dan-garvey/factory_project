@@ -61,6 +61,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var native_delta_calls := 0
 	var inject_bad_full := false
 	var inject_bad_delta := false
+	var inject_bad_nested_full := false
+	var inject_bad_nested_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -72,9 +74,18 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		if method == "projection" and inject_bad_full:
 			inject_bad_full = false
 			delivered.erase("stock")
+		elif method == "projection" and inject_bad_nested_full:
+			inject_bad_nested_full = false
+			delivered.stock = delivered.stock.duplicate(true)
+			delivered.stock.output = "wrong"
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
+		elif method == "advance_delta" and inject_bad_nested_delta:
+			inject_bad_nested_delta = false
+			var stock: Dictionary = _view_cache.stock.duplicate(true)
+			stock.output = "wrong"
+			return {"changes": {"stock": stock}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3728,6 +3739,24 @@ func _native_view_cache_regression() -> void:
 	verify(trusted._complete_projection(complete) and not trusted._complete_projection(missing)
 		and not trusted._complete_projection(wrong_type),
 		"The native field contract rejects missing stock and a mistyped cargo view.")
+	var missing_count := complete.duplicate(true)
+	missing_count.stock.erase("source")
+	var missing_ready := complete.duplicate(true)
+	missing_ready.actors.P.erase("ready")
+	var short_position := complete.duplicate(true)
+	short_position.actors.P.position = [0.0, 1.0]
+	verify(not trusted._complete_projection(missing_count)
+		and not trusted._complete_projection(missing_ready)
+		and not trusted._complete_projection(short_position),
+		"Nested stock and actor records need their typed counts, readiness and full position.")
+	var wrong_lots := complete.duplicate(true)
+	wrong_lots.cargo.P.work_lots = {}
+	var wrong_drop := complete.duplicate(true)
+	wrong_drop.dropped_material.append({"center": [0, 1], "raw": 0,
+		"products": 1, "work_lots": []})
+	verify(not trusted._complete_projection(wrong_lots)
+		and not trusted._complete_projection(wrong_drop),
+		"Carried work and dropped material follow the same native nested field contract.")
 	trusted._view_cache = {}
 	trusted.inject_bad_full = true
 	var bad_full: Dictionary = trusted.view_projection()
@@ -3742,6 +3771,20 @@ func _native_view_cache_regression() -> void:
 		"A mistyped material delta cannot publish a partial next worksite.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"The next full native observation recovers after a rejected delta.")
+	trusted._view_cache = {}
+	trusted.inject_bad_nested_full = true
+	var bad_nested_full: Dictionary = trusted.view_projection()
+	verify(bad_nested_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full view with a mistyped stock count is never confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A complete native observation recovers after the nested full-view refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_nested_delta = true
+	var bad_nested_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_nested_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with a mistyped stock count cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"The next full native view recovers after the nested delta refusal.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

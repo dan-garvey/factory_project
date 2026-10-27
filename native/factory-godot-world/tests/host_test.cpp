@@ -264,6 +264,31 @@ void nonarrival_tick_schema() {
     check(!factory::godot_world::projection_contract::complete(V(missing_stock)) &&
           !factory::godot_world::projection_contract::complete(V(wrong_cargo)),
           "Missing stock or mistyped cargo cannot be admitted as a complete native view.");
+    auto missing_source = full_before;
+    auto stock = std::get<O>(missing_source.at("stock").storage());
+    stock.erase("source");
+    missing_source.at("stock") = V(std::move(stock));
+    auto wrong_work_lots = full_before;
+    auto cargo = std::get<O>(wrong_work_lots.at("cargo").storage());
+    auto carried = std::get<O>(cargo.at("P").storage());
+    carried.at("work_lots") = V(O{});
+    cargo.at("P") = V(std::move(carried));
+    wrong_work_lots.at("cargo") = V(std::move(cargo));
+    auto missing_ready = full_before;
+    auto actors = std::get<O>(missing_ready.at("actors").storage());
+    auto actor = std::get<O>(actors.at("P").storage());
+    actor.erase("ready");
+    actors.at("P") = V(std::move(actor));
+    missing_ready.at("actors") = V(std::move(actors));
+    auto wrong_drop_center = full_before;
+    wrong_drop_center.at("dropped_material") = V(A{V(O{
+        {"center", V(A{V(I{0}), V(I{0})})}, {"raw", V(I{0})},
+        {"products", V(I{1})}, {"work_lots", V(A{})}})});
+    check(!factory::godot_world::projection_contract::complete(V(missing_source)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_work_lots)) &&
+          !factory::godot_world::projection_contract::complete(V(missing_ready)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_drop_center)),
+          "Nested stock, carried work, actor readiness and three-coordinate drop shapes are required.");
     const auto fields = std::get<O>(host.advance_tick_fields().storage());
     const auto full_after = std::get<O>(host.projection().storage());
     check(!full_before.contains("slide_phases") && !fields.contains("slide_phases") &&

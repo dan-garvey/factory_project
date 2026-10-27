@@ -3,6 +3,7 @@
 #include "factory/value.hpp"
 
 #include <array>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -13,7 +14,7 @@ namespace factory::godot_world::projection_contract {
 using Value = values::Value;
 using Object = Value::Object;
 
-enum class Type { string, integer, boolean, array, object };
+enum class Type { string, integer, floating, boolean, array, object, integer3, floating3 };
 
 struct Field {
     std::string_view name;
@@ -57,23 +58,110 @@ inline constexpr std::array host_fields{
 
 inline constexpr Field engineering_field{"opening_engineering", Type::object};
 
+// These records have the same required shape in ordinary and arrival worlds.
+// Counts and profile-specific additions may differ without changing the wire.
+enum class Container { object, object_values, array_elements };
+
+struct Record {
+    std::string_view name;
+    Container container;
+    std::span<const Field> fields;
+};
+
+inline constexpr std::array stock_fields{
+    Field{"source", Type::integer}, Field{"collector", Type::integer},
+    Field{"belt", Type::integer}, Field{"input", Type::integer},
+    Field{"held", Type::integer}, Field{"output", Type::integer},
+    Field{"player", Type::integer},
+};
+inline constexpr std::array cargo_fields{
+    Field{"raw", Type::integer}, Field{"products", Type::integer},
+    Field{"work_lots", Type::array},
+};
+inline constexpr std::array dropped_fields{
+    Field{"center", Type::integer3}, Field{"raw", Type::integer},
+    Field{"products", Type::integer}, Field{"work_lots", Type::array},
+};
+inline constexpr std::array actor_fields{
+    Field{"position", Type::floating3}, Field{"capabilities", Type::object},
+    Field{"ready", Type::boolean}, Field{"native_epoch", Type::integer},
+    Field{"harvest_clear", Type::object},
+};
+inline constexpr std::array cut_fields{
+    Field{"target", Type::string}, Field{"remaining_ticks", Type::integer},
+    Field{"duration_ticks", Type::integer}, Field{"interrupted", Type::boolean},
+};
+inline constexpr std::array deposit_fields{
+    Field{"id", Type::string}, Field{"cells", Type::array},
+    Field{"initial_units", Type::integer}, Field{"collector_capacity", Type::integer},
+    Field{"maximum_depth", Type::floating},
+};
+inline constexpr std::array records{
+    Record{"stock", Container::object, stock_fields},
+    Record{"cargo", Container::object_values, cargo_fields},
+    Record{"dropped_material", Container::array_elements, dropped_fields},
+    Record{"actors", Container::object_values, actor_fields},
+    Record{"manual_cuts", Container::object_values, cut_fields},
+    Record{"source_deposit", Container::object, deposit_fields},
+};
+
 inline bool typed(const Value& value, Type type) {
     switch (type) {
         case Type::string: return std::holds_alternative<std::string>(value.storage());
         case Type::integer: return std::holds_alternative<Value::Integer>(value.storage());
+        case Type::floating: return std::holds_alternative<double>(value.storage());
         case Type::boolean: return std::holds_alternative<bool>(value.storage());
         case Type::array: return std::holds_alternative<Value::Array>(value.storage());
         case Type::object: return std::holds_alternative<Object>(value.storage());
+        case Type::integer3:
+        case Type::floating3: {
+            const auto* entries = std::get_if<Value::Array>(&value.storage());
+            if (!entries || entries->size() != 3) return false;
+            for (const auto& entry : *entries)
+                if (!typed(entry, type == Type::integer3 ? Type::integer : Type::floating))
+                    return false;
+            return true;
+        }
     }
     return false;
+}
+
+inline bool required_fields(const Object& object, std::span<const Field> fields) {
+    for (const auto& field : fields) {
+        const auto found = object.find(std::string(field.name));
+        if (found == object.end() || !typed(found->second, field.type)) return false;
+    }
+    return true;
+}
+
+inline bool complete_record(const Value& value, const Record& record) {
+    if (record.container == Container::array_elements) {
+        const auto* entries = std::get_if<Value::Array>(&value.storage());
+        if (!entries) return false;
+        for (const auto& entry : *entries) {
+            const auto* object = std::get_if<Object>(&entry.storage());
+            if (!object || !required_fields(*object, record.fields)) return false;
+        }
+        return true;
+    }
+    const auto* object = std::get_if<Object>(&value.storage());
+    if (!object) return false;
+    if (record.container == Container::object) return required_fields(*object, record.fields);
+    for (const auto& [key, entry] : *object) {
+        (void)key;
+        const auto* fields = std::get_if<Object>(&entry.storage());
+        if (!fields || !required_fields(*fields, record.fields)) return false;
+    }
+    return true;
 }
 
 inline bool complete(const Value& value, bool engine_view = false) {
     const auto* object = std::get_if<Object>(&value.storage());
     if (!object) return false;
-    for (const auto& field : host_fields) {
-        const auto found = object->find(std::string(field.name));
-        if (found == object->end() || !typed(found->second, field.type)) return false;
+    if (!required_fields(*object, host_fields)) return false;
+    for (const auto& record : records) {
+        const auto found = object->find(std::string(record.name));
+        if (found == object->end() || !complete_record(found->second, record)) return false;
     }
     if (engine_view) {
         const auto found = object->find(std::string(engineering_field.name));
@@ -86,11 +174,36 @@ inline const char* type_name(Type type) {
     switch (type) {
         case Type::string: return "string";
         case Type::integer: return "integer";
+        case Type::floating: return "floating";
         case Type::boolean: return "boolean";
         case Type::array: return "array";
         case Type::object: return "object";
+        case Type::integer3: return "integer3";
+        case Type::floating3: return "floating3";
     }
     return "";
+}
+
+inline const char* container_name(Container container) {
+    switch (container) {
+        case Container::object: return "object";
+        case Container::object_values: return "object_values";
+        case Container::array_elements: return "array_elements";
+    }
+    return "";
+}
+
+inline Value record_fields() {
+    Object output;
+    for (const auto& record : records) {
+        Object fields;
+        for (const auto& field : record.fields)
+            fields.emplace(std::string(field.name), Value(type_name(field.type)));
+        output.emplace(std::string(record.name), Value(Object{
+            {"container", Value(container_name(record.container))},
+            {"fields", Value(std::move(fields))}}));
+    }
+    return Value(std::move(output));
 }
 
 inline Value fields(bool engine_view = false) {
