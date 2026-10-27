@@ -38,6 +38,24 @@ struct WorkingPressInspection {
     std::optional<WorkingPress> press;
 };
 
+struct CollectorMatch {
+    std::optional<assembly::Collector> collector;
+    bool ambiguous{};
+};
+
+[[nodiscard]] bool crank_input_port(const PlacedComponent&, const mechanics::Point&);
+[[nodiscard]] bool crank_face_on_axis(const mechanics::Point&, mechanics::Axis);
+[[nodiscard]] mechanics::Point crank_face_from_actor(const Profile&,
+    const authority::Point&, const mechanics::Point&, mechanics::Axis);
+[[nodiscard]] bool manual_input_available(const mechanics::Motion&);
+[[nodiscard]] bool slide_input_port_clear(const State&, const std::string&,
+    const mechanics::Point&);
+[[nodiscard]] std::optional<bool> hand_slide_contact(
+    const State::SlidePhase&, const State::SlidePhase&, mechanics::Rate);
+[[nodiscard]] CollectorMatch collector_for_input(const Profile&,
+    const std::vector<assembly::Part>&, const std::string&);
+[[nodiscard]] values::Value slide_phase_value(const State::SlidePhase&);
+
 [[nodiscard]] bool has_attached_crank(const State&, const std::string&,
     const mechanics::Point&);
 [[nodiscard]] std::vector<assembly::Part> assembly_parts(const State&);
