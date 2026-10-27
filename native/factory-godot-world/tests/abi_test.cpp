@@ -237,8 +237,13 @@ void run() {
         const auto span_fields = Value(field<Object>(Value(field<Object>(records, "belt_spans")), "fields"));
         const auto foundation_fields = Value(field<Object>(Value(field<Object>(records, "foundations")), "fields"));
         const auto engagement_record = Value(field<Object>(records, "engagements"));
+        const auto deposit_fields = Value(field<Object>(Value(field<Object>(records, "source_deposit")), "fields"));
+        const auto profile_fields = Value(field<Object>(Value(field<Object>(records, "adapter_profile")), "fields"));
+        const auto option_fields = Value(field<Object>(Value(field<Object>(records, "options")), "fields"));
         check(field<std::string>(schema, "context") == "string" &&
                   field<std::string>(schema, "stock") == "object" &&
+                  field<std::string>(schema, "links") == "string_pairs" &&
+                  field<std::string>(schema, "drive_links") == "string_pairs" &&
                   field<std::string>(schema, "opening_engineering") == "object" &&
                   field<std::string>(stock_record, "container") == "object" &&
                   field<std::string>(stock_fields, "source") == "integer" &&
@@ -249,6 +254,9 @@ void run() {
                   field<std::string>(span_fields, "slots") == "array" &&
                   field<std::string>(foundation_fields, "cell") == "integer2" &&
                   field<std::string>(engagement_record, "container") == "array_elements" &&
+                  field<std::string>(deposit_fields, "cells") == "integer_pairs" &&
+                  field<std::string>(profile_fields, "collector_intake_size") == "floating3" &&
+                  field<std::string>(option_fields, "native") == "boolean" &&
                   factory::godot_world::projection_contract::complete(projection, true),
               "The real extension exposes the same top-level and nested contract it publishes.");
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,

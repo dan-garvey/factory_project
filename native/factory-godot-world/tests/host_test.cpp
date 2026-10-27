@@ -311,6 +311,24 @@ void nonarrival_tick_schema() {
               {"level", V(I{0})}, {"generation", V(I{1})}}) &&
           !factory::godot_world::projection_contract::complete(V(malformed_engagement)),
           "Malformed topology coordinates, belt cargo, motion, foundations and engagement kinds refuse.");
+    const auto invalid_object_field = [&](const char* record, const char* field, V bad) {
+        auto malformed = full_before;
+        auto fields = std::get<O>(malformed.at(record).storage());
+        fields.at(field) = std::move(bad);
+        malformed.at(record) = V(std::move(fields));
+        return !factory::godot_world::projection_contract::complete(V(malformed));
+    };
+    auto malformed_links = full_before;
+    malformed_links.at("links") = V(A{V(A{V("first"), V(I{2})})});
+    auto malformed_drive_links = full_before;
+    malformed_drive_links.at("drive_links") = V(A{V(A{V("only-one")})});
+    check(!factory::godot_world::projection_contract::complete(V(malformed_links)) &&
+          !factory::godot_world::projection_contract::complete(V(malformed_drive_links)) &&
+          invalid_object_field("source_deposit", "cells", V(A{V(A{V(I{0}), V("wrong")})})) &&
+          invalid_object_field("adapter_profile", "pitch", V(I{1})) &&
+          invalid_object_field("adapter_profile", "collector_intake_size", V(A{V(0.28), V(0.20)})) &&
+          invalid_object_field("options", "native", V("true")),
+          "Links, deposit cells, adapter geometry and options need complete typed native fields.");
     const auto fields = std::get<O>(host.advance_tick_fields().storage());
     const auto full_after = std::get<O>(host.projection().storage());
     check(!full_before.contains("slide_phases") && !fields.contains("slide_phases") &&
