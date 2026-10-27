@@ -46,6 +46,58 @@ void arrival_projection_contract() {
         const auto complete = std::get<O>(host.projection().storage());
         check(get<bool>(V(get<O>(V(complete), "options")), "arrival"),
               "The native profile identifies an arrival independently of its pod record.");
+        const auto options = get<O>(V(complete), "options");
+        check(get<bool>(V(options), "copper_material") &&
+                  get<bool>(V(options), "manual_sources") &&
+                  get<I>(V(get<O>(V(complete), "material_mass")), "accounted_mass") ==
+                      get<I>(V(get<O>(V(complete), "material_mass")), "initial_mass") &&
+                  get<O>(V(complete), "hand_sources").contains("opening-copper"),
+              "The arrival profile identifies its finite hand sources and copper mass ledger.");
+        for (const char* name : {"material_mass", "hand_sources"}) {
+            auto missing = complete;
+            missing.erase(name);
+            check(!factory::godot_world::projection_contract::complete(V(missing)),
+                  "An arrival cannot omit an enabled native material readout.");
+        }
+        const auto invalid_mass = [&](const char* field, V bad) {
+            auto malformed = complete;
+            auto ledger = get<O>(V(malformed), "material_mass");
+            ledger.at(field) = std::move(bad);
+            malformed.at("material_mass") = V(std::move(ledger));
+            return !factory::godot_world::projection_contract::complete(V(malformed));
+        };
+        const auto invalid_source = [&](const char* field, V bad) {
+            auto malformed = complete;
+            auto sources = get<O>(V(malformed), "hand_sources");
+            auto ore = get<O>(V(sources), "opening-copper");
+            ore[field] = std::move(bad);
+            sources.at("opening-copper") = V(std::move(ore));
+            malformed.at("hand_sources") = V(std::move(sources));
+            return !factory::godot_world::projection_contract::complete(V(malformed));
+        };
+        check(invalid_mass("stock_chunks", V("many")) &&
+                  invalid_mass("accounted_mass", V(true)) &&
+                  invalid_source("kind", V("mineral")) &&
+                  invalid_source("position", V(A{V(0.0), V(0.0)})) &&
+                  invalid_source("remaining", V(2.0)) &&
+                  invalid_source("contact_bounds", V(A{V(A{V(0.0), V(0.0)}),
+                      V(A{V(1.0), V(1.0), V(1.0)})})),
+              "Mistyped mass counts, source coordinates and ore contact bounds refuse.");
+        Host bounded;
+        auto bounded_site = factory::godot_world::tests::flat_site();
+        bounded_site.insert_or_assign("obstacles", V(A{V(A{
+            V(A{V(-1.4), V(0.0), V(-1.2)}),
+            V(A{V(-0.9), V(1.2), V(1.2)})})}));
+        bounded_site.emplace("source_obstacle", V(I{0}));
+        const auto bounded_init = advanced ?
+            bounded.initialize_arrival_advanced_fixture("arrival-bounded", {"P"}) :
+            bounded.initialize_arrival("arrival-bounded", {"P"});
+        check(get<bool>(bounded_init, "accepted") &&
+                  get<bool>(bounded.configure_terrain(bounded_site), "accepted") &&
+                  factory::godot_world::projection_contract::complete(bounded.projection()) &&
+                  get<A>(get<O>(bounded.projection(), "hand_sources").at("opening-copper"),
+                      "contact_bounds").size() == 2,
+              "A configured ore contact hull retains its floating world bounds in the complete view.");
         for (const char* name : {"supplied_hardware_boxes", "landing_pod",
                  "fabrication_hub", "fabrication_benches", "crank_items",
                  "placed_components", "slide_phases"}) {

@@ -242,6 +242,11 @@ void run() {
         const auto lift_record = Value(field<Object>(records, "adapter_profile.collector_lift"));
         const auto lift_fields = Value(field<Object>(lift_record, "fields"));
         const auto option_fields = Value(field<Object>(Value(field<Object>(records, "options")), "fields"));
+        const auto mass_record = Value(field<Object>(records, "material_mass"));
+        const auto mass_fields = Value(field<Object>(mass_record, "fields"));
+        const auto source_record = Value(field<Object>(records, "hand_sources"));
+        const auto source_fields = Value(field<Object>(source_record, "fields"));
+        const auto source_bounds = Value(field<Object>(source_fields, "contact_bounds"));
         check(field<std::string>(schema, "context") == "string" &&
                   field<std::string>(schema, "stock") == "object" &&
                   field<std::string>(schema, "links") == "string_pairs" &&
@@ -265,8 +270,24 @@ void run() {
                   field<std::string>(lift_fields, "head_z_size") == "floating2" &&
                   field<std::string>(option_fields, "native") == "boolean" &&
                   field<std::string>(option_fields, "arrival") == "boolean" &&
+                  field<std::string>(option_fields, "copper_material") == "boolean" &&
+                  field<std::string>(option_fields, "manual_sources") == "boolean" &&
                   factory::godot_world::projection_contract::complete(projection, true),
               "The real extension exposes the same top-level and nested contract it publishes.");
+        const auto mass_rule = Value(field<Object>(schema, "material_mass"));
+        const auto source_rule = Value(field<Object>(schema, "hand_sources"));
+        check(field<std::string>(mass_rule, "required_with") == "options.copper_material" &&
+                  field<std::string>(source_rule, "required_with") == "options.manual_sources" &&
+                  field<std::string>(mass_record, "required_with") == "options.copper_material" &&
+                  field<std::string>(source_record, "required_with") == "options.manual_sources" &&
+                  field<std::string>(source_record, "container") == "object_values" &&
+                  field<std::string>(mass_fields, "accounted_mass") == "integer" &&
+                  field<std::string>(mass_fields, "initial_mass") == "integer" &&
+                  field<std::string>(source_fields, "position") == "floating3" &&
+                  field<std::string>(source_fields, "remaining") == "integer" &&
+                  field<std::string>(source_bounds, "type") == "floating3_pair" &&
+                  field<bool>(source_bounds, "optional"),
+              "The extension exports native material and hand-source rules for Godot cache validation.");
         const auto capacity_rule = Value(field<Object>(schema, "component_capacity"));
         const auto completion_rule = Value(field<Object>(schema, "workshop_completed_actors"));
         const auto unlock_rule = Value(field<Object>(schema, "first_plate_unlock"));

@@ -17,7 +17,8 @@ using Object = Value::Object;
 
 enum class Type { string, integer, floating, boolean, array, object, integer2, integer3,
                   floating2, floating3, string_pairs, integer_pairs, integer_values,
-                  string_array, nullable_string, integer3_or_empty, integer3_array };
+                  string_array, nullable_string, integer3_or_empty, integer3_array,
+                  floating3_pair };
 
 struct Field {
     std::string_view name;
@@ -75,6 +76,8 @@ inline constexpr std::array conditional_fields{
     ConditionalField{"component_capacity", Type::integer, "options.arrival"},
     ConditionalField{"workshop_completed_actors", Type::string_array, "options.arrival"},
     ConditionalField{"first_plate_unlock", Type::boolean, "options.arrival"},
+    ConditionalField{"material_mass", Type::object, "options.copper_material"},
+    ConditionalField{"hand_sources", Type::object, "options.manual_sources"},
 };
 
 // These records describe native worksite views and the extension's derived view.
@@ -97,6 +100,20 @@ inline constexpr std::array stock_fields{
     Field{"belt", Type::integer}, Field{"input", Type::integer},
     Field{"held", Type::integer}, Field{"output", Type::integer},
     Field{"player", Type::integer},
+};
+inline constexpr std::array mass_fields{
+    Field{"stock_chunks", Type::integer}, Field{"work_chunks", Type::integer},
+    Field{"plates", Type::integer}, Field{"offcut_units", Type::integer},
+    Field{"sheets", Type::integer}, Field{"embodied_chunks", Type::integer},
+    Field{"accounted_mass", Type::integer}, Field{"initial_mass", Type::integer},
+};
+inline constexpr std::array<std::string_view, 2> hand_source_kinds{
+    "tree", "ore_deposit"};
+inline constexpr std::array hand_source_fields{
+    Field{"kind", Type::string, false, {}, {}, hand_source_kinds},
+    Field{"position", Type::floating3}, Field{"initial", Type::integer},
+    Field{"remaining", Type::integer},
+    Field{"contact_bounds", Type::floating3_pair, true},
 };
 inline constexpr std::array cargo_fields{
     Field{"raw", Type::integer}, Field{"products", Type::integer},
@@ -165,6 +182,7 @@ inline constexpr std::array adapter_profile_fields{
 inline constexpr std::array option_fields{
     Field{"opening", Type::boolean}, Field{"physical", Type::boolean},
     Field{"native", Type::boolean}, Field{"arrival", Type::boolean},
+    Field{"copper_material", Type::boolean}, Field{"manual_sources", Type::boolean},
     Field{"foundations", Type::boolean},
     Field{"developer_conveniences", Type::boolean},
 };
@@ -270,6 +288,9 @@ inline constexpr std::array engineering_fields{
 };
 inline constexpr std::array records{
     Record{"stock", Container::object, stock_fields},
+    Record{"material_mass", Container::object, mass_fields, "options.copper_material"},
+    Record{"hand_sources", Container::object_values, hand_source_fields,
+        "options.manual_sources"},
     Record{"cargo", Container::object_values, cargo_fields},
     Record{"dropped_material", Container::array_elements, dropped_fields},
     Record{"actors", Container::object_values, actor_fields},
@@ -385,6 +406,12 @@ inline bool typed(const Value& value, Type type) {
             for (const auto& entry : *entries)
                 if (!typed(entry, Type::integer3)) return false;
             return true;
+        }
+        case Type::floating3_pair: {
+            const auto* entries = std::get_if<Value::Array>(&value.storage());
+            return entries && entries->size() == 2 &&
+                typed((*entries)[0], Type::floating3) &&
+                typed((*entries)[1], Type::floating3);
         }
     }
     return false;
@@ -526,6 +553,7 @@ inline const char* type_name(Type type) {
         case Type::nullable_string: return "nullable_string";
         case Type::integer3_or_empty: return "integer3_or_empty";
         case Type::integer3_array: return "integer3_array";
+        case Type::floating3_pair: return "floating3_pair";
     }
     return "";
 }

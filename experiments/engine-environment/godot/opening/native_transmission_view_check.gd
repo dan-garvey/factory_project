@@ -78,6 +78,10 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_worksite_delta := false
 	var inject_bad_engineering_full := false
 	var inject_bad_engineering_delta := false
+	var inject_bad_material_full := false
+	var inject_bad_material_delta := false
+	var inject_bad_sources_full := false
+	var inject_bad_sources_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -116,6 +120,13 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "projection" and inject_bad_engineering_full:
 			inject_bad_engineering_full = false
 			delivered.opening_engineering.P.actor = "Q"
+		elif method == "projection" and inject_bad_material_full:
+			inject_bad_material_full = false
+			delivered.erase("material_mass")
+		elif method == "projection" and inject_bad_sources_full:
+			inject_bad_sources_full = false
+			delivered.hand_sources = delivered.hand_sources.duplicate(true)
+			delivered.hand_sources["opening-copper"].position = [0.0, 0.0]
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -155,6 +166,16 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "advance_delta" and inject_bad_engineering_delta:
 			inject_bad_engineering_delta = false
 			return {"changes": {"opening_engineering": {}}, "removed": []}
+		elif method == "advance_delta" and inject_bad_material_delta:
+			inject_bad_material_delta = false
+			var mass: Dictionary = _view_cache.material_mass.duplicate(true)
+			mass.accounted_mass = "unknown"
+			return {"changes": {"material_mass": mass}, "removed": []}
+		elif method == "advance_delta" and inject_bad_sources_delta:
+			inject_bad_sources_delta = false
+			var sources: Dictionary = _view_cache.hand_sources.duplicate(true)
+			sources["opening-copper"].remaining = "unknown"
+			return {"changes": {"hand_sources": sources}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3956,6 +3977,36 @@ func _native_view_cache_regression() -> void:
 			and not trusted._complete_projection(missing_worksite)
 	verify(worksite_presence_valid and ordinary.projection().options.arrival == false,
 		"The native profile requires every physical arrival readout, even when the pod itself is missing.")
+	var material_rule: Dictionary = trusted._projection_fields.get("material_mass", {})
+	var sources_rule: Dictionary = trusted._projection_fields.get("hand_sources", {})
+	var source_schema: Dictionary = trusted._projection_records.get("hand_sources", {})
+	var mass_schema: Dictionary = trusted._projection_records.get("material_mass", {})
+	var missing_mass := complete.duplicate(true)
+	missing_mass.erase("material_mass")
+	var bad_mass := complete.duplicate(true)
+	bad_mass.material_mass.accounted_mass = "unknown"
+	var missing_sources := complete.duplicate(true)
+	missing_sources.erase("hand_sources")
+	var bad_source := complete.duplicate(true)
+	bad_source.hand_sources["opening-copper"].position = [0.0, 0.0]
+	var bad_bounds := complete.duplicate(true)
+	bad_bounds.hand_sources["opening-copper"].contact_bounds = [[0, 0], [1, 1, 1]]
+	verify(complete.options.copper_material and complete.options.manual_sources
+		and not ordinary.projection().options.copper_material
+		and not ordinary.projection().options.manual_sources
+		and not ordinary.projection().has("material_mass")
+		and not ordinary.projection().has("hand_sources")
+		and material_rule.get("required_with") == "options.copper_material"
+		and sources_rule.get("required_with") == "options.manual_sources"
+		and mass_schema.get("required_with") == "options.copper_material"
+		and source_schema.get("required_with") == "options.manual_sources"
+		and source_schema.get("fields", {}).get("contact_bounds", {}).get("type") == "floating3_pair"
+		and not trusted._complete_projection(missing_mass)
+		and not trusted._complete_projection(bad_mass)
+		and not trusted._complete_projection(missing_sources)
+		and not trusted._complete_projection(bad_source)
+		and not trusted._complete_projection(bad_bounds),
+		"Copper mass and finite hand sources use profile-required native fields and typed positions.")
 	var wrong_hardware := complete.duplicate(true)
 	wrong_hardware.supplied_hardware_boxes = {"broken": {"entity": "box", "generation": 1,
 		"center": [0.0, 0.0], "half": [1.0, 1.0, 1.0]}}
@@ -4190,6 +4241,34 @@ func _native_view_cache_regression() -> void:
 		"A merged tick missing the player's engineering report cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"A fresh native view recovers after a missing tick report.")
+	trusted._view_cache = {}
+	trusted.inject_bad_material_full = true
+	var bad_material_full: Dictionary = trusted.view_projection()
+	verify(bad_material_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full view missing the copper mass ledger cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after the missing mass ledger.")
+	trusted.view_projection()
+	trusted.inject_bad_material_delta = true
+	var bad_material_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_material_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged tick with a mistyped mass ledger cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after the rejected mass delta.")
+	trusted._view_cache = {}
+	trusted.inject_bad_sources_full = true
+	var bad_sources_full: Dictionary = trusted.view_projection()
+	verify(bad_sources_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full view with an invalid ore position cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after the invalid hand-source view.")
+	trusted.view_projection()
+	trusted.inject_bad_sources_delta = true
+	var bad_sources_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_sources_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged tick with mistyped finite stock cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after the rejected hand-source delta.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

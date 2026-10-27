@@ -273,6 +273,10 @@ func _projection_type_matches(value: Variant, expected: Variant) -> bool:
 			for point in value:
 				if not _projection_type_matches(point, "integer3"): return false
 			return true
+		"floating3_pair":
+			return value is Array and value.size() == 2 \
+				and _projection_type_matches(value[0], "floating3") \
+				and _projection_type_matches(value[1], "floating3")
 		"string_pairs", "integer_pairs":
 			if not value is Array:
 				return false

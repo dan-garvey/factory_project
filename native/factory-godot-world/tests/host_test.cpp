@@ -351,8 +351,11 @@ void nonarrival_tick_schema() {
     check(factory::godot_world::projection_contract::complete(V(full_before)),
           "The ordinary Host exports every stable typed projection field.");
     check(!field<bool>(V(field<O>(V(full_before), "options")), "arrival") &&
-          !full_before.contains("landing_pod"),
-          "An ordinary site advertises its profile without requiring arrival hardware.");
+          !field<bool>(V(field<O>(V(full_before), "options")), "copper_material") &&
+          !field<bool>(V(field<O>(V(full_before), "options")), "manual_sources") &&
+          !full_before.contains("landing_pod") &&
+          !full_before.contains("material_mass") && !full_before.contains("hand_sources"),
+          "An ordinary site advertises its profile without requiring arrival material or hardware.");
     auto malformed_optional_hardware = full_before;
     malformed_optional_hardware.emplace("supplied_hardware_boxes", V(O{{"broken", V(O{})}}));
     check(!factory::godot_world::projection_contract::complete(V(malformed_optional_hardware)),
