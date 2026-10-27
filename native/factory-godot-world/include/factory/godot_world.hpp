@@ -1,6 +1,7 @@
 #pragma once
 
 #include "factory/checkpoint.hpp"
+#include "factory/physical_support.hpp"
 
 #include <cstddef>
 #include <map>
@@ -67,11 +68,7 @@ private:
         std::unique_ptr<Owned> candidate;
         std::string refusal;
     };
-    struct TransmissionSupport {
-        authority::Point foot, bearing;
-        std::vector<std::pair<authority::Point, authority::Point>> boxes;
-        std::size_t route{};
-    };
+    using TransmissionSupport = physical_support::TransmissionSupport;
 
     [[nodiscard]] world::ObserveActor observe() const;
     [[nodiscard]] Decoded decode(const values::Value&) const;
