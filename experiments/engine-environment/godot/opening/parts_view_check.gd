@@ -1581,22 +1581,24 @@ func _ui_shortcuts() -> void:
 		var event := InputEventKey.new()
 		event.pressed = true
 		event.keycode = KEY_8
-		bar._input(event)
-		verify(bar.slots[7].is_empty(), "A number alone does not create a hotbar target or assignment.")
+		var first_focused: Control = bar.catalog.gui_get_focus_owner()
+		bar.catalog.window_input.emit(event)
+		verify(first_focused is BuildingHotbar.PlaceableTile
+			and bar.slots[7] == first_focused.tool and bar.catalog.visible,
+			"Opening inventory focuses a carried placeable so a number can bind it immediately.")
 		bar.catalog_buttons.gearbox.grab_focus()
-		bar._input(event)
-		verify(bar.slots[7] == "gearbox" and not bar.catalog.visible,
-			"A focused carried placeable and number key bind that exact slot.")
-		bar.open_catalog()
+		bar.catalog.window_input.emit(event)
+		verify(bar.slots[7] == "gearbox" and bar.catalog.visible,
+			"A focused carried placeable and number key bind the world slot without closing inventory.")
 		event.keycode = KEY_H
-		bar._input(event)
+		bar.catalog.window_input.emit(event)
 		verify(bar.slots[7] == "gearbox" and view.mode == "gearbox" and not bar.catalog.visible,
 			"A catalog letter selects a carried mechanical part without changing its hotbar binding.")
 		bar.open_catalog()
-		bar.catalog_slots[7].grab_focus()
 		event.keycode = KEY_DELETE
-		bar._input(event)
-		verify(bar.slots[7].is_empty() and view.mode == "inspect", "Delete clears the focused hotbar slot.")
+		bar.catalog.window_input.emit(event)
+		verify(bar.slots[7].is_empty() and view.mode == "inspect",
+			"Delete clears the last assigned world hotbar slot from inventory.")
 		bar._close_catalog()
 		event.keycode = KEY_D
 		event.ctrl_pressed = true
@@ -2094,17 +2096,24 @@ func _hotbar() -> void:
 			"A missing active connector cannot fall back to single-cell belt placement.")
 		bar.select_slot(2)
 		bar.open_catalog()
-		verify(bar.catalog.visible and bar.catalog_slots.size() == 8,
-			"The inventory exposes eight numbered hotbar drop slots.")
+		verify(bar.catalog.visible and bar.buttons.size() == 8
+			and bar.catalog.find_children("*", "Button", true, false).all(
+				func(button: Node): return not button is BuildingHotbar.HotbarSlot),
+			"The world hotbar has eight drop slots and the inventory has no duplicate hotbar.")
 		verify(not view._can_control_character() and not bar.catalog_buttons.processor.disabled,
 			"The modal inventory holds movement while keeping carried parts available.")
 		var processor_drag: Dictionary = bar._drag_payload("processor")
-		verify(bar.catalog_slots[7]._can_drop_data(Vector2.ZERO, processor_drag),
-			"A carried processor can be dragged to key 8 inside inventory.")
-		bar.catalog_slots[7]._drop_data(Vector2.ZERO, processor_drag)
-		verify(bar.slots[7] == "processor" and not bar.catalog.visible and view.mode == "belt",
-			"Dropping a placeable binds the slot without selecting placement or changing custody.")
-		bar.open_catalog()
+		verify(bar.buttons[7]._can_drop_data(Vector2.ZERO, processor_drag),
+			"A carried processor can be dragged to world hotbar key 8.")
+		bar.buttons[7]._drop_data(Vector2.ZERO, processor_drag)
+		verify(bar.slots[7] == "processor" and bar.catalog.visible and view.mode == "belt",
+			"Dropping a placeable binds the world slot while inventory stays open.")
+		var blocked_world_key := InputEventKey.new()
+		blocked_world_key.keycode = KEY_8
+		blocked_world_key.pressed = true
+		view._unhandled_input(blocked_world_key)
+		verify(view.mode == "belt" and view.request_sequence == 17,
+			"The open inventory keeps world hotbar selection behind the menu inactive.")
 		bar.catalog_buttons.processor.pressed.emit()
 		verify(bar.slots[7] == "processor" and view.mode == "processor" and not bar.catalog.visible and view._can_control_character(),
 			"Clicking a carried part selects placement without changing its binding.")
@@ -2113,9 +2122,10 @@ func _hotbar() -> void:
 		var rebind := InputEventKey.new()
 		rebind.keycode = KEY_8
 		rebind.pressed = true
-		bar._input(rebind)
-		verify(bar.slots[7] == "collector" and not bar.catalog.visible,
-			"A focused carried item and number key replace an existing binding.")
+		bar.catalog.window_input.emit(rebind)
+		verify(bar.slots[7] == "collector" and bar.catalog.visible,
+			"A focused carried item and number key replace an existing binding while inventory stays open.")
+		bar._close_catalog()
 		bar.select_slot(7)
 		verify(view.mode == "collector" and bar.selected_slot == 7,
 			"Numbered hotbar selection arms the newly bound tool.")
@@ -2142,7 +2152,7 @@ func _hotbar() -> void:
 		verify(bar.slot_counts[0].text == "0" and view.mode == "inspect",
 			"An exhausted kit cannot be selected without borrowing the compatibility stock alias.")
 		bar.open_catalog()
-		verify(not bar.catalog_slots[7]._can_drop_data(Vector2.ZERO,
+		verify(not bar.buttons[7]._can_drop_data(Vector2.ZERO,
 			{"hotbar_owner": bar.get_instance_id(), "tool": "collector"}),
 			"An exhausted carried item cannot be rebound by drag.")
 		bar.catalog_buttons.collector.pressed.emit()
@@ -2377,7 +2387,7 @@ func _arrival_hotbar() -> void:
 	var context_key := InputEventKey.new()
 	context_key.keycode = KEY_S
 	context_key.pressed = true
-	bar._input(context_key)
+	bar.catalog.window_input.emit(context_key)
 	verify(view.issued.size() == 5 and view.issued[4] == {
 		"action": "stow_fabrication_hub", "entity": "pod-fabrication-hub"},
 		"The bench inventory retains the pod stow action on its visible S shortcut.")
@@ -2385,15 +2395,16 @@ func _arrival_hotbar() -> void:
 	bar.catalog.hide()
 	bar.open_catalog()
 	var hub_drag: Dictionary = bar._drag_payload("pod_workshop")
-	verify(bar.catalog_slots[2]._can_drop_data(Vector2.ZERO, hub_drag),
+	verify(bar.buttons[2]._can_drop_data(Vector2.ZERO, hub_drag),
 		"A stowed pod workshop is a carried placeable hotbar source.")
-	bar.catalog_slots[2]._drop_data(Vector2.ZERO, hub_drag)
-	verify(bar.slots[2] == "pod_workshop" and bar.slot_icons[2].texture == bar.material_buttons.fabrication_hub.icon,
+	bar.buttons[2]._drop_data(Vector2.ZERO, hub_drag)
+	verify(bar.slots[2] == "pod_workshop" and bar.catalog.visible
+		and bar.slot_icons[2].texture == bar.material_buttons.fabrication_hub.icon,
 		"The pod workshop binds with its literal inventory icon.")
 	await process_frame
-	bar.open_catalog()
+	verify(bar.catalog.visible, "A world hotbar drop keeps inventory open after the next frame.")
 	context_key.keycode = KEY_P
-	bar._input(context_key)
+	bar.catalog.window_input.emit(context_key)
 	verify(view.mode == "pod_workshop" and not bar.catalog.visible
 		and bar.material_counts.fabrication_hub.text == "1",
 		"A carried pod tile and its P shortcut select placement from the same inventory.")
@@ -2424,19 +2435,27 @@ func _arrival_hotbar() -> void:
 	view._refresh_ui()
 	bar.open_catalog()
 	var frame_drag: Dictionary = bar._drag_payload("component:wooden_frame")
-	verify(bar.catalog_slots[0]._can_drop_data(Vector2.ZERO, frame_drag),
+	verify(bar.buttons[0]._can_drop_data(Vector2.ZERO, frame_drag),
 		"A carried fabricated frame can be dragged to the first hotbar key.")
-	bar.catalog_slots[0]._drop_data(Vector2.ZERO, frame_drag)
-	verify(not bar.buttons[0].disabled and bar.slot_counts[0].text == "2",
+	bar.buttons[0]._drop_data(Vector2.ZERO, frame_drag)
+	verify(bar.catalog.visible and not bar.buttons[0].disabled and bar.slot_counts[0].text == "2",
 		"A confirmed fabricated frame enables its quick slot with the active actor's count.")
 	await process_frame
-	bar.open_catalog()
 	bar.inventory_scroll.ensure_control_visible(bar.component_buttons.wooden_frame)
 	await process_frame
-	var frame_center: Vector2 = bar.component_buttons.wooden_frame.get_global_rect().get_center()
-	verify(bar.bind_number_key(5, frame_center) and bar.slots[5] == "component:wooden_frame",
-		"Hovering a visible carried placeable and pressing key 6 binds that exact key.")
-	verify(bar._drag_payload("raw").is_empty() and not bar.catalog_slots[2]._can_drop_data(
+	bar.component_buttons.anvil.grab_focus()
+	bar.component_buttons.wooden_frame.mouse_entered.emit()
+	var frame_key := InputEventKey.new()
+	frame_key.keycode = KEY_6
+	frame_key.pressed = true
+	bar.catalog.window_input.emit(frame_key)
+	verify(bar.slots[5] == "component:wooden_frame" and bar.catalog.visible,
+		"A hovered carried placeable takes precedence over another focused tile for key 6.")
+	bar.component_buttons.wooden_frame.mouse_exited.emit()
+	bar.catalog.window_input.emit(frame_key)
+	verify(bar.slots[5] == "component:anvil" and bar.catalog.visible,
+		"Leaving the tile restores focused-item keyboard binding.")
+	verify(bar._drag_payload("raw").is_empty() and not bar.buttons[2]._can_drop_data(
 		Vector2.ZERO, {"hotbar_owner": bar.get_instance_id(), "tool": "raw"}),
 		"Raw stock cannot masquerade as a placeable hotbar source.")
 	bar._close_catalog()
@@ -2460,7 +2479,7 @@ func _arrival_hotbar() -> void:
 		var cog_key := InputEventKey.new()
 		cog_key.keycode = KEY_8
 		cog_key.pressed = true
-		bar._input(cog_key)
+		bar.catalog.window_input.emit(cog_key)
 		bar._close_catalog()
 		bar.select_slot(7)
 		verify(bar.slots[7] == "component:copper_cog" and view.mode == "component"
@@ -2470,7 +2489,7 @@ func _arrival_hotbar() -> void:
 			"Focused-item number binding selects the exact component through ordinary placement.")
 	bar.open_catalog()
 	var ram_drag: Dictionary = bar._drag_payload("component:ram_face")
-	bar.catalog_slots[6]._drop_data(Vector2.ZERO, ram_drag)
+	bar.buttons[6]._drop_data(Vector2.ZERO, ram_drag)
 	bar._close_catalog()
 	bar.select_slot(6)
 	verify(bar.slots[6] == "component:ram_face" and view.mode == "component"
@@ -2482,8 +2501,9 @@ func _arrival_hotbar() -> void:
 	await settle_widgets()
 	verify(bar.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
 		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size)))
-		and bar.catalog.size.y <= 464,
-		"The combined inventory stays inside the narrow viewport with a scrollable item grid.")
+		and bar.catalog.size.y <= 464
+		and bar.catalog.position.y + bar.catalog.size.y <= bar.position.y - 8.0,
+		"The narrow inventory leaves the single world hotbar visible as its drop target.")
 	bar._close_catalog()
 	view.client = "Q"
 	view._refresh_ui()
@@ -2521,7 +2541,7 @@ func _arrival_hotbar() -> void:
 		and bar.component_buttons.wooden_slide.icon != bar.component_buttons.copper_slide.icon
 		and bar.component_counts.wooden_slide.text == "1",
 		"Each slide has a distinct focused icon with its actual carried count.")
-	bar._input(slide_key)
+	bar.catalog.window_input.emit(slide_key)
 	bar._close_catalog()
 	bar.select_slot(7)
 	verify(bar.slots[7] == "component:wooden_slide" and view.mode == "component"
@@ -2614,7 +2634,7 @@ func _render_arrival_hotbar() -> void:
 		and partial_grid.items_before_blanks,
 		"Partly filled carried inventory has thirty-two cells with spare cells after owned items.")
 	var render_slide_drag: Dictionary = bar._drag_payload("component:wooden_slide")
-	bar.catalog_slots[7]._drop_data(Vector2.ZERO, render_slide_drag)
+	bar.buttons[7]._drop_data(Vector2.ZERO, render_slide_drag)
 	bar._close_catalog()
 	bar.select_slot(7)
 	view._refresh_ui()
@@ -2698,8 +2718,9 @@ func _render_arrival_hotbar() -> void:
 		and catalog_surface.bg_color.a == 1.0,
 		"The narrow inventory covers the HUD edge and blocks underlying text from showing through.")
 	verify(bar.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
-		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size))),
-		"The rendered inventory fits the narrow viewport.")
+		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size)))
+		and bar.catalog.position.y + bar.catalog.size.y <= bar.position.y - 8.0,
+		"The rendered narrow inventory fits above the visible world hotbar.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-narrow-catalog.png") == OK,
 		"Retain the rendered narrow inventory window.")
@@ -2738,6 +2759,7 @@ func _render_arrival_hotbar() -> void:
 	await settle_widgets()
 	var focused_tile: Button = bar.component_buttons.channel_broad_z
 	verify(bar.catalog.visible and bar.material_grid.columns == 3
+		and bar.catalog.position.y + bar.catalog.size.y <= bar.position.y - 8.0
 		and bar.catalog.gui_get_focus_owner() == focused_tile
 		and bar.inventory_scroll.get_global_rect().encloses(focused_tile.get_global_rect()),
 		"A late carried item remains keyboard reachable and scrolls into the narrow inventory.")
@@ -3671,14 +3693,14 @@ func _workshop_pages() -> void:
 			and view.building_hotbar.footprint_button.tooltip_text.contains("four carried anvils"),
 			"V selects one joined workbed identity and shows its four-part cost.")
 		view.building_hotbar.open_catalog()
-		view.building_hotbar._input(footprint_key)
+		view.building_hotbar.catalog.window_input.emit(footprint_key)
 		verify(view.arrival_assembly_controls.selected_name() == "anvil"
 			and view.building_hotbar.footprint_catalog_button.icon ==
 				view.building_hotbar.FOOTPRINT_ONE_ICON,
 			"The same V shortcut returns to the small workbed while the build catalog is open.")
 		view.arrival_assembly_controls.select_component_name("flat_head")
 		view._select_tool("component")
-		view.building_hotbar._input(footprint_key)
+		view.building_hotbar.catalog.window_input.emit(footprint_key)
 		verify(view.arrival_assembly_controls.selected_name() == "broad_flat_head"
 			and view.building_hotbar.footprint_button.tooltip_text.contains("four carried flat heads"),
 			"V selects the matching one-piece broad head with its four-part cost.")

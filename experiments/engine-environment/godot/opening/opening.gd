@@ -1486,7 +1486,7 @@ func _open_action_menu(button: MenuButton) -> bool:
 	return true
 
 func _unhandled_input(event: InputEvent) -> void:
-	if explanation_open or _object_menu_open() or _pause_menu_open():
+	if explanation_open or _object_menu_open() or _pause_menu_open() or _catalog_open():
 		return
 	if event is InputEventMouseMotion:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):

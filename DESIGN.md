@@ -254,8 +254,10 @@ visible confirmation, retain placed shafts/cogs, and work on elevated foundation
 The carried grid shows at least 32 cells: actual owned items first, then empty
 cells. Scroll to reach further item kinds; the grid does not cap native cargo.
 Bind a carried placeable to a numbered hotbar key by dragging it onto that slot
-or by hovering or focusing its inventory tile and pressing 1–8. Outside the
-inventory, number keys select bound tools; clicking an inventory tile selects
+or by hovering or focusing its inventory tile and pressing 1–8. The single
+hotbar remains in the world view, and binding a key keeps the inventory open
+for further assignments. Outside the inventory, number keys select bound tools;
+clicking an inventory tile selects
 placement without changing a binding.
 Machine workbeds show actual occupied material and only carried inputs accepted
 by the selected assembly. Empty work locations are blank; the whole carried area

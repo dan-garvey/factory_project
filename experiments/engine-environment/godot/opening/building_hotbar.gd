@@ -96,7 +96,6 @@ var recipe_focus := "collector"
 var recipe_scroll: ScrollContainer
 var inventory_scroll: ScrollContainer
 var catalog_columns: BoxContainer
-var catalog_slots: Array[Button] = []
 var context_label: Label
 var carried_label: Label
 var context_action: Button
@@ -104,6 +103,8 @@ var context_bench := ""
 var parts_label: Label
 var focus_description: Label
 var selected_slot := 0
+var last_bound_slot := -1
+var _hovered_tool := ""
 var _arrival_active := false
 var _component_labels: Dictionary = {}
 var _component_names: Array[String] = []
@@ -178,11 +179,14 @@ func configure(host, ui: Control) -> void:
 		buttons.append(button)
 	catalog = PopupPanel.new()
 	catalog.name = "BuildingCatalog"
+	# A world hotbar drop must not dismiss the inventory on the next frame.
+	catalog.popup_window = false
 	catalog.theme = ui.theme.duplicate()
 	var menu_surface := StyleBoxFlat.new()
 	menu_surface.bg_color = Color(0.055, 0.09, 0.11, 1.0)
 	menu_surface.set_corner_radius_all(7)
 	catalog.theme.set_stylebox("panel", "PopupPanel", menu_surface)
+	catalog.window_input.connect(_catalog_input)
 	add_child(catalog)
 	var margin := MarginContainer.new()
 	catalog_margin = margin
@@ -233,6 +237,8 @@ func configure(host, ui: Control) -> void:
 		material_buttons[kind] = tile
 		material_counts[kind] = _count_badge(tile)
 		tile.focus_entered.connect(_describe_focus.bind(tile))
+		if tile is PlaceableTile:
+			_track_tile_hover(tile)
 	material_buttons.fabrication_hub.pressed.connect(_select_hub_tool)
 	for tool: String in TOOLS:
 		var button := PlaceableTile.new()
@@ -244,6 +250,7 @@ func configure(host, ui: Control) -> void:
 		catalog_buttons[tool] = button
 		catalog_counts[tool] = _count_badge(button)
 		button.focus_entered.connect(_describe_focus.bind(button))
+		_track_tile_hover(button)
 	component_grid = material_grid
 	for index in MIN_CARRIED_CELLS:
 		var empty := Panel.new()
@@ -292,30 +299,6 @@ func configure(host, ui: Control) -> void:
 	recipe_grid.add_theme_constant_override("h_separation", 6)
 	recipe_grid.add_theme_constant_override("v_separation", 6)
 	recipe_scroll.add_child(recipe_grid)
-	Widgets.label(column, "HOTBAR · drag a carried part here, or hover it and press 1–8", 11)
-	var targets := HBoxContainer.new()
-	targets.add_theme_constant_override("separation", 4)
-	column.add_child(targets)
-	for index in slots.size():
-		var target := HotbarSlot.new()
-		target.owner_view = weakref(self)
-		target.index = index
-		target.pressed.connect(select_slot.bind(index))
-		target.gui_input.connect(_slot_input.bind(index))
-		targets.add_child(target)
-		target.custom_minimum_size = Vector2(42, 39)
-		_style_slot(target)
-		target.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		target.expand_icon = true
-		target.add_theme_constant_override("icon_max_width", 25)
-		var target_key := Label.new()
-		target_key.text = str(index + 1)
-		target_key.position = Vector2(3, 2)
-		target_key.add_theme_font_size_override("font_size", 10)
-		target_key.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		target.add_child(target_key)
-		target.focus_entered.connect(_describe_focus.bind(target))
-		catalog_slots.append(target)
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
 	context_action = Widgets.button(actions, "", _use_context_action)
@@ -326,8 +309,8 @@ func configure(host, ui: Control) -> void:
 	context_action.visible = false
 	var clear: Button = Widgets.button(actions, "", clear_slot)
 	clear.icon = load("res://opening/assets/build-icons/slot-clear.svg")
-	clear.tooltip_text = "Clear hovered or focused hotbar slot · Delete"
-	clear.accessibility_name = "Clear hovered or focused hotbar slot, shortcut Delete"
+	clear.tooltip_text = "Clear last assigned or selected hotbar key · Delete"
+	clear.accessibility_name = "Clear last assigned or selected hotbar key, shortcut Delete"
 	var close: Button = Widgets.button(actions, "", _close_catalog)
 	close.icon = load("res://opening/assets/menu-icons/close.svg")
 	close.tooltip_text = "Close build and inventory · Esc"
@@ -380,13 +363,19 @@ func _describe_focus(button: Button) -> void:
 	if inventory_scroll.is_ancestor_of(button):
 		inventory_scroll.call_deferred("ensure_control_visible", button)
 
-func _input(event: InputEvent) -> void:
+func _track_tile_hover(tile: PlaceableTile) -> void:
+	tile.mouse_entered.connect(func(): _hovered_tool = tile.tool)
+	tile.mouse_exited.connect(func():
+		if _hovered_tool == tile.tool:
+			_hovered_tool = "")
+
+func _catalog_input(event: InputEvent) -> void:
 	if (not catalog.visible and not _catalog_resize_pending) or not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.ctrl_pressed or event.alt_pressed:
 		return
 	if event.keycode >= KEY_1 and event.keycode <= KEY_8:
-		if not bind_number_key(event.keycode - KEY_1, get_viewport().get_mouse_position()):
+		if not bind_number_key(event.keycode - KEY_1):
 			return
 	elif event.keycode == KEY_DELETE:
 		clear_slot()
@@ -404,7 +393,7 @@ func _input(event: InputEvent) -> void:
 		_select_inventory_tool(CATALOG_KEYS[event.keycode])
 	else:
 		return
-	get_viewport().set_input_as_handled()
+	catalog.set_input_as_handled()
 
 func _fit() -> void:
 	if not is_inside_tree():
@@ -418,6 +407,7 @@ func _fit() -> void:
 func _close_catalog() -> void:
 	_catalog_session += 1
 	_catalog_resize_pending = false
+	_hovered_tool = ""
 	catalog.hide()
 
 func _restore_catalog_after_resize(focused: Control, session: int) -> void:
@@ -439,8 +429,10 @@ func _place_catalog() -> void:
 	var extent: Vector2 = get_parent().size
 	_configure_catalog_layout(extent)
 	catalog.size = _catalog_dimensions(extent)
+	var centered_y := int((extent.y - catalog.size.y) / 2.0)
+	var above_hotbar := int(_hotbar_top(extent) - catalog.size.y - 8.0)
 	catalog.position = Vector2i(maxi(0, int((extent.x - catalog.size.x) / 2.0)),
-		maxi(0, int((extent.y - catalog.size.y) / 2.0)))
+		maxi(0, mini(centered_y, above_hotbar)))
 
 func _configure_catalog_layout(extent: Vector2) -> void:
 	var compact := extent.x <= 720.0
@@ -466,7 +458,10 @@ func _catalog_dimensions(extent: Vector2) -> Vector2i:
 	var project: bool = _arrival_active and _view() != null and _plate_unlocked(_view())
 	var starter_height := 464 if extent.x <= 720.0 else 420
 	return Vector2i(width, mini(starter_height if starter else 520 if project else 620,
-		int(extent.y) - 16))
+		maxi(1, int(_hotbar_top(extent) - 16.0))))
+
+func _hotbar_top(extent: Vector2) -> float:
+	return extent.y - maxf(size.y, get_combined_minimum_size().y) - 18.0
 
 func _view():
 	return _host.get_ref() if _host != null else null
@@ -541,6 +536,7 @@ func _sync_arrival(host) -> void:
 		_arrival_active = arrival
 		slots = ARRIVAL_SLOTS.duplicate()
 		selected_slot = -1
+		last_bound_slot = -1
 	if arrival and _component_names.is_empty() and host.arrival_assembly_controls != null:
 		for item in host.arrival_assembly_controls.COMPONENTS:
 			var component: String = str(item[0])
@@ -557,6 +553,7 @@ func _sync_arrival(host) -> void:
 			component_buttons[component] = button
 			component_counts[component] = _count_badge(button)
 			button.focus_entered.connect(_describe_focus.bind(button))
+			_track_tile_hover(button)
 	for component: String in component_buttons:
 		component_buttons[component].visible = arrival
 	recipe_side.visible = arrival
@@ -856,12 +853,6 @@ func refresh(snapshot_ready: bool = true) -> void:
 		buttons[index].disabled = host.explanation_open or not usable
 		buttons[index].modulate = Color(0.65, 0.70, 0.72) if not tool.is_empty() and (amount < 1 or not offered) else Color.WHITE
 		buttons[index].button_pressed = selected_slot == index and active == tool
-		var target := catalog_slots[index]
-		target.icon = slot_icons[index].texture
-		target.tooltip_text = "Key %d: %s · %d %s. Drag a carried part here, or hover its tile and press %d." % [
-			index + 1, label, amount, scope, index + 1]
-		target.accessibility_name = "Hotbar key %d, %s, %d %s; drop a carried part or focus its tile and press %d" % [index + 1, label, amount, scope, index + 1]
-		target.add_theme_color_override("font_color", Color("f6e5c5") if index == selected_slot else Color("a5bab9"))
 	for tool: String in catalog_buttons:
 		var button: Button = catalog_buttons[tool]
 		var amount := _count(tool, parts)
@@ -902,6 +893,7 @@ func open_catalog() -> void:
 		return
 	_catalog_session += 1
 	_catalog_resize_pending = false
+	_hovered_tool = ""
 	context_bench = ""
 	refresh()
 	var viewport_size: Vector2 = get_parent().size
@@ -917,6 +909,7 @@ func open_at_bench(bench_id: String) -> void:
 		return
 	_catalog_session += 1
 	_catalog_resize_pending = false
+	_hovered_tool = ""
 	context_bench = bench_id
 	refresh()
 	host._release_character_controls()
@@ -927,8 +920,11 @@ func open_at_bench(bench_id: String) -> void:
 	_place_catalog.call_deferred()
 
 func _focus_inventory_item() -> void:
-	# Focus a drop slot first. Keyboard users can Tab to an item before binding it.
-	catalog_slots[0].grab_focus()
+	for tile: PlaceableTile in catalog_buttons.values() + component_buttons.values() + [material_buttons.fabrication_hub]:
+		if _binding_available(tile.tool):
+			tile.grab_focus()
+			return
+	collector_focus_button.grab_focus()
 
 func _slot_input(event: InputEvent, index: int) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
@@ -963,24 +959,15 @@ func bind_slot(index: int, tool: String) -> bool:
 	if index < 0 or index >= slots.size() or not _binding_available(tool):
 		return false
 	slots[index] = tool
+	last_bound_slot = index
 	refresh()
-	_close_catalog()
 	return true
 
-func _placeable_at(pointer: Vector2) -> String:
-	if not catalog.visible or not inventory_scroll.get_global_rect().has_point(pointer):
-		return ""
-	for tile: PlaceableTile in catalog_buttons.values() + component_buttons.values() + [material_buttons.fabrication_hub]:
-		if tile.get_global_rect().has_point(pointer) and _binding_available(tile.tool):
-			return tile.tool
-	return ""
-
-func bind_number_key(index: int, pointer: Vector2) -> bool:
+func bind_number_key(index: int) -> bool:
 	if not catalog.visible:
 		return false
-	var pointed := _placeable_at(pointer)
-	if not pointed.is_empty():
-		return bind_slot(index, pointed)
+	if not _hovered_tool.is_empty() and _binding_available(_hovered_tool):
+		return bind_slot(index, _hovered_tool)
 	var focused: Control = catalog.gui_get_focus_owner()
 	if focused is PlaceableTile and _binding_available(focused.tool):
 		return bind_slot(index, focused.tool)
@@ -988,11 +975,13 @@ func bind_number_key(index: int, pointer: Vector2) -> bool:
 
 func _clear_index() -> int:
 	var hovered: Control = get_viewport().gui_get_hovered_control()
-	if hovered is HotbarSlot and catalog.is_ancestor_of(hovered):
+	if hovered is HotbarSlot and is_ancestor_of(hovered):
 		return hovered.index
-	var focused: Control = catalog.gui_get_focus_owner()
+	var focused: Control = get_viewport().gui_get_focus_owner()
 	if focused is HotbarSlot:
 		return focused.index
+	if last_bound_slot >= 0 and not slots[last_bound_slot].is_empty():
+		return last_bound_slot
 	return selected_slot
 
 func clear_slot(index: int = -1) -> void:
@@ -1004,6 +993,8 @@ func clear_slot(index: int = -1) -> void:
 	if index < 0 or index >= slots.size() or slots[index].is_empty():
 		return
 	slots[index] = ""
+	if last_bound_slot == index:
+		last_bound_slot = -1
 	if selected_slot == index:
 		host._select_tool("inspect")
 	refresh()
