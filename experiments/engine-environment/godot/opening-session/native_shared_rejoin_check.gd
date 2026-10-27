@@ -10,7 +10,12 @@ func _init() -> void:
 	super._init()
 	if phase in ["firstplate", "firstplate-resume", "running-cog", "running-cog-resume"]:
 		deadline = Time.get_ticks_msec() + 240000
-		facts.evidence = "ordinary_shared_first_plate_scene"
+		if phase == "running-cog":
+			facts.evidence = "ordinary_shared_running_cog_repair_scene"
+		elif phase == "running-cog-resume":
+			facts.evidence = "ordinary_shared_running_cog_reopen_scene"
+		else:
+			facts.evidence = "ordinary_shared_first_plate_scene"
 	else:
 		deadline = Time.get_ticks_msec() + 45000
 		facts.evidence = "shared_native_carried_work_rejoin"
