@@ -1,7 +1,9 @@
 #include "factory/godot_world.hpp"
+#include "arrival_site_projection.hpp"
 #include "assembly_projection.hpp"
 #include "build_catalog_projection.hpp"
 #include "checkpoint_envelope.hpp"
+#include "component_geometry.hpp"
 #include "drive_projection.hpp"
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
@@ -41,8 +43,8 @@ using Array = Value::Array;
 using Integer = Value::Integer;
 using Role = stationary::Role;
 using build_catalog_projection::kind;
+using component_geometry::component_bounds;
 using material_projection::point_value;
-using material_projection::slide_phase_projection;
 using material_projection::tick_fields;
 
 // Current opening geometry is authored once for native and the scene adapter.
@@ -56,14 +58,10 @@ using site_geometry::capsule_height;
 using site_geometry::machine_width;
 using site_geometry::machine_height;
 using site_geometry::machine_center_height;
-constexpr double component_shaft_half = 0.205;
 // Hundredths of a height step, shared with the native opening rotor.
 constexpr Integer wheel_radius = site_geometry::wheel_radius_hundredths;
 constexpr Integer wheel_axle_offset = site_geometry::wheel_axle_offset_hundredths;
 constexpr double reach = site_geometry::base_reach;
-constexpr double press_work_crown_rise = 0.082;
-// The work surface meets the top run of a belt on the same foundation.
-constexpr double anvil_work_height = site_geometry::press_work_height;
 
 Integer crafting_bench_generation(const world::State& state, const std::string& id) {
     if (state.fabrication_hub && !state.fabrication_hub->holder && state.fabrication_hub->id == id)
@@ -176,123 +174,6 @@ std::vector<Bounds> collector_external_bounds(const mechanics::Point& center) {
 Bounds foundation_bounds(const world::Foundation& foundation) {
     return {{foundation.center[0] * height_step, foundation.center[1] * height_step - foundation_depth / 2,
              foundation.center[2] * height_step}, {pitch / 2, foundation_depth / 2, pitch / 2}};
-}
-
-Bounds component_bounds(const world::Profile& profile,
-        std::optional<materials::Component> kind, const mechanics::Point& center) {
-    const authority::Point at{center[0] * height_step,
-        center[1] * height_step + anchor_height, center[2] * height_step};
-    const auto vertical = [&](double low, double high) -> Bounds {
-        return {{at[0], (low + high) / 2, at[2]}, {0.14, (high - low) / 2, 0.14}};
-    };
-    if (!kind) return {at, {0.14, 0.14, 0.14}};
-    if (const auto channel = materials::channel_spec(*kind)) {
-        const double low = center[1] * height_step;
-        const double high = at[1] + press_work_crown_rise + 0.12;
-        const double width_x = pitch * channel->floor.x_cells;
-        const double width_z = pitch * channel->floor.z_cells;
-        return {{at[0] + (width_x - pitch) / 2, (low + high) / 2,
-                 at[2] + (width_z - pitch) / 2},
-                {width_x / 2, (high - low) / 2, width_z / 2}};
-    }
-    if (*kind == materials::Component::tool_mount ||
-        *kind == materials::Component::cutting_edge) {
-        const auto step = *kind == materials::Component::tool_mount ? 1 : 2;
-        for (const auto& face : profile.collector_faces)
-            for (Integer elevation : {Integer{0}, Integer{1}}) {
-                const mechanics::Point tool_cell{
-                    face.machine_center[0] + step * face.toward_ore[0],
-                    face.machine_center[1] + elevation,
-                    face.machine_center[2] + step * face.toward_ore[2]};
-                if (center != tool_cell) continue;
-                // These independently placed parts own their supports down to
-                // the frame's floor. A press mount or part away from a trusted
-                // ore face retains its shorter original box.
-                const double floor = face.machine_center[1] * height_step;
-                const double top = at[1] + (*kind == materials::Component::tool_mount ?
-                    0.28 : 0.105);
-                const bool along_x = face.toward_ore[0] != 0;
-                const double face_half = *kind == materials::Component::tool_mount ?
-                    0.21 : 0.2025;
-                const double cross_x = *kind == materials::Component::tool_mount ?
-                    0.20 : 0.21;
-                const double cross_z = *kind == materials::Component::tool_mount ?
-                    0.19 : 0.18;
-                return {{at[0], (floor + top) / 2, at[2]},
-                    {along_x ? face_half : cross_x, (top - floor) / 2,
-                     along_x ? cross_z : face_half}};
-            }
-    }
-    switch (*kind) {
-        case materials::Component::wooden_frame:
-            // The frame's four load-bearing feet meet the level's floor.
-            return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.2025, 0.45, 0.2025}};
-        case materials::Component::wooden_workbench:
-            // A floor-seated table is usable on ground or an ordinary joined deck.
-            return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.34, 0.45, 0.30}};
-        case materials::Component::tool_mount:
-            return {{at[0], at[1] + 0.10, at[2]},
-                    {height_step - component_shaft_half, 0.18,
-                     height_step - component_shaft_half}};
-        case materials::Component::anvil:
-            // Its feet rest on the floor. The working face spans a full belt
-            // lane; the conservative body also includes its side rails.
-            return {{at[0], center[1] * height_step + anvil_work_height * 0.5, at[2]},
-                {0.2025, anvil_work_height * 0.5,
-                 site_geometry::belt_frame_outer_half_width}};
-        case materials::Component::broad_anvil: {
-            const double floor = center[1] * height_step;
-            return {{at[0] + pitch * 0.5, floor + anvil_work_height * 0.5,
-                     at[2] + pitch * 0.5},
-                    {pitch, anvil_work_height * 0.5, pitch}};
-        }
-        case materials::Component::ram_face:
-            return vertical(center[1] * height_step - height_step + anvil_work_height,
-                at[1] + height_step * 0.5);
-        case materials::Component::flat_head:
-            // Reserve the entire carriage-driven die sweep. The named slide
-            // may occupy its coaxial upper portion as an intentional fitting.
-            return vertical(center[1] * height_step - height_step + anvil_work_height,
-                at[1] + 0.125);
-        case materials::Component::broad_flat_head: {
-            const double low = center[1] * height_step - height_step + anvil_work_height;
-            const double high = at[1] + height_step * 0.5;
-            return {{at[0] + pitch * 0.5, (low + high) * 0.5,
-                     at[2] + pitch * 0.5},
-                    {pitch, (high - low) * 0.5, pitch}};
-        }
-        case materials::Component::sliding_guide:
-            // Its full selected rails reach the ram below, whether or not a
-            // press is recognized. The admitted box includes that entire
-            // span and meets the unchanged tool-mount box above.
-            return vertical(at[1] - height_step * 1.5, at[1] + height_step - 0.08);
-        case materials::Component::wooden_slide:
-        case materials::Component::copper_slide: {
-            // This selected body keeps the same dimensions alone and fitted.
-            // In a press its four feet meet the workbed side rails, while the
-            // integral shaft stays at the native rotary input height.
-            const double low = center[1] * height_step - 2 * height_step + anvil_work_height;
-            const double high = at[1] + 0.08;
-            return {{at[0], (low + high) * 0.5, at[2]},
-                {0.21, (high - low) * 0.5,
-                 site_geometry::belt_frame_outer_half_width}};
-        }
-        case materials::Component::cutting_edge:
-            return {{at[0], at[1] - 0.015, at[2]}, {0.21, 0.12, 0.18}};
-        case materials::Component::receiver_tray:
-            return {{at[0], at[1] - 0.0825, at[2]}, {0.18, 0.15, 0.205}};
-        case materials::Component::wooden_shaft:
-        case materials::Component::copper_shaft:
-            return {at, {component_shaft_half, 0.12, component_shaft_half}};
-        case materials::Component::wooden_cog:
-        case materials::Component::copper_cog:
-            // Either horizontal press layout seats this hub against the
-            // neighboring shaft without moving either common-grid center.
-            return {at, {height_step - component_shaft_half, 0.14,
-                         height_step - component_shaft_half}};
-        default:
-            return {at, {0.14, 0.14, 0.14}};
-    }
 }
 
 bool slide_head_fitting(std::optional<materials::Component> first,
@@ -2452,86 +2333,7 @@ Value Host::projection() const {
                     Value(site_geometry::collector_lift.head_size_xy[1])})},
                 {"head_z_size", Value(Array{Value(site_geometry::collector_lift.head_z_size[0]),
                     Value(site_geometry::collector_lift.head_z_size[1])})}})}})}};
-    if (state.landing_pod) {
-        const auto& pod = *state.landing_pod;
-        Object supplied;
-        for (const auto& [id, solid] : arrival_geometry::supplied(state, height_step))
-            supplied.emplace(id, Value(Object{{"entity", Value(solid.entity)},
-                {"generation", Value(solid.generation)}, {"center", point_value(solid.bounds.center)},
-                {"half", point_value(solid.bounds.half)}}));
-        projection.emplace("supplied_hardware_boxes", Value(std::move(supplied)));
-        projection.emplace("landing_pod", Value(Object{{"id", Value(pod.id)},
-            {"generation", Value(pod.generation)},
-            {"center", Value(Array{Value(pod.center[0] / height_denominator),
-                Value(pod.center[1]), Value(pod.center[2] / height_denominator)})},
-            {"deployed", Value(true)}, {"hub_ready", Value(state.fabrication_hub &&
-                !state.fabrication_hub->holder)}}));
-        const auto& hub = *state.fabrication_hub;
-        projection.emplace("fabrication_hub", Value(Object{{"id", Value(hub.id)},
-            {"generation", Value(hub.generation)},
-            {"installed", Value(!hub.holder)},
-            {"holder", hub.holder ? Value(*hub.holder) : Value(nullptr)},
-            {"center", Value(Array{Value(hub.center[0] / height_denominator),
-                Value(hub.center[1]), Value(hub.center[2] / height_denominator)})},
-            {"position", Value(Array{Value(hub.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
-                Value(hub.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
-                Value(hub.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}}));
-        Array benches;
-        for (const auto& [id, placed] : state.placed_components)
-            if (placed.kind == materials::Component::wooden_workbench)
-                benches.emplace_back(Object{{"id", Value(id)},
-                    {"generation", Value(placed.generation)},
-                    {"center", Value(Array{Value(placed.center[0] / height_denominator),
-                        Value(placed.center[1]), Value(placed.center[2] / height_denominator)})},
-                    {"position", Value(Array{Value(placed.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
-                        Value(placed.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
-                        Value(placed.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}});
-        projection.emplace("fabrication_benches", Value(std::move(benches)));
-        Object crank_items;
-        for (const auto& [id, item] : state.crank_items)
-            crank_items.emplace(id, Value(Object{{"id", Value(item.id)},
-                {"generation", Value(item.generation)},
-                {"holder", Value(item.holder.value_or(""))},
-                {"attached_to", Value(item.attached_to.value_or(""))},
-                {"port", Value(item.port ? Array{Value((*item.port)[0]),
-                    Value((*item.port)[1]), Value((*item.port)[2])} : Array{})},
-                {"face", Value(item.face ? Array{Value((*item.face)[0]),
-                    Value((*item.face)[1]), Value((*item.face)[2])} : Array{})}}));
-        projection.emplace("crank_items", Value(std::move(crank_items)));
-        Object placed;
-        for (const auto& [id, component] : state.placed_components) {
-            const auto occupied = component_bounds(profile_, component.kind, component.center);
-            Object part{{"component", Value(materials::component_name(component.kind))},
-                {"generation", Value(component.generation)},
-                {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
-                    Value(component.center[2])})},
-                {"occupied", Value(Object{{"center", point_value(occupied.center)},
-                    {"half", point_value(occupied.half)}})},
-                {"position", Value(Array{
-                    Value(component.center[0] * profile_.meters_per_grid_unit + profile_.anchor_offset[0]),
-                    Value(component.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
-                    Value(component.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}};
-            if (component.kind == materials::Component::wooden_slide ||
-                component.kind == materials::Component::copper_slide) {
-                Array ports;
-                for (const Integer direction : {-1, 1})
-                    ports.emplace_back(Array{Value(component.center[0] + direction),
-                        Value(component.center[1]), Value(component.center[2])});
-                part.emplace("input_ports", Value(std::move(ports)));
-            } else if (component.kind == materials::Component::tool_mount ||
-                component.kind == materials::Component::wooden_shaft ||
-                component.kind == materials::Component::copper_shaft) {
-                part.emplace("input_ports", Value(Array{Value(Array{
-                    Value(component.center[0]), Value(component.center[1]),
-                    Value(component.center[2])})}));
-            }
-            if (const auto axis = power.crank_axes.find(id); axis != power.crank_axes.end())
-                part.emplace("crank_axis", Value(static_cast<Integer>(axis->second)));
-            placed.emplace(id, Value(std::move(part)));
-        }
-        projection.emplace("placed_components", Value(std::move(placed)));
-        projection.emplace("slide_phases", Value(slide_phase_projection(state)));
-    }
+    projection.merge(arrival_site_projection::fields(profile_, state, power));
     projection.merge(assembly_projection::fields(profile_, state, power));
     projection.merge(build_catalog_projection::fields(profile_, snapshot));
     projection.merge(tick_fields(profile_, snapshot));
