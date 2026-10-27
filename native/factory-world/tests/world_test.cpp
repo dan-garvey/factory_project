@@ -84,8 +84,8 @@ a::Object target(const char* action, const char* request, const char* id, const 
     return result;
 }
 
-a::Object place(const char* request, const char* role, I x, I z, I span = 0) {
-    auto result = intent("place", request);
+a::Object place(const char* request, const char* role, I x, I z, I span = 0, const char* actor = "P") {
+    auto result = intent("place", request, actor);
     result.emplace("role", V(role));
     result.emplace("center", V(V::Array{V(x), V(I{0}), V(z)}));
     result.emplace("axis", V("z"));
@@ -300,21 +300,24 @@ void direct_relay_placement_shape() {
           "A direct relay placement spends its finite kit once and replays after malformed attempts.");
 }
 
-void running_removal_rebuild_and_tick() {
+void running_removal_rebuild_and_tick(const char* actor) {
+    const char* other = std::string(actor) == "P" ? "Q" : "P";
     auto f = fixture();
     f.state.material.stock = {14, 0, 0, 0, 1};
     f.state.material.belt_lanes.at("belt").slots.back() = m::Cargo{1, 0, {}};
     auto owner = world(f);
     Observer observer;
-    const auto remove = target("remove", "remove-A", "shaft-A");
+    const auto remove = target("remove", "remove-A", "shaft-A", actor);
     outcome(send(*owner, remove, observer), true, "ok");
     auto before_tick = owner->snapshot();
     const auto power = w::machine_power(before_tick.state.topology);
     check(!power.collector && power.processor &&
           s::power_view(before_tick.state.topology).mechanical.motion.at("pulley-A").state == g::MotionState::rotating,
           "Removing a real shaft stops only its connected branch.");
-    check(before_tick.state.topology.drive_enabled && before_tick.state.kits.at("P").at({s::Role::shaft, 0, 2}) == 1,
-          "Running removal preserves global drive and refunds the exact physical shaft.");
+    check(before_tick.state.topology.drive_enabled && before_tick.state.kits.at(actor).at({s::Role::shaft, 0, 2}) == 1 &&
+          !before_tick.state.kits.at(other).contains({s::Role::shaft, 0, 2}) &&
+          w::World::restore("fixture-world", f.profile, before_tick) != nullptr,
+          "The removing worker receives the exact live shaft without stopping the global drive or crediting the other actor.");
     const auto tick = owner->tick();
     const auto after_tick = owner->snapshot();
     check(tick.error == w::TransactionError::none && tick.changed && tick.current_revision == before_tick.revision + 1,
@@ -329,17 +332,20 @@ void running_removal_rebuild_and_tick() {
     check(observer.calls == 0 && duplicate.current_revision == after_tick.revision &&
           get<I>(*duplicate.result, "revision") == before_tick.revision,
           "Retry retains its original receipt revision after a newer step and target removal.");
-    outcome(send(*owner, target("remove", "remove-again", "shaft-A"), observer), false, "unknown_target");
-    const auto rebuilt = send(*owner, place("rebuild-A", "shaft", 0, 4, 2), observer);
+    outcome(send(*owner, target("remove", "remove-again", "shaft-A", actor), observer), false, "unknown_target");
+    const auto rebuilt = send(*owner, place("rebuild-A", "shaft", 0, 4, 2, actor), observer);
     outcome(rebuilt, true, "ok");
     const auto rebuilt_state = owner->snapshot().state;
     check(get<std::string>(*rebuilt.result, "entity") == "native-part-1" &&
           rebuilt_state.issued_entities.contains("shaft-A") && rebuilt_state.issued_entities.contains("native-part-1"),
           "Rebuilding allocates a new identity while retaining the old entity history.");
-    check(rebuilt_state.kits.at("P").at({s::Role::shaft, 0, 2}) == 0 && w::machine_power(rebuilt_state.topology).collector,
-          "The returned exact part is consumed once and restores geometric transmission.");
+    check(rebuilt_state.kits.at(actor).at({s::Role::shaft, 0, 2}) == 0 &&
+          !rebuilt_state.kits.at(other).contains({s::Role::shaft, 0, 2}) &&
+          w::machine_power(rebuilt_state.topology).collector &&
+          w::World::restore("fixture-world", f.profile, owner->snapshot()) != nullptr,
+          "Only the removing worker spends the returned part to restore power, and the rebuilt line survives restore.");
     const auto serial = rebuilt_state.next_entity_serial;
-    outcome(send(*owner, place("no-second-shaft", "shaft", 32, 0, 2), observer), false, "unavailable_part");
+    outcome(send(*owner, place("no-second-shaft", "shaft", 32, 0, 2, actor), observer), false, "unavailable_part");
     check(owner->snapshot().state.next_entity_serial == serial, "A refused build consumes no identity or physical part.");
 }
 
@@ -599,7 +605,8 @@ int main() {
         startup_and_complete_validation();
         authentication_reach_and_replay();
         direct_relay_placement_shape();
-        running_removal_rebuild_and_tick();
+        running_removal_rebuild_and_tick("P");
+        running_removal_rebuild_and_tick("Q");
         preserve_work_through_recovery_and_rebuild();
         completed_processor_exports_to_output_belt();
         ready_work_and_two_endpoint_reach();
