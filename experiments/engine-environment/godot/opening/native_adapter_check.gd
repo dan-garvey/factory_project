@@ -1045,7 +1045,7 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -2644,8 +2644,64 @@ func _arrival_first_plate_resume_run(capture_prefix: String) -> void:
 			return
 	_record("pass")
 
+func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictionary) -> bool:
+	# Build a belt beside the actor-built workbed, using finite workshop stock.
+	# The two additional foundations keep its shaft supports at the same deck.
+	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 9.9), Vector2(6.0, 10.05)]):
+		return false
+	for _cut in range(4):
+		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
+			return false
+	if not await _approach_points([Vector2(6.6, 4.95), Vector2(3.3, 4.95)]):
+		return false
+	var hub: String = str(opening.model.projection().fabrication_hub.id)
+	for kind in ["shaft", "shaft", "belt"]:
+		var choice := -1
+		var recipes: Array = opening.model.projection().part_recipes
+		for index in range(recipes.size()):
+			if recipes[index].kind == kind:
+				choice = index
+		if not _expect(choice >= 0 and _press_inventory_recipe("part:%d" % choice, hub),
+				"The finite workshop crafts the selected belt and both shaft ends"):
+			return false
+	if not await _approach(Vector2(6.6, 4.95)):
+		return false
+	for cell in [[4, 4], [5, 4]]:
+		if _construct({"action": "place_foundation", "cell": cell, "level": 4}).is_empty():
+			return false
+	var ends: Array[String] = []
+	for center in [[16, 4, 16], [20, 4, 16]]:
+		var shaft: Dictionary = _construct({"action": "place_shaft", "center": center,
+			"axis": "z", "half_span": 2})
+		if shaft.is_empty():
+			return false
+		ends.append(str(shaft.entity))
+	var belt: Dictionary = _construct({"action": "place_belt_span", "from": ends[0], "to": ends[1]})
+	if belt.is_empty():
+		return false
+	opening._refresh()
+	var state: Dictionary = opening.model.projection()
+	var press: Dictionary = state.sliding_press_assemblies[0] if not state.sliding_press_assemblies.is_empty() else {}
+	var connector: Node3D = opening.transmission_presenter.get_node_or_null("PressBeltConnector")
+	if not _expect(press.get("status") == "ready" and press.get("parts", {}).get("anvil") == fitted.anvil
+			and state.belt_spans.has(belt.entity) and connector != null
+			and connector.get_meta("belt_span", "") == belt.entity,
+		"The native ready press and placed belt endpoint show one connected feed fitting"):
+		return false
+	facts.raised_starter_belt = {"press": press, "span": belt.entity,
+		"foundations": state.foundations.size()}
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening._select_tool("inspect")
+		if not _expect(await _capture_actor_area(capture_prefix + "-raised-belt-actor.png",
+				Vector3(5.9, 2.55, 6.6))
+			and await _capture_press_context_side(capture_prefix + "-raised-belt-side.png",
+				Vector3(6.0, 2.2, 6.6)),
+			"Retain the complete raised workbed, transfer fitting, belt and neighboring foundations"):
+			return false
+	return true
+
 func _arrival_starter_assembly_run(capture_prefix: String) -> void:
-	var raised_snap := mode == "arrival-raised-starter-snap"
+	var raised_snap := mode in ["arrival-raised-starter-snap", "arrival-raised-starter-belt"]
 	var inventory = opening.building_hotbar
 	var start: Dictionary = opening.model.projection()
 	if not _expect((raised_snap or start.first_plate_unlock) and start.workshop_completed_actors.is_empty()
@@ -2900,6 +2956,9 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				"The actor-eye raised starter snaps form one native-ready sliding press"):
 			return
 		facts.raised_starter_parts = fitted
+		if mode == "arrival-raised-starter-belt":
+			if not await _arrival_raised_starter_belt_context(capture_prefix, fitted):
+				return
 		_record("pass")
 		return
 	if not _expect(presses.size() == 1 and presses[0].status == "ready"
@@ -3865,13 +3924,15 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
+	if mode == "arrival-raised-starter-belt":
+		deadline = Time.get_ticks_msec() + 180000
 	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-craft-capacity"]:
 		deadline = Time.get_ticks_msec() + 180000
 	var capture_prefix := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -3954,7 +4015,7 @@ func _arrival_run() -> void:
 	if mode == "arrival-cancel-placement":
 		await _arrival_cancel_placement_run(capture_prefix)
 		return
-	if mode in ["arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-blocked-feed-cue"]:
+	if mode in ["arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue"]:
 		await _arrival_starter_assembly_run(capture_prefix)
 		return
 	if mode == "arrival-first-plate-resume":
@@ -4503,8 +4564,8 @@ func _arrival_run() -> void:
 					and shaft_snap.get("center") == [requested_center[0] + 1, requested_center[1] + 4, requested_center[2]]
 					and cog_snap.get("center") == [requested_center[0] + 2, requested_center[1] + 4, requested_center[2]]
 					and absf(head_box.center.y - head_box.half.y - anvil_top) < 0.0002
-					and slide_box.center.y - slide_box.half.y > anvil_top,
-					"Ground and raised snap targets retain the fitted column and slide rail clearance"):
+					and absf(slide_box.center.y - slide_box.half.y - anvil_top) < 0.0002,
+				"Ground and raised snap targets seat the slide feet on the belt-height workbed"):
 				return
 			var body: StaticBody3D = opening.actor_world.component_bodies.get(press_parts.anvil)
 			if raised:
@@ -4522,7 +4583,7 @@ func _arrival_run() -> void:
 				if node.get_meta("component_entity", "") == press_parts.anvil:
 					casting = node as Node3D
 					break
-			var foot: MeshInstance3D = casting.get_node_or_null("CastPedestalFoot") as MeshInstance3D if casting != null else null
+			var foot: MeshInstance3D = casting.find_child("WorkbedSkid*", false, false) as MeshInstance3D if casting != null else null
 			var foot_bottom: float = (foot.global_transform * foot.mesh.get_aabb()).position.y if foot != null else INF
 			var native_bottom: float = float(occupied.center[1]) - float(occupied.half[1])
 			var collision_bottom: float = body.position.y - ((body.get_child(0) as CollisionShape3D).shape as BoxShape3D).size.y * 0.5 if body != null else INF
