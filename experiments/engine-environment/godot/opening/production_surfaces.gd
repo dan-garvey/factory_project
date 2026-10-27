@@ -31,7 +31,12 @@ class ProductionVisuals:
 			return null
 		var texture := ResourceLoader.load(path, "Texture2D") as Texture2D
 		var image := texture.get_image() if texture != null else null
-		if image != null and image.is_compressed() and image.decompress() != OK:
+		if image == null:
+			return null
+		# Some imported textures return their cached Image. Preparation must not
+		# resize or decompress the resource that later consumers will read.
+		image = image.duplicate() as Image
+		if image.is_compressed() and image.decompress() != OK:
 			return null
 		return image
 

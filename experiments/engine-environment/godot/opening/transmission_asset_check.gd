@@ -23,22 +23,114 @@ var failed := false
 var checked_meshes: Dictionary = {}
 var max_tangent_dot := 0.0
 var visual_instances := 0
+var mode := "default"
+var image_family := ""
+var image_report := ""
+var image_paths: Array[String] = []
+var packed_images := false
+var map_source := ""
+var map_output := ""
+
+const SIMPLE_MODES := {
+	"--tooth-only": "tooth-only",
+	"--shaft-coupling-only": "shaft-coupling-only",
+	"--gear-batch-only": "gear-batch-only",
+	"--gear-bore-only": "gear-bore-only",
+	"--material-only": "material-only",
+	"--historical-material-only": "historical-material-only"}
+
+func refuse_option(message: String) -> bool:
+	push_error(message)
+	quit(2)
+	return false
+
+func external_path(path: String) -> bool:
+	var project_root := ProjectSettings.globalize_path("res://").trim_suffix("/")
+	if path.is_empty() or not path.is_absolute_path() or path.simplify_path() != path \
+			or path == project_root or path.begins_with(project_root + "/"):
+		return false
+	var root_directory := DirAccess.open("/")
+	var ancestor := "/"
+	for segment in path.split("/", false):
+		ancestor = ancestor.path_join(segment)
+		if root_directory.is_link(ancestor):
+			return false
+	return true
+
+func parse_options() -> bool:
+	var args := OS.get_cmdline_user_args()
+	if args.is_empty():
+		return true
+	if args[0] == "--resource-images":
+		if (args.size() != 3 and args.size() != 4) or (args.size() == 4 and args[3] != "--packed-images"):
+			return refuse_option("Use --resource-images FAMILY REPORT [--packed-images].")
+		mode = "resource-images"
+		image_family = args[1]
+		image_report = args[2]
+		packed_images = args.size() == 4
+		if not external_path(image_family) or not DirAccess.dir_exists_absolute(image_family) \
+				or not external_path(image_family.path_join("reference")) \
+				or not DirAccess.dir_exists_absolute(image_family.path_join("reference")) \
+				or not external_path(image_family.path_join("image-paths.json")) \
+				or not FileAccess.file_exists(image_family.path_join("image-paths.json")):
+			return refuse_option("Imported image controls need an existing external family and reference set.")
+		if not external_path(image_report) or not DirAccess.dir_exists_absolute(image_report.get_base_dir()) \
+				or DirAccess.dir_exists_absolute(image_report) or FileAccess.file_exists(image_report):
+			return refuse_option("Use a fresh external imported-image report path.")
+		var listed = JSON.parse_string(FileAccess.get_file_as_string(image_family.path_join("image-paths.json")))
+		if not listed is Array or listed.is_empty() or listed.size() > 64:
+			return refuse_option("Imported image controls need 1..64 listed source images.")
+		for relative in listed:
+			if typeof(relative) != TYPE_STRING or not relative.begins_with("opening/assets/") \
+					or relative.simplify_path() != relative or image_paths.has(relative) \
+					or not external_path(image_family.path_join("reference").path_join(relative)) \
+					or not FileAccess.file_exists(image_family.path_join("reference").path_join(relative)):
+				return refuse_option("Imported image controls contain an unsafe or missing reference.")
+			image_paths.append(relative)
+		return true
+	if args[0] == "--prepare-transmission-maps":
+		if args.size() != 3:
+			return refuse_option("Use --prepare-transmission-maps SOURCE OUTPUT.")
+		mode = "prepare-transmission-maps"
+		map_source = args[1]
+		map_output = args[2]
+		if not external_path(map_source) or not DirAccess.dir_exists_absolute(map_source) \
+				or not external_path(map_output) or not DirAccess.dir_exists_absolute(map_output) \
+				or map_output == map_source or map_output.begins_with(map_source + "/"):
+			return refuse_option("Prepared maps need separate existing external source and output directories.")
+		for file_name in Finish.FILES.values():
+			var target := map_output.path_join(file_name)
+			if not external_path(target) or FileAccess.file_exists(target) or DirAccess.dir_exists_absolute(target):
+				return refuse_option("Refuse an existing or linked prepared transmission output.")
+		return true
+	if args.size() != 1 or not SIMPLE_MODES.has(args[0]):
+		return refuse_option("Select one known transmission asset fixture mode.")
+	mode = SIMPLE_MODES[args[0]]
+	return true
+
+func preserves_opaque_and_alpha(imported: Image, source: Image) -> bool:
+	var actual := imported.duplicate() as Image
+	var expected := source.duplicate() as Image
+	actual.convert(Image.FORMAT_RGBA8)
+	expected.convert(Image.FORMAT_RGBA8)
+	if actual.get_size() != expected.get_size():
+		return false
+	for y in range(expected.get_height()):
+		for x in range(expected.get_width()):
+			var pixel := actual.get_pixel(x, y)
+			var original := expected.get_pixel(x, y)
+			if pixel.a != original.a or (original.a >= 1.0 and pixel != original):
+				return false
+	return true
 
 func check_resource_images() -> void:
-	var args := OS.get_cmdline_user_args()
-	var offset := args.find("--resource-images")
-	if not verify(offset >= 0 and args.size() > offset + 2, "Image controls require external reference and report paths."):
-		return
-	var family: String = args[offset + 1]
-	var paths: Array = JSON.parse_string(FileAccess.get_file_as_string(family.path_join("image-paths.json")))
-	var packed := args.has("--packed-images")
 	var records: Array[Dictionary] = []
-	for relative: String in paths:
+	for relative: String in image_paths:
 		var path := "res://" + relative
 		verify(ProductionVisuals.image_exists(path), "Imported project images remain available: " + relative)
-		if packed:
+		if packed_images:
 			verify(not FileAccess.file_exists(path), "The packed control excludes the original image file: " + relative)
-		var expected := Image.load_from_file(family.path_join("reference").path_join(relative))
+		var expected := Image.load_from_file(image_family.path_join("reference").path_join(relative))
 		var actual := ProductionVisuals.read_image(path)
 		if not verify(actual != null and expected != null, "Both independent image paths decode: " + relative):
 			continue
@@ -46,18 +138,26 @@ func check_resource_images() -> void:
 		actual.clear_mipmaps()
 		actual.convert(expected.get_format())
 		var equal := actual.get_data() == expected.get_data()
-		verify(equal, "Imported pixels and scalar/alpha channels match the original decoding: " + relative)
+		var alpha_border_only := false
+		if not equal and packed_images and relative == "opening/assets/worker-second/opacity_color.webp":
+			var descriptor := ConfigFile.new()
+			alpha_border_only = descriptor.load(path + ".import") == OK \
+				and descriptor.get_value("params", "process/fix_alpha_border", false) == true \
+				and preserves_opaque_and_alpha(actual, expected)
+		verify(equal or alpha_border_only,
+			"Imported pixels match the source or preserve opaque color and alpha under the declared border fix: " + relative)
 		# Material preparation may convert formats and generate mipmaps, so it
 		# must receive its own image rather than mutate the cached resource.
 		actual.resize(1, 1)
 		var again := ProductionVisuals.read_image(path)
 		verify(again != null and again.get_size() == expected.get_size(), "Preparing one image does not mutate its cached resource: " + relative)
-		records.append({"path": relative, "pixels_equal": equal, "format": expected.get_format(),
+		records.append({"path": relative, "pixels_equal": equal, "alpha_border_only": alpha_border_only,
+			"format": expected.get_format(),
 			"size": [expected.get_width(), expected.get_height()]})
 	verify(not ProductionVisuals.image_exists("res://opening/assets/missing-material.webp")
 		and ProductionVisuals.read_image("res://opening/assets/missing-material.webp") == null,
 		"An absent resource remains an explicit absence without raw-file fallback.")
-	verify(ProductionVisuals.read_image(family.path_join("reference").path_join(paths[0])) != null,
+	verify(ProductionVisuals.read_image(image_family.path_join("reference").path_join(image_paths[0])) != null,
 		"External preparation inputs retain filesystem decoding.")
 	for source in [ProductionTransmissionFinish, ProductionPaddleArt,
 			ProductionSteelFloor, ProductionFoundationArt, ProductionConveyorArt]:
@@ -75,15 +175,15 @@ func check_resource_images() -> void:
 		"Imported sky preparation preserves floating HDR radiance.")
 	var presenter := preload("res://opening/character_presenter.gd").new()
 	for role: String in ["body", "head", "opacity"]:
-		var material: StandardMaterial3D = presenter._adult_material("f001_" + role)
+		var material: StandardMaterial3D = presenter._adult_material("f004_" + role)
 		if not verify(material != null, "The adult material uses imported images: " + role):
 			continue
-		var color := Image.load_from_file(family.path_join("reference/opening/assets/worker/" + role + "_color.webp"))
+		var color := Image.load_from_file(image_family.path_join("reference/opening/assets/worker/" + role + "_color.webp"))
 		color.generate_mipmaps()
 		verify(material.albedo_texture.get_image().get_data() == color.get_data(),
 			"Adult color and alpha mipmaps retain their original pixels: " + role)
 		if role != "opacity":
-			var normal := Image.load_from_file(family.path_join("reference/opening/assets/worker/" + role + "_normal.webp"))
+			var normal := Image.load_from_file(image_family.path_join("reference/opening/assets/worker/" + role + "_normal.webp"))
 			normal.generate_mipmaps(true)
 			verify(material.normal_texture.get_image().get_data() == normal.get_data(),
 				"Adult normal mipmaps retain their original vectors: " + role)
@@ -92,14 +192,17 @@ func check_resource_images() -> void:
 				and is_equal_approx(material.alpha_scissor_threshold, 0.4),
 				"The hair and eyelash alpha rule remains unchanged.")
 	presenter.free()
-	var report := {"status": "fail" if failed else "pass", "checks": checks, "packed_without_raw_images": packed,
+	var report := {"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
+		"packed_without_raw_images": packed_images,
 		"images": records, "native_gameplay": "not_run", "desktop": "not_used"}
-	var file := FileAccess.open(args[offset + 2], FileAccess.WRITE)
+	var file := FileAccess.open(image_report, FileAccess.WRITE)
 	if verify(file != null, "The imported-image report is retained."):
+		report.checks = checks
 		file.store_string(JSON.stringify(report, "\t") + "\n")
 		file.close()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "images": records.size(),
-		"packed_without_raw_images": packed, "native_gameplay": "not_run", "desktop": "not_used"}))
+		"mode": mode, "packed_without_raw_images": packed_images,
+		"native_gameplay": "not_run", "desktop": "not_used"}))
 
 class MaterialHost extends RefCounted:
 	var state: Dictionary = {}
@@ -136,29 +239,21 @@ func encode_map(image: Image, target: String) -> Dictionary:
 		"prepared_pixel_equality": true, "bytes": FileAccess.get_file_as_bytes(target).size()}
 
 func prepare_material_maps() -> void:
-	var args := OS.get_cmdline_user_args()
-	args.remove_at(0)
-	if args.size() != 2:
-		push_error("Use SOURCE_DIRECTORY PREPARED_ASSET_DIRECTORY.")
-		quit(1)
-		return
-	var source := args[0]
-	var output := args[1]
 	var pins := {"normal": "3e2b0ddc58564d28685f0949ede839fc680c84ae8a0f97127de6aa91ab5b392c",
 		"roughness": "e7756912587a45d0a4bd93465e487dde09084486cda922014c07b7c3947d4a34"}
 	for file_name in Finish.FILES.values():
-		if FileAccess.file_exists(output.path_join(file_name)):
+		if FileAccess.file_exists(map_output.path_join(file_name)):
 			push_error("Refuse an existing prepared transmission output.")
 			quit(1)
 			return
 	for role in pins:
-		if FileAccess.get_sha256(source.path_join(role + ".png")) != pins[role]:
+		if FileAccess.get_sha256(map_source.path_join(role + ".png")) != pins[role]:
 			push_error("Refuse an unpinned transmission source: " + role)
 			quit(1)
 			return
-	var report: Dictionary = {"status": "pass", "maps": {}}
+	var report: Dictionary = {"status": "pass", "mode": mode, "maps": {}}
 	for role in pins:
-		var image := Image.load_from_file(source.path_join(role + ".png"))
+		var image := Image.load_from_file(map_source.path_join(role + ".png"))
 		if image == null or image.get_size() != Vector2i(1024, 1024):
 			push_error("Expected the pinned one-kilopixel cast image: " + role)
 			quit(1)
@@ -194,7 +289,7 @@ func prepare_material_maps() -> void:
 			quit(1)
 			return
 		image = Image.create_from_data(512, 512, false, Image.FORMAT_RGB8 if normal_map else Image.FORMAT_L8, pixels)
-		var result := encode_map(image, output.path_join(Finish.FILES["cast_" + role]))
+		var result := encode_map(image, map_output.path_join(Finish.FILES["cast_" + role]))
 		if result.status != "pass":
 			quit(1)
 			return
@@ -235,7 +330,7 @@ func prepare_material_maps() -> void:
 	var worked_images := {"worked_normal": Image.create_from_data(WORKED_SIZE, WORKED_SIZE, false, Image.FORMAT_RGB8, normals),
 		"worked_roughness": Image.create_from_data(WORKED_SIZE, WORKED_SIZE, false, Image.FORMAT_L8, roughness)}
 	for role in worked_images:
-		var result := encode_map(worked_images[role], output.path_join(Finish.FILES[role]))
+		var result := encode_map(worked_images[role], map_output.path_join(Finish.FILES[role]))
 		if result.status != "pass":
 			quit(1)
 			return
@@ -413,7 +508,7 @@ func material_part(root_node: Node, id: String) -> Node3D:
 	return null
 
 func check_materials() -> void:
-	var historical := OS.get_cmdline_user_args().has("--historical-material-only")
+	var historical := mode == "historical-material-only"
 	var surface_instances := 0
 	for axis in range(3):
 		for moving in [false, true]:
@@ -1155,36 +1250,38 @@ func check_shaft_splices() -> void:
 		"native_gameplay_and_visible_quality": "not_established"}))
 
 func _initialize() -> void:
-	if OS.get_cmdline_user_args().has("--resource-images"):
+	if not parse_options():
+		return
+	if mode == "resource-images":
 		check_resource_images()
 		quit(1 if failed else 0)
 		return
-	if OS.get_cmdline_user_args().has("--shaft-coupling-only"):
+	if mode == "shaft-coupling-only":
 		check_shaft_couplings()
 		check_shaft_splices()
-		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 			"native_gameplay": "not_run", "rendered_quality": "not_assessed", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
-	if OS.get_cmdline_user_args().has("--gear-batch-only"):
+	if mode == "gear-batch-only":
 		check_gear_batches()
-		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 			"native_gameplay": "not_run", "rendered_quality": "not_assessed", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
-	if OS.get_cmdline_user_args().has("--gear-bore-only"):
+	if mode == "gear-bore-only":
 		check_gear_bores()
-		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 			"unique_meshes": checked_meshes.size(), "maximum_packed_tangent_dot": max_tangent_dot,
 			"native_gameplay": "not_run", "rendered_quality": "not_assessed", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
-	if OS.get_cmdline_user_args().size() > 0 and OS.get_cmdline_user_args()[0] == "--prepare-transmission-maps":
+	if mode == "prepare-transmission-maps":
 		prepare_material_maps()
 		return
-	if OS.get_cmdline_user_args().has("--material-only") or OS.get_cmdline_user_args().has("--historical-material-only"):
+	if mode == "material-only" or mode == "historical-material-only":
 		check_materials()
-		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks, "mode": mode,
 			"scope": "actual material assignment over invented projection facts", "native_gameplay": "not_run", "rendered_quality": "not_assessed", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
@@ -1192,9 +1289,10 @@ func _initialize() -> void:
 		var mesh: ArrayMesh = Assets.tooth_mesh(float(units) * 0.4125, units * 8)
 		verify(mesh == Assets.tooth_mesh(float(units) * 0.4125, units * 8), "The exact tooth profile is cached by its geometry inputs.")
 		check_mesh(mesh)
-	if "--tooth-only" not in OS.get_cmdline_user_args():
+	if mode != "tooth-only":
 		check_assemblies()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		"mode": mode,
 		"unique_meshes": checked_meshes.size(), "visual_instances": visual_instances,
 		"maximum_packed_tangent_dot": max_tangent_dot, "rendered_quality": "not_assessed", "desktop": "not_used"}))
 	quit(1 if failed else 0)
