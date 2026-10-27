@@ -105,6 +105,17 @@ void verify_sources(const fs::path& project, const std::map<std::string, std::st
                     digest(project / name) == expected,
                 "Godot changed a copied staged input: " + name);
     }
+    for (const auto& entry : fs::recursive_directory_iterator(project)) {
+        const auto relative = entry.path().lexically_relative(project);
+        if (relative.begin() != relative.end() && *relative.begin() == ".godot") {
+            continue;
+        }
+        require(!entry.is_symlink(), "Godot added a symlink outside its cache.");
+        if (entry.is_directory()) continue;
+        require(entry.is_regular_file(), "Godot added a nonregular file outside its cache.");
+        require(relative.extension() != ".gd" || hashes.contains(relative.generic_string()),
+                "Godot added a GDScript outside the immutable source roster.");
+    }
 }
 
 struct Options {
@@ -162,7 +173,8 @@ struct Stage {
 
 void write_result(const fs::path& path, const std::string& status, const std::string& tree,
                   const std::string& engine_sha256, const std::string& manifest_sha256,
-                  const std::vector<std::string>& scripts, const std::vector<Stage>& stages,
+                  const std::vector<std::string>& scripts, std::size_t parsed_count,
+                  const std::vector<Stage>& stages, const std::string& failed_stage,
                   const std::string& error) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     require(static_cast<bool>(output), "Cannot retain the compiler result.");
@@ -171,15 +183,19 @@ void write_result(const fs::path& path, const std::string& status, const std::st
            << factory_launch::json_string(tree) << ",\"engine_sha256\":"
            << factory_launch::json_string(engine_sha256) << ",\"capture_manifest_sha256\":"
            << factory_launch::json_string(manifest_sha256) << ",\"script_count\":" << scripts.size()
-           << ",\"parsed_scripts\":[";
+           << ",\"source_scripts\":[";
     for (std::size_t index = 0; index < scripts.size(); ++index)
+        output << (index ? "," : "") << factory_launch::json_string(scripts[index]);
+    output << "],\"parsed_scripts\":[";
+    for (std::size_t index = 0; index < parsed_count; ++index)
         output << (index ? "," : "") << factory_launch::json_string(scripts[index]);
     output << "],\"stages\":[";
     for (std::size_t index = 0; index < stages.size(); ++index)
         output << (index ? "," : "") << "{\"name\":" << factory_launch::json_string(stages[index].name)
                << ",\"exit\":" << stages[index].exit << ",\"log_sha256\":"
                << factory_launch::json_string(stages[index].log_sha256) << '}';
-    output << "],\"error\":" << factory_launch::json_string(error)
+    output << "],\"failed_stage\":" << factory_launch::json_string(failed_stage)
+           << ",\"error\":" << factory_launch::json_string(error)
            << ",\"native_gameplay\":\"not_run\"}\n";
     require(static_cast<bool>(output), "Cannot finish the compiler result.");
 }
@@ -195,6 +211,8 @@ int run(const Options& selected) {
     std::vector<Stage> stages;
     std::vector<std::string> scripts;
     std::string manifest_sha256;
+    std::string active_stage;
+    std::size_t parsed_count{};
     try {
         const auto captured = factory_launch::capture_project({selected.repository, selected.tree,
                                                                  session / "capture"});
@@ -204,6 +222,7 @@ int run(const Options& selected) {
         require(captured.scripts == scripts.size(), "The native capture and compiler script rosters differ.");
         const auto execute = [&](const std::string& label, const std::vector<std::string>& arguments,
                                  std::chrono::milliseconds maximum) {
+            active_stage = label;
             const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
             require(remaining.count() > 0, "The staged compiler exceeded its five-minute allowance.");
             factory::build_support::Options bounded;
@@ -222,6 +241,7 @@ int run(const Options& selected) {
                     "The staged Godot compiler failed at " + label + "; inspect " + bounded.log.string());
             require(digest(selected.godot) == selected.sha256,
                     "The installed Godot executable changed during staged compilation.");
+            active_stage.clear();
             return log;
         };
         std::string version = execute("version", {selected.godot.string(), "--version"}, 15s);
@@ -233,17 +253,18 @@ int run(const Options& selected) {
             const auto label = "script-" + std::to_string(index);
             execute(label, {selected.godot.string(), "--headless", "--path", project.string(),
                             "--check-only", "--script", "res://" + scripts[index]}, 30s);
+            ++parsed_count;
         }
         verify_sources(project, hashes);
         require(Clock::now() < deadline, "The staged compiler exceeded its five-minute allowance.");
         write_result(session / "result.json", "pass", captured.tree, selected.sha256,
-                     manifest_sha256, scripts, stages, "");
+                     manifest_sha256, scripts, parsed_count, stages, "", "");
         std::cout << "Parsed " << scripts.size() << " immutable staged GDScripts with the native checker; "
                   << "this is not runtime/gameplay evidence\n";
         return 0;
     } catch (const std::exception& error) {
         write_result(session / "result.json", "fail", selected.tree, selected.sha256,
-                     manifest_sha256, scripts, stages, error.what());
+                     manifest_sha256, scripts, parsed_count, stages, active_stage, error.what());
         std::cerr << "Native staged GDScript compilation failed: " << error.what() << '\n';
         return 1;
     }

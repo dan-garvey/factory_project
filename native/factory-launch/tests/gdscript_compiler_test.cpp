@@ -92,12 +92,21 @@ int main(int argc, char** argv) {
         const auto engine = root / "fake-godot";
         write(engine, "#!/bin/sh\n"
                       "if test \"$1\" = --version; then printf '%s\\n' 4.7.2.stable.official.ed1daf0bf; exit 0; fi\n"
+                      "project=\n"
+                      "prior=\n"
+                      "importing=0\n"
                       "for arg in \"$@\"; do\n"
+                      "  if test \"$prior\" = --path; then project=$arg; fi\n"
+                      "  if test \"$arg\" = --import; then importing=1; fi\n"
                       "  if test \"$arg\" = res://opening/bad.gd; then\n"
                       "    printf '%s\\n' 'SCRIPT ERROR: Parse Error: invented zero-exit failure.' >&2\n"
                       "    exit 0\n"
                       "  fi\n"
+                      "  prior=$arg\n"
                       "done\n"
+                      "if test \"$importing\" = 1 && test -f \"$project/opening/inject.marker\"; then\n"
+                      "  printf 'extends Node\\n' > \"$project/opening/generated.gd\"\n"
+                      "fi\n"
                       "exit 0\n");
         fs::permissions(engine, fs::perms::owner_all);
         const auto pin = factory_launch::sha256(read(engine));
@@ -135,8 +144,23 @@ int main(int argc, char** argv) {
         check(refused.exit_code == 1, "A zero-exit Godot error line must fail the native checker.");
         const auto failed_receipt = read(result_in(root / "error-artifacts"));
         check(failed_receipt.find("\"status\":\"fail\"") != std::string::npos &&
-                  failed_receipt.find("\"name\":\"script-0\"") != std::string::npos,
-              "The failing script stage is retained without a success receipt.");
+                  failed_receipt.find("\"name\":\"script-0\"") != std::string::npos &&
+                  failed_receipt.find("\"parsed_scripts\":[]") != std::string::npos &&
+                  failed_receipt.find("\"failed_stage\":\"script-0\"") != std::string::npos,
+              "The failing script is identified without claiming it was parsed.");
+        check(fs::remove(project / "opening/bad.gd"), "Remove the synthetic error script.");
+        write(project / "opening/inject.marker", "generate one unlisted script\n");
+        git(repository, {"add", "-A"});
+        git(repository, {"-c", "user.name=Compiler fixture", "-c", "user.email=fixture@example.invalid",
+                         "commit", "--quiet", "-m", "Request an unexpected generated GDScript"});
+        const auto injection_tree = git(repository, {"rev-parse", "HEAD^{tree}"});
+        const auto injected = invoke(root / "injected-artifacts", injection_tree, pin);
+        check(injected.exit_code == 1, "An unlisted post-import GDScript must refuse.");
+        const auto injected_receipt = read(result_in(root / "injected-artifacts"));
+        check(injected_receipt.find("Godot added a GDScript outside the immutable source roster") != std::string::npos &&
+                  injected_receipt.find("\"script_count\":2") != std::string::npos &&
+                  injected_receipt.find("\"status\":\"fail\"") != std::string::npos,
+              "A generated script cannot hide behind the two passing source-script stages.");
         std::cout << "{\"status\":\"pass\",\"checks\":" << checks
                   << ",\"evidence\":\"invented_native_compiler_contract\"}\n";
         return 0;
