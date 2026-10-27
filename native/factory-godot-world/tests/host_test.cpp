@@ -139,6 +139,32 @@ void historical_translation() {
     at(4.95, 0); foundation(3, "press-base");
     const auto press = place("processor", 3, 1, 4, "z", "press");
     check(field<bool>(host.projection(), "powered"), "The existing wheel supplies the test line automatically.");
+    const auto before_targets = host.projection();
+    const auto before_target_state = field<O>(V(field<O>(host.checkpoint(), "world")), "state");
+    auto bad_remove = target("remove", "bad-target-remove", press);
+    bad_remove.at("entity") = V(I{1});
+    auto bad_recover = target("recover", "bad-target-recover", press);
+    bad_recover.emplace("extra", V(true));
+    auto bad_collect = target("retrieve", "bad-target-collect", press);
+    bad_collect.emplace("amount", V(1.0));
+    auto bad_insert_raw = target("insert_raw", "bad-target-raw", press);
+    bad_insert_raw.emplace("amount", V(false));
+    auto bad_insert_work = target("insert_work", "bad-target-work", press);
+    bad_insert_work.emplace("work_id", V(1.0));
+    auto bad_connect = link("connect_drive", "bad-target-connect", wheel, press);
+    bad_connect.at("to") = V(I{1});
+    auto bad_disconnect = link("disconnect_drive", "bad-target-disconnect", wheel, press);
+    bad_disconnect.emplace("extra", V(true));
+    for (const auto& malformed : {bad_remove, bad_recover, bad_collect, bad_insert_raw,
+                                  bad_insert_work, bad_connect, bad_disconnect}) {
+        const auto reply = host.command("P", malformed);
+        check(!accepted(reply) && field<std::string>(reply, "reason") == "invalid_command",
+              "Malformed target and material-port requests refuse with the original command reason.");
+    }
+    check(field<I>(before_targets, "revision") == field<I>(host.projection(), "revision") &&
+          !factory::values::typed_difference(V(before_target_state),
+              V(field<O>(V(field<O>(host.checkpoint(), "world")), "state"))),
+          "Malformed target requests preserve native revision, material custody and world state.");
     for (int index = 0; index < 150; ++index) (void)host.advance();
     at(4.95, 0);
     auto collect = target("retrieve", "collect", press); collect.emplace("amount", V(I{1}));

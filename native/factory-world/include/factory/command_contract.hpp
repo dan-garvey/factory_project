@@ -13,7 +13,7 @@ namespace factory::command_contract {
 using Value = values::Value;
 using Object = Value::Object;
 
-enum class Type { string, integer, array, object };
+enum class Type { string, integer, boolean, array, object };
 
 // An absent wire name marks a field derived from native state. Matching wire
 // and intent names must retain their exact typed value through normalization.
@@ -33,6 +33,7 @@ inline bool typed(const Value& value, Type type) {
     switch (type) {
         case Type::string: return std::holds_alternative<std::string>(value.storage());
         case Type::integer: return std::holds_alternative<Value::Integer>(value.storage());
+        case Type::boolean: return std::holds_alternative<bool>(value.storage());
         case Type::array: return std::holds_alternative<Value::Array>(value.storage());
         case Type::object: return std::holds_alternative<Object>(value.storage());
     }

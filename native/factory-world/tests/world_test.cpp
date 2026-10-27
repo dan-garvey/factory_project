@@ -240,6 +240,19 @@ void authentication_reach_and_replay() {
     auto amount = target("collect", "boolean-amount", "processor");
     amount.emplace("amount", V(true));
     outcome(send(*owner, amount, observer), false, "invalid_command");
+    const auto before_targets = owner->snapshot().state;
+    auto drive = target("set_drive", "numeric-drive-toggle", "wheel-A");
+    drive.emplace("enabled", V(I{1}));
+    observer.calls = 0;
+    outcome(send(*owner, drive, observer), false, "invalid_command");
+    check(observer.calls == 0 && owner->snapshot().state == before_targets,
+          "A non-boolean drive toggle cannot reach the actor or change mechanical state.");
+    auto link = target("shaft_between", "unknown-first-endpoint", "missing-shaft");
+    link.emplace("to", V(I{1}));
+    link.emplace("to_generation", V(I{1}));
+    outcome(send(*owner, link, observer), false, "unknown_target");
+    check(owner->snapshot().state == before_targets,
+          "The first unknown endpoint retains its refusal priority and changes no topology.");
 }
 
 void running_removal_rebuild_and_tick() {
