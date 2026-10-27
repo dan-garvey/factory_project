@@ -110,6 +110,7 @@ Owner::Decision plan_stationary(const Profile& profile, const Binding& binding,
             (command.has_wheel_tiles && (!wheel_tiles || *selected_role != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension)) ||
             (command.has_relay_axis != (*selected_role == Role::chain_drive)) ||
+            (command.has_relay_axis && !relay_axis_name) ||
             (relay_axis_name && (!axis(*relay_axis_name) || axis(*relay_axis_name) == *selected_axis)) ||
             (*selected_role == Role::gearbox && *selected_axis != mechanics::Axis::y) ||
             (*selected_role == Role::vertical_gearbox && *selected_axis == mechanics::Axis::y))

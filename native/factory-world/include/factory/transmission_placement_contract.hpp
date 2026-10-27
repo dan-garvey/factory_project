@@ -117,6 +117,21 @@ inline bool valid_intent(const Object& intent, Action action) {
          intent.contains("relay_axis") == (selected_role == "chain_drive"));
 }
 
+// Direct World callers can submit a relay without an adapter wire. Keep their
+// historical key-only admission: the stationary planner still gives malformed
+// part values its established invalid_part refusal.
+inline bool direct_relay_intent_shape(const Object& intent, std::string_view normalized_action) {
+    if ((normalized_action != "place" && normalized_action != "place_connected") ||
+        !intent.contains("relay_axis")) return false;
+    static constexpr std::array deferred{
+        std::string_view{"role"}, std::string_view{"center"},
+        std::string_view{"axis"}, std::string_view{"teeth"},
+        std::string_view{"half_span"}, std::string_view{"relay_axis"},
+    };
+    return command_contract::valid(intent,
+        {normalized_action, schema(Action::relay, false).fields}, true, deferred);
+}
+
 inline bool valid_center(const Array& center) {
     if (center.size() != 3) return false;
     for (const auto& value : center) {

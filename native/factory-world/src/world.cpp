@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
-#include <initializer_list>
 #include <limits>
 #include <numeric>
 #include <set>
@@ -147,16 +146,6 @@ bool weighted_add(Integer& total, Integer count, Integer unit) {
     return add(total, count * unit);
 }
 
-bool keys(const Object& object, std::initializer_list<const char*> extra) {
-    constexpr const char* base[] = {"context", "client", "request", "actor", "action"};
-    const auto wire = object.find("wire");
-    if (wire != object.end() && !std::get_if<Object>(&wire->second.storage())) return false;
-    if (object.size() != std::size(base) + extra.size() + (wire != object.end() ? 1 : 0)) return false;
-    for (const auto* key : base) if (!object.contains(key)) return false;
-    for (const auto* key : extra) if (!object.contains(key)) return false;
-    return true;
-}
-
 bool shape(const Object& intent, const std::string& action) {
     if (const auto belt = belt_commands::parse(action); belt != belt_commands::Action::none)
         return belt_commands::valid_intent(intent, belt);
@@ -194,7 +183,7 @@ bool shape(const Object& intent, const std::string& action) {
         }
     }
     if (placement(action) && intent.contains("relay_axis"))
-        return keys(intent, {"role", "center", "axis", "teeth", "half_span", "relay_axis"});
+        return transmission_placement::direct_relay_intent_shape(intent, action);
     if (placement(action))
         return machine_placement::valid_intent(intent, action);
     return false;
