@@ -9,6 +9,7 @@
 #include "factory/projection_contract.hpp"
 #include "factory/site_geometry_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
+#include "factory/worksite_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
@@ -603,23 +604,15 @@ bool historical_wire(const authority::Record& record) {
     if (const auto stationary_target = stationary_target_commands::parse(*action);
         stationary_target != stationary_target_commands::Action::none)
         return stationary_target_commands::historical_wire(*wire, intent, stationary_target);
+    if (const auto worksite = worksite_commands::parse_intent(*action);
+        worksite != worksite_commands::Action::none)
+        return worksite_commands::historical_wire(*wire, intent, worksite);
     const auto same = [&](const char* original, const char* normalized) {
         const auto left = wire->find(original);
         const auto right = intent.find(normalized);
         return left != wire->end() && right != intent.end() &&
             !values::typed_difference(left->second, right->second);
     };
-    if (*action == "harvest_source")
-        return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
-            field<std::string>(*wire, "target") && same("target", "target");
-    if (*action == "fast_harvest_source")
-        return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
-            field<std::string>(*wire, "target") && same("target", "target");
-    if (*action == "set_developer_conveniences")
-        return *original_action == *action && keys(*wire, {"enabled"}) &&
-            field<bool>(*wire, "enabled") && same("enabled", "enabled");
-    if (*action == "finish_harvest" || *action == "cancel_harvest")
-        return *original_action == *action && keys(*wire, {});
     if (*action == "place" || *action == "place_connected") {
         if (*original_action == "place_shaft") {
             const auto* center = field<Array>(*wire, "center");
@@ -1769,6 +1762,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto foundation_action = foundation_commands::parse(*action);
     const auto material_action = material_commands::parse(*action);
     const auto stationary_target_action = stationary_target_commands::parse_wire(*action);
+    const auto worksite_action = worksite_commands::parse_wire(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
         if (!id) return false;
@@ -1786,12 +1780,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 return overlap(volume, component_bounds(profile_, entry.second.kind, entry.second.center));
             });
     };
-    if (*action == "set_developer_conveniences") {
-        if (!keys(wire, {"enabled"}) || !field<bool>(wire, "enabled")) return refuse("invalid_command");
-        normalized.at("action") = Value(*action);
+    if (worksite_action == worksite_commands::Action::developer_conveniences) {
+        if (!worksite_commands::valid_wire(wire, worksite_action)) return refuse("invalid_command");
+        normalized.at("action") = Value(std::string(worksite_commands::schema(worksite_action).name));
         normalized.emplace("enabled", wire.at("enabled"));
-    } else if (*action == "harvest_source") {
-        if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
+    } else if (worksite_action == worksite_commands::Action::harvest) {
+        if (!worksite_commands::valid_wire(wire, worksite_action)) return refuse("invalid_command");
         const auto& id = *field<std::string>(wire, "target");
         const bool ore = profile_.material.manual_ore && profile_.material.manual_ore->id == id;
         const auto tree = profile_.material.timber_sites.find(id);
@@ -1804,12 +1798,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     return refuse("source_occluded");
             }
         }
-        normalized.at("action") = Value(snapshot.state.developer_conveniences ?
-            "fast_harvest_source" : "harvest_source");
+        normalized.at("action") = Value(std::string(worksite_commands::schema(
+            snapshot.state.developer_conveniences ? worksite_commands::Action::fast_harvest :
+            worksite_commands::Action::harvest).name));
         normalized.emplace("target", wire.at("target"));
-    } else if (*action == "finish_harvest" || *action == "cancel_harvest") {
-        if (!keys(wire, {})) return refuse("invalid_command");
-        normalized.at("action") = Value(*action);
+    } else if (worksite_action == worksite_commands::Action::finish_harvest ||
+               worksite_action == worksite_commands::Action::cancel_harvest) {
+        if (!worksite_commands::valid_wire(wire, worksite_action)) return refuse("invalid_command");
+        normalized.at("action") = Value(std::string(worksite_commands::schema(worksite_action).name));
     } else if (fabrication_action == fabrication_commands::Action::foundation) {
         if (!fabrication_commands::valid_wire(wire, fabrication_action))
             return refuse("invalid_command");
@@ -2686,7 +2682,9 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
             {"request", Value(std::string("native-cut-") +
                 (interrupted ? "cancel-" : "finish-") + actor +
                 "-" + std::to_string(cut.start_revision))},
-            {"action", Value(interrupted ? "cancel_harvest" : "finish_harvest")}};
+            {"action", Value(std::string(worksite_commands::schema(interrupted ?
+                worksite_commands::Action::cancel_harvest :
+                worksite_commands::Action::finish_harvest).name))}};
         Object normalized = wire;
         normalized.emplace("actor", Value(actor));
         normalized.emplace("wire", Value(wire));
@@ -2700,7 +2698,8 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
                 {"client", Value(actor)},
                 {"request", Value("native-cut-cancel-" + actor + "-" +
                     std::to_string(cut.start_revision))},
-                {"action", Value("cancel_harvest")}};
+                {"action", Value(std::string(worksite_commands::schema(
+                    worksite_commands::Action::cancel_harvest).name))}};
             Object cancel = cancel_wire;
             cancel.emplace("actor", Value(actor));
             cancel.emplace("wire", Value(cancel_wire));

@@ -7,6 +7,7 @@
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
+#include "factory/worksite_command_contract.hpp"
 #include "belt_planner.hpp"
 #include "component_planner.hpp"
 #include "crank_planner.hpp"
@@ -178,11 +179,9 @@ bool shape(const Object& intent, const std::string& action) {
     if (const auto stationary_target = stationary_target_commands::parse(action);
         stationary_target != stationary_target_commands::Action::none)
         return stationary_target_commands::valid_intent_before_target(intent, stationary_target);
-    if (action == "harvest_source" || action == "fast_harvest_source")
-        return keys(intent, {"target"}) && field<std::string>(intent, "target");
-    if (action == "finish_harvest" || action == "cancel_harvest") return keys(intent, {});
-    if (action == "set_developer_conveniences")
-        return keys(intent, {"enabled"}) && field<bool>(intent, "enabled");
+    if (const auto worksite = worksite_commands::parse_intent(action);
+        worksite != worksite_commands::Action::none)
+        return worksite_commands::valid_intent(intent, worksite);
     if (placement(action) && intent.contains("rotation"))
         return keys(intent, {"role", "center", "axis", "teeth", "half_span", "rotation"});
     if (placement(action) && intent.contains("relay_axis"))
@@ -290,8 +289,9 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
                       const PlacedHistory& placed_components,
                       const std::optional<FabricationHub>& hub) {
     if (action == "shaft_between" || action == "remove_shaft_between") return false;
+    const auto worksite = worksite_commands::parse_intent(action);
     const auto& result = record.result;
-    if (action == "cancel_harvest") {
+    if (worksite == worksite_commands::Action::cancel_harvest) {
         const auto* entity = field<std::string>(result, "entity");
         const auto* result_actor = field<std::string>(result, "actor");
         const auto* generation = field<Integer>(result, "generation");
@@ -300,7 +300,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             generation && *generation == 0 && reason && *reason == "ok" &&
             result.size() == 11;
     }
-    if (action == "set_developer_conveniences") {
+    if (worksite == worksite_commands::Action::developer_conveniences) {
         const auto* entity = field<std::string>(result, "entity");
         const auto* result_actor = field<std::string>(result, "actor");
         const auto* generation = field<Integer>(result, "generation");
@@ -325,8 +325,9 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     const bool broad_pickup = (picked_sheets && *picked_sheets > 0) ||
         (picked_work && std::any_of(picked_work->begin(), picked_work->end(),
             [](const Value& value) { return sheet_lot(value).has_value(); }));
-    const double expected_reach = (action == "harvest_source" || action == "fast_harvest_source" ||
-        action == "finish_harvest") &&
+    const double expected_reach = (worksite == worksite_commands::Action::harvest ||
+        worksite == worksite_commands::Action::fast_harvest ||
+        worksite == worksite_commands::Action::finish_harvest) &&
         profile.manual_cut_reach > 0 ? profile.manual_cut_reach : profile.build_reach;
     if (!reason || *reason != "ok" || !epoch || *epoch <= 0 || !reach || *reach != expected_reach ||
         !position || !points || !distances ||
@@ -540,8 +541,10 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             *products == (*strokes == 4 ? 4 : 0) && origin &&
             targets == broad_reach_targets(profile, *origin) && result.size() == 20;
     }
-    if (action == "harvest_source" || action == "fast_harvest_source" || action == "finish_harvest") {
-        const auto* id = action != "finish_harvest" ?
+    if (worksite == worksite_commands::Action::harvest ||
+        worksite == worksite_commands::Action::fast_harvest ||
+        worksite == worksite_commands::Action::finish_harvest) {
+        const auto* id = worksite != worksite_commands::Action::finish_harvest ?
             field<std::string>(record.intent, "target") : field<std::string>(result, "entity");
         const auto* entity = field<std::string>(result, "entity");
         const auto* generation = field<Integer>(result, "generation");
@@ -549,7 +552,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* timber = field<Integer>(result, "moved_timber");
         if (!id || !entity || *entity != *id || !generation || *generation != 1 ||
             !raw || !timber || result.size() != 18) return false;
-        const bool starting = action == "harvest_source";
+        const bool starting = worksite == worksite_commands::Action::harvest;
         if (profile.material.manual_ore && *id == profile.material.manual_ore->id)
             return *raw == (starting ? 0 : 1) && *timber == 0 &&
                 targets.front() == manual_cut_target(profile,
@@ -1754,6 +1757,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         // Malformed/refused commands retain their exact original intent too.
         if (!*accepted_value) continue;
         if (!shape(record.intent, *action)) return false;
+        const auto worksite = worksite_commands::parse_intent(*action);
         if (profile.first_plate_unlock && !workshop_completed_actors.contains(*actor) &&
             requires_first_plate(record.intent, *action)) return false;
         if (placement(*action) || *action == "remove" || *action == "set_drive" ||
@@ -1773,9 +1777,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (!result_actor || *result_actor != *actor || !entity || !generation) return false;
         if (*action != "pickup_material" && *action != "place_sheet" &&
             *action != "push_channel_sheet" && *action != "push_channel_small" &&
-            *action != "harvest_source" && *action != "fast_harvest_source" &&
-            *action != "finish_harvest" && *action != "cancel_harvest" &&
-            *action != "set_developer_conveniences" && *action != "field_craft") {
+            worksite == worksite_commands::Action::none && *action != "field_craft") {
             const auto issued = snapshot.state.issued_entities.find(*entity);
             if (issued == snapshot.state.issued_entities.end() || issued->second != *generation) return false;
         }
@@ -1808,23 +1810,27 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (acquired && *acquired > 0) workshop_completed_actors.insert(*actor);
         }
         const auto prior_cut = historical_cuts.find(*actor);
-        if (prior_cut != historical_cuts.end() && *action != "finish_harvest" &&
-            *action != "cancel_harvest" && *action != "set_developer_conveniences") return false;
-        if (*action == "set_developer_conveniences") {
+        if (prior_cut != historical_cuts.end() &&
+            worksite != worksite_commands::Action::finish_harvest &&
+            worksite != worksite_commands::Action::cancel_harvest &&
+            worksite != worksite_commands::Action::developer_conveniences) return false;
+        if (worksite == worksite_commands::Action::developer_conveniences) {
             historical_developer_conveniences = *field<bool>(record.intent, "enabled");
             historical_cuts.clear();
         }
-        if (*action == "fast_harvest_source" && !historical_developer_conveniences) return false;
-        if (*action == "harvest_source") {
+        if (worksite == worksite_commands::Action::fast_harvest &&
+            !historical_developer_conveniences) return false;
+        if (worksite == worksite_commands::Action::harvest) {
             const auto& target = *field<std::string>(record.intent, "target");
             if (std::any_of(historical_cuts.begin(), historical_cuts.end(),
                     [&](const auto& entry) { return entry.second.target == target; })) return false;
             historical_cuts.emplace(*actor, HistoricalCut{target, *result_revision});
         }
-        if (*action == "finish_harvest" || *action == "cancel_harvest") {
+        if (worksite == worksite_commands::Action::finish_harvest ||
+            worksite == worksite_commands::Action::cancel_harvest) {
             if (prior_cut == historical_cuts.end() ||
                 prior_cut->second.target != *entity) return false;
-            if (*action == "finish_harvest" &&
+            if (worksite == worksite_commands::Action::finish_harvest &&
                 elapsed_cut_ticks(prior_cut->second.start_revision,
                     *result_revision - 1) < manual_cut_ticks) return false;
             historical_cuts.erase(prior_cut);
@@ -1856,7 +1862,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 return false;
             carried_timber[*actor] -= foundation_timber_cost;
         }
-        if (*action == "finish_harvest" || *action == "fast_harvest_source") {
+        if (worksite == worksite_commands::Action::finish_harvest ||
+            worksite == worksite_commands::Action::fast_harvest) {
             const auto& id = *entity;
             if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
                 if (!add(harvested_ore, 1) ||
@@ -4710,7 +4717,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         !state.workshop_completed_actors.contains(binding.actor) &&
         requires_first_plate(intent, *action))
         return refused("first_plate_required");
-    if (*action == "set_developer_conveniences") {
+    const auto worksite_action = worksite_commands::parse_intent(*action);
+    if (worksite_action == worksite_commands::Action::developer_conveniences) {
         auto candidate = state;
         candidate.developer_conveniences = *field<bool>(intent, "enabled");
         candidate.manual_cuts.clear();
@@ -4719,8 +4727,10 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
             {"enabled", Value(*field<bool>(intent, "enabled"))}});
     }
     const auto pending = state.manual_cuts.find(binding.actor);
-    if (pending != state.manual_cuts.end() && *action != "finish_harvest" &&
-        *action != "cancel_harvest") return refused("actor_busy", pending->second.target);
+    if (pending != state.manual_cuts.end() &&
+        worksite_action != worksite_commands::Action::finish_harvest &&
+        worksite_action != worksite_commands::Action::cancel_harvest)
+        return refused("actor_busy", pending->second.target);
     if (const auto harvest = harvest_command(*action, intent))
         return plan_harvest(profile_, binding, snapshot, *harvest, observe);
     if (const auto belt = belt_command(*action, intent))
