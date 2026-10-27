@@ -4898,48 +4898,6 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
     }
     if (const auto fabrication = fabrication_command(*action, intent))
         return plan_fabrication(profile_, binding, snapshot, *fabrication, observe);
-    if (*action == "stow_fabrication_hub" || *action == "deploy_fabrication_hub") {
-        const auto* id = field<std::string>(intent, "target");
-        const auto* generation = field<Integer>(intent, "generation");
-        if (!id || !generation) return refused("invalid_target");
-        if (!state.fabrication_hub || *id != state.fabrication_hub->id)
-            return refused("unknown_target", *id);
-        const auto& hub = *state.fabrication_hub;
-        if (*generation != hub.generation) return refused("stale_generation", *id);
-        const bool deploy = *action == "deploy_fabrication_hub";
-        if (deploy ? (!hub.holder || *hub.holder != binding.actor) : hub.holder.has_value())
-            return refused(deploy ? "not_holder" : "already_stowed", *id);
-        const auto location = deploy ? grid_point(intent) : std::optional<mechanics::Point>(hub.center);
-        if (!location) return refused("invalid_cell", *id);
-        const auto center = *location;
-        if (deploy &&
-            (center[0] % 4 != 0 || center[2] % 4 != 0 ||
-             (center[1] != 0 &&
-              std::none_of(state.foundations.begin(), state.foundations.end(),
-                  [&](const auto& entry) { return entry.second.center == center; }))))
-            return refused("unsupported_bench", *id);
-        if (deploy &&
-            (std::any_of(state.placed_components.begin(), state.placed_components.end(),
-                [&](const auto& entry) { return entry.second.center == center; }) ||
-             std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
-                [&](const auto& item) { return item.geometry.center == center; })))
-            return refused("occupied", *id);
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready", *id);
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile_, center)});
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        auto candidate = state;
-        candidate.fabrication_hub->center = center;
-        candidate.fabrication_hub->holder = deploy ? std::nullopt : std::optional<std::string>(binding.actor);
-        facts.emplace("generation", Value(*generation));
-        facts.emplace("holder", Value(deploy ? "installed" : binding.actor));
-        return accepted(std::move(candidate), *id, std::move(facts));
-    }
     if (*action == "attach_hand_crank" || *action == "detach_hand_crank") {
         const bool attaching = *action == "attach_hand_crank";
         const auto* id = field<std::string>(intent, "target");
