@@ -261,6 +261,12 @@ Machine workbeds show actual occupied material and only carried inputs accepted
 by the selected assembly. Empty work locations are blank; the whole carried area
 accepts recoverable output drops. Material tiles depict the item, with progress
 and operations explained separately.
+The hand-tended press keeps each completed plate on its supported work surface
+until the player collects it directly or transfers it into carried inventory.
+An adjacent empty tile or passive receiver cannot eject it. An aligned, powered
+and clear belt or slide may move the plate into available receiving space;
+inactive or blocked transport leaves the finished plate visible and prevents
+another load. Copper offcuts remain recoverable, with exact material accounting.
 Point at loose material and press E to pick it up. The world interaction uses the
 visible item and confirmed native custody, with normal reach and obstruction
 limits. Manual push commands belong only to developer diagnostics. Connected,

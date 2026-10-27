@@ -2214,15 +2214,17 @@ func refresh() -> void:
 				continue
 			var location := world_center(drop.center)
 			var supported_slide: bool = sliding_work_surfaces.has(drop.center) \
-				and drop.products == 0 and int(drop.get("offcuts", 0)) == 0 \
 				and int(drop.get("sheets", 0)) == 0 \
-				and ((drop.raw == 1 and drop.work_lots.is_empty()) \
-					or (drop.raw == 0 and drop.work_lots.size() == 1))
+				and ((drop.products == 1 and drop.raw == 0 and drop.work_lots.is_empty()) \
+					or (drop.products == 0 and int(drop.get("offcuts", 0)) == 0 \
+						and ((drop.raw == 1 and drop.work_lots.is_empty()) \
+							or (drop.raw == 0 and drop.work_lots.size() == 1))))
 			if supported_slide:
-				location.y = float(sliding_work_surfaces[drop.center]) + (0.04 if drop.raw > 0 else 0.03)
+				location.y = float(sliding_work_surfaces[drop.center]) + \
+					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else 0.03))
 			elif guided_work_surfaces.has(drop.center):
 				location.y = float(guided_work_surfaces[drop.center]) + \
-					(0.04 if drop.raw > 0 else -0.082)
+					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else -0.082))
 			var visual: Node3D
 			if drop.raw > 0:
 				visual = _cylinder(self, "LooseBlank", 0.11 if supported_slide else 0.15,
@@ -2238,6 +2240,8 @@ func refresh() -> void:
 				# unbounded visual nodes.
 				for layer in range(mini(drop.products, 4)):
 					Items.stamped_plate(visual, Vector3(0, float(layer) * 0.045, 0))
+				if int(drop.get("offcuts", 0)) > 0:
+					Items.copper_offcuts(visual, Vector3(0.26, 0.025, 0.15))
 			elif int(drop.get("offcuts", 0)) > 0:
 				visual = Items.copper_offcuts(self, location)
 			elif int(drop.get("sheets", 0)) > 0:
@@ -2284,13 +2288,17 @@ func refresh() -> void:
 				label.text = "%d blank" % drop.raw
 			elif drop.products > 0:
 				label.text = "%d plate" % drop.products
+				if int(drop.get("offcuts", 0)) > 0:
+					label.text += " + %d offcut" % int(drop.offcuts)
 			elif int(drop.get("offcuts", 0)) > 0:
 				label.text = "%d offcut" % int(drop.offcuts)
 			elif int(drop.get("sheets", 0)) > 0:
 				label.text = "%d copper sheet" % int(drop.sheets)
 			else:
 				label.text = "%d held workpiece" % drop.work_lots.size()
-			label.position = Vector3(0.29, 0.07, 0) if supported_slide else \
+			label.position = Vector3(-0.38, 0.12, 0) if drop.products > 0 and \
+				(supported_slide or guided_work_surfaces.has(drop.center)) else \
+				Vector3(0.29, 0.07, 0) if supported_slide else \
 				Vector3(0, 1.2 if int(drop.get("offcuts", 0)) > 0 else 0.3, 0)
 			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 			label.fixed_size = true

@@ -2781,10 +2781,10 @@ func _slide_material_seat() -> void:
 		sun.rotation_degrees = Vector3(-45, -30, 0)
 		root.add_child(sun)
 		var camera := Camera3D.new()
-		camera.position = Vector3(0.7, 1.4, 1.65)
-		camera.fov = 39
+		camera.position = Vector3(1.25, 1.55, 2.6)
+		camera.fov = 45
 		root.add_child(camera)
-		camera.look_at(Vector3(0, 1.05, 0))
+		camera.look_at(Vector3(0, 0.83, 0))
 		camera.current = true
 		await process_frame
 		await RenderingServer.frame_post_draw
@@ -2812,6 +2812,75 @@ func _slide_material_seat() -> void:
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(image_path.trim_suffix(".png") + "-work.png") == OK,
 			"Retain the visible supported workpiece frame.")
+	state.dropped_material = [{"center": [0, 0, 0], "raw": 0, "products": 1,
+		"work_lots": [], "offcuts": 1}]
+	state.slide_phases.slide.subticks = 0
+	presenter.refresh()
+	var plate := presenter.get_node_or_null("LoosePlateStack")
+	var sheet: MeshInstance3D = plate.get_node_or_null("StampedPlate/PlateSheet") if plate != null else null
+	var trimmings := plate.get_node_or_null("CopperOffcuts") if plate != null else null
+	var label: Label3D = null
+	if plate != null:
+		for child: Node in plate.get_children():
+			if child is Label3D:
+				label = child
+	verify(plate != null and sheet != null and trimmings != null and label != null
+		and is_equal_approx(plate.position.y - 0.03, crown - 0.02)
+		and is_equal_approx(sheet.global_position.y - sheet.mesh.get_aabb().size.y * 0.5,
+			crown - 0.02)
+		and label.text == "1 plate + 1 offcut",
+		"The finished plate rests on the sliding workbed with its recoverable offcut visible.")
+	verify(plate != null and not plate.find_children("LooseMaterialPicker", "StaticBody3D", true, false).is_empty(),
+		"The supported plate keeps a mesh-aligned pickup target.")
+	if not image_path.is_empty():
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(image_path.trim_suffix(".png") + "-plate.png") == OK,
+			"Retain the visible finished plate on its sliding workbed.")
+	var opening := PickupOpening.new()
+	opening.state = fixture()
+	opening.state.context = state.context
+	opening.state.dropped_material = state.dropped_material.duplicate(true)
+	root.add_child(opening)
+	var pointer_camera := Camera3D.new()
+	root.add_child(pointer_camera)
+	opening.camera = pointer_camera
+	var target: Vector3 = sheet.global_transform * sheet.mesh.get_aabb().get_center()
+	pointer_camera.position = target + Vector3(0.1, 0.42, 1.2)
+	pointer_camera.look_at(target)
+	pointer_camera.current = true
+	verify(root.get_camera_3d() == pointer_camera,
+		"The pickup frame uses the same close camera as the supported plate ray.")
+	var pointer_ui := Control.new()
+	pointer_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	opening.add_child(pointer_ui)
+	opening._build_pointed_summary(pointer_ui)
+	await physics_frame
+	await physics_frame
+	var screen := opening._pointed_screen_position()
+	verify(opening._screen_loose_material(screen) == state.dropped_material[0],
+		"The supported finished plate is selected by an unobstructed camera ray.")
+	var summary: Dictionary = opening._pointed_summary_data(screen)
+	verify(summary.get("name") == "1 copper plate, 1 copper offcut" and summary.get("detail") == "E  Pick up",
+		"The supported plate has an E pickup cue that includes its recoverable offcut.")
+	if not image_path.is_empty():
+		opening._refresh_pointed_summary()
+		verify(opening.pointed_summary.visible,
+			"The supported plate pickup cue is visible in the rendered frame.")
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(image_path.trim_suffix(".png") + "-pickup.png") == OK,
+			"Retain the supported plate and its pointed pickup cue together.")
+	var key := InputEventKey.new()
+	key.keycode = KEY_E
+	key.pressed = true
+	opening._unhandled_input(key)
+	var expected: Dictionary = state.dropped_material[0].duplicate(true)
+	expected.erase("center")
+	verify(opening.calls == [{"action": "pickup_material", "center": [0, 0, 0], "expected": expected}],
+		"E requests exactly the native confirmed supported plate and offcut.")
+	opening.free()
+	pointer_camera.free()
 	presenter.free()
 
 func _mechanical_collision_geometry() -> void:

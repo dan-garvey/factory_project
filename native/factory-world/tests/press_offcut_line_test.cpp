@@ -257,31 +257,60 @@ void run_line(bool plate_receiver, bool preassembly_raw = false) {
     const auto loaded = run.world->snapshot();
     check(w::World::restore("press-offcut-line", source.profile, loaded) != nullptr,
           "Four finite blanks on the physical input belt restore before the unattended run.");
-    bool one_plate_checked = false;
-    for (int tick = 0; tick < 40; ++tick) {
-        check(run.world->tick().error == w::TransactionError::none,
-              "The connected press line advances under native power.");
-        const auto current = run.world->snapshot();
-        if (plate_receiver && !one_plate_checked &&
-            current.state.press_output_at_receiver.contains({-1, 0, 0})) {
-            const auto& ids = current.state.press_output_at_receiver.at({-1, 0, 0});
-            check(ids.size() == 1 && current.state.belt_press_products.contains({-1, 0, 0}) &&
-                  current.state.belt_press_products.at({-1, 0, 0}).contains(*ids.begin()) &&
-                  (!preassembly_raw || *ids.begin() == 1) &&
-                  current.state.material.dropped_material.at({-1, 0, 0}) == m::Cargo{0, 1, {}},
-                  "The first belt-fed plate sits in its real fitted receiver.");
+    if (plate_receiver) {
+        I last_plate_id = 0;
+        for (int tick = 0; tick < 120 &&
+                run.world->snapshot().state.material.cargo.at("Q").products < 4; ++tick) {
+            check(run.world->tick().error == w::TransactionError::none,
+                  "The belt-fed press advances while its passive plate tray stays empty.");
+            const auto current = run.world->snapshot();
+            const auto supported = current.state.press_output_on_work.find({0, 0, 0});
+            if (supported == current.state.press_output_on_work.end()) continue;
+            const I id = supported->second.id;
+            check(id > last_plate_id && supported->second.selected_exit == g::Point{-1, 0, 0} &&
+                  current.state.material.dropped_material.at({0, 0, 0}).products == 1 &&
+                  current.state.material.dropped_material.at({0, 0, 1}).offcuts ==
+                      current.state.material.cargo.at("Q").products + 1 &&
+                  !current.state.material.dropped_material.contains({-1, 0, 0}) &&
+                  current.state.press_output_at_receiver.empty() &&
+                  (!preassembly_raw || last_plate_id != 0 || id == 1) &&
+                  w::validate(source.profile, current),
+                  "A passive receiver leaves the next identified plate on the workbed.");
             check(std::holds_alternative<V>(w::encode_checkpoint(source.profile, current)) &&
                   w::World::restore("press-offcut-line", source.profile, current) != nullptr,
-                  "A lone belt-fed plate in a receiver can save before the next turn.");
-            if (preassembly_raw) {
+                  "The supported belt-fed plate and separate offcut tray survive a checkpoint.");
+            if (preassembly_raw && last_plate_id == 0) {
                 auto forged = current;
-                forged.state.belt_press_products[{0, 0, 1}].insert(*ids.begin());
+                forged.state.belt_press_products[{0, 0, 1}].insert(id);
                 check(!w::validate(source.profile, forged) &&
                       w::World::restore("press-offcut-line", source.profile, forged) == nullptr,
                       "The early blank cannot claim a second plate at the offcut outlet.");
             }
-            one_plate_checked = true;
+            auto pickup = request("Q", "collect-supported-plate-" + std::to_string(id),
+                "pickup_material");
+            pickup.emplace("center", V(point(0, 0, 0)));
+            pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+                {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+            const auto accepted = run.accept("Q", pickup);
+            check(std::get<I>(accepted.at("press_output_work_id").storage()) == id &&
+                  run.world->snapshot().state.press_output_on_work.empty() &&
+                  w::validate(source.profile, run.world->snapshot()),
+                  "Q collects each plate once from the workbed before another belt blank arrives.");
+            last_plate_id = id;
         }
+        const auto four = run.world->snapshot();
+        check(four.state.material.cargo.at("Q").products == 4 &&
+              four.state.material.dropped_material.at({0, 0, 1}).offcuts == 4 &&
+              four.state.press_output_on_work.empty() &&
+              four.state.press_output_at_receiver.empty() &&
+              w::World::restore("press-offcut-line", source.profile, four) != nullptr,
+              "Four belt-fed plates were collected from the workbed while four offcuts remain recoverable.");
+        return;
+    }
+    for (int tick = 0; tick < 40; ++tick) {
+        check(run.world->tick().error == w::TransactionError::none,
+              "The connected press line advances under native power.");
+        const auto current = run.world->snapshot();
         const auto tray = current.state.material.dropped_material.find({0, 0, 1});
         if (tray != current.state.material.dropped_material.end() && tray->second.offcuts == 4)
             break;
@@ -300,17 +329,6 @@ void run_line(bool plate_receiver, bool preassembly_raw = false) {
         return plates;
     };
     const auto four = run.world->snapshot();
-    check(!plate_receiver || one_plate_checked,
-          "The fitted plate receiver retained the first belt-fed product.");
-    if (plate_receiver) {
-        check(four.state.material.dropped_material.at({-1, 0, 0}).products == 4 &&
-              four.state.press_output_at_receiver.at({-1, 0, 0}).size() == 4 &&
-              four.state.material.dropped_material.at({0, 0, 1}).offcuts == 4 &&
-              std::holds_alternative<V>(w::encode_checkpoint(source.profile, four)) &&
-              w::World::restore("press-offcut-line", source.profile, four) != nullptr,
-              "Four belt-fed plates and offcuts keep separate finite trays across a checkpoint.");
-        return;
-    }
     check(count_plates(four.state.material) == 4 &&
           four.state.material.dropped_material.at({0, 0, 1}).offcuts == 4 &&
           !four.state.material.dropped_material.contains({0, 0, 0}) &&

@@ -382,13 +382,15 @@ void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = fal
     std::set<m::WorkId> produced_ids;
     if (!sustained) {
         for (const auto base : {g::Integer{800}, g::Integer{840}}) {
+            const g::Point work{base, 1, 16};
             const g::Point exit{base - 1, 1, 16};
-            const auto product = finished.state.material.dropped_material.find(exit);
-            const auto witness = finished.state.press_output_at_exit.find(exit);
+            const auto product = finished.state.material.dropped_material.find(work);
+            const auto witness = finished.state.press_output_on_work.find(work);
             if (product == finished.state.material.dropped_material.end() ||
-                product->second.products != 1 || witness == finished.state.press_output_at_exit.end() ||
-                !produced_ids.insert(witness->second).second)
-                throw std::runtime_error("One modular line failed to produce a plate.");
+                product->second.products != 1 || witness == finished.state.press_output_on_work.end() ||
+                witness->second.selected_exit != exit ||
+                !produced_ids.insert(witness->second.id).second)
+                throw std::runtime_error("One modular workbed failed to retain its finished plate.");
         }
     }
     std::cout << "WORLD_COG_SCALE_CHECK rotating=" << cog_count
