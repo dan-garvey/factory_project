@@ -5,6 +5,7 @@ const Site = preload("res://opening/site_geometry.gd")
 var native: Object
 var boot_result: Dictionary = {"accepted": false, "reason": "native_library_missing"}
 var _view_cache: Dictionary = {}
+var _projection_fields: Dictionary = {}
 var context: String:
 	get:
 		return str(projection().get("context", ""))
@@ -64,7 +65,12 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 			"flow_cells": surface.flow_cells()}])
 	if not boot_result.get("accepted", false):
 		return
-	var profile: Dictionary = projection().get("adapter_profile", {})
+	_projection_fields = _invoke("projection_fields", [])
+	var current: Dictionary = projection()
+	if not _complete_projection(current):
+		boot_result = {"accepted": false, "reason": "native_projection_schema_mismatch"}
+		return
+	var profile: Dictionary = current.get("adapter_profile", {})
 	if profile.get("pitch") != Site.PITCH or profile.get("height_denominator") != Site.HEIGHT_DENOMINATOR or profile.get("height_step") != Site.HEIGHT_STEP or profile.get("foundation_depth") != Site.FOUNDATION_DEPTH or profile.get("anchor_height") != Site.ANCHOR_HEIGHT or profile.get("wheel_radius") != Site.WATERWHEEL_RADIUS_HUNDREDTHS or profile.get("wheel_axle_offset") != Site.WATERWHEEL_AXLE_OFFSET_HUNDREDTHS or profile.get("capsule_radius") != Site.CAPSULE_RADIUS or profile.get("capsule_height") != Site.CAPSULE_HEIGHT or profile.get("collector_intake_size") != Site.COLLECTOR_INTAKE_SIZE or profile.get("collector_intake_x") != Site.COLLECTOR_INTAKE_X or profile.get("collector_intake_y") != Site.COLLECTOR_INTAKE_Y or profile.get("collector_second_cell_z") != Site.COLLECTOR_SECOND_CELL_Z:
 		boot_result = {"accepted": false, "reason": "native_scene_profile_mismatch"}
 	if profile.get("collector_lift") != Site.COLLECTOR_LIFT_PROFILE:
@@ -100,13 +106,34 @@ func _view_projection_borrowed() -> Dictionary:
 	if _view_cache.is_empty():
 		var observed: Dictionary = projection()
 		if not _complete_projection(observed):
-			return observed
+			return _projection_unavailable()
 		_view_cache = observed
 	return _view_cache
 
 func _complete_projection(value: Dictionary) -> bool:
-	return value.get("context") is String and typeof(value.get("revision")) == TYPE_INT \
-		and value.get("entities") is Dictionary and value.get("actors") is Dictionary
+	if _projection_fields.is_empty():
+		return false
+	for name in _projection_fields:
+		if not name is String or not value.has(name):
+			return false
+		var actual: int = typeof(value[name])
+		match _projection_fields[name]:
+			"string":
+				if actual != TYPE_STRING: return false
+			"integer":
+				if actual != TYPE_INT: return false
+			"boolean":
+				if actual != TYPE_BOOL: return false
+			"array":
+				if actual != TYPE_ARRAY: return false
+			"object":
+				if actual != TYPE_DICTIONARY: return false
+			_:
+				return false
+	return true
+
+func _projection_unavailable() -> Dictionary:
+	return {"accepted": false, "reason": "native_projection_unavailable", "uncertain": true}
 
 func command(intent: Dictionary) -> Dictionary:
 	return command_as("P", intent)
@@ -127,7 +154,9 @@ func _advance_borrowed() -> Dictionary:
 	# keeps its isolated cache for callers that may edit the returned dictionary.
 	if _view_cache.is_empty():
 		var complete: Dictionary = _invoke("advance", [])
-		_view_cache = complete if _complete_projection(complete) else {}
+		if not _complete_projection(complete):
+			return _projection_unavailable()
+		_view_cache = complete
 		return complete
 	var delta: Dictionary = _invoke("advance_delta", [])
 	var observed: Dictionary = {}
@@ -142,8 +171,11 @@ func _advance_borrowed() -> Dictionary:
 	else:
 		# A boundary refusal is not a confirmed tick or a reusable view.
 		_view_cache = {}
-		return delta
-	_view_cache = observed if _complete_projection(observed) else {}
+		return delta if delta.get("accepted") == false else _projection_unavailable()
+	if not _complete_projection(observed):
+		_view_cache = {}
+		return _projection_unavailable()
+	_view_cache = observed
 	return observed
 
 func publish_actor(actor: String, position: Array, native_epoch: int) -> Dictionary:

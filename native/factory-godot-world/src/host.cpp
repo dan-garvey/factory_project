@@ -6,6 +6,7 @@
 #include "factory/foundation_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
+#include "factory/projection_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
@@ -3391,7 +3392,9 @@ Value Host::projection() const {
         projection.emplace("broad_shear_assemblies", Value(std::move(broad_shears)));
     }
     projection.merge(tick_fields(snapshot));
-    return Value(std::move(projection));
+    Value complete(std::move(projection));
+    return projection_contract::complete(complete) ?
+        std::move(complete) : result(false, "incomplete_projection");
 }
 
 Value Host::checkpoint() const {

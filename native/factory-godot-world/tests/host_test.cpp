@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/projection_contract.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <array>
@@ -254,11 +255,22 @@ void nonarrival_tick_schema() {
           accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
           "The nonarrival Host starts with an ordinary finite world.");
     const auto full_before = std::get<O>(host.projection().storage());
+    check(factory::godot_world::projection_contract::complete(V(full_before)),
+          "The ordinary Host exports every stable typed projection field.");
+    auto missing_stock = full_before;
+    missing_stock.erase("stock");
+    auto wrong_cargo = full_before;
+    wrong_cargo.at("cargo") = V(A{});
+    check(!factory::godot_world::projection_contract::complete(V(missing_stock)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_cargo)),
+          "Missing stock or mistyped cargo cannot be admitted as a complete native view.");
     const auto fields = std::get<O>(host.advance_tick_fields().storage());
     const auto full_after = std::get<O>(host.projection().storage());
     check(!full_before.contains("slide_phases") && !fields.contains("slide_phases") &&
           !full_after.contains("slide_phases"),
           "A nonarrival tick cannot introduce an arrival-only slide phase field.");
+    check(factory::godot_world::projection_contract::complete(V(full_after)),
+          "A nonarrival tick retains the complete stable projection schema.");
 }
 }  // namespace
 

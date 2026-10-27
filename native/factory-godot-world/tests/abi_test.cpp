@@ -1,4 +1,5 @@
 #include "factory/godot_value.hpp"
+#include "factory/projection_contract.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <array>
@@ -226,6 +227,12 @@ void run() {
         const auto press = place("processor", 3, "press");
         at(-1.65, 0);
         auto projection = host.call("projection", {});
+        const auto schema = host.call("projection_fields", {});
+        check(field<std::string>(schema, "context") == "string" &&
+                  field<std::string>(schema, "stock") == "object" &&
+                  field<std::string>(schema, "opening_engineering") == "object" &&
+                  factory::godot_world::projection_contract::complete(projection, true),
+              "The real extension exposes the same typed complete-view contract it publishes.");
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,
               "The powered line consumes three physical shafts.");
         bool blocked_ready = false;
@@ -274,9 +281,9 @@ void run() {
         auto insert = target("insert_work", "insert-original", rebuilt); insert.emplace("work_id", Value(work_id));
         check(accepted(issue(host, insert)), "Insertion moves the original ready lot.");
         const auto saved = host.call("checkpoint", {});
-        check(field<Integer>(saved, "schema") == 4 && field<Object>(saved, "support_routes").empty() &&
+        check(field<Integer>(saved, "schema") == 4 && !field<Object>(saved, "support_routes").empty() &&
                   !field<Object>(saved, "actors").contains("native_epoch"),
-              "The physical checkpoint contains native route choices and seeds, not a saved registration.");
+              "The physical checkpoint contains chosen support routes, not a saved actor registration.");
         check(accepted(host.call("validate_checkpoint", {saved})), "The class exposes detached complete checkpoint validation.");
         check(!accepted(host.call("restore_checkpoint", {saved})), "An already observed host refuses an in-place body reset.");
 

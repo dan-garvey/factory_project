@@ -59,6 +59,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var full_projection_calls := 0
 	var native_advance_calls := 0
 	var native_delta_calls := 0
+	var inject_bad_full := false
+	var inject_bad_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -66,7 +68,14 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			native_advance_calls += 1
 		elif method == "advance_delta":
 			native_delta_calls += 1
-		return super._invoke(method, arguments)
+		var delivered: Dictionary = super._invoke(method, arguments)
+		if method == "projection" and inject_bad_full:
+			inject_bad_full = false
+			delivered.erase("stock")
+		elif method == "advance_delta" and inject_bad_delta:
+			inject_bad_delta = false
+			return {"changes": {"cargo": []}, "removed": []}
+		return delivered
 
 class TopologyStub extends RefCounted:
 	var state: Dictionary = {}
@@ -3545,6 +3554,9 @@ func _native_view_cache_regression() -> void:
 	var physical := ActorWorld.new()
 	physical.model = model
 	root.add_child(physical)
+	# ActorWorld startup reads terrain through a public projection and clears
+	# the model cache. Refill it before measuring the ordinary physics cut.
+	model.view_projection()
 	model.full_projection_calls = 0
 	physical._on_native_cut()
 	verify(model.full_projection_calls == 0,
@@ -3639,6 +3651,28 @@ func _native_view_cache_regression() -> void:
 		and not prior_trusted_view.actors.P.ready,
 		"Actor publication replaces the borrowed actor path without mutating a retained scene view.")
 	trusted_opening.free()
+	var complete: Dictionary = trusted.view_projection()
+	var missing := complete.duplicate(true)
+	missing.erase("stock")
+	var wrong_type := complete.duplicate(true)
+	wrong_type.cargo = []
+	verify(trusted._complete_projection(complete) and not trusted._complete_projection(missing)
+		and not trusted._complete_projection(wrong_type),
+		"The native field contract rejects missing stock and a mistyped cargo view.")
+	trusted._view_cache = {}
+	trusted.inject_bad_full = true
+	var bad_full: Dictionary = trusted.view_projection()
+	verify(bad_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A partial full projection never becomes a confirmed cached worksite.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native full projection recovers after the incomplete delivery.")
+	trusted.view_projection()
+	trusted.inject_bad_delta = true
+	var bad_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A mistyped material delta cannot publish a partial next worksite.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"The next full native observation recovers after a rejected delta.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

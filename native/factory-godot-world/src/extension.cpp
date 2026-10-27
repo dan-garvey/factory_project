@@ -1,6 +1,7 @@
 #include "factory/godot_world.hpp"
 #include "factory/godot_value.hpp"
 #include "factory/opening_engineering.hpp"
+#include "factory/projection_contract.hpp"
 
 #include <array>
 #include <atomic>
@@ -95,7 +96,7 @@ struct EmptyText {
     void* get() { return storage.data(); }
 };
 
-enum class Method { initialize, initialize_arrival, initialize_arrival_advanced_fixture, terrain, command, publish, actor_projection, invalidate, advance, advance_delta, projection, checkpoint, restore, validate };
+enum class Method { initialize, initialize_arrival, initialize_arrival_advanced_fixture, terrain, command, publish, actor_projection, invalidate, advance, advance_delta, projection, projection_fields, checkpoint, restore, validate };
 struct Description { const char* name; Method method; std::uint32_t arguments; };
 std::array methods{
     Description{"initialize", Method::initialize, 2},
@@ -107,6 +108,7 @@ std::array methods{
     Description{"invalidate_actor", Method::invalidate, 1},
     Description{"advance", Method::advance, 0}, Description{"advance_delta", Method::advance_delta, 0},
     Description{"projection", Method::projection, 0},
+    Description{"projection_fields", Method::projection_fields, 0},
     Description{"checkpoint", Method::checkpoint, 0}, Description{"restore_checkpoint", Method::restore, 1},
     Description{"validate_checkpoint", Method::validate, 1}};
 
@@ -163,19 +165,23 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
         case Method::command: return host.command(typed<std::string>(args, 0), typed<Object>(args, 1));
         case Method::publish: return host.publish_actor(typed<std::string>(args, 0), typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));
         case Method::actor_projection: return host.actor_projection(typed<std::string>(args, 0));
+        case Method::projection_fields: return factory::godot_world::projection_contract::fields(true);
         case Method::invalidate: return host.invalidate_actor(typed<std::string>(args, 0));
         case Method::advance:
         case Method::projection: {
             Value view = with_opening_engineering(method == Method::advance ? host.advance() : host.projection());
-            instance.last_view = view;
+            if (factory::godot_world::projection_contract::complete(view, true))
+                instance.last_view = view;
+            else instance.last_view.reset();
             return view;
         }
         case Method::advance_delta: {
-            if (!instance.last_view || !std::holds_alternative<Object>(instance.last_view->storage()) ||
-                !std::get<Object>(instance.last_view->storage()).contains("inventories") ||
-                !std::get<Object>(instance.last_view->storage()).contains("opening_engineering")) {
+            if (!instance.last_view ||
+                !factory::godot_world::projection_contract::complete(*instance.last_view, true)) {
                 Value view = with_opening_engineering(host.advance());
-                instance.last_view = view;
+                if (factory::godot_world::projection_contract::complete(view, true))
+                    instance.last_view = view;
+                else instance.last_view.reset();
                 return Value(Object{{"full", std::move(view)}});
             }
             Value tick = host.advance_tick_fields();
@@ -204,6 +210,11 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
                 changes.emplace("opening_engineering", std::get<Object>(view.storage()).at("opening_engineering"));
             } else {
                 view = Value(std::move(next));
+            }
+            if (!factory::godot_world::projection_contract::complete(view, true)) {
+                instance.last_view.reset();
+                return Value(Object{{"accepted", Value(false)},
+                    {"reason", Value("incomplete_projection")}, {"uncertain", Value(true)}});
             }
             instance.last_view = std::move(view);
             return Value(Object{{"changes", Value(std::move(changes))}, {"removed", Value(Value::Array{})}});
