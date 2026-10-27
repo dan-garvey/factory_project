@@ -6,6 +6,7 @@
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
 #include "physical_geometry.hpp"
+#include "restore_site_validation.hpp"
 #include "factory/physical_site.hpp"
 #include "arrival_configuration.hpp"
 #include "factory/belt_command_contract.hpp"
@@ -1375,147 +1376,9 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto* client = field<std::string>(record.intent, "client");
         if (!actor || !client || *actor != *client) return {nullptr, "invalid_actor_binding"};
     }
-    for (const auto& part : snapshot.state.topology.parts) {
-        const auto& center = part.geometry.center;
-        const bool relay = part.role == Role::gearbox || part.role == Role::vertical_gearbox ||
-                           part.role == Role::chain_drive;
-        if (std::any_of(center.begin(), center.end(), [](auto value) {
-            return value < -mechanics::maximum_coordinate || value > mechanics::maximum_coordinate;
-        })) return {nullptr, "incompatible_geometry"};
-        if (part.role == Role::shaft) {
-            if (part.geometry.half_span != 2)
-                return {nullptr, "incompatible_geometry"};
-        } else if (part.role == Role::gear) {
-            if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
-        } else if (part.role == Role::belt || center[0] % 4 != 0 || center[2] % 4 != 0)
-            return {nullptr, "incompatible_geometry"};
-        if (relay && (center[1] % 4 != 0 ||
-            (part.role == Role::gearbox && part.geometry.axis != mechanics::Axis::y) ||
-            (part.role == Role::vertical_gearbox && part.geometry.axis == mechanics::Axis::y)))
-            return {nullptr, "incompatible_geometry"};
-        if (part.role == Role::collector)
-            if (const auto* refusal = collector_site_refusal(center)) return {nullptr, refusal};
-        for (const auto& external : part.role == Role::collector ?
-                collector_external_bounds(center) : std::vector<Bounds>{}) {
-            if (intersects_belt(snapshot.state, external)) return {nullptr, "occupied"};
-            for (const auto& [id, foundation] : snapshot.state.foundations) {
-                (void)id;
-                if (overlap(external, foundation_bounds(foundation))) return {nullptr, "occupied"};
-            }
-            for (const auto& other : snapshot.state.topology.parts)
-                if (other.geometry.id != part.geometry.id && collector_intake_intersects(external, profile_, other))
-                    return {nullptr, "occupied"};
-        }
-        if (part.role == Role::waterwheel) {
-            if (const auto* refusal = wheel_site_refusal(center, part.geometry.axis, part.wheel_tiles)) return {nullptr, refusal};
-            const auto supports = wheel_support_bounds(center, part.geometry.axis,
-                [this](double sx, double sz, double hx, double hz) {
-                    return terrain_range(sx, sz, hx, hz);
-                });
-            if (!supports) return {nullptr, "support_required"};
-            for (const auto& [id, foundation] : snapshot.state.foundations) {
-                (void)id;
-                if (overlap(part_bounds(profile_, part), foundation_bounds(foundation)) ||
-                    overlaps_supports(*supports, foundation_bounds(foundation))) return {nullptr, "occupied"};
-            }
-            for (const auto& other : snapshot.state.topology.parts) {
-                if (other.geometry.id == part.geometry.id) continue;
-                if (other.role == Role::gear || other.role == Role::shaft) {
-                    for (const auto& support : *supports)
-                        if (transmission_intersects(support, other.geometry.center, other.geometry.axis,
-                                                    other.role == Role::gear)) return {nullptr, "occupied"};
-                } else if (overlap(part_bounds(profile_, part), part_bounds(profile_, other)) ||
-                           overlaps_supports(*supports, part_bounds(profile_, other))) return {nullptr, "occupied"};
-            }
-        } else if (part.role != Role::shaft && part.role != Role::gear && !relay)
-            if (const auto* refusal = machine_site_refusal(snapshot.state, center, part.role == Role::collector)) return {nullptr, refusal};
-        if (part.role == Role::shaft || part.role == Role::gear || relay) {
-            if (transmission_intersects_foundations(snapshot.state, center, part.geometry.axis, part.role == Role::gear))
-                return {nullptr, "occupied"};
-            if (const auto* refusal = transmission_site_refusal(snapshot.state, center, part.geometry.axis, part.role == Role::gear))
-                return {nullptr, refusal};
-            if (!restored_supports.contains(part.geometry.id)) return {nullptr, "support_required"};
-            if (relay) {
-                const authority::Point at{center[0] * height_step,
-                    anchor_height + center[1] * height_step, center[2] * height_step};
-                const authority::Point half{pitch / 2, pitch / 2, pitch / 2};
-                const Bounds shell{at, half};
-                const auto shell_terrain = terrain_range(at[0], at[2], half[0], half[2]);
-                if (!shell_terrain) return {nullptr, "terrain_unavailable"};
-                if (shell_terrain->second > at[1] - half[1] + 1e-9) return {nullptr, "site_occupied"};
-                if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
-                                 {at[0] + half[0], at[1] + half[1], at[2] + half[2]}))
-                    return {nullptr, "site_occupied"};
-                for (const auto& [id, foundation] : snapshot.state.foundations) {
-                    (void)id;
-                    if (overlap(shell, foundation_bounds(foundation))) return {nullptr, "occupied"};
-                }
-                for (const auto& other : snapshot.state.topology.parts) {
-                    if (other.geometry.id == part.geometry.id) continue;
-                    if (other.geometry.center == center) return {nullptr, "occupied"};
-                    if (other.role != Role::shaft && other.role != Role::gear &&
-                        other.role != Role::gearbox && other.role != Role::vertical_gearbox &&
-                        other.role != Role::chain_drive && overlap(shell, part_bounds(profile_, other)))
-                        return {nullptr, "occupied"};
-                    if (other.role == Role::collector) if (const auto intake = collector_intake_bounds(other.geometry.center))
-                        if (overlap(shell, *intake)) return {nullptr, "occupied"};
-                }
-                if (intersects_belt(snapshot.state, shell)) return {nullptr, "occupied"};
-            }
-        }
-    }
-    if (!snapshot.state.topology.material_links.empty()) return {nullptr, "incompatible_geometry"};
-    // Validate the same path geometry used by construction and physical bodies.
-    for (const auto& span : snapshot.state.topology.belt_spans) {
-        const auto* first = find_part(snapshot.state, span.geometry.first_shaft);
-        const auto* last = find_part(snapshot.state, span.geometry.last_shaft);
-        const auto path = first && last ? mechanics::belt_path(first->geometry, last->geometry) : std::nullopt;
-        if (!path) return {nullptr, "invalid_belt_geometry"};
-    }
-    for (const auto& span : snapshot.state.topology.belt_spans) {
-        const auto* first = find_part(snapshot.state, span.geometry.first_shaft);
-        const auto* last = find_part(snapshot.state, span.geometry.last_shaft);
-        if (!first || !last) return {nullptr, "invalid_belt_geometry"};
-        for (const auto& [id, foundation] : snapshot.state.foundations) {
-            (void)id;
-            if (belt_intersects(first->geometry, last->geometry, foundation_bounds(foundation))) return {nullptr, "occupied"};
-        }
-        for (const auto& placed : snapshot.state.topology.parts) {
-            if (placed.role == Role::shaft) continue;
-            const auto& point = placed.geometry.center;
-            const Bounds bounds = placed.role == Role::gear ? Bounds{
-                {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
-                gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
-            if (belt_intersects(first->geometry, last->geometry, bounds)) return {nullptr, "occupied"};
-            if (placed.role == Role::gear && belt_intersects(first->geometry, last->geometry,
-                {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return {nullptr, "occupied"};
-            if (placed.role == Role::waterwheel) {
-                const auto supports = wheel_support_bounds(placed.geometry.center, placed.geometry.axis,
-                    [this](double sx, double sz, double hx, double hz) {
-                        return terrain_range(sx, sz, hx, hz);
-                    });
-                if (!supports) return {nullptr, "support_required"};
-                for (const auto& support : *supports)
-                    if (belt_intersects(first->geometry, last->geometry, support)) return {nullptr, "occupied"};
-            }
-        }
-        for (const auto& belt : belt_bounds(first->geometry, last->geometry)) {
-            const auto& at = belt.center; const auto& half = belt.half;
-            if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
-                             {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return {nullptr, "site_occupied"};
-            const auto terrain = terrain_range(at[0], at[2], half[0], half[2]);
-            if (!terrain) return {nullptr, "terrain_unavailable"};
-            if (terrain->second > at[1] - half[1]) return {nullptr, "site_occupied"};
-        }
-    }
-    if (parsed.schema == 4) {
-        if (restored_supports.size() != saved_routes.size()) return {nullptr, "invalid_support_route"};
-        for (const auto& [id, route] : saved_routes) {
-            const auto found = restored_supports.find(id);
-            if (found == restored_supports.end() || found->second.route != route)
-                return {nullptr, "invalid_support_route"};
-        }
-    }
+    if (const auto* refusal = restore_site_validation::geometry(profile_, terrain_,
+            snapshot.state, restored_supports, parsed.schema == 4 ? &saved_routes : nullptr))
+        return {nullptr, refusal};
     const auto& actors = *parsed.actors;
     if (actors.size() != profile_.actors.size()) return {nullptr, "actor_roster_mismatch"};
     auto candidate = std::make_unique<Owned>();
