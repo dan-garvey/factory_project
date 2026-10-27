@@ -429,8 +429,10 @@ func _place_catalog() -> void:
 	var extent: Vector2 = get_parent().size
 	_configure_catalog_layout(extent)
 	catalog.size = _catalog_dimensions(extent)
+	var centered_y := int((extent.y - catalog.size.y) / 2.0)
+	var above_hotbar := int(_hotbar_top(extent) - catalog.size.y - 8.0)
 	catalog.position = Vector2i(maxi(0, int((extent.x - catalog.size.x) / 2.0)),
-		maxi(0, int((extent.y - catalog.size.y) / 2.0)))
+		maxi(0, mini(centered_y, above_hotbar)))
 
 func _configure_catalog_layout(extent: Vector2) -> void:
 	var compact := extent.x <= 720.0
@@ -456,7 +458,10 @@ func _catalog_dimensions(extent: Vector2) -> Vector2i:
 	var project: bool = _arrival_active and _view() != null and _plate_unlocked(_view())
 	var starter_height := 464 if extent.x <= 720.0 else 420
 	return Vector2i(width, mini(starter_height if starter else 520 if project else 620,
-		int(extent.y) - 16))
+		maxi(1, int(_hotbar_top(extent) - 16.0))))
+
+func _hotbar_top(extent: Vector2) -> float:
+	return extent.y - maxf(size.y, get_combined_minimum_size().y) - 18.0
 
 func _view():
 	return _host.get_ref() if _host != null else null
