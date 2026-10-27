@@ -59,10 +59,15 @@ int main() {
         const auto* raised_press = fixture::find_case("arrival-raised-press");
         const auto* small = fixture::find_case("arrival-channel-small");
         const auto* resumed = fixture::find_case("arrival-channel-small-resume");
-        check(fixture::registered_cases().size() == 5 && first && raised_starter && raised_press &&
-                  small && resumed &&
+        const auto* endpoint_default = fixture::find_case("transmission-endpoint-default");
+        const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
+        const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
+        const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
+        check(fixture::registered_cases().size() == 9 && first && raised_starter && raised_press &&
+                  small && resumed && endpoint_default && endpoint_common && endpoint_inspection &&
+                  endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),
-              "Only the five declared scene event routes are registered.");
+              "Only the five scene routes and four endpoint modes are registered.");
         check(first->script == "res://opening/native_adapter_check.gd" &&
                   first->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate" &&
                   raised_starter->script == first->script &&
@@ -75,6 +80,41 @@ int main() {
                   first->seconds == 180 && raised_starter->seconds == 180 &&
                   raised_press->seconds == 180 && small->seconds == 300 && resumed->seconds == 180,
               "Named cases own the script, exact completion marker and deadline.");
+        check(endpoint_default->script == "res://opening/native_transmission_endpoint_check.gd" &&
+                  endpoint_common->script == endpoint_default->script &&
+                  endpoint_inspection->script == endpoint_default->script &&
+                  endpoint_terrain->script == endpoint_default->script &&
+                  endpoint_default->seconds == 180 && endpoint_common->seconds == 180 &&
+                  endpoint_inspection->seconds == 180 && endpoint_terrain->seconds == 180 &&
+                  fixture::accepts_case_arguments(*endpoint_default, {}) &&
+                  fixture::accepts_case_arguments(*endpoint_common,
+                      std::vector<std::string>{"--common-frame-only"}) &&
+                  fixture::accepts_case_arguments(*endpoint_inspection,
+                      std::vector<std::string>{"--inspection-only"}) &&
+                  fixture::accepts_case_arguments(*endpoint_terrain,
+                      std::vector<std::string>{"--terrain-host-only"}),
+              "Every endpoint case owns its script, timeout and exact mode.");
+        check(!fixture::accepts_case_arguments(*endpoint_default,
+                  std::vector<std::string>{"--common-frame-only"}) &&
+                  !fixture::accepts_case_arguments(*endpoint_common, {}) &&
+                  !fixture::accepts_case_arguments(*endpoint_common,
+                      std::vector<std::string>{"--inspection-only"}) &&
+                  !fixture::accepts_case_arguments(*endpoint_common,
+                      std::vector<std::string>{"--common-frame-only", "--common-frame-only"}) &&
+                  !fixture::accepts_case_arguments(*endpoint_terrain,
+                      std::vector<std::string>{"--terrain-host-only", "--inspection-only"}),
+              "Named endpoint cases refuse omitted, wrong, repeated and competing modes.");
+        check(fixture::inspect_log(std::string(endpoint_common->pass_line) + "\n",
+                  endpoint_common->pass_line) == fixture::Verdict::pass &&
+                  fixture::inspect_log(std::string(endpoint_default->pass_line) + "\n",
+                  endpoint_common->pass_line) == fixture::Verdict::missing_marker &&
+                  fixture::inspect_log(
+                      "{\"checks\":3,\"failures\":1,\"status\":\"fail\"}\n",
+                      endpoint_common->pass_line) == fixture::Verdict::missing_marker &&
+                  fixture::inspect_log(std::string(endpoint_common->pass_line) +
+                      "\nSCRIPT ERROR: failed assertion\n", endpoint_common->pass_line) ==
+                      fixture::Verdict::diagnostic,
+              "Only the selected complete endpoint receipt without engine errors can pass.");
         const std::vector<std::string> first_args{
             "--event-route-pointer", "--native-check-output=/tmp/first.result",
             "--native-check-mode=arrival-first-plate"};

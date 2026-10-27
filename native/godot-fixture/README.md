@@ -2,11 +2,12 @@
 
 `factory-godot-fixture` runs one headless project script through the existing
 native build-support supervisor. Generic runs supply `--script` and
-`--pass-line`; the registered Chapter 1 cases below supply both and their
-deadline through `--case`. It requires the pinned Godot executable, an
-exact complete PASS line, exit zero, and a retained log without `SCRIPT ERROR:`,
-`ERROR:`, parse/compile errors, or failed script loads. A partial PASS count is
-insufficient. The supervisor retains combined output in a fresh bounded log and
+`--pass-line`; registered Chapter 1 and transmission endpoint cases below
+supply both and their deadline through `--case`. It requires the pinned Godot
+executable, one exact complete success line, exit zero, and a retained log
+without `SCRIPT ERROR:`, `ERROR:`, parse/compile errors, or failed script
+loads. A partial result is insufficient. The supervisor retains combined output
+in a fresh bounded log and
 keeps its existing process cleanup and resource checks. This command is an
 opt-in focused fixture entry point, not another commit or landing gate.
 `--list-cases` prints every registered name, script, completion line, timeout
@@ -65,6 +66,26 @@ and exit zero for the selected mode. The terrain Host mode needs the captured
 native library. Unknown, repeated, conflicting, malformed and orphan arguments
 exit 2 before any suite begins. These headless checks do not assess rendered
 quality or human play.
+
+The four named runner cases select these modes without a manually supplied
+completion line. Their exact JSON receipts include the check count, zero
+failures, evidence label and `status: pass`; a different count or a partial
+result fails the runner. The counts below match the current fixture revision:
+
+| `--case` selection | Godot arguments | Required checks | Native library |
+| --- | --- | ---: | --- |
+| `transmission-endpoint-default` | None | 316 | No |
+| `transmission-endpoint-common-frame` | `--common-frame-only` | 3 | No |
+| `transmission-endpoint-inspection` | `--inspection-only` | 40 | No |
+| `transmission-endpoint-terrain-host` | `--terrain-host-only` | 48 | Yes |
+
+Use `--case NAME` in place of generic `--script` and `--pass-line`, and put
+the listed Godot argument after `--`. For the default case, omit `--` and user
+arguments. The terrain Host case needs the source-matched native extension in
+the captured project. Import project resources before running any case;
+missing imported assets or native library are setup failures, not fixture passes.
+When the fixture's checks change, update its named receipt and rerun that case
+before publishing the new source.
 
 `native_transmission_view_check.gd` runs its default transmission suite with
 no user arguments or exactly one direct `--...-only` mode. The supported

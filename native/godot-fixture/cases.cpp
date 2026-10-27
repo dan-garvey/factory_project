@@ -39,7 +39,12 @@ constexpr std::array channel_resume_values{
     std::string_view{"--native-check-prior="},
     std::string_view{"--native-check-output="},
 };
+constexpr std::array<std::string_view, 0> no_arguments{};
+constexpr std::array endpoint_common_fixed{std::string_view{"--common-frame-only"}};
+constexpr std::array endpoint_inspection_fixed{std::string_view{"--inspection-only"}};
+constexpr std::array endpoint_terrain_fixed{std::string_view{"--terrain-host-only"}};
 constexpr std::string_view script = "res://opening/native_adapter_check.gd";
+constexpr std::string_view endpoint_script = "res://opening/native_transmission_endpoint_check.gd";
 const std::array cases{
     Case{"arrival-first-plate", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate",
          180, first_plate_fixed, first_plate_values},
@@ -53,6 +58,18 @@ const std::array cases{
     Case{"arrival-channel-small-resume", script,
          "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume",
          180, channel_resume_fixed, channel_resume_values},
+    Case{"transmission-endpoint-default", endpoint_script,
+         R"({"checks":316,"desktop_operations":0,"evidence":"isolated_shaft_tile_controls_and_pointer","failures":0,"models":0,"status":"pass"})",
+         180, no_arguments, no_arguments},
+    Case{"transmission-endpoint-common-frame", endpoint_script,
+         R"({"checks":3,"desktop_operations":0,"evidence":"isolated_shaft_tile_controls_and_pointer","failures":0,"models":0,"status":"pass"})",
+         180, endpoint_common_fixed, no_arguments},
+    Case{"transmission-endpoint-inspection", endpoint_script,
+         R"({"checks":40,"desktop_operations":0,"evidence":"synthetic_transmission_inspection","failures":0,"status":"pass"})",
+         180, endpoint_inspection_fixed, no_arguments},
+    Case{"transmission-endpoint-terrain-host", endpoint_script,
+         R"({"checks":48,"desktop_operations":0,"evidence":"synthetic_terrain_pointer_native_host","failures":0,"status":"pass"})",
+         180, endpoint_terrain_fixed, no_arguments},
 };
 }  // namespace
 
