@@ -33,6 +33,51 @@ bool slide_component(materials::Component kind) {
            kind == materials::Component::copper_slide;
 }
 
+bool has_attached_crank(const State& state, const std::string& input,
+        const mechanics::Point& port) {
+    return std::any_of(state.crank_items.begin(), state.crank_items.end(),
+        [&](const auto& entry) {
+            return entry.second.attached_to == input && entry.second.port == port;
+        });
+}
+
+std::vector<assembly::Part> assembly_parts(const State& state) {
+    std::vector<assembly::Part> parts;
+    parts.reserve(state.placed_components.size());
+    for (const auto& [id, placed] : state.placed_components)
+        parts.push_back({id, placed.kind, placed.center, placed.generation});
+    return parts;
+}
+
+WorkingPressInspection inspect_working_press(const assembly::Layout& layout,
+        materials::Component anchor_kind, const mechanics::Point& center) {
+    if (anchor_kind == materials::Component::anvil) {
+        const auto sliding = layout.inspect_sliding_press(center);
+        if (sliding.press) {
+            const auto& press = *sliding.press;
+            return {sliding.status, WorkingPress{press.anvil, center, press.work_center,
+                press.slide_center, press.slide, press.open_feeds, std::nullopt,
+                std::nullopt, true}};
+        }
+        if (sliding.status == assembly::PressStatus::blocked_feed)
+            return {sliding.status, std::nullopt};
+        const auto inspected = layout.inspect_guided_press(center);
+        if (!inspected.press) return {inspected.status, std::nullopt};
+        const auto& press = *inspected.press;
+        return {inspected.status, WorkingPress{press.anvil, center, press.work_center,
+            press.shaft_center, press.shaft, press.open_feeds, press.offcut_receiver,
+            press.plate_receiver}};
+    }
+    if (anchor_kind == materials::Component::wooden_frame) {
+        const auto inspected = layout.inspect_press(center);
+        if (!inspected.press) return {inspected.status, std::nullopt};
+        const auto& press = *inspected.press;
+        return {inspected.status, WorkingPress{press.frame, center, press.work_center,
+            press.shaft_center, press.shaft, press.open_feeds, std::nullopt, std::nullopt}};
+    }
+    return {};
+}
+
 bool material_machine(Role role) {
     return role == Role::collector || role == Role::processor;
 }
