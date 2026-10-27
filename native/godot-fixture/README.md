@@ -25,9 +25,32 @@ workpiece check. Unknown, repeated, malformed and empty arguments exit 2 before
 either suite starts. Run both selections through
 `launch-factory-latest.sh --agent-window` with `--test-purpose` and its
 `--script` path. Require exit zero, `status: pass`, the selected `mode`, a
-positive check count and no engine or script errors. The same labeled route supports
-`machine_visual_test.gd -- --batch-motion-check`; its rendered run additionally
-checks the GPU instance transforms that the headless dummy renderer cannot read.
+positive check count and no engine or script errors.
+
+`machine_visual_test.gd` selects one of five routes: default geometry (no mode
+argument), `--batch-motion-check`, `--compare-images=LEFT|RIGHT`,
+`--performance-benchmark`, or `--mixed-scale`. The default emits JSON
+`mode: default`, `status: pass` and a positive check count. Batch motion emits
+`MACHINE_BATCH_MOTION_PASS 41` and needs an actual renderer to read GPU instance
+transforms. Image comparison emits `MACHINE_IMAGE_DIFFERENCE` and requires two
+nonempty paths separated by `|`; the caller evaluates the reported difference.
+Performance emits `MACHINE_PERFORMANCE`; mixed scale emits either
+`MIXED_ASSET_SCALE`, `MIXED_MESH_INVENTORY`, or `MIXED_SCENE_PROFILE` according
+to its selection. These metrics identify a completed diagnostic run, not a speed
+or game acceptance target.
+
+Performance accepts `--count=0..500`, `--kind=collector|belt|processor|wheel`,
+`--prewarm`, `--batch`, `--describe-unbatched`, `--close`, `--silhouette`, and
+`--capture=PATH`. Mixed scale accepts `--count=0..1000`, `--frames=60..6000`,
+`--batch` or `--production-batch`, `--share-static-conveyor-finish` with fixture
+batching, `--mesh-lod` and `--spatial-cells=NONNEGATIVE_INTEGER` with production
+batching, `--camera-close`, `--capture=PATH`, `--inventory-only`, or
+`--profile-scene` with optional `--profile-hidden-control`. Inventory-only and
+scene profiling exclude ignored frame and capture options; inventory-only also
+excludes camera and profiling options. Unknown, duplicate, conflicting, empty
+and orphan options exit 2 before scene construction or a success receipt. Use
+the labeled tracked launcher for rendered checks on checked clean main. Headless
+geometry and parser checks do not establish rendered quality or human play.
 
 `parts_view_check.gd` runs its default parts display suite with no user arguments,
 or one named `--...-only` suite. An unknown or repeated selector exits 2 before

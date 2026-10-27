@@ -2,6 +2,12 @@ extends SceneTree
 ## Automated mesh/collision-contract checks. No desktop, input or game stepping.
 const Opening = preload("res://opening/opening.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const MODE_FLAGS := {"--mixed-scale": "mixed-scale",
+	"--performance-benchmark": "performance", "--batch-motion-check": "batch-motion"}
+const PERFORMANCE_FLAGS := ["--prewarm", "--batch", "--describe-unbatched", "--close", "--silhouette"]
+const MIXED_FLAGS := ["--batch", "--production-batch", "--share-static-conveyor-finish",
+	"--profile-scene", "--profile-hidden-control", "--inventory-only", "--mesh-lod", "--camera-close"]
+const VALUE_OPTIONS := ["--count=", "--kind=", "--capture=", "--spatial-cells=", "--frames="]
 
 class PerformanceView extends Opening:
 	var target := Vector2i(1, 2)
@@ -264,20 +270,103 @@ func _pick_bodies(node: Node) -> int:
 		count += _pick_bodies(child)
 	return count
 
+func _fixture_selection() -> Dictionary:
+	var mode := "default"
+	var options := {}
+	var purpose_seen := false
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--test-purpose="):
+			if purpose_seen:
+				return {"error": "Use exactly one machine visual window purpose."}
+			purpose_seen = true
+			continue
+		if MODE_FLAGS.has(argument):
+			if mode != "default":
+				return {"error": "Select exactly one machine visual fixture mode."}
+			mode = MODE_FLAGS[argument]
+			continue
+		if argument.begins_with("--compare-images="):
+			if mode != "default":
+				return {"error": "Select exactly one machine visual fixture mode."}
+			mode = "compare-images"
+			options["--compare-images="] = argument.trim_prefix("--compare-images=")
+			continue
+		var key := argument
+		var value: Variant = true
+		for prefix: String in VALUE_OPTIONS:
+			if argument.begins_with(prefix):
+				key = prefix
+				value = argument.trim_prefix(prefix)
+				break
+		if not PERFORMANCE_FLAGS.has(key) and not MIXED_FLAGS.has(key) and not VALUE_OPTIONS.has(key):
+			return {"error": "Unknown machine visual fixture option: " + argument}
+		if options.has(key):
+			return {"error": "Repeated machine visual fixture option: " + key}
+		if value is String and value.is_empty():
+			return {"error": "Empty machine visual fixture value: " + key}
+		options[key] = value
+	var allowed: Array = []
+	match mode:
+		"performance": allowed = PERFORMANCE_FLAGS + ["--count=", "--kind=", "--capture="]
+		"mixed-scale": allowed = MIXED_FLAGS + ["--count=", "--spatial-cells=", "--frames=", "--capture="]
+		"compare-images": allowed = ["--compare-images="]
+	for key: String in options:
+		if not allowed.has(key):
+			return {"error": "Option does not belong to the selected machine visual mode: " + key}
+	for key: String in ["--count=", "--spatial-cells=", "--frames="]:
+		if not options.has(key):
+			continue
+		var raw: String = options[key]
+		if not raw.is_valid_int():
+			return {"error": "Machine visual fixture needs an integer for " + key}
+		var number := int(raw)
+		if (key == "--count=" and (number < 0 or number > (500 if mode == "performance" else 1000))) \
+				or (key == "--spatial-cells=" and number < 0) \
+				or (key == "--frames=" and (number < 60 or number > 6000)):
+			return {"error": "Machine visual fixture value is out of range: " + key}
+	if options.has("--kind=") and options["--kind="] not in ["collector", "belt", "processor", "wheel"]:
+		return {"error": "Choose a collector, belt, processor or wheel performance kind."}
+	if mode == "compare-images":
+		var paths: PackedStringArray = str(options["--compare-images="]).split("|", true)
+		if paths.size() != 2 or paths[0].is_empty() or paths[1].is_empty():
+			return {"error": "Compare exactly two nonempty image paths."}
+	if mode == "mixed-scale":
+		if options.has("--batch") and options.has("--production-batch"):
+			return {"error": "Choose one mixed-scene batching route."}
+		if options.has("--profile-hidden-control") and not options.has("--profile-scene"):
+			return {"error": "The hidden-node control requires scene profiling."}
+		if options.has("--share-static-conveyor-finish") and (not options.has("--batch") \
+				or options.has("--production-batch")):
+			return {"error": "Sharing the static conveyor finish requires the fixture batch route."}
+		if (options.has("--mesh-lod") or options.has("--spatial-cells=")) \
+				and not options.has("--production-batch"):
+			return {"error": "Composite LOD and spatial cells require production batching."}
+		if options.has("--inventory-only") and (options.has("--profile-scene") \
+				or options.has("--frames=") or options.has("--capture=") \
+				or options.has("--camera-close")):
+			return {"error": "Inventory-only ignores scene profiling, frames, capture and camera options."}
+		if options.has("--profile-scene") and (options.has("--frames=") or options.has("--capture=")):
+			return {"error": "Scene profiling ignores frame-count and capture options."}
+	return {"mode": mode, "options": options}
+
 func _initialize() -> void:
+	var selection := _fixture_selection()
+	if selection.has("error"):
+		push_error(selection.error)
+		quit(2)
+		return
 	if not Opening.apply_test_window_title(self):
 		return
-	for argument in OS.get_cmdline_user_args():
-		if argument.begins_with("--compare-images="):
-			_compare_images(argument.trim_prefix("--compare-images="))
-			return
-	if "--mixed-scale" in OS.get_cmdline_user_args():
-		_mixed_scale_benchmark.call_deferred()
+	if selection.mode == "compare-images":
+		_compare_images(selection.options["--compare-images="])
 		return
-	if "--performance-benchmark" in OS.get_cmdline_user_args():
-		_performance_benchmark.call_deferred()
+	if selection.mode == "mixed-scale":
+		_mixed_scale_benchmark.call_deferred(selection.options)
 		return
-	if "--batch-motion-check" in OS.get_cmdline_user_args():
+	if selection.mode == "performance":
+		_performance_benchmark.call_deferred(selection.options)
+		return
+	if selection.mode == "batch-motion":
 		_batch_motion_check.call_deferred()
 		return
 	var half := Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2]) / 2.0
@@ -309,6 +398,7 @@ func _initialize() -> void:
 		view.item_root.free()
 		view.free()
 	print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+		"mode": "default",
 		"scope": "invented headless mesh bounds, pick contract and read-only projection",
 		"desktop": "not_used", "gameplay": "not_assessed"}))
 	quit(1 if failed else 0)
@@ -572,36 +662,15 @@ func _batch_motion_check() -> void:
 	print("MACHINE_BATCH_MOTION_%s %d" % ["PASS" if not failed else "FAIL", checks])
 	quit(1 if failed else 0)
 
-func _performance_benchmark() -> void:
-	var count := 100
-	var kind := "collector"
-	var prewarm := false
-	var batch := false
-	var capture := ""
-	var describe_unbatched := false
-	var close_view := false
-	var silhouette := false
-	for argument in OS.get_cmdline_user_args():
-		if argument.begins_with("--count="):
-			count = int(argument.trim_prefix("--count="))
-		elif argument.begins_with("--kind="):
-			kind = argument.trim_prefix("--kind=")
-		elif argument == "--prewarm":
-			prewarm = true
-		elif argument == "--batch":
-			batch = true
-		elif argument.begins_with("--capture="):
-			capture = argument.trim_prefix("--capture=")
-		elif argument == "--describe-unbatched":
-			describe_unbatched = true
-		elif argument == "--close":
-			close_view = true
-		elif argument == "--silhouette":
-			silhouette = true
-	if count < 0 or count > 500 or kind not in ["collector", "belt", "processor", "wheel"]:
-		push_error("Choose 0 to 500 collector, belt, processor or wheel visuals.")
-		quit(2)
-		return
+func _performance_benchmark(options: Dictionary) -> void:
+	var count := int(options.get("--count=", "100"))
+	var kind := str(options.get("--kind=", "collector"))
+	var prewarm := options.has("--prewarm")
+	var batch := options.has("--batch")
+	var capture := str(options.get("--capture=", ""))
+	var describe_unbatched := options.has("--describe-unbatched")
+	var close_view := options.has("--close")
+	var silhouette := options.has("--silhouette")
 	var view := PerformanceView.new()
 	view.state = {"options": {"native": true, "physical": true}, "entities": {}, "foundations": {},
 		"part_kits": {"P": {kind: 1}}, "actors": {"P": {"ready": true,
@@ -720,7 +789,14 @@ func _performance_benchmark() -> void:
 	motion_times.sort()
 	draws.sort()
 	if not capture.is_empty():
-		root.get_texture().get_image().save_png(capture)
+		await RenderingServer.frame_post_draw
+		var image := root.get_texture().get_image()
+		if image == null or image.is_empty() or image.save_png(capture) != OK:
+			push_error("Cannot save the selected machine performance frame.")
+			view.free()
+			scene.free()
+			quit(1)
+			return
 	print("MACHINE_PERFORMANCE " + JSON.stringify({"kind": kind, "count": count,
 		"first_preview_ms": first_preview_ms, "warm_preview_ms": warm_preview_ms,
 		"prime_ms": prime_ms, "build_ms": build_ms, "batch_ms": batch_ms,
@@ -733,53 +809,19 @@ func _performance_benchmark() -> void:
 	scene.free()
 	quit()
 
-func _mixed_scale_benchmark() -> void:
-	var count := 200
-	var batched := false
-	var production_batch := false
-	var shared_conveyor_finish := false
-	var profile_scene := false
-	var profile_hidden_control := false
-	var inventory_only := false
-	var mesh_lod := false
-	var spatial_cells := -1
-	var camera_close := false
-	var total_frames := 150
-	var capture := ""
-	for argument in OS.get_cmdline_user_args():
-		if argument.begins_with("--count="):
-			count = int(argument.trim_prefix("--count="))
-		elif argument == "--batch":
-			batched = true
-		elif argument == "--production-batch":
-			production_batch = true
-			batched = true
-		elif argument == "--share-static-conveyor-finish":
-			shared_conveyor_finish = true
-		elif argument == "--profile-scene":
-			profile_scene = true
-		elif argument == "--profile-hidden-control":
-			profile_hidden_control = true
-		elif argument == "--inventory-only":
-			inventory_only = true
-		elif argument == "--mesh-lod":
-			mesh_lod = true
-		elif argument.begins_with("--spatial-cells="):
-			spatial_cells = maxi(0, int(argument.trim_prefix("--spatial-cells=")))
-		elif argument == "--camera-close":
-			camera_close = true
-		elif argument.begins_with("--frames="):
-			total_frames = clampi(int(argument.trim_prefix("--frames=")), 60, 6000)
-		elif argument.begins_with("--capture="):
-			capture = argument.trim_prefix("--capture=")
-	if count < 0 or count > 1000:
-		push_error("Choose 0 to 1,000 asset assemblies.")
-		quit(2)
-		return
-	if profile_hidden_control and not profile_scene:
-		push_error("The hidden-node control requires scene profiling.")
-		quit(2)
-		return
+func _mixed_scale_benchmark(options: Dictionary) -> void:
+	var count := int(options.get("--count=", "200"))
+	var production_batch := options.has("--production-batch")
+	var batched := options.has("--batch") or production_batch
+	var shared_conveyor_finish := options.has("--share-static-conveyor-finish")
+	var profile_scene := options.has("--profile-scene")
+	var profile_hidden_control := options.has("--profile-hidden-control")
+	var inventory_only := options.has("--inventory-only")
+	var mesh_lod := options.has("--mesh-lod")
+	var spatial_cells := int(options.get("--spatial-cells=", "-1"))
+	var camera_close := options.has("--camera-close")
+	var total_frames := int(options.get("--frames=", "150"))
+	var capture := str(options.get("--capture=", ""))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	var view := MixedAssetScaleView.new()
 	view.asset_count = count
