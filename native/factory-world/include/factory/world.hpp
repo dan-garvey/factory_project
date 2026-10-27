@@ -214,6 +214,14 @@ struct State {
     std::map<std::string, ManualCut> manual_cuts;
     // Shared native test setting. Changing it cancels pending manual strokes.
     bool developer_conveniences{};
+    struct SupportedPressOutput {
+        materials::WorkId id{};
+        mechanics::Point selected_exit{};
+        bool operator==(const SupportedPressOutput&) const = default;
+    };
+    // Forming leaves one plate on its physical workbed. The selected exit is
+    // retained for a later, separately admitted transport handoff.
+    std::map<mechanics::Point, SupportedPressOutput> press_output_on_work;
     // A finished modular press item retains its work identity while waiting at
     // its outlet. Once it enters a belt, the exported identity remains as a
     // checkpoint witness; material quantities still belong only to Cargo.

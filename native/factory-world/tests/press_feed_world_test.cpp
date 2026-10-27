@@ -338,35 +338,37 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
                   std::optional<g::Point>(g::Point{1, 0, 0}),
               "A direct crank pulse advances the fed press through the shared tick and restores its exact work history.");
         const g::Point direct_exit{center[0] - direction[0], center[1], center[2] - direction[2]};
-        bool direct_formed = pulsed.state.material.dropped_material.contains(direct_exit) &&
-            pulsed.state.material.dropped_material.at(direct_exit).products == 1;
+        bool direct_formed = pulsed.state.material.dropped_material.contains(center) &&
+            pulsed.state.material.dropped_material.at(center).products == 1;
         for (int index = 1; index <= 8 && !direct_formed; ++index) {
             pulse.at("request") = V("direct-press-pulse-" + std::to_string(index));
             halted.accept("P", pulse);
             check(halted.world->tick(held_actor).error == w::TransactionError::none,
                   "Every held-crank pulse advances the same native guided press tick.");
             const auto cycled = halted.world->snapshot();
-            direct_formed = cycled.state.material.dropped_material.contains(direct_exit) &&
-                cycled.state.material.dropped_material.at(direct_exit).products == 1;
+            direct_formed = cycled.state.material.dropped_material.contains(center) &&
+                cycled.state.material.dropped_material.at(center).products == 1;
         }
         const auto direct_finished = halted.world->snapshot();
-        check(direct_formed && direct_finished.state.press_output_at_exit.contains(direct_exit) &&
-              direct_finished.state.press_output_at_exit.at(direct_exit) > 0 &&
+        check(direct_formed && direct_finished.state.press_output_on_work.contains(center) &&
+              direct_finished.state.press_output_on_work.at(center).id > 0 &&
+              direct_finished.state.press_output_on_work.at(center).selected_exit == direct_exit &&
               direct_finished.state.material.dropped_material.at(center).offcuts == 1 &&
               w::validate(source.profile, direct_finished),
-              "The connected crank, shaft and cog form one finite plate and offcut without a menu turn.");
+              "The connected crank, shaft and cog retain one finite plate and offcut on the supported work point.");
         codec_restore(source.profile, direct_finished,
                       "The directly cranked plate and its output identity survive a native checkpoint.");
         auto pickup = request("P", "direct-press-pickup", "pickup_material");
-        pickup.emplace("center", V(point(direct_exit[0], direct_exit[1], direct_exit[2])));
+        pickup.emplace("center", V(point(center[0], center[1], center[2])));
         pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
-            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
         halted.accept("P", pickup);
         const auto direct_picked = halted.world->snapshot();
         check(direct_picked.state.material.cargo.at("P").products == 1 &&
-              direct_picked.state.press_output_at_exit.empty() &&
+              direct_picked.state.material.cargo.at("P").offcuts == 1 &&
+              direct_picked.state.press_output_on_work.empty() &&
               w::validate(source.profile, direct_picked),
-              "The actor claims the same directly cranked output exactly once.");
+              "The actor claims the same supported plate and recoverable offcut exactly once.");
         codec_restore(source.profile, direct_picked,
                       "The carried directly cranked plate keeps exact finite custody after pickup.");
     }
@@ -396,241 +398,135 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
               "The connected floating press advances under real signed shaft motion.");
     const auto automatic = automated.world->snapshot();
     const g::Point exit = plate_exit;
-    check(automatic.state.material.dropped_material.at(exit).products == 1 &&
+    check(automatic.state.material.dropped_material.at(center).products == 1 &&
+          automatic.state.press_output_on_work.at(center).selected_exit == exit &&
+          !automatic.state.material.dropped_material.contains(exit) &&
           automatic.state.material.dropped_material.at(center[1] == 0 ? offcut_tray : center).offcuts == 1 &&
           w::validate(source.profile, automatic),
-          "Powered frame-free forming conserves one plate and its physical offcut destination.");
+          "Powered frame-free forming retains one plate on the anvil and its offcut at the selected physical destination.");
     codec_restore(source.profile, automatic,
                   "Powered frame-free production and its offcut survive checkpoint reload.");
     if (center[1] > 0) {
-        Runner channel(source);
-        channel.world = w::World::restore("press-feed", source.profile, automatic);
-        check(channel.world != nullptr,
-            "An offcut-channel trial starts from the finished finite press checkpoint.");
-        channel.p = {6.6, 1, 4.95};
-        for (int index = 0; index < 2; ++index) {
-            auto timber = request("P", "offcut-channel-timber-" + std::to_string(index),
-                "harvest_source");
-            timber.emplace("target", V("crank-tree"));
-            channel.accept("P", timber);
-        }
-        channel.p = {1.65, 1, 6.6};
-        auto craft = request("P", "offcut-channel-craft", "craft_component");
-        craft.emplace("target", V("pod-fabrication-hub"));
-        craft.emplace("generation", V(I{1}));
-        craft.emplace("component", V("channel_narrow_x"));
-        channel.accept("P", craft);
-        channel.p = {2, 1, 0};
-        const g::Point destination{center[0] + 4, center[1], center[2]};
-        auto foundation = request("P", "offcut-channel-foundation", "place_foundation");
-        foundation.emplace("center", V(point(destination[0], destination[1], destination[2])));
-        channel.accept("P", foundation);
-        auto place = request("P", "offcut-channel-place", "place_component");
-        place.emplace("component", V("channel_narrow_x"));
-        place.emplace("center", V(point(destination[0], destination[1], destination[2])));
-        channel.accept("P", place);
-        auto move = request("P", "offcut-channel-move", "push_channel_small");
-        move.emplace("from", V(point(center[0], center[1], center[2])));
-        move.emplace("to", V(point(destination[0], destination[1], destination[2])));
-        move.emplace("form", V("offcut"));
-        channel.accept("P", move);
-        check(channel.world->snapshot().state.material.dropped_material.at(destination).offcuts == 1 &&
-              codec_restore(source.profile, channel.world->snapshot(),
-                  "A native press offcut keeps one owner after moving onto a channel."),
-            "The offcut moves from its press work center onto one narrow segment.");
+        Runner elevated(source);
+        elevated.world = w::World::restore("press-feed", source.profile, automatic);
+        check(elevated.world != nullptr,
+            "A raised workbed restores with its identified plate and offcut still supported.");
+        auto pickup = request("Q", "raised-supported-plate-pickup", "pickup_material");
+        pickup.emplace("center", V(point(center[0], center[1], center[2])));
+        pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+            {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
+        const auto accepted = elevated.accept("Q", pickup);
+        check(std::get<I>(accepted.at("press_output_work_id").storage()) ==
+                  automatic.state.press_output_on_work.at(center).id &&
+              elevated.world->snapshot().state.material.cargo.at("Q").products == 1 &&
+              elevated.world->snapshot().state.material.cargo.at("Q").offcuts == 1,
+              "Q collects the actual finished material from the raised workbed.");
+        codec_restore(source.profile, elevated.world->snapshot(),
+            "Direct pickup of a raised plate and its offcut survives a checkpoint.");
     }
     if (center[1] == 0) {
-        Runner plate_channel(source);
-        plate_channel.world = w::World::restore("press-feed", source.profile, automatic);
-        check(plate_channel.world != nullptr,
-            "A plate-channel trial starts from the exact powered press checkpoint.");
-        plate_channel.p = {6.6, 1, 4.95};
-        for (int index = 0; index < 2; ++index) {
-            auto timber = request("P", "plate-channel-timber-" + std::to_string(index),
-                "harvest_source");
-            timber.emplace("target", V("crank-tree"));
-            plate_channel.accept("P", timber);
-        }
-        plate_channel.p = {1.65, 1, 6.6};
-        auto craft = request("P", "plate-channel-craft", "craft_component");
-        craft.emplace("target", V("pod-fabrication-hub"));
-        craft.emplace("generation", V(I{1}));
-        craft.emplace("component", V("channel_narrow_x"));
-        plate_channel.accept("P", craft);
-        plate_channel.p = {2, 1, 0};
-        const g::Point destination{plate_exit[0] - 3, plate_exit[1], plate_exit[2]};
-        auto place = request("P", "plate-channel-place", "place_component");
-        place.emplace("component", V("channel_narrow_x"));
-        place.emplace("center", V(point(destination[0], destination[1], destination[2])));
-        plate_channel.accept("P", place);
-        auto move = request("P", "plate-channel-move", "push_channel_small");
-        move.emplace("from", V(point(plate_exit[0], plate_exit[1], plate_exit[2])));
-        move.emplace("to", V(point(destination[0], destination[1], destination[2])));
-        move.emplace("form", V("plate"));
-        plate_channel.accept("P", move);
-        check(plate_channel.world->snapshot().state.material.dropped_material.at(destination).products == 1 &&
-              codec_restore(source.profile, plate_channel.world->snapshot(),
-                  "A press plate retains its work identity on the first channel segment."),
-            "A finished press plate moves from its tray onto the adjacent channel.");
-        auto pickup = request("P", "plate-channel-pickup", "pickup_material");
-        pickup.emplace("center", V(point(destination[0], destination[1], destination[2])));
-        pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
-            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
-        plate_channel.accept("P", pickup);
-        check(plate_channel.world->snapshot().state.material.cargo.at("P").products == 1 &&
-              codec_restore(source.profile, plate_channel.world->snapshot(),
-                  "A channeled press plate can be picked up and saved exactly once."),
-            "Plate pickup after the channel push keeps its original press identity.");
-        auto displaced = automatic;
-        const auto offcuts = displaced.state.material.dropped_material.at(offcut_tray);
-        displaced.state.material.dropped_material.erase(offcut_tray);
-        displaced.state.material.dropped_material.emplace(center, offcuts);
-        check(!w::World::restore("press-feed", source.profile, displaced),
-              "A checkpoint cannot silently return a delivered offcut to the work face.");
+        check(!automatic.state.material.dropped_material.contains(exit) &&
+              automatic.state.press_output_at_receiver.empty(),
+              "A passive plate tray does not pull finished work off the anvil.");
+        const auto first_id = automatic.state.press_output_on_work.at(center).id;
+        auto forged = automatic;
+        forged.state.press_output_on_work.at(center).id += 1000;
+        check(!w::World::restore("press-feed", source.profile, forged),
+              "A saved workbed cannot substitute an invented plate identity.");
         auto wrong_route = automatic;
         wrong_route.state.press_offcut_deliveries.begin()->second.receiver = center;
         check(!w::World::restore("press-feed", source.profile, wrong_route),
-              "A checkpoint cannot retarget the press discharge receipt to another point.");
-        automated.p = {2, 1, 0};
+              "A saved offcut delivery cannot silently change its physical tray.");
+        check(automated.world->tick().error == w::TransactionError::none &&
+              automated.world->snapshot().state.press_output_on_work.at(center).id == first_id,
+              "More powered ticks leave the first plate on its supported workbed.");
+
+        const auto collect_plate = [&](int index) {
+            const auto before = automated.world->snapshot();
+            const auto id = before.state.press_output_on_work.at(center).id;
+            auto pickup = request("Q", "guided-supported-plate-" + std::to_string(index),
+                "pickup_material");
+            pickup.emplace("center", V(point(center[0], center[1], center[2])));
+            pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
+                {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+            const auto accepted = automated.accept("Q", pickup);
+            check(std::get<I>(accepted.at("press_output_work_id").storage()) == id &&
+                  automated.world->snapshot().state.press_output_on_work.empty() &&
+                  !automated.world->snapshot().state.material.dropped_material.contains(center) &&
+                  w::validate(source.profile, automated.world->snapshot()),
+                  "Q collects the identified plate from the workbed with one direct pickup.");
+        };
+        collect_plate(0);
+        codec_restore(source.profile, automated.world->snapshot(),
+                      "Another actor's direct pickup retains exact plate custody on reload.");
         for (int index = 1; index < 4; ++index) {
             automated.p = {0, 1, 1.65};
-            auto harvest = request("P", "guided-auto-ore-" + std::to_string(index),
-                                   "harvest_source");
+            auto harvest = request("P", "guided-repeat-ore-" + std::to_string(index),
+                "harvest_source");
             harvest.emplace("target", V("ore"));
             automated.accept("P", harvest);
             automated.p = {2, 1, 0};
             auto next = feed;
-            next.at("request") = V("guided-auto-feed-" + std::to_string(index));
+            next.at("request") = V("guided-repeat-feed-" + std::to_string(index));
             automated.accept("P", next);
             for (int tick = 0; tick < 4; ++tick)
                 check(automated.world->tick().error == w::TransactionError::none,
-                      "The powered press advances another finite raw piece.");
+                      "Each powered cycle advances its own finite work.");
             const auto cycled = automated.world->snapshot();
-            check(cycled.state.material.dropped_material.at(offcut_tray).offcuts == index + 1 &&
-                  cycled.state.material.dropped_material.at(exit).products == index + 1 &&
-                  cycled.state.press_output_at_receiver.at(exit).size() ==
-                      static_cast<std::size_t>(index + 1) &&
+            check(cycled.state.material.dropped_material.at(center).products == 1 &&
+                  cycled.state.press_output_on_work.at(center).id > first_id &&
+                  cycled.state.material.dropped_material.at(offcut_tray).offcuts == index + 1 &&
+                  !cycled.state.material.dropped_material.contains(exit) &&
                   w::validate(source.profile, cycled),
-                  "Each powered stroke leaves its plate and offcut in separate fitted trays.");
+                  "Each plate stays on the workbed while offcuts fill their separate tray.");
+            codec_restore(source.profile, cycled,
+                          "A repeated retained plate restores with its exact native identity.");
+            collect_plate(index);
         }
         const auto four = automated.world->snapshot();
-        check(four.state.material.dropped_material.at(exit).products == 4 &&
-              four.state.press_output_at_receiver.at(exit).size() == 4 &&
-              four.state.material.dropped_material.at(offcut_tray).offcuts == 4,
-              "Four powered strokes retain four identified plates and four offcuts without pickup.");
-        codec_restore(source.profile, four,
-                      "Four products in the fitted plate tray survive a checkpoint.");
-        Runner finished_pickup(source);
-        finished_pickup.world = w::World::restore("press-feed", source.profile, four);
-        check(finished_pickup.world != nullptr, "Q can collect a full tray before another feed.");
-        auto collect_finished = request("Q", "guided-auto-collect-finished-four", "pickup_material");
-        collect_finished.emplace("center", V(point(exit[0], exit[1], exit[2])));
-        collect_finished.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{4})},
-            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
-        finished_pickup.accept("Q", collect_finished);
-        codec_restore(source.profile, finished_pickup.world->snapshot(),
-                      "The fourth plate can leave a full receiver before any later feed.");
-        auto duplicated = four;
-        duplicated.state.press_output_at_receiver[exit].insert(
-            *duplicated.state.press_output_at_receiver[exit].begin() + 1000);
-        check(!w::World::restore("press-feed", source.profile, duplicated),
-              "A checkpoint cannot invent another identified plate inside the tray.");
+        check(four.state.material.cargo.at("Q").products == 4 &&
+              four.state.material.dropped_material.at(offcut_tray).offcuts == 4 &&
+              four.state.press_output_on_work.empty(),
+              "Four completed plates can be collected without using the passive output tray.");
         automated.p = {0, 1, 1.65};
-        auto harvest = request("P", "guided-auto-ore-full-tray", "harvest_source");
+        auto harvest = request("P", "guided-full-offcut-ore", "harvest_source");
         harvest.emplace("target", V("ore"));
         automated.accept("P", harvest);
         automated.p = {2, 1, 0};
         auto fifth = feed;
-        fifth.at("request") = V("guided-auto-feed-full-tray");
+        fifth.at("request") = V("guided-full-offcut-feed");
         automated.accept("P", fifth);
         for (int tick = 0; tick < 4; ++tick)
             check(automated.world->tick().error == w::TransactionError::none,
-                  "The blocked fifth work piece remains governed by native ticks.");
+                  "A full offcut tray preserves the next plate's finite work.");
         const auto blocked = automated.world->snapshot();
-        check(blocked.state.material.dropped_material.at(offcut_tray).offcuts == 4 &&
-              blocked.state.material.dropped_material.at(exit).products == 4 &&
-              blocked.state.material.dropped_material.at(center).work_lots.size() == 1 &&
+        check(blocked.state.material.dropped_material.at(center).work_lots.size() == 1 &&
               blocked.state.material.dropped_material.at(center).work_lots.front().remaining_ticks == 0 &&
+              blocked.state.material.dropped_material.at(offcut_tray).offcuts == 4 &&
+              blocked.state.press_output_on_work.empty() &&
               w::validate(source.profile, blocked),
-              "Both full trays hold the fifth ready work without creating a fifth plate.");
+              "A full offcut tray holds ready work instead of losing a fifth plate.");
         codec_restore(source.profile, blocked,
-                      "Full-tray backpressure and ready work survive checkpoint reload.");
-        Runner resumed(source);
-        resumed.world = w::World::restore("press-feed", source.profile, blocked);
-        check(resumed.world != nullptr, "A second actor rejoins the exact blocked World.");
-        auto clear_plates = request("Q", "guided-auto-clear-plates", "pickup_material");
-        clear_plates.emplace("center", V(point(exit[0], exit[1], exit[2])));
-        clear_plates.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{4})},
-            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
-        const auto collected = resumed.accept("Q", clear_plates);
-        check(std::get<V::Array>(collected.at("press_output_work_ids").storage()).size() == 4,
-              "Q's pickup names all four original plate work identities.");
-        check(resumed.world->tick().error == w::TransactionError::none,
-              "The offcut holder still blocks the fifth stroke after Q clears only the plates.");
-        check(resumed.world->snapshot().state.material.dropped_material.at(center).work_lots.front().remaining_ticks == 0,
-              "The fifth ready work remains in place while the side tray is full.");
-        auto clear_tray = request("Q", "guided-auto-clear-tray", "pickup_material");
+                      "Full-tray backpressure survives a native checkpoint.");
+        auto clear_tray = request("Q", "guided-clear-full-offcut-tray", "pickup_material");
         clear_tray.emplace("center", V(point(offcut_tray[0], offcut_tray[1], offcut_tray[2])));
         clear_tray.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
             {"work_lots", V(V::Array{})}, {"offcuts", V(I{4})}, {"sheets", V(I{0})}}));
-        resumed.accept("Q", clear_tray);
-        codec_restore(source.profile, resumed.world->snapshot(),
-                      "Q's recovery of both fitted trays survives a checkpoint.");
-        check(resumed.world->tick().error == w::TransactionError::none,
-              "Freeing both physical holders resumes the held fifth stroke.");
-        const auto continued = resumed.world->snapshot();
-        check(continued.state.material.cargo.at("Q").products == 4 &&
-              continued.state.material.cargo.at("Q").offcuts == 4 &&
-              continued.state.material.dropped_material.at(exit).products == 1 &&
-              continued.state.press_output_at_receiver.at(exit).size() == 1 &&
+        automated.accept("Q", clear_tray);
+        check(automated.world->tick().error == w::TransactionError::none,
+              "Clearing the offcut tray lets the held fifth stroke finish.");
+        const auto continued = automated.world->snapshot();
+        check(continued.state.material.dropped_material.at(center).products == 1 &&
+              continued.state.press_output_on_work.contains(center) &&
               continued.state.material.dropped_material.at(offcut_tray).offcuts == 1 &&
-              !continued.state.material.dropped_material.contains(center) &&
               w::validate(source.profile, continued),
-              "Shared continuation releases exactly one fifth plate and one new offcut.");
+              "The fifth plate stays on its workbed after physical backpressure clears.");
         codec_restore(source.profile, continued,
-                      "The resumed plate, old offcuts and new offcut restore without duplication.");
-        Runner fifth_recovery(source);
-        fifth_recovery.world = w::World::restore("press-feed", source.profile, continued);
-        check(fifth_recovery.world != nullptr, "Q can resume before collecting the identified fifth plate.");
-        auto clear_fifth = request("Q", "guided-auto-clear-fifth", "pickup_material");
-        clear_fifth.emplace("center", V(point(exit[0], exit[1], exit[2])));
-        clear_fifth.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
-            {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
-        const auto fifth_pickup = fifth_recovery.accept("Q", clear_fifth);
-        check(std::get<V::Array>(fifth_pickup.at("press_output_work_ids").storage()).size() == 1,
-              "The later pickup preserves the fifth plate's identity.");
-        codec_restore(source.profile, fifth_recovery.world->snapshot(),
-                      "Q's pickup of the resumed fifth plate survives a second save.");
-        auto next_ore = request("P", "guided-fitted-manual-ore", "harvest_source");
-        next_ore.emplace("target", V("ore"));
-        resumed.accept("P", next_ore);
-        resumed.p = {2, 1, 0};
-        auto stop_manual = request("P", "guided-fitted-stop-drive", "set_drive");
-        stop_manual.emplace("target", V("press-wheel"));
-        stop_manual.emplace("generation", V(I{1}));
-        stop_manual.emplace("enabled", V(false));
-        resumed.accept("P", stop_manual);
-        const auto fitted_crank = craft_crank(resumed, "guided-fitted-crank");
-        fit_crank(resumed, fitted_crank, shaft, "guided-fitted-fit-crank");
-        auto manual_feed = feed;
-        manual_feed.at("request") = V("guided-fitted-manual-feed");
-        resumed.accept("P", manual_feed);
-        auto manual_turn = request("P", "guided-fitted-manual-turn", "turn_press_crank");
-        manual_turn.emplace("target", V(anvil));
-        manual_turn.emplace("generation", V(anvil_generation));
-        manual_turn.emplace("drive", V(shaft));
-        manual_turn.emplace("exit", V(point(exit[0], exit[1], exit[2])));
-        for (int index = 0; index < 3; ++index) {
-            manual_turn.at("request") = V("guided-fitted-manual-turn-" + std::to_string(index));
-            resumed.accept("P", manual_turn);
-        }
-        const auto manual = resumed.world->snapshot();
-        check(manual.state.material.dropped_material.at(exit).products == 2 &&
-              manual.state.press_output_at_receiver.at(exit).size() == 2 &&
-              w::validate(source.profile, manual) &&
-              codec_restore(source.profile, manual,
-                  "A manually turned plate stacks with the powered fifth plate through a checkpoint."),
-              "Manual and powered products share one finite physical plate receiver.");
+                      "The fifth retained plate and new offcut restore without duplication.");
+        collect_plate(4);
+        check(automated.world->snapshot().state.material.cargo.at("Q").products == 5 &&
+              automated.world->snapshot().state.material.cargo.at("Q").offcuts == 4,
+              "Q owns five identified plates while the latest offcut remains in the tray.");
     }
     run.p = {2, 1, 0};
     auto stop_manual = request("P", "guided-stop-for-manual", "set_drive");
@@ -671,10 +567,12 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
         run.accept("P", turn);
     }
     const auto finished = run.world->snapshot();
-    check(finished.state.material.dropped_material.at(exit).products == 1 &&
+    check(finished.state.material.dropped_material.at(center).products == 1 &&
           finished.state.material.dropped_material.at(center).offcuts == 1 &&
+          finished.state.press_output_on_work.at(center).selected_exit == exit &&
+          !finished.state.material.dropped_material.contains(exit) &&
           w::validate(source.profile, finished),
-          "A frame-free press makes one plate and one retained offcut from finite copper.");
+          "A frame-free press retains its plate and offcut on the supported work surface.");
     codec_restore(source.profile, finished,
                   "A frame-free finished press and its separate offcut survive checkpoint reload.");
     if (center[1] == 0) {
@@ -703,8 +601,7 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
                     run.accept("P", turn);
                 }
             }
-            recover(index, center, 0, 1);
-            recover(index, exit, 1, 0);
+            recover(index, center, 1, 1);
         }
         const auto four = run.world->snapshot();
         check(four.state.material.cargo.at("P").products == 4 &&
@@ -943,54 +840,53 @@ void actor_feed_is_physical_custody() {
             copper.accept("P", copper_turn);
         }
         const auto pressed = copper.world->snapshot();
-        check(pressed.state.material.dropped_material.at({7, 1, 0}).products == 1 &&
+        check(pressed.state.material.dropped_material.at({8, 1, 0}).products == 1 &&
               pressed.state.material.dropped_material.at({8, 1, 0}).offcuts == 1 &&
+              pressed.state.press_output_on_work.at({8, 1, 0}).selected_exit == g::Point{7, 1, 0} &&
+              !pressed.state.material.dropped_material.contains({7, 1, 0}) &&
               w::validate(copper_site.profile, pressed),
-              "A real World press keeps its plate and recoverable offcut in separate custody.");
+              "A real World press keeps its plate and recoverable offcut together on the anvil.");
         auto relocated_offcut = pressed;
         const auto remnant = relocated_offcut.state.material.dropped_material.at({8, 1, 0});
         relocated_offcut.state.material.dropped_material.erase({8, 1, 0});
         relocated_offcut.state.material.dropped_material.emplace(g::Point{8, 1, 1}, remnant);
         check(!w::World::restore("press-feed", copper_site.profile, relocated_offcut),
-              "A checkpoint cannot move the offcut away from its press without an accepted pickup.");
+              "A checkpoint cannot move the supported plate and offcut without an accepted transfer.");
         const auto copper_save = w::encode_checkpoint(copper_site.profile, pressed);
         check(std::holds_alternative<V>(copper_save),
               "The World checkpoint accepts the mass-conserving pressed state.");
         if (const auto* bytes = std::get_if<V>(&copper_save)) {
             const auto copper_load = w::decode_checkpoint(copper_site.profile, "press-feed", *bytes);
             check(std::holds_alternative<w::Snapshot>(copper_load),
-                  "The typed World checkpoint decodes the distinct plate and offcut.");
+                  "The typed World checkpoint decodes the supported plate and offcut.");
             if (const auto* restored = std::get_if<w::Snapshot>(&copper_load)) {
                 Runner resumed(copper_site);
                 resumed.world = w::World::restore("press-feed", copper_site.profile, *restored);
                 resumed.p = run.p;
                 check(resumed.world != nullptr, "Two actors resume one authoritative copper worksite.");
                 if (resumed.world) {
-                    auto offcut_pickup = request("Q", "q-pickup-copper-offcut", "pickup_material");
-                    offcut_pickup.emplace("center", V(point(8, 1, 0)));
-                    offcut_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+                    auto supported_pickup = request("Q", "q-pickup-supported-copper", "pickup_material");
+                    supported_pickup.emplace("center", V(point(8, 1, 0)));
+                    supported_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
                         {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
-                    resumed.accept("Q", offcut_pickup);
-                    check(resumed.world->snapshot().state.material.cargo.at("Q").offcuts == 1 &&
+                    resumed.accept("Q", supported_pickup);
+                    check(resumed.world->snapshot().state.material.cargo.at("Q").products == 1 &&
+                          resumed.world->snapshot().state.material.cargo.at("Q").offcuts == 1 &&
                           w::validate(copper_site.profile, resumed.world->snapshot()),
-                          "Q retrieves the real offcut after restore without changing P's plate.");
+                          "Q retrieves the identified plate and its offcut after restore.");
                     const auto after_q = resumed.world->snapshot();
-                    const auto q_retry = resumed.send("Q", offcut_pickup);
+                    const auto q_retry = resumed.send("Q", supported_pickup);
                     check(q_retry.completed() && q_retry.result &&
                           std::get<bool>(q_retry.result->at("duplicate").storage()) &&
                           resumed.world->snapshot().state == after_q.state,
-                          "Q's exact pickup retry cannot duplicate the offcut.");
-                    auto plate_pickup = request("P", "p-pickup-copper-plate", "pickup_material");
-                    plate_pickup.emplace("center", V(point(7, 1, 0)));
-                    plate_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
-                        {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
-                    resumed.accept("P", plate_pickup);
+                          "Q's exact pickup retry cannot duplicate either material form.");
                     const auto both_carried = resumed.world->snapshot();
-                    check(both_carried.state.material.cargo.at("P").products == 1 &&
+                    check(both_carried.state.material.cargo.at("Q").products == 1 &&
                           both_carried.state.material.cargo.at("Q").offcuts == 1 &&
+                          !both_carried.state.press_output_on_work.contains({8, 1, 0}) &&
                           w::validate(copper_site.profile, both_carried) &&
                           std::holds_alternative<V>(w::encode_checkpoint(copper_site.profile, both_carried)),
-                          "P and Q retain separate physical forms through one saved World.");
+                          "A second actor cannot duplicate material taken from the shared workbed.");
                 }
             }
         }
@@ -1245,45 +1141,39 @@ void actor_feed_is_physical_custody() {
     third_turn.at("request") = V("turn-press-finish");
     const auto finished = run.accept("P", third_turn);
     check(std::get<I>(finished.at("formed_products").storage()) == 1 &&
-          !run.world->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
-          run.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1,
-          "The finished product leaves the work point at the selected physical exit.");
+          run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).products == 1 &&
+          run.world->snapshot().state.press_output_on_work.contains({8, 1, 0}) &&
+          !run.world->snapshot().state.material.dropped_material.contains({7, 1, 0}),
+          "The finished product stays on the supported work point until physical removal.");
     const auto formed = run.world->snapshot();
     check(std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
               std::get<V>(w::encode_checkpoint(source.profile, formed)))),
-          "A formed product and the now empty work point survive strict checkpoint restore.");
+          "A formed product on its work point survives strict checkpoint restore.");
     Runner manual_blocked(source);
     manual_blocked.world = w::World::restore("press-feed", source.profile, formed);
     manual_blocked.p = {2, 1, 0};
     auto blocked_feed = feed;
     blocked_feed.at("request") = V("feed-behind-manual-output");
-    manual_blocked.accept("P", blocked_feed);
-    for (int index = 0; index < 3; ++index) {
-        auto blocked_turn = turn;
-        blocked_turn.at("request") = V("turn-against-manual-output-" + std::to_string(index));
-        manual_blocked.accept("P", blocked_turn);
-    }
-    const auto ready_behind_output = manual_blocked.world->snapshot();
-    const auto ready_checkpoint = w::encode_checkpoint(source.profile, ready_behind_output);
-    check(ready_behind_output.state.material.dropped_material.at({8, 1, 0})
-              .work_lots.front().remaining_ticks == 0 &&
-          ready_behind_output.state.material.dropped_material.at({7, 1, 0}).products == 1 &&
-          std::holds_alternative<V>(ready_checkpoint) &&
-          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
-              std::get<V>(ready_checkpoint))),
-          "A manual ready lot remains at work behind a full exit and restores without losing progress.");
+    manual_blocked.refuses("P", blocked_feed, "input_full");
+    check(manual_blocked.world->snapshot().state == formed.state,
+          "A retained plate prevents another feed from overwriting its work point.");
     auto clear_manual_output = request("P", "clear-manual-output", "pickup_material");
-    clear_manual_output.emplace("center", V(point(7, 1, 0)));
+    clear_manual_output.emplace("center", V(point(8, 1, 0)));
     clear_manual_output.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
         {"work_lots", V(V::Array{})}}));
     manual_blocked.accept("P", clear_manual_output);
-    auto release_ready = turn;
-    release_ready.at("request") = V("release-ready-manual-output");
-    const auto released = manual_blocked.accept("P", release_ready);
-    check(std::get<I>(released.at("formed_products").storage()) == 1 &&
-          !manual_blocked.world->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
+    auto resumed_feed = feed;
+    resumed_feed.at("request") = V("feed-after-workbed-pickup");
+    manual_blocked.accept("P", resumed_feed);
+    for (int index = 0; index < 3; ++index) {
+        auto blocked_turn = turn;
+        blocked_turn.at("request") = V("turn-after-workbed-pickup-" + std::to_string(index));
+        manual_blocked.accept("P", blocked_turn);
+    }
+    check(manual_blocked.world->snapshot().state.material.dropped_material.at({8, 1, 0}).products == 1 &&
+          manual_blocked.world->snapshot().state.press_output_on_work.contains({8, 1, 0}) &&
           w::World::restore("press-feed", source.profile, manual_blocked.world->snapshot()) != nullptr,
-          "Clearing the exit lets the exact ready manual lot form one product and restore.");
+          "Picking up the first plate frees the same workbed for a second identified plate.");
     Runner powered_output(source);
     powered_output.world = w::World::restore("press-feed", source.profile, formed);
     powered_output.p = {2, 1, 0};
@@ -1298,11 +1188,11 @@ void actor_feed_is_physical_custody() {
     check(exported && exported->tick().error == w::TransactionError::none,
           "A powered outward belt accepts the finished modular press plate on a trusted tick.");
     const auto on_route = exported->snapshot();
-    check(!on_route.state.material.dropped_material.contains({7, 1, 0}) &&
-          on_route.state.press_output_at_exit.empty() &&
+    check(!on_route.state.material.dropped_material.contains({8, 1, 0}) &&
+          on_route.state.press_output_on_work.empty() &&
           on_route.state.press_output_exported.at({7, 1, 0}).size() == 1 &&
           w::validate(source.profile, on_route),
-          "The plate leaves the quarter-grid exit once with its work identity and conserved material.");
+          "The moving belt takes the identified plate from the workbed into an available outward slot.");
     const auto saved_route = w::encode_checkpoint(source.profile, on_route);
     check(std::holds_alternative<V>(saved_route) &&
           std::holds_alternative<w::Snapshot>(w::decode_checkpoint(source.profile, "press-feed",
@@ -1315,15 +1205,15 @@ void actor_feed_is_physical_custody() {
         power.rate = reverse_source.profile.waterwheel_rate;
     auto reverse = w::World::restore("press-feed", reverse_source.profile, reverse_state);
     check(reverse && reverse->tick().error == w::TransactionError::none &&
-          reverse->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1 &&
-          reverse->snapshot().state.press_output_at_exit.contains({7, 1, 0}),
-          "A belt running toward the press cannot pull the plate from its outlet.");
+          reverse->snapshot().state.material.dropped_material.at({8, 1, 0}).products == 1 &&
+          reverse->snapshot().state.press_output_on_work.contains({8, 1, 0}),
+          "A belt running toward the press cannot pull the plate off its workbed.");
     auto swapped = powered_formed;
     auto& reversed_span = swapped.state.topology.belt_spans.front().geometry;
     std::swap(reversed_span.first_shaft, reversed_span.last_shaft);
     auto opposite_order = w::World::restore("press-feed", source.profile, swapped);
     check(opposite_order && opposite_order->tick().error == w::TransactionError::none &&
-          !opposite_order->snapshot().state.material.dropped_material.contains({7, 1, 0}) &&
+          !opposite_order->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
           opposite_order->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 1,
           "The same physical outward route works with the belt endpoint order reversed.");
     Runner occupied(source);
@@ -1337,11 +1227,11 @@ void actor_feed_is_physical_custody() {
     load.emplace("work_id", V(I{0}));
     occupied.accept("P", load);
     check(occupied.world->tick().error == w::TransactionError::none &&
-          occupied.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1 &&
-          occupied.world->snapshot().state.press_output_at_exit.contains({7, 1, 0}),
-          "An occupied inlet retains the real press output even when the belt later clears.");
+          occupied.world->snapshot().state.material.dropped_material.at({8, 1, 0}).products == 1 &&
+          occupied.world->snapshot().state.press_output_on_work.contains({8, 1, 0}),
+          "An occupied inlet retains the real press output on its workbed.");
     check(occupied.world->tick().error == w::TransactionError::none &&
-          !occupied.world->snapshot().state.material.dropped_material.contains({7, 1, 0}) &&
+          !occupied.world->snapshot().state.material.dropped_material.contains({8, 1, 0}) &&
           occupied.world->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 1,
           "The same plate exits after the inlet clears without another press cycle.");
     Runner obstructed(source);
@@ -1352,14 +1242,14 @@ void actor_feed_is_physical_custody() {
     obstruction_in_chute.emplace("center", V(point(6, 1, 0)));
     const auto chute_obstacle = obstructed.accept("P", obstruction_in_chute);
     check(obstructed.world->tick().error == w::TransactionError::none &&
-          obstructed.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1,
+          obstructed.world->snapshot().state.material.dropped_material.at({8, 1, 0}).products == 1,
           "A real placed part in the short chute blocks automatic output without consuming it.");
     auto clear_chute = request("P", "clear-press-chute", "reclaim_component");
     clear_chute.emplace("target", chute_obstacle.at("entity"));
     clear_chute.emplace("generation", chute_obstacle.at("generation"));
     obstructed.accept("P", clear_chute);
     check(obstructed.world->tick().error == w::TransactionError::none &&
-          !obstructed.world->snapshot().state.material.dropped_material.contains({7, 1, 0}),
+          !obstructed.world->snapshot().state.material.dropped_material.contains({8, 1, 0}),
           "Removing the obstacle releases the retained plate to the same belt.");
     Runner repeated(source);
     repeated.world = w::World::restore("press-feed", source.profile, on_route);
@@ -1383,30 +1273,32 @@ void actor_feed_is_physical_custody() {
     resume_repeat.at("request") = V("resume-wheel-for-repeat-export");
     resume_repeat.at("enabled") = V(true);
     repeated.accept("P", resume_repeat);
-    check(repeated.world->tick().error == w::TransactionError::none &&
-          repeated.world->snapshot().state.press_output_exported.at({7, 1, 0}).size() == 2 &&
-          w::World::restore("press-feed", source.profile, repeated.world->snapshot()) != nullptr,
+    const auto repeat_tick = repeated.world->tick();
+    const auto repeat_state = repeated.world->snapshot();
+    check(repeat_tick.error == w::TransactionError::none &&
+          repeat_state.state.press_output_exported.at({7, 1, 0}).size() == 2 &&
+          w::World::restore("press-feed", source.profile, repeat_state) != nullptr,
           "Two separately formed plates leave the same port once each and restore with distinct work identities.");
     auto forged_product = formed;
-    const auto produced = forged_product.state.material.dropped_material.at({7, 1, 0});
-    forged_product.state.material.dropped_material.erase({7, 1, 0});
+    const auto produced = forged_product.state.material.dropped_material.at({8, 1, 0});
+    forged_product.state.material.dropped_material.erase({8, 1, 0});
     forged_product.state.material.dropped_material.emplace(g::Point{7, 1, 1}, produced);
     check(!w::World::restore("press-feed", source.profile, forged_product),
           "A checkpoint cannot relocate the formed product without an accepted pickup.");
     carry_crank(run, hand_crank, "detach-crank-between-press-and-pickup");
     auto pickup_product = request("P", "pickup-formed-product", "pickup_material");
-    pickup_product.emplace("center", V(point(7, 1, 0)));
+    pickup_product.emplace("center", V(point(8, 1, 0)));
     pickup_product.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
         {"work_lots", V(V::Array{})}}));
     run.accept("P", pickup_product);
     check(run.world->snapshot().state.material.cargo.at("P").products == 1,
-          "A physical actor retrieves the single formed product.");
+          "A physical actor retrieves the single plate from its workbed.");
     auto forged_export = run.world->snapshot();
-    check(forged_export.state.press_output_at_exit.empty() &&
+    check(forged_export.state.press_output_on_work.empty() &&
           forged_export.state.press_output_exported.empty(),
           "The actor pickup fixture has no press output export witness.");
     forged_export.state.press_output_exported[{7, 1, 0}].insert(
-        formed.state.press_output_at_exit.at({7, 1, 0}));
+        formed.state.press_output_on_work.at({8, 1, 0}).id);
     check(!w::World::restore("press-feed", source.profile, forged_export),
           "A checkpoint cannot claim that an actor-picked plate was exported to a belt.");
     auto forged_finish = run.world->snapshot();
@@ -1525,11 +1417,12 @@ void actor_feed_is_physical_custody() {
     remaining_turn.at("request") = V("finish-reinserted-work");
     const auto reformed = refeed.accept("P", remaining_turn);
     check(std::get<I>(reformed.at("formed_products").storage()) == 1 &&
-          refeed.world->snapshot().state.material.dropped_material.at({7, 1, 0}).products == 1 &&
+          refeed.world->snapshot().state.material.dropped_material.at({8, 1, 0}).products == 1 &&
+          refeed.world->snapshot().state.press_output_on_work.contains({8, 1, 0}) &&
           w::World::restore("press-feed", source.profile, refeed.world->snapshot()) != nullptr,
           "The reinserted lot completes with its retained progress and one formed plate.");
     auto pick_reformed = request("P", "pickup-reinserted-plate", "pickup_material");
-    pick_reformed.emplace("center", V(point(7, 1, 0)));
+    pick_reformed.emplace("center", V(point(8, 1, 0)));
     pick_reformed.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
         {"work_lots", V(V::Array{})}}));
     refeed.accept("P", pick_reformed);
@@ -1662,10 +1555,12 @@ void two_placed_presses_advance_distinct_powered_work() {
                   "A powered copper press advances a real stock lot without losing mass.");
         const auto automatic = copper.world->snapshot();
         check(automatic.state.material.dropped_material.at({0, 1, 0}).offcuts == 1 &&
-              automatic.state.material.dropped_material.at({-1, 1, 0}).products == 1 &&
+              automatic.state.material.dropped_material.at({0, 1, 0}).products == 1 &&
+              automatic.state.press_output_on_work.contains({0, 1, 0}) &&
+              !automatic.state.material.dropped_material.contains({-1, 1, 0}) &&
               w::validate(copper_site.profile, automatic) &&
               std::holds_alternative<V>(w::encode_checkpoint(copper_site.profile, automatic)),
-              "Automatic copper output preserves its plate and work-face offcut in one saved World.");
+              "Automatic copper output preserves its plate and offcut together on the workbed.");
         auto relocated = automatic;
         const auto loose_offcut = relocated.state.material.dropped_material.at({0, 1, 0});
         relocated.state.material.dropped_material.erase({0, 1, 0});
@@ -1677,28 +1572,24 @@ void two_placed_presses_advance_distinct_powered_work() {
         check(product_first.world != nullptr, "The automatic copper product restores before either pickup.");
         if (product_first.world) {
             auto plate_pickup = request("P", "p-pickup-auto-copper-plate", "pickup_material");
-            plate_pickup.emplace("center", V(point(-1, 1, 0)));
+            plate_pickup.emplace("center", V(point(0, 1, 0)));
             plate_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
-                {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+                {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
             product_first.accept("P", plate_pickup);
-            check(w::validate(copper_site.profile, product_first.world->snapshot()),
-                  "Picking the automatic plate first still binds its uncollected offcut to the press.");
+            check(product_first.world->snapshot().state.material.cargo.at("P").products == 1 &&
+                  product_first.world->snapshot().state.material.cargo.at("P").offcuts == 1 &&
+                  w::validate(copper_site.profile, product_first.world->snapshot()),
+                  "P's direct pickup keeps both supported material forms in one authoritative cargo.");
         }
-        auto offcut_pickup = request("Q", "q-pickup-automatic-copper-offcut", "pickup_material");
+        auto offcut_pickup = request("Q", "q-pickup-automatic-copper-output", "pickup_material");
         offcut_pickup.emplace("center", V(point(0, 1, 0)));
-        offcut_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        offcut_pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
             {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
         copper.accept("Q", offcut_pickup);
-        check(copper.world->snapshot().state.material.cargo.at("Q").offcuts == 1 &&
+        check(copper.world->snapshot().state.material.cargo.at("Q").products == 1 &&
+              copper.world->snapshot().state.material.cargo.at("Q").offcuts == 1 &&
               w::validate(copper_site.profile, copper.world->snapshot()),
-              "Q may recover the automatic press offcut while P retains the plate route.");
-        if (product_first.world) {
-            product_first.accept("Q", offcut_pickup);
-            check(product_first.world->snapshot().state.material.cargo.at("P").products == 1 &&
-                  product_first.world->snapshot().state.material.cargo.at("Q").offcuts == 1 &&
-                  w::validate(copper_site.profile, product_first.world->snapshot()),
-                  "Both pickup orders retain separate P and Q custody after automatic forming.");
-        }
+              "Q can independently resume and recover the same plate plus offcut exactly once.");
     }
     auto half_source = source;
     half_source.profile.waterwheel_rate = {1, 2};
@@ -1774,9 +1665,10 @@ void two_placed_presses_advance_distinct_powered_work() {
                   "An inflated saved progress counter cannot claim a plate before enough powered ticks.");
         }
     }
-    check(fractional.world->snapshot().state.material.dropped_material.at({-1, 1, 0}).products == 1 &&
-          !fractional.world->snapshot().state.material.dropped_material.contains({0, 1, 0}),
-          "The retained half-tick plus three later half-speed ticks form exactly one plate.");
+    check(fractional.world->snapshot().state.material.dropped_material.at({0, 1, 0}).products == 1 &&
+          fractional.world->snapshot().state.press_output_on_work.contains({0, 1, 0}) &&
+          !fractional.world->snapshot().state.material.dropped_material.contains({-1, 1, 0}),
+          "The retained half-tick plus three later half-speed ticks form one supported plate.");
     const auto finished_half = w::encode_checkpoint(half_source.profile, fractional.world->snapshot());
     check(std::holds_alternative<V>(finished_half), "The genuine half-speed plate encodes.");
     auto premature_save = std::get<V>(finished_half);
@@ -1822,39 +1714,39 @@ void two_placed_presses_advance_distinct_powered_work() {
           run.world->snapshot().state.material.dropped_material.at({8, 1, 0}).work_lots.front().remaining_ticks == 1,
           "Both retained lots advance one cycle tick when their shafts resume.");
     check(run.world->tick().error == w::TransactionError::none &&
-          run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
-          run.world->snapshot().state.material.dropped_material.at({7, 1, 0}) == m::Cargo{0, 1, {}} &&
-          !run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
-          !run.world->snapshot().state.material.dropped_material.contains({8, 1, 0}),
-          "Two plates leave separate drive-opposed exits after distinct finite work cycles.");
+          run.world->snapshot().state.material.dropped_material.at({0, 1, 0}) == m::Cargo{0, 1, {}} &&
+          run.world->snapshot().state.material.dropped_material.at({8, 1, 0}) == m::Cargo{0, 1, {}} &&
+          run.world->snapshot().state.press_output_on_work.size() == 2,
+          "Two plates remain on their separate supported workbeds after distinct finite cycles.");
     auto feed_again = request("P", "feed-powered-again", "feed_press");
     feed_again.emplace("target", V(frames[0]));
     feed_again.emplace("generation", V(frame_generations[0]));
     feed_again.emplace("entry", V(point(1, 1, 0)));
-    run.accept("P", feed_again);
-    for (int index = 0; index < 3; ++index)
-        check(run.world->tick().error == w::TransactionError::none,
-              "A ready WorkLot may advance while its own output is full.");
-    const auto blocked = run.world->snapshot();
-    check(blocked.state.material.dropped_material.at({0, 1, 0}).work_lots.front().remaining_ticks == 0 &&
-          blocked.state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
-          blocked.state.material.dropped_material.at({7, 1, 0}) == m::Cargo{0, 1, {}} &&
-          run.world->tick().error == w::TransactionError::none &&
-          run.world->snapshot().state.material == blocked.state.material,
-          "A full first exit retains exactly its ready work while the second product remains separate.");
-    auto pickup = request("P", "clear-powered-exit", "pickup_material");
-    pickup.emplace("center", V(point(-1, 1, 0)));
+    auto still_occupied = feed_again;
+    still_occupied.at("request") = V("feed-occupied-workbed");
+    run.refuses("P", still_occupied, "input_full");
+    auto pickup = request("P", "clear-powered-workbed", "pickup_material");
+    pickup.emplace("center", V(point(0, 1, 0)));
     pickup.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
         {"work_lots", V(V::Array{})}}));
     run.accept("P", pickup);
-    check(run.world->tick().error == w::TransactionError::none &&
-          run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
-          !run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
+    run.accept("P", feed_again);
+    for (int index = 0; index < 3; ++index)
+        check(run.world->tick().error == w::TransactionError::none,
+              "A new WorkLot advances after the first plate is collected.");
+    const auto blocked = run.world->snapshot();
+    check(blocked.state.material.dropped_material.at({0, 1, 0}) == m::Cargo{0, 1, {}} &&
+          blocked.state.material.dropped_material.at({8, 1, 0}) == m::Cargo{0, 1, {}} &&
+          blocked.state.press_output_on_work.size() == 2 &&
+          run.world->tick().error == w::TransactionError::none &&
+          run.world->snapshot().state.material == blocked.state.material,
+          "Both retained plates stay put through another tick without a receiving route.");
+    pickup.at("request") = V("clear-second-powered-plate");
+    run.accept("P", pickup);
+    check(!run.world->snapshot().state.material.dropped_material.contains({0, 1, 0}) &&
+          run.world->snapshot().state.material.dropped_material.at({8, 1, 0}) == m::Cargo{0, 1, {}} &&
           w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
-          "Clearing the blocked exit releases the same ready lot and restores without duplication.");
-    auto clear_again = pickup;
-    clear_again.at("request") = V("clear-powered-exit-again");
-    run.accept("P", clear_again);
+          "Collecting one workbed plate leaves the other press's exact output untouched.");
     const auto hand_crank = craft_crank(run, "powered-substitute-crank");
     auto feed_manual = feed_again;
     feed_manual.at("request") = V("feed-powered-for-crank");
@@ -1951,7 +1843,8 @@ void two_placed_presses_advance_distinct_powered_work() {
     check(run.world->snapshot().state.material.dropped_material.at({0, 1, 0})
               .work_lots.front().remaining_ticks == 1 &&
           run.world->tick().error == w::TransactionError::none &&
-          run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
+          run.world->snapshot().state.material.dropped_material.at({0, 1, 0}) == m::Cargo{0, 1, {}} &&
+          run.world->snapshot().state.press_output_on_work.contains({0, 1, 0}) &&
           w::World::restore("press-feed", source.profile, run.world->snapshot()) != nullptr,
           "A manual crank and a powered tick share the same retained lot and valid checkpoint.");
     auto clear_manual = pickup;
@@ -2005,7 +1898,8 @@ void two_placed_presses_advance_distinct_powered_work() {
     const auto products_before = reinserted_powered.state.material.cargo.at("P").products;
     check(refeed_powered.world->tick().error == w::TransactionError::none,
           "The reinserted partial WorkLot accepts one more real powered tick.");
-    check(refeed_powered.world->snapshot().state.material.dropped_material.at({-1, 1, 0}).products == 1,
+    check(refeed_powered.world->snapshot().state.material.dropped_material.at({0, 1, 0}).products == 1 &&
+          refeed_powered.world->snapshot().state.press_output_on_work.contains({0, 1, 0}),
           "One remaining powered tick forms a single product from the reinserted WorkLot.");
     refeed_powered.world = codec_restore(source.profile, refeed_powered.world->snapshot(),
           "The powered plate retains its identity and custody through checkpoint serialization.");
@@ -2120,8 +2014,9 @@ void belt_feeds_a_placed_press() {
           "The fed press advances the retained WorkLot under power.");
     check(run.world->tick().error == w::TransactionError::none,
           "The fed press completes its retained WorkLot under power.");
-    check(run.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}},
-          "A belt-fed blank becomes one plate at the placed press exit.");
+    check(run.world->snapshot().state.material.dropped_material.at({0, 1, 0}) == m::Cargo{0, 1, {}} &&
+          run.world->snapshot().state.press_output_on_work.contains({0, 1, 0}),
+          "A belt-fed blank becomes one plate retained on the placed workbed.");
     const auto finished = run.world->snapshot();
     const auto saved = w::encode_checkpoint(source.profile, finished);
     check(std::holds_alternative<V>(saved) &&
@@ -2135,10 +2030,10 @@ void belt_feeds_a_placed_press() {
     Runner picked(source);
     restore(picked, finished);
     auto pickup_plate = request("P", "inlet-pickup-plate", "pickup_material");
-    pickup_plate.emplace("center", V(point(-1, 1, 0)));
+    pickup_plate.emplace("center", V(point(0, 1, 0)));
     pickup_plate.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
         {"work_lots", V(V::Array{})}}));
-    const auto plate_id = finished.state.press_output_at_exit.at({-1, 1, 0});
+    const auto plate_id = finished.state.press_output_on_work.at({0, 1, 0}).id;
     const auto picked_result = picked.accept("P", pickup_plate);
     check(std::get<I>(picked_result.at("press_output_work_id").storage()) == plate_id &&
           picked.world->snapshot().state.belt_press_products.empty() &&
@@ -2302,7 +2197,8 @@ void belt_feeds_a_placed_press() {
         }
     check(!w::World::restore("press-feed", source.profile, forged_belt_turn),
           "A belt-fed manual turn cannot claim two ticks of progress.");
-    check(mirrored.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
+    check(mirrored.world->snapshot().state.material.dropped_material.at({0, 1, 0}) == m::Cargo{0, 1, {}} &&
+          mirrored.world->snapshot().state.press_output_on_work.contains({0, 1, 0}) &&
           w::World::restore("press-feed", source.profile, mirrored.world->snapshot()) != nullptr,
           "A belt-fed mirrored press produces one plate through the same manual crank and restores.");
     Runner recovered(source);
@@ -2332,7 +2228,8 @@ void belt_feeds_a_placed_press() {
     for (int n = 0; n < 4; ++n)
         check(recovered.world->tick().error == w::TransactionError::none,
               "The recovered WorkLot returns through the belt and resumes under power.");
-    check(recovered.world->snapshot().state.material.dropped_material.at({-1, 1, 0}) == m::Cargo{0, 1, {}} &&
+    check(recovered.world->snapshot().state.material.dropped_material.at({0, 1, 0}) == m::Cargo{0, 1, {}} &&
+          recovered.world->snapshot().state.press_output_on_work.contains({0, 1, 0}) &&
           w::World::restore("press-feed", source.profile, recovered.world->snapshot()) != nullptr,
           "The same recovered work identity produces one plate after belt re-entry.");
 }
@@ -2434,11 +2331,13 @@ void belt_feeds_a_guided_press(bool copper) {
               "The frame-free belt-fed press advances under signed power.");
     const auto finished = run.world->snapshot();
     check(w::validate(source.profile, finished), "A belt-fed guided product has valid World history.");
-    check(finished.state.material.dropped_material.at({-1, 0, 0}).products == 1 &&
+    check(finished.state.material.dropped_material.at({0, 0, 0}).products == 1 &&
+          finished.state.press_output_on_work.contains({0, 0, 0}) &&
+          !finished.state.material.dropped_material.contains({-1, 0, 0}) &&
           (!copper || finished.state.material.dropped_material.at({0, 0, 0}).offcuts == 1) &&
           codec_restore(source.profile, finished,
               "The guided belt-fed plate survives checkpoint reload.") != nullptr,
-          "The guided press forms one plate and any required offcut from its belt-fed blank.");
+          "The guided press retains one plate and any required offcut from its belt-fed blank.");
     if (copper) {
         auto moved = finished;
         moved.state.material.dropped_material.at({0, 0, 0}).offcuts = 0;
@@ -2461,17 +2360,18 @@ void belt_feeds_a_guided_press(bool copper) {
         }
         check(!w::World::restore("press-feed", source.profile, attributed),
               "Forged transition coordinates cannot attribute the offcut to another work point.");
-        auto recover = request("Q", "belt-guided-recover-offcut", "pickup_material");
+        auto recover = request("Q", "belt-guided-recover-supported-output", "pickup_material");
         recover.emplace("center", V(point(0, 0, 0)));
-        recover.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
+        recover.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
             {"work_lots", V(V::Array{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
         run.accept("Q", recover);
         const auto recovered = run.world->snapshot();
-        check(recovered.state.material.cargo.at("Q").offcuts == 1 &&
+        check(recovered.state.material.cargo.at("Q").products == 1 &&
+              recovered.state.material.cargo.at("Q").offcuts == 1 &&
               !recovered.state.material.dropped_material.contains({0, 0, 0}) &&
               codec_restore(source.profile, recovered,
-                  "The second actor's recovered belt offcut survives a fresh checkpoint.") != nullptr,
-              "Q can recover the one real offcut without disturbing the finished plate.");
+                  "The second actor's belt-fed plate and offcut survive a fresh checkpoint.") != nullptr,
+              "Q can recover the identified plate and offcut directly from the workbed.");
     }
 }
 

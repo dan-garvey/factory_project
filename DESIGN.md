@@ -256,13 +256,18 @@ cells. Scroll to reach further item kinds; the grid does not cap native cargo.
 Bind a carried placeable to a numbered hotbar key by dragging it onto that slot
 or by hovering or focusing its inventory tile and pressing 1–8. The single
 hotbar remains in the world view, and binding a key keeps the inventory open
-for further assignments. Outside the inventory, number keys select bound tools;
-clicking an inventory tile selects
-placement without changing a binding.
+for further assignments. Outside the inventory, number keys select bound tools.
+Clicking an inventory tile selects placement without changing a binding.
 Machine workbeds show actual occupied material and only carried inputs accepted
 by the selected assembly. Empty work locations are blank; the whole carried area
 accepts recoverable output drops. Material tiles depict the item, with progress
 and operations explained separately.
+The hand-tended press keeps each completed plate on its supported work surface
+until the player collects it directly or transfers it into carried inventory.
+An adjacent empty tile or passive receiver cannot eject it. An aligned, powered
+and clear belt or slide may move the plate into available receiving space;
+inactive or blocked transport leaves the finished plate visible and prevents
+another load. Copper offcuts remain recoverable, with exact material accounting.
 Point at loose material and press E to pick it up. The world interaction uses the
 visible item and confirmed native custody, with normal reach and obstruction
 limits. Manual push commands belong only to developer diagnostics. Connected,

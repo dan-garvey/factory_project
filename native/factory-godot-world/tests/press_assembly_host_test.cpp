@@ -122,11 +122,11 @@ O turn(const std::string& request_id, const std::string& frame,
     return wire;
 }
 
-void pickup_product(Host& host, I x, I y, I z, const char* request_id) {
+void pickup_product(Host& host, I x, I y, I z, const char* request_id, I offcuts = 0) {
     auto wire = request(request_id, "pickup_material");
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
     wire.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{1})},
-        {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
+        {"work_lots", V(A{})}, {"offcuts", V(offcuts)}, {"sheets", V(I{0})}}));
     accepted(host, wire);
 }
 
@@ -135,14 +135,6 @@ void recover_blank(Host& host, I x, I y, I z, const char* request_id) {
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
     wire.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
         {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
-    accepted(host, wire);
-}
-
-void pickup_offcut(Host& host, I x, I y, I z, const char* request_id) {
-    auto wire = request(request_id, "pickup_material");
-    wire.emplace("center", V(A{V(x), V(y), V(z)}));
-    wire.emplace("expected", V(O{{"raw", V(I{0})}, {"products", V(I{0})},
-        {"work_lots", V(A{})}, {"offcuts", V(I{1})}, {"sheets", V(I{0})}}));
     accepted(host, wire);
 }
 
@@ -477,11 +469,9 @@ void guided_press_host_path() {
     const auto drops = get<A>(host.projection(), "dropped_material");
     check(std::any_of(drops.begin(), drops.end(), [](const V& drop) {
               return !factory::values::typed_difference(V(get<A>(drop, "center")),
-                  V(A{V(I{7}), V(I{0}), V(I{0})})) && get<I>(drop, "products") == 1;
-          }) && std::any_of(drops.begin(), drops.end(), [](const V& drop) {
-              return !factory::values::typed_difference(V(get<A>(drop, "center")),
-                  V(A{V(I{8}), V(I{0}), V(I{0})})) && get<I>(drop, "offcuts") == 1;
-          }), "The ordinary Host wire makes a real plate and retained offcut without a frame.");
+                  V(A{V(I{8}), V(I{0}), V(I{0})})) &&
+                  get<I>(drop, "products") == 1 && get<I>(drop, "offcuts") == 1;
+          }), "The ordinary Host wire shows a real plate and offcut together on the supported workbed.");
     conserved_copper(host);
     const auto saved = host.checkpoint();
     Host restored;
@@ -511,10 +501,8 @@ void guided_press_host_path() {
                 accepted(restored, turn("guided-recycle-turn-" + std::to_string(index) +
                     "-" + std::to_string(tick), anvil, shaft, 7, 0, 0));
         }
-        pickup_offcut(restored, 8, 0, 0,
-                      ("guided-recycle-offcut-" + std::to_string(index)).c_str());
-        pickup_product(restored, 7, 0, 0,
-                       ("guided-recycle-plate-" + std::to_string(index)).c_str());
+        pickup_product(restored, 8, 0, 0,
+                       ("guided-recycle-plate-" + std::to_string(index)).c_str(), 1);
     }
     conserved_copper(restored);
     check(get<I>(get<O>(restored.projection(), "cargo").at("P"), "offcuts") == 4 &&
@@ -780,7 +768,7 @@ void placed_press_projection() {
           "Fresh Host restore retains the manually reinserted partial WorkLot.");
     accepted(restored_work, turn("advance-reinserted-work", frame, mirrored_shaft, 7, 1, 0));
     accepted(restored_work, turn("finish-reinserted-work", frame, mirrored_shaft, 7, 1, 0));
-    pickup_product(restored_work, 7, 1, 0, "pickup-reinserted-product");
+    pickup_product(restored_work, 8, 1, 0, "pickup-reinserted-product", 1);
     check(get<I>(get<O>(restored_work.projection(), "cargo").at("P"), "products") == 1,
           "The recovered partial WorkLot produces one pickable plate after fresh Host restore.");
     Host final_work;
@@ -792,22 +780,18 @@ void placed_press_projection() {
     accepted(host, turn("advance-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
     accepted(host, turn("finish-mirrored-work", frame, mirrored_shaft, 7, 1, 0));
     const auto finished_drops = get<A>(host.projection(), "dropped_material");
-    check(finished_drops.size() == 2 &&
+    check(finished_drops.size() == 1 &&
           std::any_of(finished_drops.begin(), finished_drops.end(), [](const V& drop) {
-              return get<I>(drop, "products") == 1;
-          }) &&
-          std::any_of(finished_drops.begin(), finished_drops.end(), [](const V& drop) {
-              return get<I>(drop, "offcuts") == 1;
+              return get<I>(drop, "products") == 1 && get<I>(drop, "offcuts") == 1;
           }),
-          "One plate exits while its one-unit copper offcut remains at the work point.");
+          "One plate and its one-unit copper offcut remain together at the work point.");
     conserved_copper(host);
-    pickup_product(host, 7, 1, 0, "pickup-mirrored-product");
-    pickup_offcut(host, 8, 1, 0, "pickup-mirrored-offcut");
+    pickup_product(host, 8, 1, 0, "pickup-mirrored-product", 1);
     check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 1,
           "The formed product enters the same actor cargo ledger after pickup.");
     check(get<I>(get<O>(host.projection(), "cargo").at("P"), "offcuts") == 1 &&
           get<A>(host.projection(), "dropped_material").empty(),
-          "The distinct offcut is recoverable into actor custody without moving the plate again.");
+          "The offcut stays recoverable with the supported plate in actor custody.");
     conserved_copper(host);
     const auto saved = host.checkpoint();
     auto hub_obstruction = factory::godot_world::tests::flat_site();
@@ -903,7 +887,7 @@ void placed_press_projection() {
     accepted(raised_restored, turn("start-raised-work", raised_frame, raised_shaft, 7, 5, 0));
     accepted(raised_restored, turn("advance-raised-work", raised_frame, raised_shaft, 7, 5, 0));
     accepted(raised_restored, turn("finish-raised-work", raised_frame, raised_shaft, 7, 5, 0));
-    pickup_product(raised_restored, 7, 5, 0, "pickup-raised-product");
+    pickup_product(raised_restored, 8, 5, 0, "pickup-raised-product", 1);
     check(get<I>(get<O>(raised_restored.projection(), "cargo").at("P"), "products") == 2,
           "The elevated arrangement forms and retrieves a second product from finite ore.");
     const auto workshop = raised_restored.projection();
@@ -1207,10 +1191,10 @@ void belt_fed_press_projection() {
     const auto products = get<A>(fresh.projection(), "dropped_material");
     check(std::any_of(products.begin(), products.end(), [](const V& drop) {
               return !factory::values::typed_difference(V(get<A>(drop, "center")),
-                  V(A{V(I{-1}), V(I{5}), V(I{0})})) && get<I>(drop, "products") == 1;
+                  V(A{V(I{0}), V(I{5}), V(I{0})})) && get<I>(drop, "products") == 1;
           }) && get<bool>(fresh.validate_checkpoint(fresh.checkpoint()), "accepted"),
-          "The restored belt-fed blank becomes one physical plate through the normal press crank.");
-    pickup_product(fresh, -1, 5, 0, "inlet-host-first-plate-pickup");
+          "The restored belt-fed blank becomes one supported plate through the normal press crank.");
+    pickup_product(fresh, 0, 5, 0, "inlet-host-first-plate-pickup", 1);
     check(get<I>(get<O>(fresh.projection(), "cargo").at("P"), "products") == 1 &&
           get<A>(fresh.projection(), "workshop_completed_actors").size() == 1,
           "The actor first completes the workshop by collecting the formed plate.");

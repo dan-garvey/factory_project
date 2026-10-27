@@ -82,9 +82,10 @@ The integration owner maintains the separate authorized unlisted-gist
   Label agent graphical launches with `--test-purpose=TEXT` through the tracked
   agent launcher so the purpose appears in the OS window title. Add title
   initialization before opening a new graphical fixture target.
-  Inspect relevant pixels, recording revision, view and conditions. Consider
-  screenshots for reviews of visible changes: shape, scale, orientation,
-  connections and interaction cues. Passive fixtures do not prove usability.
+  Inspect relevant pixels, recording revision, view and conditions. Capture
+  visible changes in their surrounding worksite or interface so shape, scale,
+  orientation, connections and interaction cues can be judged together.
+  Passive fixtures do not prove usability.
 
 ## Finish, publish and review
 
@@ -107,10 +108,19 @@ each fix. Scale review effort to the changed risk: inspect the relevant contract
 affected consumer and evidence. For editorial-only prose, check claims, links and
 consistency; reuse passing checks for unchanged inputs.
 
+If a commit changes anything visible, its `review-request` Bead must include a
+retained screenshot of the change in its surrounding worksite or interface,
+with the source revision, view and conditions. An isolated part or widget image
+alone is insufficient. Reviewers also judge the complete player-facing result:
+proportions, neighboring parts, connection and interaction cues, and the action
+the player is trying to take, alongside the usual diff, contract and consumer
+checks. State what passive images cannot establish about ordinary or human use.
+
 For a disjoint preservation merge, verify both parents, relevant path and blob
 identity, unchanged test inputs and absence of changed interfaces or combined
 behavior. Record that proof in its review request and reuse the original checks
-and review evidence. Changed interfaces, conflict resolutions or combined behavior
+and review evidence, including a contextual screenshot for unchanged visual
+inputs. Changed interfaces, conflict resolutions or combined behavior
 need focused integration checks. Record a concrete verdict and evidence limits.
 Existing relevant review counts; review is not a pre-merge approval gate.
 

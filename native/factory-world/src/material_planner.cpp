@@ -76,8 +76,10 @@ Owner::Decision plan_material(const Profile& profile, const Binding& binding,
             return refused("drop_changed", "", std::move(facts));
         const auto contents = found->second;
         const auto press_witness = state.press_output_at_exit.find(*point);
-        const auto press_work_id = press_witness == state.press_output_at_exit.end() ?
-            materials::WorkId{0} : press_witness->second;
+        const auto supported_output = state.press_output_on_work.find(*point);
+        const auto press_work_id = supported_output != state.press_output_on_work.end() ?
+            supported_output->second.id : press_witness == state.press_output_at_exit.end() ?
+                materials::WorkId{0} : press_witness->second;
         const auto plate_receiver = state.press_output_at_receiver.find(*point);
         if (plate_receiver != state.press_output_at_receiver.end() &&
             (contents.raw_units != 0 || contents.products !=
@@ -93,6 +95,18 @@ Owner::Decision plan_material(const Profile& profile, const Binding& binding,
             return refused(materials::error_name(error), "", std::move(facts));
         candidate.slide_press_routes.erase(*point);
         if (contents.products == 1) {
+            const auto supported = candidate.press_output_on_work.find(*point);
+            if (supported != candidate.press_output_on_work.end()) {
+                const auto belt_claim = candidate.belt_press_products.find(
+                    supported->second.selected_exit);
+                if (belt_claim != candidate.belt_press_products.end() &&
+                    belt_claim->second.erase(supported->second.id) != 0 &&
+                    belt_claim->second.empty()) candidate.belt_press_products.erase(belt_claim);
+                const auto& exit = supported->second.selected_exit;
+                facts.emplace("press_output_selected_exit", Value(Value::Array{
+                    Value(exit[0]), Value(exit[1]), Value(exit[2])}));
+                candidate.press_output_on_work.erase(supported);
+            }
             const auto witness = candidate.press_output_at_exit.find(*point);
             if (witness != candidate.press_output_at_exit.end()) {
                 const auto belt_claim = candidate.belt_press_products.find(*point);

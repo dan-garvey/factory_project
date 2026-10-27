@@ -322,32 +322,24 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
                         if (witness != state.press_progress.end())
                             prior_auto = witness->second.automatic_remaining_ticks;
                     }
-                    const bool receiver = std::any_of(state.placed_components.begin(),
-                        state.placed_components.end(), [&](const auto& entry) {
-                            return entry.second.kind == materials::Component::receiver_tray &&
-                                entry.second.center == selected_exit;
-                        });
                     const auto error = materials::turn_press(candidate.material, profile.material,
-                        material_path(candidate.topology), work, selected_exit, receiver);
+                        material_path(candidate.topology), work, selected_exit, false,
+                        materials::PressOutputLocation::supported_work);
                     if (error != materials::Error::none)
                         return refused(materials::error_name(error), *id, std::move(facts));
                     const auto current = candidate.material.dropped_material.find(work);
                     const bool finished = completed_id > 0 &&
-                        (current == candidate.material.dropped_material.end() ||
-                         (current->second.offcuts == profile.material.raw_mass -
-                              profile.material.plate_mass && current->second.raw_units == 0 &&
-                          current->second.products == 0 && current->second.sheets.empty() &&
-                          current->second.work_lots.empty()));
+                        current != candidate.material.dropped_material.end() &&
+                        current->second.raw_units == 0 && current->second.products == 1 &&
+                        current->second.work_lots.empty();
                     if (completed_id > 0)
                         candidate.press_progress[completed_id].manual_seen = true;
                     else if (current != candidate.material.dropped_material.end() &&
                              current->second.work_lots.size() == 1)
                         candidate.press_progress[current->second.work_lots.front().id].manual_seen = true;
                     if (finished) {
-                        if (receiver) {
-                            if (!candidate.press_output_at_receiver[selected_exit].insert(completed_id).second)
-                                return refused("invalid_press_output", *id, std::move(facts));
-                        } else if (!candidate.press_output_at_exit.emplace(selected_exit, completed_id).second)
+                        if (!candidate.press_output_on_work.emplace(work,
+                                State::SupportedPressOutput{completed_id, selected_exit}).second)
                             return refused("invalid_press_output", *id, std::move(facts));
                         candidate.slide_press_routes.erase(work);
                     }
