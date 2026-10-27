@@ -3353,6 +3353,16 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and opening.manager_log_current.text.ends_with(pickup_cue),
 				"The first-shift cue and replayable log name the supported workbed pickup"):
 			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			opening._toggle_manager_log()
+			await process_frame
+			await RenderingServer.frame_post_draw
+			if not _expect(opening.manager_log_layer.visible
+					and root.get_texture().get_image().save_png(
+						capture_prefix + "-workbed-log-cue.png") == OK,
+				"Retain the supported workbed pickup instruction in the surrounding worksite"):
+				return
+			opening._toggle_manager_log()
 		var work_point := Vector2(float(press_x) * OpeningGeometry.HEIGHT_STEP,
 			float(press_z) * OpeningGeometry.HEIGHT_STEP)
 		if not await _approach(work_point + Vector2(1.1, 1.05)):
@@ -3425,23 +3435,22 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				return
 			var original_size: Vector2i = root.size
 			root.size = Vector2i(900, 600)
-			await process_frame
-			inventory.catalog.hide()
-			await process_frame
-			inventory.open_catalog()
-			await process_frame
+			for _frame in range(3):
+				await process_frame
 			inventory._place_catalog()
 			await RenderingServer.frame_post_draw
 			var narrow_rect := Rect2(Vector2(inventory.catalog.position),
 				Vector2(inventory.catalog.size))
 			var narrow_capture: Error = root.get_texture().get_image().save_png(
 				capture_prefix + "-unlocked-catalog-narrow.png")
-			if not _expect(inventory.catalog.visible
+			var narrow_visible: bool = inventory.catalog.is_visible_in_tree()
+			if not _expect(narrow_visible
 					and inventory.recipe_focus == "collector"
 					and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(narrow_rect)
 					and narrow_capture == OK,
 					"The ordinary collector recipes fit the narrow actor viewport: " +
-					str({"popup": narrow_rect, "viewport": root.size})):
+				str({"popup": narrow_rect, "viewport": root.size,
+					"visible": narrow_visible, "recipe_focus": inventory.recipe_focus})):
 				return
 			root.size = original_size
 			await process_frame
