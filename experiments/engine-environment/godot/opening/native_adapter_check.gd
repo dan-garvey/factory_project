@@ -1795,6 +1795,48 @@ func _arrival_belt_resume_run() -> void:
 		return
 	_record("pass")
 
+func _expect_nonhorizontal_belt_preview(first_id: String, last_id: String,
+		capture_path: String) -> bool:
+	# Point the actual standing actor camera at the second confirmed shaft. The
+	# pick ray and amber loop are player cues; native Host keeps construction
+	# authority and the fixture checks that looking spends nothing.
+	var before: Dictionary = opening.model.projection()
+	var last: Dictionary = before.get("transmission_parts", {}).get(last_id, {})
+	if not _expect(not last.is_empty() and before.part_kits.P.belt == 1
+			and opening.transmission_controls._belt_start.get("id", "") == first_id,
+			"The first confirmed shaft and one paid belt kit precede the visual preview"):
+		return false
+	opening.distance = 0.0
+	opening._update_camera()
+	var target: Vector3 = opening.transmission_presenter.world_center(last.center)
+	var direction: Vector3 = (target - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-direction.x, -direction.z)
+	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+	opening._update_camera()
+	for frame in 5:
+		await process_frame
+		if DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+	opening._refresh_machine_preview()
+	var screen: Vector2 = opening._pointed_screen_position()
+	var loop: MeshInstance3D = opening.machine_preview.get_node_or_null("BeltLoop")
+	if not _expect(opening._screen_entity(screen) == last_id
+			and opening._pointed_summary_data(screen).get("detail", "") == "Click  Connect belt"
+			and opening.machine_preview.visible
+			and opening.machine_preview.get_meta("belt_preview_from", "") == first_id
+			and opening.machine_preview.get_meta("belt_preview_to", "") == last_id
+			and loop != null and loop.mesh != null
+			and loop.material_override == opening.belt_preview_material
+			and opening.machine_preview.find_children("*", "CollisionObject3D", true, false).is_empty()
+			and opening.model.projection().revision == before.revision
+			and opening.model.projection().part_kits.P.belt == 1,
+			"The standing worker sees the proposed amber belt on the pointed shaft without spending a kit"):
+		return false
+	if not capture_path.is_empty() and DisplayServer.get_name() != "headless":
+		return _expect(root.get_texture().get_image().save_png(capture_path) == OK,
+			"Retain the standing worker view of the proposed belt")
+	return true
+
 func _arrival_nonhorizontal_incline_run(capture_prefix: String) -> void:
 	# Begin with the physically saved, normal first plate. The motor, finite
 	# sources, workshop inventory and belt endpoint clicks are the player path;
@@ -1874,6 +1916,9 @@ func _arrival_nonhorizontal_incline_run(capture_prefix: String) -> void:
 			and opening.model.projection().belt_spans.is_empty(),
 			"The first ordinary belt click selects one shaft without spending a kit: "
 			+ str(opening.transmission_controls._belt_start)):
+		return
+	if not await _expect_nonhorizontal_belt_preview(str(first.entity), str(last.entity),
+			capture_prefix + "-incline-preview-eye.png" if not capture_prefix.is_empty() else ""):
 		return
 	opening._world_click(Vector2i.ZERO, str(last.entity))
 	var built: Dictionary = opening.model.projection()
@@ -2002,36 +2047,9 @@ func _arrival_nonhorizontal_actor_block_run(capture_prefix: String) -> void:
 		return
 	if not await _approach(Vector2(0.825, 1.2)):
 		return
-	var revision_before_preview: int = opening.model.projection().revision
-	var target: Vector3 = opening.transmission_presenter.world_center(last.center)
-	opening.distance = 0.0
-	opening._update_camera()
-	var direction: Vector3 = (target - opening.camera.global_position).normalized()
-	opening.orbit_yaw = atan2(-direction.x, -direction.z)
-	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
-	opening._update_camera()
-	for frame in 5:
-		await process_frame
-		if DisplayServer.get_name() != "headless":
-			await RenderingServer.frame_post_draw
-	opening._refresh_machine_preview()
-	var pointed: String = opening._screen_entity(opening._pointed_screen_position())
-	var tooltip: Dictionary = opening._pointed_summary_data(opening._pointed_screen_position())
-	var loop: MeshInstance3D = opening.machine_preview.get_node_or_null("BeltLoop")
-	if not _expect(pointed == old.to
-			and tooltip.get("detail", "") == "Click  Connect belt"
-			and opening.machine_preview.visible
-			and opening.machine_preview.get_meta("belt_preview_from", "") == old.from
-			and opening.machine_preview.get_meta("belt_preview_to", "") == old.to
-			and loop != null and loop.material_override == opening.belt_preview_material
-			and opening.model.projection().revision == revision_before_preview
-			and opening.model.projection().part_kits.P.belt == 1,
-			"A standing worker can point at the second shaft and see the unpaid amber belt route without changing native state"):
+	if not await _expect_nonhorizontal_belt_preview(str(old.from), str(old.to),
+			capture_prefix + "-preview-eye.png" if not capture_prefix.is_empty() else ""):
 		return
-	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-preview-eye.png") == OK,
-				"Retain the standing worker's provisional belt view"):
-			return
 	if not await _approach(Vector2(0.825, -0.2)):
 		return
 	# Keep the fixture motor authoritative while a passive graphical window
@@ -2179,6 +2197,12 @@ func _arrival_nonhorizontal_power_belt_run(capture_prefix: String) -> void:
 			and opening.model.projection().part_kits.P.belt == 1
 			and opening.model.projection().belt_spans.is_empty(),
 			"Selecting the first power shaft retains the belt kit until the route is confirmed"):
+		return
+	if sideways and not await _approach(Vector2(0.825, 1.2)):
+		return
+	if not await _expect_nonhorizontal_belt_preview(str(first.entity), str(last.entity),
+			capture_prefix + ("-sideways-preview-eye.png" if sideways else "-vertical-preview-eye.png")
+			if not capture_prefix.is_empty() else ""):
 		return
 	opening._world_click(Vector2i.ZERO, str(last.entity))
 	var built: Dictionary = opening.model.projection()
