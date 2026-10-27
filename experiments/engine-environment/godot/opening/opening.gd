@@ -5573,6 +5573,19 @@ func _build_pause_menu(root: Control) -> void:
 	pause_exit_confirmation.ok_button_text = "Exit without saving"
 	pause_exit_confirmation.confirmed.connect(func(): get_tree().quit())
 	root.add_child(pause_exit_confirmation)
+	root.resized.connect(_fit_pause_menu.bind(root, margin, actions))
+	_fit_pause_menu.call_deferred(root, margin, actions)
+
+func _fit_pause_menu(view: Control, margin: MarginContainer, actions: GridContainer) -> void:
+	# A short window needs one row of actions so the shared connection rows
+	# and all four worksite actions remain visible together.
+	var short_window := view.size.y <= 560.0 and view.size.x >= 600.0
+	actions.columns = 4 if short_window else 2
+	actions.add_theme_constant_override("h_separation", 8 if short_window else 14)
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 12 if short_window else 18)
+	for button: Button in [pause_resume_button, save_button, load_button, pause_exit_button]:
+		button.custom_minimum_size.x = 136 if short_window else 140
 
 func _pause_action(parent: GridContainer, icon_name: String, action_name: String,
 		shortcut: String, callback: Callable) -> Button:
