@@ -1,14 +1,12 @@
 #include "factory/godot_world.hpp"
-#include "arrival_site_projection.hpp"
-#include "assembly_projection.hpp"
 #include "build_catalog_projection.hpp"
 #include "checkpoint_envelope.hpp"
+#include "complete_projection.hpp"
 #include "component_geometry.hpp"
-#include "drive_projection.hpp"
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
-#include "topology_projection.hpp"
 #include "physical_geometry.hpp"
+#include "restore_site_validation.hpp"
 #include "factory/physical_site.hpp"
 #include "arrival_configuration.hpp"
 #include "factory/belt_command_contract.hpp"
@@ -19,13 +17,11 @@
 #include "factory/machine_placement_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
-#include "factory/projection_contract.hpp"
 #include "factory/site_geometry_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
 #include "factory/transmission_placement_contract.hpp"
 #include "factory/worksite_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
-#include "factory/mineral_site.hpp"
 
 #include <algorithm>
 #include <array>
@@ -68,18 +64,12 @@ using physical_geometry::intersects_belt;
 
 // Current opening geometry is authored once for native and the scene adapter.
 using site_geometry::pitch;
-using site_geometry::height_denominator;
 using site_geometry::height_step;
 using site_geometry::foundation_depth;
 using site_geometry::anchor_height;
-using site_geometry::capsule_radius;
-using site_geometry::capsule_height;
 using site_geometry::machine_width;
 using site_geometry::machine_height;
 using site_geometry::machine_center_height;
-// Hundredths of a height step, shared with the native opening rotor.
-constexpr Integer wheel_radius = site_geometry::wheel_radius_hundredths;
-constexpr Integer wheel_axle_offset = site_geometry::wheel_axle_offset_hundredths;
 constexpr double reach = site_geometry::base_reach;
 
 Integer crafting_bench_generation(const world::State& state, const std::string& id) {
@@ -260,15 +250,6 @@ Value Host::configure_terrain(const Object& input) {
     }
     terrain_ = std::move(binding.surface);
     return result(true, "terrain_bound");
-}
-
-Object Host::harvest_clearances(const world::State& state, const Actor& actor) const {
-    Object clear;
-    if (!actor.ready) return clear;
-    for (const auto& [id, path_clear] : physical_site::harvest_clearances(
-            {profile_, terrain_}, state, actor.position))
-        clear.emplace(id, Value(path_clear));
-    return clear;
 }
 
 bool Host::site_blocked(const authority::Point& low, const authority::Point& high,
@@ -1247,7 +1228,8 @@ Value Host::actor_projection(const std::string& actor) const {
     const auto& current = found->second;
     return Value(Object{{"accepted", Value(true)}, {"ready", Value(current.ready)},
         {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)},
-        {"harvest_clear", Value(harvest_clearances(owned_->world->snapshot().state, current))}});
+        {"harvest_clear", Value(complete_projection::harvest_clearances(profile_, terrain_,
+            owned_->world->snapshot().state, current.position, current.ready))}});
 }
 
 Value Host::invalidate_actor(const std::string& actor) {
@@ -1330,96 +1312,13 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
 
 Value Host::projection() const {
     if (!owned_) return result(false, "not_initialized");
-    const auto snapshot = owned_->world->snapshot();
-    const auto& state = snapshot.state;
-    const auto support_layout = transmission_supports(state, &owned_->support_routes);
-    topology_projection::WheelSupports wheel_supports;
-    for (const auto& part : state.topology.parts) {
-        if (part.role != Role::waterwheel) continue;
-        if (const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
-                [this](double sx, double sz, double hx, double hz) {
-                    return terrain_range(sx, sz, hx, hz);
-                }))
-            wheel_supports.emplace(part.geometry.id, *supports);
-    }
-    auto topology = topology_projection::fields(state, support_layout, wheel_supports);
-    Object actors;
-    const auto power = world::drive_power(profile_, state);
-    auto drive = drive_projection::fields(state, power);
-    for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
-        {"position", point_value(sample.position)}, {"capabilities", Value(Object{
-            {"build_reach", Value(profile_.build_reach)},
-            {"harvest_reach", Value(profile_.manual_cut_reach > 0 ?
-                profile_.manual_cut_reach : profile_.build_reach)}})},
-        {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)},
-        {"harvest_clear", Value(harvest_clearances(state, sample))}}));
-    Array mineral_cells;
-    for (const auto& cell : mineral_site::opening_cells)
-        mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
-    const auto local = world::machine_power(state.topology, power);
-    Object projection{{"context", Value(snapshot.history.context)},
-        {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
-        {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(topology.entities))},
-        {"transmission_parts", Value(std::move(topology.transmission_parts))}, {"links", Value(std::move(drive.links))},
-        {"drive_links", Value(std::move(drive.drive_links))}, {"engagements", Value(std::move(drive.engagements))},
-        {"motion", Value(std::move(drive.motion))}, {"actors", Value(std::move(actors))},
-        {"foundations", Value(std::move(topology.foundations))},
-        {"source_deposit", Value(Object{{"id", Value(profile_.material.manual_ore ?
-            profile_.material.manual_ore->id : std::string{})},
-            {"cells", Value(std::move(mineral_cells))}, {"initial_units", Value(profile_.initial_units)},
-            {"collector_capacity", Value(profile_.material.collector_capacity)},
-            {"maximum_depth", Value(mineral_site::extraction_depth_steps * height_step)}})},
-        {"powered", Value(local.collector || local.belt || local.processor)},
-        {"power_enabled", Value(state.topology.drive_enabled)},
-        {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)},
-            {"arrival", Value(profile_.landing_pod_center.has_value())},
-            {"copper_material", Value(material_projection::copper_forms(profile_.material))},
-            {"manual_sources", Value(profile_.material.manual_ore.has_value())},
-            {"foundations", Value(true)}, {"developer_conveniences", Value(state.developer_conveniences)}})},
-        {"adapter_profile", Value(Object{{"pitch", Value(pitch)}, {"anchor_height", Value(anchor_height)},
-            {"height_denominator", Value(height_denominator)}, {"height_step", Value(height_step)},
-            {"foundation_depth", Value(foundation_depth)},
-            {"wheel_radius", Value(wheel_radius)}, {"wheel_axle_offset", Value(wheel_axle_offset)},
-            {"capsule_radius", Value(capsule_radius)}, {"capsule_height", Value(capsule_height)},
-            {"collector_intake_size", Value(Array{Value(site_geometry::collector_intake_size[0]),
-                Value(site_geometry::collector_intake_size[1]), Value(site_geometry::collector_intake_size[2])})},
-            {"collector_intake_x", Value(site_geometry::collector_intake_x)},
-            {"collector_intake_y", Value(site_geometry::collector_intake_y)},
-            {"collector_second_cell_z", Value(site_geometry::collector_second_cell_z)},
-            {"collector_lift", Value(Object{{"pickup_x", Value(site_geometry::collector_lift.pickup_x)},
-                {"pickup_y", Value(site_geometry::collector_lift.pickup_y)},
-                {"pickup_size", Value(Array{Value(site_geometry::collector_lift.pickup_size[0]),
-                    Value(site_geometry::collector_lift.pickup_size[1]),
-                    Value(site_geometry::collector_lift.pickup_size[2])})},
-                {"carrier_x", Value(site_geometry::collector_lift.carrier_x)},
-                {"carrier_bottom", Value(site_geometry::collector_lift.carrier_bottom)},
-                {"carrier_top_offset", Value(site_geometry::collector_lift.carrier_top_offset)},
-                {"carrier_size_xz", Value(Array{Value(site_geometry::collector_lift.carrier_size_xz[0]),
-                    Value(site_geometry::collector_lift.carrier_size_xz[1])})},
-                {"guide_offset", Value(Array{Value(site_geometry::collector_lift.guide_offset[0]),
-                    Value(site_geometry::collector_lift.guide_offset[1])})},
-                {"guide_size", Value(Array{Value(site_geometry::collector_lift.guide_size[0]),
-                    Value(site_geometry::collector_lift.guide_size[1])})},
-                {"flight_offset_x", Value(site_geometry::collector_lift.flight_offset_x)},
-                {"flight_raise_y", Value(site_geometry::collector_lift.flight_raise_y)},
-                {"flight_size", Value(Array{Value(site_geometry::collector_lift.flight_size[0]),
-                    Value(site_geometry::collector_lift.flight_size[1]),
-                    Value(site_geometry::collector_lift.flight_size[2])})},
-                {"flight_count", Value(site_geometry::collector_lift.flight_count)},
-                {"flight_span", Value(site_geometry::collector_lift.flight_span)},
-                {"head_x", Value(site_geometry::collector_lift.head_x)},
-                {"head_y_offset", Value(site_geometry::collector_lift.head_y_offset)},
-                {"head_size_xy", Value(Array{Value(site_geometry::collector_lift.head_size_xy[0]),
-                    Value(site_geometry::collector_lift.head_size_xy[1])})},
-                {"head_z_size", Value(Array{Value(site_geometry::collector_lift.head_z_size[0]),
-                    Value(site_geometry::collector_lift.head_z_size[1])})}})}})}};
-    projection.merge(arrival_site_projection::fields(profile_, state, power));
-    projection.merge(assembly_projection::fields(profile_, state, power));
-    projection.merge(build_catalog_projection::fields(profile_, snapshot));
-    projection.merge(tick_fields(profile_, snapshot));
-    Value complete(std::move(projection));
-    return projection_contract::complete(complete) ?
-        std::move(complete) : result(false, "incomplete_projection");
+    complete_projection::Actors actors;
+    for (const auto& [id, sample] : owned_->actors)
+        actors.emplace(id, complete_projection::ActorObservation{
+            sample.position, sample.epoch, sample.ready});
+    auto projected = complete_projection::build(profile_, owned_->world->snapshot(),
+        terrain_, owned_->support_routes, actors);
+    return projected ? std::move(*projected) : result(false, "incomplete_projection");
 }
 
 Value Host::checkpoint() const {
@@ -1477,147 +1376,9 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto* client = field<std::string>(record.intent, "client");
         if (!actor || !client || *actor != *client) return {nullptr, "invalid_actor_binding"};
     }
-    for (const auto& part : snapshot.state.topology.parts) {
-        const auto& center = part.geometry.center;
-        const bool relay = part.role == Role::gearbox || part.role == Role::vertical_gearbox ||
-                           part.role == Role::chain_drive;
-        if (std::any_of(center.begin(), center.end(), [](auto value) {
-            return value < -mechanics::maximum_coordinate || value > mechanics::maximum_coordinate;
-        })) return {nullptr, "incompatible_geometry"};
-        if (part.role == Role::shaft) {
-            if (part.geometry.half_span != 2)
-                return {nullptr, "incompatible_geometry"};
-        } else if (part.role == Role::gear) {
-            if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return {nullptr, "incompatible_geometry"};
-        } else if (part.role == Role::belt || center[0] % 4 != 0 || center[2] % 4 != 0)
-            return {nullptr, "incompatible_geometry"};
-        if (relay && (center[1] % 4 != 0 ||
-            (part.role == Role::gearbox && part.geometry.axis != mechanics::Axis::y) ||
-            (part.role == Role::vertical_gearbox && part.geometry.axis == mechanics::Axis::y)))
-            return {nullptr, "incompatible_geometry"};
-        if (part.role == Role::collector)
-            if (const auto* refusal = collector_site_refusal(center)) return {nullptr, refusal};
-        for (const auto& external : part.role == Role::collector ?
-                collector_external_bounds(center) : std::vector<Bounds>{}) {
-            if (intersects_belt(snapshot.state, external)) return {nullptr, "occupied"};
-            for (const auto& [id, foundation] : snapshot.state.foundations) {
-                (void)id;
-                if (overlap(external, foundation_bounds(foundation))) return {nullptr, "occupied"};
-            }
-            for (const auto& other : snapshot.state.topology.parts)
-                if (other.geometry.id != part.geometry.id && collector_intake_intersects(external, profile_, other))
-                    return {nullptr, "occupied"};
-        }
-        if (part.role == Role::waterwheel) {
-            if (const auto* refusal = wheel_site_refusal(center, part.geometry.axis, part.wheel_tiles)) return {nullptr, refusal};
-            const auto supports = wheel_support_bounds(center, part.geometry.axis,
-                [this](double sx, double sz, double hx, double hz) {
-                    return terrain_range(sx, sz, hx, hz);
-                });
-            if (!supports) return {nullptr, "support_required"};
-            for (const auto& [id, foundation] : snapshot.state.foundations) {
-                (void)id;
-                if (overlap(part_bounds(profile_, part), foundation_bounds(foundation)) ||
-                    overlaps_supports(*supports, foundation_bounds(foundation))) return {nullptr, "occupied"};
-            }
-            for (const auto& other : snapshot.state.topology.parts) {
-                if (other.geometry.id == part.geometry.id) continue;
-                if (other.role == Role::gear || other.role == Role::shaft) {
-                    for (const auto& support : *supports)
-                        if (transmission_intersects(support, other.geometry.center, other.geometry.axis,
-                                                    other.role == Role::gear)) return {nullptr, "occupied"};
-                } else if (overlap(part_bounds(profile_, part), part_bounds(profile_, other)) ||
-                           overlaps_supports(*supports, part_bounds(profile_, other))) return {nullptr, "occupied"};
-            }
-        } else if (part.role != Role::shaft && part.role != Role::gear && !relay)
-            if (const auto* refusal = machine_site_refusal(snapshot.state, center, part.role == Role::collector)) return {nullptr, refusal};
-        if (part.role == Role::shaft || part.role == Role::gear || relay) {
-            if (transmission_intersects_foundations(snapshot.state, center, part.geometry.axis, part.role == Role::gear))
-                return {nullptr, "occupied"};
-            if (const auto* refusal = transmission_site_refusal(snapshot.state, center, part.geometry.axis, part.role == Role::gear))
-                return {nullptr, refusal};
-            if (!restored_supports.contains(part.geometry.id)) return {nullptr, "support_required"};
-            if (relay) {
-                const authority::Point at{center[0] * height_step,
-                    anchor_height + center[1] * height_step, center[2] * height_step};
-                const authority::Point half{pitch / 2, pitch / 2, pitch / 2};
-                const Bounds shell{at, half};
-                const auto shell_terrain = terrain_range(at[0], at[2], half[0], half[2]);
-                if (!shell_terrain) return {nullptr, "terrain_unavailable"};
-                if (shell_terrain->second > at[1] - half[1] + 1e-9) return {nullptr, "site_occupied"};
-                if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
-                                 {at[0] + half[0], at[1] + half[1], at[2] + half[2]}))
-                    return {nullptr, "site_occupied"};
-                for (const auto& [id, foundation] : snapshot.state.foundations) {
-                    (void)id;
-                    if (overlap(shell, foundation_bounds(foundation))) return {nullptr, "occupied"};
-                }
-                for (const auto& other : snapshot.state.topology.parts) {
-                    if (other.geometry.id == part.geometry.id) continue;
-                    if (other.geometry.center == center) return {nullptr, "occupied"};
-                    if (other.role != Role::shaft && other.role != Role::gear &&
-                        other.role != Role::gearbox && other.role != Role::vertical_gearbox &&
-                        other.role != Role::chain_drive && overlap(shell, part_bounds(profile_, other)))
-                        return {nullptr, "occupied"};
-                    if (other.role == Role::collector) if (const auto intake = collector_intake_bounds(other.geometry.center))
-                        if (overlap(shell, *intake)) return {nullptr, "occupied"};
-                }
-                if (intersects_belt(snapshot.state, shell)) return {nullptr, "occupied"};
-            }
-        }
-    }
-    if (!snapshot.state.topology.material_links.empty()) return {nullptr, "incompatible_geometry"};
-    // Validate the same path geometry used by construction and physical bodies.
-    for (const auto& span : snapshot.state.topology.belt_spans) {
-        const auto* first = find_part(snapshot.state, span.geometry.first_shaft);
-        const auto* last = find_part(snapshot.state, span.geometry.last_shaft);
-        const auto path = first && last ? mechanics::belt_path(first->geometry, last->geometry) : std::nullopt;
-        if (!path) return {nullptr, "invalid_belt_geometry"};
-    }
-    for (const auto& span : snapshot.state.topology.belt_spans) {
-        const auto* first = find_part(snapshot.state, span.geometry.first_shaft);
-        const auto* last = find_part(snapshot.state, span.geometry.last_shaft);
-        if (!first || !last) return {nullptr, "invalid_belt_geometry"};
-        for (const auto& [id, foundation] : snapshot.state.foundations) {
-            (void)id;
-            if (belt_intersects(first->geometry, last->geometry, foundation_bounds(foundation))) return {nullptr, "occupied"};
-        }
-        for (const auto& placed : snapshot.state.topology.parts) {
-            if (placed.role == Role::shaft) continue;
-            const auto& point = placed.geometry.center;
-            const Bounds bounds = placed.role == Role::gear ? Bounds{
-                {point[0] * height_step, anchor_height + point[1] * height_step, point[2] * height_step},
-                gear_half_extents(placed.geometry.axis, placed.geometry.teeth)} : part_bounds(profile_, placed);
-            if (belt_intersects(first->geometry, last->geometry, bounds)) return {nullptr, "occupied"};
-            if (placed.role == Role::gear && belt_intersects(first->geometry, last->geometry,
-                {bounds.center, gear_axle_half_extents(placed.geometry.axis)})) return {nullptr, "occupied"};
-            if (placed.role == Role::waterwheel) {
-                const auto supports = wheel_support_bounds(placed.geometry.center, placed.geometry.axis,
-                    [this](double sx, double sz, double hx, double hz) {
-                        return terrain_range(sx, sz, hx, hz);
-                    });
-                if (!supports) return {nullptr, "support_required"};
-                for (const auto& support : *supports)
-                    if (belt_intersects(first->geometry, last->geometry, support)) return {nullptr, "occupied"};
-            }
-        }
-        for (const auto& belt : belt_bounds(first->geometry, last->geometry)) {
-            const auto& at = belt.center; const auto& half = belt.half;
-            if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
-                             {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return {nullptr, "site_occupied"};
-            const auto terrain = terrain_range(at[0], at[2], half[0], half[2]);
-            if (!terrain) return {nullptr, "terrain_unavailable"};
-            if (terrain->second > at[1] - half[1]) return {nullptr, "site_occupied"};
-        }
-    }
-    if (parsed.schema == 4) {
-        if (restored_supports.size() != saved_routes.size()) return {nullptr, "invalid_support_route"};
-        for (const auto& [id, route] : saved_routes) {
-            const auto found = restored_supports.find(id);
-            if (found == restored_supports.end() || found->second.route != route)
-                return {nullptr, "invalid_support_route"};
-        }
-    }
+    if (const auto* refusal = restore_site_validation::geometry(profile_, terrain_,
+            snapshot.state, restored_supports, parsed.schema == 4 ? &saved_routes : nullptr))
+        return {nullptr, refusal};
     const auto& actors = *parsed.actors;
     if (actors.size() != profile_.actors.size()) return {nullptr, "actor_roster_mismatch"};
     auto candidate = std::make_unique<Owned>();
