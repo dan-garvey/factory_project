@@ -373,7 +373,7 @@ func _component_placement_check() -> void:
 	var head_box: Dictionary = view._component_candidate_box("flat_head", [12, 1, 8])
 	var slide_box: Dictionary = view._component_candidate_box("copper_slide", [12, 2, 8])
 	var workbed_box: Dictionary = view._component_candidate_box("anvil", [12, 0, 8])
-	verify(absf(head_box.center.y - head_box.half.y - 0.4125) < 0.0001
+	verify(absf(head_box.center.y - head_box.half.y - 1.03125) < 0.0001
 		and absf(head_box.center.y + head_box.half.y - 1.44375) < 0.0001
 		and absf(slide_box.center.y - slide_box.half.y - 1.03125) < 0.0001
 		and absf(head_box.center.y - head_box.half.y -
@@ -385,6 +385,13 @@ func _component_placement_check() -> void:
 	verify(not view._component_candidate_blocked("copper_slide", [12, 2, 8], slide_box),
 		"The slide ghost accepts the exact fitted head overlap.")
 	view.state.placed_components.erase("sample-head")
+	view.state.placed_components["sample-workbed"] = {"component": "anvil", "center": [12, 0, 8],
+		"generation": 1, "occupied": {"center": [workbed_box.center.x, workbed_box.center.y,
+			workbed_box.center.z], "half": [workbed_box.half.x, workbed_box.half.y, workbed_box.half.z]}}
+	var tray_box: Dictionary = view._component_candidate_box("receiver_tray", [12, 0, 9])
+	verify(not view._component_candidate_blocked("receiver_tray", [12, 0, 9], tray_box),
+		"A low receiver remains placeable below the workbed's side overhang.")
+	view.state.placed_components.erase("sample-workbed")
 	view.state.placed_components["sample-slide"] = {"component": "copper_slide", "center": [12, 2, 8],
 		"generation": 1, "occupied": {"center": [slide_box.center.x, slide_box.center.y, slide_box.center.z],
 		"half": [slide_box.half.x, slide_box.half.y, slide_box.half.z]}}
@@ -431,16 +438,19 @@ func _component_placement_check() -> void:
 	var working_carriage_face_bottom: float = stroked_slide.position.y \
 		+ stroked_slide.get_node("SlideCarriage").position.y - 0.1025
 	var resting_stem_top: float = head_sample.position.y \
-		+ head_sample.get_node("FlatHeadMovingDie").position.y + 0.55
-	var resting_carriage_face_bottom: float = slide_sample.position.y \
-		+ slide_sample.get_node("SlideCarriage").position.y - 0.1025
+		+ head_sample.get_node("FlatHeadMovingDie").position.y + 0.08
+	var resting_carriage_body_bottom: float = slide_sample.position.y \
+		+ slide_sample.get_node("SlideCarriage").position.y - 0.07
+	var resting_carriage_body_top: float = slide_sample.position.y \
+		+ slide_sample.get_node("SlideCarriage").position.y + 0.07
 	verify(absf(head_drop + 0.20) < 0.0001 and absf(carriage_drop - head_drop) < 0.0001
 		and absf(resting_face_bottom - anvil_top - 0.24) < 0.0001
 		and absf(working_face_bottom - anvil_top - 0.04) < 0.0001
 		and absf(working_carriage_face_bottom - (slide_box.center.y - slide_box.half.y) - 0.02) < 0.0001
-		and absf(resting_stem_top - resting_carriage_face_bottom) < 0.002
+		and resting_stem_top > resting_carriage_body_bottom + 0.05
+		and resting_stem_top < resting_carriage_body_top
 		and resting_stem_top < head_box.center.y + head_box.half.y,
-		"Head and carriage share a short stroke; their faces meet within the admitted boxes above the lowered anvil.")
+		"The compact die mounts within the carriage above the supported workbed.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		camera.position = head_box.center + Vector3(1.1, 0.45, 2.4)
 		camera.look_at(head_box.center - Vector3(0, 0.18, 0))
@@ -726,12 +736,12 @@ func _component_placement_check() -> void:
 	view.aimed = "frame"
 	view.pointed_cell = Vector2i.ZERO
 	view.state.placed_components["anvil"] = {"component": "anvil", "center": [0, 1, 0],
-		"generation": 1, "occupied": {"center": [0.0, 0.61875, 0.0],
-		"half": [0.2025, 0.20625, 0.14]}}
+		"generation": 1, "occupied": {"center": [0.0, 0.928125, 0.0],
+		"half": [0.2025, 0.515625, 0.36]}}
 	var placed_anvil := Node3D.new()
-	placed_anvil.position.y = 0.61875
+	placed_anvil.position.y = 0.928125
 	view.add_child(placed_anvil)
-	presenter.preview_component(placed_anvil, "anvil", Vector3(0.405, 0.4125, 0.28))
+	presenter.preview_component(placed_anvil, "anvil", Vector3(0.405, 1.03125, 0.72))
 	view._refresh_component_preview()
 	verify(view.component_preview_blocked and view.component_preview_material.albedo_color.r > 0.9
 		and view.component_preview_material.albedo_color.g < 0.4,

@@ -852,7 +852,7 @@ func _press_component_view() -> void:
 		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
 		"collector_assemblies": [], "placed_components": {
 			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
-			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 0.61875, 0.0], [0.2025, 0.20625, 0.14]),
+			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 0.928125, 0.0], [0.2025, 0.515625, 0.36]),
 			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.340625, 0.0], [0.14, 0.515625, 0.14]),
 			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
 			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2075, 0.18, 0.2075]),
@@ -2725,8 +2725,8 @@ func _slide_material_seat() -> void:
 		"motion": {}, "collector_assemblies": [], "press_assemblies": [],
 		"guided_press_assemblies": []}
 	state.placed_components = {
-		"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.20625, 0.0], [0.2025, 0.20625, 0.14]),
-		"head": _component_record("flat_head", [0, 1, 0], [0.0, 0.928125, 0.0], [0.14, 0.515625, 0.14]),
+		"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.515625, 0.0], [0.2025, 0.515625, 0.36]),
+		"head": _component_record("flat_head", [0, 1, 0], [0.0, 1.2375, 0.0], [0.14, 0.20625, 0.14]),
 		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.44375, 0.0], [0.21, 0.4125, 0.21])}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
 		"status": "ready", "work_center": [0, 0, 0],
@@ -2744,7 +2744,7 @@ func _slide_material_seat() -> void:
 	var seat: MeshInstance3D = anvil.get_node_or_null("OpenAnvilSeat") if anvil != null else null
 	var die_plate: MeshInstance3D = anvil.get_node_or_null("ReplaceableDiePlate") if anvil != null else null
 	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")
-	var crown: float = 0.4125
+	var crown: float = 1.03125
 	verify(seat != null and die_plate != null and blank != null
 		and is_equal_approx(seat.global_position.y + 0.0275, crown)
 		and is_equal_approx(die_plate.global_position.y + 0.003, crown)

@@ -232,9 +232,9 @@ void flat_head_host_custody() {
     const auto low = std::get<double>(center[1].storage()) - std::get<double>(half[1].storage());
     const auto high = std::get<double>(center[1].storage()) + std::get<double>(half[1].storage());
     check(get<std::string>(placed, "component") == "flat_head" &&
-          std::abs(low - 0.4125) < 1e-8 && std::abs(high - 1.44375) < 1e-8 &&
+          std::abs(low - 1.03125) < 1e-8 && std::abs(high - 1.44375) < 1e-8 &&
           std::abs(std::get<double>(half[0].storage()) - 0.14) < 1e-8,
-          "The projected die reaches the compact anvil work face through its downward sweep.");
+          "The separate die reaches the supported workbed through its bounded sweep.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted"),
           "The actor can leave the placed die to gather a finite slide bill.");
     for (const char* request : {"slide-tree-1", "slide-tree-2", "slide-tree-3"})

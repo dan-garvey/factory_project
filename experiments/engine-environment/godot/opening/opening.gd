@@ -2517,27 +2517,27 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			half = Vector3(width_x * 0.5, (high - low) * 0.5, width_z * 0.5)
 		"anvil":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
-			var high := low + Geometry.HEIGHT_STEP
+			var high := low + Geometry.HEIGHT_STEP * 2.5
 			occupied.y = (low + high) * 0.5
-			half = Vector3(0.2025, (high - low) * 0.5, 0.14)
+			half = Vector3(0.2025, (high - low) * 0.5, 0.36)
 		"broad_anvil":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
-			var high := low + Geometry.HEIGHT_STEP
+			var high := low + Geometry.HEIGHT_STEP * 2.5
 			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
 				Geometry.PITCH * 0.5)
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"ram_face":
-			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP + Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
 		"flat_head":
-			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP + Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
 		"broad_flat_head":
-			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP + Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
 				Geometry.PITCH * 0.5)
@@ -2583,6 +2583,12 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 				continue
 			if kind in ["wooden_slide", "copper_slide"] and part.component == "broad_flat_head" \
 					and center == [part_center[0] + 2, part_center[1] + 1, part_center[2] + 2]:
+				paired_ids[id] = true
+				continue
+			if ((kind == "anvil" and part.component == "receiver_tray") or \
+					(kind == "receiver_tray" and part.component == "anvil")) \
+					and part_center[0] == center[0] and part_center[1] == center[1] \
+					and absi(part_center[2] - center[2]) == 1:
 				paired_ids[id] = true
 				continue
 			if part_center[0] != center[0] or part_center[2] != center[2]:
@@ -4650,16 +4656,16 @@ func _toggle_manager_log() -> void:
 	manager_log_layer.visible = manager_log_open
 	_refresh_ui()
 
-func _slide_outlet_holds_plate(press: Dictionary) -> bool:
-	var exits: Array = []
+func _sliding_press_holds_plate(press: Dictionary) -> bool:
+	var plate_sites: Array = [press.get("work_center", press.get("center", []))]
 	var selected_exit: Array = press.get("selected_exit", [])
 	if not selected_exit.is_empty():
-		exits.append(selected_exit)
+		plate_sites.append(selected_exit)
 	else:
 		for feed: Dictionary in press.get("open_feeds", []):
-			exits.append(feed.get("exit", []))
+			plate_sites.append(feed.get("exit", []))
 	for drop: Dictionary in state.get("dropped_material", []):
-		if int(drop.get("products", 0)) > 0 and exits.has(drop.get("center", [])):
+		if int(drop.get("products", 0)) > 0 and plate_sites.has(drop.get("center", [])):
 			return true
 	return false
 
@@ -4762,7 +4768,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		for press: Dictionary in state.get("sliding_press_assemblies", []):
 			sliding_press_ready = sliding_press_ready or press.get("status") == "ready"
 			if press.get("status") == "ready":
-				sliding_plate_waiting = sliding_plate_waiting or _slide_outlet_holds_plate(press)
+				sliding_plate_waiting = sliding_plate_waiting or _sliding_press_holds_plate(press)
 			sliding_feed_blocked = sliding_feed_blocked or press.get("status") == "blocked_feed"
 			press_ready = press_ready or press.get("status") == "ready"
 			if press.get("status") == "ready":
@@ -4777,7 +4783,7 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if workshop_complete:
 			next_work = "Open Work log [J] for the collector project, or keep building."
 		elif sliding_plate_waiting:
-			next_work = "Plate at outlet. Open the press [E], then collect it [P]."
+			next_work = "Plate on the workbed. Open the press [E], then collect it [P] or drag it into inventory."
 		elif sliding_press_ready and ready_slide_has_crank:
 			next_work = "Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."
 		elif sliding_press_ready:

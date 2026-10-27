@@ -48,7 +48,9 @@ constexpr double machine_width = 1.45;
 constexpr double machine_height = 1.65;
 constexpr double machine_center_height = 0.8;
 constexpr double press_work_crown_rise = 0.082;
-constexpr double anvil_work_height = height_step;
+// A supported die table needs a usable feed height without a solid pedestal.
+// Its face must meet the fitted head while staying on the floor when separate.
+constexpr double anvil_work_height = height_step * 2.5;
 
 Integer crafting_bench_generation(const world::State& state, const std::string& id) {
     if (state.fabrication_hub && !state.fabrication_hub->holder && state.fabrication_hub->id == id)
@@ -297,10 +299,10 @@ Bounds component_bounds(const world::Profile& profile,
                     {height_step - component_shaft_half, 0.18,
                      height_step - component_shaft_half}};
         case materials::Component::anvil:
-            // The compact casting rests on this level's actual floor. Its
-            // lateral horn and heel remain within the native pick body.
+            // The open-legged die table rests on this level's actual floor;
+            // its raised work face and support remain in one native pick body.
             return {{at[0], center[1] * height_step + anvil_work_height * 0.5, at[2]},
-                {0.2025, anvil_work_height * 0.5, 0.14}};
+                {0.2025, anvil_work_height * 0.5, 0.36}};
         case materials::Component::broad_anvil: {
             const double floor = center[1] * height_step;
             return {{at[0] + pitch * 0.5, floor + anvil_work_height * 0.5,
@@ -404,6 +406,21 @@ bool frame_anvil_fitting(std::optional<materials::Component> first,
         (*first == materials::Component::wooden_frame &&
                second == materials::Component::anvil &&
                second_center[1] == first_center[1] + 1);
+}
+
+bool workbed_tray_fitting(std::optional<materials::Component> first,
+        const mechanics::Point& first_center, materials::Component second,
+        const mechanics::Point& second_center) {
+    // A low receiver fits below the workbed's side overhang. The legs stay
+    // inside the workcell; only their conservative occupied boxes overlap.
+    if (!first) return false;
+    const auto paired = (*first == materials::Component::anvil &&
+            second == materials::Component::receiver_tray) ||
+        (*first == materials::Component::receiver_tray &&
+            second == materials::Component::anvil);
+    return paired && first_center[0] == second_center[0] &&
+        first_center[1] == second_center[1] &&
+        std::abs(first_center[2] - second_center[2]) == 1;
 }
 
 bool frame_ram_fitting(std::optional<materials::Component> first,
@@ -1617,6 +1634,7 @@ const char* Host::component_space_refusal(const world::State& state,
             !slide_head_fitting(kind, center, other.kind, other.center) &&
             !guide_ram_fitting(kind, center, other.kind, other.center) &&
             !frame_anvil_fitting(kind, center, other.kind, other.center) &&
+            !workbed_tray_fitting(kind, center, other.kind, other.center) &&
             !frame_ram_fitting(kind, center, other.kind, other.center) &&
             overlap(volume, component_bounds(profile_, other.kind, other.center))) return "occupied";
     if (intersects_belt(state, volume)) return "occupied";

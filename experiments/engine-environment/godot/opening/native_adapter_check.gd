@@ -360,6 +360,25 @@ func _capture_anvil_side(path: String, target: Vector3, support_y: float) -> boo
 	close.queue_free()
 	return captured
 
+func _capture_press_context_side(path: String, target: Vector3) -> bool:
+	var context := SubViewport.new()
+	context.size = Vector2i(1280, 800)
+	context.world_3d = root.world_3d
+	context.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(context)
+	var camera := Camera3D.new()
+	context.add_child(camera)
+	camera.fov = 52.0
+	camera.position = target + Vector3(2.1, 0.55, 2.25)
+	camera.look_at(target)
+	camera.make_current()
+	for frame in range(3):
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var captured: bool = context.get_texture().get_image().save_png(path) == OK
+	context.queue_free()
+	return captured
+
 func _capture_actor_area(path: String, target: Vector3) -> bool:
 	var prior_distance: float = opening.distance
 	var prior_yaw: float = opening.orbit_yaw
@@ -2722,9 +2741,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		return
 	var fitted: Dictionary = {}
 	var rise := OpeningGeometry.HEIGHT_DENOMINATOR if raised_snap else 0
-	for part in [{"kind": "anvil", "center": [12, rise, 16]},
-			{"kind": "flat_head", "center": [12, rise + 1, 16]},
-			{"kind": "wooden_slide", "center": [12, rise + 2, 16]}]:
+	var press_x := 12 if raised_snap else 8
+	var press_z := 16 if raised_snap else 12
+	var press_cell := Vector2i(3, 4) if raised_snap else Vector2i(2, 3)
+	for part in [{"kind": "anvil", "center": [press_x, rise, press_z]},
+			{"kind": "flat_head", "center": [press_x, rise + 1, press_z]},
+			{"kind": "wooden_slide", "center": [press_x, rise + 2, press_z]}]:
 		if not _select_inventory_item("component:" + part.kind):
 			return
 		var prior: Dictionary = opening.model.projection().placed_components
@@ -2754,7 +2776,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		elif part.kind == "anvil":
 			opening.component_nudge_active = true
 			opening.component_nudge_center = part.center.duplicate()
-			opening._world_click(Vector2i(3, 4))
+			opening._world_click(press_cell)
 			opening.component_nudge_active = false
 			opening.component_nudge_center.clear()
 		else:
@@ -2764,7 +2786,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			var pointed: String = opening._screen_entity(screen)
 			opening._refresh_component_preview()
 			opening._refresh_placement_options()
-			if not _expect(pointed == lower_id and hit.get("collider") != null
+			if not _expect((pointed == lower_id or part.kind == "wooden_slide"
+					and pointed == fitted.anvil) and hit.get("collider") != null
 					and absf(hit.get("normal", Vector3.UP).y) < 0.5
 					and opening._component_place_center(opening._screen_cell(screen), pointed) == part.center
 					and opening.component_preview.visible and not opening.component_preview_blocked
@@ -2773,7 +2796,13 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 						"Aim at the anvil" if part.kind == "flat_head" else "flat head")
 					and opening.placement_options_hint.text.contains(
 						"Aim at the anvil" if part.kind == "flat_head" else "flat head"),
-					"The standing worker points at the lower part side and sees a reachable fitted %s ghost" % part.kind):
+					"The standing worker points at the lower part side and sees a reachable fitted %s ghost: %s" %
+					[part.kind, str({"pointed": pointed, "lower": lower_id,
+						"normal": hit.get("normal", Vector3.UP),
+						"center": opening._component_place_center(opening._screen_cell(screen), pointed),
+						"preview": opening.component_preview.visible,
+						"blocked": opening.component_preview_blocked,
+						"hint": opening.status_label.text})]):
 				return
 			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 				await process_frame
@@ -2804,7 +2833,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			if part.kind == "flat_head":
 				var before_refusal: Dictionary = opening.model.projection()
 				var refused := _issue({"action": "place_component", "component": part.kind,
-					"center": [12, rise, 16]})
+					"center": [press_x, rise, press_z]})
 				var after_refusal: Dictionary = opening.model.projection()
 				if not _expect(not refused.get("accepted", false) and refused.get("reason") == "occupied"
 						and after_refusal.cargo == before_refusal.cargo
@@ -2842,6 +2871,27 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				fitted[part.kind] = id
 	var assembled: Dictionary = opening.model.projection()
 	var presses: Array = assembled.get("sliding_press_assemblies", [])
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless" \
+			and presses.size() == 1 and presses[0].status == "ready":
+		opening._select_tool("inspect")
+		var workbed: Dictionary = assembled.placed_components[fitted.anvil].occupied
+		var workbed_center: Array = workbed.center
+		var workbed_half: Array = workbed.half
+		var context_frame := "-raised-assembled-context.png" if raised_snap else "-assembled-context.png"
+		if not _expect(await _capture_actor_area(capture_prefix + context_frame,
+					Vector3(float(workbed_center[0]), float(workbed_center[1])
+						+ float(workbed_half[1]) + 0.35, float(workbed_center[2]))),
+			"Retain the complete player-built press and neighboring worksite at actor eye"):
+			return
+		var slide_body: Dictionary = assembled.placed_components[fitted.wooden_slide].occupied
+		var bottom_y: float = float(workbed_center[1]) - float(workbed_half[1])
+		var top_y: float = float(slide_body.center[1]) + float(slide_body.half[1])
+		var side_frame := "-raised-assembled-side.png" if raised_snap else "-assembled-side.png"
+		if not _expect(await _capture_press_context_side(capture_prefix + side_frame,
+					Vector3(float(workbed_center[0]), (bottom_y + top_y) * 0.5,
+						float(workbed_center[2]))),
+			"Retain the foundation, whole press and neighboring worksite in one passive side view"):
+			return
 	if raised_snap:
 		if not _expect(presses.size() == 1 and presses[0].status == "ready"
 				and presses[0].parts.anvil == fitted.anvil
@@ -2854,8 +2904,10 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		return
 	if not _expect(presses.size() == 1 and presses[0].status == "ready"
 			and presses[0].get("auto_route", false)
-			and presses[0].get("auto_feed", {}).get("entry", []) == [11, 0, 16]
-			and presses[0].get("auto_feed", {}).get("exit", []) == [13, 0, 16]
+			and presses[0].get("auto_feed", {}).get("entry", []) == [press_x - 1, 0, press_z]
+			and presses[0].get("auto_feed", {}).get("exit", []) == [press_x + 1, 0, press_z]
+			and assembled.foundations.values().any(func(floor: Variant) -> bool:
+				return floor.cell == [press_cell.x, press_cell.y] and floor.level == 0)
 			and presses[0].parts.anvil == fitted.anvil
 			and presses[0].parts.head == fitted.flat_head
 			and presses[0].parts.slide == fitted.wooden_slide
@@ -2868,8 +2920,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			return
 		var prior_blocker: Dictionary = opening.model.projection().placed_components
 		opening.component_nudge_active = true
-		opening.component_nudge_center = [11, 0, 16]
-		opening._world_click(Vector2i(3, 4))
+		opening.component_nudge_center = [press_x - 1, 0, press_z]
+		opening._world_click(press_cell)
 		opening.component_nudge_active = false
 		opening.component_nudge_center.clear()
 		var obstructed: Dictionary = opening.model.projection()
@@ -2931,7 +2983,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	if not _select_inventory_item("component:hand_crank"):
 		return
 	opening.component_nudge_active = true
-	opening.component_nudge_center = [13, 2, 16]
+	opening.component_nudge_center = [press_x + 1, rise + 2, press_z]
 	opening._refresh_component_preview()
 	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked
 			and absf(opening.component_preview.rotation.y) < 0.001,
@@ -2944,7 +2996,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					float(preview_position[1]), float(preview_position[2]))),
 				"Retain the east input preview in the ordinary scene"):
 			return
-	opening.component_nudge_center = [11, 2, 16]
+	opening.component_nudge_center = [press_x - 1, rise + 2, press_z]
 	opening._refresh_component_preview()
 	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked
 			and absf(absf(opening.component_preview.rotation.y) - PI) < 0.001,
@@ -2957,13 +3009,13 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					float(preview_position[1]), float(preview_position[2]))),
 				"Retain the west input preview in the ordinary scene"):
 			return
-	opening.component_nudge_center = [11, 2, 16]
-	opening._world_click(Vector2i(3, 4), fitted.wooden_slide)
+	opening.component_nudge_center = [press_x - 1, rise + 2, press_z]
+	opening._world_click(press_cell, fitted.wooden_slide)
 	opening.component_nudge_active = false
 	opening.component_nudge_center.clear()
 	var attached: Dictionary = opening.model.projection()
 	if not _expect(attached.crank_items.values().any(func(item: Variant) -> bool:
-			return item.attached_to == fitted.wooden_slide and item.port == [11, 2, 16]),
+			return item.attached_to == fitted.wooden_slide and item.port == [press_x - 1, rise + 2, press_z]),
 			"The ordinary component tool fits the finite crank at the west input for an east outlet"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -2985,7 +3037,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not _expect(not crank_id.is_empty(), "The fitted slide keeps its finite crank identity"):
 			return
 		opening._select_tool("inspect")
-		if not await _approach_points([Vector2(3.3, 4.95), Vector2(3.3, 5.8)]):
+		if not await _approach_points([Vector2(4.95, 3.3), Vector2(1.65, 3.3),
+				Vector2(1.65, 4.95)]):
 			return
 		var crank_hit := await _aim_actor_at_crank(crank_id)
 		opening._refresh_pointed_summary()
@@ -3066,7 +3119,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		var cycled: Dictionary = opening.model.projection()
 		if not _expect(cycled.slide_phases[fitted.wooden_slide].subticks > prior_phase.subticks
 				and cycled.crank_items.values().any(func(item: Variant) -> bool:
-					return item.attached_to == fitted.wooden_slide and item.port == [11, 2, 16])
+					return item.attached_to == fitted.wooden_slide and item.port == [press_x - 1, rise + 2, press_z])
 				and cycled.workshop_completed_actors.is_empty(),
 			"The worker turns the fitted crafted crank through the slide's integral input"):
 			return
@@ -3190,7 +3243,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			held_pulses += current_order - prior_held_order
 			prior_held_order = current_order
 			for drop: Dictionary in opening.model.projection().dropped_material:
-				if drop.center == route.exit and int(drop.get("products", 0)) == 1:
+				if drop.center == presses[0].work_center and int(drop.get("products", 0)) == 1:
 					formed = drop
 					break
 			if not formed.is_empty():
@@ -3207,12 +3260,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and before_pickup.cargo.P.products == 0
 				and before_pickup.workshop_completed_actors.is_empty()
 				and before_pickup.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-			"The held exterior crank conserves mass and forms one plate at the native chosen exit"):
+			"The held exterior crank conserves mass and forms one plate on the native workbed"):
 			return
 		if not _expect(opening.goal_text.contains(
-				"Plate at outlet. Open the press [E], then collect it [P].")
+				"Plate on the workbed. Open the press [E], then collect it [P] or drag it into inventory.")
 				and opening.manager_log_current.text.ends_with(
-					"Plate at outlet. Open the press [E], then collect it [P]."),
+					"Plate on the workbed. Open the press [E], then collect it [P] or drag it into inventory."),
 				"The ordinary first-shift cue and replayable log direct pickup of the native formed plate"):
 			return
 		if not await _approach(Vector2(4.1, 6.0)):
@@ -3220,7 +3273,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		opening._open_object_menu_for(fitted.anvil)
 		if not _expect(panel.inventory_slots.workbed_output.visible
 				and not panel.inventory_drag("workbed_output").is_empty(),
-			"The fitted press exposes the formed plate in its workbed outlet"):
+			"The fitted press exposes the formed plate on its workbed"):
 			return
 		var output_drag: Dictionary = panel.inventory_drag("workbed_output")
 		if not _expect(panel.inventory_player_region._can_drop_data(Vector2.ZERO, output_drag),
@@ -3295,7 +3348,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		var frame_name := "-first-plate.png" if mode == "arrival-first-plate" else "-starter-press.png"
 		if not _expect(await _capture_actor_area(capture_prefix + frame_name,
-				Vector3(4.95, 1.1, 6.6)),
+				Vector3(float(press_x) * OpeningGeometry.HEIGHT_STEP, 1.1,
+					float(press_z) * OpeningGeometry.HEIGHT_STEP)),
 				"Retain the actor-built sliding press in an ordinary passive view"):
 			return
 	opening.configure_save_slot(destination + ".worksite")

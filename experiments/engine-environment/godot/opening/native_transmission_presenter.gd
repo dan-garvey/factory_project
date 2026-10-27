@@ -1342,26 +1342,29 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		"anvil":
 			var bottom := -occupied_size.y * 0.5
 			var top := occupied_size.y * 0.5
+			var leg_height := occupied_size.y - 0.22
 			var face_iron := Visuals.material(Color("707c79"), 0.63, 0.46)
-			# This passive workbed is a floor-seated press die support. Leave both
-			# feed ends clear for a future belt, within the native occupied body.
-			_support_box(anchor, "CastPedestalFoot", Vector3(0, bottom + 0.0275, 0),
-				Vector3(0.28, 0.055, 0.23), dark)
-			for x in [-0.10, 0.10]:
-				for z in [-0.07, 0.07]:
+			# A legged die table reaches the feed plane without turning the casting
+			# into a solid pillar. Both feed ends stay clear inside the native body.
+			for z in [-0.125, 0.125]:
+				_support_box(anchor, "WorkbedSkid%d" % anchor.get_child_count(),
+					Vector3(0, bottom + 0.0275, z), Vector3(0.36, 0.055, 0.10), dark)
+			for x in [-0.14, 0.14]:
+				for z in [-0.16, 0.16]:
 					_support_box(anchor, "WorkbedLeg%d" % anchor.get_child_count(),
-						Vector3(x, bottom + 0.15125, z), Vector3(0.055, 0.1925, 0.045), dark)
-			for z in [-0.09, 0.09]:
+						Vector3(x, bottom + 0.055 + leg_height * 0.5, z),
+						Vector3(0.055, leg_height, 0.055), dark)
+			for x in [-0.14, 0.14]:
 				_support_box(anchor, "WorkbedTopRail%d" % anchor.get_child_count(),
-					Vector3(0, bottom + 0.2225, z), Vector3(0.31, 0.05, 0.03), worked)
+					Vector3(x, bottom + 0.03 + leg_height, 0), Vector3(0.04, 0.05, 0.63), worked)
 			_support_box(anchor, "CastBolster", Vector3(0, top - 0.095, 0),
-				Vector3(0.34, 0.14, 0.235), dark, true)
+				Vector3(0.34, 0.14, 0.63), dark, true)
 			_support_box(anchor, "OpenAnvilSeat", Vector3(0, top - 0.0275, 0),
-				Vector3(0.34, 0.05, 0.25), face_iron, true)
+				Vector3(0.34, 0.05, 0.64), face_iron, true)
 			_support_box(anchor, "ReplaceableDiePlate", Vector3(0, top - 0.003, 0),
 				Vector3(0.27, 0.006, 0.18), worked, true)
 			for x in [-0.135, 0.135]:
-				for z in [-0.105, 0.105]:
+				for z in [-0.27, 0.27]:
 					var bolt := _support_cylinder(anchor, "BolsterBolt", 0.009, 0.002, dark)
 					bolt.position = Vector3(x, top - 0.0025, z)
 		"broad_anvil":
@@ -1405,8 +1408,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			anchor.add_child(die)
 			_support_box(die, "FlatHeadFace", Vector3.ZERO,
 				Vector3(0.27, 0.10, 0.27), worked, true)
-			var stem := _support_cylinder(die, "FlatHeadStem", 0.045, 0.55, worked)
-			stem.position.y = 0.275
+			var stem := _support_cylinder(die, "FlatHeadStem", 0.045, 0.08, worked)
+			stem.position.y = 0.04
 			for z in [-0.095, 0.095]:
 				_support_box(die, "FlatHeadWearStrip", Vector3(0, -0.045, z),
 					Vector3(0.23, 0.012, 0.018), dark)
@@ -1485,11 +1488,15 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var finish: Material = timber if kind == "wooden_slide" else worked
 			var half_height := occupied_size.y * 0.5
 			var rail_height := occupied_size.y - 0.09
+			# Four separated guides keep the carriage visible from either feed
+			# direction. A paired slab reads as a solid prefabricated machine side.
 			for x in [-0.155, 0.155]:
-				_support_box(anchor, "SlideRail", Vector3(x, -0.015, 0),
-					Vector3(0.045, rail_height, 0.27), finish, true)
-				_support_box(anchor, "RailWearStrip", Vector3(x, -0.015, -0.139),
-					Vector3(0.018, rail_height - 0.045, 0.008), dark)
+				for z in [-0.155, 0.155]:
+					_support_box(anchor, "SlideRail", Vector3(x, -0.015, z),
+						Vector3(0.045, rail_height, 0.045), finish, true)
+					_support_box(anchor, "RailWearStrip",
+						Vector3(x, -0.015, z + signf(z) * 0.024),
+						Vector3(0.018, rail_height - 0.045, 0.008), dark)
 			_support_box(anchor, "SlideCrown", Vector3(0, half_height - 0.048, 0),
 				Vector3(0.39, 0.075, 0.34), finish, true)
 			# Its native half-span is one quarter-pitch on each side of the
