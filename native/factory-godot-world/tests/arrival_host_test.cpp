@@ -58,6 +58,31 @@ void arrival_projection_contract() {
                   !factory::godot_world::projection_contract::complete(V(malformed_entry)),
                   "Every arrival assembly needs its typed array and stable machine coordinates.");
         }
+        for (const char* name : {"component_capacity", "workshop_completed_actors",
+                 "first_plate_unlock", "component_recipes", "part_recipes",
+                 "foundation_recipe"}) {
+            auto missing = complete;
+            missing.erase(name);
+            check(!factory::godot_world::projection_contract::complete(V(missing)),
+                  "An arrival cannot omit a native-owned build choice or workshop progress field.");
+        }
+        const auto malformed_catalog = [&](const char* name, V replacement) {
+            auto malformed = complete;
+            malformed.at(name) = std::move(replacement);
+            return !factory::godot_world::projection_contract::complete(V(malformed));
+        };
+        check(malformed_catalog("component_capacity", V("unlimited")) &&
+              malformed_catalog("workshop_completed_actors", V(A{V(I{1})})) &&
+              malformed_catalog("first_plate_unlock", V(I{1})) &&
+              malformed_catalog("component_recipes", V(O{{"wooden_frame", V(O{
+                  {"timber", V(I{3})}, {"copper", V("zero")}})}})) &&
+              malformed_catalog("part_recipes", V(A{V(O{
+                  {"kind", V("shaft")}, {"teeth", V(true)},
+                  {"half_span", V(I{2})}, {"timber", V(I{1})},
+                  {"copper", V(I{0})}})})) &&
+              malformed_catalog("foundation_recipe", V(O{
+                  {"timber", V(I{2})}, {"copper", V(false)}})),
+              "Recipe costs, workshop actor IDs, capacity and unlock flags keep their native types.");
         const auto tick = host.advance_tick_fields();
         const auto refreshed = host.projection();
         check(get<I>(tick, "revision") == get<I>(refreshed, "revision") &&

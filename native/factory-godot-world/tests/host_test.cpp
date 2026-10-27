@@ -359,6 +359,37 @@ void nonarrival_tick_schema() {
           !factory::godot_world::projection_contract::complete(
               V(malformed_optional_arrival_record)),
           "An ordinary world can omit arrival machines, but validates an arrival record if present.");
+    auto wrong_inventory = full_before;
+    auto inventories = std::get<O>(wrong_inventory.at("inventories").storage());
+    inventories.at("P") = V("one");
+    wrong_inventory.at("inventories") = V(std::move(inventories));
+    auto wrong_kit = full_before;
+    auto kits = std::get<O>(wrong_kit.at("part_kits").storage());
+    auto player_kit = std::get<O>(kits.at("P").storage());
+    player_kit.at("foundation") = V(true);
+    kits.at("P") = V(std::move(player_kit));
+    wrong_kit.at("part_kits") = V(std::move(kits));
+    auto wrong_parts = full_before;
+    auto parts = std::get<O>(wrong_parts.at("parts").storage());
+    parts.erase("shaft");
+    wrong_parts.at("parts") = V(std::move(parts));
+    auto wrong_specifications = full_before;
+    auto specifications = std::get<O>(wrong_specifications.at("part_specifications").storage());
+    specifications.at("P") = V(A{V(O{{"kind", V("gear")}})});
+    wrong_specifications.at("part_specifications") = V(std::move(specifications));
+    check(!factory::godot_world::projection_contract::complete(V(wrong_inventory)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_kit)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_parts)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_specifications)),
+          "Actor plate counts, kit counts and offered part specifications need typed catalog records.");
+    auto wrong_optional_cost = full_before;
+    wrong_optional_cost.emplace("component_recipes", V(O{{"wooden_frame", V(O{
+        {"timber", V("three")}, {"copper", V(I{0})}})}}));
+    auto wrong_optional_progress = full_before;
+    wrong_optional_progress.emplace("workshop_completed_actors", V(A{V(true)}));
+    check(!factory::godot_world::projection_contract::complete(V(wrong_optional_cost)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_optional_progress)),
+          "Even an optional arrival catalog field is checked when present in an ordinary view.");
     auto missing_stock = full_before;
     missing_stock.erase("stock");
     auto wrong_cargo = full_before;

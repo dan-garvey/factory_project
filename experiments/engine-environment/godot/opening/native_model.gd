@@ -116,8 +116,20 @@ func _complete_projection(value: Dictionary) -> bool:
 	if _projection_fields.is_empty() or _projection_records.is_empty():
 		return false
 	for name in _projection_fields:
-		if not name is String or not value.has(name) \
-			or not _projection_type_matches(value[name], _projection_fields[name]):
+		if not name is String:
+			return false
+		var expected: Variant = _projection_fields[name]
+		var required_with := ""
+		if expected is Dictionary:
+			if not expected.get("type") is String or not expected.get("required_with") is String:
+				return false
+			required_with = expected.required_with
+			expected = expected.type
+		if not value.has(name):
+			if not required_with.is_empty() and not value.has(required_with):
+				continue
+			return false
+		if not _projection_type_matches(value[name], expected):
 			return false
 	for name in _projection_records:
 		if not name is String:
@@ -147,6 +159,11 @@ func _complete_projection(value: Dictionary) -> bool:
 			"object_values":
 				if not nested is Dictionary: return false
 				entries = nested.values()
+			"object_array_elements":
+				if not nested is Dictionary: return false
+				for group in nested.values():
+					if not group is Array: return false
+					entries.append_array(group)
 			"array_elements":
 				if not nested is Array: return false
 				entries = nested
@@ -171,6 +188,16 @@ func _projection_type_matches(value: Variant, expected: Variant) -> bool:
 		"boolean": return typeof(value) == TYPE_BOOL
 		"array": return typeof(value) == TYPE_ARRAY
 		"object": return typeof(value) == TYPE_DICTIONARY
+		"integer_values":
+			if not value is Dictionary: return false
+			for entry in value.values():
+				if typeof(entry) != TYPE_INT: return false
+			return true
+		"string_array":
+			if not value is Array: return false
+			for entry in value:
+				if typeof(entry) != TYPE_STRING: return false
+			return true
 		"integer2", "integer3", "floating2", "floating3":
 			if not value is Array or value.size() != (2 if expected in ["integer2", "floating2"] else 3):
 				return false

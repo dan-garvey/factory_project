@@ -266,6 +266,30 @@ void run() {
                   field<std::string>(option_fields, "native") == "boolean" &&
                   factory::godot_world::projection_contract::complete(projection, true),
               "The real extension exposes the same top-level and nested contract it publishes.");
+        const auto capacity_rule = Value(field<Object>(schema, "component_capacity"));
+        const auto completion_rule = Value(field<Object>(schema, "workshop_completed_actors"));
+        const auto unlock_rule = Value(field<Object>(schema, "first_plate_unlock"));
+        const auto kit_record = Value(field<Object>(records, "part_kits"));
+        const auto kit_fields = Value(field<Object>(kit_record, "fields"));
+        const auto specification_record = Value(field<Object>(records, "part_specifications"));
+        const auto specification_fields = Value(field<Object>(specification_record, "fields"));
+        const auto recipe_record = Value(field<Object>(records, "component_recipes"));
+        const auto recipe_fields = Value(field<Object>(recipe_record, "fields"));
+        check(field<std::string>(schema, "inventories") == "integer_values" &&
+                  field<std::string>(capacity_rule, "type") == "integer" &&
+                  field<std::string>(completion_rule, "type") == "string_array" &&
+                  field<std::string>(unlock_rule, "type") == "boolean" &&
+                  field<std::string>(capacity_rule, "required_with") == "landing_pod" &&
+                  field<std::string>(completion_rule, "required_with") == "landing_pod" &&
+                  field<std::string>(unlock_rule, "required_with") == "landing_pod" &&
+                  field<std::string>(kit_record, "container") == "object_values" &&
+                  field<std::string>(kit_fields, "foundation") == "integer" &&
+                  field<std::string>(specification_record, "container") ==
+                      "object_array_elements" &&
+                  field<std::string>(specification_fields, "count") == "integer" &&
+                  field<std::string>(recipe_record, "required_with") == "landing_pod" &&
+                  field<std::string>(recipe_fields, "copper") == "integer",
+              "The extension exposes native kit, recipe and first-workshop types to Godot.");
         for (const char* name : {"collector_assemblies", "press_assemblies",
                  "guided_press_assemblies", "sliding_press_assemblies",
                  "broad_press_assemblies", "broad_shear_assemblies"}) {
