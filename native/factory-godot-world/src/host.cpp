@@ -52,9 +52,8 @@ constexpr Integer wheel_radius = site_geometry::wheel_radius_hundredths;
 constexpr Integer wheel_axle_offset = site_geometry::wheel_axle_offset_hundredths;
 constexpr double reach = site_geometry::base_reach;
 constexpr double press_work_crown_rise = 0.082;
-// A supported die table needs a usable feed height without a solid pedestal.
-// Its face must meet the fitted head while staying on the floor when separate.
-constexpr double anvil_work_height = height_step * 2.5;
+// The work surface meets the top run of a belt on the same foundation.
+constexpr double anvil_work_height = site_geometry::press_work_height;
 
 Integer crafting_bench_generation(const world::State& state, const std::string& id) {
     if (state.fabrication_hub && !state.fabrication_hub->holder && state.fabrication_hub->id == id)
@@ -303,10 +302,11 @@ Bounds component_bounds(const world::Profile& profile,
                     {height_step - component_shaft_half, 0.18,
                      height_step - component_shaft_half}};
         case materials::Component::anvil:
-            // The open-legged die table rests on this level's actual floor;
-            // its raised work face and support remain in one native pick body.
+            // Its feet rest on the floor. The working face spans a full belt
+            // lane; the conservative body also includes its side rails.
             return {{at[0], center[1] * height_step + anvil_work_height * 0.5, at[2]},
-                {0.2025, anvil_work_height * 0.5, 0.36}};
+                {0.2025, anvil_work_height * 0.5,
+                 site_geometry::belt_frame_outer_half_width}};
         case materials::Component::broad_anvil: {
             const double floor = center[1] * height_step;
             return {{at[0] + pitch * 0.5, floor + anvil_work_height * 0.5,
@@ -320,7 +320,7 @@ Bounds component_bounds(const world::Profile& profile,
             // Reserve the entire carriage-driven die sweep. The named slide
             // may occupy its coaxial upper portion as an intentional fitting.
             return vertical(center[1] * height_step - height_step + anvil_work_height,
-                at[1] + height_step * 0.5);
+                at[1] + 0.125);
         case materials::Component::broad_flat_head: {
             const double low = center[1] * height_step - height_step + anvil_work_height;
             const double high = at[1] + height_step * 0.5;
@@ -335,12 +335,14 @@ Bounds component_bounds(const world::Profile& profile,
             return vertical(at[1] - height_step * 1.5, at[1] + height_step - 0.08);
         case materials::Component::wooden_slide:
         case materials::Component::copper_slide: {
-            // The slide rails keep their original floor clearance. The fitted
-            // flat head separately reserves the full lower die sweep.
-            const double low = at[1] - height_step * 1.5;
-            const double high = at[1] + height_step * 0.5;
+            // This selected body keeps the same dimensions alone and fitted.
+            // In a press its four feet meet the workbed side rails, while the
+            // integral shaft stays at the native rotary input height.
+            const double low = center[1] * height_step - 2 * height_step + anvil_work_height;
+            const double high = at[1] + 0.08;
             return {{at[0], (low + high) * 0.5, at[2]},
-                {0.21, (high - low) * 0.5, 0.21}};
+                {0.21, (high - low) * 0.5,
+                 site_geometry::belt_frame_outer_half_width}};
         }
         case materials::Component::cutting_edge:
             return {{at[0], at[1] - 0.015, at[2]}, {0.21, 0.12, 0.18}};
@@ -700,7 +702,7 @@ std::vector<Bounds> belt_bounds(const mechanics::Part& first, const mechanics::P
             authority::Point half{};
             half[direction] = section / 2 + normal;
             half[1] = section / 2 + normal;
-            half[axle] = 0.3;
+            half[axle] = site_geometry::belt_frame_outer_half_width;
             result.push_back({center, half});
         }
         return result;
@@ -713,12 +715,14 @@ std::vector<Bounds> belt_bounds(const mechanics::Part& first, const mechanics::P
         half[direction] = std::abs(b[direction] - a[direction]) / 2 + pitch / 2;
         const auto axle = static_cast<std::size_t>(first.axis);
         half[3 - direction - axle] = 0.15;
+        half[axle] = site_geometry::belt_frame_outer_half_width;
         result.push_back({center, half});
         return result;
     }
     const auto direction = first.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
     for (const auto& point : path->tiles) {
         authority::Point half{0.3, 0.15, 0.3}; half[direction] = pitch / 2;
+        half[static_cast<std::size_t>(first.axis)] = site_geometry::belt_frame_outer_half_width;
         result.push_back({at(point), half});
     }
     return result;
@@ -754,10 +758,20 @@ bool belt_intersects(const mechanics::Part& first, const mechanics::Part& last, 
     return overlaps_axis(along, belt_half_length + box_radius) && overlaps_axis(across, 0.15 + box_radius);
 }
 
-bool intersects_belt(const world::State& state, const Bounds& bounds) {
+bool intersects_belt(const world::State& state, const Bounds& bounds,
+                     const std::string* fitted_shaft = nullptr) {
+    const auto* fitted = fitted_shaft ? find(state, *fitted_shaft) : nullptr;
     for (const auto& span : state.topology.belt_spans) {
         const auto* first = find(state, span.geometry.first_shaft);
         const auto* last = find(state, span.geometry.last_shaft);
+        // Endpoint and intermediate pulleys share a bearing with their own
+        // stand. Other supports and placed parts collide with the full belt.
+        if (fitted && fitted->role == Role::shaft && first && last &&
+            fitted->geometry.axis == first->geometry.axis) {
+            const auto path = mechanics::belt_path(first->geometry, last->geometry);
+            if (path && std::find(path->tiles.begin(), path->tiles.end(),
+                                  fitted->geometry.center) != path->tiles.end()) continue;
+        }
         if (first && last && belt_intersects(first->geometry, last->geometry, bounds)) return true;
     }
     return false;
@@ -1436,7 +1450,7 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
                 const authority::Point low{box.center[0] - box.half[0], box.center[1] - box.half[1], box.center[2] - box.half[2]};
                 const authority::Point high{box.center[0] + box.half[0], box.center[1] + box.half[1], box.center[2] + box.half[2]};
                 if (!terrain || terrain->second > low[1] + 1e-9 || site_blocked(low, high) ||
-                    intersects_belt(state, box)) clear = false;
+                    intersects_belt(state, box, &part->geometry.id)) clear = false;
                 for (const auto& [id, foundation] : state.foundations) {
                     (void)id;
                     if (overlap(box, foundation_bounds(foundation))) clear = false;

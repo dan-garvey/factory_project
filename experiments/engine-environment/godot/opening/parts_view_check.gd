@@ -373,12 +373,14 @@ func _component_placement_check() -> void:
 	var head_box: Dictionary = view._component_candidate_box("flat_head", [12, 1, 8])
 	var slide_box: Dictionary = view._component_candidate_box("copper_slide", [12, 2, 8])
 	var workbed_box: Dictionary = view._component_candidate_box("anvil", [12, 0, 8])
-	verify(absf(head_box.center.y - head_box.half.y - 1.03125) < 0.0001
-		and absf(head_box.center.y + head_box.half.y - 1.44375) < 0.0001
-		and absf(slide_box.center.y - slide_box.half.y - 1.03125) < 0.0001
+	verify(absf(head_box.center.y - head_box.half.y - Geometry.PRESS_WORK_HEIGHT) < 0.0001
+		and absf(head_box.center.y + head_box.half.y - 1.3625) < 0.0001
+		and absf(slide_box.center.y - slide_box.half.y - Geometry.PRESS_WORK_HEIGHT) < 0.0001
+		and absf(slide_box.center.y + slide_box.half.y - 1.73) < 0.0001
+		and absf(workbed_box.size.z - 2.0 * Geometry.BELT_FRAME_OUTER_HALF_WIDTH) < 0.0001
 		and absf(head_box.center.y - head_box.half.y -
 			(workbed_box.center.y + workbed_box.half.y)) < 0.0001,
-		"The flat head reaches the anvil face while the slide rails keep feed clearance.")
+		"The head and slide feet meet a workbed wide enough for the belt frame.")
 	view.state.placed_components["sample-head"] = {"component": "flat_head", "center": [12, 1, 8],
 		"generation": 1, "occupied": {"center": [head_box.center.x, head_box.center.y, head_box.center.z],
 		"half": [head_box.half.x, head_box.half.y, head_box.half.z]}}
@@ -431,6 +433,17 @@ func _component_placement_check() -> void:
 	var carriage_drop: float = stroked_slide.get_node("SlideCarriage").position.y \
 		- slide_sample.get_node("SlideCarriage").position.y
 	var anvil_top: float = workbed_box.center.y + workbed_box.half.y
+	var mount_rail: MeshInstance3D = workbed_sample.get_node_or_null("SlideMountRail")
+	var slide_foot: MeshInstance3D = slide_sample.get_node_or_null("SlideFoot")
+	var slide_post: MeshInstance3D = slide_sample.get_node_or_null("SlideRail")
+	var input_shaft: MeshInstance3D = slide_sample.get_node_or_null("IntegralInputShaft")
+	verify(mount_rail != null and slide_foot != null and slide_post != null and input_shaft != null
+		and absf(workbed_sample.position.y + mount_rail.position.y + 0.025 - anvil_top) < 0.0001
+		and absf(slide_sample.position.y + slide_foot.position.y - 0.0175 - anvil_top) < 0.0001
+		and absf(slide_foot.position.z - mount_rail.position.z) < 0.0001
+		and 2.0 * (absf(slide_post.position.z) - 0.025) > 2.0 * Geometry.BELT_HALF_WIDTH
+		and absf(slide_sample.position.y + input_shaft.position.y - 1.65) < 0.0001,
+		"Separate slide feet seat on the workbed rails with belt-width clearance and the native drive axis.")
 	var resting_face_bottom: float = head_sample.position.y \
 		+ head_sample.get_node("FlatHeadMovingDie").position.y - 0.05
 	var working_face_bottom: float = stroked_head.position.y \
@@ -736,12 +749,14 @@ func _component_placement_check() -> void:
 	view.aimed = "frame"
 	view.pointed_cell = Vector2i.ZERO
 	view.state.placed_components["anvil"] = {"component": "anvil", "center": [0, 1, 0],
-		"generation": 1, "occupied": {"center": [0.0, 0.928125, 0.0],
-		"half": [0.2025, 0.515625, 0.36]}}
+		"generation": 1, "occupied": {"center": [0.0, Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT * 0.5, 0.0],
+		"half": [0.2025, Geometry.PRESS_WORK_HEIGHT * 0.5,
+			Geometry.BELT_FRAME_OUTER_HALF_WIDTH]}}
 	var placed_anvil := Node3D.new()
-	placed_anvil.position.y = 0.928125
+	placed_anvil.position.y = Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT * 0.5
 	view.add_child(placed_anvil)
-	presenter.preview_component(placed_anvil, "anvil", Vector3(0.405, 1.03125, 0.72))
+	presenter.preview_component(placed_anvil, "anvil", Vector3(0.405,
+		Geometry.PRESS_WORK_HEIGHT, 2.0 * Geometry.BELT_FRAME_OUTER_HALF_WIDTH))
 	view._refresh_component_preview()
 	verify(view.component_preview_blocked and view.component_preview_material.albedo_color.r > 0.9
 		and view.component_preview_material.albedo_color.g < 0.4,

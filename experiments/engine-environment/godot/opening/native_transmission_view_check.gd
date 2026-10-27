@@ -12,6 +12,7 @@ const Session = preload("res://opening-session/session.gd")
 const Opening = preload("res://opening/opening.gd")
 const DIRECT_MODES := [
 	"--supplied-hardware-only", "--component-boxes-only", "--press-components-only",
+	"--press-connector-only",
 	"--guided-press-components-only", "--broad-press-components-only", "--broad-press-raised-only",
 	"--channel-components-only", "--channel-z-only", "--channel-sheet-only",
 	"--physical-topology-cache-only", "--physical-actor-bridge-only", "--advance-projection-only",
@@ -904,8 +905,9 @@ func _press_component_view() -> void:
 		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
 		"collector_assemblies": [], "placed_components": {
 			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
-			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 0.928125, 0.0], [0.2025, 0.515625, 0.36]),
-			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.340625, 0.0], [0.14, 0.515625, 0.14]),
+			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 0.4125 + Geometry.PRESS_WORK_HEIGHT * 0.5, 0.0],
+				[0.2025, Geometry.PRESS_WORK_HEIGHT * 0.5, Geometry.BELT_FRAME_OUTER_HALF_WIDTH]),
+			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.618125, 0.0], [0.14, 0.238125, 0.14]),
 			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
 			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2075, 0.18, 0.2075]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
@@ -935,9 +937,9 @@ func _press_component_view() -> void:
 		and anchors.guide.get_node_or_null("GuideRail") != null
 		and anchors.mount.get_node_or_null("PressCrown") != null,
 		"The seven identities form a supported anvil, die, guide and press crown.")
-	var framed_foot := anchors.anvil.get_node("CastPedestalFoot") as MeshInstance3D
+	var framed_foot := anchors.anvil.find_child("WorkbedSkid*", false, false) as MeshInstance3D
 	var framed_shelf := anchors.frame.get_node("AnvilShelf") as MeshInstance3D
-	var framed_web := anchors.anvil.get_node("WorkbedWeb") as MeshInstance3D
+	var framed_web := anchors.anvil.get_node("CastBolster") as MeshInstance3D
 	var foot_bounds: AABB = framed_foot.global_transform * framed_foot.mesh.get_aabb()
 	var shelf_bounds: AABB = framed_shelf.global_transform * framed_shelf.mesh.get_aabb()
 	var web_bounds: AABB = framed_web.global_transform * framed_web.mesh.get_aabb()
@@ -1038,8 +1040,8 @@ func _broad_press_component_view() -> void:
 		var cell: Vector3i = cells[pad]
 		var side: Vector3i = sides[pad]
 		var entries := [
-			["anvils", "anvil", "anvil", cell, 0.20625, 0.20625, 0.2025],
-			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0), 0.928125, 0.515625, 0.14],
+			["anvils", "anvil", "anvil", cell, 0.48375, 0.48375, 0.2025],
+			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0), 1.205625, 0.238125, 0.14],
 			["guides", "guide", "sliding_guide", cell + Vector3i(0, 3, 0), 1.919375, 0.475625, 0.14],
 			["shafts", "shaft", "wooden_shaft", cell + Vector3i(0, 4, 0) + side, 2.475, 0.12, 0.205],
 			["drive_cogs", "cog", "wooden_cog", cell + Vector3i(0, 4, 0) + side * 2, 2.475, 0.14, 0.2075]]
@@ -1048,7 +1050,7 @@ func _broad_press_component_view() -> void:
 			var point: Vector3i = entry[3]
 			state.placed_components[id] = _component_record(entry[2], [point.x, point.y, point.z],
 				[float(point.x) * step, entry[4] + float(base_y) * step, float(point.z) * step],
-				[entry[6], entry[5], 0.14 if entry[2] == "anvil" else entry[6]])
+				[entry[6], entry[5], 0.57 if entry[2] == "anvil" else entry[6]])
 			parts[entry[0]].append(id)
 	state.broad_press_assemblies = [{"origin": [0, base_y, 0], "geometry_status": "ready",
 		"status": "ready", "work_centers": [[0, base_y, 0], [4, base_y, 0],
@@ -1329,8 +1331,8 @@ func _guided_press_component_view() -> void:
 			"shaft": {"state": "rotating", "numerator": 1, "denominator": 1},
 			"cog": {"state": "rotating", "numerator": 1, "denominator": 1}},
 		"collector_assemblies": [], "press_assemblies": [], "placed_components": {
-			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.20625, 0.0], [0.2025, 0.20625, 0.14]),
-			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 0.928125, 0.0], [0.14, 0.515625, 0.14]),
+			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.48375, 0.0], [0.2025, 0.48375, 0.57]),
+			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 1.205625, 0.0], [0.14, 0.238125, 0.14]),
 			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
 			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
 			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
@@ -1363,9 +1365,9 @@ func _guided_press_component_view() -> void:
 		and anchors.shaft.get_node_or_null("GuidedBearingSeat") != null
 		and anchors.anvil.get_node_or_null("PressCrown") == null,
 		"The confirmed industrial workbed, ram and guide render without a blacksmith horn or frame crown.")
-	var anvil_foot := anchors.anvil.get_node("CastPedestalFoot") as MeshInstance3D
-	var anvil_foot_bounds: AABB = anvil_foot.global_transform * anvil_foot.mesh.get_aabb()
-	verify(absf(anvil_foot_bounds.position.y) < 0.0002
+	var anvil_skid := anchors.anvil.find_children("WorkbedSkid*", "MeshInstance3D", false, false)[0] as MeshInstance3D
+	var anvil_skid_bounds: AABB = anvil_skid.global_transform * anvil_skid.mesh.get_aabb()
+	verify(absf(anvil_skid_bounds.position.y) < 0.0002
 		and absf(parsed.boxes.anvil.center.y - parsed.boxes.anvil.size.y * 0.5) < 0.0002,
 		"The frame-free anvil mesh and native occupied body both meet the ground datum.")
 	var native_anvil_size: Vector3 = parsed.boxes.anvil.size
@@ -2771,15 +2773,54 @@ func _loose_material() -> void:
 	verify(session.projection().dropped_material.is_empty(), "A later confirmed Session frame removes the picked-up stack.")
 	session.free()
 
+func _press_belt_connector_view() -> void:
+	var state := {"sliding_press_assemblies": [{"anvil": "anvil", "status": "ready",
+		"work_center": [0, 0, 0], "open_feeds": [{"entry": [-1, 0, 0], "exit": [1, 0, 0]}]}],
+		"belt_spans": {"inlet": {"from": "west", "to": "far"}},
+		"transmission_parts": {"west": {"center": [-4, 0, 0]}, "far": {"center": [-8, 0, 0]}},
+		"placed_components": {}}
+	var presenter := Presenter.new()
+	root.add_child(presenter)
+	presenter._render_press_belt_connectors(state)
+	var connector := presenter.get_node_or_null("PressBeltConnector") as Node3D
+	var pan := connector.get_node_or_null("TransferPan") as MeshInstance3D if connector != null else null
+	var rails := connector.find_children("TransferSideRail*", "MeshInstance3D", false, false) if connector != null else []
+	var pan_bounds: AABB = pan.global_transform * pan.mesh.get_aabb() if pan != null else AABB()
+	verify(connector != null and pan != null and rails.size() == 2
+		and connector.get_meta("belt_span") == "inlet"
+		and absf(pan_bounds.end.y - Geometry.PRESS_WORK_HEIGHT) < 0.0002
+		and absf(pan_bounds.size.z - Geometry.BELT_HALF_WIDTH * 2.0) < 0.0002
+		and absf(pan_bounds.position.x + Geometry.PITCH - Geometry.BELT_OUTER_RADIUS) < 0.0002
+		and absf(pan_bounds.end.x + 0.17) < 0.0002,
+		"A confirmed belt mouth has a belt-width pan tangent to the floor-seated workbed and pulley top.")
+	presenter.free()
+	state.placed_components.blocker = {"center": [-2, 0, 0]}
+	presenter = Presenter.new()
+	root.add_child(presenter)
+	presenter._render_press_belt_connectors(state)
+	verify(presenter.get_node_or_null("PressBeltConnector") == null,
+		"A component in the native quarter-grid transfer path prevents a visible fitting.")
+	presenter.free()
+	state.placed_components.clear()
+	state.sliding_press_assemblies[0].status = "missing_slide"
+	presenter = Presenter.new()
+	root.add_child(presenter)
+	presenter._render_press_belt_connectors(state)
+	verify(presenter.get_node_or_null("PressBeltConnector") == null,
+		"A partial press does not show a belt connector before its native assembly is ready.")
+	presenter.free()
+
 func _slide_material_seat() -> void:
 	var state := {"context": "slide-material-seat", "revision": 1,
 		"options": {"native": true}, "transmission_parts": {}, "belt_spans": {},
 		"motion": {}, "collector_assemblies": [], "press_assemblies": [],
 		"guided_press_assemblies": []}
 	state.placed_components = {
-		"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.515625, 0.0], [0.2025, 0.515625, 0.36]),
-		"head": _component_record("flat_head", [0, 1, 0], [0.0, 1.2375, 0.0], [0.14, 0.20625, 0.14]),
-		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.44375, 0.0], [0.21, 0.4125, 0.21])}
+		"anvil": _component_record("anvil", [0, 0, 0], [0.0, Geometry.PRESS_WORK_HEIGHT * 0.5, 0.0],
+			[0.2025, Geometry.PRESS_WORK_HEIGHT * 0.5, Geometry.BELT_FRAME_OUTER_HALF_WIDTH]),
+		"head": _component_record("flat_head", [0, 1, 0], [0.0, 1.165, 0.0], [0.14, 0.1975, 0.14]),
+		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.34875, 0.0],
+			[0.21, 0.38125, Geometry.BELT_FRAME_OUTER_HALF_WIDTH])}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
 		"status": "ready", "work_center": [0, 0, 0],
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"}}]
@@ -2796,7 +2837,7 @@ func _slide_material_seat() -> void:
 	var seat: MeshInstance3D = anvil.get_node_or_null("OpenAnvilSeat") if anvil != null else null
 	var die_plate: MeshInstance3D = anvil.get_node_or_null("ReplaceableDiePlate") if anvil != null else null
 	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")
-	var crown: float = 1.03125
+	var crown: float = Geometry.PRESS_WORK_HEIGHT
 	verify(seat != null and die_plate != null and blank != null
 		and is_equal_approx(seat.global_position.y + 0.0275, crown)
 		and is_equal_approx(die_plate.global_position.y + 0.003, crown)
@@ -2969,7 +3010,7 @@ func _mechanical_collision_geometry() -> void:
 	bridge.transmission_parts.a.teeth = 2
 	verify(not Geometry.mechanical_boxes(bridge).accepted,
 			"A gear cannot inherit the shaft-only half-tile exception.")
-	verify(result.boxes.belt.center.is_equal_approx(Vector3(1.65, 0.825, 0)) and result.boxes.belt.size.is_equal_approx(Vector3(4.95, 0.3, 0.6)), "Belt bounds cover every tile including both pulleys.")
+	verify(result.boxes.belt.center.is_equal_approx(Vector3(1.65, 0.825, 0)) and result.boxes.belt.size.is_equal_approx(Vector3(4.95, 0.3, 1.14)), "Belt bounds cover the visible side frame and both pulleys.")
 	var reversed: Dictionary = state.duplicate(true)
 	reversed.belt_spans.belt = {"from": "b", "to": "a"}
 	verify(Geometry.mechanical_boxes(reversed).boxes.belt == result.boxes.belt, "Reversing endpoints preserves physical bounds.")
@@ -2978,7 +3019,7 @@ func _mechanical_collision_geometry() -> void:
 	moved.transmission_parts.a.axis = 0
 	moved.transmission_parts.b.axis = 0
 	var rotated := Geometry.mechanical_boxes(moved)
-	verify(rotated.accepted and rotated.boxes.belt.size.is_equal_approx(Vector3(0.6, 0.3, 4.95)), "The other horizontal direction rotates the span bounds.")
+	verify(rotated.accepted and rotated.boxes.belt.size.is_equal_approx(Vector3(1.14, 0.3, 4.95)), "The other horizontal direction rotates the span bounds.")
 	for axle in [0, 2]:
 		for sign_value in [-1, 1]:
 			var slope: Dictionary = state.duplicate(true)
@@ -2991,11 +3032,11 @@ func _mechanical_collision_geometry() -> void:
 			verify(sloped.accepted and sloped.boxes.belt.has("basis") and Geometry.mechanical_boxes(reverse_slope).boxes.belt == sloped.boxes.belt, "An inclined belt has a stable rotated body for either axle and slope.")
 	var vertical: Dictionary = state.duplicate(true)
 	vertical.transmission_parts.b.center = [0, 8, 0]
-	verify(Geometry.mechanical_boxes(vertical).boxes.belt.size.is_equal_approx(Vector3(0.3, 4.95, 0.6)), "A vertical power-only belt has a narrow vertical body.")
+	verify(Geometry.mechanical_boxes(vertical).boxes.belt.size.is_equal_approx(Vector3(0.3, 4.95, 1.14)), "A vertical power-only belt includes its side frame.")
 	var sideways: Dictionary = state.duplicate(true)
 	sideways.transmission_parts.a.axis = 1
 	sideways.transmission_parts.b.axis = 1
-	verify(Geometry.mechanical_boxes(sideways).boxes.belt.size.is_equal_approx(Vector3(4.95, 0.6, 0.3)), "A sideways power-only belt has a narrow side-facing body.")
+	verify(Geometry.mechanical_boxes(sideways).boxes.belt.size.is_equal_approx(Vector3(4.95, 1.14, 0.3)), "A sideways power-only belt includes its side frame.")
 	var bad_slope: Dictionary = state.duplicate(true)
 	bad_slope.transmission_parts.b.center = [8, 4, 0]
 	verify(not Geometry.mechanical_boxes(bad_slope).accepted, "An unequal slope is rejected by physical geometry.")
@@ -3923,6 +3964,8 @@ func _run() -> void:
 		await _component_view()
 	elif "--press-components-only" in OS.get_cmdline_user_args():
 		await _press_component_view()
+	elif "--press-connector-only" in OS.get_cmdline_user_args():
+		_press_belt_connector_view()
 	elif "--guided-press-components-only" in OS.get_cmdline_user_args():
 		await _guided_press_component_view()
 	elif "--broad-press-components-only" in OS.get_cmdline_user_args():

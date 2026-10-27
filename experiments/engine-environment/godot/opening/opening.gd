@@ -2517,12 +2517,13 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			half = Vector3(width_x * 0.5, (high - low) * 0.5, width_z * 0.5)
 		"anvil":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
-			var high := low + Geometry.HEIGHT_STEP * 2.5
+			var high := low + Geometry.PRESS_WORK_HEIGHT
 			occupied.y = (low + high) * 0.5
-			half = Vector3(0.2025, (high - low) * 0.5, 0.36)
+			half = Vector3(0.2025, (high - low) * 0.5,
+				Geometry.BELT_FRAME_OUTER_HALF_WIDTH)
 		"broad_anvil":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
-			var high := low + Geometry.HEIGHT_STEP * 2.5
+			var high := low + Geometry.PRESS_WORK_HEIGHT
 			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
 				Geometry.PITCH * 0.5)
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
@@ -2532,21 +2533,22 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
 		"flat_head":
-			var low: float = float(center[1]) * Geometry.HEIGHT_STEP + Geometry.HEIGHT_STEP * 1.5
-			var high := at.y + Geometry.HEIGHT_STEP * 0.5
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
+			var high := at.y + 0.125
 			occupied.y = (low + high) * 0.5
 			half.y = (high - low) * 0.5
 		"broad_flat_head":
-			var low: float = float(center[1]) * Geometry.HEIGHT_STEP + Geometry.HEIGHT_STEP * 1.5
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
 				Geometry.PITCH * 0.5)
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"wooden_slide", "copper_slide":
-			var low: float = at.y - Geometry.HEIGHT_STEP * 1.5
-			var high := at.y + Geometry.HEIGHT_STEP * 0.5
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - 2.0 * Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
+			var high := at.y + 0.08
 			occupied.y = (low + high) * 0.5
-			half = Vector3(0.21, (high - low) * 0.5, 0.21)
+			half = Vector3(0.21, (high - low) * 0.5,
+				Geometry.BELT_FRAME_OUTER_HALF_WIDTH)
 		"sliding_guide":
 			var low := at.y - Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP - 0.08

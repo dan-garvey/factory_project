@@ -1342,29 +1342,29 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		"anvil":
 			var bottom := -occupied_size.y * 0.5
 			var top := occupied_size.y * 0.5
-			var leg_height := occupied_size.y - 0.22
+			var leg_height := occupied_size.y - 0.20
 			var face_iron := Visuals.material(Color("707c79"), 0.63, 0.46)
-			# A legged die table reaches the feed plane without turning the casting
-			# into a solid pillar. Both feed ends stay clear inside the native body.
-			for z in [-0.125, 0.125]:
+			# The floor-seated workbed spans one belt lane. The separate slide
+			# feet land on its side rails outside that lane.
+			for z in [-0.12, 0.12]:
 				_support_box(anchor, "WorkbedSkid%d" % anchor.get_child_count(),
-					Vector3(0, bottom + 0.0275, z), Vector3(0.36, 0.055, 0.10), dark)
+					Vector3(0, bottom + 0.0275, z), Vector3(0.34, 0.055, 0.10), dark)
 			for x in [-0.14, 0.14]:
-				for z in [-0.16, 0.16]:
+				for z in [-0.12, 0.12]:
 					_support_box(anchor, "WorkbedLeg%d" % anchor.get_child_count(),
 						Vector3(x, bottom + 0.055 + leg_height * 0.5, z),
-						Vector3(0.055, leg_height, 0.055), dark)
-			for x in [-0.14, 0.14]:
-				_support_box(anchor, "WorkbedTopRail%d" % anchor.get_child_count(),
-					Vector3(x, bottom + 0.03 + leg_height, 0), Vector3(0.04, 0.05, 0.63), worked)
+						Vector3(0.07, leg_height, 0.07), dark)
 			_support_box(anchor, "CastBolster", Vector3(0, top - 0.095, 0),
-				Vector3(0.34, 0.14, 0.63), dark, true)
+				Vector3(0.34, 0.14, Geometry.BELT_HALF_WIDTH * 2.0), dark, true)
 			_support_box(anchor, "OpenAnvilSeat", Vector3(0, top - 0.0275, 0),
-				Vector3(0.34, 0.05, 0.64), face_iron, true)
+				Vector3(0.34, 0.05, Geometry.BELT_HALF_WIDTH * 2.0), face_iron, true)
+			for side in [-1.0, 1.0]:
+				_support_box(anchor, "SlideMountRail", Vector3(0, top - 0.025, side * 0.515),
+					Vector3(0.39, 0.05, 0.10), worked, true)
 			_support_box(anchor, "ReplaceableDiePlate", Vector3(0, top - 0.003, 0),
-				Vector3(0.27, 0.006, 0.18), worked, true)
+				Vector3(0.30, 0.006, 0.28), worked, true)
 			for x in [-0.135, 0.135]:
-				for z in [-0.27, 0.27]:
+				for z in [-0.515, 0.515]:
 					var bolt := _support_cylinder(anchor, "BolsterBolt", 0.009, 0.002, dark)
 					bolt.position = Vector3(x, top - 0.0025, z)
 		"broad_anvil":
@@ -1490,23 +1490,25 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var rail_height := occupied_size.y - 0.09
 			# Four separated guides keep the carriage visible from either feed
 			# direction. A paired slab reads as a solid prefabricated machine side.
-			for x in [-0.155, 0.155]:
-				for z in [-0.155, 0.155]:
+			for x in [-0.15, 0.15]:
+				for z in [-0.515, 0.515]:
 					_support_box(anchor, "SlideRail", Vector3(x, -0.015, z),
-						Vector3(0.045, rail_height, 0.045), finish, true)
+						Vector3(0.05, rail_height, 0.05), finish, true)
 					_support_box(anchor, "RailWearStrip",
 						Vector3(x, -0.015, z + signf(z) * 0.024),
 						Vector3(0.018, rail_height - 0.045, 0.008), dark)
+					_support_box(anchor, "SlideFoot", Vector3(x, -half_height + 0.0175, z),
+						Vector3(0.08, 0.035, 0.10), worked, true)
 			_support_box(anchor, "SlideCrown", Vector3(0, half_height - 0.048, 0),
-				Vector3(0.39, 0.075, 0.34), finish, true)
+				Vector3(0.39, 0.075, 1.08), finish, true)
 			# Its native half-span is one quarter-pitch on each side of the
 			# center. The rod protrudes past the body box to meet a routed shaft.
 			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.027, 2.0 * UNIT, dark)
-			shaft.position = Vector3(0, half_height * 0.5, 0)
+			shaft.position = Vector3(0, half_height - 0.08, 0)
 			shaft.rotation.z = PI * 0.5
-			for x in [-0.172, 0.172]:
+			for x in [-0.158, 0.158]:
 				var bearing := _support_cylinder(anchor, "InputBearing", 0.052, 0.03, worked)
-				bearing.position = Vector3(x, half_height * 0.5, 0)
+				bearing.position = Vector3(x, half_height - 0.08, 0)
 				bearing.rotation.z = PI * 0.5
 			var carriage := Node3D.new()
 			carriage.name = "SlideCarriage"
@@ -2094,6 +2096,80 @@ func _render_receiver_chutes(snapshot: Dictionary) -> void:
 				_support_box(chute, "ReceiverChuteLip", Vector3(side * 0.165, 0.075, 0),
 					Vector3(0.025, 0.13, length), edge_finish, true)
 
+func _render_press_belt_connectors(snapshot: Dictionary) -> void:
+	# Native World transfers across a clear quarter-grid path from each open
+	# press feed to a full-tile belt endpoint. Show the fitting only when both
+	# independently placed assemblies and that path are present.
+	var presses: Variant = snapshot.get("sliding_press_assemblies", [])
+	var spans: Variant = snapshot.get("belt_spans", {})
+	var parts: Variant = snapshot.get("transmission_parts", {})
+	var placed: Variant = snapshot.get("placed_components", {})
+	if not presses is Array or not spans is Dictionary or not parts is Dictionary or not placed is Dictionary:
+		return
+	var endpoints := {}
+	for span_id: Variant in spans:
+		var span: Variant = spans[span_id]
+		if not span is Dictionary:
+			continue
+		for part_id: Variant in [span.get("from"), span.get("to")]:
+			var shaft: Variant = parts.get(part_id)
+			if shaft is Dictionary and shaft.get("center") is Array and shaft.center.size() == 3:
+				endpoints[shaft.center] = span_id
+	var connector_finish: Material = Finish.material("cast", Color("455759"), 0.66, 0.48)
+	var edge_finish: Material = Finish.material("worked", Color("a6b4af"), 0.82, 0.36)
+	for press: Variant in presses:
+		if not press is Dictionary or press.get("status") != "ready" \
+				or not press.get("work_center") is Array or not press.get("open_feeds") is Array:
+			continue
+		var work: Array = press.work_center
+		if work.size() != 3:
+			continue
+		var seen_sides := {}
+		for feed: Variant in press.open_feeds:
+			if not feed is Dictionary:
+				continue
+			for port: String in ["entry", "exit"]:
+				var side: Variant = feed.get(port)
+				if not side is Array or side.size() != 3:
+					continue
+				var dx: int = int(side[0]) - int(work[0])
+				if absi(dx) != 1 or side[1] != work[1] or side[2] != work[2] or seen_sides.has(dx):
+					continue
+				seen_sides[dx] = true
+				var mouth := [int(work[0]) + 4 * dx, int(work[1]), int(work[2])]
+				if not endpoints.has(mouth):
+					continue
+				var clear := true
+				for other: Variant in placed.values():
+					if not other is Dictionary or not other.get("center") is Array:
+						continue
+					for distance in [2, 3]:
+						if other.center == [int(work[0]) + distance * dx, int(work[1]), int(work[2])]:
+							clear = false
+					if not clear:
+						break
+				if not clear:
+					continue
+				var direction := Vector3(float(dx), 0, 0)
+				var start: Vector3 = world_center(work) + direction * 0.17
+				var finish: Vector3 = world_center(mouth) - direction * Geometry.BELT_OUTER_RADIUS
+				var length: float = start.distance_to(finish)
+				var connector := Node3D.new()
+				connector.name = "PressBeltConnector"
+				connector.set_meta("press_anvil", press.get("anvil", ""))
+				connector.set_meta("belt_span", endpoints[mouth])
+				connector.position = (start + finish) * 0.5
+				connector.rotation.y = atan2(direction.x, direction.z)
+				add_child(connector)
+				# The pan and workbed share exactly the belt's upper tangent.
+				_support_box(connector, "TransferPan", Vector3(0,
+					Geometry.BELT_OUTER_RADIUS - 0.0175, 0),
+					Vector3(Geometry.BELT_HALF_WIDTH * 2.0, 0.035, length), connector_finish, true)
+				for rail_side in [-1.0, 1.0]:
+					_support_box(connector, "TransferSideRailN" if rail_side < 0 else "TransferSideRailP",
+						Vector3(rail_side * 0.515, Geometry.BELT_OUTER_RADIUS - 0.025, 0),
+						Vector3(0.10, 0.05, length), edge_finish, true)
+
 func _add_loose_pickers(node: Node3D, drop: Dictionary, context: String) -> void:
 	# Match the visible item, including its offset on a workbed and sheet rotation.
 	# These shapes only select; native World still owns reach and material custody.
@@ -2198,6 +2274,7 @@ func refresh() -> void:
 	_native_view_revision = native_revision if native_model else null
 	_render_placed_components(snapshot, component_result.boxes)
 	_render_receiver_chutes(snapshot)
+	_render_press_belt_connectors(snapshot)
 	var guided_work_surfaces := {}
 	for press: Variant in snapshot.get("guided_press_assemblies", []):
 		if press is Dictionary and press.get("status") == "ready" \

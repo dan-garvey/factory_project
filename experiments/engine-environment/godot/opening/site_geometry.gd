@@ -9,6 +9,10 @@ const HEIGHT_STEP := PITCH / HEIGHT_DENOMINATOR
 const FOUNDATION_HEIGHT_UNITS := 2
 const FOUNDATION_DEPTH := FOUNDATION_HEIGHT_UNITS * HEIGHT_STEP
 const ANCHOR_HEIGHT := PITCH / 2.0
+const BELT_HALF_WIDTH := PITCH * 0.55 / 2.0
+const BELT_FRAME_OUTER_HALF_WIDTH := 0.57
+const BELT_OUTER_RADIUS := 0.1425
+const PRESS_WORK_HEIGHT := ANCHOR_HEIGHT + BELT_OUTER_RADIUS
 const WATERWHEEL_RADIUS_HUNDREDTHS := 224
 const WATERWHEEL_AXLE_OFFSET_HUNDREDTHS := 200
 const WATERWHEEL_RADIUS := WATERWHEEL_RADIUS_HUNDREDTHS * HEIGHT_STEP / 100.0
@@ -306,9 +310,10 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 		var direction: int = 2 if delta.z != 0 else (0 if delta.x != 0 else 1)
 		var size := Vector3(0.6, 0.3, 0.6)
 		size[direction] = distance * HEIGHT_STEP + PITCH
+		size[first.axis] = BELT_FRAME_OUTER_HALF_WIDTH * 2.0
 		var basis := Basis.IDENTITY
 		if first.axis == 1:
-			size.y = 0.6
+			size.y = BELT_FRAME_OUTER_HALF_WIDTH * 2.0
 			size[2 if direction == 0 else 0] = 0.3
 		elif direction == 1:
 			size[2 if first.axis == 0 else 0] = 0.3

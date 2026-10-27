@@ -79,7 +79,8 @@ void one_piece_slide_custody() {
           !factory::values::typed_difference(input_ports.back(),
               V(A{V(I{13}), V(I{0}), V(I{8})})) &&
           std::abs(std::get<double>(half[0].storage()) - 0.21) < 1e-8 &&
-          std::abs(std::get<double>(half[1].storage()) - 0.4125) < 1e-8 &&
+          std::abs(std::get<double>(half[1].storage()) - 0.38125) < 1e-8 &&
+          std::abs(std::get<double>(half[2].storage()) - 0.57) < 1e-8 &&
           get<std::string>(V(get<O>(host.projection(), "motion").at(slide_id)), "state") == "unpowered",
           "The placed slide publishes one fixed collision volume and its actual idle drive state.");
     const auto initial_phase = get<O>(host.projection(), "slide_phases").at(slide_id);
@@ -232,7 +233,7 @@ void flat_head_host_custody() {
     const auto low = std::get<double>(center[1].storage()) - std::get<double>(half[1].storage());
     const auto high = std::get<double>(center[1].storage()) + std::get<double>(half[1].storage());
     check(get<std::string>(placed, "component") == "flat_head" &&
-          std::abs(low - 1.03125) < 1e-8 && std::abs(high - 1.44375) < 1e-8 &&
+          std::abs(low - 0.9675) < 1e-8 && std::abs(high - 1.3625) < 1e-8 &&
           std::abs(std::get<double>(half[0].storage()) - 0.14) < 1e-8,
           "The separate die reaches the supported workbed through its bounded sweep.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted"),
@@ -256,7 +257,7 @@ void flat_head_host_custody() {
     const auto fitted_center = get<A>(V(fitted_slide), "center");
     const auto fitted_half = get<A>(V(fitted_slide), "half");
     check(std::abs(std::get<double>(fitted_center[1].storage()) -
-              std::get<double>(fitted_half[1].storage()) - 1.03125) < 1e-8,
+              std::get<double>(fitted_half[1].storage()) - 0.9675) < 1e-8,
           "Fitting the separate head leaves the slide rails clear of adjacent feed parts.");
     const auto saved = host.checkpoint();
     Host restored;
@@ -280,7 +281,7 @@ void flat_head_host_custody() {
     const auto unfitted_center = get<A>(V(unfitted_slide), "center");
     const auto unfitted_half = get<A>(V(unfitted_slide), "half");
     check(std::abs(std::get<double>(unfitted_center[1].storage()) -
-              std::get<double>(unfitted_half[1].storage()) - 1.03125) < 1e-8,
+              std::get<double>(unfitted_half[1].storage()) - 0.9675) < 1e-8,
           "Removing the head preserves the standalone slide's original floor clearance.");
     const auto replaced = restored.command("P", O{{"context", V("flat-head-site")},
         {"client", V("P")}, {"request", V("replace-head")},
@@ -1216,7 +1217,7 @@ void placed_machine_blocks_an_actors_harvest_path() {
           "The actor carries one real shaped slide to the path between tree and worker.");
     const auto placed = host.command("P", wire("place-slide", "place_component",
         {{"component", V("wooden_slide")},
-         {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}}));
+         {"center", V(A{V(I{12}), V(I{1}), V(I{8})})}}));
     check(get<bool>(placed, "accepted"), "The actor installs the slide as a native world component.");
     const auto blocked = host.command("P", cut("P", "tree-behind-slide", "tree-east-south"));
     check(!get<bool>(blocked, "accepted") &&

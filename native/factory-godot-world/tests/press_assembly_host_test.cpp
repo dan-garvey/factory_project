@@ -1,4 +1,5 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
+#include "factory/site_geometry_contract.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -225,7 +226,7 @@ void guided_press_host_path() {
     const auto elevated_faces = vertical_faces(get<O>(elevated.projection(), "placed_components"),
                                                elevated_anvil);
     check(std::abs(elevated_faces.first - 1.65) < 1e-9 &&
-          std::abs(elevated_faces.second - (1.65 + 1.03125)) < 1e-9 &&
+          std::abs(elevated_faces.second - (1.65 + factory::godot_world::site_geometry::press_work_height)) < 1e-9 &&
           get<A>(elevated.projection(), "press_assemblies").empty(),
           "A frame-free anvil seats on an elevated foundation without moving its working face.");
     Host deck;
@@ -238,7 +239,8 @@ void guided_press_host_path() {
     const auto deck_anvil = place(deck, "anvil", 0, 0, 12, "guided-pod-deck-anvil");
     const auto deck_faces = vertical_faces(get<O>(deck.projection(), "placed_components"),
                                            deck_anvil);
-    check(std::abs(deck_faces.first) < 1e-9 && std::abs(deck_faces.second - 1.03125) < 1e-9 &&
+    check(std::abs(deck_faces.first) < 1e-9 &&
+          std::abs(deck_faces.second - factory::godot_world::site_geometry::press_work_height) < 1e-9 &&
           get<A>(deck.projection(), "press_assemblies").empty(),
           "A frame-free anvil seats on the pod's existing deck without changing its crown.");
     const auto anvil = place(host, "anvil", 8, 0, 0, "guided-place-anvil");
@@ -254,9 +256,10 @@ void guided_press_host_path() {
     const auto anvil_box = get<O>(V(placed_work.at(anvil)), "occupied");
     const auto anvil_half = get<A>(V(anvil_box), "half");
     check(std::abs(anvil_faces.first) < 1e-9 &&
-          std::abs(anvil_faces.second - 1.03125) < 1e-9 &&
+          std::abs(anvil_faces.second - factory::godot_world::site_geometry::press_work_height) < 1e-9 &&
           std::abs(std::get<double>(anvil_half[0].storage()) - 0.2025) < 1e-9 &&
-          std::abs(std::get<double>(anvil_half[2].storage()) - 0.36) < 1e-9 &&
+          std::abs(std::get<double>(anvil_half[2].storage()) -
+              factory::godot_world::site_geometry::belt_frame_outer_half_width) < 1e-9 &&
           std::abs(ram_faces.first - anvil_faces.second) < 1e-9,
           "The supported workbed stays in its pick body while the ram reaches its raised face.");
     const auto shaft = place(host, "wooden_shaft", 9, 4, 0, "guided-place-shaft");
@@ -1075,7 +1078,7 @@ void belt_fed_press_projection() {
     check(std::abs(slide_anvil_faces.first - 1.65) < 1e-9 &&
           std::abs(slide_anvil_faces.second - slide_head_faces.first) < 1e-9 &&
           std::abs(slide_body_faces.first - slide_anvil_faces.second) < 1e-9,
-          "The raised head reaches its supported workbed while the lowered rails clear the feed face.");
+          "The belt-height head reaches its supported workbed while the slide feet meet the side rails.");
     const auto slide_assemblies = get<A>(sliding.projection(), "sliding_press_assemblies");
     check(slide_assemblies.size() == 1, "The powered belt neighbor has one fitted sliding press.");
     const auto slide_press = std::get<O>(slide_assemblies.front().storage());

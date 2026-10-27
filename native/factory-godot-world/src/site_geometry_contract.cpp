@@ -36,6 +36,10 @@ std::string gdscript_block() {
     output += "const FOUNDATION_HEIGHT_UNITS := " + std::to_string(foundation_height_units) + "\n";
     output += "const FOUNDATION_DEPTH := FOUNDATION_HEIGHT_UNITS * HEIGHT_STEP\n";
     output += "const ANCHOR_HEIGHT := PITCH / 2.0\n";
+    output += "const BELT_HALF_WIDTH := PITCH * 0.55 / 2.0\n";
+    output += "const BELT_FRAME_OUTER_HALF_WIDTH := " + number(belt_frame_outer_half_width) + "\n";
+    output += "const BELT_OUTER_RADIUS := " + number(belt_outer_radius) + "\n";
+    output += "const PRESS_WORK_HEIGHT := ANCHOR_HEIGHT + BELT_OUTER_RADIUS\n";
     output += "const WATERWHEEL_RADIUS_HUNDREDTHS := " +
         std::to_string(wheel_radius_hundredths) + "\n";
     output += "const WATERWHEEL_AXLE_OFFSET_HUNDREDTHS := " +
