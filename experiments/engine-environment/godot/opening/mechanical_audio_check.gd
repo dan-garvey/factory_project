@@ -59,7 +59,7 @@ func parse_options() -> bool:
 				return refuse_option("Mechanical audio previews cannot follow a directory link.")
 		for kind in ["collector", "belt", "processor", "wheel"]:
 			var target := preview_directory.path_join(kind + ".wav")
-			if FileAccess.file_exists(target) or root_directory.is_link(target):
+			if FileAccess.file_exists(target) or DirAccess.dir_exists_absolute(target) or root_directory.is_link(target):
 				return refuse_option("Refuse to replace an existing mechanical audio preview.")
 	return true
 
