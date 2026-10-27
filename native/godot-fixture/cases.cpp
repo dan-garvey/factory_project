@@ -46,6 +46,12 @@ constexpr std::array channel_resume_values{
     std::string_view{"--native-check-prior="},
     std::string_view{"--native-check-output="},
 };
+constexpr std::array incline_fixed{std::string_view{"--native-check-mode=arrival-nonhorizontal-incline"}};
+constexpr std::array incline_values{
+    std::string_view{"--resume-input="},
+    std::string_view{"--native-check-output="},
+    std::string_view{"--save-slot="},
+};
 constexpr std::array<std::string_view, 0> no_arguments{};
 constexpr std::array endpoint_common_fixed{std::string_view{"--common-frame-only"}};
 constexpr std::array endpoint_inspection_fixed{std::string_view{"--inspection-only"}};
@@ -56,6 +62,8 @@ constexpr std::string_view endpoint_script = "res://opening/native_transmission_
 const std::array cases{
     Case{"arrival-first-plate", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate",
          180, first_plate_fixed, first_plate_values},
+    Case{"arrival-nonhorizontal-incline", script, "CHAPTER 1 PLAYER-BUILT INCLINE PASS",
+         300, incline_fixed, incline_values},
     Case{"arrival-cog-repair", cog_script,
          "CHAPTER 1 COG REPAIR CHECKS COMPLETE",
          300, cog_repair_fixed, cog_values},
