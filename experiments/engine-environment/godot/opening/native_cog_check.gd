@@ -67,6 +67,8 @@ func _gear(center: Array) -> Dictionary:
 	return {"action": "place_gear", "center": center, "axis": "z", "teeth": 4}
 
 func _construct(action: Dictionary) -> Dictionary:
+	if mode == "arrival-cog-resume":
+		return super._construct(action)
 	var center: Array = action.get("center", [])
 	if center.is_empty():
 		center = [action.cell[0] * 4, action.level, action.cell[1] * 4]
@@ -114,10 +116,13 @@ func _save() -> bool:
 
 func _run() -> void:
 	facts.evidence = "native_cog_body_and_store_consumer"
-	if destination.is_empty() or mode not in ["produce", "resume"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["produce", "resume", "arrival-cog-resume",
+			"arrival-cog-finish-resume"] or FileAccess.file_exists(destination):
 		push_error("The native cog consumer needs a fresh output and a declared mode")
 		quit(1)
 		return
+	if mode == "arrival-cog-resume":
+		deadline = Time.get_ticks_msec() + 180000
 	opening = load("res://opening/opening.tscn").instantiate()
 	opening.auto_advance = false
 	root.add_child(opening)
@@ -132,10 +137,181 @@ func _run() -> void:
 		return
 	facts["initial_projection"] = opening.model.projection()
 	facts["initial_native"] = opening.actor_world.diagnostics("P")
-	if mode == "resume":
+	if mode == "arrival-cog-resume":
+		await _arrival_cog_produce()
+	elif mode == "arrival-cog-finish-resume":
+		_arrival_cog_finish_resume()
+	elif mode == "resume":
 		_resume()
 	else:
 		await _produce()
+
+func _arrival_recipe(kind: String, teeth: int = 0) -> bool:
+	var recipes: Array = opening.model.projection().get("part_recipes", [])
+	var index := -1
+	for candidate in range(recipes.size()):
+		if recipes[candidate].get("kind") == kind and int(recipes[candidate].get("teeth", 0)) == teeth:
+			index = candidate
+			break
+	if not _expect(index >= 0, "The ordinary workshop projects the requested finite cog route recipe"):
+		return false
+	return _press_inventory_recipe("part:%d" % index,
+		str(opening.model.projection().fabrication_hub.id))
+
+func _arrival_cog_produce() -> void:
+	facts.evidence = "native_normal_arrival_cog_body_and_store_consumer"
+	var start: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and start.get("first_plate_unlock", false)
+			and start.get("workshop_completed_actors", []).has("P")
+			and int(start.get("part_kits", {}).get("P", {}).get("gear", 0)) == 0,
+		"A real first-plate Store resume opens with P's milestone and no gifted cogwheel kit"):
+		return
+	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 9.9), Vector2(6.0, 10.05)]):
+		return
+	for index in range(6):
+		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
+			return
+	if not await _approach_points([Vector2(6.6, 4.95), Vector2(3.3, 4.95),
+			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return
+	for index in range(3):
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+			return
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
+		return
+	opening.building_hotbar.all_focus_button.pressed.emit()
+	if not _expect(opening.building_hotbar.recipe_focus == "all",
+		"The inventory's All parts control reveals the waterwheel alongside the cogwheels"):
+		return
+	for part in [{"kind": "wheel", "teeth": 0},
+			{"kind": "gear", "teeth": 4}, {"kind": "gear", "teeth": 4}]:
+		if not _arrival_recipe(part.kind, part.teeth):
+			return
+	var crafted: Dictionary = opening.model.projection()
+	var large_gears := 0
+	for specification: Dictionary in crafted.get("part_specifications", {}).get("P", []):
+		if specification.get("kind") == "gear" and int(specification.get("teeth", 0)) == 4:
+			large_gears = int(specification.get("count", 0))
+	if not _expect(large_gears == 2 and int(crafted.part_kits.P.get("wheel", 0)) == 1
+			and int(crafted.cargo.P.get("timber", -1)) == 0
+			and int(crafted.cargo.P.get("raw", -1)) == 0,
+		"Six gathered timber and three copper become one wheel and two separately owned large cogs"):
+		return
+	if not await _approach_points([Vector2(3.3, 3.3), Vector2(0.0, 3.3)]):
+		return
+	var wheel := _construct({"action": "place", "kind": "wheel", "cell": [-2, 2],
+		"axis": "x", "level": 4})
+	if wheel.is_empty() or not await _approach(Vector2(0.0, 4.95)):
+		return
+	var source := _construct({"action": "place_gear", "center": [-4, 4, 8],
+		"axis": "x", "teeth": 4})
+	if source.is_empty() or not await _approach(Vector2(0.0, 6.6)):
+		return
+	var output := _construct({"action": "place_gear", "center": [0, 4, 12],
+		"axis": "z", "teeth": 4})
+	if output.is_empty():
+		return
+	wheel_id = str(wheel.entity)
+	gear_a = str(source.entity)
+	gear_b = str(output.entity)
+	if not _motion(gear_a, 1) or not _motion(gear_b, 1):
+		return
+	var before_remove: Dictionary = opening.model.projection()
+	var before_remove_checkpoint: Dictionary = opening.model.checkpoint()
+	var old_gear_wire: Dictionary = before_remove_checkpoint.world.history.records[-1].intent.wire.duplicate(true)
+	if not _expect(old_gear_wire.get("action") == "place_gear"
+			and old_gear_wire.get("center") == [0, 4, 12],
+		"The running output cog keeps its original native placement request"):
+		return
+	var remove_key := InputEventKey.new()
+	remove_key.keycode = KEY_F
+	remove_key.pressed = true
+	opening._unhandled_input(remove_key)
+	if not _expect(opening.mode == "deconstruct", "F selects the ordinary deconstruction tool during wheel drive"):
+		return
+	opening._world_click(Vector2i(0, 3), gear_b)
+	var removed: Dictionary = opening.model.projection()
+	var remove_history: Array = opening.model.checkpoint().world.history.records
+	if not _expect(int(removed.order) == int(before_remove.order) + 1
+			and not removed.transmission_parts.has(gear_b)
+			and not removed.motion.has(gear_b)
+			and int(removed.part_kits.P.gear) == 1
+			and removed.motion[wheel_id].state == "rotating"
+			and removed.motion[gear_a].state == "rotating"
+			and _same(removed.cargo.P, before_remove.cargo.P)
+			and removed.material_mass.accounted_mass == removed.material_mass.initial_mass
+			and remove_history.size() == before_remove_checkpoint.world.history.records.size() + 1
+			and remove_history[-1].intent.wire.action == "remove"
+			and remove_history[-1].intent.wire.entity == gear_b
+			and remove_history[-1].result.accepted,
+		"One F-click removes the running output cog, refunds its part, and leaves the source and material intact"):
+		return
+	var rebuilt := _construct({"action": "place_gear", "center": [0, 4, 12],
+		"axis": "z", "teeth": 4})
+	if rebuilt.is_empty() or not _motion(str(rebuilt.entity), 1):
+		return
+	var before_retry: Dictionary = opening.model.checkpoint()
+	var old_retry: Dictionary = opening.model.command(old_gear_wire)
+	if not _expect(old_retry.get("accepted", false) and old_retry.get("duplicate", false)
+			and old_retry.get("entity") == gear_b and str(rebuilt.entity) != gear_b
+			and _same(opening.model.checkpoint().world, before_retry.world),
+		"Retrying the earlier placement returns its original receipt without changing the rebuilt line"):
+		return
+	opening.configure_save_slot(destination + ".final.worksite")
+	if not _save():
+		return
+	_record("pass")
+
+func _arrival_cog_finish_resume() -> void:
+	facts.evidence = "native_normal_arrival_cog_saved_line_consumer"
+	var input := ""
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--resume-input="):
+			input = argument.trim_prefix("--resume-input=")
+	var saved = bytes_to_var(FileAccess.get_file_as_bytes(input).slice(
+		"FACTORY-SAVE-1\n".length() + 65))
+	var restored: Dictionary = opening.model.checkpoint()
+	if not _expect(saved is Dictionary and opening.last_load_result.get("accepted", false)
+			and _same(saved, opening.startup_resume_checkpoint)
+			and _same(saved.world, restored.world)
+			and opening.request_sequence == 0,
+		"A fresh scene restores the exact saved native World before making another request"):
+		return
+	var state: Dictionary = opening.model.projection()
+	var old_gear_wire: Dictionary = {}
+	var output_id := ""
+	var source_id := ""
+	for id in state.transmission_parts:
+		var part: Dictionary = state.transmission_parts[id]
+		if part.kind == "gear" and part.center == [0, 4, 12]:
+			output_id = str(id)
+		elif part.kind == "gear" and part.center == [-4, 4, 8]:
+			source_id = str(id)
+	for id in state.entities:
+		if state.entities[id].kind == "wheel":
+			wheel_id = str(id)
+	for record: Dictionary in saved.world.history.records:
+		if record.intent.wire.action == "place_gear" \
+				and record.intent.wire.center == [0, 4, 12] \
+				and record.result.entity != output_id:
+			old_gear_wire = record.intent.wire.duplicate(true)
+	if not _expect(not wheel_id.is_empty() and not source_id.is_empty()
+			and not output_id.is_empty() and not old_gear_wire.is_empty()
+			and int(state.part_kits.P.get("gear", -1)) == 0
+			and state.material_mass.accounted_mass == state.material_mass.initial_mass
+			and state.motion[wheel_id].state == "rotating"
+			and state.motion[source_id].state == "rotating"
+			and state.motion[output_id].state == "rotating",
+		"The reopened worksite retains both individually owned cogs and the running wheel"):
+		return
+	var replay: Dictionary = opening.model.command(old_gear_wire)
+	if not _expect(replay.get("accepted", false) and replay.get("duplicate", false)
+			and replay.get("entity") != output_id
+			and _same(opening.model.checkpoint().world, restored.world),
+		"An old cog placement still replays its old receipt without replacing the saved cog"):
+		return
+	_record("pass")
 
 func _produce() -> void:
 	var original: Dictionary = opening.model.checkpoint().world.state
