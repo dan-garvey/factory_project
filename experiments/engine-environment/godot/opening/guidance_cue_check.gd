@@ -18,8 +18,8 @@ const CAPTURE_SUITES := {
 	"--channel-icon-narrow-screenshot=": "--channel-hotbar-icons-only",
 	"--slide-missing-crank-screenshot=": "--slide-manager-cue-only",
 	"--slide-manager-screenshot=": "--slide-manager-cue-only",
-	"--slide-outlet-cue-screenshot=": "--slide-manager-cue-only",
-	"--slide-outlet-cue-narrow-screenshot=": "--slide-manager-cue-only",
+	"--slide-workbed-cue-screenshot=": "--slide-manager-cue-only",
+	"--slide-workbed-cue-narrow-screenshot=": "--slide-manager-cue-only",
 	"--slide-partial-screenshot=": "--slide-manager-cue-only",
 	"--inventory-goal-screenshot=": "--inventory-goal-only",
 	"--manager-complete-log-screenshot=": "--inventory-goal-only",
@@ -445,6 +445,7 @@ func check_slide_manager_cue() -> void:
 	verify(shared.goal_text.contains("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E.")
 		and shared.manager_log_current.text.ends_with("Open the fitted press [E]. Move copper to the workbed, then point at the crank and hold E."),
 		"The shared worker receives the same ready-slide cue without creating local authority.")
+	view.state.sliding_press_assemblies[0].work_center = [0, 0, 0]
 	view.state.sliding_press_assemblies[0].open_feeds = [
 		{"entry": [-1, 0, 0], "exit": [1, 0, 0]},
 		{"entry": [3, 0, 0], "exit": [2, 0, 0]}]
@@ -453,39 +454,42 @@ func check_slide_manager_cue() -> void:
 	view._refresh_guided_tools()
 	verify(view.goal_text.contains("Move copper to the workbed"),
 		"A plate elsewhere in the world does not replace the press feed cue.")
-	view.state.dropped_material.append({"center": [1, 0, 0], "products": 1})
+	view.state.dropped_material.append({"center": [0, 0, 0], "products": 1, "offcuts": 1})
 	shared.state = view.state.duplicate(true)
 	view._refresh_guided_tools()
 	view._refresh_manager_log()
 	shared._refresh_guided_tools()
 	shared._refresh_manager_log()
-	verify(view.goal_text.contains("Plate at outlet. Open the press [E], then collect it [P].")
-		and view.manager_log_current.text.ends_with("Plate at outlet. Open the press [E], then collect it [P].")
+	verify(view.goal_text.contains("Plate and offcut on the workbed. Aim at the offcuts and press E to collect both.")
+		and view.manager_log_current.text.ends_with("Plate and offcut on the workbed. Aim at the offcuts and press E to collect both.")
 		and shared.goal_text == view.goal_text
 		and shared.manager_log_current.text == view.manager_log_current.text,
-		"Ordinary and shared first-shift cues guide pickup of the confirmed slide outlet plate.")
+		"Ordinary and shared first-shift cues guide direct pickup of the supported plate and offcut.")
 	for argument: String in OS.get_cmdline_user_args():
-		if argument.begins_with("--slide-outlet-cue-screenshot="):
+		if argument.begins_with("--slide-workbed-cue-screenshot="):
 			shared.arrival_gameplay_canvas.visible = false
 			for _frame in range(12):
 				await process_frame
 			verify(root.get_texture().get_image().save_png(
-				argument.trim_prefix("--slide-outlet-cue-screenshot=")) == OK,
-				"Retain the ordinary outlet-pickup cue as passive pixels.")
-		if argument.begins_with("--slide-outlet-cue-narrow-screenshot="):
+				argument.trim_prefix("--slide-workbed-cue-screenshot=")) == OK,
+				"Retain the ordinary workbed-pickup cue as passive pixels.")
+		if argument.begins_with("--slide-workbed-cue-narrow-screenshot="):
 			shared.arrival_gameplay_canvas.visible = false
 			root.size = Vector2i(900, 600)
 			for _frame in range(12):
 				await process_frame
 			verify(root.get_texture().get_image().save_png(
-				argument.trim_prefix("--slide-outlet-cue-narrow-screenshot=")) == OK,
-				"Retain the outlet-pickup cue in the narrow ordinary viewport.")
+				argument.trim_prefix("--slide-workbed-cue-narrow-screenshot=")) == OK,
+				"Retain the workbed-pickup cue in the narrow ordinary viewport.")
 			root.size = Vector2i(1280, 800)
 	view.state.sliding_press_assemblies[0].selected_exit = [2, 0, 0]
 	view._refresh_guided_tools()
-	verify(view.goal_text.contains("Move copper to the workbed"),
-		"The cue follows the native selected exit rather than an occupied alternate route.")
+	verify(view.goal_text.contains("Plate and offcut on the workbed"),
+		"Changing the feed route leaves supported finished work available for pickup.")
 	view.state.dropped_material.clear()
+	view._refresh_guided_tools()
+	verify(view.goal_text.contains("Move copper to the workbed"),
+		"Removing supported work restores the feed and crank cue.")
 	view.state.first_plate_unlock = true
 	view.state.placed_components = {"anvil": {"component": "anvil", "center": [0, 0, 0]},
 		"head": {"component": "flat_head", "center": [0, 1, 0]},
