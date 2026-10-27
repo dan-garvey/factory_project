@@ -4797,7 +4797,8 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		if snapshot_ready:
 			_notice_workshop_completion(workshop_complete)
 		if workshop_complete:
-			next_work = "Open Work log [J] for the collector project, or keep building."
+			next_work = "Open Build [B] for the belt route, or Work log [J] for project notes." if collector_ready else \
+				"Open Work log [J] for the collector project, or keep building."
 		elif sliding_plate_waiting:
 			next_work = "Plate on the workbed. Aim at the offcuts and press [E]."
 		elif sliding_press_ready and ready_slide_has_crank:

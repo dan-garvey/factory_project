@@ -2322,7 +2322,7 @@ func _arrival_hotbar() -> void:
 		and not bar.recipe_buttons.has("component:receiver_tray")
 		and not bar.recipe_buttons.has("foundation"),
 		"Before the first carried plate, the inventory exposes only the four required press recipes.")
-	verify(not bar.collector_focus_button.visible and bar.recipe_tip_label.visible,
+	verify(not bar.project_focus_button.visible and bar.recipe_tip_label.visible,
 		"The post-plate project choices do not crowd the starter build view.")
 	bar.open_catalog()
 	await settle_widgets()
@@ -2376,7 +2376,7 @@ func _arrival_hotbar() -> void:
 	verify(not view.goal_text.contains("timber ·") and not view.goal_text.contains("ore blanks carried")
 		and view.goal_text.contains("Open Work log [J]"),
 		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_text)
-	verify(bar.collector_focus_button.visible and bar.recipe_focus == "collector"
+	verify(bar.project_focus_button.visible and bar.recipe_focus == "project"
 		and bar.recipe_buttons["component:wooden_frame"].visible
 		and bar.recipe_buttons["component:cutting_edge"].visible
 		and bar.recipe_buttons["component:receiver_tray"].visible
@@ -2385,6 +2385,43 @@ func _arrival_hotbar() -> void:
 		and not bar.recipe_buttons["component:anvil"].visible
 		and not bar.recipe_buttons.foundation.visible,
 		"The post-plate Build view offers the collector kit while retaining full native availability.")
+	var postplate_state: Dictionary = view.state.duplicate(true)
+	view.state.collector_assemblies = [{"status": "ready"}]
+	view.state.part_recipes.append({"kind": "belt", "timber": 2, "copper": 0,
+		"teeth": 0, "half_span": 0})
+	view.state.part_recipes.append({"kind": "wheel", "timber": 2, "copper": 1,
+		"teeth": 0, "half_span": 0})
+	view._refresh_ui()
+	verify(bar.recipe_focus_label.text == "BELT ROUTE" and bar.project_focus_button.icon == bar.BELT_ICON
+		and bar.project_focus_button.accessibility_name == "Belt route recipes"
+		and bar.recipe_buttons["component:wooden_shaft"].visible
+		and bar.recipe_buttons["component:wooden_cog"].visible
+		and bar.recipe_buttons["part:1"].visible and bar.recipe_buttons["part:2"].visible
+		and bar.recipe_buttons.foundation.visible
+		and not bar.recipe_buttons["component:wooden_frame"].visible
+		and not bar.recipe_buttons["component:cutting_edge"].visible
+		and view.goal_text.contains("belt route"),
+		"A confirmed working collector suggests the belt route without hiding its support or drive parts.")
+	bar.open_catalog()
+	bar.project_focus_button.grab_focus()
+	await settle_widgets()
+	verify(bar.focus_description.text.contains("connect two shafts")
+		and bar.project_focus_button.tooltip_text.contains("press"),
+		"Pointer and keyboard focus explain the optional belt route in player terms.")
+	bar.all_focus_button.pressed.emit()
+	verify(bar.recipe_buttons["component:flat_head"].visible
+		and bar.recipe_buttons["component:wooden_frame"].visible,
+		"The belt suggestion leaves all native-unlocked recipes reachable.")
+	bar.project_focus_button.pressed.emit()
+	bar.catalog.hide()
+	view.client = "Q"
+	view._refresh_ui()
+	verify(not bar.project_focus_button.visible and bar.recipe_buttons["component:anvil"].visible
+		and not bar.recipe_buttons["component:wooden_cog"].visible,
+		"A peer without a carried plate keeps the starter recipes despite the shared working collector.")
+	view.client = "P"
+	view.state = postplate_state
+	view._refresh_ui()
 	view.state.part_kits.P.gear = 2
 	view.state.part_specifications.P = [
 		{"kind": "gear", "count": 1, "teeth": 2, "half_span": 0},
@@ -2723,7 +2760,7 @@ func _render_arrival_hotbar() -> void:
 	verify(bar.recipe_buttons.has("component:wooden_frame") and
 		bar.recipe_buttons.has("component:anvil") and bar.recipe_buttons.has("part:0"),
 		"The item inventory presents field and bench recipes beside carried stock.")
-	verify(bar.recipe_focus == "collector" and bar.recipe_buttons["component:wooden_frame"].visible
+	verify(bar.recipe_focus == "project" and bar.recipe_buttons["component:wooden_frame"].visible
 		and not bar.recipe_buttons["component:anvil"].visible,
 		"The first post-plate catalog shows a collector-sized recipe group.")
 	bar.all_focus_button.pressed.emit()
@@ -2775,12 +2812,36 @@ func _render_arrival_hotbar() -> void:
 	root.size = Vector2i(900, 600)
 	bar._close_catalog()
 	await settle_widgets()
-	bar.collector_focus_button.pressed.emit()
+	bar.project_focus_button.pressed.emit()
 	bar.open_catalog()
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-project-narrow.png") == OK,
 		"Retain the project recipe group in a narrow actor viewport.")
+	root.size = Vector2i(1280, 800)
+	bar._close_catalog()
+	view.state.collector_assemblies = [{"status": "ready"}]
+	view.state.part_recipes.append({"kind": "belt", "timber": 2, "copper": 0,
+		"teeth": 0, "half_span": 0})
+	view.state.part_recipes.append({"kind": "wheel", "timber": 2, "copper": 1,
+		"teeth": 0, "half_span": 0})
+	view._refresh_ui()
+	bar.open_catalog()
+	await settle_widgets()
+	verify(bar.recipe_focus_label.text == "BELT ROUTE"
+		and bar.recipe_buttons["part:3"].visible and bar.recipe_buttons["part:4"].visible,
+		"The rendered post-collector recipe group includes the belt and its power source.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-belt-route.png") == OK,
+		"Retain the belt-route group at the normal actor viewport size.")
+	root.size = Vector2i(900, 600)
+	await settle_widgets()
+	bar._place_catalog()
+	await RenderingServer.frame_post_draw
+	verify(bar.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+		Rect2(Vector2(bar.catalog.position), Vector2(bar.catalog.size)))
+		and root.get_texture().get_image().save_png(prefix + "-belt-route-narrow.png") == OK,
+		"Retain the belt-route group inside the narrow actor viewport.")
 	root.size = Vector2i(640, 480)
 	bar._close_catalog()
 	await settle_widgets()
@@ -3832,7 +3893,7 @@ func _field_craft_widget() -> void:
 	view._build_interface()
 	var inventory = view.building_hotbar
 	inventory.open_catalog()
-	verify(inventory.recipe_focus == "collector"
+	verify(inventory.recipe_focus == "project"
 		and inventory.recipe_buttons["component:wooden_frame"].visible
 		and not inventory.recipe_buttons["component:flat_head"].visible,
 		"Post-plate Build opens on a small next project instead of every advanced part.")

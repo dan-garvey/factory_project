@@ -1,6 +1,7 @@
 extends SceneTree
 ## Automated headless consumer of the ordinary scene, not a desktop playtest.
 const NativeModel = preload("res://opening/native_model.gd")
+const Store = preload("res://save-tests/checkpoint_file.gd")
 const OpeningGeometry = preload("res://opening/site_geometry.gd")
 const OpeningScene = preload("res://opening/opening.gd")
 const ConstructionAudio = preload("res://opening/construction_audio.gd")
@@ -3895,8 +3896,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and inventory.material_counts.products.text == "1",
 				"The exact formed plate enters the full carried inventory and reveals advanced recipes"):
 			return
-		if not _expect(inventory.recipe_focus == "collector"
-				and inventory.collector_focus_button.visible
+		if not _expect(inventory.recipe_focus == "project"
+				and inventory.project_focus_button.visible
 				and inventory.recipe_buttons["component:wooden_frame"].visible
 				and inventory.recipe_buttons["component:receiver_tray"].visible
 				and not inventory.recipe_buttons["component:anvil"].visible,
@@ -3913,8 +3914,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and inventory.recipe_buttons["foundation"].visible,
 			"All parts reveals the complete native-unlocked recipe list"):
 			return
-		inventory.collector_focus_button.pressed.emit()
-		inventory.collector_focus_button.grab_focus()
+		inventory.project_focus_button.pressed.emit()
+		inventory.project_focus_button.grab_focus()
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			if not _expect(root.get_texture().get_image().save_png(
@@ -3933,7 +3934,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				capture_prefix + "-unlocked-catalog-narrow.png")
 			var narrow_visible: bool = inventory.catalog.visible
 			if not _expect(narrow_visible
-					and inventory.recipe_focus == "collector"
+					and inventory.recipe_focus == "project"
 					and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(narrow_rect)
 					and narrow_capture == OK,
 					"The ordinary collector recipes fit the narrow actor viewport: " +
@@ -3956,7 +3957,155 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
 			"The three-part unfinished worksite retains exact finite custody and a valid native checkpoint"):
 		return
+	if mode == "arrival-first-plate" and not await _postplate_belt_project_run(capture_prefix):
+		return
 	_record("pass")
+
+func _postplate_belt_project_run(capture_prefix: String) -> bool:
+	# The earlier save remains the first-plate continuation. Build a collector
+	# afterward so the suggested next project reads an actual native assembly.
+	var before_project: Dictionary = opening.model.projection()
+	for harvest in [
+		{"point": Vector2(6.0, 3.45), "source": "tree-east-south", "cuts": 3},
+		{"point": Vector2(6.0, 11.55), "source": "tree-east-north", "cuts": 7},
+		{"point": Vector2(-0.5, 0.0), "source": "opening-copper", "cuts": 1},
+	]:
+		var reached := false
+		if harvest.source == "opening-copper":
+			reached = await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 3.3),
+				Vector2(0.0, 1.65), harvest.point])
+		else:
+			reached = await _approach(harvest.point)
+		if not reached:
+			return false
+		for index in range(harvest.cuts):
+			if _construct({"action": "harvest_source", "target": harvest.source}).is_empty():
+				return false
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(4.95, 3.3),
+			Vector2(4.95, 6.6)]):
+		return false
+	opening.building_hotbar.all_focus_button.pressed.emit()
+	if not _expect(opening._can_choose_tool(),
+			"The plate owner's Build controls are available after the saved first workshop: " +
+			str({"pause": opening.pause_menu.visible, "log": opening.manager_log_open,
+				"explanation": opening.explanation_open, "catalog": opening.building_hotbar.catalog.visible,
+				"actor": opening.state.get("actors", {}).get("P", {})})):
+		return false
+	var hub: String = str(opening.model.projection().fabrication_hub.id)
+	for recipe in ["foundation", "component:wooden_frame", "component:tool_mount",
+			"component:cutting_edge", "component:receiver_tray", "component:wooden_shaft"]:
+		var before_craft: Dictionary = opening.model.projection()
+		if not _press_inventory_recipe(recipe, hub):
+			return false
+		var after_craft: Dictionary = opening.model.projection()
+		if not _expect(after_craft.order == before_craft.order + 1 and not opening.status_refused,
+				"The ordinary bench crafts one native " + recipe + ": " + str({
+					"before": before_craft.order, "after": after_craft.order,
+					"context": opening.building_hotbar.context_bench,
+					"focus": opening.building_hotbar.focus_description.text,
+					"status": opening.status_label.text})):
+			return false
+	var prepared: Dictionary = opening.model.projection()
+	if not _expect(prepared.part_kits.P.foundation == before_project.part_kits.P.foundation + 1
+			and ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"].all(
+				func(kind: String) -> bool: return int(prepared.cargo.P.components.get(kind, 0)) == \
+					int(before_project.cargo.P.components.get(kind, 0)) + 1),
+			"Finite local stock becomes exactly one foundation and the five collector components: " +
+			str({"before_foundation": before_project.part_kits.P.foundation,
+				"after_foundation": prepared.part_kits.P.foundation,
+				"before_components": before_project.cargo.P.components,
+				"after_components": prepared.cargo.P.components})):
+		return false
+	if not await _approach(Vector2(0.7, 3.3)):
+		return false
+	if _construct({"action": "place_foundation", "cell": [0, 1], "level": 4}).is_empty():
+		return false
+	for component in [
+		{"kind": "wooden_frame", "center": [0, 4, 4]},
+		{"kind": "tool_mount", "center": [-1, 4, 4]},
+		{"kind": "cutting_edge", "center": [-2, 4, 4]},
+		{"kind": "receiver_tray", "center": [0, 4, 3]},
+		{"kind": "wooden_shaft", "center": [1, 4, 4]},
+	]:
+		if _construct({"action": "place_component", "component": component.kind,
+				"center": component.center}).is_empty():
+			return false
+	var built: Dictionary = opening.model.projection()
+	if not _expect(built.collector_assemblies.any(func(item: Variant) -> bool:
+			return item is Dictionary and item.get("status") == "ready")
+			and built.workshop_completed_actors.has("P") and built.cargo.P.products == 1,
+			"The original plate owner has a native ready collector without consuming the first plate"):
+		return false
+	var inventory = opening.building_hotbar
+	inventory.project_focus_button.pressed.emit()
+	inventory.open_catalog()
+	if not _expect(inventory.recipe_focus == "project"
+			and inventory.recipe_focus_label.text == "BELT ROUTE"
+			and inventory.project_focus_button.icon == inventory.BELT_ICON
+			and inventory.recipe_buttons.foundation.visible
+			and inventory.recipe_buttons["component:wooden_cog"].visible
+			and not inventory.recipe_buttons["component:wooden_frame"].visible
+			and opening.goal_text.contains("belt route"),
+			"A physical first-plate worker sees a belt-route group after building the collector"):
+		return false
+	var belt_recipe := -1
+	for index in built.part_recipes.size():
+		if built.part_recipes[index].kind == "belt":
+			belt_recipe = index
+			break
+	if not _expect(belt_recipe >= 0 and inventory.recipe_buttons["part:%d" % belt_recipe].visible,
+			"The next suggested group includes the native belt-span recipe"):
+		return false
+	inventory.project_focus_button.grab_focus()
+	await process_frame
+	if not _expect(inventory.focus_description.text.contains("connect two shafts")
+			and inventory.project_focus_button.accessibility_name == "Belt route recipes",
+			"The real post-collector project gives keyboard focus a readable belt objective"):
+		return false
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(
+				capture_prefix + "-postcollector-build.png") == OK,
+				"Retain the native post-collector Build window at normal actor size"):
+			return false
+		var original_size: Vector2i = root.size
+		root.size = Vector2i(900, 600)
+		for frame in range(3):
+			await process_frame
+		inventory._place_catalog()
+		await RenderingServer.frame_post_draw
+		if not _expect(inventory.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
+				and root.get_texture().get_image().save_png(
+					capture_prefix + "-postcollector-build-narrow.png") == OK,
+				"Retain the native belt-route Build group inside the narrow actor viewport"):
+			return false
+		root.size = original_size
+		await process_frame
+	inventory.all_focus_button.pressed.emit()
+	if not _expect(inventory.recipe_buttons["component:anvil"].visible
+			and inventory.recipe_buttons["component:wooden_frame"].visible,
+			"All parts still exposes both the old press and another collector"):
+		return false
+	inventory._close_catalog()
+	# A resize while the popup was visible can leave its deferred layout
+	# coroutine waiting for one more frame; let it finish before scene teardown.
+	await process_frame
+	await process_frame
+	opening.configure_save_slot(destination + ".postcollector.worksite")
+	var saved: Dictionary = opening._save_worksite()
+	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false),
+			"The built collector and first plate retain native custody in a separate save"):
+		return false
+	var reopened := NativeModel.new(opening.model.context, ["P"], true)
+	var readback: Dictionary = Store.read_into(reopened, opening.save_slot)
+	var restored: Dictionary = reopened.projection()
+	return _expect(readback.get("accepted", false) and restored.cargo == built.cargo
+		and restored.placed_components == built.placed_components
+		and restored.workshop_completed_actors.has("P")
+		and restored.collector_assemblies.any(func(item: Variant) -> bool:
+			return item is Dictionary and item.get("status") == "ready"),
+		"A fresh native model reads the saved plate owner and ready collector without changing custody")
 
 func _arrival_mature_tree_run(capture_prefix: String) -> void:
 	var surface = load("res://opening/site_surface.gd")
