@@ -46,7 +46,6 @@ public:
     [[nodiscard]] values::Value restore_checkpoint(const values::Value&);
 
 private:
-    [[nodiscard]] values::Value::Object tick_fields(const world::Snapshot&) const;
     [[nodiscard]] bool settle_manual_cuts(const std::optional<std::string>& observed_actor = std::nullopt);
     [[nodiscard]] values::Value initialize_site(const std::string& context,
                                                const std::vector<std::string>& actors,
