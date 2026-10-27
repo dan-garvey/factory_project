@@ -59,6 +59,7 @@ int main() {
         const auto* vertical = fixture::find_case("arrival-nonhorizontal-vertical-resume");
         const auto* sideways = fixture::find_case("arrival-nonhorizontal-sideways-resume");
         const auto* power_reopen = fixture::find_case("arrival-nonhorizontal-power-reopen-resume");
+        const auto* actor_block = fixture::find_case("arrival-nonhorizontal-actor-block-resume");
         const auto* cog_repair = fixture::find_case("arrival-cog-repair");
         const auto* cog_reopen = fixture::find_case("arrival-cog-reopen");
         const auto* raised_starter = fixture::find_case("arrival-raised-starter-snap");
@@ -69,12 +70,12 @@ int main() {
         const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
         const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
         const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
-        check(fixture::registered_cases().size() == 15 && first && incline && vertical && sideways && power_reopen && cog_repair && cog_reopen &&
+        check(fixture::registered_cases().size() == 16 && first && incline && vertical && sideways && power_reopen && actor_block && cog_repair && cog_reopen &&
                   raised_starter && raised_press &&
                   small && resumed && endpoint_default && endpoint_common && endpoint_inspection &&
                   endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),
-              "Only the eleven scene routes and four endpoint modes are registered.");
+              "Only the twelve scene routes and four endpoint modes are registered.");
         const std::vector<std::string> incline_args{
             "--native-check-mode=arrival-nonhorizontal-incline",
             "--resume-input=/tmp/first-plate.worksite", "--native-check-output=/tmp/incline.result",
@@ -105,6 +106,13 @@ int main() {
                           "--resume-input=/tmp/power.worksite", "--native-check-output=/tmp/reopen.result",
                           "--save-slot=/tmp/reopen.worksite"}),
               "A fresh scene can reopen either paid power route without a fixture shortcut.");
+        check(actor_block->script == first->script && actor_block->seconds == 180 &&
+                  actor_block->pass_line == "CHAPTER 1 BELT ACTOR OBSTRUCTION PASS" &&
+                  fixture::accepts_case_arguments(*actor_block,
+                      std::vector<std::string>{"--native-check-mode=arrival-nonhorizontal-actor-block-resume",
+                          "--resume-input=/tmp/sideways.worksite", "--native-check-output=/tmp/block.result",
+                          "--save-slot=/tmp/recovered.worksite"}),
+              "The physical belt obstruction route requires a paid sideways save and fresh outputs.");
         check(cog_repair->script == "res://opening/native_cog_check.gd" &&
                   cog_reopen->script == cog_repair->script &&
                   cog_repair->seconds == 300 && cog_reopen->seconds == 180 &&
