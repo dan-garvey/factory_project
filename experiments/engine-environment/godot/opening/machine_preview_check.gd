@@ -2,6 +2,9 @@ extends SceneTree
 ## Presentation controls with invented observations. No authority or desktop.
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
+const MODES := ["--variant-assemblies-only", "--assemblies-only",
+	"--transmission-previews-only", "--selection-cursor-only",
+	"--foundation-heights-only", "--bake-packed-previews", "--bake-preview-variants"]
 
 class PointerView extends Opening:
 	var pointer_clear := true
@@ -723,7 +726,18 @@ func check_transmission_previews(view, shared: bool) -> void:
 	view.free()
 
 func _initialize() -> void:
-	call_deferred("_run")
+	var selected_mode := ""
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--test-purpose="):
+			continue
+		if not MODES.has(argument) or not selected_mode.is_empty():
+			push_error("Unknown, repeated or conflicting machine preview fixture argument")
+			quit(2)
+			return
+		selected_mode = argument
+	if not Opening.apply_test_window_title(self):
+		return
+	call_deferred("_run", selected_mode)
 
 func _own_packed_preview(node: Node, root_node: Node) -> void:
 	for child in node.get_children():
@@ -845,26 +859,26 @@ func _bake_preview_variants() -> void:
 		"total_bytes": total_bytes, "failures": failures}))
 	quit(0 if failures.is_empty() else 1)
 
-func _run() -> void:
-	if OS.get_cmdline_user_args().has("--variant-assemblies-only"):
+func _run(selected_mode: String) -> void:
+	if selected_mode == "--variant-assemblies-only":
 		check_variant_assemblies()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 			"variant_cases": variant_cases, "observations": "invented", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
-	if OS.get_cmdline_user_args().has("--bake-packed-previews"):
+	if selected_mode == "--bake-packed-previews":
 		_bake_packed_previews()
 		return
-	if OS.get_cmdline_user_args().has("--bake-preview-variants"):
+	if selected_mode == "--bake-preview-variants":
 		_bake_preview_variants()
 		return
-	if OS.get_cmdline_user_args().has("--assemblies-only"):
+	if selected_mode == "--assemblies-only":
 		check_assemblies()
 		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
 			"assembly_cases": assembly_cases, "observations": "invented", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
-	if OS.get_cmdline_user_args().has("--transmission-previews-only"):
+	if selected_mode == "--transmission-previews-only":
 		check_pointer_bounds()
 		check_transmission_previews(PointerView.new(), false)
 		var transmission_shared := SharedPointerView.new()
@@ -874,7 +888,7 @@ func _run() -> void:
 			"observations": "invented", "desktop": "not_used", "mode": "transmission_previews"}))
 		quit(1 if failed else 0)
 		return
-	if OS.get_cmdline_user_args().has("--selection-cursor-only"):
+	if selected_mode == "--selection-cursor-only":
 		check_inspection_cursor(PointerView.new())
 		var cursor_shared := SharedPointerView.new()
 		cursor_shared.session = SessionStub.new()
@@ -884,7 +898,7 @@ func _run() -> void:
 			"observations": "invented", "desktop": "not_used", "mode": "selection_cursor"}))
 		quit(1 if failed else 0)
 		return
-	if OS.get_cmdline_user_args().has("--foundation-heights-only"):
+	if selected_mode == "--foundation-heights-only":
 		check_foundation_heights(PointerView.new())
 		var floor_shared := SharedPointerView.new()
 		floor_shared.session = SessionStub.new()

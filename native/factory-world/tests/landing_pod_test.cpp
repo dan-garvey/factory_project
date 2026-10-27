@@ -1016,6 +1016,105 @@ void first_plate_gate_admits_only_starter_parts() {
           w::World::restore("first-plate-gate", profile, world->snapshot()) != nullptr,
           "All early refusals retain finite stock and restore through the native history.");
 }
+
+void sized_cog_recipes_keep_finite_actor_custody() {
+    auto [profile, state] = seed();
+    profile.material.timber_sites = {{"cog-tree", {{8, 0, 20}, 8}}};
+    profile.material.manual_ore = m::OreSite{"cog-ore", {-3, 0, 0}};
+    state.material.timber_remaining = {{"cog-tree", 8}};
+    profile.fabrication_parts = {{{s::Role::gear, 2, 0}, {1, 1}},
+                                 {{s::Role::gear, 4, 0}, {2, 1}}};
+    auto world = w::World::create("sized-cogs", profile, state);
+    check(world != nullptr, "A pod workshop accepts two finite cogwheel sizes as native recipes.");
+    const auto near_tree = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {8, 0, 20}, 1, true, 10};
+    };
+    const auto near_ore = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {-3, 0, 0}, 1, true, 10};
+    };
+    const auto near_hub = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {8, 0, 16}, 1, true, 10};
+    };
+    for (int index = 0; index < 3; ++index) {
+        const O cut{{"context", V("sized-cogs")}, {"client", V("P-client")},
+            {"request", V("cog-tree-" + std::to_string(index))}, {"actor", V("P")},
+            {"action", V("harvest_source")}, {"target", V("cog-tree")}};
+        const auto result = w::tests::complete_manual_cut(*world, {"P", "P-client"}, cut, near_tree);
+        check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
+              "Each cogwheel timber input is gathered from a finite source.");
+    }
+    for (int index = 0; index < 2; ++index) {
+        const O cut{{"context", V("sized-cogs")}, {"client", V("P-client")},
+            {"request", V("cog-ore-" + std::to_string(index))}, {"actor", V("P")},
+            {"action", V("harvest_source")}, {"target", V("cog-ore")}};
+        const auto result = w::tests::complete_manual_cut(*world, {"P", "P-client"}, cut, near_ore);
+        check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
+              "Each cogwheel copper input is gathered from the finite deposit.");
+    }
+    const auto craft = [](const std::string& request, I teeth, const std::string& actor) {
+        return O{{"context", V("sized-cogs")}, {"client", V(actor + "-client")},
+            {"request", V(request)}, {"actor", V(actor)}, {"action", V("craft_part")},
+            {"target", V("pod-fabrication-hub")}, {"generation", V(I{1})},
+            {"role", V("gear")}, {"teeth", V(teeth)}, {"half_span", V(I{0})}};
+    };
+    auto unsized = craft("unsized-cog", 2, "P");
+    unsized.erase("teeth");
+    const auto before_refusals = world->snapshot();
+    const auto missing_size = world->command({"P", "P-client"}, unsized, near_hub);
+    auto fractional = craft("fractional-cog", 2, "P");
+    fractional.at("teeth") = V(2.5);
+    const auto fractional_size = world->command({"P", "P-client"}, fractional, near_hub);
+    check(missing_size.completed() && fractional_size.completed() &&
+          std::get<std::string>(missing_size.result->at("reason").storage()) == "invalid_command" &&
+          std::get<std::string>(fractional_size.result->at("reason").storage()) == "invalid_command" &&
+          world->snapshot().state == before_refusals.state,
+          "A missing or fractional tooth count cannot select a gear or spend any stock.");
+    const auto without_stock = world->command({"Q", "Q-client"}, craft("q-cog", 2, "Q"), near_hub);
+    check(without_stock.completed() && !std::get<bool>(without_stock.result->at("accepted").storage()) &&
+          std::get<std::string>(without_stock.result->at("reason").storage()) == "unavailable_input",
+          "A second actor cannot spend P's gathered materials at the same bench.");
+    for (const I teeth : {I{2}, I{4}}) {
+        const auto made = world->command({"P", "P-client"},
+            craft("make-cog-" + std::to_string(teeth), teeth, "P"), near_hub);
+        check(made.completed() && std::get<bool>(made.result->at("accepted").storage()) &&
+              world->snapshot().state.kits.at("P").at({s::Role::gear, teeth, 0}) == 1,
+              "Each selected cog size mints exactly one distinct native carried part.");
+    }
+    const auto saved = world->snapshot();
+    check(saved.state.material.cargo.at("P").timber == 0 &&
+          saved.state.material.cargo.at("P").raw_units == 0 &&
+          saved.state.material.fabricated_timber == 3 &&
+          saved.state.material.fabricated_raw == 2 &&
+          w::World::restore("sized-cogs", profile, saved) != nullptr,
+          "Both gear sizes, material bills and actor custody survive native restoration.");
+    const auto encoded = w::encode_checkpoint(profile, saved);
+    check(std::holds_alternative<V>(encoded),
+          "A workshop with two crafted cog sizes produces a native checkpoint.");
+    const auto reopened = w::decode_checkpoint(profile, "sized-cogs", std::get<V>(encoded));
+    check(std::holds_alternative<w::Snapshot>(reopened) &&
+          std::get<w::Snapshot>(reopened).state == saved.state &&
+          std::get<w::Snapshot>(reopened).history.order == saved.history.order,
+          "An encoded save reopens both cog sizes without minting or losing actor stock.");
+    auto forged = saved;
+    ++forged.state.kits.at("P").at({s::Role::gear, 2, 0});
+    check(w::World::restore("sized-cogs", profile, forged) == nullptr,
+          "A saved cog count cannot be increased without a matching native craft transaction.");
+    const auto duplicate = world->command({"P", "P-client"}, craft("make-cog-2", 2, "P"), near_hub);
+    check(duplicate.completed() && std::get<bool>(duplicate.result->at("duplicate").storage()) &&
+          world->snapshot().state == saved.state,
+          "Retrying an issued cog recipe cannot mint another part or spend ingredients twice.");
+    auto gated_profile = profile;
+    gated_profile.first_plate_unlock = true;
+    auto gated = w::World::create("sized-cogs-gated", gated_profile, state);
+    check(gated != nullptr, "The two cog recipes can be present in a staged first-plate arrival.");
+    auto early_cog = craft("before-first-plate", 2, "P");
+    early_cog.at("context") = V("sized-cogs-gated");
+    const auto early = gated->command({"P", "P-client"}, early_cog, near_hub);
+    check(early.completed() && !std::get<bool>(early.result->at("accepted").storage()) &&
+          std::get<std::string>(early.result->at("reason").storage()) == "first_plate_required" &&
+          gated->snapshot().state == state,
+          "Cogwheel fabrication stays locked until the player carries a first plate.");
+}
 }  // namespace
 
 int main() {
@@ -1032,6 +1131,7 @@ int main() {
         portable_bench_crafts_with_finite_shared_stock();
         powered_slide_ticks_and_restores();
         first_plate_gate_admits_only_starter_parts();
+        sized_cog_recipes_keep_finite_actor_custody();
         std::cout << "landing_pod_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

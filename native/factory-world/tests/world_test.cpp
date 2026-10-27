@@ -266,6 +266,40 @@ void authentication_reach_and_replay() {
           "The first unknown endpoint retains its refusal priority and changes no topology.");
 }
 
+void direct_relay_placement_shape() {
+    auto f = fixture();
+    const s::PartSpec relay{s::Role::chain_drive, 0, 0};
+    f.profile.finite_parts[relay] = 1;
+    f.state.kits.at("P")[relay] = 1;
+    auto owner = world(f);
+    Observer observer;
+    auto command = place("direct-relay", "chain_drive", 20, 12);
+    command.emplace("relay_axis", V("x"));
+    const auto before = owner->snapshot();
+    auto extra = command;
+    extra.at("request") = V("direct-relay-extra");
+    extra.emplace("unrecognized", V(true));
+    outcome(send(*owner, extra, observer), false, "invalid_command");
+    auto wrong_axis = command;
+    wrong_axis.at("request") = V("direct-relay-bad-axis");
+    wrong_axis.at("relay_axis") = V(I{1});
+    outcome(send(*owner, wrong_axis, observer), false, "invalid_part");
+    auto connected = command;
+    connected.at("request") = V("direct-relay-connected");
+    connected.at("action") = V("place_connected");
+    outcome(send(*owner, connected, observer), false, "invalid_part");
+    check(observer.calls == 0 && owner->snapshot().state == before.state &&
+          owner->snapshot().revision == before.revision,
+          "Malformed direct relay requests retain shape-versus-part refusals without changing native state.");
+    outcome(send(*owner, command, observer), true, "ok");
+    const auto placed = owner->snapshot();
+    const auto& kit = placed.state.kits.at("P");
+    const auto remaining = kit.find(relay);
+    check((remaining == kit.end() || remaining->second == 0) &&
+          w::World::restore("fixture-world", f.profile, placed) != nullptr,
+          "A direct relay placement spends its finite kit once and replays after malformed attempts.");
+}
+
 void running_removal_rebuild_and_tick() {
     auto f = fixture();
     f.state.material.stock = {14, 0, 0, 0, 1};
@@ -564,6 +598,7 @@ int main() {
     try {
         startup_and_complete_validation();
         authentication_reach_and_replay();
+        direct_relay_placement_shape();
         running_removal_rebuild_and_tick();
         preserve_work_through_recovery_and_rebuild();
         completed_processor_exports_to_output_belt();

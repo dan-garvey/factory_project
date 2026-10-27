@@ -31,6 +31,7 @@ inline Schema schema(Action action) {
         Field{"entity", "target", Type::string},
         Field{"", "generation", Type::integer},
         Field{"role", "role", Type::string},
+        Field{"teeth", "teeth", Type::integer, true},
         Field{"half_span", "half_span", Type::integer},
     };
     static constexpr std::array stow_hub{
@@ -62,8 +63,15 @@ inline Action parse(std::string_view name) {
     return Action::none;
 }
 
+inline bool sized_part(const Object& command, Action action) {
+    if (action != Action::part) return true;
+    const auto found = command.find("role");
+    return found != command.end() &&
+        std::holds_alternative<std::string>(found->second.storage()) &&
+        (std::get<std::string>(found->second.storage()) == "gear") == command.contains("teeth");
+}
 inline bool valid_wire(const Object& wire, Action action) {
-    return command_contract::valid_wire(wire, schema(action));
+    return command_contract::valid_wire(wire, schema(action)) && sized_part(wire, action);
 }
 // Host has historically reported a present malformed deploy center as
 // invalid_center after checking the other wire fields.
@@ -74,10 +82,11 @@ inline bool valid_hub_wire_before_geometry(const Object& wire, Action action) {
     return command_contract::valid(wire, schema(action), false, center);
 }
 inline bool valid_intent(const Object& intent, Action action) {
-    return command_contract::valid_intent(intent, schema(action));
+    return command_contract::valid_intent(intent, schema(action)) && sized_part(intent, action);
 }
 inline bool historical_wire(const Object& wire, const Object& intent, Action action) {
-    return command_contract::historical_wire(wire, intent, schema(action));
+    return valid_wire(wire, action) && valid_intent(intent, action) &&
+        command_contract::historical_wire(wire, intent, schema(action));
 }
 
 } // namespace factory::fabrication_commands

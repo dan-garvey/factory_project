@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/machine_placement_contract.hpp"
 #include "factory/projection_contract.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
@@ -7,6 +8,7 @@
 #include <iostream>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -70,6 +72,29 @@ V alter_wire(const V& saved, const std::string& request_id, const std::string& k
     return V(std::move(root));
 }
 
+V alter_saved_action(const V& saved, const std::string& request_id, const char* action) {
+    auto root = std::get<O>(saved.storage());
+    auto world = field<O>(saved, "world");
+    auto history = field<O>(V(world), "history");
+    auto records = field<A>(V(history), "records");
+    bool found = false;
+    for (auto& value : records) {
+        auto record = std::get<O>(value.storage());
+        auto intent = field<O>(value, "intent");
+        if (field<std::string>(V(intent), "request") != request_id) continue;
+        intent.at("action") = V(action);
+        record.at("intent") = V(std::move(intent));
+        value = V(std::move(record));
+        found = true;
+        break;
+    }
+    check(found, "The mutation must alter an existing normalized placement action.");
+    history.at("records") = V(std::move(records));
+    world.at("history") = V(std::move(history));
+    root.at("world") = V(std::move(world));
+    return V(std::move(root));
+}
+
 void historical_translation() {
     Host host;
     A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
@@ -90,6 +115,8 @@ void historical_translation() {
         auto wire = request("place", id);
         wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(x), V(z)})); wire.emplace("axis", V(axis_name));
         wire.emplace("level", V(level));
+        if (std::string_view(kind) == "collector") wire.emplace("rotation", V(I{0}));
+        if (std::string_view(kind) == "wheel") wire.emplace("tiles", V(I{3}));
         const auto reply = host.command("P", wire);
         check(accepted(reply), (std::string("The starter placement succeeds: ") + kind + ", " + field<std::string>(reply, "reason")).c_str());
         return field<std::string>(reply, "entity");
@@ -163,6 +190,38 @@ void historical_translation() {
         check(!accepted(reply) && field<std::string>(reply, "reason") == "invalid_command",
               "Malformed target and material-port requests refuse with the original command reason.");
     }
+    const auto bad_place = [&](const char* id, const char* kind) {
+        auto wire = request("place", id);
+        wire.emplace("kind", V(kind)); wire.emplace("cell", V(A{V(I{0}), V(I{1})}));
+        wire.emplace("axis", V("z")); wire.emplace("level", V(I{4}));
+        return wire;
+    };
+    const auto place_refuses = [&](O wire, const char* reason) {
+        const auto reply = host.command("P", wire);
+        check(!accepted(reply) && field<std::string>(reply, "reason") == reason,
+              (std::string("Malformed machine placement must refuse as ") + reason).c_str());
+    };
+    auto wrong_optional = bad_place("wrong-optional", "wheel");
+    wrong_optional.emplace("rotation", V(I{0}));
+    place_refuses(wrong_optional, "invalid_command");
+    auto wrong_axis = bad_place("wrong-axis", "collector");
+    wrong_axis.at("axis") = V(I{1}); wrong_axis.emplace("rotation", V(I{4}));
+    place_refuses(wrong_axis, "invalid_axis");
+    auto wrong_rotation = bad_place("wrong-rotation", "collector");
+    wrong_rotation.emplace("rotation", V(I{4})); wrong_rotation.at("cell") = V(false);
+    place_refuses(wrong_rotation, "invalid_rotation");
+    auto wrong_cell = bad_place("wrong-cell", "unknown");
+    wrong_cell.at("cell") = V(A{V(I{250001}), V(I{0})});
+    place_refuses(wrong_cell, "invalid_cell");
+    auto unknown_kind = bad_place("unknown-kind", "unknown");
+    unknown_kind.at("level") = V(I{5});
+    place_refuses(unknown_kind, "unknown_kind");
+    auto unaligned = bad_place("unaligned", "collector");
+    unaligned.at("level") = V(I{5});
+    place_refuses(unaligned, "unaligned_elevation");
+    auto bad_wheel = bad_place("bad-wheel", "wheel");
+    bad_wheel.emplace("tiles", V(false));
+    place_refuses(bad_wheel, "invalid_wheel_size");
     check(field<I>(before_targets, "revision") == field<I>(host.projection(), "revision") &&
           !factory::values::typed_difference(V(before_target_state),
               V(field<O>(V(field<O>(host.checkpoint(), "world")), "state"))),
@@ -178,6 +237,35 @@ void historical_translation() {
     check(!accepted(host.command("P", malformed)), "An intentionally malformed adapter refusal is retained.");
     const auto saved = host.checkpoint();
     check(accepted(host.validate_checkpoint(saved)), "Removed historical targets and malformed refusals remain valid.");
+    {
+        const auto world = field<O>(saved, "world");
+        const auto history = field<O>(V(world), "history");
+        const auto records = field<A>(V(history), "records");
+        int placements = 0;
+        for (const auto& record : records) {
+            const auto intent = field<O>(record, "intent");
+            const auto id = field<std::string>(V(intent), "request");
+            if (id != "wheel" && id != "collector" && id != "press") continue;
+            const auto wire = field<O>(V(intent), "wire");
+            const auto action = field<std::string>(V(intent), "action");
+            check(factory::machine_placement::historical_wire(wire, intent, action),
+                  "An actual saved machine placement keeps its original Host translation.");
+            auto forged = intent;
+            const auto wrong = action == "place" ? "place_connected" : "place";
+            forged.at("action") = V(wrong);
+            check(!factory::machine_placement::historical_wire(wire, forged, wrong),
+                  "A saved machine wire cannot claim the other normalized placement action.");
+            ++placements;
+        }
+        check(placements == 3, "The saved line exercises wheel, collector and press actions.");
+    }
+    for (const auto& [id, wrong] : {std::pair{"wheel", "place_connected"},
+                                    std::pair{"collector", "place"},
+                                    std::pair{"press", "place"}}) {
+        const auto reply = host.validate_checkpoint(alter_saved_action(saved, id, wrong));
+        check(!accepted(reply) && !factory::values::typed_difference(saved, host.checkpoint()),
+              "A forged normalized machine action refuses without changing the live Host.");
+    }
     const auto reject = [&](const char* id, const char* key, V value) {
         const auto changed = alter_wire(saved, id, key, std::move(value));
         const auto reply = host.validate_checkpoint(changed);
@@ -194,6 +282,8 @@ void historical_translation() {
     reject("span", "from", V(collector));
     reject("collector", "cell", V(A{V(I{0}), V(I{0})}));
     reject("collector", "kind", V("belt"));
+    reject("collector", "rotation", V(I{1}));
+    reject("wheel", "tiles", V(I{6}));
     reject("input-cog", "teeth", V(I{1}));
     reject("first-shaft", "half_span", V(I{3}));
     Host fresh;

@@ -2,11 +2,12 @@
 
 `factory-godot-fixture` runs one headless project script through the existing
 native build-support supervisor. Generic runs supply `--script` and
-`--pass-line`; the registered Chapter 1 cases below supply both and their
-deadline through `--case`. It requires the pinned Godot executable, an
-exact complete PASS line, exit zero, and a retained log without `SCRIPT ERROR:`,
-`ERROR:`, parse/compile errors, or failed script loads. A partial PASS count is
-insufficient. The supervisor retains combined output in a fresh bounded log and
+`--pass-line`; registered Chapter 1 and transmission endpoint cases below
+supply both and their deadline through `--case`. It requires the pinned Godot
+executable, one exact complete success line, exit zero, and a retained log
+without `SCRIPT ERROR:`, `ERROR:`, parse/compile errors, or failed script
+loads. A partial result is insufficient. The supervisor retains combined output
+in a fresh bounded log and
 keeps its existing process cleanup and resource checks. This command is an
 opt-in focused fixture entry point, not another commit or landing gate.
 `--list-cases` prints every registered name, script, completion line, timeout
@@ -40,6 +41,51 @@ arguments. `--render-buildable-resources` may combine its declared
 `--wheel-foot-seats-only`. Unknown, duplicate, conflicting or orphan options
 exit 2 before any case runs. Existing suite-specific completion and exit
 contracts remain; resource renders are isolated passive evidence.
+
+`machine_preview_check.gd` runs the full invented-observation preview suite
+with no user arguments, or exactly one of `--variant-assemblies-only`,
+`--assemblies-only`, `--transmission-previews-only`,
+`--selection-cursor-only` and `--foundation-heights-only`. Each check mode
+and the default emit a JSON `status` and `checks` count; require `status: pass`
+and exit zero for the selected mode. `--bake-packed-previews` and
+`--bake-preview-variants` are separate source asset-writing operations; they
+emit `PACKED_MACHINE_PREVIEWS` or `PACKED_PREVIEW_VARIANTS`, respectively, and
+exit nonzero if a save fails. Use them only in a source checkout where those
+generated assets are intended. Unknown, repeated, conflicting, empty and
+orphan options exit 2 before either checks or asset writes begin. The check
+results are scripted presentation evidence, not native gameplay or human play.
+
+`native_transmission_endpoint_check.gd` runs its full detached shaft, pointer
+and guidance suite with no user arguments. Select exactly one of
+`--common-frame-only` for shared placement-frame barriers,
+`--inspection-only` for synthetic inspection guidance, or
+`--terrain-host-only` for terrain-cleared pointer requests through the native
+Host. Each mode emits JSON with `status`, `checks`, `failures` and an
+`evidence` label; require `status: pass`, a positive check count, zero failures
+and exit zero for the selected mode. The terrain Host mode needs the captured
+native library. Unknown, repeated, conflicting, malformed and orphan arguments
+exit 2 before any suite begins. These headless checks do not assess rendered
+quality or human play.
+
+The four named runner cases select these modes without a manually supplied
+completion line. Their exact JSON receipts include the check count, zero
+failures, evidence label and `status: pass`; a different count or a partial
+result fails the runner. The counts below match the current fixture revision:
+
+| `--case` selection | Godot arguments | Required checks | Native library |
+| --- | --- | ---: | --- |
+| `transmission-endpoint-default` | None | 316 | No |
+| `transmission-endpoint-common-frame` | `--common-frame-only` | 3 | No |
+| `transmission-endpoint-inspection` | `--inspection-only` | 40 | No |
+| `transmission-endpoint-terrain-host` | `--terrain-host-only` | 48 | Yes |
+
+Use `--case NAME` in place of generic `--script` and `--pass-line`, and put
+the listed Godot argument after `--`. For the default case, omit `--` and user
+arguments. The terrain Host case needs the source-matched native extension in
+the captured project. Import project resources before running any case;
+missing imported assets or native library are setup failures, not fixture passes.
+When the fixture's checks change, update its named receipt and rerun that case
+before publishing the new source.
 
 `native_transmission_view_check.gd` runs its default transmission suite with
 no user arguments or exactly one direct `--...-only` mode. The supported

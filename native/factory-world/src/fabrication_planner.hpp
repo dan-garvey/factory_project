@@ -15,6 +15,7 @@ struct FabricationCommand {
     std::string recipe_name;
     authority::Integer half_span{};
     std::optional<mechanics::Point> center;
+    authority::Integer teeth{};
 };
 
 // World admits shape, progression and pending-actor rules before this planner.
