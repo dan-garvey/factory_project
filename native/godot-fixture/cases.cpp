@@ -28,6 +28,13 @@ constexpr std::array channel_resume_fixed{
     std::string_view{"--event-route-loose"},
 };
 constexpr std::array first_plate_values{std::string_view{"--native-check-output="}};
+constexpr std::array cog_repair_fixed{std::string_view{"--native-check-mode=arrival-cog-resume"}};
+constexpr std::array cog_reopen_fixed{std::string_view{"--native-check-mode=arrival-cog-finish-resume"}};
+constexpr std::array cog_values{
+    std::string_view{"--resume-input="},
+    std::string_view{"--native-check-output="},
+    std::string_view{"--save-slot="},
+};
 constexpr std::array channel_small_values{
     std::string_view{"--resume-input="},
     std::string_view{"--save-slot="},
@@ -44,10 +51,17 @@ constexpr std::array endpoint_common_fixed{std::string_view{"--common-frame-only
 constexpr std::array endpoint_inspection_fixed{std::string_view{"--inspection-only"}};
 constexpr std::array endpoint_terrain_fixed{std::string_view{"--terrain-host-only"}};
 constexpr std::string_view script = "res://opening/native_adapter_check.gd";
+constexpr std::string_view cog_script = "res://opening/native_cog_check.gd";
 constexpr std::string_view endpoint_script = "res://opening/native_transmission_endpoint_check.gd";
 const std::array cases{
     Case{"arrival-first-plate", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate",
          180, first_plate_fixed, first_plate_values},
+    Case{"arrival-cog-repair", cog_script,
+         "CHAPTER 1 COG REPAIR CHECKS COMPLETE",
+         300, cog_repair_fixed, cog_values},
+    Case{"arrival-cog-reopen", cog_script,
+         "CHAPTER 1 COG REOPEN CHECKS COMPLETE",
+         180, cog_reopen_fixed, cog_values},
     Case{"arrival-raised-starter-snap", script,
          "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-starter-snap",
          180, raised_starter_fixed, first_plate_values},
