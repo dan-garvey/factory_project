@@ -172,13 +172,13 @@ func _arrival_cog_produce() -> void:
 	for index in range(6):
 		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
 			return
-	if not await _approach_points([Vector2(6.6, 4.95), Vector2(3.3, 4.95),
+	if not await _approach_points([Vector2(6.6, 4.95), Vector2(4.1, 4.95),
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for index in range(3):
 		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
-	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
+	if not await _approach_points([Vector2(0.0, 1.65), Vector2(4.1, 4.95)]):
 		return
 	opening.building_hotbar.all_focus_button.pressed.emit()
 	if not _expect(opening.building_hotbar.recipe_focus == "all",
