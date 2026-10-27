@@ -1,5 +1,6 @@
 #include "factory/godot_world.hpp"
 #include "build_catalog_projection.hpp"
+#include "drive_projection.hpp"
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
 #include "arrival_configuration.hpp"
@@ -2419,7 +2420,6 @@ Value Host::projection() const {
     const auto& state = snapshot.state;
     const auto support_layout = transmission_supports(state, &owned_->support_routes);
     Object entities, transmissions, actors, foundations;
-    Array links, drive_links, engagements;
     for (const auto& part : state.topology.parts) {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
             {"center", Value(Array{Value(part.geometry.center[0]), Value(part.geometry.center[1]), Value(part.geometry.center[2])})},
@@ -2456,46 +2456,8 @@ Value Host::projection() const {
             entities.emplace(part.geometry.id, Value(std::move(projected)));
         }
     }
-    for (const auto& link : state.topology.material_links) links.emplace_back(Array{Value(link.from.id), Value(link.to.id)});
     const auto power = world::drive_power(profile_, state);
-    Object motions;
-    for (const auto& [id, motion] : power.mechanical.motion) {
-        Object projected{{"state", Value(mechanics::motion_state_name(motion.state))},
-            {"numerator", Value(motion.rate.numerator)}, {"denominator", Value(motion.rate.denominator)}};
-        const auto load = power.load.find(id);
-        if (load != power.load.end()) {
-            projected.emplace("capacity", Value(load->second.capacity));
-            projected.emplace("impact", Value(load->second.impact));
-            projected.emplace("overloaded", Value(load->second.overloaded));
-            if (load->second.overloaded) {
-                projected.emplace("limiting_part", Value(load->second.limiting_part));
-                if (!load->second.limiting_part.empty()) {
-                    const auto found = state.placed_components.find(load->second.limiting_part);
-                    if (found != state.placed_components.end())
-                        projected.emplace("limiting_kind", Value(materials::component_name(found->second.kind)));
-                }
-                projected.emplace("remedy", Value(load->second.limiting_part.empty() ?
-                    "add_power_or_reduce_load" : "replace_with_copper_or_split_load"));
-            }
-        }
-        motions.emplace(id, Value(std::move(projected)));
-    }
-    for (const auto& edge : power.mechanical.engagements) engagements.emplace_back(Object{
-        {"a", Value(edge.a)}, {"b", Value(edge.b)}, {"kind", Value(static_cast<Integer>(edge.kind))}});
-    for (const auto& shaft : state.topology.parts) {
-        if (shaft.role != Role::shaft) continue;
-        Array ends;
-        const auto axis = static_cast<std::size_t>(shaft.geometry.axis);
-        for (const auto& part : state.topology.parts) {
-            if (part.role == Role::shaft || part.role == Role::gear || part.geometry.axis != shaft.geometry.axis) continue;
-            bool aligned = true;
-            for (std::size_t index = 0; index < 3; ++index)
-                if (index != axis && part.geometry.center[index] != shaft.geometry.center[index]) aligned = false;
-            if (aligned && std::abs(part.geometry.center[axis] - shaft.geometry.center[axis]) == shaft.geometry.half_span)
-                ends.emplace_back(part.geometry.id);
-        }
-        if (ends.size() == 2) drive_links.emplace_back(std::move(ends));
-    }
+    auto drive = drive_projection::fields(state, power);
     for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
         {"position", point_value(sample.position)}, {"capabilities", Value(Object{
             {"build_reach", Value(profile_.build_reach)},
@@ -2513,9 +2475,9 @@ Value Host::projection() const {
     Object projection{{"context", Value(snapshot.history.context)},
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
         {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(entities))},
-        {"transmission_parts", Value(std::move(transmissions))}, {"links", Value(std::move(links))},
-        {"drive_links", Value(std::move(drive_links))}, {"engagements", Value(std::move(engagements))},
-        {"motion", Value(std::move(motions))}, {"actors", Value(std::move(actors))},
+        {"transmission_parts", Value(std::move(transmissions))}, {"links", Value(std::move(drive.links))},
+        {"drive_links", Value(std::move(drive.drive_links))}, {"engagements", Value(std::move(drive.engagements))},
+        {"motion", Value(std::move(drive.motion))}, {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(foundations))},
         {"source_deposit", Value(Object{{"id", Value(profile_.material.manual_ore ?
             profile_.material.manual_ore->id : std::string{})},
