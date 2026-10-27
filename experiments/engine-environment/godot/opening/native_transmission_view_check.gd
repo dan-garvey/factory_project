@@ -2790,8 +2790,8 @@ func _press_belt_connector_view() -> void:
 		and connector.get_meta("belt_span") == "inlet"
 		and absf(pan_bounds.end.y - Geometry.PRESS_WORK_HEIGHT) < 0.0002
 		and absf(pan_bounds.size.z - Geometry.BELT_HALF_WIDTH * 2.0) < 0.0002
-		and absf(pan_bounds.position.x + Geometry.PITCH - Geometry.BELT_OUTER_RADIUS) < 0.0002
-		and absf(pan_bounds.end.x + 0.17) < 0.0002,
+		and absf(pan_bounds.position.x + Geometry.PITCH - Geometry.BELT_OUTER_RADIUS - 0.015) < 0.0002
+		and absf(pan_bounds.end.x + 0.205) < 0.0002,
 		"A confirmed belt mouth has a belt-width pan tangent to the floor-seated workbed and pulley top.")
 	presenter.free()
 	state.placed_components.blocker = {"center": [-2, 0, 0]}

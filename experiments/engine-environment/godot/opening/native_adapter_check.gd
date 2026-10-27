@@ -379,6 +379,27 @@ func _capture_press_context_side(path: String, target: Vector3) -> bool:
 	context.queue_free()
 	return captured
 
+func _capture_press_standing_approach(path: String, workface: Vector3) -> bool:
+	var context := SubViewport.new()
+	context.size = Vector2i(1280, 800)
+	context.world_3d = root.world_3d
+	context.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(context)
+	var camera := Camera3D.new()
+	context.add_child(camera)
+	# The neighboring raised foundation supports this eye-height viewpoint.
+	# It reveals the working surface, head, slide feet and separate belt fitting.
+	camera.fov = 64.0
+	camera.position = workface + Vector3(1.45, 0.55, 0.60)
+	camera.look_at(workface + Vector3(0.25, 0.05, 0))
+	camera.make_current()
+	for frame in range(3):
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var captured: bool = context.get_texture().get_image().save_png(path) == OK
+	context.queue_free()
+	return captured
+
 func _capture_actor_area(path: String, target: Vector3) -> bool:
 	var prior_distance: float = opening.distance
 	var prior_yaw: float = opening.orbit_yaw
@@ -2695,8 +2716,10 @@ func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictio
 		if not _expect(await _capture_actor_area(capture_prefix + "-raised-belt-actor.png",
 				Vector3(5.9, 2.55, 6.6))
 			and await _capture_press_context_side(capture_prefix + "-raised-belt-side.png",
-				Vector3(6.0, 2.2, 6.6)),
-			"Retain the complete raised workbed, transfer fitting, belt and neighboring foundations"):
+				Vector3(6.0, 2.2, 6.6))
+			and await _capture_press_standing_approach(capture_prefix + "-raised-belt-standing.png",
+				Vector3(4.95, 2.6175, 6.6)),
+			"Retain the raised workbed and belt from the side and standing-height approach"):
 			return false
 	return true
 

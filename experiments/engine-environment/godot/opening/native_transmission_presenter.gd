@@ -2115,8 +2115,9 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 			var shaft: Variant = parts.get(part_id)
 			if shaft is Dictionary and shaft.get("center") is Array and shaft.center.size() == 3:
 				endpoints[shaft.center] = span_id
-	var connector_finish: Material = Finish.material("cast", Color("455759"), 0.66, 0.48)
-	var edge_finish: Material = Finish.material("worked", Color("a6b4af"), 0.82, 0.36)
+	var connector_finish: Material = Finish.material("cast", Color("293b3d"), 0.66, 0.48)
+	var edge_finish: Material = Finish.material("worked", Color("8b9b97"), 0.82, 0.36)
+	var joint_finish: Material = Finish.material("worked", Color("bdc7bd"), 0.82, 0.36)
 	for press: Variant in presses:
 		if not press is Dictionary or press.get("status") != "ready" \
 				or not press.get("work_center") is Array or not press.get("open_feeds") is Array:
@@ -2151,8 +2152,10 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 				if not clear:
 					continue
 				var direction := Vector3(float(dx), 0, 0)
-				var start: Vector3 = world_center(work) + direction * 0.17
-				var finish: Vector3 = world_center(mouth) - direction * Geometry.BELT_OUTER_RADIUS
+				# Leave visible end joints at the workbed and belt. This is a
+				# separate open transfer trough, not an extension of either casting.
+				var start: Vector3 = world_center(work) + direction * 0.205
+				var finish: Vector3 = world_center(mouth) - direction * (Geometry.BELT_OUTER_RADIUS + 0.015)
 				var length: float = start.distance_to(finish)
 				var connector := Node3D.new()
 				connector.name = "PressBeltConnector"
@@ -2161,14 +2164,24 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 				connector.position = (start + finish) * 0.5
 				connector.rotation.y = atan2(direction.x, direction.z)
 				add_child(connector)
-				# The pan and workbed share exactly the belt's upper tangent.
+				# The trough, workbed and belt share the same upper tangent. A
+				# darker thin bed, light folded rails and paired end plates keep
+				# the three independently built surfaces visually distinct.
 				_support_box(connector, "TransferPan", Vector3(0,
-					Geometry.BELT_OUTER_RADIUS - 0.0175, 0),
-					Vector3(Geometry.BELT_HALF_WIDTH * 2.0, 0.035, length), connector_finish, true)
+					Geometry.BELT_OUTER_RADIUS - 0.009, 0),
+					Vector3(Geometry.BELT_HALF_WIDTH * 2.0, 0.018, length), connector_finish, true)
 				for rail_side in [-1.0, 1.0]:
 					_support_box(connector, "TransferSideRailN" if rail_side < 0 else "TransferSideRailP",
-						Vector3(rail_side * 0.515, Geometry.BELT_OUTER_RADIUS - 0.025, 0),
-						Vector3(0.10, 0.05, length), edge_finish, true)
+						Vector3(rail_side * 0.49, Geometry.BELT_OUTER_RADIUS - 0.02, 0),
+						Vector3(0.055, 0.04, length), edge_finish, true)
+					for end_side in [-1.0, 1.0]:
+						_support_box(connector, "TransferJoint", Vector3(rail_side * 0.49,
+							Geometry.BELT_OUTER_RADIUS - 0.02, end_side * (length * 0.5 - 0.04)),
+							Vector3(0.072, 0.052, 0.08), joint_finish, true)
+				for end_side in [-1.0, 1.0]:
+					_support_box(connector, "TransferEndBrace", Vector3(0,
+						Geometry.BELT_OUTER_RADIUS - 0.042, end_side * (length * 0.5 - 0.035)),
+						Vector3(0.84, 0.045, 0.07), edge_finish, true)
 
 func _add_loose_pickers(node: Node3D, drop: Dictionary, context: String) -> void:
 	# Match the visible item, including its offset on a workbed and sheet rotation.
