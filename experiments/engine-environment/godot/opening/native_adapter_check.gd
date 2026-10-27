@@ -1137,6 +1137,11 @@ func _run() -> void:
 	_record("pass")
 
 func _walk_to(target: Vector2, jump: bool = false, actor: String = "P") -> bool:
+	# This fixture drives the trusted motor directly. The ordinary keyboard
+	# presenter otherwise sends its idle direction in the same physics frame,
+	# making the walk depend on the render and physics callback order.
+	var presenter_was_processing: bool = opening.character_presenter.is_physics_processing()
+	opening.character_presenter.set_physics_process(false)
 	var jumped := false
 	var highest_foot := -INF
 	var leg_deadline := mini(deadline, Time.get_ticks_msec() + 45000)
@@ -1147,17 +1152,20 @@ func _walk_to(target: Vector2, jump: bool = false, actor: String = "P") -> bool:
 		var gap := target - Vector2(at.x, at.z)
 		if gap.length() < 0.08:
 			opening.actor_world.release_control(actor)
+			opening.character_presenter.set_physics_process(presenter_was_processing)
 			if jump:
 				facts["foundation_jump"] = {"edge_sent": jumped, "highest_foot": highest_foot}
 			return true
 		var jump_edge: bool = jump and not jumped and gap.length() < 1.2 and body.is_on_floor()
 		if not _expect(opening.actor_world.set_control(actor, gap.normalized(), jump_edge).accepted,
 				"The fixture walks through the real character motor without setting a pose"):
+			opening.character_presenter.set_physics_process(presenter_was_processing)
 			return false
 		jumped = jumped or jump_edge
 		await physics_frame
 		await process_frame
 	opening.actor_world.release_control(actor)
+	opening.character_presenter.set_physics_process(presenter_was_processing)
 	var stopped_at: Vector3 = opening.actor_world.bodies[actor].global_position
 	var contacts: Array[String] = []
 	for index in opening.actor_world.bodies[actor].get_slide_collision_count():
@@ -1570,9 +1578,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	var span: Dictionary = _construct({"action": "place_belt_span", "from": inlet, "to": far})
 	if span.is_empty():
 		return
-	# Follow the open southward aisle before turning east to the collector
-	# foundation; a diagonal from the belt cuts across scene collision.
-	if not await _approach_points([Vector2(0.0, 3.3), Vector2(0.7, 3.3)]):
+	if not await _approach(Vector2(0.7, 3.3)):
 		return
 	if _construct({"action": "place_foundation", "cell": [0, 1], "level": 4}).is_empty():
 		return
@@ -1597,11 +1603,10 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		if collector.get("status") == "ready":
 			drive = str(collector.parts.mount)
 			break
-	# Walk around the east side of the fitted collector. The direct first east
-	# step meets installed collision; the open southern detour keeps the actor
-	# on real floor and both inputs within build reach at the wheel.
-	if not await _approach_points([Vector2(0.7, 4.95), Vector2(1.65, 4.95),
-			Vector2(1.65, 0.2), Vector2(0.2, 0.55)]):
+	# Walk around the east side of the fitted collector. Its frame closes the
+	# direct path from the receiver aisle to the wheel, while both inputs stay
+	# within the same physical actor's build reach from the south approach.
+	if not await _approach_points([Vector2(1.1, 3.3), Vector2(1.1, 0.2), Vector2(0.2, 0.55)]):
 		return
 	if _construct({"action": "remove", "entity": wheel.entity}).is_empty():
 		return
