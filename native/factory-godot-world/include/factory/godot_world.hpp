@@ -2,6 +2,7 @@
 
 #include "factory/checkpoint.hpp"
 #include "factory/physical_support.hpp"
+#include "factory/terrain_surface.hpp"
 
 #include <cstddef>
 #include <map>
@@ -76,10 +77,7 @@ private:
                                         const authority::Point& half_extents) const;
 
     world::Profile profile_;
-    std::vector<double> terrain_axis_, terrain_heights_;
-    std::vector<std::pair<authority::Point, authority::Point>> terrain_obstacles_;
-    std::optional<std::size_t> source_obstacle_index_;
-    std::map<std::size_t, std::string> tree_obstacle_sources_;
+    terrain_surface::Surface terrain_;
     [[nodiscard]] bool clear_harvest_path(const world::State& state, const std::string& source,
         const authority::Point& actor, const authority::Point& contact) const;
     [[nodiscard]] values::Value::Object harvest_clearances(const world::State& state,

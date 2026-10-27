@@ -253,111 +253,19 @@ Value Host::initialize_site(const std::string& context, const std::vector<std::s
 }
 
 Value Host::configure_terrain(const Object& input) {
-    if (!owned_ || owned_->native_started || !terrain_axis_.empty()) return result(false, "terrain_already_bound");
-    const auto* axis = field<Array>(input, "axis");
-    const auto* heights = field<Array>(input, "heights");
-    const auto* obstacles = field<Array>(input, "obstacles");
-    const auto* source_obstacle = field<Integer>(input, "source_obstacle");
-    const auto* tree_obstacles = field<Object>(input, "tree_obstacles");
-    const auto* water = field<Array>(input, "water");
-    const auto* flow_cells = field<Array>(input, "flow_cells");
-    if (input.size() != (water || flow_cells ? 4u : 3u) + (source_obstacle ? 1u : 0u) +
-        (tree_obstacles ? 1u : 0u) || (water && flow_cells) ||
-        !axis || !heights || !obstacles || obstacles->size() > 1024 || axis->size() < 2 || axis->size() > 200 ||
-        heights->size() != axis->size() * axis->size()) return result(false, "invalid_terrain");
-    std::vector<double> coordinates, elevations;
-    std::vector<std::pair<authority::Point, authority::Point>> solids;
-    for (const auto& value : *axis) {
-        const auto* number = std::get_if<double>(&value.storage());
-        if (!number || !std::isfinite(*number) || std::abs(*number) > 1000000 ||
-            (!coordinates.empty() && coordinates.back() >= *number)) return result(false, "invalid_terrain");
-        coordinates.push_back(*number);
-    }
-    for (const auto& value : *heights) {
-        const auto* number = std::get_if<double>(&value.storage());
-        if (!number || !std::isfinite(*number) || std::abs(*number) > 1000000) return result(false, "invalid_terrain");
-        elevations.push_back(*number);
-    }
-    for (const auto& value : *obstacles) {
-        const auto* ends = std::get_if<Array>(&value.storage());
-        if (!ends || ends->size() != 2) return result(false, "invalid_terrain");
-        const auto* low_array = std::get_if<Array>(&ends->at(0).storage());
-        const auto* high_array = std::get_if<Array>(&ends->at(1).storage());
-        const auto low = low_array ? point(*low_array) : std::nullopt;
-        const auto high = high_array ? point(*high_array) : std::nullopt;
-        if (!low || !high) return result(false, "invalid_terrain");
-        for (std::size_t axis = 0; axis < 3; ++axis)
-            if ((*low)[axis] >= (*high)[axis]) return result(false, "invalid_terrain");
-        solids.emplace_back(*low, *high);
-    }
-    if (input.contains("source_obstacle") && (!source_obstacle || *source_obstacle < 0 ||
-        static_cast<std::size_t>(*source_obstacle) >= solids.size())) return result(false, "invalid_terrain");
-    if (source_obstacle) {
-        const auto& [low, high] = solids[static_cast<std::size_t>(*source_obstacle)];
-        const Bounds source{{(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, (low[2] + high[2]) / 2},
-                            {(high[0] - low[0]) / 2, (high[1] - low[1]) / 2, (high[2] - low[2]) / 2}};
-        if (!overlap(source, *collector_intake_bounds({0, 0, 0})) ||
-            !overlap(source, *collector_intake_bounds({0, 0, 4}))) return result(false, "invalid_terrain");
-    }
-    std::map<std::size_t, std::string> named_trees;
-    if (tree_obstacles) for (const auto& [id, value] : *tree_obstacles) {
-        const auto* index = std::get_if<Integer>(&value.storage());
-        if (!index || *index < 0 || static_cast<std::size_t>(*index) >= solids.size() ||
-            (source_obstacle && *index == *source_obstacle) ||
-            !profile_.material.timber_sites.contains(id) ||
-            named_trees.contains(static_cast<std::size_t>(*index)))
-            return result(false, "invalid_terrain");
-        named_trees.emplace(static_cast<std::size_t>(*index), id);
-    }
-    auto next_profile = profile_;
-    if (source_obstacle && next_profile.material.manual_ore)
-        next_profile.manual_ore_contact_bounds = solids[static_cast<std::size_t>(*source_obstacle)];
-    if (flow_cells) {
-        if (flow_cells->empty() || flow_cells->size() > 65536) return result(false, "invalid_water");
-        std::vector<waterflow::Cell> cells;
-        cells.reserve(flow_cells->size());
-        for (const auto& value : *flow_cells) {
-            const auto* row = std::get_if<Array>(&value.storage());
-            if (!row || row->size() != 3) return result(false, "invalid_water");
-            const auto* x = std::get_if<Integer>(&row->at(0).storage());
-            const auto* z = std::get_if<Integer>(&row->at(1).storage());
-            const auto* surface = std::get_if<Integer>(&row->at(2).storage());
-            if (!x || !z || !surface) return result(false, "invalid_water");
-            cells.push_back({*x, *z, *surface});
-        }
-        const auto derived = waterflow::derive({coordinates, elevations, height_step}, cells);
-        if (!derived) return result(false, "invalid_water");
-        next_profile.water = *derived;
-    }
-    if (water) {
-        if (water->empty() || water->size() > 65536) return result(false, "invalid_water");
-        for (const auto& value : *water) {
-            const auto* row = std::get_if<Array>(&value.storage());
-            if (!row || row->size() != 6) return result(false, "invalid_water");
-            std::array<Integer, 6> fields{};
-            for (std::size_t i = 0; i < fields.size(); ++i) {
-                const auto* number = std::get_if<Integer>(&row->at(i).storage());
-                if (!number) return result(false, "invalid_water");
-                fields[i] = *number;
-            }
-            if (!next_profile.water.emplace(std::array<Integer, 2>{fields[0], fields[1]},
-                    waterwheel::Sample{fields[2], fields[3], fields[4], fields[5]}).second)
-                return result(false, "invalid_water");
-        }
-    }
-    if (water || flow_cells || (source_obstacle && next_profile.material.manual_ore)) {
+    if (!owned_ || owned_->native_started || terrain_.bound()) return result(false, "terrain_already_bound");
+    auto parsed = terrain_surface::parse(input, profile_);
+    if (!parsed.binding) return result(false, parsed.refusal);
+    auto& binding = *parsed.binding;
+    if (binding.replace_world) {
         const auto snapshot = owned_->world->snapshot();
         if (snapshot.revision != 0 || snapshot.history.order != 0) return result(false, "terrain_already_bound");
-        auto replacement = world::World::create(snapshot.history.context, next_profile, snapshot.state);
+        auto replacement = world::World::create(snapshot.history.context, binding.profile, snapshot.state);
         if (!replacement) return result(false, "invalid_water");
         owned_->world = std::move(replacement);
-        profile_ = std::move(next_profile);
+        profile_ = std::move(binding.profile);
     }
-    terrain_axis_ = std::move(coordinates);
-    terrain_heights_ = std::move(elevations);
-    terrain_obstacles_ = std::move(solids);
-    source_obstacle_index_ = source_obstacle ? std::optional<std::size_t>{static_cast<std::size_t>(*source_obstacle)} : std::nullopt;
-    tree_obstacle_sources_ = std::move(named_trees);
+    terrain_ = std::move(binding.surface);
     return result(true, "terrain_bound");
 }
 
@@ -383,13 +291,13 @@ bool Host::clear_harvest_path(const world::State& state, const std::string& sour
         }
         return entry <= exit && entry < 1.0 - 1e-6 && exit > 1e-6;
     };
-    for (std::size_t index = 0; index < terrain_obstacles_.size(); ++index) {
-        if (source_obstacle_index_ == index && profile_.material.manual_ore &&
+    for (std::size_t index = 0; index < terrain_.obstacles.size(); ++index) {
+        if (terrain_.source_obstacle == index && profile_.material.manual_ore &&
             profile_.material.manual_ore->id == source) continue;
-        if (const auto tree = tree_obstacle_sources_.find(index);
-            tree != tree_obstacle_sources_.end() &&
+        if (const auto tree = terrain_.tree_obstacles.find(index);
+            tree != terrain_.tree_obstacles.end() &&
             (tree->second == source || state.material.timber_remaining.at(tree->second) == 0)) continue;
-        const auto& [low, high] = terrain_obstacles_[index];
+        const auto& [low, high] = terrain_.obstacles[index];
         if (intersects(low, high)) return false;
     }
     const auto blocked_volume = [&](const Bounds& bounds) {
@@ -433,15 +341,7 @@ Object Host::harvest_clearances(const world::State& state, const Actor& actor) c
 
 bool Host::site_blocked(const authority::Point& low, const authority::Point& high,
         std::optional<std::size_t> ignored) const {
-    for (std::size_t index = 0; index < terrain_obstacles_.size(); ++index) {
-        if (ignored == index) continue;
-        const auto& obstacle = terrain_obstacles_[index];
-        bool overlaps = true;
-        for (std::size_t axis = 0; axis < 3; ++axis)
-            if (high[axis] <= obstacle.first[axis] || low[axis] >= obstacle.second[axis]) overlaps = false;
-        if (overlaps) return true;
-    }
-    return false;
+    return terrain_.blocked(low, high, ignored);
 }
 
 const char* Host::wheel_site_refusal(const mechanics::Point& center, mechanics::Axis axis, Integer tiles) const {
@@ -486,44 +386,7 @@ const char* Host::wheel_site_refusal(const mechanics::Point& center, mechanics::
 }
 
 std::optional<std::pair<double, double>> Host::terrain_range(double x, double z, double half_x, double half_z) const {
-    if (terrain_axis_.empty()) return std::nullopt;
-    const double left = x - half_x, right = x + half_x;
-    const double near = z - half_z, far = z + half_z;
-    if (left < terrain_axis_.front() || right > terrain_axis_.back() ||
-        near < terrain_axis_.front() || far > terrain_axis_.back()) return std::nullopt;
-    const auto cell = [&](double at) {
-        return std::min(terrain_axis_.size() - 2, static_cast<std::size_t>(
-            std::upper_bound(terrain_axis_.begin(), terrain_axis_.end(), at) - terrain_axis_.begin() - 1));
-    };
-    const auto vertex = [&](std::size_t gx, std::size_t gz) {
-        return authority::Point{terrain_axis_[gx], terrain_heights_[gz * terrain_axis_.size() + gx], terrain_axis_[gz]};
-    };
-    double low = std::numeric_limits<double>::infinity(), high = -low;
-    for (auto gz = cell(near); gz <= cell(far); ++gz) for (auto gx = cell(left); gx <= cell(right); ++gx) {
-        const auto a = vertex(gx, gz), b = vertex(gx + 1, gz), c = vertex(gx + 1, gz + 1), d = vertex(gx, gz + 1);
-        for (auto polygon : {std::vector<authority::Point>{a, b, c}, std::vector<authority::Point>{a, c, d}}) {
-            // Clip both actual emitted triangles to the complete tile footprint.
-            // A linear triangle's extreme height is at a clipped polygon vertex.
-            for (const auto& [axis, boundary, sign] : {std::tuple{0, left, 1.0}, {0, right, -1.0},
-                    {2, near, 1.0}, {2, far, -1.0}}) {
-                std::vector<authority::Point> clipped;
-                for (std::size_t n = 0; n < polygon.size(); ++n) {
-                    const auto& p = polygon[n];
-                    const auto& q = polygon[(n + 1) % polygon.size()];
-                    const bool inside = (p[axis] - boundary) * sign >= 0;
-                    const bool next = (q[axis] - boundary) * sign >= 0;
-                    if (inside) clipped.push_back(p);
-                    if (inside != next) {
-                        const auto t = (boundary - p[axis]) / (q[axis] - p[axis]);
-                        clipped.push_back({p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]), p[2] + t * (q[2] - p[2])});
-                    }
-                }
-                polygon = std::move(clipped);
-            }
-            for (const auto& p : polygon) { low = std::min(low, p[1]); high = std::max(high, p[1]); }
-        }
-    }
-    return std::pair{low, high};
+    return terrain_.range(x, z, half_x, half_z);
 }
 
 const char* Host::machine_site_refusal(const world::State& state, const mechanics::Point& center,
@@ -554,7 +417,7 @@ const char* Host::machine_site_refusal(const world::State& state, const mechanic
         const auto ground = terrain_range(at[0], at[2], half[0], half[2]);
         if (!ground) return "terrain_unavailable";
         if (ground->second > low[1] ||
-            site_blocked(low, high, index == 0 ? source_obstacle_index_ : std::nullopt))
+            site_blocked(low, high, index == 0 ? terrain_.source_obstacle : std::nullopt))
             return "site_occupied";
     }
     return nullptr;
@@ -562,7 +425,7 @@ const char* Host::machine_site_refusal(const world::State& state, const mechanic
 
 std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
         const world::State& state, const std::map<std::string, std::size_t>* preferred_routes) const {
-    const physical_support::Site site{profile_, terrain_obstacles_,
+    const physical_support::Site site{profile_, terrain_.obstacles,
         [this](double x, double z, double half_x, double half_z) {
             return terrain_range(x, z, half_x, half_z);
         },
@@ -573,7 +436,7 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
 }
 
 const char* Host::support_change_refusal(const world::State& before, const world::State& after) const {
-    const physical_support::Site site{profile_, terrain_obstacles_,
+    const physical_support::Site site{profile_, terrain_.obstacles,
         [this](double x, double z, double half_x, double half_z) {
             return terrain_range(x, z, half_x, half_z);
         },
@@ -657,7 +520,7 @@ const char* Host::component_site_refusal(const world::State& state,
                     face.machine_center[0] + 2 * face.toward_ore[0],
                     face.machine_center[1] + height,
                     face.machine_center[2] + 2 * face.toward_ore[2]}) source_contact = true;
-    const auto ignored = source_contact ? source_obstacle_index_ : std::nullopt;
+    const auto ignored = source_contact ? terrain_.source_obstacle : std::nullopt;
     if (site_blocked({at[0] - volume.half[0], at[1] - volume.half[1], at[2] - volume.half[2]},
                      {at[0] + volume.half[0], at[1] + volume.half[1], at[2] + volume.half[2]}, ignored))
         return "site_occupied";

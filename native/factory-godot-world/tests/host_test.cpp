@@ -95,6 +95,23 @@ V alter_saved_action(const V& saved, const std::string& request_id, const char* 
     return V(std::move(root));
 }
 
+void terrain_binding_atomicity() {
+    Host host;
+    check(accepted(host.initialize("terrain-boundary", {"P"})), "The terrain test initializes one native World.");
+    const auto before = host.checkpoint();
+    auto malformed = factory::godot_world::tests::flat_site();
+    malformed.emplace("water", V(A{V(A{V(I{0})})}));
+    const auto refused = host.configure_terrain(malformed);
+    check(!accepted(refused) && field<std::string>(refused, "reason") == "invalid_water" &&
+          !factory::values::typed_difference(before, host.checkpoint()),
+          "Malformed water leaves the native World and its saved history unchanged.");
+    check(accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
+          "A valid terrain and water field can still bind after the failed attempt.");
+    const auto repeated = host.configure_terrain(factory::godot_world::tests::flat_site());
+    check(!accepted(repeated) && field<std::string>(repeated, "reason") == "terrain_already_bound",
+          "The successful binding cannot be replaced by a later trusted sample.");
+}
+
 void historical_translation() {
     Host host;
     A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
@@ -518,6 +535,7 @@ void nonarrival_tick_schema() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 1) terrain_binding_atomicity();
         if (argc == 1 || (argc == 2 && std::string(argv[1]) == "--wire")) historical_translation();
         if (argc == 1 || (argc == 2 && std::string(argv[1]) == "--point")) exact_observation_conversion();
         if (argc == 1) nonarrival_tick_schema();
