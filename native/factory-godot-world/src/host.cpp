@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "build_catalog_projection.hpp"
 #include "material_projection.hpp"
 #include "arrival_configuration.hpp"
 #include "factory/belt_command_contract.hpp"
@@ -36,9 +37,8 @@ using Object = Value::Object;
 using Array = Value::Array;
 using Integer = Value::Integer;
 using Role = stationary::Role;
+using build_catalog_projection::kind;
 using material_projection::point_value;
-using material_projection::cargo_value;
-using material_projection::copper_forms;
 using material_projection::slide_phase_projection;
 using material_projection::tick_fields;
 
@@ -720,36 +720,6 @@ bool intersects_belt(const world::State& state, const Bounds& bounds,
         if (first && last && belt_intersects(first->geometry, last->geometry, bounds)) return true;
     }
     return false;
-}
-
-const char* kind(Role role) {
-    switch (role) {
-        case Role::collector: return "collector";
-        case Role::belt: return "belt";
-        case Role::processor: return "processor";
-        case Role::waterwheel: return "wheel";
-        case Role::gear: return "gear";
-        case Role::shaft: return "shaft";
-        case Role::gearbox: return "gearbox";
-        case Role::vertical_gearbox: return "vertical_gearbox";
-        case Role::chain_drive: return "chain_drive";
-    }
-    return "invalid";
-}
-
-Value kit_value(const stationary::Kit& kit) {
-    Object counts{{"collector", Value(Integer{0})}, {"belt", Value(Integer{0})},
-        {"processor", Value(Integer{0})}, {"wheel", Value(Integer{0})},
-        {"shaft", Value(Integer{0})}, {"gear", Value(Integer{0})},
-        {"gearbox", Value(Integer{0})}, {"vertical_gearbox", Value(Integer{0})},
-        {"chain_drive", Value(Integer{0})}};
-    for (const auto& [specification, count] : kit) {
-        const auto name = kind(specification.role);
-        const auto previous = std::get<Integer>(counts.at(name).storage());
-        if (count > std::numeric_limits<Integer>::max() - previous) throw std::overflow_error("Part projection overflow.");
-        counts.at(name) = Value(previous + count);
-    }
-    return Value(std::move(counts));
 }
 
 Object outward(const world::Delivery& delivery, const world::Snapshot& snapshot) {
@@ -2456,7 +2426,7 @@ Value Host::projection() const {
     const auto snapshot = owned_->world->snapshot();
     const auto& state = snapshot.state;
     const auto support_layout = transmission_supports(state, &owned_->support_routes);
-    Object entities, transmissions, inventories, cargo, kits, specifications, actors, foundations, manual_cuts;
+    Object entities, transmissions, actors, foundations;
     Array links, drive_links, engagements;
     for (const auto& part : state.topology.parts) {
         Object projected{{"kind", Value(kind(part.role))}, {"generation", Value(part.generation)},
@@ -2534,34 +2504,6 @@ Value Host::projection() const {
         }
         if (ends.size() == 2) drive_links.emplace_back(std::move(ends));
     }
-    for (const auto& [actor, contents] : state.material.cargo) {
-        inventories.emplace(actor, Value(contents.products));
-        cargo.emplace(actor, cargo_value(contents,
-            profile_.material.manual_ore.has_value() || !profile_.material.timber_sites.empty(),
-            copper_forms(profile_.material)));
-    }
-    for (const auto& [actor, kit] : state.kits) {
-        auto projected_kit = std::get<Object>(kit_value(kit).storage());
-        projected_kit.emplace("foundation", Value(state.foundation_kits.at(actor)));
-        kits.emplace(actor, Value(std::move(projected_kit)));
-        Array entries;
-        std::set<stationary::PartSpec> offered;
-        for (const auto& [specification, initial] : profile_.finite_parts) {
-            (void)initial;
-            offered.insert(specification);
-        }
-        for (const auto& [specification, cost] : profile_.fabrication_parts) {
-            (void)cost;
-            offered.insert(specification);
-        }
-        for (const auto& specification : offered) {
-            const auto found = kit.find(specification);
-            entries.emplace_back(Object{{"kind", Value(kind(specification.role))},
-                {"teeth", Value(specification.teeth)}, {"half_span", Value(specification.half_span)},
-                {"count", Value(found == kit.end() ? 0 : found->second)}});
-        }
-        specifications.emplace(actor, Value(std::move(entries)));
-    }
     for (const auto& [actor, sample] : owned_->actors) actors.emplace(actor, Value(Object{
         {"position", point_value(sample.position)}, {"capabilities", Value(Object{
             {"build_reach", Value(profile_.build_reach)},
@@ -2569,11 +2511,6 @@ Value Host::projection() const {
                 profile_.manual_cut_reach : profile_.build_reach)}})},
         {"ready", Value(sample.ready)}, {"native_epoch", Value(sample.epoch)},
         {"harvest_clear", Value(harvest_clearances(state, sample))}}));
-    for (const auto& [actor, cut] : state.manual_cuts)
-        manual_cuts.emplace(actor, Value(Object{{"target", Value(cut.target)},
-            {"remaining_ticks", Value(cut.remaining_ticks)},
-            {"duration_ticks", Value(world::manual_cut_ticks)},
-            {"interrupted", Value(cut.interrupted_revision != 0)}}));
     Array mineral_cells;
     for (const auto& cell : mineral_site::opening_cells)
         mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
@@ -2581,18 +2518,12 @@ Value Host::projection() const {
     for (const auto& [id, foundation] : state.foundations)
         foundations.emplace(id, Value(Object{{"cell", Value(Array{Value(foundation.center[0] / 4), Value(foundation.center[2] / 4)})},
             {"level", Value(foundation.center[1])}, {"generation", Value(foundation.generation)}}));
-    auto player_parts = std::get<Object>(kit_value(state.kits.at("P")).storage());
-    player_parts.emplace("foundation", Value(state.foundation_kits.at("P")));
     Object projection{{"context", Value(snapshot.history.context)},
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile_.initial_units)},
         {"recipe_input", Value(profile_.material.input_units_per_product)}, {"entities", Value(std::move(entities))},
         {"transmission_parts", Value(std::move(transmissions))}, {"links", Value(std::move(links))},
         {"drive_links", Value(std::move(drive_links))}, {"engagements", Value(std::move(engagements))},
-        {"motion", Value(std::move(motions))}, {"inventories", Value(std::move(inventories))},
-        {"cargo", Value(std::move(cargo))}, {"part_kits", Value(std::move(kits))},
-        {"part_specifications", Value(std::move(specifications))},
-        {"parts", Value(std::move(player_parts))}, {"actors", Value(std::move(actors))},
-        {"manual_cuts", Value(std::move(manual_cuts))},
+        {"motion", Value(std::move(motions))}, {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(foundations))},
         {"source_deposit", Value(Object{{"id", Value(profile_.material.manual_ore ?
             profile_.material.manual_ore->id : std::string{})},
@@ -2675,40 +2606,6 @@ Value Host::projection() const {
                         Value(placed.center[1] * profile_.meters_per_grid_unit + profile_.anchor_offset[1]),
                         Value(placed.center[2] * profile_.meters_per_grid_unit + profile_.anchor_offset[2])})}});
         projection.emplace("fabrication_benches", Value(std::move(benches)));
-        Object recipes;
-        for (const auto kind : {materials::Component::wooden_frame, materials::Component::wooden_shaft,
-                materials::Component::wooden_cog, materials::Component::receiver_tray,
-                materials::Component::tool_mount, materials::Component::sliding_guide,
-                materials::Component::cutting_edge, materials::Component::anvil,
-                materials::Component::ram_face, materials::Component::copper_shaft,
-                materials::Component::copper_cog, materials::Component::wooden_workbench,
-                materials::Component::wooden_slide, materials::Component::copper_slide,
-                materials::Component::flat_head, materials::Component::hand_crank,
-                materials::Component::channel_narrow_x, materials::Component::channel_narrow_z,
-                materials::Component::channel_broad_x, materials::Component::channel_broad_z}) {
-            const auto cost = materials::component_cost(kind);
-            if (cost) {
-                Object recipe{{"timber", Value(cost->timber)}, {"copper", Value(cost->ore)}};
-                if (const auto rating = world::placed_drive_load_rating(kind))
-                    recipe.emplace("load_rating", Value(*rating));
-                recipes.emplace(materials::component_name(kind), Value(std::move(recipe)));
-            }
-        }
-        projection.emplace("component_recipes", Value(std::move(recipes)));
-        Array fabrication;
-        for (const auto& [spec, cost] : profile_.fabrication_parts)
-            fabrication.emplace_back(Object{{"kind", Value(kind(spec.role))},
-                {"teeth", Value(spec.teeth)}, {"half_span", Value(spec.half_span)},
-                {"timber", Value(cost.timber)}, {"copper", Value(cost.ore)}});
-        projection.emplace("part_recipes", Value(std::move(fabrication)));
-        projection.emplace("foundation_recipe", Value(Object{{"timber", Value(world::foundation_timber_cost)},
-            {"copper", Value(Integer{0})}}));
-        projection.emplace("component_capacity", Value(profile_.material.component_capacity));
-        Array completed;
-        for (const auto& actor : state.workshop_completed_actors)
-            completed.emplace_back(actor);
-        projection.emplace("workshop_completed_actors", Value(std::move(completed)));
-        projection.emplace("first_plate_unlock", Value(profile_.first_plate_unlock));
         Object crank_items;
         for (const auto& [id, item] : state.crank_items)
             crank_items.emplace(id, Value(Object{{"id", Value(item.id)},
@@ -3063,6 +2960,7 @@ Value Host::projection() const {
         projection.emplace("broad_press_assemblies", Value(std::move(broad_presses)));
         projection.emplace("broad_shear_assemblies", Value(std::move(broad_shears)));
     }
+    projection.merge(build_catalog_projection::fields(profile_, snapshot));
     projection.merge(tick_fields(profile_, snapshot));
     Value complete(std::move(projection));
     return projection_contract::complete(complete) ?

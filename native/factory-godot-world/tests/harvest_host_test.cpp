@@ -1853,10 +1853,38 @@ void worksite_request_contract() {
           get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
           "Finish and cancel retain native cut timing, custody and checkpoint rules.");
 }
+
+void live_cargo_and_cut_match_the_tick_view() {
+    Host host;
+    check(get<bool>(host.initialize_arrival_advanced_fixture("catalog-parity", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
+          "One physical worker starts beside a finite timber source.");
+    const auto command = [&](const char* request, const char* action, O extra) {
+        O wire{{"context", V("catalog-parity")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        wire.merge(extra);
+        return host.command("P", wire);
+    };
+    check(get<bool>(command("enable", "set_developer_conveniences", {{"enabled", V(true)}}), "accepted") &&
+          get<bool>(command("first-tree", "harvest_source", {{"target", V("tree-east-south")}}), "accepted") &&
+          get<bool>(command("disable", "set_developer_conveniences", {{"enabled", V(false)}}), "accepted") &&
+          get<bool>(command("next-tree", "harvest_source", {{"target", V("tree-east-south")}}), "accepted"),
+          "Native cargo holds one timber unit while a second ordinary cut remains in progress.");
+    const auto tick = host.advance_tick_fields();
+    const auto full = host.projection();
+    check(get<O>(full, "manual_cuts").contains("P") &&
+          get<I>(get<O>(full, "cargo").at("P"), "timber") == 1 &&
+          !factory::values::typed_difference(V(get<O>(tick, "cargo")), V(get<O>(full, "cargo"))) &&
+          !factory::values::typed_difference(V(get<O>(tick, "manual_cuts")),
+              V(get<O>(full, "manual_cuts"))),
+          "Full and tick views agree on live actor cargo and an unfinished native cut.");
+}
 }  // namespace
 
 int main() {
     try {
+        live_cargo_and_cut_match_the_tick_view();
         worksite_request_contract();
         shared_fast_setting_and_restore();
         one_piece_slide_custody();
