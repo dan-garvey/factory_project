@@ -67,6 +67,8 @@ struct Record {
     std::string_view name;
     Container container;
     std::span<const Field> fields;
+    // Arrival-only records are required when this top-level field is present.
+    std::string_view required_with{};
 };
 
 inline constexpr std::array stock_fields{
@@ -155,6 +157,22 @@ inline constexpr std::array collector_lift_fields{
     Field{"head_x", Type::floating}, Field{"head_y_offset", Type::floating},
     Field{"head_size_xy", Type::floating2}, Field{"head_z_size", Type::floating2},
 };
+inline constexpr std::array collector_assembly_fields{
+    Field{"center", Type::integer3}, Field{"toward_ore", Type::integer3},
+    Field{"status", Type::string},
+};
+inline constexpr std::array press_assembly_fields{
+    Field{"frame", Type::string}, Field{"center", Type::integer3},
+    Field{"status", Type::string},
+};
+inline constexpr std::array guided_press_assembly_fields{
+    Field{"anvil", Type::string}, Field{"center", Type::integer3},
+    Field{"status", Type::string},
+};
+inline constexpr std::array broad_assembly_fields{
+    Field{"origin", Type::integer3}, Field{"geometry_status", Type::string},
+    Field{"status", Type::string},
+};
 inline constexpr std::array records{
     Record{"stock", Container::object, stock_fields},
     Record{"cargo", Container::object_values, cargo_fields},
@@ -171,6 +189,18 @@ inline constexpr std::array records{
     Record{"adapter_profile", Container::object, adapter_profile_fields},
     Record{"adapter_profile.collector_lift", Container::object, collector_lift_fields},
     Record{"options", Container::object, option_fields},
+    Record{"collector_assemblies", Container::array_elements, collector_assembly_fields,
+        "landing_pod"},
+    Record{"press_assemblies", Container::array_elements, press_assembly_fields,
+        "landing_pod"},
+    Record{"guided_press_assemblies", Container::array_elements,
+        guided_press_assembly_fields, "landing_pod"},
+    Record{"sliding_press_assemblies", Container::array_elements,
+        guided_press_assembly_fields, "landing_pod"},
+    Record{"broad_press_assemblies", Container::array_elements, broad_assembly_fields,
+        "landing_pod"},
+    Record{"broad_shear_assemblies", Container::array_elements, broad_assembly_fields,
+        "landing_pod"},
 };
 
 inline bool typed(const Value& value, Type type) {
@@ -259,7 +289,12 @@ inline bool complete(const Value& value, bool engine_view = false) {
     if (!required_fields(*object, host_fields)) return false;
     for (const auto& record : records) {
         const auto* found = record_at(*object, record.name);
-        if (!found || !complete_record(*found, record)) return false;
+        if (!found) {
+            if (!record.required_with.empty() &&
+                !object->contains(std::string(record.required_with))) continue;
+            return false;
+        }
+        if (!complete_record(*found, record)) return false;
     }
     if (engine_view) {
         const auto found = object->find(std::string(engineering_field.name));
@@ -301,9 +336,11 @@ inline Value record_fields() {
         Object fields;
         for (const auto& field : record.fields)
             fields.emplace(std::string(field.name), Value(type_name(field.type)));
-        output.emplace(std::string(record.name), Value(Object{
-            {"container", Value(container_name(record.container))},
-            {"fields", Value(std::move(fields))}}));
+        Object definition{{"container", Value(container_name(record.container))},
+            {"fields", Value(std::move(fields))}};
+        if (!record.required_with.empty())
+            definition.emplace("required_with", Value(std::string(record.required_with)));
+        output.emplace(std::string(record.name), Value(std::move(definition)));
     }
     return Value(std::move(output));
 }

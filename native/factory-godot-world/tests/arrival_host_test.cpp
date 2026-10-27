@@ -43,6 +43,21 @@ void arrival_projection_contract() {
               "The arrival projection contract test starts from a configured native site.");
         check(factory::godot_world::projection_contract::complete(host.projection()),
               "Both supported arrival profiles publish complete nested topology records.");
+        const auto complete = std::get<O>(host.projection().storage());
+        for (const char* name : {"collector_assemblies", "press_assemblies",
+                 "guided_press_assemblies", "sliding_press_assemblies",
+                 "broad_press_assemblies", "broad_shear_assemblies"}) {
+            auto missing = complete;
+            missing.erase(name);
+            auto wrong_container = complete;
+            wrong_container.at(name) = V(O{});
+            auto malformed_entry = complete;
+            malformed_entry.at(name) = V(A{V(O{{"status", V("ready")}})});
+            check(!factory::godot_world::projection_contract::complete(V(missing)) &&
+                  !factory::godot_world::projection_contract::complete(V(wrong_container)) &&
+                  !factory::godot_world::projection_contract::complete(V(malformed_entry)),
+                  "Every arrival assembly needs its typed array and stable machine coordinates.");
+        }
         const auto tick = host.advance_tick_fields();
         const auto refreshed = host.projection();
         check(get<I>(tick, "revision") == get<I>(refreshed, "revision") &&

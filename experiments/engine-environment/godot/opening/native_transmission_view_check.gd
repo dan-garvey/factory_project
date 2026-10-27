@@ -70,6 +70,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_structure_delta := false
 	var inject_bad_lift_full := false
 	var inject_bad_lift_delta := false
+	var inject_bad_assembly_full := false
+	var inject_bad_assembly_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -96,6 +98,9 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			inject_bad_lift_full = false
 			delivered.adapter_profile = delivered.adapter_profile.duplicate(true)
 			delivered.adapter_profile.collector_lift.flight_count = "five"
+		elif method == "projection" and inject_bad_assembly_full:
+			inject_bad_assembly_full = false
+			delivered.erase("press_assemblies")
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -119,6 +124,10 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			var lift_profile: Dictionary = _view_cache.adapter_profile.duplicate(true)
 			lift_profile.collector_lift.head_z_size = [0.40]
 			return {"changes": {"adapter_profile": lift_profile}, "removed": []}
+		elif method == "advance_delta" and inject_bad_assembly_delta:
+			inject_bad_assembly_delta = false
+			return {"changes": {"collector_assemblies": [{"status": "ready",
+				"center": [0, 0]}]}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3883,6 +3892,22 @@ func _native_view_cache_regression() -> void:
 		and not trusted._complete_projection(missing_lift)
 		and not trusted._complete_projection(wrong_lift),
 		"Collector lift dimensions and flight count follow the native nested record contract.")
+	var assembly_shapes_valid := true
+	for name in ["collector_assemblies", "press_assemblies", "guided_press_assemblies",
+			"sliding_press_assemblies", "broad_press_assemblies", "broad_shear_assemblies"]:
+		var record: Dictionary = trusted._projection_records.get(name, {})
+		var missing_assembly := complete.duplicate(true)
+		missing_assembly.erase(name)
+		var wrong_assembly := complete.duplicate(true)
+		wrong_assembly[name] = [{"status": "ready", "center": [0, 0]}]
+		assembly_shapes_valid = assembly_shapes_valid and record.get("required_with") == "landing_pod" \
+			and not trusted._complete_projection(missing_assembly) \
+			and not trusted._complete_projection(wrong_assembly)
+	verify(assembly_shapes_valid,
+		"All six arrival machines require native-owned typed assembly records.")
+	var ordinary := NativeModel.new("ordinary-assembly-schema-fixture", ["P"])
+	verify(ordinary.boot_result.get("accepted", false) and ordinary._complete_projection(ordinary.projection()),
+		"The same schema accepts an ordinary world without arrival machine arrays.")
 	trusted._view_cache = {}
 	trusted.inject_bad_full = true
 	var bad_full: Dictionary = trusted.view_projection()
@@ -3953,6 +3978,20 @@ func _native_view_cache_regression() -> void:
 		"A merged delta with an incomplete lift dimension cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"A fresh native view recovers after lift delta refusal.")
+	trusted._view_cache = {}
+	trusted.inject_bad_assembly_full = true
+	var bad_assembly_full: Dictionary = trusted.view_projection()
+	verify(bad_assembly_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full arrival view missing a machine assembly cannot become confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after the missing assembly refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_assembly_delta = true
+	var bad_assembly_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_assembly_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with a malformed assembly cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after the malformed assembly delta.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

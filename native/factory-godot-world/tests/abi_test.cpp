@@ -266,6 +266,16 @@ void run() {
                   field<std::string>(option_fields, "native") == "boolean" &&
                   factory::godot_world::projection_contract::complete(projection, true),
               "The real extension exposes the same top-level and nested contract it publishes.");
+        for (const char* name : {"collector_assemblies", "press_assemblies",
+                 "guided_press_assemblies", "sliding_press_assemblies",
+                 "broad_press_assemblies", "broad_shear_assemblies"}) {
+            const auto record = Value(field<Object>(records, name));
+            const auto fields = Value(field<Object>(record, "fields"));
+            check(field<std::string>(record, "container") == "array_elements" &&
+                  field<std::string>(record, "required_with") == "landing_pod" &&
+                  field<std::string>(fields, "status") == "string",
+                  "The extension publishes each arrival assembly as a native-owned typed record.");
+        }
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,
               "The powered line consumes three physical shafts.");
         bool blocked_ready = false;
