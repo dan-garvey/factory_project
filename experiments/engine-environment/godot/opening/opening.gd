@@ -933,6 +933,9 @@ func _press_contact_refusal(entity: String) -> String:
 	return "No compatible working face acts on this support."
 
 func _material_refusal_message(outcome: Dictionary, fallback: String, action_name: String = "") -> String:
+	if _native_transmission() and action_name in ["place_belt_span", "place_selected_belt_span"] \
+			and outcome.get("reason", "") == "actor_occupied" and not outcome.get("uncertain", false):
+		return "Move clear of the belt's path before connecting these shafts."
 	var advice: String = {
 		"first_plate_required": "Carry your first copper plate to unlock that part.",
 		"unavailable_source": "That source is unavailable or depleted. Choose another tree or ore deposit.",
