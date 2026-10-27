@@ -1174,6 +1174,35 @@ void actor_feed_is_physical_custody() {
           manual_blocked.world->snapshot().state.press_output_on_work.contains({8, 1, 0}) &&
           w::World::restore("press-feed", source.profile, manual_blocked.world->snapshot()) != nullptr,
           "Picking up the first plate frees the same workbed for a second identified plate.");
+    const auto retained_id = formed.state.press_output_on_work.at({8, 1, 0}).id;
+    Runner stopped_output(source);
+    stopped_output.world = w::World::restore("press-feed", source.profile, formed);
+    stopped_output.p = {2, 1, 0};
+    auto stop_output_belt = request("P", "stop-output-belt-with-plate", "set_drive");
+    stop_output_belt.emplace("target", V("output-wheel"));
+    stop_output_belt.emplace("generation", V(I{1}));
+    stop_output_belt.emplace("enabled", V(false));
+    stopped_output.accept("P", stop_output_belt);
+    check(stopped_output.world->tick().error == w::TransactionError::none &&
+          stopped_output.world->snapshot().state.material.dropped_material.at({8, 1, 0}).products == 1 &&
+          stopped_output.world->snapshot().state.press_output_on_work.at({8, 1, 0}).id == retained_id &&
+          stopped_output.world->snapshot().state.press_output_exported.empty() &&
+          w::World::restore("press-feed", source.profile, stopped_output.world->snapshot()) != nullptr,
+          "Switching off the connected output belt leaves the same plate on the workbed after a tick and save.");
+    Runner removed_output(source);
+    removed_output.world = w::World::restore("press-feed", source.profile, formed);
+    removed_output.p = {2, 1, 0};
+    auto remove_output_belt = request("P", "remove-output-belt-with-plate", "remove_belt_span");
+    remove_output_belt.emplace("target", V("press-output-belt"));
+    remove_output_belt.emplace("generation", V(I{1}));
+    removed_output.accept("P", remove_output_belt);
+    check(removed_output.world->tick().error == w::TransactionError::none &&
+          removed_output.world->snapshot().state.material.belt_lanes.empty() &&
+          removed_output.world->snapshot().state.material.dropped_material.at({8, 1, 0}).products == 1 &&
+          removed_output.world->snapshot().state.press_output_on_work.at({8, 1, 0}).id == retained_id &&
+          removed_output.world->snapshot().state.press_output_exported.empty() &&
+          w::World::restore("press-feed", source.profile, removed_output.world->snapshot()) != nullptr,
+          "Removing an empty output belt leaves the identified plate on the workbed after a tick and save.");
     Runner powered_output(source);
     powered_output.world = w::World::restore("press-feed", source.profile, formed);
     powered_output.p = {2, 1, 0};
