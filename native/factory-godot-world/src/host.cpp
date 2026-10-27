@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "arrival_configuration.hpp"
 #include "factory/belt_command_contract.hpp"
 #include "factory/component_command_contract.hpp"
 #include "factory/crank_command_contract.hpp"
@@ -877,101 +878,14 @@ Value Host::initialize_arrival_advanced_fixture(const std::string& context,
 Value Host::initialize_site(const std::string& context, const std::vector<std::string>& actors,
                             bool arrival, bool advanced_fixture) {
     if (owned_) return result(false, "already_initialized");
-    if (actors.empty() || actors.size() > 2 || actors.front() != "P") return result(false, "invalid_roster");
-    world::Profile profile;
-    // Reversible opening content, with enough buffer to recover finite ore in
-    // batches. All reserve and carried quantities remain in this one World.
-    profile.material = {1, 32, 2};
-    profile.initial_units = mineral_site::opening_reserve;
-    profile.meters_per_grid_unit = pitch / 4.0;
-    profile.anchor_offset = {0, anchor_height, 0};
-    profile.wheel_radius = wheel_radius;
-    profile.wheel_axle_offset = wheel_axle_offset;
-    profile.build_reach = reach;
-    if (arrival) profile.manual_cut_reach = 2.55;
-    profile.foundation_parts = 24;
-    // East of the river and clear of the exposed ore deposit. This is a
-    // reversible authored site anchor, expressed in the one quarter-tile grid.
-    if (arrival) {
-        profile.landing_pod_center = mechanics::Point{4, 0, 16};
-        profile.first_plate_unlock = !advanced_fixture;
-        profile.material.manual_ore = materials::OreSite{"opening-copper", {-3, 0, 0}};
-        profile.material.raw_mass = 4;
-        profile.material.plate_mass = 3;
-        profile.material.sheet_mass = 12;
-        for (const auto& cell : mineral_site::opening_cells)
-            for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
-                profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
-        profile.material.timber_sites = {
-            {"tree-east-south", {{16, 0, 8}, 8}},
-            {"tree-east-north", {{16, 0, 28}, 8}},
-            {"tree-north", {{0, 0, 28}, 8}},
-            {"tree-east-upstream", {{16, 0, -4}, 8}},
-            // Mature bank trees have stable native identities. The scene
-            // matches each prepared mesh root to these quarter-tile centers.
-            {"fir_00", {{-28, 0, -44}, 8}},
-            {"fir_01", {{-31, 0, -11}, 8}},
-            {"fir_02", {{-51, 0, 37}, 8}},
-            {"fir_03", {{29, 0, -24}, 8}},
-            {"fir_04", {{32, 0, -2}, 8}},
-            {"fir_05", {{44, 0, 15}, 8}},
-            {"broadleaf_00", {{15, 1, -46}, 8}},
-            {"broadleaf_01", {{-46, 0, -34}, 8}}};
-        // Zero means no carried-count limit. Finite sources and native custody
-        // still bound the material that can exist in the opening.
-        profile.material.hand_carry_capacity = 0;
-        profile.material.component_capacity = 0;
-        // Reversible cold-workshop costs for a real powered receiver route.
-        // Every kit remains in the one World inventory and history ledger.
-        profile.fabrication_parts = {{{Role::shaft, 0, 2}, {1, 0}},
-            {{Role::belt, 0, 0}, {2, 1}}, {{Role::waterwheel, 0, 0}, {2, 1}},
-            {{Role::gear, 2, 0}, {1, 1}}, {{Role::gear, 4, 0}, {2, 1}},
-            {{Role::gearbox, 0, 0}, {1, 1}},
-            {{Role::vertical_gearbox, 0, 0}, {1, 1}}};
-    }
-    if (!arrival)
-        profile.finite_parts = {{{Role::collector, 0, 0}, 1}, {{Role::belt, 0, 0}, 2},
-            {{Role::processor, 0, 0}, 1}, {{Role::waterwheel, 0, 0}, 1}, {{Role::shaft, 0, 2}, 8},
-            {{Role::gear, 2, 0}, 8}, {{Role::gear, 4, 0}, 2},
-            {{Role::gearbox, 0, 0}, 2}, {{Role::vertical_gearbox, 0, 0}, 2},
-            {{Role::chain_drive, 0, 0}, 8}};
-    world::State seed;
-    seed.topology.drive_enabled = true;
-    seed.material.initial_units = profile.initial_units;
-    seed.material.stock.source = profile.initial_units;
-    for (const auto& [id, site] : profile.material.timber_sites)
-        seed.material.timber_remaining.emplace(id, site.initial);
-    if (arrival) {
-        const auto& center = *profile.landing_pod_center;
-        seed.landing_pod = world::LandingPod{"landing-pod", center, 1};
-        seed.issued_entities.emplace("landing-pod", 1);
-        seed.fabrication_hub = world::FabricationHub{"pod-fabrication-hub", world::landing_hub_center(center), 1};
-        seed.issued_entities.emplace(seed.fabrication_hub->id, 1);
-        const auto deck = world::landing_deck_centers(center);
-        for (std::size_t index = 0; index < deck.size(); ++index) {
-            const auto id = "pod-floor-" + std::to_string(index);
-            seed.foundations.emplace(id, world::Foundation{deck[index], 1});
-            seed.issued_entities.emplace(id, 1);
-        }
-    }
+    auto content = make_arrival_configuration(arrival, advanced_fixture, actors);
+    if (!content) return result(false, "invalid_roster");
     auto candidate = std::make_unique<Owned>();
-    for (const auto& actor : actors) {
-        if ((actor != "P" && actor != "Q") || !profile.actors.insert(actor).second)
-            return result(false, "invalid_roster");
-        seed.material.cargo.emplace(actor, materials::Cargo{});
-        seed.kits.emplace(actor, actor == "P" ? profile.finite_parts : stationary::Kit{});
-        seed.foundation_kits.emplace(actor, actor == "P" ?
-            profile.foundation_parts - (arrival ? world::landing_deck_parts : 0) : 0);
-        profile.starting_foundation_kits.emplace(actor, seed.foundation_kits.at(actor));
-        // Start on the unfolded front deck, clear of the rear pressure shell,
-        // side doors and threshold. Both capsules remain near the local bench.
-        candidate->actors.emplace(actor, Actor{arrival ?
-            authority::Point{(actor == "P" ? 1.0 : 0.5) * pitch, 1.0, 4.8} :
-            authority::Point{-pitch, 1.0, (actor == "P" ? 2.0 : 3.0) * pitch}, 0, false});
-    }
-    candidate->world = world::World::create(context, profile, seed);
+    for (const auto& [actor, position] : content->actor_starts)
+        candidate->actors.emplace(actor, Actor{position, 0, false});
+    candidate->world = world::World::create(context, content->profile, content->seed);
     if (!candidate->world) return result(false, "invalid_initial_world");
-    profile_ = std::move(profile);
+    profile_ = std::move(content->profile);
     owned_ = std::move(candidate);
     return result(true, "initialized");
 }

@@ -261,6 +261,8 @@ func _arrival_cog_produce() -> void:
 	opening.configure_save_slot(destination + ".final.worksite")
 	if not _save():
 		return
+	# The runner checks final exit and diagnostics after these assertions complete.
+	print("CHAPTER 1 COG REPAIR CHECKS COMPLETE")
 	_record("pass")
 
 func _arrival_cog_finish_resume() -> void:
@@ -311,6 +313,7 @@ func _arrival_cog_finish_resume() -> void:
 			and _same(opening.model.checkpoint().world, restored.world),
 		"An old cog placement still replays its old receipt without replacing the saved cog"):
 		return
+	print("CHAPTER 1 COG REOPEN CHECKS COMPLETE")
 	_record("pass")
 
 func _produce() -> void:

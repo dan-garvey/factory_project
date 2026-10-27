@@ -216,6 +216,25 @@ For the tooling command below, set `FACTORY_LOCAL` as shown in the
 | Headless scene | Build `//native/godot-fixture:factory-godot-fixture`, import the source-matched Godot project, then run a registered `--case`, such as `arrival-raised-starter-snap`, with its required arguments and fresh private output paths. See the [fixture guide](../../native/godot-fixture/README.md). | Require the case's complete revision-matched success line, zero exit, no engine/script/parse/load errors, and required native output; omitted or conflicting arguments refuse before launch. | Scripted scene events with substituted actor choices; no rendered quality or human play. |
 | Rendered motion | Use the tracked `./scripts/launch-factory-latest.sh --agent-window --test-purpose="Machine motion check" --script res://opening/machine_visual_test.gd -- --batch-motion-check` on checked clean main. Other visual fixture modes and companion arguments are listed in the [fixture guide](../../native/godot-fixture/README.md). | Require zero exit, the complete `MACHINE_BATCH_MOTION_PASS 41` line, an actual renderer, and no engine/script/parse/load errors. Inspect relevant pixels for a visible change; keep the revision and view conditions. Benchmark metric lines prove only that their diagnostic route finished. | Passive GPU fixture evidence; no ordinary input or human-play acceptance. |
 
+Run the Chapter 1 cog sequence as three named cases, each in a fresh process:
+
+1. `arrival-first-plate`: pass `--native-check-mode=arrival-first-plate`,
+   `--event-route-pointer` and `--native-check-output=FIRST_RESULT`. This writes
+   `FIRST_RESULT.worksite`.
+2. `arrival-cog-repair`: pass `--native-check-mode=arrival-cog-resume`,
+   `--resume-input=FIRST_RESULT.worksite`, `--native-check-output=COG_RESULT`
+   and `--save-slot=COG_SESSION`. This writes `COG_RESULT.final.worksite`.
+3. `arrival-cog-reopen`: pass `--native-check-mode=arrival-cog-finish-resume`,
+   `--resume-input=COG_RESULT.final.worksite`,
+   `--native-check-output=REOPEN_RESULT` and `--save-slot=REOPEN_SESSION`.
+
+Put those arguments after the runner's `--` separator. Use fresh absolute
+result and save-slot paths inside the owned fixture artifact directory, and a
+fresh log for each admitted run. `--list-cases` prints each script, argument
+contract, deadline and exact completion marker. A passing cog log also reports
+`status: pass` and a positive check count; the count can vary with physical
+scene timing. These runs prove scripted scene and native save continuity only.
+
 For the scene runner, use its bounded log and admission arguments rather than a
 raw Godot invocation. For a graphical run, the tracked launcher prepares a
 source-matched native library and labels the window. Neither fixture supplies

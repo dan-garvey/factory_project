@@ -55,6 +55,8 @@ int main() {
                   == fixture::Verdict::malformed_log,
               "Binary controls cannot hide a diagnostic or forge a marker.");
         const auto* first = fixture::find_case("arrival-first-plate");
+        const auto* cog_repair = fixture::find_case("arrival-cog-repair");
+        const auto* cog_reopen = fixture::find_case("arrival-cog-reopen");
         const auto* raised_starter = fixture::find_case("arrival-raised-starter-snap");
         const auto* raised_press = fixture::find_case("arrival-raised-press");
         const auto* small = fixture::find_case("arrival-channel-small");
@@ -63,11 +65,60 @@ int main() {
         const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
         const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
         const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
-        check(fixture::registered_cases().size() == 9 && first && raised_starter && raised_press &&
+        check(fixture::registered_cases().size() == 11 && first && cog_repair && cog_reopen &&
+                  raised_starter && raised_press &&
                   small && resumed && endpoint_default && endpoint_common && endpoint_inspection &&
                   endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),
-              "Only the five scene routes and four endpoint modes are registered.");
+              "Only the seven scene routes and four endpoint modes are registered.");
+        check(cog_repair->script == "res://opening/native_cog_check.gd" &&
+                  cog_reopen->script == cog_repair->script &&
+                  cog_repair->seconds == 300 && cog_reopen->seconds == 180 &&
+                  cog_repair->pass_line ==
+                      "CHAPTER 1 COG REPAIR CHECKS COMPLETE" &&
+                  cog_reopen->pass_line ==
+                      "CHAPTER 1 COG REOPEN CHECKS COMPLETE",
+              "The two cog cases select stable completed repair and reopen markers.");
+        const std::vector<std::string> cog_repair_args{
+            "--native-check-output=/tmp/cog.result", "--resume-input=/tmp/plate.worksite",
+            "--native-check-mode=arrival-cog-resume", "--save-slot=/tmp/cog.session"};
+        const std::vector<std::string> cog_reopen_args{
+            "--resume-input=/tmp/cog.final.worksite", "--native-check-mode=arrival-cog-finish-resume",
+            "--native-check-output=/tmp/reopened.result", "--save-slot=/tmp/reopened.session"};
+        check(fixture::accepts_case_arguments(*cog_repair, cog_repair_args) &&
+                  fixture::accepts_case_arguments(*cog_reopen, cog_reopen_args) &&
+                  !fixture::accepts_case_arguments(*cog_repair,
+                      {cog_repair_args.data(), cog_repair_args.size() - 1}) &&
+                  !fixture::accepts_case_arguments(*cog_reopen,
+                      {cog_reopen_args.data(), cog_reopen_args.size() - 1}),
+              "Both cog stages require a mode, previous worksite, fresh result and save slot.");
+        check(!fixture::accepts_case_arguments(*cog_repair, cog_reopen_args) &&
+                  !fixture::accepts_case_arguments(*cog_reopen, cog_repair_args) &&
+                  !fixture::accepts_case_arguments(*cog_repair,
+                      std::vector<std::string>{"--native-check-mode=arrival-cog-resume",
+                          "--resume-input=/tmp/plate.worksite", "--native-check-output=",
+                          "--save-slot=/tmp/cog.session"}) &&
+                  !fixture::accepts_case_arguments(*cog_repair,
+                      std::vector<std::string>{"--native-check-mode=arrival-cog-resume",
+                          "--resume-input=/tmp/plate.worksite", "--native-check-output=/tmp/cog.result",
+                          "--save-slot="}) &&
+                  !fixture::accepts_case_arguments(*cog_repair,
+                      std::vector<std::string>{"--native-check-mode=arrival-cog-resume",
+                          "--resume-input=/tmp/plate.worksite", "--native-check-output=/tmp/a",
+                          "--native-check-output=/tmp/b"}) &&
+                  !fixture::accepts_case_arguments(*cog_reopen,
+                      std::vector<std::string>{"--native-check-mode=arrival-cog-finish-resume",
+                          "--resume-input=/tmp/cog.final.worksite", "--native-check-output=/tmp/result",
+                          "--event-route-pointer"}),
+              "Cog cases refuse a swapped mode, empty or duplicated paths, and unrelated routes.");
+        check(fixture::inspect_log(std::string(cog_repair->pass_line) + "\n",
+                  cog_repair->pass_line) == fixture::Verdict::pass &&
+                  fixture::inspect_log(std::string(cog_reopen->pass_line) + "\n",
+                  cog_repair->pass_line) == fixture::Verdict::missing_marker &&
+                  fixture::inspect_log(std::string(cog_repair->pass_line) +
+                      "\nSCRIPT ERROR: fixture failure\n", cog_repair->pass_line) ==
+                      fixture::Verdict::diagnostic,
+              "A cog stage needs its own complete receipt and a clean engine log.");
         check(first->script == "res://opening/native_adapter_check.gd" &&
                   first->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate" &&
                   raised_starter->script == first->script &&
