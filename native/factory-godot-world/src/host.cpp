@@ -9,6 +9,7 @@
 #include "factory/projection_contract.hpp"
 #include "factory/site_geometry_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
+#include "factory/transmission_placement_contract.hpp"
 #include "factory/worksite_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
@@ -607,52 +608,10 @@ bool historical_wire(const authority::Record& record) {
     if (const auto worksite = worksite_commands::parse_intent(*action);
         worksite != worksite_commands::Action::none)
         return worksite_commands::historical_wire(*wire, intent, worksite);
-    const auto same = [&](const char* original, const char* normalized) {
-        const auto left = wire->find(original);
-        const auto right = intent.find(normalized);
-        return left != wire->end() && right != intent.end() &&
-            !values::typed_difference(left->second, right->second);
-    };
+    if (const auto transmission = transmission_placement::parse_wire(*original_action);
+        transmission != transmission_placement::Action::none)
+        return transmission_placement::historical_wire(*wire, intent, transmission);
     if (*action == "place" || *action == "place_connected") {
-        if (*original_action == "place_shaft") {
-            const auto* center = field<Array>(*wire, "center");
-            const auto* axis = field<std::string>(*wire, "axis");
-            const auto* span = field<Integer>(*wire, "half_span");
-            return *action == "place" && keys(*wire, {"center", "axis", "half_span"}) && center && gear_center(*center) &&
-                axis && axis_value(*axis) && span && *span == 2 &&
-                same("center", "center") && same("axis", "axis") && same("half_span", "half_span") &&
-                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "shaft" &&
-                field<Integer>(intent, "teeth") && *field<Integer>(intent, "teeth") == 0;
-        }
-        if (*original_action == "place_gear") {
-            const auto* center = field<Array>(*wire, "center");
-            const auto* axis = field<std::string>(*wire, "axis");
-            const auto* teeth = field<Integer>(*wire, "teeth");
-            return *action == "place" && keys(*wire, {"center", "axis", "teeth"}) && center && gear_center(*center) &&
-                axis && axis_value(*axis) && teeth && *teeth > 0 && *teeth <= mechanics::maximum_dimension &&
-                same("center", "center") && same("axis", "axis") && same("teeth", "teeth") &&
-                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "gear" &&
-                field<Integer>(intent, "half_span") && *field<Integer>(intent, "half_span") == 0;
-        }
-        if (*original_action == "place_relay") {
-            const auto* center = field<Array>(*wire, "center");
-            const auto* axis = field<std::string>(*wire, "axis");
-            const auto* name = field<std::string>(*wire, "kind");
-            const auto* relay = field<std::string>(*wire, "relay_axis");
-            if (*action != "place" || !center || !gear_center(*center) || !axis || !axis_value(*axis) ||
-                !name || (*name != "gearbox" && *name != "vertical_gearbox" && *name != "chain_drive") ||
-                !keys(*wire, relay ? std::initializer_list<const char*>{"kind", "center", "axis", "relay_axis"} :
-                    std::initializer_list<const char*>{"kind", "center", "axis"}) ||
-                (relay != nullptr) != (*name == "chain_drive") ||
-                (relay && (!axis_value(*relay) || axis_value(*relay) == axis_value(*axis))) ||
-                (*name == "gearbox" && *axis != "y") ||
-                (*name == "vertical_gearbox" && *axis == "y")) return false;
-            return same("center", "center") && same("axis", "axis") &&
-                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == *name &&
-                (!relay || same("relay_axis", "relay_axis")) &&
-                field<Integer>(intent, "teeth") && *field<Integer>(intent, "teeth") == 0 &&
-                field<Integer>(intent, "half_span") && *field<Integer>(intent, "half_span") == 0;
-        }
         const auto* name = field<std::string>(*wire, "kind");
         const auto* cell = field<Array>(*wire, "cell");
         const auto* axis = field<std::string>(*wire, "axis");
@@ -1762,6 +1721,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto foundation_action = foundation_commands::parse(*action);
     const auto material_action = material_commands::parse(*action);
     const auto stationary_target_action = stationary_target_commands::parse_wire(*action);
+    const auto transmission_action = transmission_placement::parse_wire(*action);
     const auto worksite_action = worksite_commands::parse_wire(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
@@ -2305,8 +2265,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("half_span", Value(Integer{0}));
         if (rotation) normalized.emplace("rotation", Value(*rotation));
         if (tiles) normalized.emplace("wheel_tiles", Value(*tiles));
-    } else if (*action == "place_shaft") {
-        if (!keys(wire, {"center", "axis", "half_span"})) return refuse("invalid_command");
+    } else if (transmission_action == transmission_placement::Action::shaft) {
+        if (!transmission_placement::admission_shape(wire, transmission_placement::Action::shaft))
+            return refuse("invalid_command");
         const auto* input = field<Array>(wire, "center");
         const auto center = input ? gear_center(*input) : std::nullopt;
         const auto* axis = field<std::string>(wire, "axis");
@@ -2339,14 +2300,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     verified_axis)) return refuse("occupied");
         }
         if (placement_blocked(at, half)) return refuse("actor_occupied");
-        normalized.at("action") = Value("place");
-        normalized.emplace("role", Value("shaft"));
-        normalized.emplace("center", wire.at("center"));
-        normalized.emplace("axis", wire.at("axis"));
-        normalized.emplace("teeth", Value(Integer{0}));
-        normalized.emplace("half_span", wire.at("half_span"));
-    } else if (*action == "place_gear") {
-        if (!keys(wire, {"center", "axis", "teeth"})) return refuse("invalid_command");
+        transmission_placement::normalize(normalized, wire, transmission_placement::Action::shaft);
+    } else if (transmission_action == transmission_placement::Action::gear) {
+        if (!transmission_placement::admission_shape(wire, transmission_placement::Action::gear))
+            return refuse("invalid_command");
         const auto* input = field<Array>(wire, "center");
         const auto center = input ? gear_center(*input) : std::nullopt;
         const auto* axis = field<std::string>(wire, "axis");
@@ -2375,20 +2332,15 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         if (intersects_belt(snapshot.state, {at, gear_axle_half_extents(verified_axis)})) return refuse("occupied");
         if (placement_blocked(at, gear_axle_half_extents(verified_axis))) return refuse("actor_occupied");
-        normalized.at("action") = Value("place");
-        normalized.emplace("role", Value("gear"));
-        normalized.emplace("center", wire.at("center"));
-        normalized.emplace("axis", wire.at("axis"));
-        normalized.emplace("teeth", wire.at("teeth"));
-        normalized.emplace("half_span", Value(Integer{0}));
-    } else if (*action == "place_relay") {
+        transmission_placement::normalize(normalized, wire, transmission_placement::Action::gear);
+    } else if (transmission_action == transmission_placement::Action::relay) {
         const auto* name = field<std::string>(wire, "kind");
         const auto* input = field<Array>(wire, "center");
         const auto* axis_name = field<std::string>(wire, "axis");
         const auto* relay_name = field<std::string>(wire, "relay_axis");
-        if (!name || (*name != "gearbox" && *name != "vertical_gearbox" && *name != "chain_drive") ||
-            !keys(wire, relay_name ? std::initializer_list<const char*>{"kind", "center", "axis", "relay_axis"} :
-                std::initializer_list<const char*>{"kind", "center", "axis"})) return refuse("invalid_command");
+        if (!name || !transmission_placement::relay_kind(*name) ||
+            !transmission_placement::admission_shape(wire, transmission_placement::Action::relay))
+            return refuse("invalid_command");
         const auto center = input ? gear_center(*input) : std::nullopt;
         const auto relay_axis = relay_name ? axis_value(*relay_name) : std::nullopt;
         if (!center) return refuse("invalid_center");
@@ -2427,13 +2379,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         if (intersects_belt(snapshot.state, shell)) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
-        normalized.at("action") = Value("place");
-        normalized.emplace("role", Value(*name));
-        normalized.emplace("center", wire.at("center"));
-        normalized.emplace("axis", wire.at("axis"));
-        normalized.emplace("teeth", Value(Integer{0}));
-        normalized.emplace("half_span", Value(Integer{0}));
-        if (relay_name) normalized.emplace("relay_axis", wire.at("relay_axis"));
+        transmission_placement::normalize(normalized, wire, transmission_placement::Action::relay);
     } else if (belt_action == belt_commands::Action::select) {
         if (!belt_commands::valid_wire(wire, belt_action) ||
             !target("entity", "target", "generation")) return refuse("invalid_command");

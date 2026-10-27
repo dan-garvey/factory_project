@@ -7,6 +7,7 @@
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
+#include "factory/transmission_placement_contract.hpp"
 #include "factory/worksite_command_contract.hpp"
 #include "belt_planner.hpp"
 #include "component_planner.hpp"
@@ -182,6 +183,15 @@ bool shape(const Object& intent, const std::string& action) {
     if (const auto worksite = worksite_commands::parse_intent(action);
         worksite != worksite_commands::Action::none)
         return worksite_commands::valid_intent(intent, worksite);
+    if (placement(action)) {
+        const auto* wire = field<Object>(intent, "wire");
+        const auto* original = wire ? field<std::string>(*wire, "action") : nullptr;
+        if (original) {
+            const auto transmission = transmission_placement::parse_wire(*original);
+            if (transmission != transmission_placement::Action::none)
+                return transmission_placement::valid_intent(intent, transmission);
+        }
+    }
     if (placement(action) && intent.contains("rotation"))
         return keys(intent, {"role", "center", "axis", "teeth", "half_span", "rotation"});
     if (placement(action) && intent.contains("relay_axis"))

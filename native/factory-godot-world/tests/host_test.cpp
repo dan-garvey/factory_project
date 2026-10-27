@@ -194,6 +194,8 @@ void historical_translation() {
     reject("span", "from", V(collector));
     reject("collector", "cell", V(A{V(I{0}), V(I{0})}));
     reject("collector", "kind", V("belt"));
+    reject("input-cog", "teeth", V(I{1}));
+    reject("first-shaft", "half_span", V(I{3}));
     Host fresh;
     check(accepted(fresh.initialize("new-host", {"P"})), "A separate fresh Host initializes.");
     check(accepted(fresh.configure_terrain(site)), "The fresh Host binds the same synthetic terrain.");

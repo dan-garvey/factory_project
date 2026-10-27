@@ -106,6 +106,48 @@ O low_flat_site() {
     return site;
 }
 
+void transmission_request_shapes() {
+    Host host;
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+          accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+          "The placement contract test binds an actual finite Host and site.");
+    observe(host, 0, 0, 1);
+    const auto before = host.checkpoint();
+    const auto before_world = field<O>(before, "world");
+    const auto before_state = field<O>(V(before_world), "state");
+    const auto before_projection = host.projection();
+    auto extra_shaft = shaft(4, 4, 4, "shape-extra-shaft");
+    extra_shaft.emplace("extra", V(true));
+    auto center_shaft = shaft(4, 4, 4, "shape-center-shaft");
+    center_shaft.at("center") = V(false);
+    auto axis_shaft = shaft(4, 4, 4, "shape-axis-shaft");
+    axis_shaft.at("axis") = V(false);
+    auto span_shaft = shaft(4, 4, 4, "shape-span-shaft");
+    span_shaft.at("half_span") = V(false);
+    auto extra_gear = gear(4, 4, 4, "shape-extra-gear");
+    extra_gear.emplace("extra", V(true));
+    auto teeth_gear = gear(4, 4, 4, "shape-teeth-gear");
+    teeth_gear.at("teeth") = V(false);
+    auto kind_relay = relay("gearbox", 4, 8, 4, "shape-kind-relay", "y");
+    kind_relay.at("kind") = V(false);
+    auto axis_relay = relay("chain_drive", 4, 8, 4, "shape-axis-relay", "x", "z");
+    axis_relay.at("relay_axis") = V(false);
+    for (const auto& [request, reason] : std::vector<std::pair<O, std::string>>{
+             {extra_shaft, "invalid_command"}, {center_shaft, "invalid_center"},
+             {axis_shaft, "invalid_axis"}, {span_shaft, "invalid_shaft"},
+             {extra_gear, "invalid_command"}, {teeth_gear, "invalid_gear"},
+             {kind_relay, "invalid_command"}, {axis_relay, "invalid_command"}}) {
+        const auto reply = host.command("P", request);
+        check(!accepted(reply) && field<std::string>(reply, "reason") == reason,
+              "Malformed transmission placement keeps its existing refusal meaning.");
+    }
+    const auto after_world = field<O>(host.checkpoint(), "world");
+    const auto after_state = field<O>(V(after_world), "state");
+    check(field<I>(before_projection, "revision") == field<I>(host.projection(), "revision") &&
+          !factory::values::typed_difference(V(before_state), V(after_state)),
+          "Malformed transmission wires leave native material, state and revision unchanged.");
+}
+
 void finite_oriented_train_and_restore() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})), "The original finite profile initializes.");
@@ -313,6 +355,31 @@ void finite_relays_and_restore() {
           !accepted(host.command("P", relay("chain_drive", 8, 8, 4, "wrong-link", "x", "x"))),
           "Horizontal gearbox and chain side-axis requirements are authoritative.");
     const auto saved = host.checkpoint();
+    auto forged_root = std::get<O>(saved.storage());
+    auto forged_world = field<O>(saved, "world");
+    auto forged_history = field<O>(V(forged_world), "history");
+    auto records = field<A>(V(forged_history), "records");
+    bool changed = false;
+    for (auto& entry : records) {
+        auto record = std::get<O>(entry.storage());
+        auto intent = field<O>(entry, "intent");
+        if (field<std::string>(V(intent), "request") != "chain-case") continue;
+        auto original = field<O>(V(intent), "wire");
+        original.at("kind") = V("gearbox");
+        intent.at("wire") = V(std::move(original));
+        record.at("intent") = V(std::move(intent));
+        entry = V(std::move(record));
+        changed = true;
+        break;
+    }
+    check(changed, "The saved chain request is present for a wire-only negative control.");
+    forged_history.at("records") = V(std::move(records));
+    forged_world.at("history") = V(std::move(forged_history));
+    forged_root.at("world") = V(std::move(forged_world));
+    const auto forged_reply = host.validate_checkpoint(V(std::move(forged_root)));
+    check(!accepted(forged_reply) && field<std::string>(forged_reply, "reason") == "inconsistent_wire_history" &&
+          !factory::values::typed_difference(saved, host.checkpoint()),
+          "A saved relay wire cannot change kind while keeping the accepted native placement.");
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
           accepted(fresh.configure_terrain(low_flat_site())) &&
@@ -1950,6 +2017,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc == 1) {
+            transmission_request_shapes();
             building_rotation();
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
             transmission_tile_center(); transmission_above_half_foundation(); half_tile_shaft_bridge(); global_grid(); finite_large_cog(); finite_relays_and_restore(); stacked_vertical_relay_support(); relay_shell_terrain(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
