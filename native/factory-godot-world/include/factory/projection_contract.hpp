@@ -3,6 +3,7 @@
 #include "factory/value.hpp"
 
 #include <array>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -22,6 +23,9 @@ struct Field {
     std::string_view name;
     Type type;
     bool optional{};
+    std::string_view exact_text{};
+    std::optional<Value::Integer> exact_integer{};
+    std::span<const std::string_view> allowed_text{};
 };
 
 // Every Host projection has these fields in both ordinary and arrival worlds.
@@ -73,7 +77,7 @@ inline constexpr std::array conditional_fields{
     ConditionalField{"first_plate_unlock", Type::boolean, "options.arrival"},
 };
 
-// These records have the same required shape in ordinary and arrival worlds.
+// These records describe native worksite views and the extension's derived view.
 // Counts and profile-specific additions may differ without changing the wire.
 enum class Container { object, object_values, array_elements, object_array_elements };
 
@@ -83,6 +87,9 @@ struct Record {
     std::span<const Field> fields;
     // A dotted native projection fact decides profile-specific presence.
     std::string_view required_with{};
+    bool engine_view_only{};
+    std::string_view keys_with{};
+    std::string_view identity_field{};
 };
 
 inline constexpr std::array stock_fields{
@@ -243,6 +250,24 @@ inline constexpr std::array slide_phase_fields{
     Field{"subticks", Type::integer}, Field{"remainder", Type::integer},
     Field{"denominator", Type::integer}, Field{"cycle_subticks", Type::integer},
 };
+inline constexpr std::array<std::string_view, 6> engineering_phase_names{
+    "unavailable", "first_shift", "move_source", "restore_drive", "deliver_more", "ready"};
+inline constexpr std::array engineering_fields{
+    Field{"schema", Type::integer, false, {}, Value::Integer{1}},
+    Field{"format", Type::string, false, "factory-opening-engineering"},
+    Field{"actor", Type::string},
+    Field{"phase", Type::string, false, {}, {}, engineering_phase_names},
+    Field{"known_actor", Type::boolean}, Field{"products", Type::integer},
+    Field{"first_target", Type::integer}, Field{"target", Type::integer},
+    Field{"wheel_cell", Type::integer2},
+    Field{"source_at_target", Type::boolean},
+    Field{"machines_running", Type::boolean},
+    Field{"belt_forward", Type::boolean},
+    Field{"placed_gears", Type::integer}, Field{"placed_shafts", Type::integer},
+    Field{"ready", Type::boolean}, Field{"title", Type::string},
+    Field{"brief", Type::string}, Field{"relocate_hint", Type::string},
+    Field{"gear_hint", Type::string},
+};
 inline constexpr std::array records{
     Record{"stock", Container::object, stock_fields},
     Record{"cargo", Container::object_values, cargo_fields},
@@ -293,6 +318,8 @@ inline constexpr std::array records{
         "options.arrival"},
     Record{"broad_shear_assemblies", Container::array_elements, broad_assembly_fields,
         "options.arrival"},
+    Record{"opening_engineering", Container::object_values, engineering_fields,
+        {}, true, "inventories", "actor"},
 };
 
 inline bool typed(const Value& value, Type type) {
@@ -373,6 +400,17 @@ inline bool required_fields(const Object& object, std::span<const Field> fields)
             return false;
         }
         if (!typed(*found, field.type)) return false;
+        if (!field.exact_text.empty() &&
+            std::get<std::string>(found->storage()) != field.exact_text) return false;
+        if (field.exact_integer &&
+            std::get<Value::Integer>(found->storage()) != *field.exact_integer) return false;
+        if (!field.allowed_text.empty()) {
+            const auto& name = std::get<std::string>(found->storage());
+            bool allowed = false;
+            for (const auto candidate : field.allowed_text)
+                allowed |= name == candidate;
+            if (!allowed) return false;
+        }
     }
     return true;
 }
@@ -391,7 +429,6 @@ inline bool complete_record(const Value& value, const Record& record) {
     if (!object) return false;
     if (record.container == Container::object) return required_fields(*object, record.fields);
     for (const auto& [key, entry] : *object) {
-        (void)key;
         if (record.container == Container::object_array_elements) {
             const auto* entries = std::get_if<Value::Array>(&entry.storage());
             if (!entries) return false;
@@ -403,6 +440,11 @@ inline bool complete_record(const Value& value, const Record& record) {
         }
         const auto* fields = std::get_if<Object>(&entry.storage());
         if (!fields || !required_fields(*fields, record.fields)) return false;
+        if (!record.identity_field.empty()) {
+            const auto* identity = record_at(*fields, record.identity_field);
+            const auto* name = identity ? std::get_if<std::string>(&identity->storage()) : nullptr;
+            if (!name || *name != key) return false;
+        }
     }
     return true;
 }
@@ -439,6 +481,7 @@ inline bool complete(const Value& value, bool engine_view = false) {
         if (!typed(found->second, field.type)) return false;
     }
     for (const auto& record : records) {
+        if (record.engine_view_only && !engine_view) continue;
         const auto* found = record_at(*object, record.name);
         if (!found) {
             if (!record.required_with.empty() &&
@@ -446,6 +489,16 @@ inline bool complete(const Value& value, bool engine_view = false) {
             return false;
         }
         if (!complete_record(*found, record)) return false;
+        if (!record.keys_with.empty()) {
+            const auto* source = record_at(*object, record.keys_with);
+            const auto* expected = source ? std::get_if<Object>(&source->storage()) : nullptr;
+            const auto* actual = std::get_if<Object>(&found->storage());
+            if (!expected || !actual || expected->size() != actual->size()) return false;
+            for (const auto& [key, entry] : *expected) {
+                (void)entry;
+                if (!actual->contains(key)) return false;
+            }
+        }
     }
     if (engine_view) {
         const auto found = object->find(std::string(engineering_field.name));
@@ -492,17 +545,35 @@ inline Value record_fields() {
     for (const auto& record : records) {
         Object fields;
         for (const auto& field : record.fields) {
-            if (field.optional)
-                fields.emplace(std::string(field.name), Value(Object{
-                    {"type", Value(type_name(field.type))},
-                    {"optional", Value(true)}}));
-            else
+            if (field.optional || !field.exact_text.empty() || field.exact_integer ||
+                !field.allowed_text.empty()) {
+                Object descriptor{{"type", Value(type_name(field.type))}};
+                if (field.optional) descriptor.emplace("optional", Value(true));
+                if (!field.exact_text.empty())
+                    descriptor.emplace("equals", Value(std::string(field.exact_text)));
+                if (field.exact_integer)
+                    descriptor.emplace("equals", Value(*field.exact_integer));
+                if (!field.allowed_text.empty()) {
+                    Value::Array allowed;
+                    for (const auto item : field.allowed_text)
+                        allowed.emplace_back(std::string(item));
+                    descriptor.emplace("allowed", Value(std::move(allowed)));
+                }
+                fields.emplace(std::string(field.name), Value(std::move(descriptor)));
+            } else {
                 fields.emplace(std::string(field.name), Value(type_name(field.type)));
+            }
         }
         Object definition{{"container", Value(container_name(record.container))},
             {"fields", Value(std::move(fields))}};
         if (!record.required_with.empty())
             definition.emplace("required_with", Value(std::string(record.required_with)));
+        if (record.engine_view_only)
+            definition.emplace("engine_view_only", Value(true));
+        if (!record.keys_with.empty())
+            definition.emplace("keys_with", Value(std::string(record.keys_with)));
+        if (!record.identity_field.empty())
+            definition.emplace("identity_field", Value(std::string(record.identity_field)));
         output.emplace(std::string(record.name), Value(std::move(definition)));
     }
     return Value(std::move(output));

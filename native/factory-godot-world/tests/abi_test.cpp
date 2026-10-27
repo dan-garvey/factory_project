@@ -318,6 +318,56 @@ void run() {
                   field<std::string>(hub_fields, "holder") == "nullable_string" &&
                   field<std::string>(crank_fields, "port") == "integer3_or_empty",
               "The extension exposes complete arrival worksite shapes and optional placement ports.");
+        const auto engineering_record = Value(field<Object>(records, "opening_engineering"));
+        const auto engineering_fields = Value(field<Object>(engineering_record, "fields"));
+        const auto engineering_schema = Value(field<Object>(engineering_fields, "schema"));
+        const auto engineering_format = Value(field<Object>(engineering_fields, "format"));
+        const auto engineering_phase = Value(field<Object>(engineering_fields, "phase"));
+        check(field<bool>(engineering_record, "engine_view_only") &&
+                  field<std::string>(engineering_record, "container") == "object_values" &&
+                  field<std::string>(engineering_record, "keys_with") == "inventories" &&
+                  field<std::string>(engineering_record, "identity_field") == "actor" &&
+                  field<std::string>(engineering_fields, "wheel_cell") == "integer2" &&
+                  field<std::string>(engineering_fields, "products") == "integer" &&
+                  field<std::string>(engineering_fields, "belt_forward") == "boolean" &&
+                  field<Integer>(engineering_schema, "equals") == 1 &&
+                  field<std::string>(engineering_format, "equals") ==
+                      "factory-opening-engineering" &&
+                  field<Array>(engineering_phase, "allowed").size() == 6 &&
+                  field<std::string>(engineering_fields, "gear_hint") == "string",
+              "The real extension describes each actor's complete derived engineering report.");
+        const auto engine_view = std::get<Object>(projection.storage());
+        const auto actual_reports = field<Object>(projection, "opening_engineering");
+        check(actual_reports.size() == field<Object>(projection, "inventories").size() &&
+                  actual_reports.contains("P") &&
+                  field<std::string>(actual_reports.at("P"), "actor") == "P" &&
+                  factory::godot_world::projection_contract::complete(projection, true),
+              "The engine publishes one typed engineering report for each native inventory actor.");
+        auto missing_report = engine_view;
+        missing_report.at("opening_engineering") = Value(Object{});
+        auto extra_report = engine_view;
+        auto extra_reports = actual_reports;
+        extra_reports.emplace("invented", actual_reports.at("P"));
+        extra_report.at("opening_engineering") = Value(std::move(extra_reports));
+        const auto malformed_report = [&](const char* name, Value replacement) {
+            auto malformed = engine_view;
+            auto reports = actual_reports;
+            auto report = std::get<Object>(reports.at("P").storage());
+            report.at(name) = std::move(replacement);
+            reports.at("P") = Value(std::move(report));
+            malformed.at("opening_engineering") = Value(std::move(reports));
+            return !factory::godot_world::projection_contract::complete(Value(malformed), true);
+        };
+        check(!factory::godot_world::projection_contract::complete(Value(missing_report), true) &&
+                  !factory::godot_world::projection_contract::complete(Value(extra_report), true) &&
+                  malformed_report("actor", Value("Q")) &&
+                  malformed_report("schema", Value(Integer{2})) &&
+                  malformed_report("format", Value("unknown-report")) &&
+                  malformed_report("phase", Value("unknown-phase")) &&
+                  malformed_report("wheel_cell", Value(Array{Value(Integer{0})})) &&
+                  malformed_report("products", Value("four")) &&
+                  malformed_report("belt_forward", Value(Integer{1})),
+              "A missing, extra, misidentified or mistyped report cannot be a complete engine view.");
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,
               "The powered line consumes three physical shafts.");
         bool blocked_ready = false;

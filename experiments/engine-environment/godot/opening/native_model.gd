@@ -139,7 +139,11 @@ func _complete_projection(value: Dictionary) -> bool:
 			or record.fields.is_empty():
 			return false
 		var required_with: Variant = record.get("required_with", "")
-		if not required_with is String:
+		var keys_with: Variant = record.get("keys_with", "")
+		var identity_field: Variant = record.get("identity_field", "")
+		if not required_with is String or not keys_with is String \
+			or not identity_field is String \
+			or typeof(record.get("engine_view_only", false)) != TYPE_BOOL:
 			return false
 		var nested: Variant = value
 		var missing := false
@@ -152,12 +156,28 @@ func _complete_projection(value: Dictionary) -> bool:
 			if not required_with.is_empty() and not _projection_requires(value, required_with):
 				continue
 			return false
+		if not keys_with.is_empty():
+			var expected_keys: Variant = value
+			for segment in keys_with.split("."):
+				if not expected_keys is Dictionary or not expected_keys.has(segment):
+					return false
+				expected_keys = expected_keys[segment]
+			if not expected_keys is Dictionary or not nested is Dictionary \
+				or expected_keys.size() != nested.size():
+				return false
+			for key in expected_keys:
+				if not nested.has(key): return false
 		var entries: Array = []
 		match record.get("container"):
 			"object":
 				entries = [nested]
 			"object_values":
 				if not nested is Dictionary: return false
+				if not identity_field.is_empty():
+					for key in nested:
+						if not key is String or not nested[key] is Dictionary \
+							or nested[key].get(identity_field) != key:
+							return false
 				entries = nested.values()
 			"object_array_elements":
 				if not nested is Dictionary: return false
@@ -176,12 +196,14 @@ func _complete_projection(value: Dictionary) -> bool:
 				if not field is String:
 					return false
 				var expected_field: Variant = record.fields[field]
+				var descriptor: Dictionary = {}
 				var optional := false
 				if expected_field is Dictionary:
+					descriptor = expected_field
 					if not expected_field.get("type") is String \
-						or typeof(expected_field.get("optional")) != TYPE_BOOL:
+						or typeof(expected_field.get("optional", false)) != TYPE_BOOL:
 						return false
-					optional = expected_field.optional
+					optional = expected_field.get("optional", false)
 					expected_field = expected_field.type
 				var nested_field: Variant = entry
 				var field_missing := false
@@ -195,6 +217,16 @@ func _complete_projection(value: Dictionary) -> bool:
 					return false
 				if not _projection_type_matches(nested_field, expected_field):
 					return false
+				if descriptor.has("equals"):
+					if not _projection_type_matches(descriptor.equals, expected_field) \
+						or nested_field != descriptor.equals:
+						return false
+				if descriptor.has("allowed"):
+					var allowed: Variant = descriptor.allowed
+					if not allowed is Array or allowed.is_empty(): return false
+					for candidate in allowed:
+						if not _projection_type_matches(candidate, expected_field): return false
+					if not allowed.has(nested_field): return false
 	return true
 
 func _projection_requires(value: Dictionary, path: String) -> bool:

@@ -76,6 +76,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_catalog_delta := false
 	var inject_bad_worksite_full := false
 	var inject_bad_worksite_delta := false
+	var inject_bad_engineering_full := false
+	var inject_bad_engineering_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -111,6 +113,9 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "projection" and inject_bad_worksite_full:
 			inject_bad_worksite_full = false
 			delivered.erase("landing_pod")
+		elif method == "projection" and inject_bad_engineering_full:
+			inject_bad_engineering_full = false
+			delivered.opening_engineering.P.actor = "Q"
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -147,6 +152,9 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 				"component": "wooden_frame", "generation": 1, "center": [0, 0, 0],
 				"occupied": {"center": [0.0, 0.0, 0.0], "half": [1.0, 1.0]},
 				"position": [0.0, 0.0, 0.0]}}}, "removed": []}
+		elif method == "advance_delta" and inject_bad_engineering_delta:
+			inject_bad_engineering_delta = false
+			return {"changes": {"opening_engineering": {}}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3979,6 +3987,49 @@ func _native_view_cache_regression() -> void:
 		and not trusted._complete_projection(wrong_ports)
 		and not trusted._complete_projection(wrong_phase),
 		"Arrival hardware, custody, occupied bounds, optional ports and slide phases keep native types.")
+	var engineering_schema: Dictionary = trusted._projection_records.get("opening_engineering", {})
+	verify(engineering_schema.get("engine_view_only") == true
+		and engineering_schema.get("container") == "object_values"
+		and engineering_schema.get("keys_with") == "inventories"
+		and engineering_schema.get("identity_field") == "actor"
+		and engineering_schema.get("fields", {}).get("wheel_cell") == "integer2"
+		and engineering_schema.fields.schema.equals == 1
+		and engineering_schema.fields.format.equals == "factory-opening-engineering"
+		and engineering_schema.fields.phase.allowed.has("ready")
+		and trusted._complete_projection(complete)
+		and ordinary._complete_projection(ordinary.projection()),
+		"The extension's native engineering report schema covers ordinary and arrival actors.")
+	var missing_engineering := complete.duplicate(true)
+	missing_engineering.erase("opening_engineering")
+	var missing_engineering_actor := complete.duplicate(true)
+	missing_engineering_actor.opening_engineering.erase("P")
+	var extra_engineering_actor := complete.duplicate(true)
+	extra_engineering_actor.opening_engineering.Q = extra_engineering_actor.opening_engineering.P.duplicate(true)
+	var wrong_engineering_actor := complete.duplicate(true)
+	wrong_engineering_actor.opening_engineering.P.actor = "Q"
+	var wrong_engineering_version := complete.duplicate(true)
+	wrong_engineering_version.opening_engineering.P.schema = 2
+	var wrong_engineering_format := complete.duplicate(true)
+	wrong_engineering_format.opening_engineering.P.format = "unknown-report"
+	var wrong_engineering_phase := complete.duplicate(true)
+	wrong_engineering_phase.opening_engineering.P.phase = "unknown-phase"
+	var wrong_engineering_cell := complete.duplicate(true)
+	wrong_engineering_cell.opening_engineering.P.wheel_cell = [0]
+	var wrong_engineering_count := complete.duplicate(true)
+	wrong_engineering_count.opening_engineering.P.products = "four"
+	var wrong_engineering_flag := complete.duplicate(true)
+	wrong_engineering_flag.opening_engineering.P.belt_forward = 1
+	verify(not trusted._complete_projection(missing_engineering)
+		and not trusted._complete_projection(missing_engineering_actor)
+		and not trusted._complete_projection(extra_engineering_actor)
+		and not trusted._complete_projection(wrong_engineering_actor)
+		and not trusted._complete_projection(wrong_engineering_version)
+		and not trusted._complete_projection(wrong_engineering_format)
+		and not trusted._complete_projection(wrong_engineering_phase)
+		and not trusted._complete_projection(wrong_engineering_cell)
+		and not trusted._complete_projection(wrong_engineering_count)
+		and not trusted._complete_projection(wrong_engineering_flag),
+		"Missing, extra, misidentified and mistyped engineering reports never become complete views.")
 	var wrong_inventory := complete.duplicate(true)
 	wrong_inventory.inventories.P = "one"
 	var wrong_kit := complete.duplicate(true)
@@ -4125,6 +4176,20 @@ func _native_view_cache_regression() -> void:
 		"A merged delta with malformed placed bounds cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"A fresh native view recovers after malformed worksite bounds.")
+	trusted._view_cache = {}
+	trusted.inject_bad_engineering_full = true
+	var bad_engineering_full: Dictionary = trusted.view_projection()
+	verify(bad_engineering_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full view with a misidentified engineering report cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after an engineering report refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_engineering_delta = true
+	var bad_engineering_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_engineering_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged tick missing the player's engineering report cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after a missing tick report.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
