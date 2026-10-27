@@ -12,7 +12,7 @@ using command_contract::Object;
 using command_contract::Schema;
 using command_contract::Type;
 
-enum class Action { none, field_craft, foundation, component, part };
+enum class Action { none, field_craft, foundation, component, part, stow_hub, deploy_hub };
 
 inline Schema schema(Action action) {
     static constexpr std::array field_craft{
@@ -33,11 +33,22 @@ inline Schema schema(Action action) {
         Field{"role", "role", Type::string},
         Field{"half_span", "half_span", Type::integer},
     };
+    static constexpr std::array stow_hub{
+        Field{"entity", "target", Type::string},
+        Field{"", "generation", Type::integer},
+    };
+    static constexpr std::array deploy_hub{
+        Field{"entity", "target", Type::string},
+        Field{"", "generation", Type::integer},
+        Field{"center", "center", Type::array},
+    };
     switch (action) {
         case Action::field_craft: return {"field_craft", field_craft};
         case Action::foundation: return {"craft_foundation", foundation};
         case Action::component: return {"craft_component", component};
         case Action::part: return {"craft_part", part};
+        case Action::stow_hub: return {"stow_fabrication_hub", stow_hub};
+        case Action::deploy_hub: return {"deploy_fabrication_hub", deploy_hub};
         case Action::none: return {};
     }
     return {};
@@ -45,13 +56,22 @@ inline Schema schema(Action action) {
 
 inline Action parse(std::string_view name) {
     for (const auto action : {Action::field_craft, Action::foundation,
-                              Action::component, Action::part})
+                              Action::component, Action::part,
+                              Action::stow_hub, Action::deploy_hub})
         if (schema(action).name == name) return action;
     return Action::none;
 }
 
 inline bool valid_wire(const Object& wire, Action action) {
     return command_contract::valid_wire(wire, schema(action));
+}
+// Host has historically reported a present malformed deploy center as
+// invalid_center after checking the other wire fields.
+inline bool valid_hub_wire_before_geometry(const Object& wire, Action action) {
+    if (action == Action::stow_hub) return valid_wire(wire, action);
+    if (action != Action::deploy_hub) return false;
+    static constexpr std::array<std::string_view, 1> center{"center"};
+    return command_contract::valid(wire, schema(action), false, center);
 }
 inline bool valid_intent(const Object& intent, Action action) {
     return command_contract::valid_intent(intent, schema(action));

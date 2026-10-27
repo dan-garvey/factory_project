@@ -311,13 +311,6 @@ bool shape(const Object& intent, const std::string& action) {
     if (action == "finish_harvest" || action == "cancel_harvest") return keys(intent, {});
     if (action == "set_developer_conveniences")
         return keys(intent, {"enabled"}) && field<bool>(intent, "enabled");
-    if (action == "stow_fabrication_hub")
-        return keys(intent, {"target", "generation"}) && field<std::string>(intent, "target") &&
-            field<Integer>(intent, "generation");
-    if (action == "deploy_fabrication_hub")
-        return keys(intent, {"target", "generation", "center"}) &&
-            field<std::string>(intent, "target") && field<Integer>(intent, "generation") &&
-            field<Value::Array>(intent, "center");
     if (action == "recover" || action == "remove")
         return keys(intent, {"target", "generation"});
     if (action == "collect" || action == "insert_raw")

@@ -614,13 +614,6 @@ bool historical_wire(const authority::Record& record) {
             field<bool>(*wire, "enabled") && same("enabled", "enabled");
     if (*action == "finish_harvest" || *action == "cancel_harvest")
         return *original_action == *action && keys(*wire, {});
-    if (*action == "stow_fabrication_hub")
-        return *original_action == "stow_fabrication_hub" && keys(*wire, {"entity"}) &&
-            field<std::string>(*wire, "entity") && same("entity", "target");
-    if (*action == "deploy_fabrication_hub")
-        return *original_action == "deploy_fabrication_hub" && keys(*wire, {"entity", "center"}) &&
-            field<std::string>(*wire, "entity") && field<Array>(*wire, "center") &&
-            same("entity", "target") && same("center", "center");
     if (*action == "place" || *action == "place_connected") {
         if (*original_action == "place_shaft") {
             const auto* center = field<Array>(*wire, "center");
@@ -1843,12 +1836,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             return refuse("invalid_command");
         normalized.at("action") = Value(*action);
         normalized.emplace("component", wire.at("component"));
-    } else if (*action == "stow_fabrication_hub" || *action == "deploy_fabrication_hub") {
-        const bool deploy = *action == "deploy_fabrication_hub";
-        if (!keys(wire, deploy ? std::initializer_list<const char*>{"entity", "center"} :
-                std::initializer_list<const char*>{"entity"}) ||
-            !field<std::string>(wire, "entity")) return refuse("invalid_command");
-        normalized.at("action") = Value(*action);
+    } else if (fabrication_action == fabrication_commands::Action::stow_hub ||
+            fabrication_action == fabrication_commands::Action::deploy_hub) {
+        const bool deploy = fabrication_action == fabrication_commands::Action::deploy_hub;
+        if (!fabrication_commands::valid_hub_wire_before_geometry(wire, fabrication_action))
+            return refuse("invalid_command");
         normalized.emplace("target", wire.at("entity"));
         normalized.emplace("generation", Value(snapshot.state.fabrication_hub &&
             snapshot.state.fabrication_hub->id == *field<std::string>(wire, "entity") ?
@@ -1893,6 +1885,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     materials::Component::wooden_workbench, center)) return refuse(refusal);
             normalized.emplace("center", wire.at("center"));
         }
+        normalized.at("action") = Value(*action);
     } else if (fabrication_action == fabrication_commands::Action::part) {
         if (!fabrication_commands::valid_wire(wire, fabrication_action))
             return refuse("invalid_command");
