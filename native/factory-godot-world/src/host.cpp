@@ -9,6 +9,7 @@
 #include "material_projection.hpp"
 #include "topology_projection.hpp"
 #include "physical_geometry.hpp"
+#include "factory/physical_site.hpp"
 #include "arrival_configuration.hpp"
 #include "factory/belt_command_contract.hpp"
 #include "factory/component_command_contract.hpp"
@@ -25,16 +26,13 @@
 #include "factory/worksite_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/mineral_site.hpp"
-#include "factory/waterflow.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <limits>
 #include <optional>
 #include <set>
 #include <stdexcept>
-#include <tuple>
 #include <utility>
 
 namespace factory::godot_world {
@@ -55,11 +53,6 @@ using physical_geometry::part_bounds;
 using physical_geometry::collector_intake_bounds;
 using physical_geometry::collector_external_bounds;
 using physical_geometry::foundation_bounds;
-using physical_geometry::slide_head_fitting;
-using physical_geometry::guide_ram_fitting;
-using physical_geometry::frame_anvil_fitting;
-using physical_geometry::workbed_tray_fitting;
-using physical_geometry::frame_ram_fitting;
 using physical_geometry::overlap;
 using physical_geometry::overlaps_supports;
 using physical_geometry::gear_half_extents;
@@ -345,44 +338,7 @@ bool Host::site_blocked(const authority::Point& low, const authority::Point& hig
 }
 
 const char* Host::wheel_site_refusal(const mechanics::Point& center, mechanics::Axis axis, Integer tiles) const {
-    const auto sample = profile_.water.find({center[0], center[2]});
-    if (sample == profile_.water.end()) return "not_at_stream";
-    const auto contact = waterwheel::immersed(center[1] * 100 + profile_.wheel_axle_offset,
-                                              profile_.wheel_radius * tiles, axis, sample->second);
-    if (!contact || !*contact) return "not_at_stream";
-    const double x = center[0] * height_step, y = center[1] * height_step + anchor_height;
-    const double z = center[2] * height_step;
-    const double radius = profile_.wheel_radius * tiles * height_step / 100.0;
-    const double half_x = axis == mechanics::Axis::x ? 0.3 : radius;
-    const double half_z = axis == mechanics::Axis::z ? 0.3 : radius;
-    if (site_blocked({x - half_x, y - radius, z - half_z}, {x + half_x, y + radius, z + half_z}))
-        return "site_occupied";
-    // Bound the entire rotating rim against the same emitted terrain triangles.
-    // Each strip uses its highest ground and the lowest point of the arc in
-    // that strip, so an unchecked peak cannot pass between point samples.
-    const auto strips = static_cast<Integer>(std::ceil(2 * radius / height_step));
-    for (Integer index = 0; index < strips; ++index) {
-        const double a = -radius + 2 * radius * index / strips;
-        const double b = -radius + 2 * radius * (index + 1) / strips;
-        const double middle = (a + b) / 2, span = (b - a) / 2;
-        const auto terrain = axis == mechanics::Axis::x ? terrain_range(x, z + middle, 0.3, span) :
-                                                        terrain_range(x + middle, z, span, 0.3);
-        if (!terrain) return "terrain_unavailable";
-        const double nearest = a > 0 ? a : b < 0 ? -b : 0;
-        const double low_arc = y - std::sqrt(std::max(0.0, radius * radius - nearest * nearest));
-        if (terrain->second > low_arc) return "site_occupied";
-    }
-    const auto supports = wheel_support_bounds(center, axis,
-        [this](double sx, double sz, double hx, double hz) { return terrain_range(sx, sz, hx, hz); });
-    if (!supports) return "support_required";
-    for (const auto& support : *supports) {
-        const authority::Point low{support.center[0] - support.half[0],
-            support.center[1] - support.half[1], support.center[2] - support.half[2]};
-        const authority::Point high{support.center[0] + support.half[0],
-            support.center[1] + support.half[1], support.center[2] + support.half[2]};
-        if (site_blocked(low, high)) return "site_occupied";
-    }
-    return nullptr;
+    return physical_site::wheel_refusal({profile_, terrain_}, center, axis, tiles);
 }
 
 std::optional<std::pair<double, double>> Host::terrain_range(double x, double z, double half_x, double half_z) const {
@@ -391,59 +347,18 @@ std::optional<std::pair<double, double>> Host::terrain_range(double x, double z,
 
 const char* Host::machine_site_refusal(const world::State& state, const mechanics::Point& center,
         bool collector) const {
-    const auto x = center[0] * height_step;
-    const auto floor = center[1] * height_step;
-    const auto z = center[2] * height_step;
-    const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
-        [&](const auto& entry) { return entry.second.center == center; });
-    const auto terrain = terrain_range(x, z);
-    // A foundation supplies support, not clearance through the real ground.
-    // Foundation blocks themselves may be buried; ordinary machines may not.
-    if (terrain && terrain->second > floor) return "foundation_required";
-    if (!supported) {
-        if (!terrain) return "terrain_unavailable";
-        // This is the existing seating fit, not additional character reach.
-        if (terrain->first < floor - 0.04) return "foundation_required";
-    }
-    if (site_blocked({x - machine_width / 2, floor, z - machine_width / 2},
-                     {x + machine_width / 2, floor + machine_height, z + machine_width / 2}))
-        return "site_occupied";
-    const auto external = collector ? collector_external_bounds(center) : std::vector<Bounds>{};
-    for (std::size_t index = 0; index < external.size(); ++index) {
-        const auto& at = external[index].center;
-        const auto& half = external[index].half;
-        const authority::Point low{at[0] - half[0], at[1] - half[1], at[2] - half[2]};
-        const authority::Point high{at[0] + half[0], at[1] + half[1], at[2] + half[2]};
-        const auto ground = terrain_range(at[0], at[2], half[0], half[2]);
-        if (!ground) return "terrain_unavailable";
-        if (ground->second > low[1] ||
-            site_blocked(low, high, index == 0 ? terrain_.source_obstacle : std::nullopt))
-            return "site_occupied";
-    }
-    return nullptr;
+    return physical_site::machine_refusal({profile_, terrain_}, state, center, collector);
 }
 
 std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
         const world::State& state, const std::map<std::string, std::size_t>* preferred_routes) const {
-    const physical_support::Site site{profile_, terrain_.obstacles,
-        [this](double x, double z, double half_x, double half_z) {
-            return terrain_range(x, z, half_x, half_z);
-        },
-        [this](const authority::Point& low, const authority::Point& high) {
-            return site_blocked(low, high);
-        }};
-    return physical_support::layout(site, state, preferred_routes);
+    return physical_support::layout(physical_site::support_site({profile_, terrain_}),
+        state, preferred_routes);
 }
 
 const char* Host::support_change_refusal(const world::State& before, const world::State& after) const {
-    const physical_support::Site site{profile_, terrain_.obstacles,
-        [this](double x, double z, double half_x, double half_z) {
-            return terrain_range(x, z, half_x, half_z);
-        },
-        [this](const authority::Point& low, const authority::Point& high) {
-            return site_blocked(low, high);
-        }};
-    return physical_support::change_refusal(site, before, after, owned_->support_routes,
+    return physical_support::change_refusal(physical_site::support_site({profile_, terrain_}),
+        before, after, owned_->support_routes,
         [this](const authority::Point& center, const authority::Point& half) {
             return placement_blocked(center, half);
         });
@@ -451,161 +366,26 @@ const char* Host::support_change_refusal(const world::State& before, const world
 
 const char* Host::transmission_site_refusal(const world::State& state, const mechanics::Point& center,
         mechanics::Axis axis, bool gear) const {
-    const authority::Point at{center[0] * height_step, anchor_height + center[1] * height_step, center[2] * height_step};
-    const auto axle = gear_axle_half_extents(axis);
-    const auto check = [&](const authority::Point& half) -> const char* {
-        const auto ground = terrain_range(at[0], at[2], half[0], half[2]);
-        if (!ground) return "terrain_unavailable";
-        if (ground->second > at[1] - half[1] + 1e-9) return "site_occupied";
-        if (site_blocked({at[0] - half[0], at[1] - half[1], at[2] - half[2]},
-                         {at[0] + half[0], at[1] + half[1], at[2] + half[2]})) return "site_occupied";
-        return nullptr;
-    };
-    if (const auto* refusal = check(axle)) return refusal;
-    if (gear) if (const auto* refusal = check(gear_half_extents(axis, 0))) return refusal;
-    for (const auto& part : state.topology.parts) if (part.role == Role::waterwheel) {
-        const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
-            [this](double sx, double sz, double hx, double hz) {
-                return terrain_range(sx, sz, hx, hz);
-            });
-        if (!supports) return "support_required";
-        for (const auto& support : *supports)
-            if (transmission_intersects(support, center, axis, gear)) return "site_occupied";
-    }
-    return nullptr;
+    return physical_site::transmission_refusal({profile_, terrain_}, state, center, axis, gear);
 }
 
 const char* Host::collector_site_refusal(const mechanics::Point& center) const {
-    const mineral_site::Cell cell{center[0] / height_denominator, center[2] / height_denominator};
-    if (!mineral_site::contains(cell)) return "not_at_seam";
-    const auto surface = terrain_range(center[0] * height_step, center[2] * height_step);
-    if (!surface) return "terrain_unavailable";
-    const auto allowed = mineral_site::admit(cell, center[1] * height_step,
-        {surface->first, surface->second}, mineral_site::extraction_depth_steps * height_step);
-    return allowed == mineral_site::Error::none ? nullptr : mineral_site::error_name(allowed);
+    return physical_site::collector_refusal({profile_, terrain_}, center);
 }
 
 const char* Host::component_site_refusal(const world::State& state,
         std::optional<materials::Component> kind, const mechanics::Point& center) const {
-    const auto volume = component_bounds(profile_, kind, center);
-    const auto& at = volume.center;
-    const auto ground = terrain_range(at[0], at[2], volume.half[0], volume.half[2]);
-    if (!ground) return "terrain_unavailable";
-    if (ground->second > at[1] - volume.half[1]) return "site_occupied";
-    if (kind && materials::channel_spec(*kind) && center[1] == 0 &&
-        ground->first < at[1] - volume.half[1] - 0.04)
-        return "support_required";
-    if (kind == materials::Component::broad_anvil &&
-        ground->first < at[1] - volume.half[1] - 0.04) {
-        const auto cells = materials::component_workcells(*kind, center);
-        if (!cells || std::any_of(cells->begin(), cells->end(), [&](const auto& cell) {
-                return std::none_of(state.foundations.begin(), state.foundations.end(),
-                    [&](const auto& entry) { return entry.second.center == cell; });
-            })) return "support_required";
-    }
-    if (kind == materials::Component::wooden_workbench) {
-        const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
-            [&](const auto& entry) { return entry.second.center == center; });
-        if (!supported && ground->first < at[1] - volume.half[1] - 0.04)
-            return "support_required";
-    }
-    // Only the named cutting edge at one of the two trusted ore faces may
-    // enter the source hull. The source obstacle is separately identified and
-    // validated when terrain binds; every other obstacle still blocks it.
-    bool source_contact = false;
-    if (kind == materials::Component::cutting_edge)
-        for (const auto& face : profile_.collector_faces)
-            for (Integer height : {Integer{0}, Integer{1}})
-                if (center == mechanics::Point{
-                    face.machine_center[0] + 2 * face.toward_ore[0],
-                    face.machine_center[1] + height,
-                    face.machine_center[2] + 2 * face.toward_ore[2]}) source_contact = true;
-    const auto ignored = source_contact ? terrain_.source_obstacle : std::nullopt;
-    if (site_blocked({at[0] - volume.half[0], at[1] - volume.half[1], at[2] - volume.half[2]},
-                     {at[0] + volume.half[0], at[1] + volume.half[1], at[2] + volume.half[2]}, ignored))
-        return "site_occupied";
-    return nullptr;
+    return physical_site::component_refusal({profile_, terrain_}, state, kind, center);
 }
 
 const char* Host::component_space_refusal(const world::State& state,
         std::optional<materials::Component> kind, const mechanics::Point& center,
         const std::string* current_id) const {
-    const auto volume = component_bounds(profile_, kind, center);
-    for (const auto& [id, foundation] : state.foundations) {
-        (void)id;
-        if (overlap(volume, foundation_bounds(foundation))) return "occupied";
-    }
-    for (const auto& [id, other] : state.placed_components)
-        if ((!current_id || id != *current_id) &&
-            !slide_head_fitting(kind, center, other.kind, other.center) &&
-            !guide_ram_fitting(kind, center, other.kind, other.center) &&
-            !frame_anvil_fitting(kind, center, other.kind, other.center) &&
-            !workbed_tray_fitting(kind, center, other.kind, other.center) &&
-            !frame_ram_fitting(kind, center, other.kind, other.center) &&
-            overlap(volume, component_bounds(profile_, other.kind, other.center))) return "occupied";
-    if (intersects_belt(state, volume)) return "occupied";
-    for (const auto& part : state.topology.parts) {
-        if (part.role == Role::gear || part.role == Role::shaft) {
-            if (transmission_intersects(volume, part.geometry.center, part.geometry.axis,
-                                        part.role == Role::gear) &&
-                !(part.role == Role::shaft && shaft_meets_component_cog(
-                    kind, center, part.geometry.center, part.geometry.axis))) return "occupied";
-        } else if (overlap(volume, part_bounds(profile_, part))) return "occupied";
-        if (part.role == Role::collector)
-            for (const auto& external : collector_external_bounds(part.geometry.center))
-                if (overlap(volume, external)) return "occupied";
-        if (part.role == Role::waterwheel) {
-            const auto supports = wheel_support_bounds(part.geometry.center, part.geometry.axis,
-                [this](double x, double z, double hx, double hz) {
-                    return terrain_range(x, z, hx, hz);
-                });
-            if (!supports) return "support_required";
-            if (overlaps_supports(*supports, volume)) return "occupied";
-        }
-    }
-    return nullptr;
+    return physical_site::component_space_refusal({profile_, terrain_}, state, kind, center, current_id);
 }
 
 const char* Host::supplied_space_refusal(const world::State& state) const {
-    const auto solids = arrival_geometry::supplied(state, height_step);
-    if (solids.empty()) return nullptr;
-    const auto supports = transmission_supports(state);
-    for (const auto& [id, solid] : solids) {
-        const auto& box = solid.bounds;
-        for (const auto& [other_id, other] : solids)
-            if (id < other_id && solid.entity != other.entity && overlap(box, other.bounds))
-                return "occupied";
-        for (const auto& [unused, floor] : state.foundations) {
-            (void)unused;
-            if (overlap(box, foundation_bounds(floor))) return "occupied";
-        }
-        for (const auto& [unused, component] : state.placed_components) {
-            (void)unused;
-            if (overlap(box, component_bounds(profile_, component.kind, component.center))) return "occupied";
-        }
-        if (intersects_belt(state, box)) return "occupied";
-        for (const auto& part : state.topology.parts) {
-            if (part.role == Role::shaft || part.role == Role::gear) {
-                if (transmission_intersects(box, part.geometry.center, part.geometry.axis,
-                        part.role == Role::gear)) return "occupied";
-            } else if (overlap(box, part_bounds(profile_, part))) return "occupied";
-            if (part.role == Role::collector)
-                for (const auto& external : collector_external_bounds(part.geometry.center))
-                    if (overlap(box, external)) return "occupied";
-            if (part.role == Role::waterwheel) {
-                const auto feet = wheel_support_bounds(part.geometry.center, part.geometry.axis,
-                    [this](double x, double z, double hx, double hz) { return terrain_range(x, z, hx, hz); });
-                if (!feet) return "support_required";
-                if (overlaps_supports(*feet, box)) return "occupied";
-            }
-        }
-        for (const auto& [unused, support] : supports) {
-            (void)unused;
-            for (const auto& [center, half] : support.boxes)
-                if (overlap(box, {center, half})) return "occupied";
-        }
-    }
-    return nullptr;
+    return physical_site::supplied_space_refusal({profile_, terrain_}, state);
 }
 
 world::ObserveActor Host::observe() const {
