@@ -60,7 +60,7 @@ func _init() -> void:
 		return
 	var resumes_worksite := mode.ends_with("-resume") or mode in ["resume",
 		"arrival-broad-drive", "arrival-broad-form", "arrival-channel-broad",
-		"arrival-channel-small"]
+		"arrival-channel-small", "arrival-nonhorizontal-incline"]
 	if seen.has("--resume-input=") != resumes_worksite:
 		push_error("The selected native adapter fixture mode requires exactly its declared worksite input")
 		quit(2)
@@ -193,6 +193,8 @@ func _record(status: String, reason: String = "") -> void:
 		await process_frame
 	print(JSON.stringify({"status": status, "evidence": facts.evidence, "mode": mode, "checks": checks, "reason": reason,
 		"failure_step": facts.steps[-1] if status == "fail" and not facts.steps.is_empty() else {}}))
+	if status == "pass" and mode == "arrival-nonhorizontal-incline":
+		print("CHAPTER 1 PLAYER-BUILT INCLINE PASS")
 	if status == "pass" and (event_route_loose or event_route_pointer):
 		print("CHAPTER 1 SCENE EVENTS PASS: " + mode)
 	quit(0 if status == "pass" else 1)
@@ -1068,7 +1070,10 @@ func _run() -> void:
 	if mode == "supplied-hardware":
 		await _arrival_run()
 		return
-	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode == "arrival-nonhorizontal-incline":
+		await _arrival_run()
+		return
+	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-slide", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -1783,6 +1788,148 @@ func _arrival_belt_resume_run() -> void:
 			"The rejoined route can advance without duplicating or dropping the retained blank"):
 		return
 	_record("pass")
+
+func _arrival_nonhorizontal_incline_run(capture_prefix: String) -> void:
+	# Begin with the physically saved, normal first plate. The motor, finite
+	# sources, workshop inventory and belt endpoint clicks are the player path;
+	# this remains scripted scene evidence, not a human play session.
+	var start: Dictionary = opening.model.projection()
+	if not _expect(opening.last_load_result.get("accepted", false)
+			and start.first_plate_unlock and start.cargo.P.products == 1
+			and start.actors.Q.ready and opening.actor_world.bodies.P.is_on_floor()
+			and opening.actor_world.bodies.Q.is_on_floor()
+			and start.belt_spans.is_empty() and start.part_kits.P.belt == 0,
+			"The ordinary two-worker first-plate save reopens before the new belt is earned"):
+		return
+	for point in [Vector2(4.95, 9.9), Vector2(6.0, 11.55)]:
+		if not await _approach(point):
+			return
+	for cut in 6:
+		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
+			return
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(7.5, 9.9),
+			Vector2(7.5, 3.3), Vector2(-0.5, 0.0)]):
+		return
+	for cut in 2:
+		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+			return
+	if not _expect(opening.model.projection().cargo.P.timber == 6
+			and opening.model.projection().cargo.P.raw == 2,
+			"Six finite timber and two copper units reach the worker without extra stock"):
+		return
+	if not await _approach(Vector2(3.3, 4.95)):
+		return
+	var hub: String = str(opening.model.projection().fabrication_hub.id)
+	for part in [{"kind": "wheel", "half_span": 0}, {"kind": "shaft", "half_span": 2},
+			{"kind": "shaft", "half_span": 2}, {"kind": "belt", "half_span": 0}]:
+		var recipe := -1
+		for index in opening.model.projection().part_recipes.size():
+			var offer: Dictionary = opening.model.projection().part_recipes[index]
+			if offer.kind == part.kind and offer.half_span == part.half_span:
+				recipe = index
+				break
+		if not _expect(recipe >= 0, "The native workshop offers the needed finite transmission part"):
+			return
+		opening.building_hotbar.open_at_bench(hub)
+		var key := "part:%d" % recipe
+		if opening.building_hotbar.recipe_buttons.has(key) \
+				and not opening.building_hotbar.recipe_buttons[key].visible:
+			opening.building_hotbar.all_focus_button.pressed.emit()
+		if not _expect(opening.building_hotbar.recipe_buttons.has(key)
+				and opening.building_hotbar.recipe_buttons[key].visible,
+				"All unlocked parts exposes the needed workshop recipe"):
+			return
+		var before: Dictionary = opening.model.projection()
+		opening.building_hotbar.recipe_buttons[key].pressed.emit()
+		opening.building_hotbar.catalog.hide()
+		var after: Dictionary = opening.model.projection()
+		if not _expect(after.order == before.order + 1
+				and after.part_kits.P[part.kind] == before.part_kits.P[part.kind] + 1,
+				"The workshop spends carried material for one native route part"):
+			return
+	if not await _approach_points([Vector2(1.1, 3.3), Vector2(0.0, 2.15)]):
+		return
+	if not _select_inventory_item("wheel"):
+		return
+	var wheel: Dictionary = _construct({"action": "place", "kind": "wheel", "cell": [-2, 1],
+		"axis": "x", "level": 4})
+	if wheel.is_empty() or not _select_inventory_item("drive"):
+		return
+	var first: Dictionary = _construct({"action": "place_shaft", "center": [-4, 4, 4],
+		"axis": "x", "half_span": 2})
+	var last: Dictionary = _construct({"action": "place_shaft", "center": [-4, 8, 8],
+		"axis": "x", "half_span": 2})
+	if first.is_empty() or last.is_empty() or not _select_inventory_item("belt"):
+		return
+	var before_order: int = int(opening.model.projection().order)
+	opening._world_click(Vector2i.ZERO, str(first.entity))
+	if not _expect(opening.transmission_controls._belt_start.get("id", "") == first.entity
+			and opening.model.projection().part_kits.P.belt == 1
+			and opening.model.projection().belt_spans.is_empty(),
+			"The first ordinary belt click selects one shaft without spending a kit: "
+			+ str(opening.transmission_controls._belt_start)):
+		return
+	opening._world_click(Vector2i.ZERO, str(last.entity))
+	var built: Dictionary = opening.model.projection()
+	if not _expect(built.order > before_order and built.belt_spans.size() == 1
+			and built.part_kits.P.belt == 0 and built.part_kits.P.shaft == 0
+			and built.part_kits.P.wheel == 0,
+			"The second ordinary click pays for one inclined belt between the exact shafts"):
+		return
+	var span_id: String = str(built.belt_spans.keys()[0])
+	var span: Dictionary = built.belt_spans[span_id]
+	if not _expect(span.from == first.entity and span.to == last.entity
+			and built.motion[first.entity].state == "rotating"
+			and built.motion[last.entity].state == "rotating",
+			"The waterwheel powers both ends of the native inclined route"):
+		return
+	var span_view: Node3D
+	for child: Node in opening.transmission_presenter.get_children():
+		if child is Node3D and child.get_meta("entity", "") == span_id:
+			span_view = child
+	if not _expect(span_view != null and span_view.get_node_or_null("Pick") != null,
+			"The player-built inclined loop has a selectable rendered body"):
+		return
+	opening._select_tool("inspect")
+	opening._world_click(Vector2i.ZERO, span_id)
+	if not _expect(opening.selected == span_id
+			and opening.inspector.text.begins_with("Mechanical belt\n"),
+			"The ordinary inspect click identifies the native belt"):
+		return
+	if not await _approach(Vector2(1.1, 3.3)):
+		return
+	var save: Dictionary = opening._save_worksite()
+	if not _expect(save.get("accepted", false) and save.get("native_preflight", {}).get("accepted", false),
+			"The physical actor and exact paid incline pass native save preflight"):
+		return
+	facts["belt"] = {"span": span_id, "from": first.entity, "to": last.entity,
+		"revision": built.revision, "save_slot": opening.save_slot}
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _capture_actor_area(capture_prefix + "-incline-eye.png",
+				Vector3(-1.65, 2.5, 2.5))
+				and await _capture_nonhorizontal_incline_close(capture_prefix + "-incline-close.png"),
+				"Retain passive actor-eye and close views of the paid incline"):
+			return
+	_record("pass")
+
+func _capture_nonhorizontal_incline_close(path: String) -> bool:
+	var view := SubViewport.new()
+	view.size = Vector2i(1280, 800)
+	view.world_3d = root.world_3d
+	view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(view)
+	var camera := Camera3D.new()
+	view.add_child(camera)
+	camera.fov = 64.0
+	camera.position = Vector3(1.4, 4.0, 5.2)
+	camera.look_at(Vector3(-1.65, 2.5, 2.5))
+	camera.make_current()
+	for frame in 6:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var captured: bool = view.get_texture().get_image().save_png(path) == OK
+	view.queue_free()
+	return captured
 
 func _arrival_reveal_run(capture_prefix: String) -> void:
 	while not opening.arrival_reveal_active and Time.get_ticks_msec() < deadline:
@@ -3990,6 +4137,8 @@ func _arrival_cancel_placement_run(capture_prefix: String) -> void:
 
 func _arrival_run() -> void:
 	deadline = Time.get_ticks_msec() + 120000
+	if mode == "arrival-nonhorizontal-incline":
+		deadline = Time.get_ticks_msec() + 300000
 	if mode == "arrival-raised-starter-belt":
 		deadline = Time.get_ticks_msec() + 180000
 	if mode in ["arrival-belt", "arrival-belt-controls", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-craft-capacity"]:
@@ -3998,16 +4147,16 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-slide", "supplied-hardware", "arrival-press", "arrival-guide-geometry", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume", "arrival-raised-press", "arrival-raised-press-resume", "arrival-resume", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	var advanced_fixture := mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-reveal", "arrival-reveal-skip"]
+	var advanced_fixture := mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-reveal", "arrival-reveal-skip"]
 	# Channel command fixtures deliberately exercise developer diagnostics.
 	# Ordinary players pick up pointed material with E and never issue pushes.
 	opening.developer_material_tools = mode.begins_with("arrival-channel-")
-	if mode in ["arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume"]:
+	if mode in ["arrival-nonhorizontal-incline", "arrival-press-site", "arrival-belt-fed-press", "arrival-belt-fed-press-resume", "arrival-powered-press-site", "arrival-powered-press-resume", "arrival-powered-press-blocked-resume", "arrival-powered-press-release-resume", "arrival-broad-pad", "arrival-broad-drive", "arrival-broad-form", "arrival-broad-cut-resume", "arrival-channel-broad", "arrival-channel-small", "arrival-channel-broad-resume", "arrival-channel-small-resume"]:
 		# Reuse the ordinary presentation and physical producer with a second
 		# native actor provisioned for a later peer on this same checkpoint.
 		facts["evidence"] = "native_arrival_scene_dual_actor_consumer"
@@ -4086,6 +4235,9 @@ func _arrival_run() -> void:
 		return
 	if mode == "arrival-first-plate-resume":
 		await _arrival_first_plate_resume_run(capture_prefix)
+		return
+	if mode == "arrival-nonhorizontal-incline":
+		await _arrival_nonhorizontal_incline_run(capture_prefix)
 		return
 	if mode == "arrival-slide":
 		await _arrival_slide_run(panel, capture_prefix)

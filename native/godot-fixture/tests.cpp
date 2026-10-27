@@ -55,6 +55,7 @@ int main() {
                   == fixture::Verdict::malformed_log,
               "Binary controls cannot hide a diagnostic or forge a marker.");
         const auto* first = fixture::find_case("arrival-first-plate");
+        const auto* incline = fixture::find_case("arrival-nonhorizontal-incline");
         const auto* cog_repair = fixture::find_case("arrival-cog-repair");
         const auto* cog_reopen = fixture::find_case("arrival-cog-reopen");
         const auto* raised_starter = fixture::find_case("arrival-raised-starter-snap");
@@ -65,12 +66,26 @@ int main() {
         const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
         const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
         const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
-        check(fixture::registered_cases().size() == 11 && first && cog_repair && cog_reopen &&
+        check(fixture::registered_cases().size() == 12 && first && incline && cog_repair && cog_reopen &&
                   raised_starter && raised_press &&
                   small && resumed && endpoint_default && endpoint_common && endpoint_inspection &&
                   endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),
-              "Only the seven scene routes and four endpoint modes are registered.");
+              "Only the eight scene routes and four endpoint modes are registered.");
+        const std::vector<std::string> incline_args{
+            "--native-check-mode=arrival-nonhorizontal-incline",
+            "--resume-input=/tmp/first-plate.worksite", "--native-check-output=/tmp/incline.result",
+            "--save-slot=/tmp/incline.worksite"};
+        check(incline->script == first->script && incline->seconds == 300 &&
+                  incline->pass_line == "CHAPTER 1 PLAYER-BUILT INCLINE PASS" &&
+                  fixture::accepts_case_arguments(*incline, incline_args) &&
+                  !fixture::accepts_case_arguments(*incline,
+                      {incline_args.data(), incline_args.size() - 1}) &&
+                  !fixture::accepts_case_arguments(*incline,
+                      std::vector<std::string>{"--native-check-mode=arrival-nonhorizontal-incline",
+                          "--resume-input=", "--native-check-output=/tmp/incline.result",
+                          "--save-slot=/tmp/incline.worksite"}),
+              "The paid incline route requires a real first-plate save and fresh outputs.");
         check(cog_repair->script == "res://opening/native_cog_check.gd" &&
                   cog_reopen->script == cog_repair->script &&
                   cog_repair->seconds == 300 && cog_reopen->seconds == 180 &&
