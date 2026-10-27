@@ -349,6 +349,7 @@ int agent_window_launch(int argc, char** argv) {
         require(script ? (target == "res://opening/parts_view_check.gd" ||
                           target == "res://opening/machine_body_motion_check.gd" ||
                           target == "res://opening/machine_visual_test.gd" ||
+                          target == "res://opening/production_environment_check.gd" ||
                           target == "res://opening/native_adapter_check.gd" ||
                           target == "res://opening/native_transmission_view_check.gd" ||
                           target == "res://opening/worker_wardrobe_view_check.gd") :
