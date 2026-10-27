@@ -92,6 +92,8 @@ cc_library(
         "src/foundation_planner.hpp",
         "src/harvest_planner.cpp",
         "src/harvest_planner.hpp",
+        "src/material_planner.cpp",
+        "src/material_planner.hpp",
         "src/plan_common.cpp",
         "src/plan_common.hpp",
         "src/world.cpp",

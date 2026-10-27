@@ -4,9 +4,70 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <utility>
 
 namespace factory::world {
+
+values::Value grid_value(const mechanics::Point& point) {
+    using Value = values::Value;
+    return Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])});
+}
+
+std::array<mechanics::Point, 4> broad_cells(const mechanics::Point& origin) {
+    return {origin, mechanics::Point{origin[0] + 4, origin[1], origin[2]},
+        mechanics::Point{origin[0], origin[1], origin[2] + 4},
+        mechanics::Point{origin[0] + 4, origin[1], origin[2] + 4}};
+}
+
+bool broad_item(const materials::Cargo& cargo) {
+    return !cargo.sheets.empty() || std::any_of(cargo.work_lots.begin(),
+        cargo.work_lots.end(), [](const auto& lot) {
+            return lot.recipe.output == materials::WorkOutput::sheet;
+        });
+}
+
+std::vector<authority::Point> broad_reach_targets(const Profile& profile,
+                                                   const mechanics::Point& origin) {
+    std::vector<authority::Point> targets;
+    targets.reserve(4);
+    for (const auto& cell : broad_cells(origin)) targets.push_back(anchor(profile, cell));
+    return targets;
+}
+
+std::optional<std::vector<materials::DropPoint>> channel_swept_cells(
+        const mechanics::Point& from, const mechanics::Point& to,
+        materials::Footprint footprint, authority::Integer rotation, bool small_move) {
+    if (from[1] != to[1]) return std::nullopt;
+    const auto distance = std::abs(to[0] - from[0]) +
+        std::abs(to[2] - from[2]);
+    if (distance == 4) {
+        if (auto cells = materials::swept_workcells(from, to, footprint, rotation))
+            return cells;
+    }
+    if (!small_move || footprint.x_cells != 1 || footprint.z_cells != 1 ||
+        rotation != 0 || to[0] % 4 || to[2] % 4)
+        return std::nullopt;
+    const bool offset_x = from[0] % 4 != 0;
+    const bool offset_z = from[2] % 4 != 0;
+    if (offset_x == offset_z) return std::nullopt;
+    const auto axis = offset_x ? 0U : 2U;
+    const auto other = offset_x ? 2U : 0U;
+    if (std::abs(from[axis] % 4) % 2 != 1 || from[other] != to[other] ||
+        std::abs(to[axis] - from[axis]) < 1 ||
+        std::abs(to[axis] - from[axis]) > 3) return std::nullopt;
+    return std::vector<materials::DropPoint>{from, to};
+}
+
+bool channel_cells_fit(const std::vector<materials::DropPoint>& cells,
+        const std::vector<materials::DropPoint>& supports,
+        const std::vector<materials::DropPoint>& blocked) {
+    const std::set<materials::DropPoint> supported(supports.begin(), supports.end());
+    const std::set<materials::DropPoint> obstructed(blocked.begin(), blocked.end());
+    return std::all_of(cells.begin(), cells.end(), [&](const auto& cell) {
+        return supported.contains(cell) && !obstructed.contains(cell);
+    });
+}
 
 std::optional<mechanics::Point> grid_point(const authority::Object& intent,
         authority::Integer limit) {

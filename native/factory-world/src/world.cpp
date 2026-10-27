@@ -10,6 +10,7 @@
 #include "fabrication_planner.hpp"
 #include "foundation_planner.hpp"
 #include "harvest_planner.hpp"
+#include "material_planner.hpp"
 #include "plan_common.hpp"
 
 #include <algorithm>
@@ -96,19 +97,6 @@ bool transmission_center(Role role, const mechanics::Point& center,
             std::abs(remainder) != 2) return false;
     }
     return true;
-}
-
-std::array<mechanics::Point, 4> broad_cells(const mechanics::Point& origin) {
-    return {origin, mechanics::Point{origin[0] + 4, origin[1], origin[2]},
-        mechanics::Point{origin[0], origin[1], origin[2] + 4},
-        mechanics::Point{origin[0] + 4, origin[1], origin[2] + 4}};
-}
-
-bool broad_item(const materials::Cargo& cargo) {
-    return !cargo.sheets.empty() || std::any_of(cargo.work_lots.begin(),
-        cargo.work_lots.end(), [](const auto& lot) {
-            return lot.recipe.output == materials::WorkOutput::sheet;
-        });
 }
 
 std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationary::PlacedPart& placed) {
@@ -357,48 +345,6 @@ std::optional<mechanics::Axis> axis(const std::string& value) {
     return std::nullopt;
 }
 
-std::vector<authority::Point> broad_reach_targets(const Profile& profile,
-                                                   const mechanics::Point& origin) {
-    std::vector<authority::Point> targets;
-    targets.reserve(4);
-    for (const auto& cell : broad_cells(origin)) targets.push_back(anchor(profile, cell));
-    return targets;
-}
-
-std::optional<std::vector<materials::DropPoint>> channel_swept_cells(
-        const mechanics::Point& from, const mechanics::Point& to,
-        materials::Footprint footprint, Integer rotation, bool small_move) {
-    if (from[1] != to[1]) return std::nullopt;
-    const auto distance = std::abs(to[0] - from[0]) +
-        std::abs(to[2] - from[2]);
-    if (distance == 4) {
-        if (auto cells = materials::swept_workcells(from, to, footprint, rotation))
-            return cells;
-    }
-    if (!small_move || footprint.x_cells != 1 || footprint.z_cells != 1 ||
-        rotation != 0 || to[0] % 4 || to[2] % 4)
-        return std::nullopt;
-    const bool offset_x = from[0] % 4 != 0;
-    const bool offset_z = from[2] % 4 != 0;
-    if (offset_x == offset_z) return std::nullopt;
-    const auto axis = offset_x ? 0U : 2U;
-    const auto other = offset_x ? 2U : 0U;
-    if (std::abs(from[axis] % 4) % 2 != 1 || from[other] != to[other] ||
-        std::abs(to[axis] - from[axis]) < 1 ||
-        std::abs(to[axis] - from[axis]) > 3) return std::nullopt;
-    return std::vector<materials::DropPoint>{from, to};
-}
-
-bool channel_cells_fit(const std::vector<materials::DropPoint>& cells,
-        const std::vector<materials::DropPoint>& supports,
-        const std::vector<materials::DropPoint>& blocked) {
-    const std::set<materials::DropPoint> supported(supports.begin(), supports.end());
-    const std::set<materials::DropPoint> obstructed(blocked.begin(), blocked.end());
-    return std::all_of(cells.begin(), cells.end(), [&](const auto& cell) {
-        return supported.contains(cell) && !obstructed.contains(cell);
-    });
-}
-
 bool two_endpoints(const std::string& action) {
     return action == "shaft_between" || action == "remove_shaft_between" ||
         action == "place_belt_span" || action == "place_selected_belt_span";
@@ -416,10 +362,6 @@ bool requires_first_plate(const Object& intent, const std::string& action) {
     return fabrication == fabrication_commands::Action::foundation ||
         fabrication == fabrication_commands::Action::part ||
         action == "shaft_between" || action == "place" || action.starts_with("place_");
-}
-
-Value grid_value(const mechanics::Point& point) {
-    return Value(Value::Array{Value(point[0]), Value(point[1]), Value(point[2])});
 }
 
 Value removed_part_value(const stationary::PlacedPart& part) {
@@ -4883,282 +4825,8 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
         return plan_belt(profile_, binding, snapshot, *belt, observe);
     if (const auto foundation = foundation_command(*action, intent))
         return plan_foundation(profile_, binding, snapshot, *foundation, observe);
-    if (*action == "pickup_material") {
-        const auto point = grid_point(intent, materials::maximum_drop_coordinate);
-        if (!point) return refused("invalid_center");
-        const auto located = state.material.dropped_material.find(*point);
-        const bool broad_item = located != state.material.dropped_material.end() &&
-            (!located->second.sheets.empty() ||
-             std::any_of(located->second.work_lots.begin(), located->second.work_lots.end(),
-                [](const auto& lot) { return lot.recipe.output == materials::WorkOutput::sheet; }));
-        if (!observe) return refused("actor_unready");
-        auto cut = observe(binding.actor);
-        if (!cut) return refused("actor_unready");
-        cut->build_reach = profile_.build_reach;
-        std::vector<authority::Point> reach_targets = broad_item ?
-            broad_reach_targets(profile_, *point) :
-            std::vector<authority::Point>{anchor(profile_, *point)};
-        auto reach = authority::check_reach(binding.actor, *cut, reach_targets);
-        Object facts = reach.receipt ? reach_facts(binding, *reach.receipt) : Object{};
-        if (reach.error != authority::Error::none) return refused(authority::error_name(reach.error), "", std::move(facts));
-        const auto found = located;
-        if (found == state.material.dropped_material.end()) return refused("unavailable_drop", "", std::move(facts));
-        const auto* expected = field<Object>(intent, "expected");
-        if (!expected || values::typed_difference(Value(*expected),
-                belt_cargo_value(found->second, copper_profile(profile_.material))))
-            return refused("drop_changed", "", std::move(facts));
-        const auto contents = found->second;
-        const auto press_witness = state.press_output_at_exit.find(*point);
-        const auto press_work_id = press_witness == state.press_output_at_exit.end() ?
-            materials::WorkId{0} : press_witness->second;
-        const auto plate_receiver = state.press_output_at_receiver.find(*point);
-        if (plate_receiver != state.press_output_at_receiver.end() &&
-            (contents.raw_units != 0 || contents.products !=
-                static_cast<Integer>(plate_receiver->second.size()) ||
-             contents.offcuts != 0 || contents.timber != 0 ||
-             !contents.components.empty() || !contents.work_lots.empty() ||
-             !contents.sheets.empty() || press_work_id != 0))
-            return refused("invalid_state", "", std::move(facts));
-        State candidate = state;
-        const auto error = materials::pickup_material(candidate.material, profile_.material,
-                                                  material_path(candidate.topology), binding.actor, *point);
-        if (error != materials::Error::none) return refused(materials::error_name(error), "", std::move(facts));
-        candidate.slide_press_routes.erase(*point);
-        if (contents.products == 1) {
-            const auto witness = candidate.press_output_at_exit.find(*point);
-            if (witness != candidate.press_output_at_exit.end()) {
-                const auto belt_claim = candidate.belt_press_products.find(*point);
-                if (belt_claim != candidate.belt_press_products.end() &&
-                    belt_claim->second.erase(witness->second) != 0 && belt_claim->second.empty())
-                    candidate.belt_press_products.erase(belt_claim);
-                candidate.press_output_at_exit.erase(witness);
-            }
-        }
-        if (plate_receiver != state.press_output_at_receiver.end()) {
-            Value::Array identities;
-            auto belt_claim = candidate.belt_press_products.find(*point);
-            for (const auto id : plate_receiver->second) {
-                identities.emplace_back(id);
-                if (belt_claim != candidate.belt_press_products.end()) belt_claim->second.erase(id);
-            }
-            if (belt_claim != candidate.belt_press_products.end() && belt_claim->second.empty())
-                candidate.belt_press_products.erase(belt_claim);
-            facts.emplace("press_output_work_ids", Value(std::move(identities)));
-            candidate.press_output_at_receiver.erase(*point);
-        }
-        candidate.belt_press_work.erase(*point);
-        facts.emplace("generation", Value(Integer{0}));
-        facts.emplace("moved_raw", Value(contents.raw_units));
-        facts.emplace("moved_products", Value(contents.products));
-        if (copper_profile(profile_.material)) {
-            facts.emplace("moved_offcuts", Value(contents.offcuts));
-            facts.emplace("moved_sheets", Value(static_cast<Integer>(contents.sheets.size())));
-            if (!contents.sheets.empty()) {
-                Value::Array sheet_items;
-                for (const auto& sheet : contents.sheets)
-                    sheet_items.emplace_back(Object{{"id", Value(sheet.id)},
-                        {"rotation", Value(sheet.rotation)}});
-                facts.emplace("moved_sheet_items", Value(std::move(sheet_items)));
-            }
-        }
-        facts.emplace("moved_work", lots_value(contents.work_lots));
-        facts.emplace("press_output_work_id", Value(press_work_id));
-        return accepted(std::move(candidate), "", std::move(facts));
-    }
-    if (*action == "place_sheet") {
-        if (!profile_.landing_pod_center || !copper_profile(profile_.material) ||
-            profile_.material.sheet_mass == 0) return refused("unavailable_recipe");
-        const auto origin = grid_point(intent, materials::maximum_drop_coordinate);
-        const auto* id = field<Integer>(intent, "sheet_id");
-        if (!origin || (*origin)[0] % 4 || (*origin)[2] % 4 || !id || *id <= 0 ||
-            (*origin)[0] > materials::maximum_drop_coordinate - 4 ||
-            (*origin)[2] > materials::maximum_drop_coordinate - 4)
-            return refused("invalid_sheet_target");
-        // The current sheet is square, so all four saved orientations require
-        // the same supports. Check the site before disclosing carried identity.
-        const auto footprint = materials::sheet_footprint();
-        const auto occupied = materials::occupied_workcells(*origin, footprint, 0);
-        if (!occupied) return refused("invalid_sheet_target");
-        const auto& cells = *occupied;
-        std::vector<materials::DropPoint> supports;
-        const bool sized_bed = std::any_of(state.placed_components.begin(),
-            state.placed_components.end(), [&](const auto& entry) {
-                return entry.second.kind == materials::Component::broad_anvil &&
-                    entry.second.center == *origin;
-            });
-        for (const auto& cell : cells) {
-            if (sized_bed || std::any_of(state.placed_components.begin(), state.placed_components.end(),
-                    [&](const auto& entry) {
-                        return entry.second.kind == materials::Component::anvil &&
-                            entry.second.center == cell;
-                    })) supports.push_back(cell);
-            if (state.material.dropped_material.contains(cell))
-                return refused("occupied");
-        }
-        if (!materials::fits_supported_workcells(*origin, footprint, 0, supports))
-            return refused("missing_support");
-        for (const auto& [point, cargo] : state.material.dropped_material) {
-            if (!broad_item(cargo)) continue;
-            const auto other_cells = broad_cells(point);
-            if (std::any_of(cells.begin(), cells.end(), [&](const auto& cell) {
-                    return std::find(other_cells.begin(), other_cells.end(), cell) != other_cells.end();
-                })) return refused("occupied");
-        }
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready");
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            broad_reach_targets(profile_, *origin));
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), "", std::move(facts));
-        const auto& carried = state.material.cargo.at(binding.actor).sheets;
-        const auto sheet = std::find_if(carried.begin(), carried.end(),
-            [&](const auto& item) { return item.id == *id; });
-        if (sheet == carried.end()) return refused("unavailable_input", "", std::move(facts));
-        const auto rotation = sheet->rotation;
-        auto candidate = state;
-        const auto error = materials::place_sheet(candidate.material, profile_.material,
-            material_path(candidate.topology), binding.actor, *id, *origin);
-        if (error != materials::Error::none)
-            return refused(materials::error_name(error), "", std::move(facts));
-        facts.emplace("generation", Value(Integer{0}));
-        facts.emplace("sheet_id", Value(*id));
-        facts.emplace("rotation", Value(rotation));
-        return accepted(std::move(candidate), "", std::move(facts));
-    }
-    if (*action == "push_channel_sheet" || *action == "push_channel_small") {
-        const bool sheet_move = *action == "push_channel_sheet";
-        if (!profile_.landing_pod_center ||
-            (sheet_move && (!copper_profile(profile_.material) ||
-                profile_.material.sheet_mass == 0)))
-            return refused("unavailable_recipe");
-        const auto* from_value = field<Value::Array>(intent, "from");
-        const auto* to_value = field<Value::Array>(intent, "to");
-        const auto* requested_id = field<Integer>(intent, "sheet_id");
-        const auto* requested_form = field<std::string>(intent, "form");
-        const auto from = from_value ? grid_point(Object{{"center", Value(*from_value)}},
-            materials::maximum_drop_coordinate) : std::nullopt;
-        const auto to = to_value ? grid_point(Object{{"center", Value(*to_value)}},
-            materials::maximum_drop_coordinate) : std::nullopt;
-        if (!from || !to || (sheet_move ? !requested_id || *requested_id <= 0 :
-                !requested_form || (*requested_form != "raw" &&
-                    *requested_form != "plate" && *requested_form != "offcut")) ||
-            !channel_swept_cells(*from, *to,
-                sheet_move ? materials::sheet_footprint() : materials::Footprint{1, 1},
-                0, !sheet_move))
-            return refused("invalid_channel_target");
-        const auto source = state.material.dropped_material.find(*from);
-        const auto item = source == state.material.dropped_material.end() ?
-            std::nullopt : materials::single_loose_item(source->second);
-        const auto form_matches = item && (sheet_move ?
-            item->form == materials::LooseForm::sheet && item->id == *requested_id :
-            (item->form == materials::LooseForm::raw && *requested_form == "raw") ||
-            (item->form == materials::LooseForm::plate && *requested_form == "plate") ||
-            (item->form == materials::LooseForm::offcut && *requested_form == "offcut"));
-        if (!form_matches)
-            return refused("unavailable_input");
-        if (sheet_move && state.shear_progress.contains(*requested_id))
-            return refused("partial_shear");
-        const auto swept = channel_swept_cells(*from, *to,
-            item->footprint, item->rotation, !sheet_move);
-        if (!swept) return refused("invalid_channel_target");
-        if (!sheet_move && ((*from)[0] % 4 || (*from)[2] % 4) &&
-            std::none_of(state.placed_components.begin(), state.placed_components.end(),
-                [&](const auto& entry) {
-                    return entry.second.kind == materials::Component::receiver_tray &&
-                        entry.second.center == *from;
-                })) return refused("invalid_channel_target");
-        const std::size_t travel_axis = (*from)[0] != (*to)[0] ? 0 : 2;
-        std::vector<materials::DropPoint> supports;
-        bool channel_seen = false;
-        for (const auto& [id, placed] : state.placed_components) {
-            (void)id;
-            if (placed.kind == materials::Component::anvil ||
-                (!sheet_move && placed.kind == materials::Component::receiver_tray)) {
-                supports.push_back(placed.center);
-                continue;
-            }
-            const auto spec = materials::channel_spec(placed.kind);
-            if (!spec || spec->travel_axis != travel_axis ||
-                (travel_axis == 0 ? spec->floor.z_cells < item->footprint.z_cells :
-                    spec->floor.x_cells < item->footprint.x_cells)) continue;
-            const auto cells = materials::channel_workcells(placed.kind, placed.center);
-            if (!cells) return refused("invalid_mechanics");
-            for (const auto& cell : *cells) {
-                supports.push_back(cell);
-                if (std::find(swept->begin(), swept->end(), cell) != swept->end())
-                    channel_seen = true;
-            }
-        }
-        if (!channel_seen) return refused("missing_channel");
-        std::vector<materials::DropPoint> blocked;
-        for (const auto& [point, cargo] : state.material.dropped_material) {
-            if (point == *from) continue;
-            if (broad_item(cargo)) {
-                const auto cells = broad_cells(point);
-                blocked.insert(blocked.end(), cells.begin(), cells.end());
-            } else blocked.push_back(point);
-        }
-        for (const auto& [id, placed] : state.placed_components) {
-            (void)id;
-            if (placed.kind == materials::Component::anvil ||
-                (!sheet_move && placed.kind == materials::Component::receiver_tray) ||
-                materials::channel_spec(placed.kind)) continue;
-            if (placed.center[1] >= (*from)[1] &&
-                placed.center[1] <= (*from)[1] + 3)
-                blocked.push_back(placed.center);
-        }
-        for (const auto& part : state.topology.parts)
-            if (part.geometry.center[1] >= (*from)[1] &&
-                part.geometry.center[1] <= (*from)[1] + 3)
-                blocked.push_back(part.geometry.center);
-        if (!channel_cells_fit(*swept, supports, blocked))
-            return refused("blocked_channel");
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready");
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile_.build_reach;
-        auto targets = sheet_move ? broad_reach_targets(profile_, *from) :
-            std::vector<authority::Point>{anchor(profile_, *from)};
-        if (sheet_move) {
-            const auto receiver_targets = broad_reach_targets(profile_, *to);
-            targets.insert(targets.end(), receiver_targets.begin(), receiver_targets.end());
-        } else targets.push_back(anchor(profile_, *to));
-        const auto checked = authority::check_reach(binding.actor, checked_cut, targets);
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), "", std::move(facts));
-        auto candidate = state;
-        const auto error = materials::move_loose_item(candidate.material, profile_.material,
-            material_path(candidate.topology), *from, *to);
-        if (error != materials::Error::none)
-            return refused(materials::error_name(error), "", std::move(facts));
-        if (!sheet_move && item->form == materials::LooseForm::plate) {
-            auto witness = candidate.press_output_at_exit.extract(*from);
-            if (!witness.empty()) {
-                witness.key() = *to;
-                if (!candidate.press_output_at_exit.insert(std::move(witness)).inserted)
-                    return refused("blocked_channel", "", std::move(facts));
-            } else if (const auto received = candidate.press_output_at_receiver.find(*from);
-                       received != candidate.press_output_at_receiver.end()) {
-                if (received->second.size() != 1 ||
-                    !candidate.press_output_at_exit.emplace(*to,
-                        *received->second.begin()).second)
-                    return refused("blocked_channel", "", std::move(facts));
-                candidate.press_output_at_receiver.erase(received);
-            }
-        }
-        facts.emplace("generation", Value(Integer{0}));
-        if (sheet_move) {
-            facts.emplace("sheet_id", Value(*requested_id));
-            facts.emplace("rotation", Value(item->rotation));
-        } else facts.emplace("form", Value(*requested_form));
-        facts.emplace("from", grid_value(*from));
-        facts.emplace("to", grid_value(*to));
-        return accepted(std::move(candidate), "", std::move(facts));
-    }
+    if (const auto material = material_command(*action, intent))
+        return plan_material(profile_, binding, snapshot, *material, observe);
     if (*action == "stroke_broad_shear") {
         if (!profile_.landing_pod_center || !copper_profile(profile_.material) ||
             profile_.material.plate_mass <= 0 || profile_.material.sheet_mass <= 0 ||

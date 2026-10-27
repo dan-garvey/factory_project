@@ -2,6 +2,7 @@
 
 #include "factory/world.hpp"
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -21,6 +22,16 @@ template<class T> const T* field(const authority::Object& object, const char* na
 }
 
 [[nodiscard]] values::Value point_value(const authority::Point& point);
+[[nodiscard]] values::Value grid_value(const mechanics::Point& point);
+[[nodiscard]] std::array<mechanics::Point, 4> broad_cells(const mechanics::Point&);
+[[nodiscard]] bool broad_item(const materials::Cargo&);
+[[nodiscard]] std::vector<authority::Point> broad_reach_targets(const Profile&, const mechanics::Point&);
+[[nodiscard]] std::optional<std::vector<materials::DropPoint>> channel_swept_cells(
+    const mechanics::Point&, const mechanics::Point&, materials::Footprint,
+    authority::Integer rotation, bool small_move);
+[[nodiscard]] bool channel_cells_fit(const std::vector<materials::DropPoint>&,
+    const std::vector<materials::DropPoint>& supports,
+    const std::vector<materials::DropPoint>& blocked);
 [[nodiscard]] std::optional<mechanics::Point> grid_point(
     const authority::Object&, authority::Integer limit = mechanics::maximum_coordinate);
 [[nodiscard]] std::vector<mechanics::Point> foundation_area(const authority::Object&);
