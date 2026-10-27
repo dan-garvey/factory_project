@@ -111,13 +111,44 @@ int main(int argc, char **argv) {
     m["direction"] = directionId;
     m["cases"][0]["media"][0]["role"] = "after";
     auto final = submit(store, repo, m, "00000000-0000-0000-0000-000000000001");
+    const auto finalId = final.at("id").get<std::string>();
+    const auto finalDir = store / finalId;
+    write_json(finalDir / "goal-wait.json", Json{{"paused_by_review", true}});
+    const auto goalWaitHash = digest(finalDir / "goal-wait.json");
+    auto localAction = [&](const std::string &action) {
+      return run({tool.string(), action, "--root", repo.string(), "--id",
+                  finalId, "--manifest-sha256",
+                  digest(finalDir / "manifest.json")},
+                 repo);
+    };
+    // Config deliberately has no daemon socket and no usable Beads binary.
+    // Both actions must work offline without messaging or changing a goal.
+    const auto discarded = localAction("discard");
+    require(discarded.code == 0 &&
+                Json::parse(discarded.output).at("status") == "discarded",
+            "Offline discard failed");
+    require(!fs::exists(finalDir / "decision.json") &&
+                !fs::exists(finalDir / "delivery.json") &&
+                !fs::exists(finalDir / "beads-receipt.json"),
+            "Discard created an approval or notification record");
+    require(push() != 0, "Discard granted publication approval");
+    require(digest(finalDir / "goal-wait.json") == goalWaitHash,
+            "Discard changed the waiting goal record");
+    const auto restored = localAction("restore");
+    require(restored.code == 0 && !fs::exists(finalDir / "discarded.json") &&
+                digest(finalDir / "goal-wait.json") == goalWaitHash,
+            "Offline restore failed or changed the waiting goal record");
     approve(final.at("id"));
+    require(localAction("discard").code != 0,
+            "A submitted decision was discarded");
+    require(localAction("restore").code != 0,
+            "A submitted decision was restored");
     require(push() == 0, "Approved pre-push refused");
     git({"update-ref", "refs/heads/main", candidate, baseline});
     require(git({"rev-parse", "main"}) == candidate + "\n",
             "Approved main update failed");
     fs::remove_all(root);
-    std::cout << "PROOF_HOOKS_PASS 5\n";
+    std::cout << "PROOF_HOOKS_PASS 12\n";
     return 0;
   } catch (const std::exception &e) {
     std::cerr << e.what() << "\nRetained: " << root << '\n';

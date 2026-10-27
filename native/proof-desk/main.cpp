@@ -38,12 +38,15 @@ int main(int argc, char **argv) {
     if (argc < 2 || std::string(argv[1]) == "--help") {
       std::cout
           << "factory-proof "
-             "<submit|decide|deliver|status|gate|init|reconcile|declare-"
+             "<submit|decide|deliver|discard|restore|status|gate|init|"
+             "reconcile|declare-"
              "nonvisual> "
              "--root REPO [options]\n"
              "submit --manifest FILE uses CODEX_THREAD_ID; end your turn after "
              "submission.\n"
              "decide --id ID --decision FILE records the human decision.\n"
+             "discard|restore --id ID --manifest-sha256 HASH changes only the "
+             "local pending queue; no agent notification or approval.\n"
              "deliver --id ID queues notes and images to that exact "
              "originating thread.\n"
              "status --id ID reads once; do not poll from a waiting agent.\n"
@@ -150,6 +153,12 @@ int main(int argc, char **argv) {
       require(record.code == 0,
               "Nonvisual scope saved; Beads record failed: " + record.output);
       std::cout << result.dump(2) << '\n';
+    } else if (command == "discard" || command == "restore") {
+      std::cout << set_discarded(store, need(flags, "id"),
+                                 need(flags, "manifest-sha256"),
+                                 command == "discard")
+                       .dump(2)
+                << '\n';
     } else if (command == "decide") {
       auto d =
           decide(store, need(flags, "id"), read_json(need(flags, "decision")));
@@ -183,7 +192,9 @@ int main(int argc, char **argv) {
       require(id.find('/') == std::string::npos &&
                   id.find("..") == std::string::npos,
               "Invalid id");
-      std::cout << (fs::exists(store / id / "delivery.json")
+      std::cout << (fs::exists(store / id / "discarded.json")
+                        ? read_json(store / id / "discarded.json")
+                    : fs::exists(store / id / "delivery.json")
                         ? read_json(store / id / "delivery.json")
                         : Json{{"status", "waiting_for_human"}})
                        .dump(2)
