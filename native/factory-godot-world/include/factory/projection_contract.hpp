@@ -15,7 +15,8 @@ using Value = values::Value;
 using Object = Value::Object;
 
 enum class Type { string, integer, floating, boolean, array, object, integer2, integer3,
-                  floating2, floating3, string_pairs, integer_pairs };
+                  floating2, floating3, string_pairs, integer_pairs, integer_values,
+                  string_array };
 
 struct Field {
     std::string_view name;
@@ -37,7 +38,7 @@ inline constexpr std::array host_fields{
     Field{"drive_links", Type::string_pairs},
     Field{"engagements", Type::array},
     Field{"motion", Type::object},
-    Field{"inventories", Type::object},
+    Field{"inventories", Type::integer_values},
     Field{"cargo", Type::object},
     Field{"part_kits", Type::object},
     Field{"part_specifications", Type::object},
@@ -59,9 +60,21 @@ inline constexpr std::array host_fields{
 
 inline constexpr Field engineering_field{"opening_engineering", Type::object};
 
+struct ConditionalField {
+    std::string_view name;
+    Type type;
+    std::string_view required_with;
+};
+
+inline constexpr std::array conditional_fields{
+    ConditionalField{"component_capacity", Type::integer, "landing_pod"},
+    ConditionalField{"workshop_completed_actors", Type::string_array, "landing_pod"},
+    ConditionalField{"first_plate_unlock", Type::boolean, "landing_pod"},
+};
+
 // These records have the same required shape in ordinary and arrival worlds.
 // Counts and profile-specific additions may differ without changing the wire.
-enum class Container { object, object_values, array_elements };
+enum class Container { object, object_values, array_elements, object_array_elements };
 
 struct Record {
     std::string_view name;
@@ -173,6 +186,25 @@ inline constexpr std::array broad_assembly_fields{
     Field{"origin", Type::integer3}, Field{"geometry_status", Type::string},
     Field{"status", Type::string},
 };
+inline constexpr std::array kit_fields{
+    Field{"collector", Type::integer}, Field{"belt", Type::integer},
+    Field{"processor", Type::integer}, Field{"wheel", Type::integer},
+    Field{"shaft", Type::integer}, Field{"gear", Type::integer},
+    Field{"gearbox", Type::integer}, Field{"vertical_gearbox", Type::integer},
+    Field{"chain_drive", Type::integer}, Field{"foundation", Type::integer},
+};
+inline constexpr std::array part_specification_fields{
+    Field{"kind", Type::string}, Field{"teeth", Type::integer},
+    Field{"half_span", Type::integer}, Field{"count", Type::integer},
+};
+inline constexpr std::array recipe_fields{
+    Field{"timber", Type::integer}, Field{"copper", Type::integer},
+};
+inline constexpr std::array part_recipe_fields{
+    Field{"kind", Type::string}, Field{"teeth", Type::integer},
+    Field{"half_span", Type::integer}, Field{"timber", Type::integer},
+    Field{"copper", Type::integer},
+};
 inline constexpr std::array records{
     Record{"stock", Container::object, stock_fields},
     Record{"cargo", Container::object_values, cargo_fields},
@@ -189,6 +221,16 @@ inline constexpr std::array records{
     Record{"adapter_profile", Container::object, adapter_profile_fields},
     Record{"adapter_profile.collector_lift", Container::object, collector_lift_fields},
     Record{"options", Container::object, option_fields},
+    Record{"part_kits", Container::object_values, kit_fields},
+    Record{"parts", Container::object, kit_fields},
+    Record{"part_specifications", Container::object_array_elements,
+        part_specification_fields},
+    Record{"component_recipes", Container::object_values, recipe_fields,
+        "landing_pod"},
+    Record{"part_recipes", Container::array_elements, part_recipe_fields,
+        "landing_pod"},
+    Record{"foundation_recipe", Container::object, recipe_fields,
+        "landing_pod"},
     Record{"collector_assemblies", Container::array_elements, collector_assembly_fields,
         "landing_pod"},
     Record{"press_assemblies", Container::array_elements, press_assembly_fields,
@@ -237,6 +279,22 @@ inline bool typed(const Value& value, Type type) {
             }
             return true;
         }
+        case Type::integer_values: {
+            const auto* entries = std::get_if<Object>(&value.storage());
+            if (!entries) return false;
+            for (const auto& [key, entry] : *entries) {
+                (void)key;
+                if (!typed(entry, Type::integer)) return false;
+            }
+            return true;
+        }
+        case Type::string_array: {
+            const auto* entries = std::get_if<Value::Array>(&value.storage());
+            if (!entries) return false;
+            for (const auto& entry : *entries)
+                if (!typed(entry, Type::string)) return false;
+            return true;
+        }
     }
     return false;
 }
@@ -264,6 +322,15 @@ inline bool complete_record(const Value& value, const Record& record) {
     if (record.container == Container::object) return required_fields(*object, record.fields);
     for (const auto& [key, entry] : *object) {
         (void)key;
+        if (record.container == Container::object_array_elements) {
+            const auto* entries = std::get_if<Value::Array>(&entry.storage());
+            if (!entries) return false;
+            for (const auto& item : *entries) {
+                const auto* fields = std::get_if<Object>(&item.storage());
+                if (!fields || !required_fields(*fields, record.fields)) return false;
+            }
+            continue;
+        }
         const auto* fields = std::get_if<Object>(&entry.storage());
         if (!fields || !required_fields(*fields, record.fields)) return false;
     }
@@ -287,6 +354,14 @@ inline bool complete(const Value& value, bool engine_view = false) {
     const auto* object = std::get_if<Object>(&value.storage());
     if (!object) return false;
     if (!required_fields(*object, host_fields)) return false;
+    for (const auto& field : conditional_fields) {
+        const auto found = object->find(std::string(field.name));
+        if (found == object->end()) {
+            if (!object->contains(std::string(field.required_with))) continue;
+            return false;
+        }
+        if (!typed(found->second, field.type)) return false;
+    }
     for (const auto& record : records) {
         const auto* found = record_at(*object, record.name);
         if (!found) {
@@ -317,6 +392,8 @@ inline const char* type_name(Type type) {
         case Type::floating3: return "floating3";
         case Type::string_pairs: return "string_pairs";
         case Type::integer_pairs: return "integer_pairs";
+        case Type::integer_values: return "integer_values";
+        case Type::string_array: return "string_array";
     }
     return "";
 }
@@ -326,6 +403,7 @@ inline const char* container_name(Container container) {
         case Container::object: return "object";
         case Container::object_values: return "object_values";
         case Container::array_elements: return "array_elements";
+        case Container::object_array_elements: return "object_array_elements";
     }
     return "";
 }
@@ -349,6 +427,10 @@ inline Value fields(bool engine_view = false) {
     Object result;
     for (const auto& field : host_fields)
         result.emplace(std::string(field.name), Value(type_name(field.type)));
+    for (const auto& field : conditional_fields)
+        result.emplace(std::string(field.name), Value(Object{
+            {"type", Value(type_name(field.type))},
+            {"required_with", Value(std::string(field.required_with))}}));
     if (engine_view)
         result.emplace(std::string(engineering_field.name),
             Value(type_name(engineering_field.type)));

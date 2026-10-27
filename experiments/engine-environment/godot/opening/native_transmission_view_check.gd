@@ -72,6 +72,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_lift_delta := false
 	var inject_bad_assembly_full := false
 	var inject_bad_assembly_delta := false
+	var inject_bad_catalog_full := false
+	var inject_bad_catalog_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -101,6 +103,9 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 		elif method == "projection" and inject_bad_assembly_full:
 			inject_bad_assembly_full = false
 			delivered.erase("press_assemblies")
+		elif method == "projection" and inject_bad_catalog_full:
+			inject_bad_catalog_full = false
+			delivered.erase("component_recipes")
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -128,6 +133,9 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			inject_bad_assembly_delta = false
 			return {"changes": {"collector_assemblies": [{"status": "ready",
 				"center": [0, 0]}]}, "removed": []}
+		elif method == "advance_delta" and inject_bad_catalog_delta:
+			inject_bad_catalog_delta = false
+			return {"changes": {"part_kits": {"P": {"foundation": "many"}}}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3908,6 +3916,51 @@ func _native_view_cache_regression() -> void:
 	var ordinary := NativeModel.new("ordinary-assembly-schema-fixture", ["P"])
 	verify(ordinary.boot_result.get("accepted", false) and ordinary._complete_projection(ordinary.projection()),
 		"The same schema accepts an ordinary world without arrival machine arrays.")
+	var catalog_presence_valid := true
+	for name in ["component_capacity", "workshop_completed_actors", "first_plate_unlock",
+			"component_recipes", "part_recipes", "foundation_recipe"]:
+		var missing_catalog := complete.duplicate(true)
+		missing_catalog.erase(name)
+		catalog_presence_valid = catalog_presence_valid and not trusted._complete_projection(missing_catalog)
+	verify(catalog_presence_valid and trusted._projection_fields.inventories == "integer_values"
+		and trusted._projection_records.part_specifications.container == "object_array_elements"
+		and trusted._projection_fields.first_plate_unlock.required_with == "landing_pod"
+		and trusted._projection_records.component_recipes.required_with == "landing_pod",
+		"The native catalog contract requires every arrival choice and progress field.")
+	var wrong_inventory := complete.duplicate(true)
+	wrong_inventory.inventories.P = "one"
+	var wrong_kit := complete.duplicate(true)
+	wrong_kit.part_kits.P.foundation = "many"
+	var wrong_specifications := complete.duplicate(true)
+	wrong_specifications.part_specifications.P = [{"kind": "gear"}]
+	verify(not trusted._complete_projection(wrong_inventory)
+		and not trusted._complete_projection(wrong_kit)
+		and not trusted._complete_projection(wrong_specifications),
+		"Plate counts, placeable counts and offered part entries keep native types.")
+	var wrong_component_recipe := complete.duplicate(true)
+	wrong_component_recipe.component_recipes = {"wooden_frame": {"timber": "three", "copper": 0}}
+	var wrong_part_recipe := complete.duplicate(true)
+	wrong_part_recipe.part_recipes = [{"kind": "shaft", "teeth": true, "half_span": 2,
+		"timber": 1, "copper": 0}]
+	var wrong_foundation_recipe := complete.duplicate(true)
+	wrong_foundation_recipe.foundation_recipe.copper = false
+	verify(not trusted._complete_projection(wrong_component_recipe)
+		and not trusted._complete_projection(wrong_part_recipe)
+		and not trusted._complete_projection(wrong_foundation_recipe),
+		"Component, placeable and foundation recipe costs use native numeric fields.")
+	var wrong_capacity := complete.duplicate(true)
+	wrong_capacity.component_capacity = "unlimited"
+	var wrong_completion := complete.duplicate(true)
+	wrong_completion.workshop_completed_actors = [1]
+	var wrong_unlock := complete.duplicate(true)
+	wrong_unlock.first_plate_unlock = 1
+	var ordinary_optional := ordinary.projection()
+	ordinary_optional.first_plate_unlock = "yes"
+	verify(not trusted._complete_projection(wrong_capacity)
+		and not trusted._complete_projection(wrong_completion)
+		and not trusted._complete_projection(wrong_unlock)
+		and not ordinary._complete_projection(ordinary_optional),
+		"Capacity, completion and first-plate state are typed even when optional in an ordinary world.")
 	trusted._view_cache = {}
 	trusted.inject_bad_full = true
 	var bad_full: Dictionary = trusted.view_projection()
@@ -3992,6 +4045,20 @@ func _native_view_cache_regression() -> void:
 		"A merged delta with a malformed assembly cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"A fresh native view recovers after the malformed assembly delta.")
+	trusted._view_cache = {}
+	trusted.inject_bad_catalog_full = true
+	var bad_catalog_full: Dictionary = trusted.view_projection()
+	verify(bad_catalog_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full arrival view missing its native recipes cannot become confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after a missing build catalog.")
+	trusted.view_projection()
+	trusted.inject_bad_catalog_delta = true
+	var bad_catalog_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_catalog_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with a malformed kit count cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after a malformed kit delta.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():
