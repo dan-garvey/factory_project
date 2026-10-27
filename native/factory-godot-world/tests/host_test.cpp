@@ -1,4 +1,5 @@
 #include "factory/godot_world.hpp"
+#include "factory/machine_placement_contract.hpp"
 #include "factory/projection_contract.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
@@ -65,6 +66,29 @@ V alter_wire(const V& saved, const std::string& request_id, const std::string& k
         break;
     }
     check(found, "The mutation must alter an existing original request.");
+    history.at("records") = V(std::move(records));
+    world.at("history") = V(std::move(history));
+    root.at("world") = V(std::move(world));
+    return V(std::move(root));
+}
+
+V alter_saved_action(const V& saved, const std::string& request_id, const char* action) {
+    auto root = std::get<O>(saved.storage());
+    auto world = field<O>(saved, "world");
+    auto history = field<O>(V(world), "history");
+    auto records = field<A>(V(history), "records");
+    bool found = false;
+    for (auto& value : records) {
+        auto record = std::get<O>(value.storage());
+        auto intent = field<O>(value, "intent");
+        if (field<std::string>(V(intent), "request") != request_id) continue;
+        intent.at("action") = V(action);
+        record.at("intent") = V(std::move(intent));
+        value = V(std::move(record));
+        found = true;
+        break;
+    }
+    check(found, "The mutation must alter an existing normalized placement action.");
     history.at("records") = V(std::move(records));
     world.at("history") = V(std::move(history));
     root.at("world") = V(std::move(world));
@@ -213,6 +237,35 @@ void historical_translation() {
     check(!accepted(host.command("P", malformed)), "An intentionally malformed adapter refusal is retained.");
     const auto saved = host.checkpoint();
     check(accepted(host.validate_checkpoint(saved)), "Removed historical targets and malformed refusals remain valid.");
+    {
+        const auto world = field<O>(saved, "world");
+        const auto history = field<O>(V(world), "history");
+        const auto records = field<A>(V(history), "records");
+        int placements = 0;
+        for (const auto& record : records) {
+            const auto intent = field<O>(record, "intent");
+            const auto id = field<std::string>(V(intent), "request");
+            if (id != "wheel" && id != "collector" && id != "press") continue;
+            const auto wire = field<O>(V(intent), "wire");
+            const auto action = field<std::string>(V(intent), "action");
+            check(factory::machine_placement::historical_wire(wire, intent, action),
+                  "An actual saved machine placement keeps its original Host translation.");
+            auto forged = intent;
+            const auto wrong = action == "place" ? "place_connected" : "place";
+            forged.at("action") = V(wrong);
+            check(!factory::machine_placement::historical_wire(wire, forged, wrong),
+                  "A saved machine wire cannot claim the other normalized placement action.");
+            ++placements;
+        }
+        check(placements == 3, "The saved line exercises wheel, collector and press actions.");
+    }
+    for (const auto& [id, wrong] : {std::pair{"wheel", "place_connected"},
+                                    std::pair{"collector", "place"},
+                                    std::pair{"press", "place"}}) {
+        const auto reply = host.validate_checkpoint(alter_saved_action(saved, id, wrong));
+        check(!accepted(reply) && !factory::values::typed_difference(saved, host.checkpoint()),
+              "A forged normalized machine action refuses without changing the live Host.");
+    }
     const auto reject = [&](const char* id, const char* key, V value) {
         const auto changed = alter_wire(saved, id, key, std::move(value));
         const auto reply = host.validate_checkpoint(changed);

@@ -140,7 +140,7 @@ inline bool historical_wire(const Object& wire, const Object& intent,
     const auto* selected = kind(wire);
     const auto position = center(wire);
     if (!selected || !valid_kind(*selected) || !position ||
-        (normalized_action == "place_connected" && action(*selected) != normalized_action))
+        action(*selected) != normalized_action)
         return false;
     const auto axis = wire.find("axis");
     const auto* axis_name = axis == wire.end() ? nullptr :
