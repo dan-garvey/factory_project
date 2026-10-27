@@ -6,7 +6,11 @@
 #include "factory/foundation_command_contract.hpp"
 #include "factory/material_command_contract.hpp"
 #include "factory/press_command_contract.hpp"
+#include "factory/projection_contract.hpp"
+#include "factory/site_geometry_contract.hpp"
 #include "factory/stationary_target_command_contract.hpp"
+#include "factory/transmission_placement_contract.hpp"
+#include "factory/worksite_command_contract.hpp"
 #include "factory/arrival_geometry.hpp"
 #include "factory/assembly.hpp"
 #include "factory/mineral_site.hpp"
@@ -31,22 +35,22 @@ using Array = Value::Array;
 using Integer = Value::Integer;
 using Role = stationary::Role;
 
-// Current opening geometry, explicitly checked by the thin scene adapter.
-constexpr double pitch = 1.65;
-constexpr Integer height_denominator = 4;
-constexpr double height_step = pitch / height_denominator;
-constexpr double foundation_depth = 2 * height_step;
-constexpr double anchor_height = pitch / 2;
+// Current opening geometry is authored once for native and the scene adapter.
+using site_geometry::pitch;
+using site_geometry::height_denominator;
+using site_geometry::height_step;
+using site_geometry::foundation_depth;
+using site_geometry::anchor_height;
+using site_geometry::capsule_radius;
+using site_geometry::capsule_height;
+using site_geometry::machine_width;
+using site_geometry::machine_height;
+using site_geometry::machine_center_height;
 constexpr double component_shaft_half = 0.205;
 // Hundredths of a height step, shared with the native opening rotor.
-constexpr Integer wheel_radius = 224;
-constexpr Integer wheel_axle_offset = 200;
-constexpr double reach = 4.0;
-constexpr double capsule_radius = 0.3;
-constexpr double capsule_height = 1.8;
-constexpr double machine_width = 1.45;
-constexpr double machine_height = 1.65;
-constexpr double machine_center_height = 0.8;
+constexpr Integer wheel_radius = site_geometry::wheel_radius_hundredths;
+constexpr Integer wheel_axle_offset = site_geometry::wheel_axle_offset_hundredths;
+constexpr double reach = site_geometry::base_reach;
 constexpr double press_work_crown_rise = 0.082;
 // A supported die table needs a usable feed height without a solid pedestal.
 // Its face must meet the fitted head while staying on the floor when separate.
@@ -618,63 +622,13 @@ bool historical_wire(const authority::Record& record) {
     if (const auto stationary_target = stationary_target_commands::parse(*action);
         stationary_target != stationary_target_commands::Action::none)
         return stationary_target_commands::historical_wire(*wire, intent, stationary_target);
-    const auto same = [&](const char* original, const char* normalized) {
-        const auto left = wire->find(original);
-        const auto right = intent.find(normalized);
-        return left != wire->end() && right != intent.end() &&
-            !values::typed_difference(left->second, right->second);
-    };
-    if (*action == "harvest_source")
-        return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
-            field<std::string>(*wire, "target") && same("target", "target");
-    if (*action == "fast_harvest_source")
-        return *original_action == "harvest_source" && keys(*wire, {"target"}) &&
-            field<std::string>(*wire, "target") && same("target", "target");
-    if (*action == "set_developer_conveniences")
-        return *original_action == *action && keys(*wire, {"enabled"}) &&
-            field<bool>(*wire, "enabled") && same("enabled", "enabled");
-    if (*action == "finish_harvest" || *action == "cancel_harvest")
-        return *original_action == *action && keys(*wire, {});
+    if (const auto worksite = worksite_commands::parse_intent(*action);
+        worksite != worksite_commands::Action::none)
+        return worksite_commands::historical_wire(*wire, intent, worksite);
+    if (const auto transmission = transmission_placement::parse_wire(*original_action);
+        transmission != transmission_placement::Action::none)
+        return transmission_placement::historical_wire(*wire, intent, transmission);
     if (*action == "place" || *action == "place_connected") {
-        if (*original_action == "place_shaft") {
-            const auto* center = field<Array>(*wire, "center");
-            const auto* axis = field<std::string>(*wire, "axis");
-            const auto* span = field<Integer>(*wire, "half_span");
-            return *action == "place" && keys(*wire, {"center", "axis", "half_span"}) && center && gear_center(*center) &&
-                axis && axis_value(*axis) && span && *span == 2 &&
-                same("center", "center") && same("axis", "axis") && same("half_span", "half_span") &&
-                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "shaft" &&
-                field<Integer>(intent, "teeth") && *field<Integer>(intent, "teeth") == 0;
-        }
-        if (*original_action == "place_gear") {
-            const auto* center = field<Array>(*wire, "center");
-            const auto* axis = field<std::string>(*wire, "axis");
-            const auto* teeth = field<Integer>(*wire, "teeth");
-            return *action == "place" && keys(*wire, {"center", "axis", "teeth"}) && center && gear_center(*center) &&
-                axis && axis_value(*axis) && teeth && *teeth > 0 && *teeth <= mechanics::maximum_dimension &&
-                same("center", "center") && same("axis", "axis") && same("teeth", "teeth") &&
-                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == "gear" &&
-                field<Integer>(intent, "half_span") && *field<Integer>(intent, "half_span") == 0;
-        }
-        if (*original_action == "place_relay") {
-            const auto* center = field<Array>(*wire, "center");
-            const auto* axis = field<std::string>(*wire, "axis");
-            const auto* name = field<std::string>(*wire, "kind");
-            const auto* relay = field<std::string>(*wire, "relay_axis");
-            if (*action != "place" || !center || !gear_center(*center) || !axis || !axis_value(*axis) ||
-                !name || (*name != "gearbox" && *name != "vertical_gearbox" && *name != "chain_drive") ||
-                !keys(*wire, relay ? std::initializer_list<const char*>{"kind", "center", "axis", "relay_axis"} :
-                    std::initializer_list<const char*>{"kind", "center", "axis"}) ||
-                (relay != nullptr) != (*name == "chain_drive") ||
-                (relay && (!axis_value(*relay) || axis_value(*relay) == axis_value(*axis))) ||
-                (*name == "gearbox" && *axis != "y") ||
-                (*name == "vertical_gearbox" && *axis == "y")) return false;
-            return same("center", "center") && same("axis", "axis") &&
-                field<std::string>(intent, "role") && *field<std::string>(intent, "role") == *name &&
-                (!relay || same("relay_axis", "relay_axis")) &&
-                field<Integer>(intent, "teeth") && *field<Integer>(intent, "teeth") == 0 &&
-                field<Integer>(intent, "half_span") && *field<Integer>(intent, "half_span") == 0;
-        }
         const auto* name = field<std::string>(*wire, "kind");
         const auto* cell = field<Array>(*wire, "cell");
         const auto* axis = field<std::string>(*wire, "axis");
@@ -1785,6 +1739,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto foundation_action = foundation_commands::parse(*action);
     const auto material_action = material_commands::parse(*action);
     const auto stationary_target_action = stationary_target_commands::parse_wire(*action);
+    const auto transmission_action = transmission_placement::parse_wire(*action);
+    const auto worksite_action = worksite_commands::parse_wire(*action);
     const auto target = [&](const char* input, const char* output, const char* generation) {
         const auto* id = field<std::string>(wire, input);
         if (!id) return false;
@@ -1802,12 +1758,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 return overlap(volume, component_bounds(profile_, entry.second.kind, entry.second.center));
             });
     };
-    if (*action == "set_developer_conveniences") {
-        if (!keys(wire, {"enabled"}) || !field<bool>(wire, "enabled")) return refuse("invalid_command");
-        normalized.at("action") = Value(*action);
+    if (worksite_action == worksite_commands::Action::developer_conveniences) {
+        if (!worksite_commands::valid_wire(wire, worksite_action)) return refuse("invalid_command");
+        normalized.at("action") = Value(std::string(worksite_commands::schema(worksite_action).name));
         normalized.emplace("enabled", wire.at("enabled"));
-    } else if (*action == "harvest_source") {
-        if (!keys(wire, {"target"}) || !field<std::string>(wire, "target")) return refuse("invalid_command");
+    } else if (worksite_action == worksite_commands::Action::harvest) {
+        if (!worksite_commands::valid_wire(wire, worksite_action)) return refuse("invalid_command");
         const auto& id = *field<std::string>(wire, "target");
         const bool ore = profile_.material.manual_ore && profile_.material.manual_ore->id == id;
         const auto tree = profile_.material.timber_sites.find(id);
@@ -1820,12 +1776,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     return refuse("source_occluded");
             }
         }
-        normalized.at("action") = Value(snapshot.state.developer_conveniences ?
-            "fast_harvest_source" : "harvest_source");
+        normalized.at("action") = Value(std::string(worksite_commands::schema(
+            snapshot.state.developer_conveniences ? worksite_commands::Action::fast_harvest :
+            worksite_commands::Action::harvest).name));
         normalized.emplace("target", wire.at("target"));
-    } else if (*action == "finish_harvest" || *action == "cancel_harvest") {
-        if (!keys(wire, {})) return refuse("invalid_command");
-        normalized.at("action") = Value(*action);
+    } else if (worksite_action == worksite_commands::Action::finish_harvest ||
+               worksite_action == worksite_commands::Action::cancel_harvest) {
+        if (!worksite_commands::valid_wire(wire, worksite_action)) return refuse("invalid_command");
+        normalized.at("action") = Value(std::string(worksite_commands::schema(worksite_action).name));
     } else if (fabrication_action == fabrication_commands::Action::foundation) {
         if (!fabrication_commands::valid_wire(wire, fabrication_action))
             return refuse("invalid_command");
@@ -2325,8 +2283,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("half_span", Value(Integer{0}));
         if (rotation) normalized.emplace("rotation", Value(*rotation));
         if (tiles) normalized.emplace("wheel_tiles", Value(*tiles));
-    } else if (*action == "place_shaft") {
-        if (!keys(wire, {"center", "axis", "half_span"})) return refuse("invalid_command");
+    } else if (transmission_action == transmission_placement::Action::shaft) {
+        if (!transmission_placement::admission_shape(wire, transmission_placement::Action::shaft))
+            return refuse("invalid_command");
         const auto* input = field<Array>(wire, "center");
         const auto center = input ? gear_center(*input) : std::nullopt;
         const auto* axis = field<std::string>(wire, "axis");
@@ -2359,14 +2318,10 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     verified_axis)) return refuse("occupied");
         }
         if (placement_blocked(at, half)) return refuse("actor_occupied");
-        normalized.at("action") = Value("place");
-        normalized.emplace("role", Value("shaft"));
-        normalized.emplace("center", wire.at("center"));
-        normalized.emplace("axis", wire.at("axis"));
-        normalized.emplace("teeth", Value(Integer{0}));
-        normalized.emplace("half_span", wire.at("half_span"));
-    } else if (*action == "place_gear") {
-        if (!keys(wire, {"center", "axis", "teeth"})) return refuse("invalid_command");
+        transmission_placement::normalize(normalized, wire, transmission_placement::Action::shaft);
+    } else if (transmission_action == transmission_placement::Action::gear) {
+        if (!transmission_placement::admission_shape(wire, transmission_placement::Action::gear))
+            return refuse("invalid_command");
         const auto* input = field<Array>(wire, "center");
         const auto center = input ? gear_center(*input) : std::nullopt;
         const auto* axis = field<std::string>(wire, "axis");
@@ -2395,20 +2350,15 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         if (intersects_belt(snapshot.state, {at, gear_axle_half_extents(verified_axis)})) return refuse("occupied");
         if (placement_blocked(at, gear_axle_half_extents(verified_axis))) return refuse("actor_occupied");
-        normalized.at("action") = Value("place");
-        normalized.emplace("role", Value("gear"));
-        normalized.emplace("center", wire.at("center"));
-        normalized.emplace("axis", wire.at("axis"));
-        normalized.emplace("teeth", wire.at("teeth"));
-        normalized.emplace("half_span", Value(Integer{0}));
-    } else if (*action == "place_relay") {
+        transmission_placement::normalize(normalized, wire, transmission_placement::Action::gear);
+    } else if (transmission_action == transmission_placement::Action::relay) {
         const auto* name = field<std::string>(wire, "kind");
         const auto* input = field<Array>(wire, "center");
         const auto* axis_name = field<std::string>(wire, "axis");
         const auto* relay_name = field<std::string>(wire, "relay_axis");
-        if (!name || (*name != "gearbox" && *name != "vertical_gearbox" && *name != "chain_drive") ||
-            !keys(wire, relay_name ? std::initializer_list<const char*>{"kind", "center", "axis", "relay_axis"} :
-                std::initializer_list<const char*>{"kind", "center", "axis"})) return refuse("invalid_command");
+        if (!name || !transmission_placement::relay_kind(*name) ||
+            !transmission_placement::admission_shape(wire, transmission_placement::Action::relay))
+            return refuse("invalid_command");
         const auto center = input ? gear_center(*input) : std::nullopt;
         const auto relay_axis = relay_name ? axis_value(*relay_name) : std::nullopt;
         if (!center) return refuse("invalid_center");
@@ -2447,13 +2397,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         if (intersects_belt(snapshot.state, shell)) return refuse("occupied");
         if (placement_blocked(at, half)) return refuse("actor_occupied");
-        normalized.at("action") = Value("place");
-        normalized.emplace("role", Value(*name));
-        normalized.emplace("center", wire.at("center"));
-        normalized.emplace("axis", wire.at("axis"));
-        normalized.emplace("teeth", Value(Integer{0}));
-        normalized.emplace("half_span", Value(Integer{0}));
-        if (relay_name) normalized.emplace("relay_axis", wire.at("relay_axis"));
+        transmission_placement::normalize(normalized, wire, transmission_placement::Action::relay);
     } else if (belt_action == belt_commands::Action::select) {
         if (!belt_commands::valid_wire(wire, belt_action) ||
             !target("entity", "target", "generation")) return refuse("invalid_command");
@@ -2702,7 +2646,9 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
             {"request", Value(std::string("native-cut-") +
                 (interrupted ? "cancel-" : "finish-") + actor +
                 "-" + std::to_string(cut.start_revision))},
-            {"action", Value(interrupted ? "cancel_harvest" : "finish_harvest")}};
+            {"action", Value(std::string(worksite_commands::schema(interrupted ?
+                worksite_commands::Action::cancel_harvest :
+                worksite_commands::Action::finish_harvest).name))}};
         Object normalized = wire;
         normalized.emplace("actor", Value(actor));
         normalized.emplace("wire", Value(wire));
@@ -2716,7 +2662,8 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
                 {"client", Value(actor)},
                 {"request", Value("native-cut-cancel-" + actor + "-" +
                     std::to_string(cut.start_revision))},
-                {"action", Value("cancel_harvest")}};
+                {"action", Value(std::string(worksite_commands::schema(
+                    worksite_commands::Action::cancel_harvest).name))}};
             Object cancel = cancel_wire;
             cancel.emplace("actor", Value(actor));
             cancel.emplace("wire", Value(cancel_wire));
@@ -2967,24 +2914,38 @@ Value Host::projection() const {
             {"foundation_depth", Value(foundation_depth)},
             {"wheel_radius", Value(wheel_radius)}, {"wheel_axle_offset", Value(wheel_axle_offset)},
             {"capsule_radius", Value(capsule_radius)}, {"capsule_height", Value(capsule_height)},
-            {"collector_intake_size", Value(Array{Value(0.28), Value(0.20), Value(0.24)})},
-            {"collector_intake_x", Value(-0.84)}, {"collector_intake_y", Value(0.50)},
-            {"collector_second_cell_z", Value(-0.60)},
-            {"collector_lift", Value(Object{{"pickup_x", Value(-1.04)},
-                {"pickup_y", Value(0.55)},
-                {"pickup_size", Value(Array{Value(0.34), Value(0.30), Value(0.40)})},
-                {"carrier_x", Value(-1.05)}, {"carrier_bottom", Value(0.67)},
-                {"carrier_top_offset", Value(1.95)},
-                {"carrier_size_xz", Value(Array{Value(0.34), Value(0.42)})},
-                {"guide_offset", Value(Array{Value(0.09), Value(0.17)})},
-                {"guide_size", Value(Array{Value(0.055), Value(0.055)})},
-                {"flight_offset_x", Value(-0.025)},
-                {"flight_raise_y", Value(0.05)},
-                {"flight_size", Value(Array{Value(0.25), Value(0.16), Value(0.30)})},
-                {"flight_count", Value(Integer{5})}, {"flight_span", Value(0.88)},
-                {"head_x", Value(-0.60)}, {"head_y_offset", Value(1.77)},
-                {"head_size_xy", Value(Array{Value(0.90), Value(0.36)})},
-                {"head_z_size", Value(Array{Value(0.40), Value(0.86)})}})}})}};
+            {"collector_intake_size", Value(Array{Value(site_geometry::collector_intake_size[0]),
+                Value(site_geometry::collector_intake_size[1]), Value(site_geometry::collector_intake_size[2])})},
+            {"collector_intake_x", Value(site_geometry::collector_intake_x)},
+            {"collector_intake_y", Value(site_geometry::collector_intake_y)},
+            {"collector_second_cell_z", Value(site_geometry::collector_second_cell_z)},
+            {"collector_lift", Value(Object{{"pickup_x", Value(site_geometry::collector_lift.pickup_x)},
+                {"pickup_y", Value(site_geometry::collector_lift.pickup_y)},
+                {"pickup_size", Value(Array{Value(site_geometry::collector_lift.pickup_size[0]),
+                    Value(site_geometry::collector_lift.pickup_size[1]),
+                    Value(site_geometry::collector_lift.pickup_size[2])})},
+                {"carrier_x", Value(site_geometry::collector_lift.carrier_x)},
+                {"carrier_bottom", Value(site_geometry::collector_lift.carrier_bottom)},
+                {"carrier_top_offset", Value(site_geometry::collector_lift.carrier_top_offset)},
+                {"carrier_size_xz", Value(Array{Value(site_geometry::collector_lift.carrier_size_xz[0]),
+                    Value(site_geometry::collector_lift.carrier_size_xz[1])})},
+                {"guide_offset", Value(Array{Value(site_geometry::collector_lift.guide_offset[0]),
+                    Value(site_geometry::collector_lift.guide_offset[1])})},
+                {"guide_size", Value(Array{Value(site_geometry::collector_lift.guide_size[0]),
+                    Value(site_geometry::collector_lift.guide_size[1])})},
+                {"flight_offset_x", Value(site_geometry::collector_lift.flight_offset_x)},
+                {"flight_raise_y", Value(site_geometry::collector_lift.flight_raise_y)},
+                {"flight_size", Value(Array{Value(site_geometry::collector_lift.flight_size[0]),
+                    Value(site_geometry::collector_lift.flight_size[1]),
+                    Value(site_geometry::collector_lift.flight_size[2])})},
+                {"flight_count", Value(site_geometry::collector_lift.flight_count)},
+                {"flight_span", Value(site_geometry::collector_lift.flight_span)},
+                {"head_x", Value(site_geometry::collector_lift.head_x)},
+                {"head_y_offset", Value(site_geometry::collector_lift.head_y_offset)},
+                {"head_size_xy", Value(Array{Value(site_geometry::collector_lift.head_size_xy[0]),
+                    Value(site_geometry::collector_lift.head_size_xy[1])})},
+                {"head_z_size", Value(Array{Value(site_geometry::collector_lift.head_z_size[0]),
+                    Value(site_geometry::collector_lift.head_z_size[1])})}})}})}};
     if (state.landing_pod) {
         const auto& pod = *state.landing_pod;
         Object supplied;
@@ -3409,7 +3370,9 @@ Value Host::projection() const {
         projection.emplace("broad_shear_assemblies", Value(std::move(broad_shears)));
     }
     projection.merge(tick_fields(snapshot));
-    return Value(std::move(projection));
+    Value complete(std::move(projection));
+    return projection_contract::complete(complete) ?
+        std::move(complete) : result(false, "incomplete_projection");
 }
 
 Value Host::checkpoint() const {

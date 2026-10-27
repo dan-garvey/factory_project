@@ -2,20 +2,39 @@ extends RefCounted
 ## Shared prototype geometry. These values do not select the game's scale,
 ## movement tuning, construction range or eventual world representation.
 
+# BEGIN NATIVE SITE GEOMETRY
 const PITCH := 1.65
 const HEIGHT_DENOMINATOR := 4
 const HEIGHT_STEP := PITCH / HEIGHT_DENOMINATOR
 const FOUNDATION_HEIGHT_UNITS := 2
 const FOUNDATION_DEPTH := FOUNDATION_HEIGHT_UNITS * HEIGHT_STEP
-const GRID_COORDINATE_LIMIT := 1000000 # Native integer representation bound.
 const ANCHOR_HEIGHT := PITCH / 2.0
 const WATERWHEEL_RADIUS_HUNDREDTHS := 224
 const WATERWHEEL_AXLE_OFFSET_HUNDREDTHS := 200
 const WATERWHEEL_RADIUS := WATERWHEEL_RADIUS_HUNDREDTHS * HEIGHT_STEP / 100.0
 const BASE_REACH := 4.0
-
 const CAPSULE_RADIUS := 0.3
 const CAPSULE_HEIGHT := 1.8
+const MACHINE_SIZE := [1.45, 1.65, 1.45]
+const MACHINE_CENTER_HEIGHT := 0.8
+const COLLECTOR_INTAKE_SIZE := [0.28, 0.2, 0.24]
+const COLLECTOR_INTAKE_X := -0.84
+const COLLECTOR_INTAKE_Y := 0.5
+const COLLECTOR_SECOND_CELL_Z := -0.6
+const COLLECTOR_LIFT_PROFILE := {
+	"pickup_x": -1.04, "pickup_y": 0.55, "pickup_size": [0.34, 0.3, 0.4],
+	"carrier_x": -1.05, "carrier_bottom": 0.67, "carrier_top_offset": 1.95,
+	"carrier_size_xz": [0.34, 0.42],
+	"guide_offset": [0.09, 0.17], "guide_size": [0.055, 0.055],
+	"flight_offset_x": -0.025, "flight_raise_y": 0.05,
+	"flight_size": [0.25, 0.16, 0.3],
+	"flight_count": 5, "flight_span": 0.88,
+	"head_x": -0.6, "head_y_offset": 1.77,
+	"head_size_xy": [0.9, 0.36], "head_z_size": [0.4, 0.86],
+}
+# END NATIVE SITE GEOMETRY
+
+const GRID_COORDINATE_LIMIT := 1000000 # Native integer representation bound.
 const WALK_SPEED := 3.0
 const GRAVITY := 14.0
 const JUMP_SPEED := 6.0
@@ -26,23 +45,6 @@ const GROUND_LAYER := 1
 const MACHINE_LAYER := 2
 const PICK_LAYER := 4
 const ACTOR_LAYER := 16
-const MACHINE_SIZE := [1.45, 1.65, 1.45]
-const MACHINE_CENTER_HEIGHT := 0.8
-const COLLECTOR_INTAKE_SIZE := [0.28, 0.20, 0.24]
-const COLLECTOR_INTAKE_X := -0.84
-const COLLECTOR_INTAKE_Y := 0.50
-const COLLECTOR_SECOND_CELL_Z := -0.60
-const COLLECTOR_LIFT_PROFILE := {
-	"pickup_x": -1.04, "pickup_y": 0.55, "pickup_size": [0.34, 0.30, 0.40],
-	"carrier_x": -1.05, "carrier_bottom": 0.67, "carrier_top_offset": 1.95,
-	"carrier_size_xz": [0.34, 0.42],
-	"guide_offset": [0.09, 0.17], "guide_size": [0.055, 0.055],
-	"flight_offset_x": -0.025, "flight_raise_y": 0.05,
-	"flight_size": [0.25, 0.16, 0.30],
-	"flight_count": 5, "flight_span": 0.88,
-	"head_x": -0.60, "head_y_offset": 1.77,
-	"head_size_xy": [0.90, 0.36], "head_z_size": [0.40, 0.86],
-}
 
 static func collector_intake_boxes(entity: Dictionary) -> Dictionary:
 	if entity.get("kind") != "collector":

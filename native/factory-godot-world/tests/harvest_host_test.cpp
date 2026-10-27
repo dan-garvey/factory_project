@@ -1772,10 +1772,91 @@ void cut_interrupts_on_actor_sample_before_next_tick() {
           get<O>(restored.projection(), "manual_cuts").empty(),
           "Q's restored cut transfers exactly one timber without changing P's prior custody.");
 }
+void worksite_request_contract() {
+    Host host;
+    check(get<bool>(host.initialize_arrival_advanced_fixture("worksite-request-contract", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
+          "A real native actor can reach the finite source for request-shape checks.");
+    const auto wire = [](const char* request, const char* action, O extra) {
+        O result{{"context", V("worksite-request-contract")}, {"client", V("P")},
+            {"request", V(request)}, {"action", V(action)}};
+        result.merge(extra);
+        return result;
+    };
+    const auto before = host.projection();
+    const auto invalid = [&](const char* request, const char* action, O extra) {
+        const auto refusal = host.command("P", wire(request, action, std::move(extra)));
+        const auto after = host.projection();
+        return !get<bool>(refusal, "accepted") && get<std::string>(refusal, "reason") == "invalid_command" &&
+            get<I>(after, "revision") == get<I>(before, "revision") &&
+            !factory::values::typed_difference(V(get<O>(after, "hand_sources")),
+                V(get<O>(before, "hand_sources"))) &&
+            !factory::values::typed_difference(V(get<O>(after, "cargo")),
+                V(get<O>(before, "cargo"))) &&
+            get<O>(after, "manual_cuts").empty() &&
+            !get<bool>(V(get<O>(after, "options")), "developer_conveniences");
+    };
+    check(invalid("missing-target", "harvest_source", {}) &&
+          invalid("wrong-target", "harvest_source", {{"target", V(I{1})}}) &&
+          invalid("extra-target", "harvest_source", {{"target", V("tree-east-south")},
+              {"extra", V(true)}}) &&
+          invalid("missing-toggle", "set_developer_conveniences", {}) &&
+          invalid("wrong-toggle", "set_developer_conveniences", {{"enabled", V(I{1})}}) &&
+          invalid("extra-finish", "finish_harvest", {{"target", V("tree-east-south")}}) &&
+          invalid("extra-cancel", "cancel_harvest", {{"target", V("tree-east-south")}}),
+          "Malformed harvest and convenience requests preserve native stock, cargo, cuts and revision.");
+    const auto direct_fast = host.command("P", wire("direct-fast", "fast_harvest_source",
+        {{"target", V("tree-east-south")}}));
+    check(!get<bool>(direct_fast, "accepted") &&
+          get<std::string>(direct_fast, "reason") == "unsupported_action" &&
+          get<I>(host.projection(), "revision") == get<I>(before, "revision"),
+          "The fast harvest action is available only through native normalization of the ordinary wire.");
+    check(get<bool>(host.command("P", wire("enable", "set_developer_conveniences",
+              {{"enabled", V(true)}})), "accepted") &&
+          get<bool>(host.command("P", wire("fast-cut", "harvest_source",
+              {{"target", V("tree-east-south")}})), "accepted") &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 7 &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1 &&
+          get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
+          "The state-selected fast harvest keeps its ordinary wire action and valid saved history.");
+    const auto fast_saved = host.checkpoint();
+    auto forged = std::get<O>(fast_saved.storage());
+    auto forged_world = get<O>(V(forged), "world");
+    auto forged_history = get<O>(V(forged_world), "history");
+    auto forged_records = get<A>(V(forged_history), "records");
+    auto forged_record = std::get<O>(forged_records.back().storage());
+    auto forged_intent = get<O>(V(forged_record), "intent");
+    auto forged_wire = get<O>(V(forged_intent), "wire");
+    forged_wire.at("action") = V("fast_harvest_source");
+    forged_intent.at("wire") = V(std::move(forged_wire));
+    forged_record.at("intent") = V(std::move(forged_intent));
+    forged_records.back() = V(std::move(forged_record));
+    forged_history.at("records") = V(std::move(forged_records));
+    forged_world.at("history") = V(std::move(forged_history));
+    forged.at("world") = V(std::move(forged_world));
+    check(!get<bool>(host.validate_checkpoint(V(std::move(forged))), "accepted") &&
+          !factory::values::typed_difference(fast_saved, host.checkpoint()),
+          "Saved fast harvest cannot invent a separate player wire action during replay.");
+    check(get<bool>(host.command("P", wire("disable", "set_developer_conveniences",
+              {{"enabled", V(false)}})), "accepted") &&
+          get<bool>(host.command("P", wire("start", "harvest_source",
+              {{"target", V("tree-east-south")}})), "accepted"),
+          "Ordinary harvest starts a timed native cut after convenience mode ends.");
+    const auto early_finish = host.command("P", wire("early-finish", "finish_harvest", {}));
+    check(!get<bool>(early_finish, "accepted") &&
+          get<std::string>(early_finish, "reason") == "cut_in_progress" &&
+          get<bool>(host.command("P", wire("cancel", "cancel_harvest", {})), "accepted") &&
+          get<O>(host.projection(), "manual_cuts").empty() &&
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 7 &&
+          get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
+          "Finish and cancel retain native cut timing, custody and checkpoint rules.");
+}
 }  // namespace
 
 int main() {
     try {
+        worksite_request_contract();
         shared_fast_setting_and_restore();
         one_piece_slide_custody();
         flat_head_host_custody();

@@ -11,6 +11,7 @@ var opening
 var mode := ""
 var destination := ""
 var prior_path := ""
+var capture_prefix := ""
 var deadline := 0
 var checks := 0
 var written := false
@@ -24,6 +25,8 @@ func _init() -> void:
 			destination = argument.trim_prefix("--first-shift-output=")
 		elif argument.begins_with("--first-shift-prior="):
 			prior_path = argument.trim_prefix("--first-shift-prior=")
+		elif argument.begins_with("--first-shift-capture-prefix="):
+			capture_prefix = argument.trim_prefix("--first-shift-capture-prefix=")
 	deadline = Time.get_ticks_msec() + 115000
 	call_deferred("_run")
 
@@ -449,9 +452,98 @@ func _resume() -> void:
 	facts["original_save_sha256"] = prior.original_save_sha256
 	_finish("pass")
 
+func _layout_inside(viewport: Rect2, control: Control) -> bool:
+	return control != null and control.is_visible_in_tree() and viewport.encloses(control.get_global_rect())
+
+func _capture_layout(name: String) -> bool:
+	if capture_prefix.is_empty():
+		return true
+	var path := capture_prefix + "-" + name + ".png"
+	if FileAccess.file_exists(path):
+		return _expect(false, "The layout fixture refuses to overwrite a retained frame: " + path)
+	await RenderingServer.frame_post_draw
+	return _expect(root.get_texture().get_image().save_png(path) == OK,
+		"The normal native opening retains its passive " + name + " frame")
+
+func _layout_resize() -> void:
+	var initial: Dictionary = opening.model.checkpoint().world
+	var observations: Array = []
+	var sizes := [Vector2i(1280, 800), Vector2i(1920, 1080),
+		Vector2i(640, 480), Vector2i(1280, 800)]
+	for index in range(sizes.size()):
+		var dimensions: Vector2i = sizes[index]
+		root.size = dimensions
+		for _frame in range(5):
+			await process_frame
+		opening._refresh_ui()
+		for _frame in range(3):
+			await process_frame
+		var viewport := Rect2(Vector2.ZERO, Vector2(dimensions))
+		var hotbar: Control = opening.building_hotbar
+		var footer: Control = opening.status_footer
+		if not _expect(_layout_inside(viewport, hotbar) and _layout_inside(viewport, footer)
+				and absf(footer.get_global_rect().end.y - hotbar.get_global_rect().position.y + 12.0) <= 2.0
+				and footer.get_global_rect().encloses(opening.controls_label.get_global_rect()),
+			"The native opening footer and hotbar fit the %s client viewport" % dimensions):
+			return
+		if not await _capture_layout("%d-%dx%d-worksite" % [index, dimensions.x, dimensions.y]):
+			return
+		opening._toggle_explanation()
+		for _frame in range(4):
+			await process_frame
+		if not _expect(opening.explanation_open and _layout_inside(viewport, opening.help_panel)
+				and _layout_inside(viewport, opening.help_close_button)
+				and opening.help_panel.get_global_rect().encloses(opening.help_body.get_global_rect())
+				and opening.help_panel.get_global_rect().encloses(opening.help_close_button.get_global_rect()),
+			"The real Help text and close control fit the %s client viewport" % dimensions):
+			return
+		if not await _capture_layout("%d-%dx%d-help" % [index, dimensions.x, dimensions.y]):
+			return
+		observations.append({"size": dimensions, "footer": footer.get_global_rect(),
+			"hotbar": hotbar.get_global_rect(), "help": opening.help_panel.get_global_rect(),
+			"close": opening.help_close_button.get_global_rect()})
+		opening._toggle_explanation()
+		if not _expect(not opening.explanation_open, "Closing Help returns to the same native worksite"):
+			return
+	var foundations: Dictionary = opening.state.get("foundations", {})
+	if not _expect(not foundations.is_empty(),
+		"The ordinary arrival retains a native foundation that can open the real object menu"):
+		return
+	opening._open_object_menu_for(str(foundations.keys()[0]))
+	if not _expect(opening._object_menu_open(),
+		"The native foundation opens the production object menu without a material request"):
+		return
+	for index in range(sizes.size()):
+		var dimensions: Vector2i = sizes[index]
+		root.size = dimensions
+		for _frame in range(6):
+			await process_frame
+		var viewport := Rect2(Vector2.ZERO, Vector2(dimensions))
+		var popup := Rect2(Vector2(opening.object_menu.position), Vector2(opening.object_menu.size))
+		var close_rect: Rect2 = opening.object_menu_close.get_global_rect()
+		if not _expect(opening.object_menu_viewport_size == dimensions
+				and viewport.encloses(popup) and absf(popup.get_center().x - dimensions.x * 0.5) <= 2.0
+				and opening.object_menu_close.is_visible_in_tree()
+				and Rect2(Vector2.ZERO, Vector2(opening.object_menu.size)).encloses(close_rect),
+			"The native object menu and close target follow the %s client viewport" % dimensions):
+			return
+		if not await _capture_layout("%d-%dx%d-object-menu" % [index, dimensions.x, dimensions.y]):
+			return
+	opening.object_menu.hide()
+	facts["layout_observations"] = observations
+	if not _expect(_same(initial, opening.model.checkpoint().world)
+			and opening.model.projection().actors.P.ready and opening.request_sequence == 0,
+		"Resizing and reading Help leave native material and request history untouched"):
+		return
+	_finish("pass")
+
 func _run() -> void:
-	if mode not in ["prepare", "resume"] or not destination.is_absolute_path() or not DirAccess.dir_exists_absolute(destination.get_base_dir()) or FileAccess.file_exists(destination) or DirAccess.dir_exists_absolute(destination):
+	if mode not in ["prepare", "resume", "layout-resize"] or not destination.is_absolute_path() or not DirAccess.dir_exists_absolute(destination.get_base_dir()) or FileAccess.file_exists(destination) or DirAccess.dir_exists_absolute(destination):
 		push_error("Use an explicit first-shift mode and fresh absolute evidence path")
+		quit(1)
+		return
+	if not capture_prefix.is_empty() and (mode != "layout-resize" or not capture_prefix.is_absolute_path() or not DirAccess.dir_exists_absolute(capture_prefix.get_base_dir())):
+		push_error("Layout captures need an absolute prefix in an existing external directory")
 		quit(1)
 		return
 	if mode == "resume" and (not prior_path.is_absolute_path() or not FileAccess.file_exists(prior_path) or prior_path == destination):
@@ -465,5 +557,7 @@ func _run() -> void:
 	if not (await _until(func() -> bool: return opening.model.projection().actors.P.ready and opening.actor_world.bodies.P.is_on_floor() and not opening.startup_save_pending, "The native character is ready on the floor before material commands")): return
 	if mode == "prepare":
 		await _prepare()
+	elif mode == "layout-resize":
+		await _layout_resize()
 	else:
 		await _resume()

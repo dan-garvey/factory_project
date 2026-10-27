@@ -1,9 +1,11 @@
 #include "factory/godot_world.hpp"
+#include "factory/projection_contract.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <array>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -192,6 +194,8 @@ void historical_translation() {
     reject("span", "from", V(collector));
     reject("collector", "cell", V(A{V(I{0}), V(I{0})}));
     reject("collector", "kind", V("belt"));
+    reject("input-cog", "teeth", V(I{1}));
+    reject("first-shaft", "half_span", V(I{3}));
     Host fresh;
     check(accepted(fresh.initialize("new-host", {"P"})), "A separate fresh Host initializes.");
     check(accepted(fresh.configure_terrain(site)), "The fresh Host binds the same synthetic terrain.");
@@ -254,11 +258,102 @@ void nonarrival_tick_schema() {
           accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
           "The nonarrival Host starts with an ordinary finite world.");
     const auto full_before = std::get<O>(host.projection().storage());
+    check(factory::godot_world::projection_contract::complete(V(full_before)),
+          "The ordinary Host exports every stable typed projection field.");
+    auto missing_stock = full_before;
+    missing_stock.erase("stock");
+    auto wrong_cargo = full_before;
+    wrong_cargo.at("cargo") = V(A{});
+    check(!factory::godot_world::projection_contract::complete(V(missing_stock)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_cargo)),
+          "Missing stock or mistyped cargo cannot be admitted as a complete native view.");
+    auto missing_source = full_before;
+    auto stock = std::get<O>(missing_source.at("stock").storage());
+    stock.erase("source");
+    missing_source.at("stock") = V(std::move(stock));
+    auto wrong_work_lots = full_before;
+    auto cargo = std::get<O>(wrong_work_lots.at("cargo").storage());
+    auto carried = std::get<O>(cargo.at("P").storage());
+    carried.at("work_lots") = V(O{});
+    cargo.at("P") = V(std::move(carried));
+    wrong_work_lots.at("cargo") = V(std::move(cargo));
+    auto missing_ready = full_before;
+    auto actors = std::get<O>(missing_ready.at("actors").storage());
+    auto actor = std::get<O>(actors.at("P").storage());
+    actor.erase("ready");
+    actors.at("P") = V(std::move(actor));
+    missing_ready.at("actors") = V(std::move(actors));
+    auto wrong_drop_center = full_before;
+    wrong_drop_center.at("dropped_material") = V(A{V(O{
+        {"center", V(A{V(I{0}), V(I{0})})}, {"raw", V(I{0})},
+        {"products", V(I{1})}, {"work_lots", V(A{})}})});
+    check(!factory::godot_world::projection_contract::complete(V(missing_source)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_work_lots)) &&
+          !factory::godot_world::projection_contract::complete(V(missing_ready)) &&
+          !factory::godot_world::projection_contract::complete(V(wrong_drop_center)),
+          "Nested stock, carried work, actor readiness and three-coordinate drop shapes are required.");
+    const auto invalid_map_record = [&](const char* name, O fields) {
+        auto malformed = full_before;
+        malformed.at(name) = V(O{{"broken-record", V(std::move(fields))}});
+        return !factory::godot_world::projection_contract::complete(V(malformed));
+    };
+    auto malformed_engagement = full_before;
+    malformed_engagement.at("engagements") = V(A{V(O{{"a", V("one")}, {"b", V("two")},
+        {"kind", V(true)}})});
+    check(invalid_map_record("entities", O{{"kind", V("processor")}, {"generation", V(I{1})},
+              {"center", V(A{V(I{0}), V(I{1})})}, {"axis", V(I{0})},
+              {"relay_axis", V(I{0})}, {"teeth", V(I{0})}, {"half_span", V(I{0})},
+              {"rotation", V(I{0})}, {"cell", V(A{V(I{0}), V(I{0})})}}) &&
+          invalid_map_record("transmission_parts", O{{"kind", V("shaft")}}) &&
+          invalid_map_record("belt_spans", O{{"generation", V(I{1})}, {"order", V(I{0})},
+              {"from", V("one")}, {"to", V("two")}, {"phase", V(I{0})},
+              {"slots", V(O{})}}) &&
+          invalid_map_record("motion", O{{"state", V("turning")}, {"numerator", V("one")},
+              {"denominator", V(I{1})}}) &&
+          invalid_map_record("foundations", O{{"cell", V(A{V(I{0})})},
+              {"level", V(I{0})}, {"generation", V(I{1})}}) &&
+          !factory::godot_world::projection_contract::complete(V(malformed_engagement)),
+          "Malformed topology coordinates, belt cargo, motion, foundations and engagement kinds refuse.");
+    const auto invalid_object_field = [&](const char* record, const char* field, V bad) {
+        auto malformed = full_before;
+        auto fields = std::get<O>(malformed.at(record).storage());
+        fields.at(field) = std::move(bad);
+        malformed.at(record) = V(std::move(fields));
+        return !factory::godot_world::projection_contract::complete(V(malformed));
+    };
+    auto malformed_links = full_before;
+    malformed_links.at("links") = V(A{V(A{V("first"), V(I{2})})});
+    auto malformed_drive_links = full_before;
+    malformed_drive_links.at("drive_links") = V(A{V(A{V("only-one")})});
+    check(!factory::godot_world::projection_contract::complete(V(malformed_links)) &&
+          !factory::godot_world::projection_contract::complete(V(malformed_drive_links)) &&
+          invalid_object_field("source_deposit", "cells", V(A{V(A{V(I{0}), V("wrong")})})) &&
+          invalid_object_field("adapter_profile", "pitch", V(I{1})) &&
+          invalid_object_field("adapter_profile", "collector_intake_size", V(A{V(0.28), V(0.20)})) &&
+          invalid_object_field("options", "native", V("true")),
+          "Links, deposit cells, adapter geometry and options need complete typed native fields.");
+    const auto invalid_lift = [&](const char* field, std::optional<V> replacement) {
+        auto malformed = full_before;
+        auto profile = std::get<O>(malformed.at("adapter_profile").storage());
+        auto lift = std::get<O>(profile.at("collector_lift").storage());
+        if (replacement) lift.at(field) = std::move(*replacement);
+        else lift.erase(field);
+        profile.at("collector_lift") = V(std::move(lift));
+        malformed.at("adapter_profile") = V(std::move(profile));
+        return !factory::godot_world::projection_contract::complete(V(malformed));
+    };
+    check(invalid_lift("pickup_size", V(A{V(0.34), V(0.30)})) &&
+          invalid_lift("carrier_size_xz", V(A{V(0.34), V(0.42), V(0.50)})) &&
+          invalid_lift("flight_count", V(5.0)) &&
+          invalid_lift("head_z_size", std::nullopt),
+          "Every collector lift dimension and count follows the nested native projection schema.");
     const auto fields = std::get<O>(host.advance_tick_fields().storage());
     const auto full_after = std::get<O>(host.projection().storage());
     check(!full_before.contains("slide_phases") && !fields.contains("slide_phases") &&
           !full_after.contains("slide_phases"),
           "A nonarrival tick cannot introduce an arrival-only slide phase field.");
+    check(factory::godot_world::projection_contract::complete(V(full_after)),
+          "A nonarrival tick retains the complete stable projection schema.");
 }
 }  // namespace
 

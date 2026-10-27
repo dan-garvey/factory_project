@@ -215,6 +215,17 @@ void authentication_reach_and_replay() {
     observer.calls = 0;
     outcome(send(*owner, extra, observer), false, "invalid_command");
     check(observer.calls == 0, "A client pose field does not reach native admission.");
+    auto aliased_shaft = place("extra-aliased-shaft", "shaft", 20, 12, 2);
+    aliased_shaft.emplace("wire", V(V::Object{{"context", V("fixture-world")},
+        {"client", V("P-session")}, {"request", V("extra-aliased-shaft")},
+        {"action", V("place_shaft")}, {"center", aliased_shaft.at("center")},
+        {"axis", V("z")}, {"half_span", V(I{2})}}));
+    aliased_shaft.emplace("rotation", V(I{0}));
+    const auto before_alias = owner->snapshot().state;
+    observer.calls = 0;
+    outcome(send(*owner, aliased_shaft, observer), false, "invalid_command");
+    check(observer.calls == 0 && owner->snapshot().state == before_alias,
+          "A shaft wire cannot smuggle a generic placement-only field past the native shape contract.");
     const auto belt_before = owner->snapshot().state;
     auto old_belt = place("old-belt-machine", "belt", 20, 8);
     outcome(send(*owner, old_belt, observer), false, "invalid_part");

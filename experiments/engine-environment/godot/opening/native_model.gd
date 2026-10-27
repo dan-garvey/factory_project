@@ -5,6 +5,8 @@ const Site = preload("res://opening/site_geometry.gd")
 var native: Object
 var boot_result: Dictionary = {"accepted": false, "reason": "native_library_missing"}
 var _view_cache: Dictionary = {}
+var _projection_fields: Dictionary = {}
+var _projection_records: Dictionary = {}
 var context: String:
 	get:
 		return str(projection().get("context", ""))
@@ -64,7 +66,13 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 			"flow_cells": surface.flow_cells()}])
 	if not boot_result.get("accepted", false):
 		return
-	var profile: Dictionary = projection().get("adapter_profile", {})
+	_projection_fields = _invoke("projection_fields", [])
+	_projection_records = _invoke("projection_record_fields", [])
+	var current: Dictionary = projection()
+	if not _complete_projection(current):
+		boot_result = {"accepted": false, "reason": "native_projection_schema_mismatch"}
+		return
+	var profile: Dictionary = current.get("adapter_profile", {})
 	if profile.get("pitch") != Site.PITCH or profile.get("height_denominator") != Site.HEIGHT_DENOMINATOR or profile.get("height_step") != Site.HEIGHT_STEP or profile.get("foundation_depth") != Site.FOUNDATION_DEPTH or profile.get("anchor_height") != Site.ANCHOR_HEIGHT or profile.get("wheel_radius") != Site.WATERWHEEL_RADIUS_HUNDREDTHS or profile.get("wheel_axle_offset") != Site.WATERWHEEL_AXLE_OFFSET_HUNDREDTHS or profile.get("capsule_radius") != Site.CAPSULE_RADIUS or profile.get("capsule_height") != Site.CAPSULE_HEIGHT or profile.get("collector_intake_size") != Site.COLLECTOR_INTAKE_SIZE or profile.get("collector_intake_x") != Site.COLLECTOR_INTAKE_X or profile.get("collector_intake_y") != Site.COLLECTOR_INTAKE_Y or profile.get("collector_second_cell_z") != Site.COLLECTOR_SECOND_CELL_Z:
 		boot_result = {"accepted": false, "reason": "native_scene_profile_mismatch"}
 	if profile.get("collector_lift") != Site.COLLECTOR_LIFT_PROFILE:
@@ -100,13 +108,83 @@ func _view_projection_borrowed() -> Dictionary:
 	if _view_cache.is_empty():
 		var observed: Dictionary = projection()
 		if not _complete_projection(observed):
-			return observed
+			return _projection_unavailable()
 		_view_cache = observed
 	return _view_cache
 
 func _complete_projection(value: Dictionary) -> bool:
-	return value.get("context") is String and typeof(value.get("revision")) == TYPE_INT \
-		and value.get("entities") is Dictionary and value.get("actors") is Dictionary
+	if _projection_fields.is_empty() or _projection_records.is_empty():
+		return false
+	for name in _projection_fields:
+		if not name is String or not value.has(name) \
+			or not _projection_type_matches(value[name], _projection_fields[name]):
+			return false
+	for name in _projection_records:
+		if not name is String:
+			return false
+		var record: Variant = _projection_records[name]
+		if not record is Dictionary or not record.get("fields") is Dictionary \
+			or record.fields.is_empty():
+			return false
+		var nested: Variant = value
+		for segment in name.split("."):
+			if not nested is Dictionary or not nested.has(segment):
+				return false
+			nested = nested[segment]
+		var entries: Array = []
+		match record.get("container"):
+			"object":
+				entries = [nested]
+			"object_values":
+				if not nested is Dictionary: return false
+				entries = nested.values()
+			"array_elements":
+				if not nested is Array: return false
+				entries = nested
+			_:
+				return false
+		for entry in entries:
+			if not entry is Dictionary:
+				return false
+			for field in record.fields:
+				if not field is String or not entry.has(field) \
+					or not _projection_type_matches(entry[field], record.fields[field]):
+					return false
+	return true
+
+func _projection_type_matches(value: Variant, expected: Variant) -> bool:
+	if not expected is String:
+		return false
+	match expected:
+		"string": return typeof(value) == TYPE_STRING
+		"integer": return typeof(value) == TYPE_INT
+		"floating": return typeof(value) == TYPE_FLOAT
+		"boolean": return typeof(value) == TYPE_BOOL
+		"array": return typeof(value) == TYPE_ARRAY
+		"object": return typeof(value) == TYPE_DICTIONARY
+		"integer2", "integer3", "floating2", "floating3":
+			if not value is Array or value.size() != (2 if expected in ["integer2", "floating2"] else 3):
+				return false
+			var scalar_type := TYPE_FLOAT if expected in ["floating2", "floating3"] else TYPE_INT
+			for coordinate in value:
+				if typeof(coordinate) != scalar_type:
+					return false
+			return true
+		"string_pairs", "integer_pairs":
+			if not value is Array:
+				return false
+			var member_type := TYPE_STRING if expected == "string_pairs" else TYPE_INT
+			for pair in value:
+				if not pair is Array or pair.size() != 2:
+					return false
+				for member in pair:
+					if typeof(member) != member_type:
+						return false
+			return true
+	return false
+
+func _projection_unavailable() -> Dictionary:
+	return {"accepted": false, "reason": "native_projection_unavailable", "uncertain": true}
 
 func command(intent: Dictionary) -> Dictionary:
 	return command_as("P", intent)
@@ -127,7 +205,9 @@ func _advance_borrowed() -> Dictionary:
 	# keeps its isolated cache for callers that may edit the returned dictionary.
 	if _view_cache.is_empty():
 		var complete: Dictionary = _invoke("advance", [])
-		_view_cache = complete if _complete_projection(complete) else {}
+		if not _complete_projection(complete):
+			return _projection_unavailable()
+		_view_cache = complete
 		return complete
 	var delta: Dictionary = _invoke("advance_delta", [])
 	var observed: Dictionary = {}
@@ -142,8 +222,11 @@ func _advance_borrowed() -> Dictionary:
 	else:
 		# A boundary refusal is not a confirmed tick or a reusable view.
 		_view_cache = {}
-		return delta
-	_view_cache = observed if _complete_projection(observed) else {}
+		return delta if delta.get("accepted") == false else _projection_unavailable()
+	if not _complete_projection(observed):
+		_view_cache = {}
+		return _projection_unavailable()
+	_view_cache = observed
 	return observed
 
 func publish_actor(actor: String, position: Array, native_epoch: int) -> Dictionary:

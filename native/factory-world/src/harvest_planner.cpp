@@ -1,4 +1,5 @@
 #include "harvest_planner.hpp"
+#include "factory/worksite_command_contract.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -7,12 +8,16 @@ namespace factory::world {
 
 std::optional<HarvestCommand> harvest_command(
         const std::string& action, const authority::Object& intent) {
-    if (action == "finish_harvest") return HarvestCommand{HarvestCommand::Kind::finish, {}};
-    if (action == "cancel_harvest") return HarvestCommand{HarvestCommand::Kind::cancel, {}};
-    if (action != "harvest_source" && action != "fast_harvest_source") return std::nullopt;
+    const auto selected = worksite_commands::parse_intent(action);
+    if (selected == worksite_commands::Action::finish_harvest)
+        return HarvestCommand{HarvestCommand::Kind::finish, {}};
+    if (selected == worksite_commands::Action::cancel_harvest)
+        return HarvestCommand{HarvestCommand::Kind::cancel, {}};
+    if (selected != worksite_commands::Action::harvest &&
+        selected != worksite_commands::Action::fast_harvest) return std::nullopt;
     const auto* target = field<std::string>(intent, "target");
     if (!target) return std::nullopt;
-    return HarvestCommand{action == "harvest_source" ? HarvestCommand::Kind::start :
+    return HarvestCommand{selected == worksite_commands::Action::harvest ? HarvestCommand::Kind::start :
         HarvestCommand::Kind::fast, *target};
 }
 

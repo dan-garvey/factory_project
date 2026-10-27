@@ -59,6 +59,16 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var full_projection_calls := 0
 	var native_advance_calls := 0
 	var native_delta_calls := 0
+	var inject_bad_full := false
+	var inject_bad_delta := false
+	var inject_bad_nested_full := false
+	var inject_bad_nested_delta := false
+	var inject_bad_topology_full := false
+	var inject_bad_topology_delta := false
+	var inject_bad_structure_full := false
+	var inject_bad_structure_delta := false
+	var inject_bad_lift_full := false
+	var inject_bad_lift_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -66,7 +76,49 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			native_advance_calls += 1
 		elif method == "advance_delta":
 			native_delta_calls += 1
-		return super._invoke(method, arguments)
+		var delivered: Dictionary = super._invoke(method, arguments)
+		if method == "projection" and inject_bad_full:
+			inject_bad_full = false
+			delivered.erase("stock")
+		elif method == "projection" and inject_bad_nested_full:
+			inject_bad_nested_full = false
+			delivered.stock = delivered.stock.duplicate(true)
+			delivered.stock.output = "wrong"
+		elif method == "projection" and inject_bad_topology_full:
+			inject_bad_topology_full = false
+			delivered.entities = delivered.entities.duplicate(true)
+			delivered.entities["broken"] = {"kind": "processor"}
+		elif method == "projection" and inject_bad_structure_full:
+			inject_bad_structure_full = false
+			delivered.links = [["first", 2]]
+		elif method == "projection" and inject_bad_lift_full:
+			inject_bad_lift_full = false
+			delivered.adapter_profile = delivered.adapter_profile.duplicate(true)
+			delivered.adapter_profile.collector_lift.flight_count = "five"
+		elif method == "advance_delta" and inject_bad_delta:
+			inject_bad_delta = false
+			return {"changes": {"cargo": []}, "removed": []}
+		elif method == "advance_delta" and inject_bad_nested_delta:
+			inject_bad_nested_delta = false
+			var stock: Dictionary = _view_cache.stock.duplicate(true)
+			stock.output = "wrong"
+			return {"changes": {"stock": stock}, "removed": []}
+		elif method == "advance_delta" and inject_bad_topology_delta:
+			inject_bad_topology_delta = false
+			return {"changes": {"belt_spans": {"broken": {"generation": 1,
+				"order": 0, "from": "first", "to": "last", "phase": 0,
+				"slots": {}}}}, "removed": []}
+		elif method == "advance_delta" and inject_bad_structure_delta:
+			inject_bad_structure_delta = false
+			var profile: Dictionary = _view_cache.adapter_profile.duplicate(true)
+			profile.pitch = "wrong"
+			return {"changes": {"adapter_profile": profile}, "removed": []}
+		elif method == "advance_delta" and inject_bad_lift_delta:
+			inject_bad_lift_delta = false
+			var lift_profile: Dictionary = _view_cache.adapter_profile.duplicate(true)
+			lift_profile.collector_lift.head_z_size = [0.40]
+			return {"changes": {"adapter_profile": lift_profile}, "removed": []}
+		return delivered
 
 class TopologyStub extends RefCounted:
 	var state: Dictionary = {}
@@ -3614,6 +3666,9 @@ func _native_view_cache_regression() -> void:
 	var physical := ActorWorld.new()
 	physical.model = model
 	root.add_child(physical)
+	# ActorWorld startup reads terrain through a public projection and clears
+	# the model cache. Refill it before measuring the ordinary physics cut.
+	model.view_projection()
 	model.full_projection_calls = 0
 	physical._on_native_cut()
 	verify(model.full_projection_calls == 0,
@@ -3708,6 +3763,155 @@ func _native_view_cache_regression() -> void:
 		and not prior_trusted_view.actors.P.ready,
 		"Actor publication replaces the borrowed actor path without mutating a retained scene view.")
 	trusted_opening.free()
+	var complete: Dictionary = trusted.view_projection()
+	var missing := complete.duplicate(true)
+	missing.erase("stock")
+	var wrong_type := complete.duplicate(true)
+	wrong_type.cargo = []
+	verify(trusted._complete_projection(complete) and not trusted._complete_projection(missing)
+		and not trusted._complete_projection(wrong_type),
+		"The native field contract rejects missing stock and a mistyped cargo view.")
+	var missing_count := complete.duplicate(true)
+	missing_count.stock.erase("source")
+	var missing_ready := complete.duplicate(true)
+	missing_ready.actors.P.erase("ready")
+	var short_position := complete.duplicate(true)
+	short_position.actors.P.position = [0.0, 1.0]
+	verify(not trusted._complete_projection(missing_count)
+		and not trusted._complete_projection(missing_ready)
+		and not trusted._complete_projection(short_position),
+		"Nested stock and actor records need their typed counts, readiness and full position.")
+	var wrong_lots := complete.duplicate(true)
+	wrong_lots.cargo.P.work_lots = {}
+	var wrong_drop := complete.duplicate(true)
+	wrong_drop.dropped_material.append({"center": [0, 1], "raw": 0,
+		"products": 1, "work_lots": []})
+	verify(not trusted._complete_projection(wrong_lots)
+		and not trusted._complete_projection(wrong_drop),
+		"Carried work and dropped material follow the same native nested field contract.")
+	var bad_entity := complete.duplicate(true)
+	bad_entity.entities["broken"] = {"kind": "processor", "generation": 1,
+		"center": [0, 0], "axis": 0, "relay_axis": 0, "teeth": 0,
+		"half_span": 0, "rotation": 0, "cell": [0, 0]}
+	var bad_transmission := complete.duplicate(true)
+	bad_transmission.transmission_parts["broken"] = {"kind": "shaft"}
+	var bad_span := complete.duplicate(true)
+	bad_span.belt_spans["broken"] = {"generation": 1, "order": 0,
+		"from": "first", "to": "last", "phase": 0, "slots": {}}
+	verify(not trusted._complete_projection(bad_entity)
+		and not trusted._complete_projection(bad_transmission)
+		and not trusted._complete_projection(bad_span),
+		"Native topology records require complete part coordinates and typed belt slots.")
+	var bad_motion := complete.duplicate(true)
+	bad_motion.motion["broken"] = {"state": "turning", "numerator": "one", "denominator": 1}
+	var bad_foundation := complete.duplicate(true)
+	bad_foundation.foundations["broken"] = {"cell": [0], "level": 0, "generation": 1}
+	var bad_engagement := complete.duplicate(true)
+	bad_engagement.engagements.append({"a": "first", "b": "last", "kind": true})
+	verify(not trusted._complete_projection(bad_motion)
+		and not trusted._complete_projection(bad_foundation)
+		and not trusted._complete_projection(bad_engagement),
+		"Motion, foundation and drive engagement records use native required field types.")
+	var bad_links := complete.duplicate(true)
+	bad_links.links = [["first", 2]]
+	var bad_drive_links := complete.duplicate(true)
+	bad_drive_links.drive_links = [["only-one"]]
+	var bad_cells := complete.duplicate(true)
+	bad_cells.source_deposit.cells = [[0, "wrong"]]
+	verify(not trusted._complete_projection(bad_links)
+		and not trusted._complete_projection(bad_drive_links)
+		and not trusted._complete_projection(bad_cells),
+		"Topology links and finite deposit cells need typed pairs from the native contract.")
+	var bad_profile := complete.duplicate(true)
+	bad_profile.adapter_profile.pitch = 1
+	var bad_intake := complete.duplicate(true)
+	bad_intake.adapter_profile.collector_intake_size = [0.28, 0.20]
+	var bad_options := complete.duplicate(true)
+	bad_options.options.native = "true"
+	verify(not trusted._complete_projection(bad_profile)
+		and not trusted._complete_projection(bad_intake)
+		and not trusted._complete_projection(bad_options),
+		"Projected adapter geometry and site options retain their native scalar types.")
+	var short_lift := complete.duplicate(true)
+	short_lift.adapter_profile.collector_lift.pickup_size = [0.34, 0.30]
+	var missing_lift := complete.duplicate(true)
+	missing_lift.adapter_profile.collector_lift.erase("head_z_size")
+	var wrong_lift := complete.duplicate(true)
+	wrong_lift.adapter_profile.collector_lift.flight_count = 5.0
+	verify(not trusted._complete_projection(short_lift)
+		and not trusted._complete_projection(missing_lift)
+		and not trusted._complete_projection(wrong_lift),
+		"Collector lift dimensions and flight count follow the native nested record contract.")
+	trusted._view_cache = {}
+	trusted.inject_bad_full = true
+	var bad_full: Dictionary = trusted.view_projection()
+	verify(bad_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A partial full projection never becomes a confirmed cached worksite.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native full projection recovers after the incomplete delivery.")
+	trusted.view_projection()
+	trusted.inject_bad_delta = true
+	var bad_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A mistyped material delta cannot publish a partial next worksite.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"The next full native observation recovers after a rejected delta.")
+	trusted._view_cache = {}
+	trusted.inject_bad_nested_full = true
+	var bad_nested_full: Dictionary = trusted.view_projection()
+	verify(bad_nested_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full view with a mistyped stock count is never confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A complete native observation recovers after the nested full-view refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_nested_delta = true
+	var bad_nested_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_nested_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with a mistyped stock count cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"The next full native view recovers after the nested delta refusal.")
+	trusted._view_cache = {}
+	trusted.inject_bad_topology_full = true
+	var bad_topology_full: Dictionary = trusted.view_projection()
+	verify(bad_topology_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full view with an incomplete machine record cannot become confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A complete native observation recovers after topology full-view refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_topology_delta = true
+	var bad_topology_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_topology_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with mistyped belt slots cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"The next full native view recovers after topology delta refusal.")
+	trusted._view_cache = {}
+	trusted.inject_bad_structure_full = true
+	var bad_structure_full: Dictionary = trusted.view_projection()
+	verify(bad_structure_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full native view with a malformed link pair cannot become confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after link-pair refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_structure_delta = true
+	var bad_structure_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_structure_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with a mistyped native geometry value cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A later full native view recovers after geometry delta refusal.")
+	trusted._view_cache = {}
+	trusted.inject_bad_lift_full = true
+	var bad_lift_full: Dictionary = trusted.view_projection()
+	verify(bad_lift_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full native view with a mistyped lift count cannot become confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after lift full-view refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_lift_delta = true
+	var bad_lift_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_lift_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with an incomplete lift dimension cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A fresh native view recovers after lift delta refusal.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

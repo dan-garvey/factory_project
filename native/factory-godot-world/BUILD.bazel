@@ -3,6 +3,40 @@ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 package(default_visibility = ["//visibility:private"])
 
 cc_library(
+    name = "projection_contract",
+    hdrs = ["include/factory/projection_contract.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-value:value"],
+)
+
+cc_library(
+    name = "site_geometry_contract",
+    hdrs = ["include/factory/site_geometry_contract.hpp"],
+    strip_include_prefix = "include",
+)
+
+cc_library(
+    name = "site_geometry_generator",
+    srcs = ["src/site_geometry_contract.cpp"],
+    deps = [":site_geometry_contract"],
+)
+
+cc_binary(
+    name = "site_geometry_emit",
+    srcs = ["src/site_geometry_emit.cpp"],
+    deps = [":site_geometry_generator", ":site_geometry_contract"],
+)
+
+cc_test(
+    name = "site_geometry_contract_test",
+    srcs = ["tests/site_geometry_contract_test.cpp"],
+    args = ["$(rootpath //:experiments/engine-environment/godot/opening/site_geometry.gd)"],
+    data = ["//:experiments/engine-environment/godot/opening/site_geometry.gd"],
+    deps = [":site_geometry_generator", ":site_geometry_contract"],
+    size = "small",
+)
+
+cc_library(
     name = "test_site",
     testonly = True,
     hdrs = ["tests/site_fixture.hpp"],
@@ -20,7 +54,7 @@ cc_test(
 cc_test(
     name = "arrival_host_test",
     srcs = ["tests/arrival_host_test.cpp"],
-    deps = [":test_site"],
+    deps = [":projection_contract", ":test_site"],
     size = "small",
 )
 
@@ -71,7 +105,7 @@ cc_library(
     srcs = ["src/host.cpp"],
     hdrs = ["include/factory/arrival_geometry.hpp", "include/factory/godot_world.hpp"],
     strip_include_prefix = "include",
-    deps = ["//native/factory-assembly:assembly", "//native/factory-world:belt_command_contract", "//native/factory-world:checkpoint", "//native/factory-world:component_command_contract", "//native/factory-world:crank_command_contract", "//native/factory-world:fabrication_command_contract", "//native/factory-world:foundation_command_contract", "//native/factory-world:material_command_contract", "//native/factory-world:press_command_contract", "//native/factory-world:stationary_target_command_contract", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
+    deps = [":projection_contract", ":site_geometry_contract", "//native/factory-assembly:assembly", "//native/factory-world:belt_command_contract", "//native/factory-world:checkpoint", "//native/factory-world:component_command_contract", "//native/factory-world:crank_command_contract", "//native/factory-world:fabrication_command_contract", "//native/factory-world:foundation_command_contract", "//native/factory-world:material_command_contract", "//native/factory-world:press_command_contract", "//native/factory-world:stationary_target_command_contract", "//native/factory-world:transmission_placement_contract", "//native/factory-world:worksite_command_contract", "//native/mineral-site:mineral_site", "//native/waterflow:waterflow"],
     visibility = ["//native/opening-engineering:__pkg__"],
 )
 
@@ -87,7 +121,7 @@ cc_binary(
     srcs = ["src/extension.cpp"],
     linkshared = True,
     linkstatic = True,
-    deps = [":host", "//native/factory-godot-values:godot_values", "//native/opening-engineering:challenge"],
+    deps = [":host", ":projection_contract", "//native/factory-godot-values:godot_values", "//native/opening-engineering:challenge"],
     visibility = ["//visibility:public"],
 )
 
@@ -98,7 +132,7 @@ cc_binary(
     defines = ["FACTORY_NATIVE_WORLD_SELF_TEST"],
     linkshared = True,
     linkstatic = True,
-    deps = [":host", ":test_site", "//native/factory-godot-values:godot_values", "//native/opening-engineering:challenge"],
+    deps = [":host", ":projection_contract", ":test_site", "//native/factory-godot-values:godot_values", "//native/opening-engineering:challenge"],
 )
 
 filegroup(
@@ -109,7 +143,7 @@ filegroup(
 cc_test(
     name = "host_test",
     srcs = ["tests/host_test.cpp"],
-    deps = [":host", ":test_site"],
+    deps = [":host", ":projection_contract", ":test_site"],
 )
 
 cc_test(

@@ -42,6 +42,22 @@ cc_library(
 )
 
 cc_library(
+    name = "worksite_command_contract",
+    hdrs = ["include/factory/worksite_command_contract.hpp"],
+    strip_include_prefix = "include",
+    deps = [":command_contract"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
+)
+
+cc_library(
+    name = "transmission_placement_contract",
+    hdrs = ["include/factory/transmission_placement_contract.hpp"],
+    strip_include_prefix = "include",
+    deps = [":command_contract", "//native/factory-mechanics:mechanics"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
+)
+
+cc_library(
     name = "fabrication_command_contract",
     hdrs = ["include/factory/fabrication_command_contract.hpp"],
     strip_include_prefix = "include",
@@ -125,6 +141,8 @@ cc_library(
         ":material_command_contract",
         ":press_command_contract",
         ":stationary_target_command_contract",
+        ":transmission_placement_contract",
+        ":worksite_command_contract",
         ":transactions",
         "//native/factory-assembly:assembly",
         "//native/factory-core:materials",
