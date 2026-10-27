@@ -109,6 +109,7 @@ var component_preview_snap := ""
 var mutable_machine_preview: Node3D
 var machine_preview_key := ""
 var machine_preview_material: StandardMaterial3D
+var belt_preview_material: StandardMaterial3D
 var packed_preview_templates: Dictionary = {}
 var packed_preview_nodes: Dictionary = {}
 var preview_variant_pending := false
@@ -554,11 +555,12 @@ func _transmission_center(screen: Vector2) -> Array:
 	var origin := camera.project_ray_origin(screen)
 	var hit := _screen_pick(screen)
 	if not hit.is_empty():
+		var hit_id := _picked_target_id(hit)
 		if transmission_controls.active_tool == "place_shaft":
-			var pulley_target := _belt_pulley_target(str(hit.collider.get_meta("entity", "")), hit.position)
+			var pulley_target := _belt_pulley_target(hit_id, hit.position)
 			if not pulley_target.is_empty():
 				return pulley_target
-		var target := _transmission_snap_target(str(hit.collider.get_meta("entity", "")), hit.normal, origin)
+		var target := _transmission_snap_target(hit_id, hit.normal, origin)
 		if not target.is_empty():
 			return target
 	if transmission_controls.auto_height:
@@ -2329,8 +2331,17 @@ func _screen_cell(screen: Vector2) -> Vector2i:
 	return Vector2i(roundi(point.x / PITCH), roundi(point.z / PITCH))
 
 func _screen_entity(screen: Vector2) -> String:
-	var hit := _screen_pick(screen)
-	return str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
+	return _picked_target_id(_screen_pick(screen))
+
+func _picked_target_id(hit: Dictionary) -> String:
+	if hit.is_empty():
+		return ""
+	var collider: Object = hit.collider
+	for key in ["entity", "component_entity", "transmission"]:
+		var id: String = str(collider.get_meta(key, ""))
+		if not id.is_empty():
+			return id
+	return ""
 
 func _component_pointed_center() -> Array:
 	var screen := _pointed_screen_position()
@@ -4921,7 +4932,9 @@ func _refresh_placement_options() -> void:
 		"gearbox": "Left click to build · adjust height below",
 		"vertical_gearbox": "Left click to build · choose axle or height below",
 		"chain_drive": "Left click to build · choose axle and chain link direction below",
-		"belt": "Click two parallel shafts · Esc cancels",
+		"belt": "Hover the second shaft to preview · Click to connect · Esc cancels"
+			if transmission_controls != null and not transmission_controls._belt_start.is_empty()
+			else "Click the first shaft · Esc cancels",
 		"component": _component_placement_hint(),
 		"pod_workshop": "Left click to reinstall on the full tile · Esc cancels",
 	}.get(tool, "Left click to build · R rotates · Esc cancels")
@@ -4944,6 +4957,10 @@ func _refresh_machine_preview() -> void:
 	if machine_preview != null:
 		machine_preview.visible = false
 	if explanation_open or not _placement_ready() or not _preview_pointer_clear():
+		return
+	if _native_transmission() and transmission_controls != null \
+			and transmission_controls.active_tool == "belt_span":
+		_refresh_belt_preview()
 		return
 	if _native_transmission() and transmission_controls != null \
 			and transmission_controls.active_tool in ["gear", "place_shaft"]:
@@ -5069,6 +5086,57 @@ func _refresh_transmission_preview() -> void:
 	machine_preview.scale = Vector3.ONE
 	machine_preview.visible = true
 
+func _refresh_belt_preview() -> void:
+	# A translucent loop follows two confirmed shaft identities under the
+	# pointer. Native Host still decides reach, clearance and kit spending.
+	if _pointer_over_placement_options() or transmission_presenter == null:
+		return
+	var context: Dictionary = transmission_controls._context()
+	var selected: Dictionary = transmission_controls._belt_start
+	if context.is_empty() or not context.usable or selected.is_empty() \
+			or selected.get("pending", false) or not selected.get("placement_request", "").is_empty() \
+			or context.world != selected.get("world") or context.actor != selected.get("actor"):
+		return
+	var parts: Variant = context.snapshot.get("transmission_parts")
+	if not parts is Dictionary:
+		return
+	var first: Variant = parts.get(selected.get("id", ""), {})
+	if not first is Dictionary or first.get("generation") != selected.get("generation"):
+		return
+	var hit := _screen_pick(_pointed_screen_position())
+	if hit.is_empty():
+		return
+	var candidate := _picked_target_id(hit)
+	if candidate.is_empty() or candidate == selected.id:
+		return
+	var last: Variant = parts.get(candidate, {})
+	var frame: Dictionary = transmission_presenter.belt_visual_frame(first, last)
+	if frame.is_empty():
+		return
+	_choose_machine_preview()
+	var key := "belt:%s:%s:%s:%s" % [selected.id, candidate, first.generation, last.generation]
+	if key != machine_preview_key:
+		for child in machine_preview.get_children():
+			child.free()
+		var assets = load("res://opening/native_transmission_assets.gd")
+		var loop: MeshInstance3D = assets.belt_loop(machine_preview, frame.distance, 0)
+		if loop == null:
+			return
+		loop.basis = frame.loop_basis
+		_style_machine_preview(machine_preview)
+		if belt_preview_material == null:
+			belt_preview_material = machine_preview_material.duplicate()
+			belt_preview_material.albedo_color = Color(1.0, 0.56, 0.16, 0.42)
+			belt_preview_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_style_machine_preview(machine_preview, belt_preview_material)
+		machine_preview_key = key
+	machine_preview.position = frame.position
+	machine_preview.basis = Basis.IDENTITY
+	machine_preview.scale = Vector3.ONE
+	machine_preview.set_meta("belt_preview_from", selected.id)
+	machine_preview.set_meta("belt_preview_to", candidate)
+	machine_preview.visible = true
+
 func _preview_port(parent: Node3D, facing: int, output: bool) -> void:
 	var forward := Vector3.RIGHT.rotated(Vector3.UP, -float(facing) * PI / 2.0)
 	var side := forward if output else -forward
@@ -5090,7 +5158,7 @@ func _preview_port(parent: Node3D, facing: int, output: bool) -> void:
 	label.set_meta("port_side", side)
 	parent.add_child(label)
 
-func _style_machine_preview(node: Node) -> void:
+func _style_machine_preview(node: Node, material: Material = null) -> void:
 	# Per-instance overrides leave shared placed materials and meshes intact.
 	# Neutral amber is a form/footprint preview, never an admission verdict.
 	if machine_preview_material == null:
@@ -5100,10 +5168,10 @@ func _style_machine_preview(node: Node) -> void:
 		machine_preview_material.roughness = 0.75
 		machine_preview_material.metallic = 0.0
 	if node is MeshInstance3D:
-		node.material_override = machine_preview_material
+		node.material_override = material if material != null else machine_preview_material
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for child in node.get_children():
-		_style_machine_preview(child)
+		_style_machine_preview(child, material)
 
 func _guided_span_path(routes: Array, collector: Vector3i, processor: Vector3i, powered: bool) -> bool:
 	# A loose item leaving a span can be picked up on any tile of another span.
@@ -5692,10 +5760,18 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 			"detail": "Click  Detach" if mode == "deconstruct" else "Hold E  Turn · F then click  Detach",
 			"target": crank_id}
 	var hit := _screen_pick(screen)
-	var target: String = str(hit.collider.get_meta("entity", hit.collider.get_meta("component_entity", ""))) if not hit.is_empty() else ""
+	var target := _picked_target_id(hit)
 	if _contains_target(state, target):
 		var detail := "E  Open"
-		if state.get("entities", {}).get(target, {}).get("kind") == "processor":
+		if transmission_controls != null and transmission_controls.active_tool == "belt_span" \
+				and state.get("transmission_parts", {}).get(target, {}).get("kind", "") == "shaft":
+			if transmission_controls._belt_start.is_empty():
+				detail = "Click  Select first shaft"
+			elif target == transmission_controls._belt_start.get("id", ""):
+				detail = "First shaft selected"
+			else:
+				detail = "Click  Connect belt"
+		elif state.get("entities", {}).get(target, {}).get("kind") == "processor":
 			detail = "%d ready  ·  E Open" % int(state.get("stock", {}).get("output", 0))
 		return {"name": _object_name(target), "detail": detail, "target": target}
 	var source_id := _screen_hand_source(screen)

@@ -2000,6 +2000,40 @@ func _arrival_nonhorizontal_actor_block_run(capture_prefix: String) -> void:
 			and opening.model.projection().part_kits.P.belt == 1,
 			"The first ordinary shaft click selects the saved endpoint without spending a kit"):
 		return
+	if not await _approach(Vector2(0.825, 1.2)):
+		return
+	var revision_before_preview: int = opening.model.projection().revision
+	var target: Vector3 = opening.transmission_presenter.world_center(last.center)
+	opening.distance = 0.0
+	opening._update_camera()
+	var direction: Vector3 = (target - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-direction.x, -direction.z)
+	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+	opening._update_camera()
+	for frame in 5:
+		await process_frame
+		if DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+	opening._refresh_machine_preview()
+	var pointed: String = opening._screen_entity(opening._pointed_screen_position())
+	var tooltip: Dictionary = opening._pointed_summary_data(opening._pointed_screen_position())
+	var loop: MeshInstance3D = opening.machine_preview.get_node_or_null("BeltLoop")
+	if not _expect(pointed == old.to
+			and tooltip.get("detail", "") == "Click  Connect belt"
+			and opening.machine_preview.visible
+			and opening.machine_preview.get_meta("belt_preview_from", "") == old.from
+			and opening.machine_preview.get_meta("belt_preview_to", "") == old.to
+			and loop != null and loop.material_override == opening.belt_preview_material
+			and opening.model.projection().revision == revision_before_preview
+			and opening.model.projection().part_kits.P.belt == 1,
+			"A standing worker can point at the second shaft and see the unpaid amber belt route without changing native state"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-preview-eye.png") == OK,
+				"Retain the standing worker's provisional belt view"):
+			return
+	if not await _approach(Vector2(0.825, -0.2)):
+		return
 	# Keep the fixture motor authoritative while a passive graphical window
 	# cannot supply keyboard focus to CharacterPresenter.
 	var presenter_was_processing: bool = opening.character_presenter.is_physics_processing()
@@ -2061,9 +2095,11 @@ func _arrival_nonhorizontal_actor_block_run(capture_prefix: String) -> void:
 		return
 	opening._world_click(Vector2i.ZERO, str(old.to))
 	var clear: Dictionary = opening.model.projection()
+	opening._refresh_machine_preview()
 	if not _expect(clear.belt_spans.size() == 1 and clear.part_kits.P.belt == 0
 			and clear.belt_spans.values()[0].from == old.from
-			and clear.belt_spans.values()[0].to == old.to,
+			and clear.belt_spans.values()[0].to == old.to
+			and not opening.machine_preview.visible,
 			"Stepping out of the corridor lets the same selected shafts spend one kit"):
 		return
 	if not await _approach(Vector2(1.1, 3.3)):
