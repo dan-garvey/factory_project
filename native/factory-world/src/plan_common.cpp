@@ -23,6 +23,8 @@ bool two_endpoints(const std::string& action) {
 
 using Integer = authority::Integer;
 using Role = stationary::Role;
+using Object = authority::Object;
+using Value = values::Value;
 
 bool placement(const std::string& action) {
     return action == "place" || action == "place_connected";
@@ -31,6 +33,106 @@ bool placement(const std::string& action) {
 bool slide_component(materials::Component kind) {
     return kind == materials::Component::wooden_slide ||
            kind == materials::Component::copper_slide;
+}
+
+bool crank_input_port(const PlacedComponent& component, const mechanics::Point& port) {
+    const auto& center = component.center;
+    if (slide_component(component.kind))
+        return port[1] == center[1] && port[2] == center[2] &&
+            std::abs(port[0] - center[0]) == 1;
+    // Collector mounts and routed shafts expose their embodied spindle at
+    // their own grid anchor. The crank is visually cantilevered from it.
+    return (component.kind == materials::Component::tool_mount ||
+        component.kind == materials::Component::wooden_shaft ||
+        component.kind == materials::Component::copper_shaft) && port == center;
+}
+
+bool crank_face_on_axis(const mechanics::Point& face, mechanics::Axis axis) {
+    const auto index = static_cast<std::size_t>(axis);
+    if (std::abs(face[index]) != 1) return false;
+    for (std::size_t other = 0; other < face.size(); ++other)
+        if (other != index && face[other] != 0) return false;
+    return true;
+}
+
+mechanics::Point crank_face_from_actor(const Profile& profile,
+        const authority::Point& actor, const mechanics::Point& port,
+        mechanics::Axis axis) {
+    mechanics::Point face{};
+    const auto index = static_cast<std::size_t>(axis);
+    face[index] = actor[index] < anchor(profile, port)[index] ? -1 : 1;
+    return face;
+}
+
+bool manual_input_available(const mechanics::Motion& motion) {
+    return motion.state == mechanics::MotionState::unpowered ||
+        (motion.state == mechanics::MotionState::stopped && motion.rate.numerator == 0);
+}
+
+bool slide_input_port_clear(const State& state, const std::string& slide,
+        const mechanics::Point& port) {
+    for (const auto& [id, crank] : state.crank_items) {
+        (void)id;
+        if (crank.port == port && crank.attached_to != slide) return false;
+    }
+    for (const auto& [id, component] : state.placed_components)
+        if (id != slide && component.center == port) return false;
+    for (const auto& part : state.topology.parts) {
+        const auto& geometry = part.geometry;
+        if (geometry.center[1] == port[1] && geometry.center[2] == port[2] &&
+            (geometry.center == port ||
+             (geometry.kind == mechanics::Kind::shaft &&
+              geometry.axis == mechanics::Axis::x &&
+              std::abs(geometry.center[0] - port[0]) <= geometry.half_span)))
+            return false;
+    }
+    return true;
+}
+
+std::optional<bool> hand_slide_contact(const State::SlidePhase& before,
+        const State::SlidePhase& after, mechanics::Rate rate) {
+    // The issued crank supplies one shaft turn. The die touches its work only
+    // when the native carriage crosses the bottom of its reciprocal stroke.
+    // A different graph ratio cannot be inferred from these two endpoints.
+    if (rate.denominator <= 0 ||
+        (rate.numerator != rate.denominator && rate.numerator != -rate.denominator))
+        return std::nullopt;
+    constexpr Integer bottom = slide_cycle_subticks / 2;
+    if (rate.numerator > 0)
+        return before.subticks < bottom && after.subticks >= bottom;
+    return (before.subticks > bottom ||
+            (before.subticks == bottom && before.remainder > 0)) &&
+        (after.subticks < bottom ||
+            (after.subticks == bottom && after.remainder == 0));
+}
+
+CollectorMatch collector_for_input(const Profile& profile,
+        const std::vector<assembly::Part>& parts, const std::string& input) {
+    CollectorMatch found;
+    const auto selected = std::find_if(parts.begin(), parts.end(),
+        [&](const auto& part) { return part.id == input; });
+    if (selected == parts.end()) return found;
+    const assembly::Layout layout(parts);
+    for (const auto& face : profile.collector_faces) {
+        const auto inspected = layout.inspect_collector(face);
+        const auto& center = face.machine_center;
+        const auto& at = selected->center;
+        const auto adjacent = std::abs(at[0] - center[0]) + std::abs(at[1] - center[1]) +
+            std::abs(at[2] - center[2]) == 1;
+        if (inspected.status == assembly::Status::ambiguous && adjacent)
+            found.ambiguous = true;
+        if (!inspected.collector || inspected.collector->mount != input) continue;
+        if (found.collector) found.ambiguous = true;
+        found.collector = *inspected.collector;
+    }
+    if (found.ambiguous) found.collector.reset();
+    return found;
+}
+
+Value slide_phase_value(const State::SlidePhase& phase) {
+    return Value(Object{{"subticks", Value(phase.subticks)},
+        {"remainder", Value(phase.remainder)},
+        {"denominator", Value(phase.denominator)}});
 }
 
 bool has_attached_crank(const State& state, const std::string& input,

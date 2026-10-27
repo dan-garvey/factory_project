@@ -88,6 +88,8 @@ cc_library(
         "src/belt_planner.hpp",
         "src/component_planner.cpp",
         "src/component_planner.hpp",
+        "src/crank_planner.cpp",
+        "src/crank_planner.hpp",
         "src/fabrication_planner.cpp",
         "src/fabrication_planner.hpp",
         "src/foundation_planner.cpp",
