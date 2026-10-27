@@ -1,3 +1,4 @@
+#include "factory/projection_contract.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <algorithm>
@@ -29,6 +30,25 @@ void initialized(Host& host) {
           "The new native opening initializes one pod for a shared roster.");
     check(get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "The normal terrain producer still binds the authored site.");
+}
+
+void arrival_projection_contract() {
+    for (const bool advanced : {false, true}) {
+        Host host;
+        const auto initialized = advanced ?
+            host.initialize_arrival_advanced_fixture("arrival-contract", {"P", "Q"}) :
+            host.initialize_arrival("arrival-contract", {"P", "Q"});
+        check(get<bool>(initialized, "accepted") &&
+              get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
+              "The arrival projection contract test starts from a configured native site.");
+        check(factory::godot_world::projection_contract::complete(host.projection()),
+              "Both supported arrival profiles publish complete nested topology records.");
+        const auto tick = host.advance_tick_fields();
+        const auto refreshed = host.projection();
+        check(get<I>(tick, "revision") == get<I>(refreshed, "revision") &&
+              factory::godot_world::projection_contract::complete(refreshed),
+              "A native arrival tick retains the complete nested topology record shapes.");
+    }
 }
 
 void arrival_projection_and_restore() {
@@ -610,6 +630,7 @@ void crafted_foundation_extends_exhausted_kit() {
 
 int main() {
     try {
+        arrival_projection_contract();
         arrival_projection_and_restore();
         historical_initializer_keeps_its_fixture_kit();
         crafted_cranks_keep_distinct_identities_before_first_plate();

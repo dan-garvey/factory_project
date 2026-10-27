@@ -158,10 +158,10 @@ func _projection_type_matches(value: Variant, expected: Variant) -> bool:
 		"boolean": return typeof(value) == TYPE_BOOL
 		"array": return typeof(value) == TYPE_ARRAY
 		"object": return typeof(value) == TYPE_DICTIONARY
-		"integer3", "floating3":
-			if not value is Array or value.size() != 3:
+		"integer2", "integer3", "floating3":
+			if not value is Array or value.size() != (2 if expected == "integer2" else 3):
 				return false
-			var scalar_type := TYPE_INT if expected == "integer3" else TYPE_FLOAT
+			var scalar_type := TYPE_FLOAT if expected == "floating3" else TYPE_INT
 			for coordinate in value:
 				if typeof(coordinate) != scalar_type:
 					return false

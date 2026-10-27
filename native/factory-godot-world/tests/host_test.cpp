@@ -289,6 +289,28 @@ void nonarrival_tick_schema() {
           !factory::godot_world::projection_contract::complete(V(missing_ready)) &&
           !factory::godot_world::projection_contract::complete(V(wrong_drop_center)),
           "Nested stock, carried work, actor readiness and three-coordinate drop shapes are required.");
+    const auto invalid_map_record = [&](const char* name, O fields) {
+        auto malformed = full_before;
+        malformed.at(name) = V(O{{"broken-record", V(std::move(fields))}});
+        return !factory::godot_world::projection_contract::complete(V(malformed));
+    };
+    auto malformed_engagement = full_before;
+    malformed_engagement.at("engagements") = V(A{V(O{{"a", V("one")}, {"b", V("two")},
+        {"kind", V(true)}})});
+    check(invalid_map_record("entities", O{{"kind", V("processor")}, {"generation", V(I{1})},
+              {"center", V(A{V(I{0}), V(I{1})})}, {"axis", V(I{0})},
+              {"relay_axis", V(I{0})}, {"teeth", V(I{0})}, {"half_span", V(I{0})},
+              {"rotation", V(I{0})}, {"cell", V(A{V(I{0}), V(I{0})})}}) &&
+          invalid_map_record("transmission_parts", O{{"kind", V("shaft")}}) &&
+          invalid_map_record("belt_spans", O{{"generation", V(I{1})}, {"order", V(I{0})},
+              {"from", V("one")}, {"to", V("two")}, {"phase", V(I{0})},
+              {"slots", V(O{})}}) &&
+          invalid_map_record("motion", O{{"state", V("turning")}, {"numerator", V("one")},
+              {"denominator", V(I{1})}}) &&
+          invalid_map_record("foundations", O{{"cell", V(A{V(I{0})})},
+              {"level", V(I{0})}, {"generation", V(I{1})}}) &&
+          !factory::godot_world::projection_contract::complete(V(malformed_engagement)),
+          "Malformed topology coordinates, belt cargo, motion, foundations and engagement kinds refuse.");
     const auto fields = std::get<O>(host.advance_tick_fields().storage());
     const auto full_after = std::get<O>(host.projection().storage());
     check(!full_before.contains("slide_phases") && !fields.contains("slide_phases") &&

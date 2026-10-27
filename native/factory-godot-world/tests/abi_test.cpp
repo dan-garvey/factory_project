@@ -233,6 +233,10 @@ void run() {
         const auto stock_fields = Value(field<Object>(stock_record, "fields"));
         const auto drop_record = Value(field<Object>(records, "dropped_material"));
         const auto drop_fields = Value(field<Object>(drop_record, "fields"));
+        const auto entity_fields = Value(field<Object>(Value(field<Object>(records, "entities")), "fields"));
+        const auto span_fields = Value(field<Object>(Value(field<Object>(records, "belt_spans")), "fields"));
+        const auto foundation_fields = Value(field<Object>(Value(field<Object>(records, "foundations")), "fields"));
+        const auto engagement_record = Value(field<Object>(records, "engagements"));
         check(field<std::string>(schema, "context") == "string" &&
                   field<std::string>(schema, "stock") == "object" &&
                   field<std::string>(schema, "opening_engineering") == "object" &&
@@ -240,6 +244,11 @@ void run() {
                   field<std::string>(stock_fields, "source") == "integer" &&
                   field<std::string>(drop_record, "container") == "array_elements" &&
                   field<std::string>(drop_fields, "center") == "integer3" &&
+                  field<std::string>(entity_fields, "center") == "integer3" &&
+                  field<std::string>(entity_fields, "cell") == "integer2" &&
+                  field<std::string>(span_fields, "slots") == "array" &&
+                  field<std::string>(foundation_fields, "cell") == "integer2" &&
+                  field<std::string>(engagement_record, "container") == "array_elements" &&
                   factory::godot_world::projection_contract::complete(projection, true),
               "The real extension exposes the same top-level and nested contract it publishes.");
         check(field<bool>(projection, "powered") && field<Integer>(Value(field<Object>(projection, "parts")), "shaft") == 5,

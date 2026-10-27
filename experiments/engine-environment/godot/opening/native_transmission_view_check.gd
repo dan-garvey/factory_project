@@ -63,6 +63,8 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 	var inject_bad_delta := false
 	var inject_bad_nested_full := false
 	var inject_bad_nested_delta := false
+	var inject_bad_topology_full := false
+	var inject_bad_topology_delta := false
 	func _invoke(method: String, arguments: Array) -> Dictionary:
 		if method == "projection":
 			full_projection_calls += 1
@@ -78,6 +80,10 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			inject_bad_nested_full = false
 			delivered.stock = delivered.stock.duplicate(true)
 			delivered.stock.output = "wrong"
+		elif method == "projection" and inject_bad_topology_full:
+			inject_bad_topology_full = false
+			delivered.entities = delivered.entities.duplicate(true)
+			delivered.entities["broken"] = {"kind": "processor"}
 		elif method == "advance_delta" and inject_bad_delta:
 			inject_bad_delta = false
 			return {"changes": {"cargo": []}, "removed": []}
@@ -86,6 +92,11 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			var stock: Dictionary = _view_cache.stock.duplicate(true)
 			stock.output = "wrong"
 			return {"changes": {"stock": stock}, "removed": []}
+		elif method == "advance_delta" and inject_bad_topology_delta:
+			inject_bad_topology_delta = false
+			return {"changes": {"belt_spans": {"broken": {"generation": 1,
+				"order": 0, "from": "first", "to": "last", "phase": 0,
+				"slots": {}}}}, "removed": []}
 		return delivered
 
 class TopologyStub extends RefCounted:
@@ -3757,6 +3768,29 @@ func _native_view_cache_regression() -> void:
 	verify(not trusted._complete_projection(wrong_lots)
 		and not trusted._complete_projection(wrong_drop),
 		"Carried work and dropped material follow the same native nested field contract.")
+	var bad_entity := complete.duplicate(true)
+	bad_entity.entities["broken"] = {"kind": "processor", "generation": 1,
+		"center": [0, 0], "axis": 0, "relay_axis": 0, "teeth": 0,
+		"half_span": 0, "rotation": 0, "cell": [0, 0]}
+	var bad_transmission := complete.duplicate(true)
+	bad_transmission.transmission_parts["broken"] = {"kind": "shaft"}
+	var bad_span := complete.duplicate(true)
+	bad_span.belt_spans["broken"] = {"generation": 1, "order": 0,
+		"from": "first", "to": "last", "phase": 0, "slots": {}}
+	verify(not trusted._complete_projection(bad_entity)
+		and not trusted._complete_projection(bad_transmission)
+		and not trusted._complete_projection(bad_span),
+		"Native topology records require complete part coordinates and typed belt slots.")
+	var bad_motion := complete.duplicate(true)
+	bad_motion.motion["broken"] = {"state": "turning", "numerator": "one", "denominator": 1}
+	var bad_foundation := complete.duplicate(true)
+	bad_foundation.foundations["broken"] = {"cell": [0], "level": 0, "generation": 1}
+	var bad_engagement := complete.duplicate(true)
+	bad_engagement.engagements.append({"a": "first", "b": "last", "kind": true})
+	verify(not trusted._complete_projection(bad_motion)
+		and not trusted._complete_projection(bad_foundation)
+		and not trusted._complete_projection(bad_engagement),
+		"Motion, foundation and drive engagement records use native required field types.")
 	trusted._view_cache = {}
 	trusted.inject_bad_full = true
 	var bad_full: Dictionary = trusted.view_projection()
@@ -3785,6 +3819,20 @@ func _native_view_cache_regression() -> void:
 		"A merged delta with a mistyped stock count cannot enter the scene cache.")
 	verify(trusted.view_projection() == trusted.projection(),
 		"The next full native view recovers after the nested delta refusal.")
+	trusted._view_cache = {}
+	trusted.inject_bad_topology_full = true
+	var bad_topology_full: Dictionary = trusted.view_projection()
+	verify(bad_topology_full.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A full view with an incomplete machine record cannot become confirmed.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"A complete native observation recovers after topology full-view refusal.")
+	trusted.view_projection()
+	trusted.inject_bad_topology_delta = true
+	var bad_topology_delta: Dictionary = trusted._advance_borrowed()
+	verify(bad_topology_delta.get("uncertain", false) and trusted._view_cache.is_empty(),
+		"A merged delta with mistyped belt slots cannot enter the scene cache.")
+	verify(trusted.view_projection() == trusted.projection(),
+		"The next full native view recovers after topology delta refusal.")
 
 func _run() -> void:
 	if "--scale-benchmark" in OS.get_cmdline_user_args():

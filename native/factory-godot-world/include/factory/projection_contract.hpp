@@ -14,7 +14,7 @@ namespace factory::godot_world::projection_contract {
 using Value = values::Value;
 using Object = Value::Object;
 
-enum class Type { string, integer, floating, boolean, array, object, integer3, floating3 };
+enum class Type { string, integer, floating, boolean, array, object, integer2, integer3, floating3 };
 
 struct Field {
     std::string_view name;
@@ -96,6 +96,36 @@ inline constexpr std::array deposit_fields{
     Field{"initial_units", Type::integer}, Field{"collector_capacity", Type::integer},
     Field{"maximum_depth", Type::floating},
 };
+inline constexpr std::array entity_fields{
+    Field{"kind", Type::string}, Field{"generation", Type::integer},
+    Field{"center", Type::integer3}, Field{"axis", Type::integer},
+    Field{"relay_axis", Type::integer}, Field{"teeth", Type::integer},
+    Field{"half_span", Type::integer}, Field{"rotation", Type::integer},
+    Field{"cell", Type::integer2},
+};
+inline constexpr std::array transmission_fields{
+    Field{"kind", Type::string}, Field{"generation", Type::integer},
+    Field{"center", Type::integer3}, Field{"axis", Type::integer},
+    Field{"relay_axis", Type::integer}, Field{"teeth", Type::integer},
+    Field{"half_span", Type::integer}, Field{"rotation", Type::integer},
+};
+inline constexpr std::array span_fields{
+    Field{"generation", Type::integer}, Field{"order", Type::integer},
+    Field{"from", Type::string}, Field{"to", Type::string},
+    Field{"phase", Type::integer}, Field{"slots", Type::array},
+};
+inline constexpr std::array motion_fields{
+    Field{"state", Type::string}, Field{"numerator", Type::integer},
+    Field{"denominator", Type::integer},
+};
+inline constexpr std::array foundation_fields{
+    Field{"cell", Type::integer2}, Field{"level", Type::integer},
+    Field{"generation", Type::integer},
+};
+inline constexpr std::array engagement_fields{
+    Field{"a", Type::string}, Field{"b", Type::string},
+    Field{"kind", Type::integer},
+};
 inline constexpr std::array records{
     Record{"stock", Container::object, stock_fields},
     Record{"cargo", Container::object_values, cargo_fields},
@@ -103,6 +133,12 @@ inline constexpr std::array records{
     Record{"actors", Container::object_values, actor_fields},
     Record{"manual_cuts", Container::object_values, cut_fields},
     Record{"source_deposit", Container::object, deposit_fields},
+    Record{"entities", Container::object_values, entity_fields},
+    Record{"transmission_parts", Container::object_values, transmission_fields},
+    Record{"belt_spans", Container::object_values, span_fields},
+    Record{"motion", Container::object_values, motion_fields},
+    Record{"foundations", Container::object_values, foundation_fields},
+    Record{"engagements", Container::array_elements, engagement_fields},
 };
 
 inline bool typed(const Value& value, Type type) {
@@ -113,12 +149,13 @@ inline bool typed(const Value& value, Type type) {
         case Type::boolean: return std::holds_alternative<bool>(value.storage());
         case Type::array: return std::holds_alternative<Value::Array>(value.storage());
         case Type::object: return std::holds_alternative<Object>(value.storage());
+        case Type::integer2:
         case Type::integer3:
         case Type::floating3: {
             const auto* entries = std::get_if<Value::Array>(&value.storage());
-            if (!entries || entries->size() != 3) return false;
+            if (!entries || entries->size() != (type == Type::integer2 ? 2 : 3)) return false;
             for (const auto& entry : *entries)
-                if (!typed(entry, type == Type::integer3 ? Type::integer : Type::floating))
+                if (!typed(entry, type == Type::floating3 ? Type::floating : Type::integer))
                     return false;
             return true;
         }
@@ -178,6 +215,7 @@ inline const char* type_name(Type type) {
         case Type::boolean: return "boolean";
         case Type::array: return "array";
         case Type::object: return "object";
+        case Type::integer2: return "integer2";
         case Type::integer3: return "integer3";
         case Type::floating3: return "floating3";
     }
