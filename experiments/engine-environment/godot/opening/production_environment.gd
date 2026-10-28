@@ -1220,15 +1220,12 @@ class ProductionEnvironment:
 			stone_finish.metallic = 0.06
 			gravel.material_override = stone_finish
 			root.add_child(gravel)
-		var seam_mesh := SphereMesh.new()
-		seam_mesh.radius = 0.5
-		seam_mesh.height = 1.0
-		seam_mesh.radial_segments = 9
-		seam_mesh.rings = 4
+		var seam_mesh: Mesh = Surface.SOURCE_OUTCROP_MESH
+		var seam_scale: Vector3 = Vector3(0.85, 0.25, 0.58) / seam_mesh.get_aabb().size
 		var seam_finish := StandardMaterial3D.new()
-		seam_finish.albedo_color = Color("674838")
-		seam_finish.roughness = 0.96
-		seam_finish.metallic = 0.08
+		seam_finish.albedo_color = Color("403329")
+		seam_finish.roughness = 1.0
+		seam_finish.metallic = 0.02
 		var original: Dictionary = state.get("hand_sources", {}).get(deposit.get("id", ""), {})
 		var original_position: Array = original.get("position", [])
 		for region: Dictionary in regions:
@@ -1247,7 +1244,7 @@ class ProductionEnvironment:
 				seam.name = "LowCopperExposure"
 				seam.mesh = seam_mesh
 				seam.material_override = seam_finish
-				seam.scale = Vector3(0.74, 0.18, 0.48)
+				seam.scale = seam_scale
 				seam.rotation.y = atan2(offset.y, offset.x)
 				seam.position = Vector3(x + offset.x,
 					Surface.height_at(x + offset.x, z + offset.y) + 0.055, z + offset.y)
