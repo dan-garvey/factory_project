@@ -3871,7 +3871,7 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     const auto base = stationary::power_view(state.topology);
     if (!base.mechanical.accepted()) return {base.mechanical, {}};
     std::vector<mechanics::Part> parts;
-    parts.reserve(state.topology.parts.size() + state.placed_components.size());
+    parts.reserve(state.topology.parts.size() + state.placed_components.size() * 6);
     for (const auto& item : state.topology.parts) parts.push_back(item.geometry);
     std::map<std::string, long double> ratings, impacts;
     std::set<std::string> reserved_ids;
@@ -3882,7 +3882,35 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     const auto append = [&](mechanics::Part projected) {
         parts.push_back(std::move(projected));
     };
+    const auto projected_id = [&](std::string prefix) {
+        std::string id = prefix;
+        for (std::size_t suffix = 0; reserved_ids.contains(id); ++suffix)
+            id = prefix + "-" + std::to_string(suffix);
+        reserved_ids.insert(id);
+        return id;
+    };
     for (const auto& item : placed) {
+        if (item.kind == materials::Component::broad_copper_slide) {
+            // Four tile-wide shafts meet at the two internal row seams. A
+            // meshed pair at the center couples the rows to one piston. The
+            // placed slide ID owns the single phase and broad press load.
+            const auto& c = item.center;
+            for (Integer row : {Integer{0}, Integer{4}})
+                for (Integer column : {Integer{0}, Integer{4}}) {
+                    const std::string id = row == 0 && column == 0 ? item.id :
+                        projected_id(item.id + "-internal-" + std::to_string(row) + "-" +
+                            std::to_string(column));
+                    append({id, mechanics::Kind::shaft,
+                        {c[0] + column, c[1], c[2] + row}, mechanics::Axis::x, 0, 2});
+                    ratings.emplace(id, material_rating(item.kind));
+                }
+            for (Integer row : {Integer{0}, Integer{4}})
+                append({projected_id(item.id + "-coupling-" + std::to_string(row)),
+                    mechanics::Kind::gear, {c[0] + 2, c[1], c[2] + row},
+                    mechanics::Axis::x, 2, 0});
+            impacts.emplace(item.id, 4);
+            continue;
+        }
         if (item.kind != materials::Component::wooden_slide &&
             item.kind != materials::Component::copper_slide) continue;
         // The shaft is embodied in this one crafted part. Its identity is the
@@ -4505,13 +4533,21 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             !add(component_totals[placed.kind], 1)) return false;
         for (const auto coordinate : placed.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
+        if (placed.kind == materials::Component::broad_copper_slide &&
+            std::none_of(state.placed_components.begin(), state.placed_components.end(),
+                [&](const auto& entry) {
+                    return entry.second.kind == materials::Component::broad_anvil &&
+                        entry.second.center == mechanics::Point{placed.center[0],
+                            placed.center[1] - 4, placed.center[2]};
+                })) return false;
         const auto occupied = materials::component_workcells(placed.kind, placed.center);
         const bool area = occupied.has_value();
         const bool needs_support = materials::channel_spec(placed.kind).has_value() ||
             placed.kind == materials::Component::broad_anvil;
         if (area && (placed.center[0] % 4 != 0 || placed.center[2] % 4 != 0 ||
             ((placed.kind == materials::Component::broad_anvil && placed.center[1] % 4 != 0) ||
-             (placed.kind == materials::Component::broad_flat_head && placed.center[1] % 4 != 1))))
+             (placed.kind == materials::Component::broad_flat_head && placed.center[1] % 4 != 1) ||
+             (placed.kind == materials::Component::broad_copper_slide && placed.center[1] % 4 != 0))))
             return false;
         const auto cells = area ? *occupied :
             std::vector<materials::DropPoint>{placed.center};

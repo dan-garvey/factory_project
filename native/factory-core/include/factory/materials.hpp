@@ -114,6 +114,7 @@ enum class Component {
     flat_head,
     broad_anvil,
     broad_flat_head,
+    broad_copper_slide,
     hand_crank,
     channel_narrow_x,
     channel_narrow_z,

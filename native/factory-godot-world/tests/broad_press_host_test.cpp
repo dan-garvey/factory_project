@@ -171,11 +171,11 @@ void sized_workbed_custody() {
               "accepted"), "The broad-size fixture starts with finite native material.");
     I epoch = 0;
     pose(host, -0.5, 0.0, ++epoch);
-    harvest(host, "opening-copper", 19, "size-ore-");
+    harvest(host, "opening-copper", 31, "size-ore-");
     pose(host, 1.65, 6.6, ++epoch);
     craft(host, "anvil", 4);
     craft(host, "flat_head", 4);
-    craft(host, "copper_slide", 1);
+    craft(host, "copper_slide", 4);
     const auto before = host.projection();
     auto no_recipe = request("size-no-recipe", "craft_component");
     no_recipe.emplace("entity", V("pod-fabrication-hub"));
@@ -192,6 +192,16 @@ void sized_workbed_custody() {
               V(get<O>(host.projection(), "placed_components"))),
         "The craft refusal leaves finite material and world state intact.");
     pose(host, 3.3, 1.65, ++epoch);
+    auto unsupported_housing = request("size-slide-without-bed", "place_component");
+    unsupported_housing.emplace("component", V("broad_copper_slide"));
+    unsupported_housing.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
+    const auto before_housing = host.projection();
+    const auto housing_refusal = host.command("P", unsupported_housing);
+    check(!get<bool>(housing_refusal, "accepted") &&
+          get<std::string>(housing_refusal, "reason") == "missing_support" &&
+          !factory::values::typed_difference(V(get<O>(before_housing, "cargo")),
+              V(get<O>(host.projection(), "cargo"))),
+        "The four-tile slide housing cannot float without its broad workbed or spend its parts.");
     auto bed = request("size-place-bed", "place_component");
     bed.emplace("component", V("broad_anvil"));
     bed.emplace("center", V(A{V(I{12}), V(I{0}), V(I{0})}));
@@ -203,19 +213,21 @@ void sized_workbed_custody() {
     const auto installed_head = accepted(host, head);
     const auto head_id = get<std::string>(installed_head, "entity");
     auto slide = request("size-place-slide", "place_component");
-    slide.emplace("component", V("copper_slide"));
-    slide.emplace("center", V(A{V(I{14}), V(I{2}), V(I{2})}));
+    slide.emplace("component", V("broad_copper_slide"));
+    slide.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
     const auto installed_slide = accepted(host, slide);
     const auto slide_id = get<std::string>(installed_slide, "entity");
     const auto placed = get<O>(host.projection(), "placed_components");
     const auto bed_box = get<O>(placed.at(bed_id), "occupied");
     const auto bed_half = get<A>(V(bed_box), "half");
+    const auto slide_ports = get<A>(placed.at(slide_id), "input_ports");
     const auto sized = get<A>(host.projection(), "broad_press_assemblies");
     check(placed.size() == 3 && sized.size() == 1 &&
           get<std::string>(sized.front(), "geometry_status") == "ready" &&
           get<std::string>(sized.front(), "status") == "unpowered" &&
           std::get<double>(bed_half[0].storage()) == 1.65 &&
           std::get<double>(bed_half[2].storage()) == 1.65 &&
+          slide_ports.size() == 4 &&
           get<O>(get<O>(host.projection(), "cargo").at("P"), "components").empty(),
         "One broad face and one sized head meet a single unpowered slide without extra local shafts.");
     auto feed = request("size-feed", "feed_broad_press");
@@ -256,8 +268,10 @@ void sized_workbed_custody() {
           get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
               "components")), "anvil") == 4 &&
           get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
-              "components")), "flat_head") == 4,
-        "Reclaim restores the same four carried parts of each kind after a fresh-process reopen.");
+              "components")), "flat_head") == 4 &&
+          get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
+              "components")), "copper_slide") == 4,
+        "Reclaim restores four carried parts of each broad kind after a fresh-process reopen.");
     auto raised = bed;
     raised.at("request") = V("size-raised-before-support");
     raised.at("center") = V(A{V(I{12}), V(I{4}), V(I{0})});
@@ -282,7 +296,7 @@ void sized_workbed_custody() {
     accepted(restored, raised_head);
     auto raised_slide = slide;
     raised_slide.at("request") = V("size-raised-slide");
-    raised_slide.at("center") = V(A{V(I{14}), V(I{6}), V(I{2})});
+    raised_slide.at("center") = V(A{V(I{12}), V(I{8}), V(I{0})});
     accepted(restored, raised_slide);
     const auto upper = get<A>(restored.projection(), "broad_press_assemblies");
     check(upper.size() == 1 && get<std::string>(upper.front(), "geometry_status") == "ready" &&

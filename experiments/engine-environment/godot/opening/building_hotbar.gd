@@ -63,6 +63,7 @@ const COMPONENT_ICONS := {
 	"ram_face": "ram_face.svg", "copper_shaft": "copper_shaft.svg",
 	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
 	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg",
+	"broad_copper_slide": "copper_slide.svg",
 	"flat_head": "flat_head.svg", "hand_crank": "workshop-crank.svg",
 	"channel_narrow_x": "channel_narrow_x.svg", "channel_narrow_z": "channel_narrow_z.svg",
 	"channel_broad_x": "channel_broad_x.svg", "channel_broad_z": "channel_broad_z.svg"}
@@ -509,8 +510,10 @@ func _count(tool: String, parts: Dictionary) -> int:
 			return 0
 		var kind := tool.trim_prefix(COMPONENT_PREFIX)
 		var components: Dictionary = host.state.get("cargo", {}).get(host.client, {}).get("components", {})
-		if kind in ["broad_anvil", "broad_flat_head"]:
-			return maxi(0, int(components.get("anvil" if kind == "broad_anvil" else "flat_head", 0)) / 4)
+		if kind in ["broad_anvil", "broad_flat_head", "broad_copper_slide"]:
+			var carried := "anvil" if kind == "broad_anvil" else \
+				"flat_head" if kind == "broad_flat_head" else "copper_slide"
+			return maxi(0, int(components.get(carried, 0)) / 4)
 		return maxi(0, int(components.get(kind, 0)))
 	return maxi(0, int(parts.get("shaft" if tool == "drive" else tool, 0)))
 
@@ -875,10 +878,16 @@ func refresh(snapshot_ready: bool = true) -> void:
 	if active == "component" and host.arrival_assembly_controls != null:
 		active = COMPONENT_PREFIX + host.arrival_assembly_controls.selected_name()
 	var sized_part := active in ["component:anvil", "component:broad_anvil",
-		"component:flat_head", "component:broad_flat_head"]
-	var broad_size := active in ["component:broad_anvil", "component:broad_flat_head"]
+		"component:flat_head", "component:broad_flat_head",
+		"component:copper_slide", "component:broad_copper_slide"]
+	var broad_size := active in ["component:broad_anvil", "component:broad_flat_head",
+		"component:broad_copper_slide"]
 	var area_icon: Texture2D = FOOTPRINT_FOUR_ICON if broad_size else FOOTPRINT_ONE_ICON
-	var area_tip := "2x2 joined face · one click · uses four carried flat heads · V" \
+	var area_tip := "2x2 slide housing · one piston · uses four copper slides · V" \
+		if active == "component:broad_copper_slide" else \
+		"1x1 copper slide · one carried part · V for 2x2" \
+		if active == "component:copper_slide" else \
+		"2x2 joined face · one click · uses four carried flat heads · V" \
 		if active == "component:broad_flat_head" else \
 		"2x2 joined workbed · one click · uses four carried anvils · V" \
 		if active == "component:broad_anvil" else \
@@ -928,7 +937,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 			part_button.disabled = not usable or count < 1
 			part_button.visible = count > 0 and _offered(COMPONENT_PREFIX + component, host)
 			var quantity := "%d buildable from four carried parts each" % count \
-				if component in ["broad_anvil", "broad_flat_head"] else "%d carried" % count
+				if component in ["broad_anvil", "broad_flat_head", "broad_copper_slide"] else "%d carried" % count
 			part_button.tooltip_text = "%s · %s · drag to hotbar or hover and press 1–8 · click to place" % [
 				_component_labels[component], quantity]
 			part_button.accessibility_name = "%s, %s; drag to hotbar or focus and press a number to bind; click to place" % [

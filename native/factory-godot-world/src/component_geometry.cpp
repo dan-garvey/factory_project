@@ -96,6 +96,15 @@ Bounds component_bounds(const world::Profile& profile,
                      at[2] + pitch * 0.5},
                     {pitch, (high - low) * 0.5, pitch}};
         }
+        case materials::Component::broad_copper_slide: {
+            const double low = center[1] * height_step - 4 * height_step + anvil_work_height;
+            // The coupled row gears turn at the native tile shaft plane and
+            // clear the moving head below within this admitted volume.
+            const double high = at[1] + anchor_height;
+            return {{at[0] + pitch * 0.5, (low + high) * 0.5,
+                     at[2] + pitch * 0.5},
+                    {pitch, (high - low) * 0.5, pitch}};
+        }
         case materials::Component::sliding_guide:
             // Its full selected rails reach the ram below, whether or not a
             // press is recognized. The admitted box includes that entire

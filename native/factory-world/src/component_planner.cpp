@@ -48,14 +48,31 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
     const auto channel = materials::channel_spec(kind);
     const auto area_cells = materials::component_workcells(kind, center);
     const bool broad = kind == materials::Component::broad_anvil ||
-        kind == materials::Component::broad_flat_head;
+        kind == materials::Component::broad_flat_head ||
+        kind == materials::Component::broad_copper_slide;
     if (kind == materials::Component::hand_crank)
         return refused("crank_requires_port");
     if ((channel || broad) && (!area_cells || center[0] % 4 != 0 ||
                     center[2] % 4 != 0 ||
-                    (kind != materials::Component::broad_flat_head && center[1] % 4 != 0) ||
-                    (kind == materials::Component::broad_flat_head && center[1] % 4 != 1)))
+                    (kind != materials::Component::broad_flat_head &&
+                     kind != materials::Component::broad_copper_slide && center[1] % 4 != 0) ||
+                    (kind == materials::Component::broad_flat_head && center[1] % 4 != 1) ||
+                    (kind == materials::Component::broad_copper_slide && center[1] % 4 != 0)))
         return refused("invalid_area_target");
+    if (placing && kind == materials::Component::broad_copper_slide &&
+        std::none_of(state.placed_components.begin(), state.placed_components.end(),
+            [&](const auto& entry) {
+                return entry.second.kind == materials::Component::broad_anvil &&
+                    entry.second.center == mechanics::Point{center[0], center[1] - 4, center[2]};
+            }))
+        return refused("missing_support");
+    if (!placing && kind == materials::Component::broad_anvil &&
+        std::any_of(state.placed_components.begin(), state.placed_components.end(),
+            [&](const auto& entry) {
+                return entry.second.kind == materials::Component::broad_copper_slide &&
+                    entry.second.center == mechanics::Point{center[0], center[1] + 4, center[2]};
+            }))
+        return refused("housing_on_workbed");
     if (area_cells) {
         for (const auto& cell : *area_cells) {
             if ((channel || kind == materials::Component::broad_anvil) && center[1] != 0 &&

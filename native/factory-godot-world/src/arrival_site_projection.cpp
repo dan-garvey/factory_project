@@ -80,7 +80,14 @@ Object fields(const world::Profile& profile, const world::State& state,
                 Value(component.center[0] * profile.meters_per_grid_unit + profile.anchor_offset[0]),
                 Value(component.center[1] * profile.meters_per_grid_unit + profile.anchor_offset[1]),
                 Value(component.center[2] * profile.meters_per_grid_unit + profile.anchor_offset[2])})}};
-        if (component.kind == materials::Component::wooden_slide ||
+        if (component.kind == materials::Component::broad_copper_slide) {
+            Array ports;
+            for (const Integer row : {Integer{0}, Integer{4}})
+                for (const Integer x : {component.center[0] - 2, component.center[0] + 6})
+                    ports.emplace_back(Array{Value(x), Value(component.center[1]),
+                        Value(component.center[2] + row)});
+            part.emplace("input_ports", Value(std::move(ports)));
+        } else if (component.kind == materials::Component::wooden_slide ||
             component.kind == materials::Component::copper_slide) {
             Array ports;
             for (const Integer direction : {-1, 1})

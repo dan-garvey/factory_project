@@ -8,6 +8,7 @@ const SharedOpening = preload("res://opening/shared_opening.gd")
 const SiteSurface = preload("res://opening/site_surface.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const ComponentPresenter = preload("res://opening/native_transmission_presenter.gd")
+const FoundationArt = preload("res://opening/production_foundations.gd").ProductionFoundationArt
 const RecoveryActions = preload("res://opening/recovery_actions.gd")
 const BuildingHotbar = preload("res://opening/building_hotbar.gd")
 const SUITES := {
@@ -157,6 +158,10 @@ class SharedSourceRayView extends "res://opening/shared_opening.gd":
 class SourceBodyLookup extends RefCounted:
 	var site_bodies: Dictionary = {}
 	var floor_body: StaticBody3D
+
+class BroadContextHost extends RefCounted:
+	var state: Dictionary
+	var model: Variant = null
 
 func verify(condition: bool, reason: String) -> void:
 	checks += 1
@@ -508,14 +513,28 @@ func _component_placement_check() -> void:
 	var broad_origin := [20, 0, 8]
 	var broad_bed_box: Dictionary = view._component_candidate_box("broad_anvil", broad_origin)
 	var broad_head_box: Dictionary = view._component_candidate_box("broad_flat_head", [20, 1, 8])
-	var broad_slide_box: Dictionary = view._component_candidate_box("copper_slide", [22, 2, 10])
+	var broad_slide_box: Dictionary = view._component_candidate_box("broad_copper_slide", [20, 4, 8])
 	verify(absf(broad_bed_box.size.x - 2.0 * Geometry.PITCH) < 0.0001
 		and absf(broad_head_box.size.z - 2.0 * Geometry.PITCH) < 0.0001
 		and view._guided_press_part_snap("broad_flat_head", "broad_anvil", broad_origin,
 			Vector3.RIGHT).center == [20, 1, 8]
-		and view._guided_press_part_snap("copper_slide", "broad_flat_head", [20, 1, 8],
-			Vector3.RIGHT).center == [22, 2, 10],
-		"One broad support and face occupy four contiguous cells with one fitted central slide.")
+		and view._guided_press_part_snap("broad_copper_slide", "broad_flat_head", [20, 1, 8],
+			Vector3.RIGHT).center == [20, 4, 8]
+		and absf(broad_slide_box.size.x - 2.0 * Geometry.PITCH) < 0.0001,
+		"One broad support, face and housing occupy four contiguous foundation cells.")
+	verify(view._component_candidate_blocked("broad_copper_slide", [20, 4, 8], broad_slide_box),
+		"A broad housing ghost refuses to float without its four-tile workbed.")
+	for part in [
+		{"id": "broad-bed", "kind": "broad_anvil", "center": broad_origin, "box": broad_bed_box},
+		{"id": "broad-head", "kind": "broad_flat_head", "center": [20, 1, 8], "box": broad_head_box}]:
+		view.state.placed_components[part.id] = {"component": part.kind,
+			"center": part.center, "generation": 1,
+			"occupied": {"center": [part.box.center.x, part.box.center.y, part.box.center.z],
+				"half": [part.box.half.x, part.box.half.y, part.box.half.z]}}
+	verify(not view._component_candidate_blocked("broad_copper_slide", [20, 4, 8], broad_slide_box),
+		"The full housing ghost fits the broad head and its supporting bed.")
+	view.state.placed_components.erase("broad-bed")
+	view.state.placed_components.erase("broad-head")
 	var broad_bed_sample := Node3D.new()
 	broad_bed_sample.position = broad_bed_box.center
 	view.add_child(broad_bed_sample)
@@ -527,18 +546,144 @@ func _component_placement_check() -> void:
 	var broad_slide_sample := Node3D.new()
 	broad_slide_sample.position = broad_slide_box.center
 	view.add_child(broad_slide_sample)
-	presenter.preview_component(broad_slide_sample, "copper_slide", broad_slide_box.size)
+	presenter.preview_component(broad_slide_sample, "broad_copper_slide", broad_slide_box.size)
 	verify(broad_bed_sample.has_node("JoinedWorkbedBase")
-		and broad_head_sample.has_node("BroadHeadMovingDie/JoinedFlatFace")
-		and broad_slide_sample.has_node("SlideCarriage"),
-		"The sized workbed, single moving face and slide have separate visible parts.")
+		and broad_head_sample.has_node("BroadHeadMovingDie/JoinedFlatFace"),
+		"The broad bed and single moving face have distinct visible parts.")
+	verify(broad_slide_sample.has_node("BroadSlideCarriage"),
+		"The broad housing carries the central piston through its stroke.")
+	verify(broad_slide_sample.find_children("BroadInternalShaft*", "MeshInstance3D", true, false).size() == 4,
+		"All four tile shaft paths appear within the broad housing.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-		camera.position = broad_bed_box.center + Vector3(5.0, 3.0, 6.0)
-		camera.look_at(broad_bed_box.center + Vector3.UP * 0.55)
+		root.size = Vector2i(1600, 900)
+		var floor := MeshInstance3D.new()
+		floor.name = "FixtureGround"
+		var floor_mesh := BoxMesh.new()
+		floor_mesh.size = Vector3(14.0, 0.04, 10.0)
+		floor.mesh = floor_mesh
+		floor.position = Vector3(8.0, -0.025, 4.125)
+		var floor_finish := StandardMaterial3D.new()
+		floor_finish.albedo_color = Color("384445")
+		floor_finish.roughness = 0.95
+		floor.material_override = floor_finish
+		view.add_child(floor)
+		var context_host := BroadContextHost.new()
+		context_host.state = {"context": "broad-housing-context", "revision": 1,
+			"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+			"foundations": {}, "placed_components": {}, "motion": {},
+			"transmission_parts": {
+				"belt-first": {"kind": "shaft", "axis": 2, "center": [8, 0, 12], "half_span": 2,
+					"support": {"foot": [3.3, 0.0, 4.95], "bearing": [3.3, 0.825, 4.95]}},
+				"belt-last": {"kind": "shaft", "axis": 2, "center": [16, 0, 12], "half_span": 2,
+					"support": {"foot": [6.6, 0.0, 4.95], "bearing": [6.6, 0.825, 4.95]}},
+				"drive-shaft": {"kind": "shaft", "axis": 0, "center": [28, 4, 8], "half_span": 2,
+					"support": {"foot": [11.55, 0.0, 3.3], "bearing": [11.55, 2.475, 3.3]}}},
+			"belt_spans": {"lane": {"from": "belt-first", "to": "belt-last"}}}
+		var context_drive := ComponentPresenter.new()
+		view.add_child(context_drive)
+		context_drive.configure(context_host)
+		verify(context_drive.find_child("ConfirmedBelt", true, false) != null
+			and context_drive.find_child("FixedSupport", true, false) != null,
+			"The contextual belt and tile-centered shaft use confirmed presenter meshes and supports.")
+		var contact_head := Node3D.new()
+		contact_head.position = broad_head_box.center
+		view.add_child(contact_head)
+		presenter._placed_component(contact_head, "broad_flat_head", Vector3.ZERO,
+			broad_head_box.size, "", 0.0, 0.0, Vector3.ZERO, stroke_phase)
+		var contact_slide := Node3D.new()
+		contact_slide.position = broad_slide_box.center
+		view.add_child(contact_slide)
+		presenter._placed_component(contact_slide, "broad_copper_slide", Vector3.ZERO,
+			broad_slide_box.size, "", 0.0, 0.0, Vector3.ZERO, stroke_phase)
+		contact_head.visible = false
+		contact_slide.visible = false
+		verify(absf(contact_head.get_node("BroadHeadMovingDie").position.y
+				- broad_head_sample.get_node("BroadHeadMovingDie").position.y + 0.20) < 0.0001
+			and absf(contact_slide.get_node("BroadSlideCarriage").position.y
+				- broad_slide_sample.get_node("BroadSlideCarriage").position.y + 0.20) < 0.0001,
+			"The central piston and complete broad face share one native half-cycle stroke.")
+		head_sample.visible = true
+		slide_sample.visible = true
+		stroked_head.visible = false
+		stroked_slide.visible = false
+		camera.fov = 58.0
+		camera.position = Vector3(7.4, 5.2, 12.6)
+		camera.look_at(Vector3(7.7, 1.5, 4.0))
 		await process_frame
 		await RenderingServer.frame_post_draw
-		verify(root.get_texture().get_image().save_png(prefix + "-sized-workbed.png") == OK,
-			"Retain the 2×2 workbed, joined face and one slide from a passive view.")
+		verify(root.get_texture().get_image().save_png(prefix + "-broad-ground-rest.png") == OK,
+			"Retain the broad worksite beside a narrow press, one-wide belt and external drive shaft.")
+		broad_head_sample.visible = false
+		broad_slide_sample.visible = false
+		contact_head.visible = true
+		contact_slide.visible = true
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-broad-ground-contact.png") == OK,
+			"Retain the full broad face and central piston at native half-cycle contact.")
+		contact_head.visible = false
+		contact_slide.visible = false
+		broad_head_sample.visible = true
+		var ghost := Node3D.new()
+		ghost.position = broad_slide_box.center
+		view.add_child(ghost)
+		presenter.preview_component(ghost, "broad_copper_slide", broad_slide_box.size)
+		view.component_preview_material = StandardMaterial3D.new()
+		view.component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		view.component_preview_material.albedo_color = Color(0.91, 0.73, 0.40, 0.56)
+		view._style_component_preview(ghost)
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-broad-ground-ghost.png") == OK,
+			"Retain the full-footprint housing preview in its surrounding worksite.")
+		ghost.free()
+		broad_slide_sample.visible = true
+		context_drive.visible = false
+		head_sample.visible = false
+		slide_sample.visible = false
+		workbed_sample.visible = false
+		var foundations := Node3D.new()
+		foundations.name = "FourSquareFoundations"
+		view.add_child(foundations)
+		var foundation_count := 0
+		for row in range(2):
+			for column in range(2):
+				var tile := Node3D.new()
+				tile.position = Vector3((20 + column * 4) * Geometry.HEIGHT_STEP,
+					4.0 * Geometry.HEIGHT_STEP, (8 + row * 4) * Geometry.HEIGHT_STEP)
+				foundations.add_child(tile)
+				var mask: int = (FoundationArt.EAST if column == 0 else FoundationArt.WEST) \
+					| (FoundationArt.SOUTH if row == 0 else FoundationArt.NORTH)
+				if FoundationArt.mount(tile, mask):
+					foundation_count += 1
+		verify(foundation_count == 4 and foundations.get_child_count() == 4,
+			"Four actual foundation art units form a two by two raised square.")
+		broad_bed_sample.position.y += 4.0 * Geometry.HEIGHT_STEP
+		broad_head_sample.position.y += 4.0 * Geometry.HEIGHT_STEP
+		broad_slide_sample.position.y += 4.0 * Geometry.HEIGHT_STEP
+		broad_bed_sample.visible = false
+		broad_head_sample.visible = false
+		broad_slide_sample.visible = false
+		camera.position = Vector3(9.1, 7.1, 9.8)
+		camera.look_at(Vector3(9.1, 1.0, 4.1))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-foundation-square.png") == OK,
+			"Retain the four square foundation units before mounting the press.")
+		broad_bed_sample.visible = true
+		broad_head_sample.visible = true
+		broad_slide_sample.visible = true
+		camera.position = Vector3(7.8, 6.0, 12.6)
+		camera.look_at(Vector3(9.1, 2.3, 4.1))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-broad-raised-rest.png") == OK,
+			"Retain the supported broad press on four square foundation units.")
+		foundations.free()
+		context_drive.free()
+		floor.free()
+		contact_head.free()
+		contact_slide.free()
 	broad_bed_sample.free()
 	broad_head_sample.free()
 	broad_slide_sample.free()
@@ -2363,12 +2508,13 @@ func _arrival_hotbar() -> void:
 		var texture: Texture2D = bar.component_buttons[component].icon
 		var icon_kind := "anvil" if component == "broad_anvil" else \
 			"flat_head" if component == "broad_flat_head" else \
+			"copper_slide" if component == "broad_copper_slide" else \
 			"workshop-crank" if component == "hand_crank" else component
 		verify(texture != null and texture.resource_path.ends_with("/" + icon_kind + ".svg"),
 			"Each fabricated component uses its own named item icon in the inventory.")
 		component_icon_paths[texture.resource_path] = true
-	verify(component_icon_paths.size() == bar._component_names.size() - 2,
-		"The two sized arrangements reuse the literal icons of their four carried parts.")
+	verify(component_icon_paths.size() == bar._component_names.size() - 3,
+		"The three sized arrangements reuse the literal icons of their four carried parts.")
 	verify(bar.buttons.size() == 8 and bar.buttons[0].accessibility_name.contains("Empty hotbar key 1"),
 		"Each empty hotbar slot describes its number and drag assignment path.")
 	var face_labels: Array[String] = []
@@ -2413,14 +2559,16 @@ func _arrival_hotbar() -> void:
 		"The component icon shows its authoritative count and accessible name.")
 	view.state.cargo.P.components.anvil = 4
 	view.state.cargo.P.components.flat_head = 4
+	view.state.cargo.P.components.copper_slide = 4
 	view._refresh_ui()
 	verify(bar.component_buttons.broad_anvil.visible and bar.component_buttons.broad_flat_head.visible
 		and bar.component_counts.broad_anvil.text == "1"
 		and bar.component_counts.broad_flat_head.text == "1"
 		and bar.component_buttons.broad_anvil.tooltip_text.contains("four carried parts"),
-		"Four owned parts of each kind expose one sized workbed and one fitted face.")
+		"Four owned parts expose one sized workbed and one fitted face.")
 	view.state.cargo.P.components.anvil = 1
 	view.state.cargo.P.components.erase("flat_head")
+	view.state.cargo.P.components.erase("copper_slide")
 	view._refresh_ui()
 	view.state.cargo.P.timber = 5
 	view.state.cargo.P.raw = 3
@@ -2428,6 +2576,13 @@ func _arrival_hotbar() -> void:
 	view.state.cargo.P.work_lots = [{"id": 7}]
 	view.state.crank_items = {"crank-1": {"holder": "P", "attached_to": "", "port": []}}
 	view.state.workshop_completed_actors = ["P"]
+	view.state.cargo.P.components.copper_slide = 4
+	view._refresh_ui()
+	verify(bar.component_buttons.broad_copper_slide.visible
+		and bar.component_counts.broad_copper_slide.text == "1"
+		and bar.component_buttons.broad_copper_slide.tooltip_text.contains("four carried parts"),
+		"Four copper slides expose one broad housing after the first plate unlock.")
+	view.state.cargo.P.components.erase("copper_slide")
 	view._refresh_ui()
 	verify(bar.material_counts.timber.text == "5" and bar.material_counts.raw.text == "3"
 		and bar.material_counts.products.text == "1" and bar.material_counts.work_lots.text == "1"
@@ -4536,7 +4691,7 @@ func _slide_controls_check() -> void:
 	broad_snapshot.placed_components = {
 		"broad-bed": {"component": "broad_anvil", "center": [20, 0, 8]},
 		"broad-head": {"component": "broad_flat_head", "center": [20, 1, 8]},
-		"broad-slide": {"component": "copper_slide", "center": [20, 2, 8]}}
+		"broad-slide": {"component": "broad_copper_slide", "center": [20, 4, 8]}}
 	broad_snapshot.broad_press_assemblies = [{"origin": [20, 0, 8],
 		"parts": {"anvils": ["broad-bed"], "heads": ["broad-head"], "slide": "broad-slide"}}]
 	broad_snapshot.dropped_material = [{"center": [20, 0, 8], "sheets": 1},

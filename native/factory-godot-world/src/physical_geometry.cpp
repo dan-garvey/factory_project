@@ -125,12 +125,14 @@ bool slide_head_fitting(std::optional<materials::Component> first,
             kind == materials::Component::copper_slide;
     };
     if (!first) return false;
-    if (*first == materials::Component::broad_flat_head && slide(second))
-        return second_center == mechanics::Point{first_center[0] + 2,
-            first_center[1] + 1, first_center[2] + 2};
-    if (slide(*first) && second == materials::Component::broad_flat_head)
-        return first_center == mechanics::Point{second_center[0] + 2,
-            second_center[1] + 1, second_center[2] + 2};
+    if (*first == materials::Component::broad_flat_head &&
+        second == materials::Component::broad_copper_slide)
+        return second_center == mechanics::Point{first_center[0],
+            first_center[1] + 3, first_center[2]};
+    if (*first == materials::Component::broad_copper_slide &&
+        second == materials::Component::broad_flat_head)
+        return first_center == mechanics::Point{second_center[0],
+            second_center[1] + 3, second_center[2]};
     if (first_center[0] != second_center[0] ||
         first_center[2] != second_center[2]) return false;
     return (*first == materials::Component::flat_head && slide(second) &&

@@ -511,6 +511,7 @@ class ArrivalAssemblyControls:
 		["ram_face", "Ram face"], ["copper_shaft", "Copper shaft"],
 		["copper_cog", "Copper cog"], ["wooden_workbench", "Wooden workbench"],
 		["wooden_slide", "Wooden slide"], ["copper_slide", "Copper slide"],
+		["broad_copper_slide", "2×2 slide housing · four copper slides"],
 		["flat_head", "Flat pressing head"],
 		["broad_flat_head", "2×2 flat head · four heads"], ["hand_crank", "Hand crank"],
 		["channel_narrow_x", "Narrow channel · X"],

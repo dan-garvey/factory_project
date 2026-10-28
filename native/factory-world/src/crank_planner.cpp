@@ -271,8 +271,7 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
                     return entry.second.attached_to == *id && entry.second.port == port;
                 })) return refused("crank_not_attached", *id);
         const auto& center = found->second.center;
-        if ((*port)[1] != center[1] || (*port)[2] != center[2] ||
-            std::abs((*port)[0] - center[0]) != 1)
+        if (!crank_input_port(found->second, *port))
             return refused("wrong_input_port", *id);
         if (!slide_input_port_clear(state, *id, *port))
             return refused("input_port_occupied", *id);

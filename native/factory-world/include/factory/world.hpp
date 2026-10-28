@@ -169,7 +169,8 @@ inline constexpr authority::Integer slide_cycle_subticks =
         case materials::Component::wooden_slide: return 8;
         case materials::Component::copper_shaft:
         case materials::Component::copper_cog:
-        case materials::Component::copper_slide: return 24;
+        case materials::Component::copper_slide:
+        case materials::Component::broad_copper_slide: return 24;
         default: return std::nullopt;
     }
 }

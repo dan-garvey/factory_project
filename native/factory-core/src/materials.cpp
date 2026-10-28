@@ -130,13 +130,15 @@ std::pair<Component, Quantity> placement_parts(Component kind) noexcept {
     switch (kind) {
         case Component::broad_anvil: return {Component::anvil, 4};
         case Component::broad_flat_head: return {Component::flat_head, 4};
+        case Component::broad_copper_slide: return {Component::copper_slide, 4};
         default: return {kind, 1};
     }
 }
 
 std::optional<std::vector<DropPoint>> component_workcells(
         Component kind, const DropPoint& origin) {
-    if (kind == Component::broad_anvil || kind == Component::broad_flat_head)
+    if (kind == Component::broad_anvil || kind == Component::broad_flat_head ||
+        kind == Component::broad_copper_slide)
         return occupied_workcells(origin, Footprint{2, 2}, 0);
     return channel_workcells(kind, origin);
 }
@@ -231,6 +233,7 @@ const char* component_name(Component component) noexcept {
         case Component::flat_head: return "flat_head";
         case Component::broad_anvil: return "broad_anvil";
         case Component::broad_flat_head: return "broad_flat_head";
+        case Component::broad_copper_slide: return "broad_copper_slide";
         case Component::hand_crank: return "hand_crank";
         case Component::channel_narrow_x: return "channel_narrow_x";
         case Component::channel_narrow_z: return "channel_narrow_z";
@@ -247,7 +250,8 @@ std::optional<Component> component_from_name(const std::string& name) noexcept {
              Component::ram_face, Component::copper_shaft, Component::copper_cog,
              Component::wooden_workbench, Component::wooden_slide,
              Component::copper_slide, Component::flat_head, Component::broad_anvil,
-             Component::broad_flat_head, Component::hand_crank,
+             Component::broad_flat_head, Component::broad_copper_slide,
+             Component::hand_crank,
              Component::channel_narrow_x, Component::channel_narrow_z,
              Component::channel_broad_x, Component::channel_broad_z})
         if (name == component_name(component)) return component;
@@ -273,6 +277,7 @@ std::optional<ComponentCost> component_cost(Component component) noexcept {
         case Component::flat_head: return ComponentCost{0, 1};
         case Component::broad_anvil: return ComponentCost{0, 8};
         case Component::broad_flat_head: return ComponentCost{0, 4};
+        case Component::broad_copper_slide: return ComponentCost{0, 16};
         case Component::hand_crank: return ComponentCost{2, 0};
         case Component::channel_narrow_x:
         case Component::channel_narrow_z: return ComponentCost{2, 0};

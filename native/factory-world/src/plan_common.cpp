@@ -32,11 +32,16 @@ bool placement(const std::string& action) {
 
 bool slide_component(materials::Component kind) {
     return kind == materials::Component::wooden_slide ||
-           kind == materials::Component::copper_slide;
+           kind == materials::Component::copper_slide ||
+           kind == materials::Component::broad_copper_slide;
 }
 
 bool crank_input_port(const PlacedComponent& component, const mechanics::Point& port) {
     const auto& center = component.center;
+    if (component.kind == materials::Component::broad_copper_slide)
+        return port[1] == center[1] &&
+            (port[2] == center[2] || port[2] == center[2] + 4) &&
+            (port[0] == center[0] - 2 || port[0] == center[0] + 6);
     if (slide_component(component.kind))
         return port[1] == center[1] && port[2] == center[2] &&
             std::abs(port[0] - center[0]) == 1;

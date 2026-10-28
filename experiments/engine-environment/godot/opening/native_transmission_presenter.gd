@@ -1391,13 +1391,15 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var top := occupied_size.y * 0.5
 			var face_iron := Visuals.material(Color("707c79"), 0.63, 0.46)
 			_support_box(anchor, "JoinedWorkbedBase", Vector3(0, bottom + 0.055, 0),
-				Vector3(occupied_size.x - 0.12, 0.11, occupied_size.z - 0.12), dark, true)
+				Vector3(occupied_size.x, 0.11, occupied_size.z), dark, true)
 			var leg_height := occupied_size.y - 0.27
-			for x in [-1.35, 1.35]:
-				for z in [-1.35, 1.35]:
+			for x in [-1.55, 1.55]:
+				for z in [-1.55, 1.55]:
 					_support_box(anchor, "JoinedWorkbedLeg%d" % anchor.get_child_count(),
 						Vector3(x, bottom + 0.11 + leg_height * 0.5, z),
 						Vector3(0.18, leg_height, 0.18), dark, true)
+					_support_box(anchor, "BroadHousingSocket", Vector3(x, top - 0.08, z),
+						Vector3(0.19, 0.16, 0.19), worked, true)
 			for x in [-0.79, 0.79]:
 				for z in [-0.79, 0.79]:
 					_support_box(anchor, "WorkbedFace", Vector3(x, top - 0.08, z),
@@ -1440,13 +1442,65 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				+ slide_carriage_drop(slide_phase, travel)
 			anchor.add_child(die)
 			_support_box(die, "JoinedFlatFace", Vector3.ZERO,
-				Vector3(occupied_size.x - 0.14, 0.16, occupied_size.z - 0.14), worked, true)
+				Vector3(occupied_size.x - 0.24, 0.16, occupied_size.z - 0.24), worked, true)
 			for side in [-1.0, 1.0]:
 				_support_box(die, "BroadHeadCrossbar", Vector3(0, 0.125, side * 0.77),
 					Vector3(2.75, 0.10, 0.11), dark)
 				_support_box(die, "BroadHeadBeam", Vector3(side * 0.77, 0.125, 0),
 					Vector3(0.11, 0.10, 2.75), dark)
 			_support_box(die, "SlideKey", Vector3(0, 0.19, 0), Vector3(0.35, 0.12, 0.35), dark)
+		"broad_copper_slide":
+			var bottom := -occupied_size.y * 0.5
+			var top := occupied_size.y * 0.5
+			var shaft_y := top - Geometry.ANCHOR_HEIGHT
+			var frame := Visuals.material(Color("657d7d"), 0.56, 0.55)
+			var copper := Visuals.material(Color("b68149"), 0.58, 0.37)
+			# One fixed housing fills the four tile positions. Its feet land on
+			# the broad base outside the complete sheet and moving die sweep.
+			for x in [-1.60, 1.60]:
+				for z in [-1.60, 1.60]:
+					_support_box(anchor, "BroadHousingPost%d" % anchor.get_child_count(), Vector3(x, -0.04, z),
+						Vector3(0.07, occupied_size.y - 0.12, 0.07), frame, true)
+					_support_box(anchor, "BroadHousingFoot%d" % anchor.get_child_count(), Vector3(x, bottom + 0.035, z),
+						Vector3(0.10, 0.07, 0.10), dark, true)
+			for z in [-1.60, 1.60]:
+					_support_box(anchor, "BroadHousingX%d" % anchor.get_child_count(), Vector3(0, top - 0.07, z),
+					Vector3(3.22, 0.11, 0.075), frame, true)
+			for x in [-1.60, 1.60]:
+					_support_box(anchor, "BroadHousingZ%d" % anchor.get_child_count(), Vector3(x, top - 0.07, 0),
+					Vector3(0.075, 0.11, 3.22), frame, true)
+			# Each occupied foundation tile has an X shaft through its center.
+			# The two seam gears couple both rows to the single center piston.
+			for z in [-0.825, 0.825]:
+				for x in [-0.825, 0.825]:
+					var shaft := _support_cylinder(anchor, "BroadInternalShaft%d" % anchor.get_child_count(), 0.034,
+						Geometry.PITCH, copper)
+					shaft.position = Vector3(x, shaft_y, z)
+					shaft.rotation.z = PI * 0.5
+					var outer_x := -1.60 if x < 0.0 else 1.60
+					var port := _support_cylinder(anchor, "BroadShaftPort%d" % anchor.get_child_count(), 0.055, 0.065, dark)
+					port.position = Vector3(outer_x, shaft_y, z)
+					port.rotation.z = PI * 0.5
+				var gear := _support_cylinder(anchor, "BroadRowCoupler%d" % anchor.get_child_count(), 0.80, 0.085, copper)
+				gear.position = Vector3(0.20, shaft_y, z)
+				gear.rotation.z = PI * 0.5
+			_support_box(anchor, "CentralPistonBearing", Vector3(0, shaft_y, 0),
+				Vector3(0.48, 0.17, 0.48), frame, true)
+			var travel := Geometry.HEIGHT_STEP * 1.5 + Geometry.ANCHOR_HEIGHT \
+				- Geometry.PRESS_WORK_HEIGHT - SLIDE_DIE_TRAVEL_MARGIN
+			var piston_bottom: float = bottom + travel + SLIDE_DIE_TRAVEL_MARGIN + 0.09 \
+				+ slide_carriage_drop(slide_phase, travel)
+			var piston_top: float = top - 0.16
+			var piston_length := piston_top - piston_bottom + 0.06
+			var piston := _support_cylinder(anchor, "BroadCentralPiston", 0.075,
+				maxf(0.08, piston_length), worked)
+			piston.position.y = (piston_top + piston_bottom) * 0.5
+			var carriage := Node3D.new()
+			carriage.name = "BroadSlideCarriage"
+			carriage.position.y = piston_bottom
+			anchor.add_child(carriage)
+			_support_box(carriage, "PistonYoke", Vector3.ZERO,
+				Vector3(0.38, 0.12, 0.38), dark, true)
 		"channel_narrow_x", "channel_narrow_z", "channel_broad_x", "channel_broad_z":
 			# The selected segment owns its complete floor and outer rails.
 			# Adjacent segments meet at their open faces; a broad segment has no
@@ -2007,11 +2061,13 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 			if snapshot.get("slide_phases") is Dictionary else null
 		if spec.component in ["flat_head", "broad_flat_head"] and placed[id].get("center") is Array:
 			var head_cell: Array = placed[id].center
-			var slide_cell := [head_cell[0] + 2, head_cell[1] + 1, head_cell[2] + 2] \
+			var slide_cell := [head_cell[0], head_cell[1] + 3, head_cell[2]] \
 				if spec.component == "broad_flat_head" else [head_cell[0], head_cell[1] + 1, head_cell[2]]
+			var slide_kinds := ["broad_copper_slide"] if spec.component == "broad_flat_head" \
+				else ["wooden_slide", "copper_slide"]
 			for mate_id: Variant in placed:
 				var mate: Variant = placed[mate_id]
-				if mate is Dictionary and mate.get("component", "") in ["wooden_slide", "copper_slide"] \
+				if mate is Dictionary and mate.get("component", "") in slide_kinds \
 						and mate.get("center") == slide_cell:
 					phase = snapshot.get("slide_phases", {}).get(mate_id)
 					break

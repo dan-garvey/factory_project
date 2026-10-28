@@ -1446,7 +1446,8 @@ func _input(event: InputEvent) -> void:
 				KEY_V:
 					if mode == "component" and arrival_assembly_controls != null \
 							and arrival_assembly_controls.selected_name() in [
-								"anvil", "broad_anvil", "flat_head", "broad_flat_head"]:
+								"anvil", "broad_anvil", "flat_head", "broad_flat_head",
+								"copper_slide", "broad_copper_slide"]:
 						_toggle_component_footprint()
 						handled = true
 					elif foundation_area_toggle.is_visible_in_tree() and not foundation_area_toggle.disabled:
@@ -1583,6 +1584,8 @@ func _select_tool(tool: String) -> void:
 				instructions["component"] = "Aim at a clear 2×2 floor area. Click once to place four carried anvils as one workbed."
 			elif component_kind == "broad_flat_head":
 				instructions["component"] = "Aim at the 2×2 workbed. Click to fit four carried flat heads as one face."
+			elif component_kind == "broad_copper_slide":
+				instructions["component"] = "Aim at the 2×2 head. Click to fit four carried copper slides as one housing with a central piston."
 			elif component_kind in ["wooden_slide", "copper_slide"]:
 				instructions["component"] = "Aim at the anvil or flat head to show the slide at press height. Click to fit the amber ghost; red means blocked."
 	_message(instructions.get(tool,
@@ -2391,8 +2394,10 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Slide over head"}
 	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "broad_flat_head":
-		return {"center": [center[0] + 2, center[1] + 1, center[2] + 2],
-			"label": "Central slide over 2×2 head"}
+		return {}
+	if kind == "broad_copper_slide" and pointed_kind == "broad_flat_head":
+		return {"center": [center[0], center[1] + 3, center[2]],
+			"label": "2×2 housing over broad head"}
 	if kind == "ram_face" and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
 	if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
@@ -2461,7 +2466,7 @@ func _component_center_allowed(center: Array) -> bool:
 func _component_area_bounds_allowed(kind: String, center: Array) -> bool:
 	if not _component_center_allowed(center):
 		return false
-	if kind not in ["broad_anvil", "broad_flat_head"]:
+	if kind not in ["broad_anvil", "broad_flat_head", "broad_copper_slide"]:
 		return true
 	var box := _component_candidate_box(kind, center)
 	return absf(box.center.x) + box.half.x <= ProductionEnvironment.Surface.HALF \
@@ -2470,11 +2475,13 @@ func _component_area_bounds_allowed(kind: String, center: Array) -> bool:
 func _toggle_component_footprint() -> void:
 	if mode != "component" or arrival_assembly_controls == null \
 			or arrival_assembly_controls.selected_name() not in [
-				"anvil", "broad_anvil", "flat_head", "broad_flat_head"]:
+				"anvil", "broad_anvil", "flat_head", "broad_flat_head",
+				"copper_slide", "broad_copper_slide"]:
 		return
 	var next_kind: String = {
 		"anvil": "broad_anvil", "broad_anvil": "anvil",
 		"flat_head": "broad_flat_head", "broad_flat_head": "flat_head",
+		"copper_slide": "broad_copper_slide", "broad_copper_slide": "copper_slide",
 	}[arrival_assembly_controls.selected_name()]
 	if not arrival_assembly_controls.select_component_name(next_kind):
 		return
@@ -2561,6 +2568,12 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
 				Geometry.PITCH * 0.5)
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
+		"broad_copper_slide":
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - 4.0 * Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
+			var high := at.y + Geometry.ANCHOR_HEIGHT
+			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
+				Geometry.PITCH * 0.5)
+			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"wooden_slide", "copper_slide":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - 2.0 * Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + 0.08
@@ -2588,6 +2601,17 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 	return {"center": occupied, "half": half, "size": half * 2.0}
 
 func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) -> bool:
+	if center.size() != 3:
+		return true
+	if kind == "broad_copper_slide":
+		var supported := false
+		for part: Dictionary in state.get("placed_components", {}).values():
+			if part.get("component") == "broad_anvil" \
+					and part.get("center") == [center[0], center[1] - 4, center[2]]:
+				supported = true
+				break
+		if not supported:
+			return true
 	var result: Dictionary = Geometry.component_boxes(state)
 	var occupied: Array = []
 	if result.get("accepted", false):
@@ -2597,12 +2621,12 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 			var part_center: Array = part.get("center", [])
 			if part_center.size() != 3 or center.size() != 3:
 				continue
-			if kind == "broad_flat_head" and part.component in ["wooden_slide", "copper_slide"] \
-					and part_center == [center[0] + 2, center[1] + 1, center[2] + 2]:
+			if kind == "broad_flat_head" and part.component == "broad_copper_slide" \
+					and part_center == [center[0], center[1] + 3, center[2]]:
 				paired_ids[id] = true
 				continue
-			if kind in ["wooden_slide", "copper_slide"] and part.component == "broad_flat_head" \
-					and center == [part_center[0] + 2, part_center[1] + 1, part_center[2] + 2]:
+			if kind == "broad_copper_slide" and part.component == "broad_flat_head" \
+					and center == [part_center[0], part_center[1] + 3, part_center[2]]:
 				paired_ids[id] = true
 				continue
 			if ((kind == "anvil" and part.component == "receiver_tray") or \
@@ -2681,8 +2705,9 @@ func _refresh_component_preview() -> void:
 		return
 	var kind: String = arrival_assembly_controls.selected_name()
 	var carried_kind := "anvil" if kind == "broad_anvil" else \
-		"flat_head" if kind == "broad_flat_head" else kind
-	var needed := 4 if kind in ["broad_anvil", "broad_flat_head"] else 1
+		"flat_head" if kind == "broad_flat_head" else \
+		"copper_slide" if kind == "broad_copper_slide" else kind
+	var needed := 4 if kind in ["broad_anvil", "broad_flat_head", "broad_copper_slide"] else 1
 	if int(state.get("cargo", {}).get(client, {}).get("components", {}).get(carried_kind, 0)) < needed:
 		return
 	var pointed := _screen_entity(_pointed_screen_position()) if not component_nudge_active else ""
@@ -2739,7 +2764,8 @@ func _refresh_component_preview() -> void:
 			else "Beside %s" % pointed_kind.replace("_", " "))
 		if press_snap_target != null and not press_snap.is_empty() \
 				and (kind in ["flat_head", "broad_flat_head"] and pointed_kind in ["anvil", "broad_anvil"] \
-				or kind in ["wooden_slide", "copper_slide"] and pointed_kind in ["anvil", "flat_head", "broad_flat_head"]):
+				or kind in ["wooden_slide", "copper_slide"] and pointed_kind in ["anvil", "flat_head"]
+				or kind == "broad_copper_slide" and pointed_kind == "broad_flat_head"):
 			var target_box := _component_candidate_box(pointed_kind, state.placed_components[pointed].center)
 			press_snap_target.position = target_box.center + Vector3.UP * (target_box.half.y + 0.015)
 			press_snap_target.scale = Vector3(target_box.half.x / 0.77, 1.0, target_box.half.z / 0.77)
@@ -2815,6 +2841,7 @@ func _component_placement_hint() -> String:
 	var kind: String = arrival_assembly_controls.selected_name()
 	var stack_hint := "Aim at a clear 2×2 floor area; uses four anvils" if kind == "broad_anvil" else \
 		"Aim at the 2×2 workbed; uses four flat heads" if kind == "broad_flat_head" else \
+		"Aim at the 2×2 head; uses four copper slides" if kind == "broad_copper_slide" else \
 		"Aim at a floor or built surface" if kind == "anvil" else \
 		"Aim at the anvil to place the head above" if kind == "flat_head" else \
 		"Aim at the anvil or flat head to place the slide above" if kind in ["wooden_slide", "copper_slide"] else \
