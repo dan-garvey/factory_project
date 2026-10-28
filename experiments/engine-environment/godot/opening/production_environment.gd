@@ -1160,10 +1160,13 @@ class ProductionEnvironment:
 							Vector2(x0, z0), Vector2(x1, z1), Vector2(x0, z1)]:
 						var edge: float = minf(minf(point.x - left, right - point.x),
 							minf(point.y - back, front - point.y))
-						var roughness: float = sin(point.x * 1.17 + point.y * 0.73) * 0.18 \
-							+ cos(point.x * 0.61 - point.y * 1.29) * 0.13
-						var opacity: float = smoothstep(-0.20, 0.90, edge + roughness) * 0.64
-						var color := Color("786d5a").lerp(Color("aa6947"), fraction)
+						var roughness: float = sin(point.x * 0.71 + sin(point.y * 0.44)) * 0.58 \
+							+ cos(point.y * 0.83 - point.x * 0.39) * 0.36
+						var vein: float = sin(point.x * 1.17 + point.y * 0.73) * 0.5 \
+							+ cos(point.x * 0.61 - point.y * 1.29) * 0.5
+						var opacity: float = smoothstep(0.0, 1.75, edge + roughness) \
+							* (0.18 + 0.12 * smoothstep(-0.45, 0.55, vein))
+						var color := Color("594c3d").lerp(Color("76503d"), fraction)
 						color.a = opacity
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_color(color)
@@ -1171,19 +1174,19 @@ class ProductionEnvironment:
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
 			if fraction <= 0.01:
 				continue
-			for n in range(3):
+			for n in range(2):
 				var seed: int = absi(int(cell[0]) * 73856093 ^ int(cell[1]) * 19349663 ^ n * 83492791)
 				var dx: float = (float(seed % 101) / 100.0 - 0.5) * 1.12
 				var dz: float = (float((seed / 101) % 101) / 100.0 - 0.5) * 1.12
 				var x: float = cx + dx
 				var z: float = cz + dz
-				var size: float = 0.14 + float(seed % 7) * 0.025
-				var height: float = 0.055 + float((seed / 7) % 5) * 0.012
+				var size: float = 0.10 + float(seed % 7) * 0.015
+				var height: float = 0.035 + float((seed / 7) % 5) * 0.008
 				var basis := Basis(Vector3.UP, float(seed % 360) * PI / 180.0)
 				basis = basis.scaled_local(Vector3(size, height, size * 0.72))
 				stones.append(Transform3D(basis,
 					Vector3(x, Surface.height_at(x, z) + height * 0.45, z)))
-				stone_colors.append(Color("b47a55").lerp(Color("855745"), float(seed % 5) / 5.0))
+				stone_colors.append(Color("725743").lerp(Color("594d42"), float(seed % 5) / 5.0))
 		var soil := MeshInstance3D.new()
 		soil.name = "CopperBearingGround"
 		soil.mesh = surface.commit()
@@ -1223,9 +1226,9 @@ class ProductionEnvironment:
 		seam_mesh.radial_segments = 9
 		seam_mesh.rings = 4
 		var seam_finish := StandardMaterial3D.new()
-		seam_finish.albedo_color = Color("8c5944")
-		seam_finish.roughness = 0.86
-		seam_finish.metallic = 0.10
+		seam_finish.albedo_color = Color("674838")
+		seam_finish.roughness = 0.96
+		seam_finish.metallic = 0.08
 		var original: Dictionary = state.get("hand_sources", {}).get(deposit.get("id", ""), {})
 		var original_position: Array = original.get("position", [])
 		for region: Dictionary in regions:
@@ -1244,7 +1247,7 @@ class ProductionEnvironment:
 				seam.name = "LowCopperExposure"
 				seam.mesh = seam_mesh
 				seam.material_override = seam_finish
-				seam.scale = Vector3(0.82, 0.13, 0.52)
+				seam.scale = Vector3(0.74, 0.18, 0.48)
 				seam.rotation.y = atan2(offset.y, offset.x)
 				seam.position = Vector3(x + offset.x,
 					Surface.height_at(x + offset.x, z + offset.y) + 0.055, z + offset.y)

@@ -1114,9 +1114,33 @@ func check_ore_field_render() -> void:
 		verify(image.get_size() == viewport.size and not FileAccess.file_exists(destination)
 			and image.save_png(destination) == OK,
 			"Retain each complete worksite view without replacing prior evidence.")
+	# Exercise only the presenter with a representative empty local balance.
+	# Native debit, conservation and saved stock are checked by ore_field_test.
+	var preview: Dictionary = state.duplicate(true)
+	var preview_sources: Dictionary = preview.get("hand_sources", {})
+	var depleted_id: String = str(deposit.get("id", "")) + "-region-5"
+	var depleted_source: Dictionary = preview_sources.get(depleted_id, {})
+	if verify(not depleted_source.is_empty() and int(depleted_source.get("remaining", 0)) > 0,
+		"The depletion preview starts from a populated native region projection."):
+		depleted_source["remaining"] = 0
+		preview_sources[depleted_id] = depleted_source
+		view.state = preview
+		view._refresh_ore_field()
+		view.camera.position = Vector3(14.0, 20.0, 12.0)
+		view.camera.look_at(Vector3(5.0, 0.0, -5.5))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		await process_frame
+		await RenderingServer.frame_post_draw
+		var depleted_image := viewport.get_texture().get_image()
+		var depleted_path: String = fixture_directory.path_join("ore-field-depleted-preview.png")
+		verify(depleted_image.get_size() == viewport.size and not FileAccess.file_exists(depleted_path)
+			and depleted_image.save_png(depleted_path) == OK,
+			"Retain the local-depletion presentation preview beside the full field view.")
 	print(JSON.stringify({"phase": "ore-field-render", "source": "native terrain-bound opening",
-		"cells": deposit.get("cells", []).size(), "views": 3, "viewport": [1600, 900],
-		"input": "not_used", "human_quality": "not_assessed"}))
+		"cells": deposit.get("cells", []).size(), "views": 4, "viewport": [1600, 900],
+		"depletion_preview": "fixture balance override, visual only", "input": "not_used",
+		"human_quality": "not_assessed"}))
 	viewport.free()
 
 func check_rock_shapes(rocks: MultiMesh) -> void:
