@@ -1162,11 +1162,11 @@ class ProductionEnvironment:
 
 	static func _ore_host_material() -> StandardMaterial3D:
 		if ore_host_finish == null:
-			var mineral := _ore_exposure_material()
-			if mineral == null:
+			var stone := stone_material()
+			if stone == null:
 				return null
-			ore_host_finish = mineral.duplicate()
-			ore_host_finish.albedo_color = Color("c8c8be")
+			ore_host_finish = stone.duplicate()
+			ore_host_finish.albedo_color = Color("c1cbd0")
 		return ore_host_finish
 
 	static func _ore_chip() -> ArrayMesh:
@@ -1256,8 +1256,9 @@ class ProductionEnvironment:
 							var weight: float = 1.0 - smoothstep(0.48, 1.13, span + roughness * 0.10)
 							local_patch = maxf(local_patch, weight * sqrt(float(balances.get(
 								str(region.get("id", "")), 0.0))))
+						var grain: float = smoothstep(-0.45, 0.50, fleck + roughness * 0.25)
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
-							* local_patch * (0.14 + 0.25 * smoothstep(-0.38, 0.36, fleck))
+							* (0.06 + 0.50 * local_patch) * (0.35 + 0.65 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.85)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
@@ -1265,7 +1266,7 @@ class ProductionEnvironment:
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
 			if fraction <= 0.01:
 				continue
-			for n in range(2):
+			for n in range(3):
 				var seed: int = absi(int(cell[0]) * 73856093 ^ int(cell[1]) * 19349663 ^ n * 83492791)
 				var dx: float = (float(seed % 101) / 100.0 - 0.5) * 1.12
 				var dz: float = (float((seed / 101) % 101) / 100.0 - 0.5) * 1.12
@@ -1286,13 +1287,25 @@ class ProductionEnvironment:
 			if rock_seed % 100 < 22 and fraction > 0.25:
 				var fx: float = cx + sin(float(index) * 2.39996) * 0.42
 				var fz: float = cz + cos(float(index) * 1.71317) * 0.42
-				if fx > Surface.river_center_x(fz) + Surface.channel_half_width(fz) + 0.65:
-					var dimensions := Vector3(1.0 + float(rock_seed % 5) * 0.14,
-						0.31 + float(rock_seed % 3) * 0.045,
-						0.72 + float(rock_seed % 4) * 0.11)
+				if fx > Surface.river_center_x(fz) + Surface.channel_half_width(fz) + 1.65:
+					var spread := 1.28 if rock_seed % 7 == 0 else 1.0
+					var dimensions := Vector3((1.10 + float(rock_seed % 5) * 0.14) * spread,
+						0.39 + float(rock_seed % 3) * 0.04,
+						(0.78 + float(rock_seed % 4) * 0.11) * spread)
 					var turn := Basis(Vector3.UP, float(index) * 2.39996)
 					fragments.append(Transform3D(turn.scaled_local(dimensions / Surface.SOURCE_OUTCROP_MESH.get_aabb().size),
-						Vector3(fx, Surface.height_at(fx, fz) + dimensions.y * 0.08, fz)))
+						Vector3(fx, Surface.height_at(fx, fz) + dimensions.y * 0.24, fz)))
+					for shard in range(2):
+						var angle: float = float(index) * 2.39996 + (1.15 if shard == 0 else -1.30)
+						var offset := Vector2(0.46 + float((rock_seed / 11) % 3) * 0.08, 0.0).rotated(angle)
+						var flank := Vector2(fx, fz) + offset
+						var flank_size := Vector3(dimensions.x * (0.44 + float(shard) * 0.08),
+							dimensions.y * 0.68, dimensions.z * (0.50 + float(shard) * 0.06))
+						var flank_turn := Basis(Vector3.UP, angle + float(shard) * 0.7)
+						fragments.append(Transform3D(flank_turn.scaled_local(
+							flank_size / Surface.SOURCE_OUTCROP_MESH.get_aabb().size),
+							Vector3(flank.x, Surface.height_at(flank.x, flank.y) + flank_size.y * 0.21,
+								flank.y)))
 					if rock_seed % 4 != 0:
 						var copper_size := Vector3(dimensions.x * (0.22 + float(rock_seed % 3) * 0.04),
 							dimensions.y * 0.37, dimensions.z * (0.22 + float(rock_seed % 4) * 0.03))
