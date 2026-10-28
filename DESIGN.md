@@ -86,12 +86,6 @@ gantries, moving factories and trains remain intended-game requirements.
 - An **interchangeable working head** defines contact shape, working area and
   material. The flat pressing face and cutting edge are the first required uses
   of the same slide. Larger/stronger heads still obey its load and clearance.
-- Keep a part separately placeable when exchanging it changes the process,
-  capacity or shared power route while useful neighbors stay in place. A flat
-  face and cutting edge share a slide; wooden and copper slides share the same
-  workbed and head interface with different load capacity. Fitted heads use
-  named sockets on the slide. Internal offsets do not create a fractional
-  free-placement grid or another required local mechanism checklist.
 - An **anvil/workbed** is passive support for forming and cutting, with no rotary
   input or compulsory machine recipe. Early slides and heads may float above
   it: structural mounting is deferred, while workpiece support and collision
@@ -113,19 +107,16 @@ gantries, moving factories and trains remain intended-game requirements.
 
 ### Scale, materials and handling
 
-Keep a hand-tended 1 × 1 press viable. A 2 × 2 work area uses independently
-placed workbed and working-face parts to act on one broad workpiece. Matching
-contact, contiguous support, clearance, coupling and drive capacity decide
-validity. Working area does not mandate four independent actuators. Players
-with sufficient parts may attempt it early; avoid a recipe per footprint.
+Keep a hand-tended 1 × 1 press viable. A 2 × 2 work area uses independently placed
+workbed and working-face parts to act on one broad workpiece. Matching contact,
+contiguous support, clearance, coupling and drive capacity decide validity.
+Working area does not mandate a whole actuator or shaft/cog pair per cell.
+Players with sufficient parts may attempt it early; avoid a recipe per footprint.
 The ordinary build controls expose both sizes for the anvil and current flat
 head; V switches the selected part between them. A broad placement spends four
 carried ordinary parts in one click to build one continuous surface or face,
-then returns those parts on reclaim. The broad slide housing occupies the
-matching 2 × 2 square above the workbed. One central piston drives the face;
-internal shaft paths through its four tiles reach tile-centered outer ports.
-Build the housing as one finite assembly, with actual input, load, support and
-clearance deciding whether it operates.
+then returns those parts on reclaim. One slide may drive that face when its
+actual input and load permit.
 
 Conserve material mass and form through extraction, carrying, processing,
 offcuts, storage, recovery, edits, saves and shared continuation. The prototype
@@ -168,40 +159,15 @@ Later alloys and heads require new processes, not merely recolored tiers.
   denominator based on foundation height. Independently built sections must
   join horizontally and vertically. No per-tool height grids or restricted
   construction rectangle.
-- Let U be the tunable foundation footprint pitch. A foundation covers U × U
-  and has U/2 depth, so slabs can form half-height walking steps. Independently
-  built mechanical parts and machine modules use full-U horizontal centers and
-  full-U vertical build levels. A half-height slab does not add a second
-  mechanical build level. The shared quarter-pitch denominator may locate
-  access steps, embodied shapes and named contacts within a module, without
-  permitting loose fractional placement.
 - Foundations may stack, float and intersect natural terrain/rocks/vegetation.
   Ground contact and gravity requirements are omitted for now. Rectangular
   area placement may temporarily ignore reach; finite parts and collisions
   with constructions and characters still apply.
-- Shafts and cogs each occupy one U × U × U cell centered on the shared grid,
-  including vertically; gearboxes use centered U-cell anchors. Orientation
-  and physical engagement determine power; decorative gears on arbitrary
-  links are insufficient. Multi-cell machines declare one
-  U-anchored construction origin, occupied footprint and oriented ports on the
-  same lattice. Their body center may lie between cells. Ports are part
-  geometry, not another crafted item or a fractional construction target.
-- Mechanical belts follow the player-facing behavior of
-  [Create 6.0.10 for Minecraft 1.21.1](https://github.com/Creators-of-Create/Create/tree/mc1.21.1-6.0.10/src/main/java/com/simibubi/create/content/kinetics/belt)
-  on the U grid. One connector selects two compatible same-axis shafts and
-  forms a straight horizontal, vertical, sideways or 45-degree rising chain
-  through U-centered cells. Intermediate matching shafts become pulleys.
-  Obstruction, opposed live rotation and the configurable straight-line
-  endpoint-distance limit refuse invalid routes; the pinned default is
-  strictly less than 20 U. Building the belt establishes its connection.
-- Belt segments expose Create's start, middle, pulley and end behavior,
-  extension, merge, shorten, split and chain removal with pulley restoration.
-  Horizontal and inclined belts convey items and actors; vertical and sideways
-  belts transmit rotation without cargo. Removing a segment tears down its
-  chain and leaves cargo locally recoverable. Factory performs Create's wrench
-  service actions through a mode of the carried multitool, with no separate
-  wrench item. The native World owns finite belt material, motion, cargo,
-  service outcomes and saved state.
+- Shafts and cogs each occupy one 1 × 1 × 1 base tile on the common grid,
+  including vertically. Their orientation and engagement determine power;
+  decorative gears on arbitrary links are insufficient. Tile dimensions remain
+  tunable. Building a material belt between compatible endpoints establishes
+  its connection without another connection action.
 - Deposits must be recognizable, have useful coverage and match the extraction
   footprint. Use “ore deposit,” not “mineral seam.” Leveling foundations must
   allow bounded extraction depth without moving, refilling or duplicating ore.
