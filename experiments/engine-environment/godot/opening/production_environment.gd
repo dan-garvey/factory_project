@@ -1157,12 +1157,16 @@ class ProductionEnvironment:
 				return null
 			ore_patch_finish = ground.duplicate()
 			ore_patch_finish.albedo_color = Color("e2c0a1")
+			ore_patch_finish.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		return ore_patch_finish
 
 	static func _ore_host_material() -> StandardMaterial3D:
 		if ore_host_finish == null:
-			ore_host_finish = stone_material().duplicate()
-			ore_host_finish.albedo_color = Color("b7b8b2")
+			var mineral := _ore_exposure_material()
+			if mineral == null:
+				return null
+			ore_host_finish = mineral.duplicate()
+			ore_host_finish.albedo_color = Color("c8c8be")
 		return ore_host_finish
 
 	static func _ore_chip() -> ArrayMesh:
@@ -1255,7 +1259,7 @@ class ProductionEnvironment:
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
 							* local_patch * (0.14 + 0.25 * smoothstep(-0.38, 0.36, fleck))
 						surface.set_normal(Surface.normal(point.x, point.y))
-						surface.set_uv(point * 0.62)
+						surface.set_uv(point * 0.85)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
 						surface.add_vertex(Vector3(point.x,
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
@@ -1289,12 +1293,15 @@ class ProductionEnvironment:
 					var turn := Basis(Vector3.UP, float(index) * 2.39996)
 					fragments.append(Transform3D(turn.scaled_local(dimensions / Surface.SOURCE_OUTCROP_MESH.get_aabb().size),
 						Vector3(fx, Surface.height_at(fx, fz) + dimensions.y * 0.08, fz)))
-					var copper_size := Vector3(dimensions.x * 0.44, dimensions.y * 0.67, dimensions.z * 0.38)
-					var copper_at := Vector2(fx, fz) \
-						+ Vector2(0.14, -0.09).rotated(float(index) * 2.39996)
-					copper_fragments.append(Transform3D(turn.scaled_local(
-						copper_size / Surface.SOURCE_OUTCROP_MESH.get_aabb().size),
-						Vector3(copper_at.x, Surface.height_at(copper_at.x, copper_at.y) + copper_size.y * 0.82, copper_at.y)))
+					if rock_seed % 4 != 0:
+						var copper_size := Vector3(dimensions.x * (0.22 + float(rock_seed % 3) * 0.04),
+							dimensions.y * 0.37, dimensions.z * (0.22 + float(rock_seed % 4) * 0.03))
+						var copper_at := Vector2(fx, fz) + Vector2(0.10, 0.0).rotated(
+							float(rock_seed % 360) * PI / 180.0)
+						copper_fragments.append(Transform3D(turn.scaled_local(
+							copper_size / Surface.SOURCE_OUTCROP_MESH.get_aabb().size),
+							Vector3(copper_at.x, Surface.height_at(copper_at.x, copper_at.y)
+								+ dimensions.y * 0.49, copper_at.y)))
 					patch_specs.append({"center": Vector2(fx, fz), "radius": dimensions.x * 1.4,
 						"fraction": fraction})
 		var soil := MeshInstance3D.new()
@@ -1329,7 +1336,7 @@ class ProductionEnvironment:
 					for corner in [0, 3, 2, 0, 1, 3]:
 						var point: Vector2 = points[corner]
 						patches.set_normal(Surface.normal(point.x, point.y))
-						patches.set_uv(point * 0.95)
+						patches.set_uv(point * 1.5)
 						patches.set_color(Color(1.0, 1.0, 1.0, alphas[corner]))
 						patches.add_vertex(Vector3(point.x, Surface.height_at(point.x, point.y) + 0.034, point.y))
 		if not patch_specs.is_empty():
@@ -1371,18 +1378,19 @@ class ProductionEnvironment:
 			rock_scatter.material_override = _ore_host_material()
 			rock_scatter.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(rock_scatter)
-			var copper := MultiMesh.new()
-			copper.transform_format = MultiMesh.TRANSFORM_3D
-			copper.mesh = Surface.SOURCE_OUTCROP_MESH
-			copper.instance_count = copper_fragments.size()
-			for index in range(copper_fragments.size()):
-				copper.set_instance_transform(index, copper_fragments[index])
-			var copper_scatter := MultiMeshInstance3D.new()
-			copper_scatter.name = "CopperBearingFragments"
-			copper_scatter.multimesh = copper
-			copper_scatter.material_override = _ore_exposure_material()
-			copper_scatter.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			root.add_child(copper_scatter)
+			if not copper_fragments.is_empty():
+				var copper := MultiMesh.new()
+				copper.transform_format = MultiMesh.TRANSFORM_3D
+				copper.mesh = Surface.SOURCE_OUTCROP_MESH
+				copper.instance_count = copper_fragments.size()
+				for index in range(copper_fragments.size()):
+					copper.set_instance_transform(index, copper_fragments[index])
+				var copper_scatter := MultiMeshInstance3D.new()
+				copper_scatter.name = "CopperBearingFragments"
+				copper_scatter.multimesh = copper
+				copper_scatter.material_override = _ore_exposure_material()
+				copper_scatter.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				root.add_child(copper_scatter)
 		var seam_mesh: Mesh = Surface.SOURCE_OUTCROP_MESH
 		var seam_finish := _ore_exposure_material()
 		var original: Dictionary = state.get("hand_sources", {}).get(deposit.get("id", ""), {})
