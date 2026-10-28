@@ -53,6 +53,7 @@ class ProductionEnvironment:
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
+	static var ore_patch_finish: StandardMaterial3D
 	static var ore_exposure_finish: StandardMaterial3D
 	static var ore_host_finish: StandardMaterial3D
 	static var ore_chip_mesh: ArrayMesh
@@ -1149,10 +1150,19 @@ class ProductionEnvironment:
 			ore_exposure_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ore_exposure_finish
 
+	static func _ore_patch_material() -> StandardMaterial3D:
+		if ore_patch_finish == null:
+			var ground := _ore_ground_material()
+			if ground == null:
+				return null
+			ore_patch_finish = ground.duplicate()
+			ore_patch_finish.albedo_color = Color("e2c0a1")
+		return ore_patch_finish
+
 	static func _ore_host_material() -> StandardMaterial3D:
 		if ore_host_finish == null:
 			ore_host_finish = stone_material().duplicate()
-			ore_host_finish.albedo_color = Color("d4c4b3")
+			ore_host_finish.albedo_color = Color("b7b8b2")
 		return ore_host_finish
 
 	static func _ore_chip() -> ArrayMesh:
@@ -1251,7 +1261,7 @@ class ProductionEnvironment:
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
 			if fraction <= 0.01:
 				continue
-			for n in range(3):
+			for n in range(2):
 				var seed: int = absi(int(cell[0]) * 73856093 ^ int(cell[1]) * 19349663 ^ n * 83492791)
 				var dx: float = (float(seed % 101) / 100.0 - 0.5) * 1.12
 				var dz: float = (float((seed / 101) % 101) / 100.0 - 0.5) * 1.12
@@ -1259,8 +1269,8 @@ class ProductionEnvironment:
 				var z: float = cz + dz
 				if x <= Surface.river_center_x(z) + Surface.channel_half_width(z) + 0.18:
 					continue
-				var size: float = 0.10 + float(seed % 9) * 0.022
-				var height: float = 0.035 + float((seed / 7) % 5) * 0.012
+				var size: float = 0.06 + float(seed % 9) * 0.01
+				var height: float = 0.02 + float((seed / 7) % 5) * 0.007
 				var basis := Basis(Vector3.UP, float(seed % 360) * PI / 180.0)
 				basis = basis.scaled_local(Vector3(size, height, size * 0.72))
 				stones.append(Transform3D(basis,
@@ -1274,17 +1284,17 @@ class ProductionEnvironment:
 				var fz: float = cz + cos(float(index) * 1.71317) * 0.42
 				if fx > Surface.river_center_x(fz) + Surface.channel_half_width(fz) + 0.65:
 					var dimensions := Vector3(1.0 + float(rock_seed % 5) * 0.14,
-						0.20 + float(rock_seed % 3) * 0.035,
+						0.31 + float(rock_seed % 3) * 0.045,
 						0.72 + float(rock_seed % 4) * 0.11)
 					var turn := Basis(Vector3.UP, float(index) * 2.39996)
 					fragments.append(Transform3D(turn.scaled_local(dimensions / Surface.SOURCE_OUTCROP_MESH.get_aabb().size),
-						Vector3(fx, Surface.height_at(fx, fz) + dimensions.y * 0.14, fz)))
+						Vector3(fx, Surface.height_at(fx, fz) + dimensions.y * 0.08, fz)))
 					var copper_size := Vector3(dimensions.x * 0.44, dimensions.y * 0.67, dimensions.z * 0.38)
 					var copper_at := Vector2(fx, fz) \
 						+ Vector2(0.14, -0.09).rotated(float(index) * 2.39996)
 					copper_fragments.append(Transform3D(turn.scaled_local(
 						copper_size / Surface.SOURCE_OUTCROP_MESH.get_aabb().size),
-						Vector3(copper_at.x, Surface.height_at(copper_at.x, copper_at.y) + copper_size.y * 0.22, copper_at.y)))
+						Vector3(copper_at.x, Surface.height_at(copper_at.x, copper_at.y) + copper_size.y * 0.82, copper_at.y)))
 					patch_specs.append({"center": Vector2(fx, fz), "radius": dimensions.x * 1.4,
 						"fraction": fraction})
 		var soil := MeshInstance3D.new()
@@ -1314,7 +1324,7 @@ class ProductionEnvironment:
 							var bank: float = point.x - Surface.river_center_x(point.y) \
 								- Surface.channel_half_width(point.y)
 							points.append(point)
-							alphas.append(float([0.77, 0.66, 0.0][step]) * float(spec.fraction) \
+							alphas.append(float([0.52, 0.41, 0.0][step]) * float(spec.fraction) \
 								* smoothstep(0.0, 0.6, edge) * smoothstep(0.0, 0.5, bank))
 					for corner in [0, 3, 2, 0, 1, 3]:
 						var point: Vector2 = points[corner]
@@ -1326,7 +1336,7 @@ class ProductionEnvironment:
 			var disturbed := MeshInstance3D.new()
 			disturbed.name = "RockySoilPatches"
 			disturbed.mesh = patches.commit()
-			disturbed.material_override = _ore_ground_material()
+			disturbed.material_override = _ore_patch_material()
 			disturbed.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(disturbed)
 		if not stones.is_empty():
@@ -1359,6 +1369,7 @@ class ProductionEnvironment:
 			rock_scatter.name = "LowRockFragments"
 			rock_scatter.multimesh = loose
 			rock_scatter.material_override = _ore_host_material()
+			rock_scatter.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(rock_scatter)
 			var copper := MultiMesh.new()
 			copper.transform_format = MultiMesh.TRANSFORM_3D
@@ -1370,6 +1381,7 @@ class ProductionEnvironment:
 			copper_scatter.name = "CopperBearingFragments"
 			copper_scatter.multimesh = copper
 			copper_scatter.material_override = _ore_exposure_material()
+			copper_scatter.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(copper_scatter)
 		var seam_mesh: Mesh = Surface.SOURCE_OUTCROP_MESH
 		var seam_finish := _ore_exposure_material()
@@ -1387,7 +1399,7 @@ class ProductionEnvironment:
 					z - float(original_position[2])).length() < 1.8:
 				continue
 			for piece: Dictionary in [
-					{"offset": Vector2.ZERO, "size": Vector3(0.90, 0.24, 0.76), "copper": false},
+					{"offset": Vector2.ZERO, "size": Vector3(0.90, 0.28, 0.76), "copper": false},
 					{"offset": Vector2(-0.11, 0.10), "size": Vector3(0.42, 0.15, 0.34), "copper": true},
 					{"offset": Vector2(0.14, -0.10), "size": Vector3(0.37, 0.14, 0.30), "copper": true}]:
 				var offset: Vector2 = piece.offset
@@ -1399,7 +1411,8 @@ class ProductionEnvironment:
 				seam.scale = dimensions / seam_mesh.get_aabb().size
 				seam.rotation.y = atan2(offset.y, offset.x) if piece.copper else 0.0
 				seam.position = Vector3(x + offset.x,
-					Surface.height_at(x + offset.x, z + offset.y) + 0.065, z + offset.y)
+					Surface.height_at(x + offset.x, z + offset.y) + (0.11 if piece.copper else 0.04),
+					z + offset.y)
 				seam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				root.add_child(seam)
 		return root
