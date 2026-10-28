@@ -4107,20 +4107,6 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 				capture_prefix + "-postcollector-build.png") == OK,
 				"Retain the native post-collector Build window at normal actor size"):
 			return false
-		var original_size: Vector2i = root.size
-		root.size = Vector2i(900, 600)
-		for frame in range(3):
-			await process_frame
-		inventory._place_catalog()
-		await RenderingServer.frame_post_draw
-		if not _expect(inventory.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
-				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
-				and root.get_texture().get_image().save_png(
-					capture_prefix + "-postcollector-build-narrow.png") == OK,
-				"Retain the native belt-route Build group inside the narrow actor viewport"):
-			return false
-		root.size = original_size
-		await process_frame
 	inventory.recipe_tabs.machine.pressed.emit()
 	inventory._focus_catalog_button(inventory.recipe_tabs.machine)
 	await process_frame
@@ -4136,6 +4122,28 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 				capture_prefix + "-postcollector-machine.png") == OK,
 				"Retain the native post-collector Machine parts window"):
 			return false
+	inventory.recipe_tabs.logistics.pressed.emit()
+	inventory._focus_catalog_button(inventory.recipe_tabs.logistics)
+	await process_frame
+	if not _expect(inventory.recipe_category == "logistics"
+			and inventory.focus_description.text.contains("Logistics recipes"),
+			"The selected Logistics tab returns before the narrow Build capture"):
+		return false
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		var original_size: Vector2i = root.size
+		root.size = Vector2i(900, 600)
+		for frame in range(3):
+			await process_frame
+		inventory._place_catalog()
+		await RenderingServer.frame_post_draw
+		if not _expect(inventory.catalog.visible and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(
+				Rect2(Vector2(inventory.catalog.position), Vector2(inventory.catalog.size)))
+				and root.get_texture().get_image().save_png(
+					capture_prefix + "-postcollector-build-narrow.png") == OK,
+				"Retain the native belt-route Build group inside the narrow actor viewport"):
+			return false
+		root.size = original_size
+		await process_frame
 	inventory._close_catalog()
 	# A resize while the popup was visible can leave its deferred layout
 	# coroutine waiting for one more frame; let it finish before scene teardown.
