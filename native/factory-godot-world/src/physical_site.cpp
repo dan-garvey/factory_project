@@ -32,6 +32,7 @@ using physical_geometry::gear_half_extents;
 using physical_geometry::gear_axle_half_extents;
 using physical_geometry::transmission_intersects;
 using physical_geometry::shaft_meets_component_cog;
+using physical_geometry::shaft_meets_slide_input;
 using physical_geometry::intersects_belt;
 using site_geometry::height_denominator;
 using site_geometry::height_step;
@@ -180,6 +181,17 @@ const char* component_refusal(const Site& site, const world::State& state,
                     [&](const auto& entry) { return entry.second.center == cell; });
             })) return "support_required";
     }
+    if (kind == materials::Component::anvil &&
+        ground->first < at[1] - volume.half[1] - 0.04) {
+        const bool foundation = std::any_of(state.foundations.begin(), state.foundations.end(),
+            [&](const auto& entry) { return entry.second.center == center; });
+        const bool frame = std::any_of(state.placed_components.begin(),
+            state.placed_components.end(), [&](const auto& entry) {
+                return entry.second.kind == materials::Component::wooden_frame &&
+                    entry.second.center == mechanics::Point{center[0], center[1] - 1, center[2]};
+            });
+        if (!foundation && !frame) return "support_required";
+    }
     if (kind == materials::Component::wooden_workbench) {
         const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
             [&](const auto& entry) { return entry.second.center == center; });
@@ -226,6 +238,8 @@ const char* component_space_refusal(const Site& site, const world::State& state,
             if (transmission_intersects(volume, part.geometry.center, part.geometry.axis,
                                         part.role == Role::gear) &&
                 !(part.role == Role::shaft && shaft_meets_component_cog(
+                    kind, center, part.geometry.center, part.geometry.axis)) &&
+                !(part.role == Role::shaft && shaft_meets_slide_input(
                     kind, center, part.geometry.center, part.geometry.axis))) return "occupied";
         } else if (overlap(volume, part_bounds(site.profile, part))) return "occupied";
         if (part.role == Role::collector)

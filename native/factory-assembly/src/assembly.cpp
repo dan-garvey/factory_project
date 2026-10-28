@@ -194,7 +194,13 @@ SlidingPressInspection Layout::inspect_sliding_press(const Point& center) const 
     for (const Integer sign : {-1, 1}) {
         const Point entry{center[0] + sign, center[1], center[2]};
         const Point exit{center[0] - sign, center[1], center[2]};
+        const Point entry_neighbor{center[0] + 4 * sign, center[1], center[2]};
+        const Point exit_neighbor{center[0] - 4 * sign, center[1], center[2]};
+        // The quarter-step work points are inside the full-U workbed. A
+        // separate neighboring cell must also leave each outside mouth clear.
         if (!by_center_.contains(entry) &&
+            !by_center_.contains(entry_neighbor) &&
+            !by_center_.contains(exit_neighbor) &&
             (!by_center_.contains(exit) ||
              at(by_center_, exit, materials::Component::receiver_tray)))
             press.open_feeds.push_back({entry, exit});
