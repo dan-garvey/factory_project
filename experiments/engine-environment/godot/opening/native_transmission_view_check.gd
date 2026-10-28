@@ -12,7 +12,7 @@ const Session = preload("res://opening-session/session.gd")
 const Opening = preload("res://opening/opening.gd")
 const DIRECT_MODES := [
 	"--supplied-hardware-only", "--component-boxes-only", "--press-components-only",
-	"--press-connector-only",
+	"--press-connector-only", "--broad-belt-dock-only",
 	"--guided-press-components-only", "--broad-press-components-only", "--broad-press-raised-only",
 	"--channel-components-only", "--channel-z-only", "--channel-sheet-only",
 	"--physical-topology-cache-only", "--physical-actor-bridge-only", "--advance-projection-only",
@@ -2897,6 +2897,53 @@ func _press_belt_connector_view() -> void:
 		"A partial press does not show a belt connector before its native assembly is ready.")
 	presenter.free()
 
+func _broad_belt_dock_view() -> void:
+	var bed_center := Vector3(Geometry.PITCH * 0.5, Geometry.PRESS_WORK_HEIGHT * 0.5,
+		Geometry.PITCH * 0.5)
+	var bed_half := Vector3(Geometry.PITCH, Geometry.PRESS_WORK_HEIGHT * 0.5, Geometry.PITCH)
+	var state := {"options": {"native": true},
+		"placed_components": {"broad-bed": {"component": "broad_anvil", "center": [0, 0, 0],
+			"generation": 1, "occupied": {"center": [bed_center.x, bed_center.y, bed_center.z],
+				"half": [bed_half.x, bed_half.y, bed_half.z]}}},
+		"belt_spans": {"lane": {"from": "far", "to": "mouth"}},
+		"transmission_parts": {"far": {"kind": "shaft", "axis": 2, "center": [-8, 0, 0],
+			"half_span": 2}, "mouth": {"kind": "shaft", "axis": 2, "center": [-4, 0, 0],
+			"half_span": 2}}}
+	var boxes: Dictionary = Geometry.component_boxes(state).boxes
+	for row in [0, 4]:
+		state.transmission_parts.far.center[2] = row
+		state.transmission_parts.mouth.center[2] = row
+		var presenter := Presenter.new()
+		root.add_child(presenter)
+		presenter._render_broad_belt_docks(state, boxes)
+		var dock := presenter.get_node_or_null("BroadBeltDock") as Node3D
+		var plate := dock.get_node_or_null("DockPlate") as MeshInstance3D if dock != null else null
+		var bounds: AABB = plate.global_transform * plate.mesh.get_aabb() if plate != null else AABB()
+		var anvil_edge: float = bed_center.x - bed_half.x
+		var pulley_tip: float = -Geometry.PITCH + Geometry.BELT_OUTER_RADIUS
+		verify(dock != null and plate != null and dock.get_meta("belt_span") == "lane"
+			and absf(bounds.end.y - Geometry.PRESS_WORK_HEIGHT) < 0.0002
+			and bounds.position.x < pulley_tip and bounds.end.x > anvil_edge
+			and absf(bounds.size.z - Geometry.BELT_HALF_WIDTH * 2.0) < 0.0002
+			and dock.find_children("DockRail*", "MeshInstance3D", false, false).size() == 2,
+			"Either foundation row has a fixed belt nose overlapping its pulley and broad anvil edge.")
+		presenter.free()
+	state.transmission_parts.mouth.center[1] = 4
+	var raised := Presenter.new()
+	root.add_child(raised)
+	raised._render_broad_belt_docks(state, boxes)
+	verify(raised.get_node_or_null("BroadBeltDock") == null,
+		"A belt endpoint above the workface cannot appear docked to the broad anvil.")
+	raised.free()
+	state.transmission_parts.mouth.center[1] = 0
+	state.belt_spans.clear()
+	var absent := Presenter.new()
+	root.add_child(absent)
+	absent._render_broad_belt_docks(state, boxes)
+	verify(absent.get_node_or_null("BroadBeltDock") == null,
+		"A bare shaft without a confirmed belt span has no broad workbed dock.")
+	absent.free()
+
 func _slide_material_seat() -> void:
 	var state := {"context": "slide-material-seat", "revision": 1,
 		"options": {"native": true}, "transmission_parts": {}, "belt_spans": {},
@@ -4359,6 +4406,8 @@ func _run() -> void:
 		await _press_component_view()
 	elif "--press-connector-only" in OS.get_cmdline_user_args():
 		_press_belt_connector_view()
+	elif "--broad-belt-dock-only" in OS.get_cmdline_user_args():
+		_broad_belt_dock_view()
 	elif "--guided-press-components-only" in OS.get_cmdline_user_args():
 		await _guided_press_component_view()
 	elif "--broad-press-components-only" in OS.get_cmdline_user_args():

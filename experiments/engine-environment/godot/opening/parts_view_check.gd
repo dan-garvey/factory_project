@@ -554,6 +554,14 @@ func _component_placement_check() -> void:
 		"The broad housing carries the central piston through its stroke.")
 	verify(broad_slide_sample.find_children("BroadInternalShaft*", "MeshInstance3D", true, false).size() == 4,
 		"All four tile shaft paths appear within the broad housing.")
+	var broad_couplers := broad_slide_sample.find_children("BroadRowCoupler*", "Node3D", true, false)
+	var toothed_couplers := 0
+	for coupler: Node in broad_couplers:
+		var teeth := coupler.get_node_or_null("GearTooth") as MultiMeshInstance3D
+		if teeth != null and teeth.multimesh.instance_count == 16:
+			toothed_couplers += 1
+	verify(broad_couplers.size() == 2 and toothed_couplers == 2,
+		"The paired broad drive couplers use visible toothed cog rims beside the central piston.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		root.size = Vector2i(1600, 900)
 		var floor := MeshInstance3D.new()
@@ -590,8 +598,9 @@ func _component_placement_check() -> void:
 		view.add_child(context_drive)
 		context_drive.configure(context_host)
 		verify(context_drive.find_child("ConfirmedBelt", true, false) != null
-			and context_drive.find_child("FixedSupport", true, false) != null,
-			"The contextual belt and tile-centered shaft use confirmed presenter meshes and supports.")
+			and context_drive.find_child("FixedSupport", true, false) != null
+			and context_drive.find_child("BroadBeltDock", true, false) != null,
+			"The confirmed belt docks flush to the broad anvil beside the tile-centered shaft.")
 		var sheet_visual := context_drive.get_node_or_null("CopperSheet") as Node3D
 		var workbed_top: float = broad_bed_box.center.y + broad_bed_box.half.y
 		verify(sheet_visual != null and context_drive.find_child("JoinedWorkbedBase", true, false) != null

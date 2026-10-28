@@ -1481,9 +1481,12 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					var port := _support_cylinder(anchor, "BroadShaftPort%d" % anchor.get_child_count(), 0.055, 0.065, dark)
 					port.position = Vector3(outer_x, shaft_y, z)
 					port.rotation.z = PI * 0.5
-				var gear := _support_cylinder(anchor, "BroadRowCoupler%d" % anchor.get_child_count(), 0.80, 0.085, copper)
+				var gear := Node3D.new()
+				gear.name = "BroadRowCoupler%d" % anchor.get_child_count()
 				gear.position = Vector3(0.20, shaft_y, z)
 				gear.rotation.z = PI * 0.5
+				anchor.add_child(gear)
+				Assets.gear(gear, 0.825, 2, Color("b68149"))
 			_support_box(anchor, "CentralPistonBearing", Vector3(0, shaft_y, 0),
 				Vector3(0.48, 0.17, 0.48), frame, true)
 			var rest_reach := Geometry.HEIGHT_STEP * 1.5 + Geometry.ANCHOR_HEIGHT \
@@ -2268,6 +2271,83 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 						Geometry.BELT_OUTER_RADIUS - 0.042, end_side * (length * 0.5 - 0.035)),
 						Vector3(0.84, 0.045, 0.07), edge_finish, true)
 
+func _render_broad_belt_docks(snapshot: Dictionary, boxes: Dictionary) -> void:
+	# A confirmed belt endpoint can meet either row of the broad anvil at the
+	# common work height. The fixed nose fills only the endpoint's occupied
+	# foundation tile and a short seat on the anvil. Native cargo still ends
+	# at the shaft; this fitting does not grant broad-sheet belt transfer.
+	var spans: Variant = snapshot.get("belt_spans", {})
+	var parts: Variant = snapshot.get("transmission_parts", {})
+	var placed: Variant = snapshot.get("placed_components", {})
+	if not spans is Dictionary or not parts is Dictionary or not placed is Dictionary:
+		return
+	var casting: Material = Finish.material("cast", Color("293b3d"), 0.66, 0.48)
+	var edge: Material = Finish.material("worked", Color("506669"), 0.82, 0.36)
+	var joint: Material = Finish.material("worked", Color("bdc7bd"), 0.82, 0.36)
+	for bed_id: String in placed:
+		var bed: Variant = boxes.get(bed_id)
+		if not bed is Dictionary or bed.get("component") != "broad_anvil":
+			continue
+		var center: Vector3 = bed.center
+		var half: Vector3 = bed.size * 0.5
+		var work_top: float = center.y + half.y
+		var seen := {}
+		for span_id: String in spans:
+			var span: Variant = spans[span_id]
+			if not span is Dictionary:
+				continue
+			var first: Variant = parts.get(span.get("from"))
+			var last: Variant = parts.get(span.get("to"))
+			var frame := belt_visual_frame(first, last)
+			if frame.is_empty() or frame.delta.y != 0 \
+					or (frame.delta.x == 0) == (frame.delta.z == 0):
+				continue
+			for endpoint: Variant in [first, last]:
+				var point: Vector3 = world_center(endpoint.center)
+				if absf(point.y + Geometry.BELT_OUTER_RADIUS - work_top) > 0.002:
+					continue
+				var toward := Vector3.ZERO
+				if endpoint.axis == 2 and frame.delta.z == 0:
+					if absf(point.z - (center.z - Geometry.PITCH * 0.5)) < 0.002 \
+							or absf(point.z - (center.z + Geometry.PITCH * 0.5)) < 0.002:
+						if absf(point.x - (center.x - half.x - Geometry.PITCH * 0.5)) < 0.002:
+							toward = Vector3.RIGHT
+						elif absf(point.x - (center.x + half.x + Geometry.PITCH * 0.5)) < 0.002:
+							toward = Vector3.LEFT
+				elif endpoint.axis == 0 and frame.delta.x == 0:
+					if absf(point.x - (center.x - Geometry.PITCH * 0.5)) < 0.002 \
+							or absf(point.x - (center.x + Geometry.PITCH * 0.5)) < 0.002:
+						if absf(point.z - (center.z - half.z - Geometry.PITCH * 0.5)) < 0.002:
+							toward = Vector3.BACK
+						elif absf(point.z - (center.z + half.z + Geometry.PITCH * 0.5)) < 0.002:
+							toward = Vector3.FORWARD
+				if toward == Vector3.ZERO:
+					continue
+				var other: Dictionary = last if endpoint == first else first
+				if (world_center(other.center) - point).dot(toward) >= 0.0 or seen.has(point):
+					continue
+				seen[point] = true
+				var start: Vector3 = point + toward * (Geometry.BELT_OUTER_RADIUS - 0.025)
+				var finish: Vector3 = point + toward * (Geometry.PITCH * 0.5 + 0.11)
+				var length: float = start.distance_to(finish)
+				var dock := Node3D.new()
+				dock.name = "BroadBeltDock"
+				dock.set_meta("anvil", bed_id)
+				dock.set_meta("belt_span", span_id)
+				dock.position = (start + finish) * 0.5
+				dock.rotation.y = atan2(toward.x, toward.z)
+				add_child(dock)
+				_support_box(dock, "DockPlate", Vector3(0, Geometry.BELT_OUTER_RADIUS - 0.009, 0),
+					Vector3(Geometry.BELT_HALF_WIDTH * 2.0, 0.018, length), casting, true)
+				for rail_side in [-1.0, 1.0]:
+					_support_box(dock, "DockRailN" if rail_side < 0 else "DockRailP", Vector3(rail_side * 0.49,
+						Geometry.BELT_OUTER_RADIUS - 0.02, 0), Vector3(0.055, 0.04, length), edge, true)
+					for end_side in [-1.0, 1.0]:
+						_support_box(dock, "DockJoint%s%s" % ["N" if rail_side < 0 else "P",
+							"Start" if end_side < 0 else "End"], Vector3(rail_side * 0.49,
+							Geometry.BELT_OUTER_RADIUS - 0.02, end_side * (length * 0.5 - 0.04)),
+							Vector3(0.072, 0.052, 0.08), joint, true)
+
 func _add_loose_pickers(node: Node3D, drop: Dictionary, context: String) -> void:
 	# Match the visible item, including its offset on a workbed and sheet rotation.
 	# These shapes only select; native World still owns reach and material custody.
@@ -2373,6 +2453,7 @@ func refresh() -> void:
 	_render_placed_components(snapshot, component_result.boxes)
 	_render_receiver_chutes(snapshot)
 	_render_press_belt_connectors(snapshot)
+	_render_broad_belt_docks(snapshot, component_result.boxes)
 	var guided_work_surfaces := {}
 	for press: Variant in snapshot.get("guided_press_assemblies", []):
 		if press is Dictionary and press.get("status") == "ready" \
