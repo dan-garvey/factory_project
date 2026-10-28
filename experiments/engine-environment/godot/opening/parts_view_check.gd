@@ -2734,7 +2734,7 @@ func _arrival_hotbar() -> void:
 	view.state.cargo.P.products = 1
 	view.state.cargo.P.work_lots = [{"id": 7}]
 	view.state.crank_items = {"crank-1": {"holder": "P", "attached_to": "", "port": []}}
-	view.state.workshop_completed_actors = ["P"]
+	view.state.workshop_completed_actors = []
 	view.state.cargo.P.components.copper_slide = 4
 	view._refresh_ui()
 	verify(bar.component_buttons.broad_copper_slide.visible
@@ -3144,12 +3144,45 @@ func _render_arrival_hotbar() -> void:
 		{"kind": "wheel", "timber": 2, "copper": 1, "teeth": 0, "half_span": 0}]
 	view.state.component_capacity = 20
 	view.state.placed_components = {}
+	var post_plate_cargo: Dictionary = view.state.cargo.P.duplicate(true)
+	var post_plate_specifications: Array = view.state.part_specifications.P.duplicate(true)
+	view.state.cargo.P = {"components": {}, "timber": 7, "raw": 3, "products": 0}
+	view.state.part_kits.P = {}
+	view.state.part_specifications.P = []
+	view.state.crank_items.clear()
 	root.add_child(view)
 	view.selection_ring = MeshInstance3D.new()
 	view.add_child(view.selection_ring)
 	view._build_interface()
 	view._refresh_ui()
 	var bar = view.building_hotbar
+	bar.open_catalog()
+	await settle_widgets()
+	verify(bar.recipe_category == "machine" and bar.recipe_buttons["component:anvil"].visible
+		and bar.recipe_buttons["component:flat_head"].visible
+		and bar.recipe_buttons["component:wooden_slide"].visible
+		and bar.recipe_buttons["component:hand_crank"].visible
+		and not bar.recipe_buttons["component:wooden_frame"].visible,
+		"The starter Build catalog focuses only the four press parts in Machine parts.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-starter.png") == OK,
+		"Retain the normal starter Build catalog with all carried stock visible.")
+	root.size = Vector2i(900, 600)
+	bar._close_catalog()
+	await settle_widgets()
+	bar.open_catalog()
+	await settle_widgets()
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-starter-narrow.png") == OK,
+		"Retain the narrow starter Build catalog with four press recipes.")
+	bar._close_catalog()
+	root.size = Vector2i(1280, 800)
+	view.state.workshop_completed_actors = ["P"]
+	view.state.cargo.P = post_plate_cargo
+	view.state.part_kits.P = {"foundation": 15}
+	view.state.part_specifications.P = post_plate_specifications
+	view.state.crank_items = {"component-1": {"holder": "P", "attached_to": ""}}
+	view._refresh_ui()
 	bar.open_catalog()
 	var partial_grid := _carried_grid_state(bar)
 	verify(partial_grid.items > 0 and partial_grid.items + partial_grid.blanks == 32
@@ -3198,6 +3231,16 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-machine-recipes.png") == OK,
 		"Retain the compact Machine parts grid beside unfiltered carried stock.")
+	bar.recipe_tabs.other.pressed.emit()
+	await settle_widgets()
+	verify(bar.recipe_category == "other" and bar.recipe_buttons.foundation.visible
+		and not bar.recipe_buttons["component:anvil"].visible,
+		"The provisional Other tab reaches the foundation without filtering carried stock.")
+	await RenderingServer.frame_post_draw
+	verify(root.get_texture().get_image().save_png(prefix + "-other.png") == OK,
+		"Retain the provisional Other recipes beside the same carried stock.")
+	bar.recipe_tabs.machine.pressed.emit()
+	await settle_widgets()
 	var stocked_cargo: Dictionary = view.state.cargo.P.duplicate(true)
 	var stocked_specifications: Array = view.state.part_specifications.P.duplicate(true)
 	view.state.cargo.P = {"components": {}}
