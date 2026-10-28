@@ -634,6 +634,14 @@ func _component_placement_check() -> void:
 			"Retain the broad worksite beside a narrow press, one-wide belt and external drive shaft.")
 		broad_head_sample.visible = false
 		broad_slide_sample.visible = false
+		camera.position = Vector3(7.2, 7.4, 12.2)
+		camera.look_at(Vector3(7.7, 0.9, 4.1))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-broad-sheet-seat.png") == OK,
+			"Retain the complete finished sheet on its broad bed with the head hidden for inspection.")
+		camera.position = Vector3(7.4, 5.2, 12.6)
+		camera.look_at(Vector3(7.7, 1.5, 4.0))
 		contact_head.visible = true
 		contact_slide.visible = true
 		await process_frame
