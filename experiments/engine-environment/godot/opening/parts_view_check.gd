@@ -2734,7 +2734,7 @@ func _arrival_hotbar() -> void:
 	view.state.cargo.P.products = 1
 	view.state.cargo.P.work_lots = [{"id": 7}]
 	view.state.crank_items = {"crank-1": {"holder": "P", "attached_to": "", "port": []}}
-	view.state.workshop_completed_actors = []
+	view.state.workshop_completed_actors = ["P"]
 	view.state.cargo.P.components.copper_slide = 4
 	view._refresh_ui()
 	verify(bar.component_buttons.broad_copper_slide.visible
@@ -3112,7 +3112,7 @@ func _render_arrival_hotbar() -> void:
 	view.state = hotbar_observation()
 	view.state.hand_sources = {}
 	view.state.first_plate_unlock = true
-	view.state.workshop_completed_actors = ["P"]
+	view.state.workshop_completed_actors = []
 	view.state.part_kits.P = {"foundation": 15}
 	view.state.part_specifications.P = [
 		{"kind": "gear", "count": 1, "teeth": 2, "half_span": 0},
