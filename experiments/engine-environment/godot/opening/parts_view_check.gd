@@ -597,11 +597,17 @@ func _component_placement_check() -> void:
 			broad_slide_box.size, "", 0.0, 0.0, Vector3.ZERO, stroke_phase)
 		contact_head.visible = false
 		contact_slide.visible = false
-		verify(absf(contact_head.get_node("BroadHeadMovingDie").position.y
-				- broad_head_sample.get_node("BroadHeadMovingDie").position.y + 0.20) < 0.0001
-			and absf(contact_slide.get_node("BroadSlideCarriage").position.y
-				- broad_slide_sample.get_node("BroadSlideCarriage").position.y + 0.20) < 0.0001,
-			"The central piston and complete broad face share one native half-cycle stroke.")
+		var face_drop: float = broad_head_sample.get_node("BroadHeadMovingDie").position.y \
+			- contact_head.get_node("BroadHeadMovingDie").position.y
+		var piston_drop: float = broad_slide_sample.get_node("BroadSlideCarriage").position.y \
+			- contact_slide.get_node("BroadSlideCarriage").position.y
+		var contact_face_bottom: float = broad_head_box.center.y \
+			+ contact_head.get_node("BroadHeadMovingDie").position.y - 0.08
+		var workbed_top: float = broad_bed_box.center.y + broad_bed_box.half.y
+		verify(face_drop > 0.25 and face_drop < 0.40
+			and absf(face_drop - piston_drop) < 0.0001
+			and absf(contact_face_bottom - workbed_top) < 0.01,
+			"The central piston and complete broad face share a stroke ending at the workbed.")
 		head_sample.visible = true
 		slide_sample.visible = true
 		stroked_head.visible = false
