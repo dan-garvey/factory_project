@@ -227,7 +227,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
             {"output", Value(stock.output)}};
         if (copper) stock_fields.emplace("offcuts", Value(stock.offcuts));
         Object output{
-            {"schema", Value(Value::Integer{copper ? 15 : resources ? 14 : 7})},
+            {"schema", Value(Value::Integer{resources ? 16 : copper ? 15 : 7})},
             {"initial_units", Value(state.initial_units)},
             {"stock", Value(std::move(stock_fields))},
             {"cargo", Value(std::move(cargo))},
@@ -246,6 +246,7 @@ MaterialEncoding encode_material_state(const State& state, const Config& config,
             output.emplace("placed_components", Value(std::move(placed)));
             output.emplace("fabricated_timber", Value(state.fabricated_timber));
             output.emplace("fabricated_raw", Value(state.fabricated_raw));
+            output.emplace("fabricated_plates", Value(state.fabricated_plates));
         }
         return Value(std::move(output));
     } catch (const CodecRefusal& refusal) { return refusal; }
@@ -258,9 +259,9 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         const bool copper = config.raw_mass != 1 || config.plate_mass != 0 || config.sheet_mass != 0;
         const auto roster = expected_roster(actors);
         const auto& root = resources ? fields(value, "$",
-            {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining", "placed_components", "fabricated_timber", "fabricated_raw"}) :
+            {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id", "timber_remaining", "placed_components", "fabricated_timber", "fabricated_raw", "fabricated_plates"}) :
             fields(value, "$", {"schema", "initial_units", "stock", "cargo", "dropped_material", "belt_lanes", "processing", "next_work_id"});
-        if (integer(root.at("schema"), "$.schema") != (copper ? 15 : resources ? 14 : 7))
+        if (integer(root.at("schema"), "$.schema") != (resources ? 16 : copper ? 15 : 7))
             refuse(CodecReason::unsupported_schema, "$.schema");
         const auto& stock = copper ? fields(root.at("stock"), "$.stock",
                 {"source", "collector", "belt", "input", "output", "offcuts"}) :
@@ -277,6 +278,7 @@ MaterialDecoding decode_material_state(const Value& value, const Config& config,
         if (resources) {
             candidate.fabricated_timber = integer(root.at("fabricated_timber"), "$.fabricated_timber");
             candidate.fabricated_raw = integer(root.at("fabricated_raw"), "$.fabricated_raw");
+            candidate.fabricated_plates = integer(root.at("fabricated_plates"), "$.fabricated_plates");
             const auto& trees = object(root.at("timber_remaining"), "$.timber_remaining");
             if (trees.size() > 16) refuse(CodecReason::invalid_material_state, "$.timber_remaining");
             for (const auto& [id, count] : trees)

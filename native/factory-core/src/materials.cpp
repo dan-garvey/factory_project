@@ -424,6 +424,7 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
     const Quantity plate_mass = config.plate_mass == 0 ?
         static_cast<Quantity>(input_mass) : config.plate_mass;
     const bool copper = config.raw_mass != 1 || config.plate_mass != 0 || config.sheet_mass != 0;
+    const bool resources = config.manual_ore || !config.timber_sites.empty();
     if (config.input_units_per_product < 1 || config.collector_capacity < 1 ||
         config.raw_mass < 1 || config.raw_mass > 1000000 || plate_mass < 1 ||
         plate_mass > input_mass || config.sheet_mass < 0 ||
@@ -584,8 +585,11 @@ Error validate(const State& state, const Config& config, const Path& path) noexc
         }
     }
     if (state.placed_components.size() > 20 || state.fabricated_timber < 0 ||
-        state.fabricated_raw < 0 || !add(timber_accounted, state.fabricated_timber) ||
-        !products(total, state.fabricated_raw, config.raw_mass)) return Error::invalid_state;
+        state.fabricated_raw < 0 || state.fabricated_plates < 0 ||
+        (!resources && state.fabricated_plates != 0) ||
+        !add(timber_accounted, state.fabricated_timber) ||
+        !products(total, state.fabricated_raw, config.raw_mass) ||
+        !products(total, state.fabricated_plates, plate_mass)) return Error::invalid_state;
     for (const auto& [kind, count] : state.placed_components) {
         const auto cost = component_cost(kind);
         if (!cost || count < 1 || count > 4096 ||

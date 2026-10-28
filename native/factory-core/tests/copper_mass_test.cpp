@@ -1,6 +1,7 @@
 #include "factory/material_state_codec.hpp"
 
 #include <iostream>
+#include <utility>
 #include <variant>
 
 namespace m = factory::materials;
@@ -73,6 +74,30 @@ int main() {
           state.cargo.at("P").products == 1 &&
           m::validate(state, recipe, path) == m::Error::none,
           "Plate and offcut remain distinct in actor custody.");
+    auto spent_plate = state;
+    --spent_plate.cargo.at("P").products;
+    ++spent_plate.fabricated_plates;
+    check(m::validate(spent_plate, recipe, path) == m::Error::none &&
+          spent_plate.cargo.at("P").offcuts == 1,
+          "A fabricated kit retains the exact three-unit plate mass separately from its offcut.");
+    auto duplicated_plate = spent_plate;
+    ++duplicated_plate.fabricated_plates;
+    check(m::validate(duplicated_plate, recipe, path) == m::Error::invalid_state,
+          "A duplicated fabricated plate cannot mint three copper mass units.");
+    const auto spent_encoding = m::encode_material_state(spent_plate, recipe, path, {"P"});
+    check(std::holds_alternative<v::Value>(spent_encoding),
+          "A fabricated plate remains encodable in the strict material checkpoint.");
+    if (const auto* value = std::get_if<v::Value>(&spent_encoding)) {
+        const auto restored = m::decode_material_state(*value, recipe, path, {"P"});
+        check(std::holds_alternative<m::State>(restored) &&
+              std::get<m::State>(restored) == spent_plate,
+              "The strict material checkpoint restores a plate embodied in a fabricated kit.");
+        auto missing_plate = std::get<v::Value::Object>(value->storage());
+        missing_plate.erase("fabricated_plates");
+        check(std::holds_alternative<m::CodecRefusal>(m::decode_material_state(
+                  v::Value(std::move(missing_plate)), recipe, path, {"P"})),
+              "A checkpoint cannot omit the plate balance after fabrication.");
+    }
     const auto encoded = m::encode_material_state(state, recipe, path, {"P"});
     check(std::holds_alternative<v::Value>(encoded), "Copper cargo encodes as a typed material checkpoint.");
     if (const auto* value = std::get_if<v::Value>(&encoded)) {
@@ -227,7 +252,7 @@ int main() {
     state.cargo.at("P").offcuts = 0;
     check(m::validate(state, recipe, path) == m::Error::invalid_state,
           "Removing even one offcut unit breaks native mass conservation.");
-    check(before != formed && checks == 37, "The fixture exercised actual stock and formed states.");
+    check(before != formed && checks == 42, "The fixture exercised actual stock and formed states.");
     std::cout << "{\"checks\":" << checks << ",\"evidence\":\"copper_material_mass\"}\n";
-    return failures == 0 && checks == 38 ? 0 : 1;
+    return failures == 0 && checks == 43 ? 0 : 1;
 }
