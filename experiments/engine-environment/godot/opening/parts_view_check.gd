@@ -570,7 +570,14 @@ func _component_placement_check() -> void:
 		var context_host := BroadContextHost.new()
 		context_host.state = {"context": "broad-housing-context", "revision": 1,
 			"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
-			"foundations": {}, "placed_components": {}, "motion": {},
+			"foundations": {}, "placed_components": {
+				"broad-bed": {"component": "broad_anvil", "center": broad_origin,
+					"generation": 1, "occupied": {
+						"center": [broad_bed_box.center.x, broad_bed_box.center.y, broad_bed_box.center.z],
+						"half": [broad_bed_box.half.x, broad_bed_box.half.y, broad_bed_box.half.z]}}},
+			"dropped_material": [{"center": broad_origin, "raw": 0, "products": 0,
+				"offcuts": 0, "sheets": 1, "sheet_items": [{"id": 7001, "rotation": 0}],
+				"work_lots": []}], "motion": {},
 			"transmission_parts": {
 				"belt-first": {"kind": "shaft", "axis": 2, "center": [8, 0, 12], "half_span": 2,
 					"support": {"foot": [3.3, 0.0, 4.95], "bearing": [3.3, 0.825, 4.95]}},
@@ -585,6 +592,12 @@ func _component_placement_check() -> void:
 		verify(context_drive.find_child("ConfirmedBelt", true, false) != null
 			and context_drive.find_child("FixedSupport", true, false) != null,
 			"The contextual belt and tile-centered shaft use confirmed presenter meshes and supports.")
+		var sheet_visual := context_drive.get_node_or_null("CopperSheet") as Node3D
+		var workbed_top: float = broad_bed_box.center.y + broad_bed_box.half.y
+		verify(sheet_visual != null and context_drive.find_child("JoinedWorkbedBase", true, false) != null
+			and absf(sheet_visual.position.y - workbed_top - 0.031) < 0.0001,
+			"The finished 2x2 sheet is visibly seated on the confirmed broad anvil.")
+		broad_bed_sample.visible = false
 		var contact_head := Node3D.new()
 		contact_head.position = broad_head_box.center
 		view.add_child(contact_head)
@@ -603,11 +616,11 @@ func _component_placement_check() -> void:
 			- contact_slide.get_node("BroadSlideCarriage").position.y
 		var contact_face_bottom: float = broad_head_box.center.y \
 			+ contact_head.get_node("BroadHeadMovingDie").position.y - 0.08
-		var workbed_top: float = broad_bed_box.center.y + broad_bed_box.half.y
-		verify(face_drop > 0.25 and face_drop < 0.40
+		var sheet_top: float = sheet_visual.position.y + 0.025 if sheet_visual != null else -999.0
+		verify(face_drop > 0.20 and face_drop < 0.30
 			and absf(face_drop - piston_drop) < 0.0001
-			and absf(contact_face_bottom - workbed_top) < 0.01,
-			"The central piston and complete broad face share a stroke ending at the workbed.")
+			and absf(contact_face_bottom - sheet_top) < 0.005,
+			"The central piston and complete broad face share a stroke ending at the sheet surface.")
 		head_sample.visible = true
 		slide_sample.visible = true
 		stroked_head.visible = false

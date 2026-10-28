@@ -23,6 +23,7 @@ const GUIDED_RAM_REST_LIFT := 0.08
 const GUIDED_RAM_CONTACT_LIFT := -0.0075
 const SLIDE_DIE_TRAVEL_MARGIN := 0.175
 const SLIDE_VISIBLE_STROKE := 0.20
+const BROAD_VISIBLE_STROKE := 0.24
 
 var _host: WeakRef
 var _view_key: Variant = null
@@ -1437,9 +1438,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		"broad_flat_head":
 			var die := Node3D.new()
 			die.name = "BroadHeadMovingDie"
-			var travel := occupied_size.y - SLIDE_DIE_TRAVEL_MARGIN
 			die.position.y = occupied_size.y * 0.5 - 0.10 \
-				+ slide_carriage_drop(slide_phase, travel)
+				+ slide_carriage_drop(slide_phase, BROAD_VISIBLE_STROKE)
 			anchor.add_child(die)
 			_support_box(die, "JoinedFlatFace", Vector3.ZERO,
 				Vector3(occupied_size.x - 0.24, 0.16, occupied_size.z - 0.24), worked, true)
@@ -1486,10 +1486,10 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				gear.rotation.z = PI * 0.5
 			_support_box(anchor, "CentralPistonBearing", Vector3(0, shaft_y, 0),
 				Vector3(0.48, 0.17, 0.48), frame, true)
-			var travel := Geometry.HEIGHT_STEP * 1.5 + Geometry.ANCHOR_HEIGHT \
+			var rest_reach := Geometry.HEIGHT_STEP * 1.5 + Geometry.ANCHOR_HEIGHT \
 				- Geometry.PRESS_WORK_HEIGHT - SLIDE_DIE_TRAVEL_MARGIN
-			var piston_bottom: float = bottom + travel + SLIDE_DIE_TRAVEL_MARGIN + 0.09 \
-				+ slide_carriage_drop(slide_phase, travel)
+			var piston_bottom: float = bottom + rest_reach + SLIDE_DIE_TRAVEL_MARGIN + 0.09 \
+				+ slide_carriage_drop(slide_phase, BROAD_VISIBLE_STROKE)
 			var piston_top: float = top - 0.16
 			var piston_length := piston_top - piston_bottom + 0.06
 			var piston := _support_cylinder(anchor, "BroadCentralPiston", 0.075,
@@ -2380,6 +2380,14 @@ func refresh() -> void:
 			var anvil: Variant = component_result.boxes.get(press.parts.get("anvil"))
 			if anvil is Dictionary and anvil.get("component") == "anvil":
 				guided_work_surfaces[press.work_center] = anvil.center.y + anvil.size.y * 0.5
+	var broad_work_surfaces := {}
+	for id: String in snapshot.get("placed_components", {}):
+		var placed: Dictionary = snapshot.placed_components[id]
+		if placed.get("component") != "broad_anvil" or not placed.get("center") is Array:
+			continue
+		var broad_bed: Variant = component_result.boxes.get(id)
+		if broad_bed is Dictionary:
+			broad_work_surfaces[placed.center] = broad_bed.center.y + broad_bed.size.y * 0.5
 	var sliding_work_surfaces := {}
 	for press: Variant in snapshot.get("sliding_press_assemblies", []):
 		if not press is Dictionary or press.get("status") != "ready" \
@@ -2404,6 +2412,9 @@ func refresh() -> void:
 			if supported_slide:
 				location.y = float(sliding_work_surfaces[drop.center]) + \
 					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else 0.03))
+			elif broad_work_surfaces.has(drop.center):
+				location.y = float(broad_work_surfaces[drop.center]) + \
+					(0.09 if not drop.work_lots.is_empty() else 0.04)
 			elif guided_work_surfaces.has(drop.center):
 				location.y = float(guided_work_surfaces[drop.center]) + \
 					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else -0.082))
@@ -2433,8 +2444,10 @@ func refresh() -> void:
 				# square footprint and material custody stay native-owned.
 				visual = Node3D.new()
 				visual.name = "CopperSheet"
-				visual.position = location + Vector3(Geometry.PITCH * 0.5,
-					0.082 + 0.025 + 0.006, Geometry.PITCH * 0.5)
+				var sheet_y: float = float(broad_work_surfaces[drop.center]) + 0.025 + 0.006 \
+					if broad_work_surfaces.has(drop.center) else location.y + 0.082 + 0.025 + 0.006
+				visual.position = Vector3(location.x + Geometry.PITCH * 0.5,
+					sheet_y, location.z + Geometry.PITCH * 0.5)
 				var sheet_items: Variant = drop.get("sheet_items", [])
 				if sheet_items is Array and sheet_items.size() == 1 and sheet_items[0] is Dictionary \
 						and typeof(sheet_items[0].get("rotation")) == TYPE_INT \
