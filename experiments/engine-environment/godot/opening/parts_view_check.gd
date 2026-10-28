@@ -3132,6 +3132,7 @@ func _render_arrival_hotbar() -> void:
 		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
+		"flat_head": {"timber": 0, "copper": 1},
 		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
 		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
 		"hand_crank": {"timber": 2, "copper": 0},
