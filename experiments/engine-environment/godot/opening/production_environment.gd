@@ -52,6 +52,8 @@ class ProductionEnvironment:
 		"ee2b375f3f26abef349419321534ad53618a348ddfbbdd226109c3b4d88f0565"]
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var rock_boulder_mesh: ArrayMesh
+	static var ore_ground_finish: StandardMaterial3D
+	static var ore_exposure_finish: StandardMaterial3D
 
 	static func ground_material() -> ShaderMaterial:
 		if ground_source_status != "uninitialized":
@@ -1111,6 +1113,39 @@ class ProductionEnvironment:
 		outcrops.material_override = finish
 		return outcrops
 
+	static func _ore_ground_material() -> StandardMaterial3D:
+		if ore_ground_finish == null:
+			var image := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/ore-soil.webp")
+			if image == null or image.generate_mipmaps() != OK:
+				push_error("The broad ore field requires its prepared mineral soil.")
+				return null
+			ore_ground_finish = StandardMaterial3D.new()
+			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
+			ore_ground_finish.vertex_color_use_as_albedo = true
+			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
+			ore_ground_finish.roughness = 1.0
+			ore_ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return ore_ground_finish
+
+	static func _ore_exposure_material() -> StandardMaterial3D:
+		if ore_exposure_finish == null:
+			var albedo := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/albedo.webp")
+			var normal := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/normal.webp")
+			if albedo == null or normal == null or albedo.generate_mipmaps() != OK \
+					or normal.generate_mipmaps(true) != OK:
+				push_error("The broad ore field requires its prepared mineral rock.")
+				return null
+			ore_exposure_finish = StandardMaterial3D.new()
+			ore_exposure_finish.albedo_texture = ImageTexture.create_from_image(albedo)
+			ore_exposure_finish.albedo_color = Color("d7a06e")
+			ore_exposure_finish.roughness = 0.91
+			ore_exposure_finish.normal_enabled = true
+			ore_exposure_finish.normal_texture = ImageTexture.create_from_image(normal)
+			ore_exposure_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
+			ore_exposure_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return ore_exposure_finish
+
 	static func ore_field(state: Dictionary) -> Node3D:
 		# This surface is read from the native deposit cells and region balances.
 		# It adds no body collision, stock, or admission rule to the renderer.
@@ -1136,7 +1171,8 @@ class ProductionEnvironment:
 		var balances := {}
 		for id: String in state.get("hand_sources", {}):
 			if id.begins_with(str(deposit.get("id", "")) + "-region-"):
-				var region: Dictionary = state.hand_sources[id]
+				var region: Dictionary = state.hand_sources[id].duplicate()
+				region["id"] = id
 				regions.append(region)
 				balances[id] = clampf(float(region.remaining) / maxf(1.0, float(region.initial)), 0.0, 1.0)
 		var root := Node3D.new()
@@ -1162,39 +1198,44 @@ class ProductionEnvironment:
 							minf(point.y - back, front - point.y))
 						var roughness: float = sin(point.x * 0.71 + sin(point.y * 0.44)) * 0.58 \
 							+ cos(point.y * 0.83 - point.x * 0.39) * 0.36
-						var vein: float = sin(point.x * 1.17 + point.y * 0.73) * 0.5 \
-							+ cos(point.x * 0.61 - point.y * 1.29) * 0.5
-						var opacity: float = smoothstep(0.0, 1.75, edge + roughness) \
-							* (0.18 + 0.12 * smoothstep(-0.45, 0.55, vein))
-						var color := Color("594c3d").lerp(Color("76503d"), fraction)
-						color.a = opacity
+						var fleck: float = sin(point.x * 1.37 + sin(point.y * 0.63)) * 0.53 \
+							+ cos(point.y * 1.19 - point.x * 0.72) * 0.47
+						var local_patch: float = 0.0
+						for region: Dictionary in regions:
+							var center: Array = region.get("position", [])
+							if center.size() != 3:
+								continue
+							var span := Vector2((point.x - float(center[0])) / 5.0,
+								(point.y - float(center[2])) / 3.9).length()
+							var weight: float = 1.0 - smoothstep(0.48, 1.13, span + roughness * 0.10)
+							local_patch = maxf(local_patch, weight * sqrt(float(balances.get(
+								str(region.get("id", "")), 0.0))))
+						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
+							* local_patch * (0.48 + 0.40 * smoothstep(-0.38, 0.36, fleck))
 						surface.set_normal(Surface.normal(point.x, point.y))
-						surface.set_color(color)
+						surface.set_uv(point * 0.62)
+						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
 						surface.add_vertex(Vector3(point.x,
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
 			if fraction <= 0.01:
 				continue
-			for n in range(2):
+			for n in range(4):
 				var seed: int = absi(int(cell[0]) * 73856093 ^ int(cell[1]) * 19349663 ^ n * 83492791)
 				var dx: float = (float(seed % 101) / 100.0 - 0.5) * 1.12
 				var dz: float = (float((seed / 101) % 101) / 100.0 - 0.5) * 1.12
 				var x: float = cx + dx
 				var z: float = cz + dz
-				var size: float = 0.10 + float(seed % 7) * 0.015
-				var height: float = 0.035 + float((seed / 7) % 5) * 0.008
+				var size: float = 0.10 + float(seed % 9) * 0.022
+				var height: float = 0.035 + float((seed / 7) % 5) * 0.012
 				var basis := Basis(Vector3.UP, float(seed % 360) * PI / 180.0)
 				basis = basis.scaled_local(Vector3(size, height, size * 0.72))
 				stones.append(Transform3D(basis,
 					Vector3(x, Surface.height_at(x, z) + height * 0.45, z)))
-				stone_colors.append(Color("725743").lerp(Color("594d42"), float(seed % 5) / 5.0))
+				stone_colors.append(Color("a77855").lerp(Color("77695c"), float(seed % 5) / 5.0))
 		var soil := MeshInstance3D.new()
 		soil.name = "CopperBearingGround"
 		soil.mesh = surface.commit()
-		var soil_finish := StandardMaterial3D.new()
-		soil_finish.vertex_color_use_as_albedo = true
-		soil_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		soil_finish.roughness = 1.0
-		soil.material_override = soil_finish
+		soil.material_override = _ore_ground_material()
 		soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(soil)
 		if not stones.is_empty():
@@ -1221,11 +1262,8 @@ class ProductionEnvironment:
 			gravel.material_override = stone_finish
 			root.add_child(gravel)
 		var seam_mesh: Mesh = Surface.SOURCE_OUTCROP_MESH
-		var seam_scale: Vector3 = Vector3(0.85, 0.25, 0.58) / seam_mesh.get_aabb().size
-		var seam_finish := StandardMaterial3D.new()
-		seam_finish.albedo_color = Color("403329")
-		seam_finish.roughness = 1.0
-		seam_finish.metallic = 0.02
+		var seam_scale: Vector3 = Vector3(0.54, 0.20, 0.40) / seam_mesh.get_aabb().size
+		var seam_finish := _ore_exposure_material()
 		var original: Dictionary = state.get("hand_sources", {}).get(deposit.get("id", ""), {})
 		var original_position: Array = original.get("position", [])
 		for region: Dictionary in regions:
@@ -1239,7 +1277,7 @@ class ProductionEnvironment:
 			if original_position.size() == 3 and Vector2(x - float(original_position[0]),
 					z - float(original_position[2])).length() < 1.8:
 				continue
-			for offset: Vector2 in [Vector2(-0.31, -0.11), Vector2(0.19, 0.22), Vector2(0.38, -0.23)]:
+			for offset: Vector2 in [Vector2(-0.16, -0.12), Vector2(0.17, 0.10), Vector2(0.12, -0.17)]:
 				var seam := MeshInstance3D.new()
 				seam.name = "LowCopperExposure"
 				seam.mesh = seam_mesh

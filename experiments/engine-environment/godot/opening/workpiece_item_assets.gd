@@ -306,6 +306,13 @@ static func mineral_deposit(parent: Node3D, state: Dictionary) -> void:
 		return
 	var initial := maxi(1, int(state.initial_feed))
 	var fraction := clampf(float(state.stock.source) / float(initial), 0.0, 1.0)
+	# The old fixed outcrop is one of the broad field's local exposures.
+	# Its copper cues follow that region, even while other regions retain stock.
+	if state.get("source_deposit", {}).get("cell_regions", []).size() == 100:
+		var region: Dictionary = state.get("hand_sources", {}).get(
+			str(state.source_deposit.id) + "-region-4", {})
+		if not region.is_empty():
+			fraction = clampf(float(region.remaining) / maxf(1.0, float(region.initial)), 0.0, 1.0)
 	var band := ceili(fraction * 8.0)
 	var finish := _outcrop_material()
 	if finish == null:
