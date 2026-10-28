@@ -1123,7 +1123,7 @@ class ProductionEnvironment:
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
-			ore_ground_finish.albedo_color = Color("8c5a44")
+			ore_ground_finish.albedo_color = Color("ad826b")
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1141,7 +1141,7 @@ class ProductionEnvironment:
 				return null
 			ore_exposure_finish = StandardMaterial3D.new()
 			ore_exposure_finish.albedo_texture = ImageTexture.create_from_image(albedo)
-			ore_exposure_finish.albedo_color = Color("bb754d")
+			ore_exposure_finish.albedo_color = Color("d18d5d")
 			ore_exposure_finish.roughness = 0.91
 			ore_exposure_finish.normal_enabled = true
 			ore_exposure_finish.normal_texture = ImageTexture.create_from_image(normal)
@@ -1151,11 +1151,8 @@ class ProductionEnvironment:
 
 	static func _ore_host_material() -> StandardMaterial3D:
 		if ore_host_finish == null:
-			var mineral := _ore_exposure_material()
-			if mineral == null:
-				return null
-			ore_host_finish = mineral.duplicate()
-			ore_host_finish.albedo_color = Color("87786b")
+			ore_host_finish = stone_material().duplicate()
+			ore_host_finish.albedo_color = Color("d4c4b3")
 		return ore_host_finish
 
 	static func _ore_chip() -> ArrayMesh:
@@ -1170,8 +1167,8 @@ class ProductionEnvironment:
 		var source := SurfaceTool.new()
 		source.begin(Mesh.PRIMITIVE_TRIANGLES)
 		for index in range(ring.size()):
-			for triangle in [[ring[index], ring[(index + 1) % ring.size()], crest],
-					[ring[(index + 1) % ring.size()], ring[index], underside]]:
+			for triangle in [[ring[(index + 1) % ring.size()], ring[index], crest],
+					[ring[index], ring[(index + 1) % ring.size()], underside]]:
 				var a: Vector3 = triangle[0]
 				var b: Vector3 = triangle[1]
 				var c: Vector3 = triangle[2]
@@ -1248,7 +1245,7 @@ class ProductionEnvironment:
 							local_patch = maxf(local_patch, weight * sqrt(float(balances.get(
 								str(region.get("id", "")), 0.0))))
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
-							* local_patch * (0.48 + 0.40 * smoothstep(-0.38, 0.36, fleck))
+							* local_patch * (0.33 + 0.40 * smoothstep(-0.38, 0.36, fleck))
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.62)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
@@ -1270,7 +1267,9 @@ class ProductionEnvironment:
 				basis = basis.scaled_local(Vector3(size, height, size * 0.72))
 				stones.append(Transform3D(basis,
 					Vector3(x, Surface.height_at(x, z) + height * 0.45, z)))
-				stone_colors.append(Color("766554").lerp(Color("554f4a"), float(seed % 5) / 5.0))
+				var chip_color := Color("b56f4b") if seed % 9 == 0 else \
+					Color("b2a392").lerp(Color("87776a"), float(seed % 5) / 5.0)
+				stone_colors.append(chip_color)
 			if index % 4 == 0 and fraction > 0.25:
 				var fx: float = cx + sin(float(index) * 2.39996) * 0.42
 				var fz: float = cz + cos(float(index) * 1.71317) * 0.42
@@ -1300,7 +1299,7 @@ class ProductionEnvironment:
 			gravel.multimesh = multimesh
 			var stone_finish := StandardMaterial3D.new()
 			stone_finish.vertex_color_use_as_albedo = true
-			stone_finish.albedo_color = Color("a89a85")
+			stone_finish.albedo_color = Color.WHITE
 			stone_finish.roughness = 0.94
 			gravel.material_override = stone_finish
 			root.add_child(gravel)
