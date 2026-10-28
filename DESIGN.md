@@ -117,11 +117,6 @@ head; V switches the selected part between them. A broad placement spends four
 carried ordinary parts in one click to build one continuous surface or face,
 then returns those parts on reclaim. One slide may drive that face when its
 actual input and load permit.
-The 2 × 2 press uses one slide housing across the four foundation unit tiles
-above its bed, with a central piston and internal shafts that reach tile-center
-ports on its perimeter. Its fixed housing posts meet the broad base, and the
-base legs meet the ground or four raised foundations arranged in a square.
-Either foundation row may face a one-wide belt at the work surface height.
 
 Conserve material mass and form through extraction, carrying, processing,
 offcuts, storage, recovery, edits, saves and shared continuation. The prototype
