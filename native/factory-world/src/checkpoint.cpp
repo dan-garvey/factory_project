@@ -142,7 +142,8 @@ Value profile_value(const Profile& profile) {
         for (const auto& [spec, cost] : profile.fabrication_parts)
             recipes.emplace_back(Object{{"role", Value(static_cast<Integer>(spec.role))},
                 {"teeth", Value(spec.teeth)}, {"half_span", Value(spec.half_span)},
-                {"timber", Value(cost.timber)}, {"raw", Value(cost.ore)}});
+                {"timber", Value(cost.timber)}, {"raw", Value(cost.ore)},
+                {"plate", Value(cost.plate)}});
         output.emplace("fabrication_parts", Value(std::move(recipes)));
     }
     if (!profile.collector_faces.empty()) {

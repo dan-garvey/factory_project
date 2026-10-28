@@ -55,6 +55,15 @@ gantries, moving factories and trains remain intended-game requirements.
   advanced catalog includes external shafts and cogs, waterwheels, belts,
   collector parts, foundations, receiver trays and broad-work parts. Later
   introductions remain an open teaching and progression choice.
+- Build/Inventory tabs organize only Craft/Build recipes into Machine parts,
+  Power, Logistics and a provisional Other group; they never filter carried
+  items. After the first plate, Power is the suggested next recipe group.
+  A working collector suggests Logistics. All earned recipes stay reachable.
+- A finished copper plate is a real workbench ingredient for the first external
+  Shaft and both Small and Large cogwheels. Each spends one carried plate;
+  raw copper cannot substitute. The current timber amounts of one for the
+  Shaft and Small cogwheel and two for the Large cogwheel are provisional
+  recipe tuning. Reclaiming the part does not return its consumed plate.
 - A finite crafted crank is a separate, free-floating source placed at a rotary
   input. It supplies rotation only while an actor turns it. Reclaiming a
   connected shaft or machine part leaves the crank in place for separate
