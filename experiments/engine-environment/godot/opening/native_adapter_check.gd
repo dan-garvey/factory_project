@@ -4056,7 +4056,8 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 				"before_components": before_project.cargo.P.components,
 				"after_components": prepared.cargo.P.components})):
 		return false
-	if not await _approach(Vector2(0.7, 3.3)):
+	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65),
+			Vector2(0.7, 3.3)]):
 		return false
 	if _construct({"action": "place_foundation", "cell": [0, 1], "level": 4}).is_empty():
 		return false
