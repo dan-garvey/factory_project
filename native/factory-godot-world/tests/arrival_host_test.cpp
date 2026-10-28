@@ -447,7 +447,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
             "accepted"), "The remaining finite timber pays for a separate slide body.");
     check(get<bool>(resumed("slide-craft", "field_craft",
               {{"component", V("wooden_slide")}}), "accepted") &&
-          get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 3), "accepted"),
+          get<bool>(restored.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 3), "accepted"),
           "The actor carries a separate slide body to a reachable rotary port.");
     const auto slide = resumed("slide-place", "place_component",
         {{"component", V("wooden_slide")},
@@ -500,6 +500,8 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
               V(get<O>(before_bad_crank_commands, "slide_phases")),
               V(get<O>(after_bad_crank_commands, "slide_phases"))),
           "Malformed crank requests leave the native revision, item custody and slide phase unchanged.");
+    check(get<bool>(restored.publish_actor("P", {V(4.95), V(1.0), V(2.1)}, 4), "accepted"),
+          "The worker steps beside the full-cell housing to reach either crank face.");
     const auto turn = resumed("turn-fitted", "turn_slide_crank",
         {{"entity", V(slide_id)},
          {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}});
@@ -531,7 +533,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
               V(get<A>(get<O>(fitted_reopened.projection(), "crank_items").at(first_id), "face")),
               V(A{V(I{1}), V(I{0}), V(I{0})})),
           "A fresh Host reopens the exact fitted crank face and finite identity.");
-    check(get<bool>(fitted_reopened.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 4),
+    check(get<bool>(fitted_reopened.publish_actor("P", {V(4.95), V(1.0), V(2.1)}, 5),
               "accepted"),
           "The service branch refreshes the actor observation beside the placed crank.");
     const auto service = [&](const char* request, const char* action, O extra) {

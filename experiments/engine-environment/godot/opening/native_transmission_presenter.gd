@@ -1362,29 +1362,27 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		"anvil":
 			var bottom := -occupied_size.y * 0.5
 			var top := occupied_size.y * 0.5
-			var leg_height := occupied_size.y - 0.20
 			var face_iron := Visuals.material(Color("707c79"), 0.63, 0.46)
-			# The floor-seated workbed spans one belt lane. The separate slide
-			# feet land on its side rails outside that lane.
-			for z in [-0.12, 0.12]:
-				_support_box(anchor, "WorkbedSkid%d" % anchor.get_child_count(),
-					Vector3(0, bottom + 0.0275, z), Vector3(0.34, 0.055, 0.10), dark)
-			for x in [-0.14, 0.14]:
-				for z in [-0.12, 0.12]:
+			var face_size := occupied_size.x - 0.12
+			var leg_height := occupied_size.y - 0.27
+			# One independent cell repeats the broad bed's face and cast corners.
+			# Its lower plate takes the centered frame shelf on raised builds;
+			# low receiver fittings remain clear beneath the workface.
+			_support_box(anchor, "WorkbedBase", Vector3(0, bottom + 0.055, 0),
+				Vector3(occupied_size.x - 0.12, 0.11, occupied_size.z - 0.12), dark, true)
+			for x in [-0.725, 0.725]:
+				for z in [-0.725, 0.725]:
 					_support_box(anchor, "WorkbedLeg%d" % anchor.get_child_count(),
-						Vector3(x, bottom + 0.055 + leg_height * 0.5, z),
-						Vector3(0.07, leg_height, 0.07), dark)
-			_support_box(anchor, "CastBolster", Vector3(0, top - 0.095, 0),
-				Vector3(0.34, 0.14, Geometry.BELT_HALF_WIDTH * 2.0), dark, true)
-			_support_box(anchor, "OpenAnvilSeat", Vector3(0, top - 0.0275, 0),
-				Vector3(0.34, 0.05, Geometry.BELT_HALF_WIDTH * 2.0), face_iron, true)
-			for side in [-1.0, 1.0]:
-				_support_box(anchor, "SlideMountRail", Vector3(0, top - 0.025, side * 0.515),
-					Vector3(0.39, 0.05, 0.10), worked, true)
+						Vector3(x, bottom + 0.11 + leg_height * 0.5, z),
+						Vector3(0.18, leg_height, 0.18), dark, true)
+					_support_box(anchor, "SlideMountRail", Vector3(x, top - 0.08, z),
+						Vector3(0.19, 0.16, 0.19), worked, true)
+			_support_box(anchor, "OpenAnvilSeat", Vector3(0, top - 0.08, 0),
+				Vector3(face_size, 0.16, face_size), face_iron, true)
 			_support_box(anchor, "ReplaceableDiePlate", Vector3(0, top - 0.003, 0),
-				Vector3(0.30, 0.006, 0.28), worked, true)
-			for x in [-0.135, 0.135]:
-				for z in [-0.515, 0.515]:
+				Vector3(1.44, 0.006, 1.44), worked, true)
+			for x in [-0.655, 0.655]:
+				for z in [-0.655, 0.655]:
 					var bolt := _support_cylinder(anchor, "BolsterBolt", 0.009, 0.002, dark)
 					bolt.position = Vector3(x, top - 0.0025, z)
 		"broad_anvil":
@@ -1401,8 +1399,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 						Vector3(0.18, leg_height, 0.18), dark, true)
 					_support_box(anchor, "BroadHousingSocket", Vector3(x, top - 0.08, z),
 						Vector3(0.19, 0.16, 0.19), worked, true)
-			for x in [-0.79, 0.79]:
-				for z in [-0.79, 0.79]:
+			for x in [-Geometry.PITCH * 0.5, Geometry.PITCH * 0.5]:
+				for z in [-Geometry.PITCH * 0.5, Geometry.PITCH * 0.5]:
 					_support_box(anchor, "WorkbedFace", Vector3(x, top - 0.08, z),
 						Vector3(1.53, 0.16, 1.53), face_iron, true)
 			for side in [-1.0, 1.0]:
@@ -1429,12 +1427,14 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				+ slide_carriage_drop(slide_phase, SLIDE_VISIBLE_STROKE)
 			anchor.add_child(die)
 			_support_box(die, "FlatHeadFace", Vector3.ZERO,
-				Vector3(0.27, 0.10, 0.27), worked, true)
+				Vector3(occupied_size.x - 0.24, 0.10, occupied_size.z - 0.24), worked, true)
 			var stem := _support_cylinder(die, "FlatHeadStem", 0.045, 0.08, worked)
 			stem.position.y = 0.04
-			for z in [-0.095, 0.095]:
+			for z in [-0.45, 0.45]:
 				_support_box(die, "FlatHeadWearStrip", Vector3(0, -0.045, z),
-					Vector3(0.23, 0.012, 0.018), dark)
+					Vector3(occupied_size.x - 0.34, 0.012, 0.028), dark)
+			_support_box(die, "FlatHeadCrossbar", Vector3(0, 0.10, 0),
+				Vector3(occupied_size.x - 0.32, 0.09, 0.13), dark, true)
 		"broad_flat_head":
 			var die := Node3D.new()
 			die.name = "BroadHeadMovingDie"
@@ -1564,25 +1564,31 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			var finish: Material = timber if kind == "wooden_slide" else worked
 			var half_height := occupied_size.y * 0.5
 			var rail_height := occupied_size.y - 0.09
-			# Four separated guides keep the carriage visible from either feed
-			# direction. A paired slab reads as a solid prefabricated machine side.
-			for x in [-0.15, 0.15]:
-				for z in [-0.515, 0.515]:
+			# A full-cell open housing leaves the moving head and both feed edges
+			# readable. Four feet meet the workbed's matching cast corners.
+			for x in [-0.725, 0.725]:
+				for z in [-0.725, 0.725]:
 					_support_box(anchor, "SlideRail", Vector3(x, -0.015, z),
-						Vector3(0.05, rail_height, 0.05), finish, true)
+						Vector3(0.065, rail_height, 0.065), finish, true)
 					_support_box(anchor, "RailWearStrip",
-						Vector3(x, -0.015, z + signf(z) * 0.024),
+						Vector3(x, -0.015, z + signf(z) * 0.036),
 						Vector3(0.018, rail_height - 0.045, 0.008), dark)
 					_support_box(anchor, "SlideFoot", Vector3(x, -half_height + 0.0175, z),
-						Vector3(0.08, 0.035, 0.10), worked, true)
+						Vector3(0.15, 0.035, 0.15), worked, true)
+			for side in [-1.0, 1.0]:
+				_support_box(anchor, "SlideHousingX", Vector3(0, half_height - 0.048, side * 0.75),
+					Vector3(1.54, 0.075, 0.07), finish, true)
+				_support_box(anchor, "SlideHousingZ", Vector3(side * 0.75, half_height - 0.048, 0),
+					Vector3(0.07, 0.075, 1.54), finish, true)
 			_support_box(anchor, "SlideCrown", Vector3(0, half_height - 0.048, 0),
-				Vector3(0.39, 0.075, 1.08), finish, true)
-			# Its native half-span is one quarter-pitch on each side of the
-			# center. The rod protrudes past the body box to meet a routed shaft.
-			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.027, 2.0 * UNIT, dark)
+				Vector3(0.44, 0.075, 0.44), finish, true)
+			# The registered native input still lies a quarter-pitch from center;
+			# the visible keyed rod crosses the housing to its open side face.
+			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.035,
+				Geometry.PITCH, dark)
 			shaft.position = Vector3(0, half_height - 0.08, 0)
 			shaft.rotation.z = PI * 0.5
-			for x in [-0.158, 0.158]:
+			for x in [-0.72, 0.72]:
 				var bearing := _support_cylinder(anchor, "InputBearing", 0.052, 0.03, worked)
 				bearing.position = Vector3(x, half_height - 0.08, 0)
 				bearing.rotation.z = PI * 0.5
@@ -1603,12 +1609,12 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				piston_top - piston_bottom, worked)
 			piston.position.y = (piston_top + piston_bottom) * 0.5
 			_support_box(carriage, "CarriageBody", Vector3.ZERO,
-				Vector3(0.235, 0.14, 0.23), dark, true)
+				Vector3(0.42, 0.14, 0.42), dark, true)
 			var drive_rod := _support_cylinder(carriage, "CarriageDieRod", 0.045, 0.10, worked)
 			drive_rod.position.y = -0.05
 			_support_box(carriage, "CarriageFace", Vector3(0, -0.085, 0),
-				Vector3(0.29, 0.035, 0.27), finish, true)
-			for x in [-0.115, 0.115]:
+				Vector3(0.46, 0.035, 0.46), finish, true)
+			for x in [-0.17, 0.17]:
 				_support_box(carriage, "CarriageShoe", Vector3(x, 0, -0.118),
 					Vector3(0.035, 0.115, 0.027), worked)
 		"wooden_cog", "copper_cog":
@@ -2185,9 +2191,9 @@ func _render_receiver_chutes(snapshot: Dictionary) -> void:
 					Vector3(0.025, 0.13, length), edge_finish, true)
 
 func _render_press_belt_connectors(snapshot: Dictionary) -> void:
-	# Native World transfers across a clear quarter-grid path from each open
-	# press feed to a full-tile belt endpoint. Show the fitting only when both
-	# independently placed assemblies and that path are present.
+	# The belt loop reaches the edge of the full-U anvil cell. Fill only the
+	# small inset between its visible face and that loop when the independent
+	# press and belt have a native-valid open feed and clear contact.
 	var presses: Variant = snapshot.get("sliding_press_assemblies", [])
 	var spans: Variant = snapshot.get("belt_spans", {})
 	var parts: Variant = snapshot.get("transmission_parts", {})
@@ -2232,7 +2238,7 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 				for other: Variant in placed.values():
 					if not other is Dictionary or not other.get("center") is Array:
 						continue
-					for distance in [2, 3]:
+					for distance in [2, 3, 4]:
 						if other.center == [int(work[0]) + distance * dx, int(work[1]), int(work[2])]:
 							clear = false
 					if not clear:
@@ -2240,10 +2246,10 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 				if not clear:
 					continue
 				var direction := Vector3(float(dx), 0, 0)
-				# Leave visible end joints at the workbed and belt. This is a
-				# separate open transfer trough, not an extension of either casting.
-				var start: Vector3 = world_center(work) + direction * 0.205
-				var finish: Vector3 = world_center(mouth) - direction * (Geometry.BELT_OUTER_RADIUS + 0.015)
+				# Two short overlaps mask the seams at the inset workface and belt
+				# edge without drawing a trough through the occupied workbed.
+				var start: Vector3 = world_center(work) + direction * (Geometry.PITCH * 0.5 - 0.085)
+				var finish: Vector3 = world_center(mouth) - direction * (Geometry.PITCH * 0.5 - 0.025)
 				var length: float = start.distance_to(finish)
 				var connector := Node3D.new()
 				connector.name = "PressBeltConnector"
@@ -2264,12 +2270,12 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 						Vector3(0.055, 0.04, length), edge_finish, true)
 					for end_side in [-1.0, 1.0]:
 						_support_box(connector, "TransferJoint", Vector3(rail_side * 0.49,
-							Geometry.BELT_OUTER_RADIUS - 0.02, end_side * (length * 0.5 - 0.04)),
-							Vector3(0.072, 0.052, 0.08), joint_finish, true)
+							Geometry.BELT_OUTER_RADIUS - 0.02, end_side * (length * 0.5 - 0.025)),
+							Vector3(0.072, 0.052, 0.045), joint_finish, true)
 				for end_side in [-1.0, 1.0]:
 					_support_box(connector, "TransferEndBrace", Vector3(0,
-						Geometry.BELT_OUTER_RADIUS - 0.042, end_side * (length * 0.5 - 0.035)),
-						Vector3(0.84, 0.045, 0.07), edge_finish, true)
+						Geometry.BELT_OUTER_RADIUS - 0.042, end_side * (length * 0.5 - 0.025)),
+						Vector3(0.84, 0.045, 0.045), edge_finish, true)
 
 func _render_broad_belt_docks(snapshot: Dictionary, boxes: Dictionary) -> void:
 	# A confirmed belt endpoint can meet either row of the broad anvil at the
