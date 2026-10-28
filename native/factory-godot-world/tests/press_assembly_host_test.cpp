@@ -281,24 +281,33 @@ void guided_press_host_path() {
               "missing_cog", "A guided head still needs the actual drive cog.");
     check(!get<bool>(host.command("P", feed("guided-premature-feed", anvil, 9, 0, 0)),
               "accepted"), "An incomplete guided press refuses feed without consuming a blank.");
+    const auto shaft_first_after_plate = [&](const V& source_saved,
+                                              const std::string& existing_cog,
+                                              const std::string& fitted_crank) {
     Host shaft_first;
     check(get<bool>(shaft_first.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(shaft_first.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(shaft_first.restore_checkpoint(host.checkpoint()), "accepted"),
-          "The alternate construction order starts before the press cog is placed.");
-    check(get<bool>(shaft_first.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 5), "accepted"),
-          "The worker reaches finite timber for a transmission shaft.");
+          get<bool>(shaft_first.restore_checkpoint(source_saved), "accepted") &&
+          get<bool>(shaft_first.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
+          "The alternate construction order begins with an earned plate beside the press.");
+    pickup_product(shaft_first, 8, 0, 0, "early-contact-plate", 1);
+    carry_crank(shaft_first, fitted_crank, "early-contact-detach-crank");
+    reclaim(shaft_first, existing_cog, "early-contact-remove-cog");
+    check(get<bool>(shaft_first.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 8), "accepted"),
+          "The worker reaches finite timber for the connecting shaft.");
     auto early_wood = request("early-contact-wood", "harvest_source");
     early_wood.emplace("target", V("tree-east-south"));
     accepted(shaft_first, early_wood);
-    check(get<bool>(shaft_first.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 6), "accepted"),
+    check(get<bool>(shaft_first.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 9), "accepted"),
           "The worker reaches the original workshop to craft the shaft kit.");
     auto early_craft = request("early-contact-craft", "craft_part");
     early_craft.emplace("entity", V("pod-fabrication-hub"));
     early_craft.emplace("role", V("shaft"));
     early_craft.emplace("half_span", V(I{2}));
     accepted(shaft_first, early_craft);
-    check(get<bool>(shaft_first.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 7), "accepted"),
+    check(get<I>(get<O>(shaft_first.projection(), "cargo").at("P"), "products") == 0,
+          "The new shaft spends the actual finished plate once.");
+    check(get<bool>(shaft_first.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 10), "accepted"),
           "The worker reaches the first press drive cell.");
     auto early_shaft = request("early-contact-place", "place_shaft");
     early_shaft.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
@@ -316,6 +325,7 @@ void guided_press_host_path() {
                       (second == early_shaft_id && first == early_cog);
               }) && get<bool>(shaft_first.validate_checkpoint(shaft_first.checkpoint()), "accepted"),
           "The cog can finish the same physical engagement after its shaft is placed first.");
+    };
     const auto cog = place(host, "wooden_cog", 10, 4, 0, "guided-place-cog");
     auto stroke_obstacle = request("guided-place-stroke-obstacle", "place_component");
     stroke_obstacle.emplace("component", V("tool_mount"));
@@ -346,24 +356,29 @@ void guided_press_host_path() {
           !pieces.contains("frame") && !pieces.contains("mount") &&
           get<A>(ready, "open_feeds").size() == 4,
           "The Host names exactly five issued working parts and four open feed directions.");
+    const auto contact_after_plate = [&](const V& source_saved) {
     Host contact;
     check(get<bool>(contact.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(contact.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(contact.restore_checkpoint(host.checkpoint()), "accepted"),
-          "The drive contact starts from the ordinary ready press, with no gifted shaft kit.");
-    check(get<bool>(contact.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 5), "accepted"),
+          get<bool>(contact.restore_checkpoint(source_saved), "accepted") &&
+          get<bool>(contact.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 7), "accepted"),
+          "The drive contact starts from a formed plate, with no gifted shaft kit.");
+    pickup_product(contact, 8, 0, 0, "contact-plate", 1);
+    check(get<bool>(contact.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 8), "accepted"),
           "The worker reaches one more finite timber cut for the connecting shaft.");
     auto contact_wood = request("contact-wood", "harvest_source");
     contact_wood.emplace("target", V("tree-east-south"));
     accepted(contact, contact_wood);
-    check(get<bool>(contact.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 6), "accepted"),
+    check(get<bool>(contact.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 9), "accepted"),
           "The worker returns to the ordinary workshop with the shaft bill.");
     auto craft_shaft = request("contact-craft-shaft", "craft_part");
     craft_shaft.emplace("entity", V("pod-fabrication-hub"));
     craft_shaft.emplace("role", V("shaft"));
     craft_shaft.emplace("half_span", V(I{2}));
     accepted(contact, craft_shaft);
-    check(get<bool>(contact.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 7), "accepted"),
+    check(get<I>(get<O>(contact.projection(), "cargo").at("P"), "products") == 0,
+          "The connecting shaft consumes one plate without a second raw-copper debit.");
+    check(get<bool>(contact.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 10), "accepted"),
           "The worker reaches the press cog and its intended transmission cell.");
     auto connecting_shaft = request("contact-place-shaft", "place_shaft");
     connecting_shaft.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
@@ -395,6 +410,7 @@ void guided_press_host_path() {
                   (second == connecting_id && first == cog);
           }) && get<bool>(contact.validate_checkpoint(contact.checkpoint()), "accepted"),
           "The placed one-tile shaft engages the press cog and survives native validation.");
+    };
     Host with_tray;
     check(get<bool>(with_tray.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(with_tray.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
@@ -491,6 +507,8 @@ void guided_press_host_path() {
           }), "The ordinary Host wire shows a real plate and offcut together on the supported workbed.");
     conserved_copper(host);
     const auto saved = host.checkpoint();
+    shaft_first_after_plate(saved, cog, crank);
+    contact_after_plate(saved);
     Host restored;
     check(get<bool>(restored.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
@@ -960,8 +978,14 @@ void belt_fed_press_projection() {
         cut.emplace("target", V("tree-east-north"));
         accepted(host, cut);
     }
+    observe(0.0, 11.55);
+    for (int n = 0; n < 2; ++n) {
+        auto cut = request("inlet-host-wood-crank-" + std::to_string(n), "harvest_source");
+        cut.emplace("target", V("tree-north"));
+        accepted(host, cut);
+    }
     observe(-0.5, 0.0);
-    for (int n = 0; n < 7; ++n) {
+    for (int n = 0; n < 10; ++n) {
         auto cut = request("inlet-host-ore-" + std::to_string(n), "harvest_source");
         cut.emplace("target", V("opening-copper"));
         accepted(host, cut);
@@ -974,10 +998,9 @@ void belt_fed_press_projection() {
         craft.emplace("component", V(name));
         accepted(host, craft);
     }
+    const auto plate_crank = craft_crank(host, "inlet-host-craft-crank");
     for (const auto& [name, role, span] : {
-             std::tuple{"shaft-a", "shaft", I{2}}, std::tuple{"shaft-b", "shaft", I{2}},
-             std::tuple{"shaft-c", "shaft", I{2}}, std::tuple{"belt", "belt", I{0}},
-             std::tuple{"wheel", "waterwheel", I{0}}}) {
+             std::tuple{"belt", "belt", I{0}}, std::tuple{"wheel", "waterwheel", I{0}}}) {
         auto craft = request(std::string("inlet-host-fabricate-") + name, "craft_part");
         craft.emplace("entity", V("pod-fabrication-hub"));
         craft.emplace("role", V(role));
@@ -989,7 +1012,7 @@ void belt_fed_press_projection() {
     foundation.emplace("cell", V(A{V(I{0}), V(I{0})}));
     foundation.emplace("level", V(I{4}));
     accepted(host, foundation);
-    std::string frame;
+    std::string frame, plate_press_shaft;
     for (const auto& [name, center] : {
              std::pair{"wooden_frame", A{V(I{0}), V(I{4}), V(I{0})}},
              std::pair{"anvil", A{V(I{0}), V(I{5}), V(I{0})}},
@@ -1003,10 +1026,33 @@ void belt_fed_press_projection() {
         place.emplace("center", V(center));
         const auto result = accepted(host, place);
         if (std::string(name) == "wooden_frame") frame = get<std::string>(result, "entity");
+        if (std::string(name) == "wooden_shaft") plate_press_shaft = get<std::string>(result, "entity");
     }
     check(get<std::string>(inspection(host), "status") == "ready" &&
           get<std::string>(inspection(host), "frame") == frame,
           "The raised press is recognized from its seven placed parts before belt installation.");
+    fit_crank(host, plate_crank, plate_press_shaft, 1, 8, 0, "inlet-host-fit-crank");
+    for (int plate = 0; plate < 3; ++plate) {
+        accepted(host, feed("inlet-host-plate-feed-" + std::to_string(plate),
+                            frame, 1, 5, 0));
+        for (int stroke = 0; stroke < 3; ++stroke)
+            accepted(host, turn("inlet-host-plate-stroke-" + std::to_string(plate) +
+                "-" + std::to_string(stroke), frame, plate_press_shaft, -1, 5, 0));
+        pickup_product(host, 0, 5, 0,
+                       ("inlet-host-plate-pickup-" + std::to_string(plate)).c_str(), 1);
+    }
+    check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 3,
+          "Three supported press strokes supply the later stationary shafts with real plates.");
+    observe(1.65, 6.6);
+    for (int index = 0; index < 3; ++index) {
+        auto craft = request("inlet-host-fabricate-shaft-" + std::to_string(index), "craft_part");
+        craft.emplace("entity", V("pod-fabrication-hub"));
+        craft.emplace("role", V("shaft"));
+        craft.emplace("half_span", V(I{2}));
+        accepted(host, craft);
+    }
+    check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 0,
+          "Stationary shaft fabrication spends each earned plate once at the bench.");
     observe(3.3, 0);
     auto wheel = request("inlet-host-wheel", "place");
     wheel.emplace("kind", V("wheel"));
@@ -1065,6 +1111,7 @@ void belt_fed_press_projection() {
     }
     at_slide(1.4, 0.0);
     const auto old_parts = get<O>(inspection(sliding), "parts");
+    carry_crank(sliding, plate_crank, "slide-auto-detach-old-crank");
     for (const char* kind : {"drive_cog", "shaft", "mount", "guide", "ram", "anvil", "frame"})
         reclaim(sliding, get<std::string>(V(old_parts), kind),
             (std::string("slide-auto-reclaim-") + kind).c_str());

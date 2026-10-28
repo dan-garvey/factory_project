@@ -141,6 +141,7 @@ struct ChannelSpec {
 struct ComponentCost {
     Quantity timber{};
     Quantity ore{};
+    Quantity plate{};
     bool operator==(const ComponentCost&) const = default;
 };
 
@@ -274,6 +275,7 @@ struct State {
     // the exact native kit/topology census.
     Quantity fabricated_timber{};
     Quantity fabricated_raw{};
+    Quantity fabricated_plates{};
     State() = default;
     State(Quantity initial, Stock contents, std::map<std::string, Cargo> actors,
           std::optional<WorkLot> work, WorkId serial)
