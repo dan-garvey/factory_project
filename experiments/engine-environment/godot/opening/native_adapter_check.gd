@@ -3927,9 +3927,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"Keyboard focus names the current recipe category"):
 			return
 		inventory.recipe_tabs.machine.pressed.emit()
+		inventory.recipe_tabs.machine.grab_focus()
+		await process_frame
 		if not _expect(inventory.recipe_buttons["component:anvil"].visible
 				and inventory.recipe_buttons["component:wooden_frame"].visible
-				and not inventory.recipe_buttons["foundation"].visible,
+				and not inventory.recipe_buttons["foundation"].visible
+				and inventory.focus_description.text.contains("Machine parts recipes"),
 			"Machine parts keeps the first press and collector recipes reachable"):
 			return
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -3939,8 +3942,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					"Retain the Machine parts tab after native plate pickup"):
 				return
 		inventory.recipe_tabs.other.pressed.emit()
+		inventory.recipe_tabs.other.grab_focus()
+		await process_frame
 		if not _expect(inventory.recipe_buttons["foundation"].visible
-				and inventory.material_buttons.products.visible,
+				and inventory.material_buttons.products.visible
+				and inventory.focus_description.text.contains("Other recipes"),
 			"Other recipes remain reachable without filtering the carried plate"):
 			return
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -4116,9 +4122,12 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 		root.size = original_size
 		await process_frame
 	inventory.recipe_tabs.machine.pressed.emit()
+	inventory.recipe_tabs.machine.grab_focus()
+	await process_frame
 	if not _expect(inventory.recipe_buttons["component:anvil"].visible
 			and inventory.recipe_buttons["component:wooden_frame"].visible
-			and inventory.material_buttons.products.visible,
+			and inventory.material_buttons.products.visible
+			and inventory.focus_description.text.contains("Machine parts recipes"),
 			"Machine parts still exposes the old press and another collector without filtering Carried"):
 		return false
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
