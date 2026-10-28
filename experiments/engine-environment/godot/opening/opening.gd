@@ -1403,7 +1403,11 @@ func _input(event: InputEvent) -> void:
 				component_nudge_active = true
 			var axis := 1 if event.keycode in [KEY_PAGEUP, KEY_PAGEDOWN] else \
 				0 if event.keycode in [KEY_LEFT, KEY_RIGHT] else 2
-			var step := 1 if event.keycode in [KEY_RIGHT, KEY_UP, KEY_PAGEUP] else -1
+			var kind: String = arrival_assembly_controls.selected_name() \
+				if arrival_assembly_controls != null else ""
+			var stride := Geometry.HEIGHT_DENOMINATOR if axis != 1 and kind in [
+				"anvil", "flat_head", "wooden_slide", "copper_slide"] else 1
+			var step := stride if event.keycode in [KEY_RIGHT, KEY_UP, KEY_PAGEUP] else -stride
 			component_nudge_center[axis] = clampi(int(component_nudge_center[axis]) + step,
 				-Geometry.GRID_COORDINATE_LIMIT, Geometry.GRID_COORDINATE_LIMIT)
 			_update_cursor()
@@ -2495,7 +2499,9 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 				axis = 1
 			elif absf(normal.z) > absf(normal.x):
 				axis = 2
-			center[axis] += 1 if normal[axis] >= 0.0 else -1
+			var stride := Geometry.HEIGHT_DENOMINATOR if axis != 1 and kind in [
+					"anvil", "flat_head", "wooden_slide", "copper_slide"] else 1
+			center[axis] += stride if normal[axis] >= 0.0 else -stride
 			return center
 	return [cell.x * Geometry.HEIGHT_DENOMINATOR,
 		_construction_level(cell), cell.y * Geometry.HEIGHT_DENOMINATOR]
@@ -2510,7 +2516,12 @@ func _component_center_allowed(center: Array) -> bool:
 func _component_area_bounds_allowed(kind: String, center: Array) -> bool:
 	if not _component_center_allowed(center):
 		return false
-	if kind not in ["broad_anvil", "broad_flat_head", "broad_copper_slide"]:
+	if kind == "anvil" and (
+			int(center[0]) % Geometry.HEIGHT_DENOMINATOR != 0 or
+			int(center[2]) % Geometry.HEIGHT_DENOMINATOR != 0):
+		return false
+	if kind not in ["anvil", "flat_head", "wooden_slide", "copper_slide",
+			"broad_anvil", "broad_flat_head", "broad_copper_slide"]:
 		return true
 	var box := _component_candidate_box(kind, center)
 	return absf(box.center.x) + box.half.x <= ProductionEnvironment.Surface.HALF \
@@ -2588,8 +2599,8 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
 			var high := low + Geometry.PRESS_WORK_HEIGHT
 			occupied.y = (low + high) * 0.5
-			half = Vector3(0.2025, (high - low) * 0.5,
-				Geometry.BELT_FRAME_OUTER_HALF_WIDTH)
+			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
+				Geometry.PITCH * 0.5)
 		"broad_anvil":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
 			var high := low + Geometry.PRESS_WORK_HEIGHT
@@ -2605,7 +2616,8 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + 0.125
 			occupied.y = (low + high) * 0.5
-			half.y = (high - low) * 0.5
+			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
+				Geometry.PITCH * 0.5)
 		"broad_flat_head":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
@@ -2622,8 +2634,8 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - 2.0 * Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + 0.08
 			occupied.y = (low + high) * 0.5
-			half = Vector3(0.21, (high - low) * 0.5,
-				Geometry.BELT_FRAME_OUTER_HALF_WIDTH)
+			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
+				Geometry.PITCH * 0.5)
 		"sliding_guide":
 			var low := at.y - Geometry.HEIGHT_STEP * 1.5
 			var high := at.y + Geometry.HEIGHT_STEP - 0.08
@@ -2675,8 +2687,9 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 				continue
 			if ((kind == "anvil" and part.component == "receiver_tray") or \
 					(kind == "receiver_tray" and part.component == "anvil")) \
-					and part_center[0] == center[0] and part_center[1] == center[1] \
-					and absi(part_center[2] - center[2]) == 1:
+					and part_center[1] == center[1] and (
+						(absi(part_center[0] - center[0]) == 1 and part_center[2] == center[2]) or
+						(part_center[0] == center[0] and absi(part_center[2] - center[2]) == 1)):
 				paired_ids[id] = true
 				continue
 			if part_center[0] != center[0] or part_center[2] != center[2]:

@@ -54,6 +54,7 @@ using physical_geometry::gear_half_extents;
 using physical_geometry::gear_axle_half_extents;
 using physical_geometry::transmission_intersects;
 using physical_geometry::shaft_meets_component_cog;
+using physical_geometry::shaft_meets_slide_input;
 using physical_geometry::collector_intake_intersects;
 using physical_geometry::transmission_intersects_foundations;
 using physical_geometry::find_part;
@@ -574,9 +575,17 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!crank_commands::valid_wire(wire, crank_action)) return refuse("invalid_command");
         const auto port = gear_center(*field<Array>(wire, "port"));
         if (!port) return refuse("invalid_command");
+        const auto target_id = *field<std::string>(wire, "entity");
+        const auto slide = snapshot.state.placed_components.find(target_id);
+        // The registered input lies inside the slide's full-cell envelope.
+        // Ignore only its own housing while checking the port for other solids.
+        const std::string* fitted_body = slide != snapshot.state.placed_components.end() &&
+            shaft_meets_slide_input(slide->second.kind, slide->second.center,
+                                    *port, mechanics::Axis::x) ? &slide->first : nullptr;
         if (const auto* refusal = component_site_refusal(snapshot.state, std::nullopt, *port))
             return refuse(refusal);
-        if (const auto* refusal = component_space_refusal(snapshot.state, std::nullopt, *port))
+        if (const auto* refusal = component_space_refusal(snapshot.state, std::nullopt, *port,
+                fitted_body))
             return refuse(refusal);
         normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
@@ -952,6 +961,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (transmission_intersects(component_bounds(profile_, component.kind, component.center),
                     *center, verified_axis, false) &&
                 !shaft_meets_component_cog(component.kind, component.center, *center,
+                    verified_axis) &&
+                !shaft_meets_slide_input(component.kind, component.center, *center,
                     verified_axis)) return refuse("occupied");
         }
         if (placement_blocked(at, half)) return refuse("actor_occupied");

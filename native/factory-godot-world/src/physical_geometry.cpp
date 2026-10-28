@@ -174,16 +174,17 @@ bool frame_anvil_fitting(std::optional<materials::Component> first,
 bool workbed_tray_fitting(std::optional<materials::Component> first,
         const mechanics::Point& first_center, materials::Component second,
         const mechanics::Point& second_center) {
-    // A low receiver fits below the workbed's side overhang. The legs stay
-    // inside the workcell; only their conservative occupied boxes overlap.
+    // The low receiver fits under either open workbed edge, between its four
+    // corner legs. Only their conservative occupied boxes overlap.
     if (!first) return false;
     const auto paired = (*first == materials::Component::anvil &&
             second == materials::Component::receiver_tray) ||
         (*first == materials::Component::receiver_tray &&
             second == materials::Component::anvil);
-    return paired && first_center[0] == second_center[0] &&
-        first_center[1] == second_center[1] &&
-        std::abs(first_center[2] - second_center[2]) == 1;
+    const auto dx = std::abs(first_center[0] - second_center[0]);
+    const auto dz = std::abs(first_center[2] - second_center[2]);
+    return paired && first_center[1] == second_center[1] &&
+        ((dx == 1 && dz == 0) || (dx == 0 && dz == 1));
 }
 
 bool frame_ram_fitting(std::optional<materials::Component> first,
@@ -248,6 +249,17 @@ bool shaft_meets_component_cog(std::optional<materials::Component> kind,
     // A one-tile shaft ends at the hub center two height steps away. Its
     // placement box and the cog's occupied box overlap at this intended joint.
     return std::abs(component[along] - shaft[along]) == 2;
+}
+
+bool shaft_meets_slide_input(std::optional<materials::Component> kind,
+        const mechanics::Point& component, const mechanics::Point& shaft, mechanics::Axis axis) {
+    // The current one-cell slide has an embodied X spindle and two registered
+    // quarter-step input ports. Its open housing surrounds the fitted shaft,
+    // while its full-U body still blocks all unrelated transmissions.
+    return kind && (*kind == materials::Component::wooden_slide ||
+                    *kind == materials::Component::copper_slide) &&
+        axis == mechanics::Axis::x && component[1] == shaft[1] &&
+        component[2] == shaft[2] && std::abs(component[0] - shaft[0]) == 1;
 }
 
 bool collector_intake_intersects(const Bounds& intake, const world::Profile& profile,
