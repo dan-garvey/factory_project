@@ -3927,7 +3927,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"Keyboard focus names the current recipe category"):
 			return
 		inventory.recipe_tabs.machine.pressed.emit()
-		inventory.recipe_tabs.machine.grab_focus()
+		inventory._focus_catalog_button(inventory.recipe_tabs.machine)
 		await process_frame
 		if not _expect(inventory.recipe_buttons["component:anvil"].visible
 				and inventory.recipe_buttons["component:wooden_frame"].visible
@@ -3942,7 +3942,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 					"Retain the Machine parts tab after native plate pickup"):
 				return
 		inventory.recipe_tabs.other.pressed.emit()
-		inventory.recipe_tabs.other.grab_focus()
+		inventory._focus_catalog_button(inventory.recipe_tabs.other)
 		await process_frame
 		if not _expect(inventory.recipe_buttons["foundation"].visible
 				and inventory.material_buttons.products.visible
@@ -4122,7 +4122,7 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 		root.size = original_size
 		await process_frame
 	inventory.recipe_tabs.machine.pressed.emit()
-	inventory.recipe_tabs.machine.grab_focus()
+	inventory._focus_catalog_button(inventory.recipe_tabs.machine)
 	await process_frame
 	if not _expect(inventory.recipe_buttons["component:anvil"].visible
 			and inventory.recipe_buttons["component:wooden_frame"].visible
