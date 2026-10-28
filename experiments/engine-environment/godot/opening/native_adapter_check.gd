@@ -443,14 +443,18 @@ func _aim_actor_at_component(id: String) -> Dictionary:
 	var occupied: Array = opening.model.projection().placed_components[id].occupied.center
 	var target := Vector3(float(occupied[0]), float(occupied[1]), float(occupied[2]))
 	opening.distance = 0.0
-	opening._update_camera()
-	var direction: Vector3 = (target - opening.camera.global_position).normalized()
-	opening.orbit_yaw = atan2(-direction.x, -direction.z)
-	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
-	opening._update_camera()
-	await physics_frame
-	var screen: Vector2 = opening._pointed_screen_position()
-	return opening._screen_pick(screen)
+	for lower: float in [0.0, 0.2, 0.4, 0.6]:
+		opening._update_camera()
+		var direction: Vector3 = (target - Vector3.UP * lower - opening.camera.global_position).normalized()
+		opening.orbit_yaw = atan2(-direction.x, -direction.z)
+		opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+		opening._update_camera()
+		await physics_frame
+		var screen: Vector2 = opening._pointed_screen_position()
+		var hit: Dictionary = opening._screen_pick(screen)
+		if opening._screen_entity(screen) == id and absf(hit.get("normal", Vector3.UP).y) < 0.5:
+			return hit
+	return opening._screen_pick(opening._pointed_screen_position())
 
 func _aim_actor_at_crank(id: String) -> Dictionary:
 	var pick: StaticBody3D = null
