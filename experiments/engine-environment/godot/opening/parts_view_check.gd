@@ -3137,10 +3137,10 @@ func _render_arrival_hotbar() -> void:
 		"hand_crank": {"timber": 2, "copper": 0},
 		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "copper": 0}
-	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
+	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0, "plate": 1,
 		"teeth": 0, "half_span": 2},
-		{"kind": "gear", "timber": 1, "copper": 1, "teeth": 2, "half_span": 0},
-		{"kind": "gear", "timber": 2, "copper": 1, "teeth": 4, "half_span": 0},
+		{"kind": "gear", "timber": 1, "copper": 0, "plate": 1, "teeth": 2, "half_span": 0},
+		{"kind": "gear", "timber": 2, "copper": 0, "plate": 1, "teeth": 4, "half_span": 0},
 		{"kind": "wheel", "timber": 2, "copper": 1, "teeth": 0, "half_span": 0}]
 	view.state.component_capacity = 20
 	view.state.placed_components = {}
@@ -3182,6 +3182,13 @@ func _render_arrival_hotbar() -> void:
 	verify(bar.recipe_category == "power" and bar.recipe_buttons["part:0"].visible
 		and not bar.recipe_buttons["component:wooden_frame"].visible,
 		"The first post-plate catalog selects Power while other earned recipes remain tabbed.")
+	verify(bar.recipe_costs["part:0"].text == "1T · 1 plate"
+		and bar.recipe_costs["part:1"].text == "1T · 1 plate"
+		and bar.recipe_costs["part:2"].text == "2T · 1 plate"
+		and bar.recipe_stations["part:0"].text == "BENCH"
+		and bar.recipe_stations["part:1"].text == "BENCH"
+		and bar.recipe_stations["part:2"].text == "BENCH",
+		"The rendered Power cards show the projected plate costs and bench requirement.")
 	bar.recipe_tabs.machine.pressed.emit()
 	await settle_widgets()
 	verify(bar.recipe_buttons["component:anvil"].visible
