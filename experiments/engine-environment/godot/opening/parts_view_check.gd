@@ -3163,7 +3163,7 @@ func _render_arrival_hotbar() -> void:
 		and bar.recipe_buttons["component:flat_head"].visible
 		and bar.recipe_buttons["component:wooden_slide"].visible
 		and bar.recipe_buttons["component:hand_crank"].visible
-		and not bar.recipe_buttons["component:wooden_frame"].visible,
+		and not bar.recipe_buttons.has("component:wooden_frame"),
 		"The starter Build catalog focuses only the four press parts in Machine parts.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-starter.png") == OK,
