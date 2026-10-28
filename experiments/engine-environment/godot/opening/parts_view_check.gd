@@ -562,10 +562,10 @@ func _component_placement_check() -> void:
 	var centered_faces := 0
 	for face: Node in broad_faces:
 		var panel := face as MeshInstance3D
-		if panel != null and panel.mesh is BoxMesh and \
+		if panel != null and panel.mesh != null and \
 				absf(absf(panel.position.x) - Geometry.PITCH * 0.5) < 0.0001 and \
 				absf(absf(panel.position.z) - Geometry.PITCH * 0.5) < 0.0001 and \
-				absf((panel.mesh as BoxMesh).size.x - (Geometry.PITCH - 0.12)) < 0.0001:
+				absf(panel.mesh.get_aabb().size.x - (Geometry.PITCH - 0.12)) < 0.0001:
 			centered_faces += 1
 	verify(broad_faces.size() == 4 and centered_faces == 4,
 		"Each broad face panel aligns with one U-centered small anvil and keeps its edge relief.")
