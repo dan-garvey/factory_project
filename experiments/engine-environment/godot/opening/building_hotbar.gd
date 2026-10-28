@@ -358,9 +358,14 @@ func _style_inventory_tile(button: Button, texture: Texture2D) -> void:
 	button.icon = texture
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	button.expand_icon = true
-	button.add_theme_constant_override("icon_max_width", 23)
+	button.add_theme_constant_override("icon_max_width", 28)
 	button.focus_mode = Control.FOCUS_ALL
 	_style_slot(button)
+	for state_name in ["normal", "hover", "disabled"]:
+		var surface := button.get_theme_stylebox(state_name, "Button") as StyleBoxFlat
+		surface.bg_color = Color(0.065, 0.11, 0.13, 0.84 if state_name != "disabled" else 0.5)
+		surface.border_color = Color(0.18, 0.29, 0.32, 0.8)
+		surface.set_border_width_all(1)
 
 func _count_badge(button: Button) -> Label:
 	var badge := Label.new()
@@ -699,7 +704,7 @@ func _recipe_tile(key: String, icon: Texture2D) -> Button:
 	_style_inventory_tile(tile, icon)
 	tile.custom_minimum_size = Vector2(68, 101)
 	tile.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-	tile.add_theme_constant_override("icon_max_width", 23)
+	tile.add_theme_constant_override("icon_max_width", 28)
 	tile.clip_contents = true
 	tile.focus_entered.connect(_describe_focus.bind(tile))
 	var name_label := Label.new()
@@ -760,8 +765,8 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 		Color(0.65, 0.70, 0.72)
 	for state_name in ["normal", "hover"]:
 		var surface := tile.get_theme_stylebox(state_name, "Button") as StyleBoxFlat
-		surface.border_color = Color("e7b875")
-		surface.border_width_bottom = 2 if craftable else 0
+		surface.border_color = Color("e7b875") if craftable else Color(0.18, 0.29, 0.32, 0.8)
+		surface.border_width_bottom = 2 if craftable else 1
 	var ingredients := "%d timber + %d copper" % [timber, copper] if plate == 0 else \
 		"%d timber + %d copper plate" % [timber, plate] if copper == 0 else \
 		"%d timber + %d copper + %d copper plate" % [timber, copper, plate]

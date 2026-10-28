@@ -3021,7 +3021,8 @@ func _render_arrival_hotbar() -> void:
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
 		"teeth": 0, "half_span": 2},
 		{"kind": "gear", "timber": 1, "copper": 1, "teeth": 2, "half_span": 0},
-		{"kind": "gear", "timber": 2, "copper": 1, "teeth": 4, "half_span": 0}]
+		{"kind": "gear", "timber": 2, "copper": 1, "teeth": 4, "half_span": 0},
+		{"kind": "wheel", "timber": 2, "copper": 1, "teeth": 0, "half_span": 0}]
 	view.state.component_capacity = 20
 	view.state.placed_components = {}
 	root.add_child(view)
@@ -3123,13 +3124,11 @@ func _render_arrival_hotbar() -> void:
 	view.state.collector_assemblies = [{"status": "ready"}]
 	view.state.part_recipes.append({"kind": "belt", "timber": 2, "copper": 0,
 		"teeth": 0, "half_span": 0})
-	view.state.part_recipes.append({"kind": "wheel", "timber": 2, "copper": 1,
-		"teeth": 0, "half_span": 0})
 	view._refresh_ui()
 	bar.open_catalog()
 	await settle_widgets()
-	verify(bar.recipe_category == "logistics" and bar.recipe_buttons["part:3"].visible
-		and not bar.recipe_buttons["part:4"].visible
+	verify(bar.recipe_category == "logistics" and bar.recipe_buttons["part:4"].visible
+		and not bar.recipe_buttons["part:3"].visible
 		and bar.recipe_tabs.power.visible,
 		"The rendered post-collector Logistics tab includes the belt; Power remains reachable.")
 	await RenderingServer.frame_post_draw
@@ -3187,14 +3186,14 @@ func _render_arrival_hotbar() -> void:
 	verify(root.get_texture().get_image().save_png(prefix + "-full-catalog.png") == OK,
 		"Retain the large carried inventory at normal width.")
 	bar._close_catalog()
-	root.size = Vector2i(560, 480)
+	root.size = Vector2i(640, 480)
 	await settle_widgets()
 	bar.open_catalog()
 	await settle_widgets()
 	bar.component_buttons.channel_broad_z.grab_focus()
 	await settle_widgets()
 	var focused_tile: Button = bar.component_buttons.channel_broad_z
-	verify(bar.catalog.visible and bar.material_grid.columns == 3
+	verify(bar.catalog.visible and bar.material_grid.columns == 4
 		and bar.catalog.position.y + bar.catalog.size.y <= bar.position.y - 8.0
 		and bar.catalog.gui_get_focus_owner() == focused_tile
 		and bar.inventory_scroll.get_global_rect().encloses(focused_tile.get_global_rect()),

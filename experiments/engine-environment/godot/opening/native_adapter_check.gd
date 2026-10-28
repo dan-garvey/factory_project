@@ -231,6 +231,15 @@ func _press_inventory_recipe(key: String, bench_id: String = "") -> bool:
 		inventory.open_catalog()
 	else:
 		inventory.open_at_bench(bench_id)
+	var part_kind := ""
+	if key.begins_with("part:"):
+		var part_index := int(key.trim_prefix("part:"))
+		var parts: Array = opening.model.projection().get("part_recipes", [])
+		if part_index >= 0 and part_index < parts.size():
+			part_kind = str(parts[part_index].get("kind", ""))
+	var category: String = inventory._recipe_category(key, part_kind)
+	if inventory.recipe_tabs.has(category):
+		inventory.recipe_tabs[category].pressed.emit()
 	if not _expect(inventory.catalog.visible and inventory.recipe_buttons.has(key)
 			and inventory.recipe_buttons[key].visible,
 			"The ordinary inventory exposes recipe " + key):
@@ -548,6 +557,7 @@ func _approach_points(points: Array[Vector2], actor: String = "P") -> bool:
 func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 	var inventory = opening.building_hotbar
 	inventory.open_catalog()
+	inventory.recipe_tabs.machine.pressed.emit()
 	if not _expect(inventory.catalog.visible
 			and inventory.recipe_buttons.has("component:wooden_frame")
 			and "3 timber" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text
@@ -566,6 +576,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 			inventory.catalog.hide()
 		await process_frame
 		inventory.open_catalog()
+		inventory.recipe_tabs.machine.pressed.emit()
 		await process_frame
 		inventory._place_catalog()
 		await RenderingServer.frame_post_draw
@@ -581,7 +592,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		await process_frame
 		inventory._place_catalog()
 	inventory.catalog.hide()
-	if not await _approach(Vector2(6.0, 3.45)):
+	if not await _approach(Vector2(7.0, 3.45)):
 		return
 	var distant: Dictionary = opening.model.projection()
 	if not _press_inventory_recipe("component:wooden_frame", str(distant.fabrication_hub.id)):
@@ -596,6 +607,8 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 	if not _expect(not remote_refusal.accepted and remote_refusal.reason == "out_of_reach",
 			"Native bench crafting still refuses a physically distant actor"):
 		return
+	if not await _approach(Vector2(6.0, 3.45)):
+		return
 	for index in range(3):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
@@ -604,6 +617,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 			"Three finite cuts reach the same physically present field actor"):
 		return
 	inventory.open_catalog()
+	inventory.recipe_tabs.machine.pressed.emit()
 	if not _expect(inventory.material_counts.timber.text == "3"
 			and inventory.material_buttons.timber.visible
 			and "Shape with multitool" in inventory.recipe_buttons["component:wooden_frame"].tooltip_text,
@@ -621,6 +635,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 			inventory.catalog.hide()
 		await process_frame
 		inventory.open_catalog()
+		inventory.recipe_tabs.machine.pressed.emit()
 		await process_frame
 		inventory._place_catalog()
 		await RenderingServer.frame_post_draw
@@ -636,6 +651,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		inventory._place_catalog()
 	if not inventory.catalog.visible:
 		inventory.open_catalog()
+	inventory.recipe_tabs.machine.pressed.emit()
 	inventory.recipe_buttons["component:wooden_frame"].pressed.emit()
 	var shaped: Dictionary = opening.model.projection()
 	if not _expect(shaped.order == gathered.order + 1 and shaped.cargo.P.timber == 0
@@ -1550,7 +1566,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	if not _expect(not carried_crank.is_empty(),
 			"The physical actor carries the finite crafted crank away from the workshop"):
 		return
-	if not await _approach(Vector2(0.0, 1.3)):
+	if not await _approach(Vector2(-0.6, 1.3)):
 		return
 	if not _select_inventory_item("wheel"):
 		return
@@ -1621,7 +1637,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 	# Walk around the east side of the fitted collector. Its frame closes the
 	# direct path from the receiver aisle to the wheel, while both inputs stay
 	# within the same physical actor's build reach from the south approach.
-	if not await _approach_points([Vector2(1.1, 3.3), Vector2(1.1, 0.2), Vector2(0.2, 0.55)]):
+	if not await _approach_points([Vector2(1.1, 3.3), Vector2(1.1, 0.2), Vector2(-0.3, 0.55)]):
 		return
 	if _construct({"action": "remove", "entity": wheel.entity}).is_empty():
 		return
@@ -1883,10 +1899,11 @@ func _arrival_nonhorizontal_incline_run(capture_prefix: String) -> void:
 		var key := "part:%d" % recipe
 		if opening.building_hotbar.recipe_buttons.has(key) \
 				and not opening.building_hotbar.recipe_buttons[key].visible:
-			opening.building_hotbar.all_focus_button.pressed.emit()
+			opening.building_hotbar.recipe_tabs[
+				opening.building_hotbar._recipe_category(key, part.kind)].pressed.emit()
 		if not _expect(opening.building_hotbar.recipe_buttons.has(key)
 				and opening.building_hotbar.recipe_buttons[key].visible,
-				"All unlocked parts exposes the needed workshop recipe"):
+			"The selected type tab exposes the needed workshop recipe"):
 			return
 		var before: Dictionary = opening.model.projection()
 		opening.building_hotbar.recipe_buttons[key].pressed.emit()
@@ -3896,31 +3913,49 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				and inventory.material_counts.products.text == "1",
 				"The exact formed plate enters the full carried inventory and reveals advanced recipes"):
 			return
-		if not _expect(inventory.recipe_focus == "project"
-				and inventory.project_focus_button.visible
-				and inventory.recipe_buttons["component:wooden_frame"].visible
-				and inventory.recipe_buttons["component:receiver_tray"].visible
-				and not inventory.recipe_buttons["component:anvil"].visible,
-			"The native first-plate milestone opens a focused collector project"):
+		if not _expect(inventory.recipe_category == "power"
+				and inventory.recipe_tabs.power.button_pressed
+				and inventory.recipe_buttons["component:wooden_cog"].visible
+				and not inventory.recipe_buttons["component:wooden_frame"].visible
+				and opening.goal_text.contains("Power"),
+			"The native first-plate milestone opens the Power recipes first"):
 			return
-		inventory.all_focus_button.grab_focus()
+		inventory.recipe_tabs.power.grab_focus()
 		await process_frame
-		if not _expect(inventory.focus_description.text.contains("All parts")
-				and inventory.all_focus_button.accessibility_name == "All unlocked recipes",
-			"Keyboard focus describes the route to every earned recipe"):
+		if not _expect(inventory.focus_description.text.contains("Power recipes")
+				and inventory.recipe_tabs.power.accessibility_name == "Power recipe tab",
+			"Keyboard focus names the current recipe category"):
 			return
-		inventory.all_focus_button.pressed.emit()
+		inventory.recipe_tabs.machine.pressed.emit()
 		if not _expect(inventory.recipe_buttons["component:anvil"].visible
-				and inventory.recipe_buttons["foundation"].visible,
-			"All parts reveals the complete native-unlocked recipe list"):
+				and inventory.recipe_buttons["component:wooden_frame"].visible
+				and not inventory.recipe_buttons["foundation"].visible,
+			"Machine parts keeps the first press and collector recipes reachable"):
 			return
-		inventory.project_focus_button.pressed.emit()
-		inventory.project_focus_button.grab_focus()
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-unlocked-machine.png") == OK,
+					"Retain the Machine parts tab after native plate pickup"):
+				return
+		inventory.recipe_tabs.other.pressed.emit()
+		if not _expect(inventory.recipe_buttons["foundation"].visible
+				and inventory.material_buttons.products.visible,
+			"Other recipes remain reachable without filtering the carried plate"):
+			return
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(root.get_texture().get_image().save_png(
+					capture_prefix + "-unlocked-other.png") == OK,
+					"Retain the Other tab and unfiltered carried stock after native plate pickup"):
+				return
+		inventory.recipe_tabs.power.pressed.emit()
+		inventory.recipe_tabs.power.grab_focus()
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			if not _expect(root.get_texture().get_image().save_png(
 					capture_prefix + "-unlocked-catalog.png") == OK,
-					"Retain the focused collector group after native plate pickup"):
+					"Retain the Power tab after native plate pickup"):
 				return
 			var original_size: Vector2i = root.size
 			root.size = Vector2i(900, 600)
@@ -3934,12 +3969,12 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				capture_prefix + "-unlocked-catalog-narrow.png")
 			var narrow_visible: bool = inventory.catalog.visible
 			if not _expect(narrow_visible
-					and inventory.recipe_focus == "project"
+					and inventory.recipe_category == "power"
 					and Rect2(Vector2.ZERO, Vector2(root.size)).encloses(narrow_rect)
 					and narrow_capture == OK,
-					"The ordinary collector recipes fit the narrow actor viewport: " +
+					"The ordinary Power recipes fit the narrow actor viewport: " +
 				str({"popup": narrow_rect, "viewport": root.size,
-					"visible": narrow_visible, "recipe_focus": inventory.recipe_focus})):
+					"visible": narrow_visible, "recipe_category": inventory.recipe_category})):
 				return
 			root.size = original_size
 			await process_frame
@@ -3984,7 +4019,6 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(4.95, 3.3),
 			Vector2(4.95, 6.6)]):
 		return false
-	opening.building_hotbar.all_focus_button.pressed.emit()
 	if not _expect(opening._can_choose_tool(),
 			"The plate owner's Build controls are available after the saved first workshop: " +
 			str({"pause": opening.pause_menu.visible, "log": opening.manager_log_open,
@@ -4037,16 +4071,15 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 			"The original plate owner has a native ready collector without consuming the first plate"):
 		return false
 	var inventory = opening.building_hotbar
-	inventory.project_focus_button.pressed.emit()
 	inventory.open_catalog()
-	if not _expect(inventory.recipe_focus == "project"
-			and inventory.recipe_focus_label.text == "BELT ROUTE"
-			and inventory.project_focus_button.icon == inventory.BELT_ICON
-			and inventory.recipe_buttons.foundation.visible
-			and inventory.recipe_buttons["component:wooden_cog"].visible
+	if not _expect(inventory.recipe_category == "logistics"
+			and inventory.recipe_tabs.logistics.button_pressed
+			and not inventory.recipe_buttons.foundation.visible
+			and not inventory.recipe_buttons["component:wooden_cog"].visible
 			and not inventory.recipe_buttons["component:wooden_frame"].visible
-			and opening.goal_text.contains("belt route"),
-			"A physical first-plate worker sees a belt-route group after building the collector"):
+			and inventory.material_buttons.products.visible
+			and opening.goal_text.contains("Logistics"),
+			"A physical first-plate worker sees Logistics after building the collector"):
 		return false
 	var belt_recipe := -1
 	for index in built.part_recipes.size():
@@ -4056,11 +4089,11 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 	if not _expect(belt_recipe >= 0 and inventory.recipe_buttons["part:%d" % belt_recipe].visible,
 			"The next suggested group includes the native belt-span recipe"):
 		return false
-	inventory.project_focus_button.grab_focus()
+	inventory.recipe_tabs.logistics.grab_focus()
 	await process_frame
-	if not _expect(inventory.focus_description.text.contains("connect two shafts")
-			and inventory.project_focus_button.accessibility_name == "Belt route recipes",
-			"The real post-collector project gives keyboard focus a readable belt objective"):
+	if not _expect(inventory.focus_description.text.contains("Logistics recipes")
+			and inventory.recipe_tabs.logistics.accessibility_name == "Logistics recipe tab",
+			"The real post-collector tab gives keyboard focus a readable recipe category"):
 		return false
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await RenderingServer.frame_post_draw
@@ -4082,11 +4115,18 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 			return false
 		root.size = original_size
 		await process_frame
-	inventory.all_focus_button.pressed.emit()
+	inventory.recipe_tabs.machine.pressed.emit()
 	if not _expect(inventory.recipe_buttons["component:anvil"].visible
-			and inventory.recipe_buttons["component:wooden_frame"].visible,
-			"All parts still exposes both the old press and another collector"):
+			and inventory.recipe_buttons["component:wooden_frame"].visible
+			and inventory.material_buttons.products.visible,
+			"Machine parts still exposes the old press and another collector without filtering Carried"):
 		return false
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(
+				capture_prefix + "-postcollector-machine.png") == OK,
+				"Retain the native post-collector Machine parts window"):
+			return false
 	inventory._close_catalog()
 	# A resize while the popup was visible can leave its deferred layout
 	# coroutine waiting for one more frame; let it finish before scene teardown.
