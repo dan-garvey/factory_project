@@ -1401,7 +1401,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 						Vector3(0.19, 0.16, 0.19), worked, true)
 			for x in [-Geometry.PITCH * 0.5, Geometry.PITCH * 0.5]:
 				for z in [-Geometry.PITCH * 0.5, Geometry.PITCH * 0.5]:
-					_support_box(anchor, "WorkbedFace", Vector3(x, top - 0.08, z),
+					_support_box(anchor, "WorkbedFace%d" % anchor.get_child_count(),
+						Vector3(x, top - 0.08, z),
 						Vector3(1.53, 0.16, 1.53), face_iron, true)
 			for side in [-1.0, 1.0]:
 				_support_box(anchor, "JoinedWorkbedX", Vector3(0, bottom + 0.13, side * 1.47),
