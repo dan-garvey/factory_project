@@ -49,6 +49,8 @@ using TerrainRange = std::function<std::optional<std::pair<double, double>>(
     mechanics::Axis axis, bool gear);
 [[nodiscard]] bool shaft_meets_component_cog(std::optional<materials::Component> kind,
     const mechanics::Point& component, const mechanics::Point& shaft, mechanics::Axis axis);
+[[nodiscard]] bool shaft_meets_slide_input(std::optional<materials::Component> kind,
+    const mechanics::Point& component, const mechanics::Point& shaft, mechanics::Axis axis);
 [[nodiscard]] bool collector_intake_intersects(const Bounds& intake, const world::Profile& profile,
     const stationary::PlacedPart& other);
 [[nodiscard]] bool transmission_intersects_foundations(const world::State& state,

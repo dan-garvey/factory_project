@@ -193,6 +193,19 @@ void guided_press_host_path() {
     raised_floor.emplace("cell", V(A{V(I{2}), V(I{0})}));
     raised_floor.emplace("level", V(I{4}));
     accepted(elevated, raised_floor);
+    auto offset_anvil = request("guided-offset-anvil", "place_component");
+    offset_anvil.emplace("component", V("anvil"));
+    offset_anvil.emplace("center", V(A{V(I{9}), V(I{0}), V(I{0})}));
+    const auto before_offset = host.projection();
+    const auto offset_result = host.command("P", offset_anvil);
+    if (get<bool>(offset_result, "accepted") ||
+        get<std::string>(offset_result, "reason") != "invalid_area_target")
+        throw std::runtime_error("Off-grid anvil refusal: " +
+            get<std::string>(offset_result, "reason"));
+    check(!get<bool>(offset_result, "accepted") &&
+          get<std::string>(offset_result, "reason") == "invalid_area_target" &&
+          get<I>(host.projection(), "revision") == get<I>(before_offset, "revision"),
+          "The one-cell anvil refuses an off-grid center without spending its kit.");
     const auto elevated_anvil = place(elevated, "anvil", 8, 4, 0,
                                      "guided-independent-raised-anvil");
     const auto before_bad_component_shapes = elevated.projection();
@@ -257,9 +270,10 @@ void guided_press_host_path() {
     const auto anvil_half = get<A>(V(anvil_box), "half");
     check(std::abs(anvil_faces.first) < 1e-9 &&
           std::abs(anvil_faces.second - factory::godot_world::site_geometry::press_work_height) < 1e-9 &&
-          std::abs(std::get<double>(anvil_half[0].storage()) - 0.2025) < 1e-9 &&
+          std::abs(std::get<double>(anvil_half[0].storage()) -
+                   factory::godot_world::site_geometry::pitch * 0.5) < 1e-9 &&
           std::abs(std::get<double>(anvil_half[2].storage()) -
-              factory::godot_world::site_geometry::belt_frame_outer_half_width) < 1e-9 &&
+                   factory::godot_world::site_geometry::pitch * 0.5) < 1e-9 &&
           std::abs(ram_faces.first - anvil_faces.second) < 1e-9,
           "The supported workbed stays in its pick body while the ram reaches its raised face.");
     const auto shaft = place(host, "wooden_shaft", 9, 4, 0, "guided-place-shaft");
@@ -825,22 +839,8 @@ void placed_press_projection() {
     Host obstructed;
     check(get<bool>(obstructed.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(obstructed.configure_terrain(obstructed_site), "accepted") &&
-          get<bool>(obstructed.restore_checkpoint(saved), "accepted"),
-          "The saved press can load with a new obstacle limited to one feed mouth.");
-    check(get<bool>(obstructed.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 101), "accepted"),
-          "The restored actor provides a fresh physical observation for the new worksite.");
-    const auto blocked_rock = obstructed.command("P", feed("blocked-rock", frame, 9, 1, 0));
-    check(!get<bool>(blocked_rock, "accepted") &&
-          get<std::string>(blocked_rock, "reason") == "site_occupied" &&
-          get<A>(obstructed.projection(), "dropped_material").empty(),
-          "A scenery obstacle at the chosen mouth refuses feed without losing stock.");
-    accepted(obstructed, feed("alternate-clear-face", frame, 7, 1, 0));
-    check(get<A>(obstructed.projection(), "dropped_material").size() == 1,
-          "The same press remains usable from another physically clear face.");
-    const auto rock_turn = obstructed.command("P", turn("blocked-rock-exit", frame, mirrored_shaft, 9, 1, 0));
-    check(!get<bool>(rock_turn, "accepted") && get<std::string>(rock_turn, "reason") == "site_occupied" &&
-          get<A>(obstructed.projection(), "dropped_material").size() == 1,
-          "A scenery rock blocks product exit without destroying the fed blank.");
+          !get<bool>(obstructed.restore_checkpoint(saved), "accepted"),
+          "A new obstacle at an old feed point now intersects the full-unit anvil and refuses restore.");
     carry_crank(host, crank, "press-detach-mirrored-crank");
     for (const auto& [id, request_id] : {
              std::pair{mirrored_cog, "reclaim-mirrored-cog"},

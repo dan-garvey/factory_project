@@ -383,10 +383,15 @@ func _component_placement_check() -> void:
 		and absf(head_box.center.y + head_box.half.y - 1.3625) < 0.0001
 		and absf(slide_box.center.y - slide_box.half.y - Geometry.PRESS_WORK_HEIGHT) < 0.0001
 		and absf(slide_box.center.y + slide_box.half.y - 1.73) < 0.0001
-		and absf(workbed_box.size.z - 2.0 * Geometry.BELT_FRAME_OUTER_HALF_WIDTH) < 0.0001
+		and absf(workbed_box.size.x - Geometry.PITCH) < 0.0001
+		and absf(workbed_box.size.z - Geometry.PITCH) < 0.0001
+		and absf(head_box.size.x - Geometry.PITCH) < 0.0001
+		and absf(head_box.size.z - Geometry.PITCH) < 0.0001
+		and absf(slide_box.size.x - Geometry.PITCH) < 0.0001
+		and absf(slide_box.size.z - Geometry.PITCH) < 0.0001
 		and absf(head_box.center.y - head_box.half.y -
 			(workbed_box.center.y + workbed_box.half.y)) < 0.0001,
-		"The head and slide feet meet a workbed wide enough for the belt frame.")
+		"The head and slide feet meet a workbed that occupies one full foundation cell.")
 	view.state.placed_components["sample-head"] = {"component": "flat_head", "center": [12, 1, 8],
 		"generation": 1, "occupied": {"center": [head_box.center.x, head_box.center.y, head_box.center.z],
 		"half": [head_box.half.x, head_box.half.y, head_box.half.z]}}
@@ -398,7 +403,10 @@ func _component_placement_check() -> void:
 			workbed_box.center.z], "half": [workbed_box.half.x, workbed_box.half.y, workbed_box.half.z]}}
 	var tray_box: Dictionary = view._component_candidate_box("receiver_tray", [12, 0, 9])
 	verify(not view._component_candidate_blocked("receiver_tray", [12, 0, 9], tray_box),
-		"A low receiver remains placeable below the workbed's side overhang.")
+		"A low receiver remains placeable below the open Z-side workbed edge.")
+	var exit_tray_box: Dictionary = view._component_candidate_box("receiver_tray", [11, 0, 8])
+	verify(not view._component_candidate_blocked("receiver_tray", [11, 0, 8], exit_tray_box),
+		"The native press outlet receiver fits below the open X-side workbed edge.")
 	view.state.placed_components.erase("sample-workbed")
 	view.state.placed_components["sample-slide"] = {"component": "copper_slide", "center": [12, 2, 8],
 		"generation": 1, "occupied": {"center": [slide_box.center.x, slide_box.center.y, slide_box.center.z],
@@ -445,7 +453,7 @@ func _component_placement_check() -> void:
 	var slide_post: MeshInstance3D = slide_sample.get_node_or_null("SlideRail")
 	var input_shaft: MeshInstance3D = slide_sample.get_node_or_null("IntegralInputShaft")
 	verify(mount_rail != null and slide_foot != null and slide_post != null and input_shaft != null
-		and absf(workbed_sample.position.y + mount_rail.position.y + 0.025 - anvil_top) < 0.0001
+		and absf(workbed_sample.position.y + mount_rail.position.y + 0.08 - anvil_top) < 0.0001
 		and absf(slide_sample.position.y + slide_foot.position.y - 0.0175 - anvil_top) < 0.0001
 		and absf(slide_foot.position.z - mount_rail.position.z) < 0.0001
 		and 2.0 * (absf(slide_post.position.z) - 0.025) > 2.0 * Geometry.BELT_HALF_WIDTH
@@ -550,6 +558,17 @@ func _component_placement_check() -> void:
 	verify(broad_bed_sample.has_node("JoinedWorkbedBase")
 		and broad_head_sample.has_node("BroadHeadMovingDie/JoinedFlatFace"),
 		"The broad bed and single moving face have distinct visible parts.")
+	var broad_faces := broad_bed_sample.find_children("WorkbedFace*", "MeshInstance3D", true, false)
+	var centered_faces := 0
+	for face: Node in broad_faces:
+		var panel := face as MeshInstance3D
+		if panel != null and panel.mesh != null and \
+				absf(absf(panel.position.x) - Geometry.PITCH * 0.5) < 0.0001 and \
+				absf(absf(panel.position.z) - Geometry.PITCH * 0.5) < 0.0001 and \
+				absf(panel.mesh.get_aabb().size.x - (Geometry.PITCH - 0.12)) < 0.0001:
+			centered_faces += 1
+	verify(broad_faces.size() == 4 and centered_faces == 4,
+		"Each broad face panel aligns with one U-centered small anvil and keeps its edge relief.")
 	verify(broad_slide_sample.has_node("BroadSlideCarriage"),
 		"The broad housing carries the central piston through its stroke.")
 	verify(broad_slide_sample.find_children("BroadInternalShaft*", "MeshInstance3D", true, false).size() == 4,
@@ -640,7 +659,62 @@ func _component_placement_check() -> void:
 		await process_frame
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(prefix + "-broad-ground-rest.png") == OK,
-			"Retain the broad worksite beside a narrow press, one-wide belt and external drive shaft.")
+			"Retain the broad worksite beside the one-cell press, belt and external drive shaft.")
+		var small_context_host := BroadContextHost.new()
+		small_context_host.state = {"context": "small-belt-context", "revision": 1,
+			"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
+			"foundations": {}, "motion": {}, "dropped_material": [],
+			"placed_components": {
+				"small-anvil": {"component": "anvil", "center": [12, 0, 8], "generation": 1,
+					"occupied": {"center": [workbed_box.center.x, workbed_box.center.y,
+						workbed_box.center.z], "half": [workbed_box.half.x, workbed_box.half.y,
+						workbed_box.half.z]}},
+				"small-head": {"component": "flat_head", "center": [12, 1, 8], "generation": 1,
+					"occupied": {"center": [head_box.center.x, head_box.center.y, head_box.center.z],
+						"half": [head_box.half.x, head_box.half.y, head_box.half.z]}},
+				"small-slide": {"component": "copper_slide", "center": [12, 2, 8],
+					"generation": 1, "occupied": {"center": [slide_box.center.x,
+						slide_box.center.y, slide_box.center.z], "half": [slide_box.half.x,
+						slide_box.half.y, slide_box.half.z]}}},
+			"transmission_parts": {
+				"small-belt-first": {"kind": "shaft", "axis": 2, "center": [4, 0, 8],
+					"half_span": 2, "support": {"foot": [1.65, 0.0, 3.3],
+						"bearing": [1.65, 0.825, 3.3]}},
+				"small-belt-mouth": {"kind": "shaft", "axis": 2, "center": [8, 0, 8],
+					"half_span": 2, "support": {"foot": [3.3, 0.0, 3.3],
+						"bearing": [3.3, 0.825, 3.3]}}},
+			"belt_spans": {"small-lane": {"from": "small-belt-first",
+				"to": "small-belt-mouth"}},
+			"sliding_press_assemblies": [{"anvil": "small-anvil", "center": [12, 0, 8],
+				"status": "ready", "work_center": [12, 0, 8],
+				"parts": {"anvil": "small-anvil", "head": "small-head",
+					"slide": "small-slide"},
+				"open_feeds": [{"entry": [11, 0, 8], "exit": [13, 0, 8]}]}]}
+		var small_context_drive := ComponentPresenter.new()
+		view.add_child(small_context_drive)
+		small_context_drive.configure(small_context_host)
+		verify(small_context_drive.find_child("PressBeltConnector", true, false) != null
+			and small_context_drive.find_child("ConfirmedBelt", true, false) != null,
+			"A ready one-cell press shows a belt fitting only at its confirmed neighboring route.")
+		workbed_sample.visible = false
+		head_sample.visible = false
+		slide_sample.visible = false
+		camera.position = Vector3(5.2, 3.4, 9.0)
+		camera.look_at(Vector3(4.0, 1.0, 3.3))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-small-belt-ground-side.png") == OK,
+			"Retain the small press, neighboring belt, workface edge and broad reference in side context.")
+		camera.position = Vector3(6.0, 7.2, 8.1)
+		camera.look_at(Vector3(4.8, 0.75, 3.3))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-small-belt-ground-plan.png") == OK,
+			"Retain the same native-sized press and belt contact from above.")
+		small_context_drive.free()
+		workbed_sample.visible = true
+		head_sample.visible = true
+		slide_sample.visible = true
 		broad_head_sample.visible = false
 		broad_slide_sample.visible = false
 		camera.position = Vector3(7.2, 7.4, 12.2)
@@ -673,6 +747,30 @@ func _component_placement_check() -> void:
 		verify(root.get_texture().get_image().save_png(prefix + "-broad-ground-ghost.png") == OK,
 			"Retain the full-footprint housing preview in its surrounding worksite.")
 		ghost.free()
+		context_drive.visible = false
+		broad_bed_sample.visible = true
+		broad_head_sample.visible = false
+		broad_slide_sample.visible = false
+		head_sample.visible = false
+		slide_sample.visible = false
+		var small_tiles := []
+		for tile_center in [[16, 0, 8], [12, 0, 12], [16, 0, 12]]:
+			var tile_box: Dictionary = view._component_candidate_box("anvil", tile_center)
+			var tile_body := Node3D.new()
+			tile_body.position = tile_box.center
+			view.add_child(tile_body)
+			presenter.preview_component(tile_body, "anvil", tile_box.size)
+			small_tiles.append(tile_body)
+		camera.fov = 48.0
+		camera.position = Vector3(7.4, 10.2, 9.5)
+		camera.look_at(Vector3(7.7, 0.55, 4.1))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-four-small-vs-broad.png") == OK,
+			"Four independent one-cell beds show the same two-by-two footprint as the broad bed.")
+		for tile_body in small_tiles:
+			tile_body.free()
+		broad_bed_sample.visible = false
 		broad_slide_sample.visible = true
 		context_drive.visible = false
 		head_sample.visible = false
@@ -715,6 +813,27 @@ func _component_placement_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(root.get_texture().get_image().save_png(prefix + "-broad-raised-rest.png") == OK,
 			"Retain the supported broad press on four square foundation units.")
+		var small_foundation := Node3D.new()
+		small_foundation.position = Vector3(12.0 * Geometry.HEIGHT_STEP,
+			4.0 * Geometry.HEIGHT_STEP, 8.0 * Geometry.HEIGHT_STEP)
+		view.add_child(small_foundation)
+		verify(FoundationArt.mount(small_foundation, FoundationArt.EAST | FoundationArt.WEST
+			| FoundationArt.NORTH | FoundationArt.SOUTH),
+			"A one-cell foundation supports the small press beside the four-cell deck.")
+		for small_part in [workbed_sample, head_sample, slide_sample]:
+			small_part.position.y += 4.0 * Geometry.HEIGHT_STEP
+			small_part.visible = true
+		camera.fov = 58.0
+		camera.position = Vector3(7.0, 6.1, 11.8)
+		camera.look_at(Vector3(7.4, 2.1, 4.0))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		verify(root.get_texture().get_image().save_png(prefix + "-small-raised-comparison.png") == OK,
+			"Retain the raised one-cell press and broad press on their matching foundation grid.")
+		for small_part in [workbed_sample, head_sample, slide_sample]:
+			small_part.position.y -= 4.0 * Geometry.HEIGHT_STEP
+			small_part.visible = false
+		small_foundation.free()
 		foundations.free()
 		context_drive.free()
 		floor.free()
@@ -929,8 +1048,8 @@ func _component_placement_check() -> void:
 	view._input(_component_key(KEY_ALT, true, true))
 	view._input(_component_key(KEY_RIGHT, true, true))
 	view._input(_component_key(KEY_PAGEUP, true, true))
-	verify(view.component_nudge_center == [1, 2, 0],
-		"Alt, Right and Page Up move the locked center by quarter-grid steps.")
+	verify(view.component_nudge_center == [4, 2, 0],
+		"Alt and Right move the workbed one U while Page Up keeps its fitted height step.")
 	view.aimed = ""
 	view.pointed_cell = Vector2i(4, 4)
 	var old_hover := view.hover_cell
@@ -943,10 +1062,10 @@ func _component_placement_check() -> void:
 	# also updates its gameplay camera, so restore this capture framing.
 	camera.position = Vector3(1.15, 2.05, 2.4)
 	camera.look_at(Vector3(0, 1.15, 0))
-	verify(view._component_place_center(view.pointed_cell, "") == [1, 2, 0],
+	verify(view._component_place_center(view.pointed_cell, "") == [4, 2, 0],
 		"Pointer movement does not move the ghost while Alt is held.")
 	view._world_click(view.pointed_cell)
-	verify(view.issued.size() == 1 and view.issued[0].center == [1, 2, 0],
+	verify(view.issued.size() == 1 and view.issued[0].center == [4, 2, 0],
 		"Click sends the exact visible nudged center to Host.")
 	view._input(_component_key(KEY_ALT, false))
 	verify(not view.component_nudge_active and view._component_place_center(view.pointed_cell, "") == [16, 0, 16],
@@ -955,13 +1074,13 @@ func _component_placement_check() -> void:
 	view.pointed_cell = Vector2i.ZERO
 	view.state.placed_components["anvil"] = {"component": "anvil", "center": [0, 1, 0],
 		"generation": 1, "occupied": {"center": [0.0, Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT * 0.5, 0.0],
-		"half": [0.2025, Geometry.PRESS_WORK_HEIGHT * 0.5,
-			Geometry.BELT_FRAME_OUTER_HALF_WIDTH]}}
+		"half": [Geometry.PITCH * 0.5, Geometry.PRESS_WORK_HEIGHT * 0.5,
+			Geometry.PITCH * 0.5]}}
 	var placed_anvil := Node3D.new()
 	placed_anvil.position.y = Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT * 0.5
 	view.add_child(placed_anvil)
-	presenter.preview_component(placed_anvil, "anvil", Vector3(0.405,
-		Geometry.PRESS_WORK_HEIGHT, 2.0 * Geometry.BELT_FRAME_OUTER_HALF_WIDTH))
+	presenter.preview_component(placed_anvil, "anvil", Vector3(Geometry.PITCH,
+		Geometry.PRESS_WORK_HEIGHT, Geometry.PITCH))
 	view._refresh_component_preview()
 	verify(view.component_preview_blocked and view.component_preview_material.albedo_color.r > 0.9
 		and view.component_preview_material.albedo_color.g < 0.4,
@@ -973,7 +1092,7 @@ func _component_placement_check() -> void:
 			"Retain the red ghost at an occupied anvil point.")
 	view._input(_component_key(KEY_ALT, true, true))
 	view._input(_component_key(KEY_RIGHT, true, true))
-	verify(view.component_nudge_center == [1, 1, 0] and not view.component_preview_blocked
+	verify(view.component_nudge_center == [4, 1, 0] and not view.component_preview_blocked
 		and view.component_preview.visible,
 		"An obstructed red ghost can be nudged directly to a clear amber point.")
 	view._input(_component_key(KEY_ALT, false))
@@ -5161,16 +5280,16 @@ func _slide_view_check() -> void:
 		anchor.position = Vector3(sample.x, 0.55, 0)
 		presenter.add_child(anchor)
 		if sample.phase == null:
-			presenter.preview_component(anchor, sample.kind, Vector3(0.42, 0.825, 0.42))
+			presenter.preview_component(anchor, sample.kind, Vector3(Geometry.PITCH, 0.825, Geometry.PITCH))
 		else:
 			presenter._placed_component(anchor, sample.kind, Vector3.ZERO,
-				Vector3(0.42, 0.825, 0.42), "", 0.0, 0.0, Vector3.ZERO, sample.phase)
+				Vector3(Geometry.PITCH, 0.825, Geometry.PITCH), "", 0.0, 0.0, Vector3.ZERO, sample.phase)
 		verify(anchor.has_node("SlideRail") and anchor.has_node("SlideCrown")
 			and anchor.has_node("IntegralInputShaft") and anchor.has_node("SlideCarriage"),
 			"Each slide has fixed rails, an exposed input and a separate carriage.")
 		verify(is_equal_approx((anchor.get_node("IntegralInputShaft").mesh as CylinderMesh).height,
-			Geometry.PITCH * 0.5),
-			"The visible input rod reaches the native one-quarter-pitch shaft ports.")
+			Geometry.PITCH),
+			"The visible input rod crosses the full housing and reaches both side faces.")
 		var carriage := anchor.get_node("SlideCarriage") as Node3D
 		verify(carriage.position.y - 0.103 > -0.4125 and carriage.position.y + 0.07 < 0.4125,
 			"The native phase keeps the carriage inside the admitted swept height.")

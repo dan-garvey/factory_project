@@ -70,11 +70,10 @@ Bounds component_bounds(const world::Profile& profile,
                     {height_step - component_shaft_half, 0.18,
                      height_step - component_shaft_half}};
         case materials::Component::anvil:
-            // Its feet rest on the floor. The working face spans a full belt
-            // lane; the conservative body also includes its side rails.
+            // The independent workbed owns one full foundation cell. Its
+            // inset face and open underframe do not release that cell.
             return {{at[0], center[1] * height_step + anvil_work_height * 0.5, at[2]},
-                {0.2025, anvil_work_height * 0.5,
-                 site_geometry::belt_frame_outer_half_width}};
+                {pitch * 0.5, anvil_work_height * 0.5, pitch * 0.5}};
         case materials::Component::broad_anvil: {
             const double floor = center[1] * height_step;
             return {{at[0] + pitch * 0.5, floor + anvil_work_height * 0.5,
@@ -84,11 +83,14 @@ Bounds component_bounds(const world::Profile& profile,
         case materials::Component::ram_face:
             return vertical(center[1] * height_step - height_step + anvil_work_height,
                 at[1] + height_step * 0.5);
-        case materials::Component::flat_head:
+        case materials::Component::flat_head: {
             // Reserve the entire carriage-driven die sweep. The named slide
             // may occupy its coaxial upper portion as an intentional fitting.
-            return vertical(center[1] * height_step - height_step + anvil_work_height,
-                at[1] + 0.125);
+            const double low = center[1] * height_step - height_step + anvil_work_height;
+            const double high = at[1] + 0.125;
+            return {{at[0], (low + high) * 0.5, at[2]},
+                {pitch * 0.5, (high - low) * 0.5, pitch * 0.5}};
+        }
         case materials::Component::broad_flat_head: {
             const double low = center[1] * height_step - height_step + anvil_work_height;
             const double high = at[1] + height_step * 0.5;
@@ -118,8 +120,7 @@ Bounds component_bounds(const world::Profile& profile,
             const double low = center[1] * height_step - 2 * height_step + anvil_work_height;
             const double high = at[1] + 0.08;
             return {{at[0], (low + high) * 0.5, at[2]},
-                {0.21, (high - low) * 0.5,
-                 site_geometry::belt_frame_outer_half_width}};
+                {pitch * 0.5, (high - low) * 0.5, pitch * 0.5}};
         }
         case materials::Component::cutting_edge:
             return {{at[0], at[1] - 0.015, at[2]}, {0.21, 0.12, 0.18}};

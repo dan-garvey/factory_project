@@ -42,7 +42,7 @@ void one_piece_slide_custody() {
     Host host;
     check(get<bool>(host.initialize_arrival_advanced_fixture("slide-body-site", {"P"}), "accepted") &&
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted"),
+          get<bool>(host.publish_actor("P", {V(6.15), V(1.0), V(3.3)}, 1), "accepted"),
           "One real arrival actor can reach a finite tree for a slide body.");
     const auto command = [&](const char* request, const char* action, O extra) {
         O wire{{"context", V("slide-body-site")}, {"client", V("P")},
@@ -78,9 +78,9 @@ void one_piece_slide_custody() {
               V(A{V(I{11}), V(I{0}), V(I{8})})) &&
           !factory::values::typed_difference(input_ports.back(),
               V(A{V(I{13}), V(I{0}), V(I{8})})) &&
-          std::abs(std::get<double>(half[0].storage()) - 0.21) < 1e-8 &&
+          std::abs(std::get<double>(half[0].storage()) - 0.825) < 1e-8 &&
           std::abs(std::get<double>(half[1].storage()) - 0.38125) < 1e-8 &&
-          std::abs(std::get<double>(half[2].storage()) - 0.57) < 1e-8 &&
+          std::abs(std::get<double>(half[2].storage()) - 0.825) < 1e-8 &&
           get<std::string>(V(get<O>(host.projection(), "motion").at(slide_id)), "state") == "unpowered",
           "The placed slide publishes one fixed collision volume and its actual idle drive state.");
     const auto initial_phase = get<O>(host.projection(), "slide_phases").at(slide_id);
@@ -136,7 +136,7 @@ void one_piece_slide_custody() {
         {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
     check(!get<bool>(resumed("no-crank", "turn_slide_crank", turn), "accepted"),
           "A worker without the issued crank cannot turn the slide's integral input.");
-    check(get<bool>(restored.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 2), "accepted") &&
+    check(get<bool>(restored.publish_actor("P", {V(6.15), V(1.0), V(3.3)}, 2), "accepted") &&
           get<bool>(resumed("crank-wood-1", "harvest_source",
               {{"target", V("tree-east-south")}}), "accepted") &&
           get<bool>(resumed("crank-wood-2", "harvest_source",
@@ -219,7 +219,7 @@ void flat_head_host_custody() {
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")),
               "flat_head") == 1,
           "The separate flat head spends exactly one finite copper unit at the pod bench.");
-    check(get<bool>(host.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 3), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 3), "accepted"),
           "The actor walks into physical reach of a clear build site.");
     const auto installed = command("place", "place_component",
         {{"component", V("flat_head")}, {"center", V(A{V(I{12}), V(I{1}), V(I{8})})}});
@@ -234,7 +234,7 @@ void flat_head_host_custody() {
     const auto high = std::get<double>(center[1].storage()) + std::get<double>(half[1].storage());
     check(get<std::string>(placed, "component") == "flat_head" &&
           std::abs(low - 0.9675) < 1e-8 && std::abs(high - 1.3625) < 1e-8 &&
-          std::abs(std::get<double>(half[0].storage()) - 0.14) < 1e-8,
+          std::abs(std::get<double>(half[0].storage()) - 0.825) < 1e-8,
           "The separate die reaches the supported workbed through its bounded sweep.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted"),
           "The actor can leave the placed die to gather a finite slide bill.");
@@ -244,7 +244,7 @@ void flat_head_host_custody() {
               "The wooden slide consumes three distinct finite timber cuts.");
     check(get<bool>(command("shape-slide", "field_craft", {{"component", V("wooden_slide")}}),
             "accepted") &&
-          get<bool>(host.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 5), "accepted"),
+          get<bool>(host.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 5), "accepted"),
           "The actor shapes a separate slide and returns to the same physical build site.");
     const auto slide = command("place-slide", "place_component",
         {{"component", V("wooden_slide")}, {"center", V(A{V(I{12}), V(I{2}), V(I{8})})}});
@@ -266,7 +266,7 @@ void flat_head_host_custody() {
           get<bool>(restored.restore_checkpoint(saved), "accepted") &&
           !factory::values::typed_difference(saved, restored.checkpoint()),
           "The placed head, slide and spent raw stock persist through an exact fresh Host restore.");
-    check(get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 6), "accepted"),
+    check(get<bool>(restored.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 6), "accepted"),
           "The restored actor can reach the same placed die.");
     const auto reclaimed = restored.command("P", O{{"context", V("flat-head-site")},
         {"client", V("P")}, {"request", V("reclaim")},
@@ -305,7 +305,7 @@ void flat_head_host_custody() {
           get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 8), "accepted") &&
           get<bool>(resumed("support-craft", "craft_component",
               {{"entity", V("pod-fabrication-hub")}, {"component", V("anvil")}}), "accepted") &&
-          get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 9), "accepted"),
+          get<bool>(restored.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 9), "accepted"),
           "Two more finite copper cuts produce the separate passive work support.");
     const auto support = resumed("support-place", "place_component",
         {{"component", V("anvil")}, {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}});
@@ -335,7 +335,7 @@ void flat_head_host_custody() {
               {{"target", V("tree-east-south")}}), "accepted") &&
           get<bool>(resumed("craft-press-crank", "field_craft",
               {{"component", V("hand_crank")}}), "accepted") &&
-          get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 11), "accepted"),
+          get<bool>(restored.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 11), "accepted"),
           "The worker crafts a finite crank and returns within reach of the loaded slide.");
     const auto cranks = get<O>(restored.projection(), "crank_items");
     check(cranks.size() == 1 && get<bool>(resumed("fit-press-crank", "attach_hand_crank",
@@ -362,7 +362,7 @@ void flat_head_host_custody() {
     check(get<bool>(restored.publish_actor("P", {V(-1.2375), V(1.0), V(0.0)}, 12), "accepted") &&
           get<bool>(resumed("route-ore", "harvest_source",
               {{"target", V("opening-copper")}}), "accepted") &&
-          get<bool>(restored.publish_actor("P", {V(4.2), V(1.0), V(3.3)}, 13), "accepted"),
+          get<bool>(restored.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 13), "accepted"),
           "A further finite copper unit reaches the fitted press as an actor-held blank.");
     const auto feed = resumed("feed-slide-west", "feed_press",
         {{"entity", V(get<std::string>(support, "entity"))},
@@ -397,7 +397,7 @@ void flat_head_host_custody() {
     auto shared_drop = std::get<O>(get<A>(route_restored.projection(),
         "dropped_material").front().storage());
     shared_drop.erase("center");
-    check(get<bool>(route_restored.publish_actor("Q", {V(4.2), V(1.0), V(3.3)}, 1), "accepted"),
+    check(get<bool>(route_restored.publish_actor("Q", {V(3.7), V(1.0), V(3.3)}, 1), "accepted"),
           "The second worker has an independent physical sample beside the restored press.");
     const auto shared_pickup = route_restored.command("Q", O{
         {"context", V("flat-head-site")}, {"client", V("Q")},
@@ -440,11 +440,11 @@ void flat_head_host_custody() {
               "Finite timber supplies the feed obstruction without invented cargo.");
     check(get<bool>(resumed("shape-feed-blocker", "field_craft",
               {{"component", V("wooden_slide")}}), "accepted") &&
-          get<bool>(restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 15), "accepted"),
+          get<bool>(restored.publish_actor("P", {V(6.6), V(1.0), V(2.1)}, 15), "accepted"),
           "The crafted slide can be brought beside the press.");
     const auto feed_blocker = resumed("place-feed-blocker", "place_component",
         {{"component", V("wooden_slide")},
-         {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+         {"center", V(A{V(I{16}), V(I{0}), V(I{8})})}});
     if (!get<bool>(feed_blocker, "accepted"))
         throw std::runtime_error("Slide feed blocker refused: " +
             get<std::string>(feed_blocker, "reason"));
@@ -608,7 +608,7 @@ void flat_head_host_custody() {
     forged_contact.at("world") = V(std::move(contact_world));
     check(!get<bool>(partial_restored.validate_checkpoint(V(std::move(forged_contact))), "accepted"),
           "History replay refuses a forged work reduction at the first slide contact.");
-    check(get<bool>(partial_restored.publish_actor("Q", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+    check(get<bool>(partial_restored.publish_actor("Q", {V(4.95), V(1.0), V(2.1)}, 1), "accepted"),
           "A second worker can approach the saved partial work from a separate actor sample.");
     auto shared_work = std::get<O>(get<A>(partial_restored.projection(),
         "dropped_material").front().storage());
@@ -622,14 +622,14 @@ void flat_head_host_custody() {
     check(get<bool>(second_pickup, "accepted") &&
           get<A>(get<O>(partial_restored.projection(), "cargo").at("Q"), "work_lots").size() == 1,
           "Q recovers P's identified unfinished work without converting it back to raw stock.");
-    check(get<bool>(partial_restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1),
+    check(get<bool>(partial_restored.publish_actor("P", {V(6.6), V(1.0), V(2.1)}, 1),
               "accepted"),
           "P can return with the same conserved slide while Q holds the unfinished lot.");
     const auto shared_blocker = partial_restored.command("P", O{
         {"context", V("flat-head-site")}, {"client", V("P")},
         {"request", V("place-shared-feed-blocker")}, {"action", V("place_component")},
         {"component", V("wooden_slide")},
-        {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+        {"center", V(A{V(I{16}), V(I{0}), V(I{8})})}});
     check(get<bool>(shared_blocker, "accepted"),
           "P can obstruct the press while Q owns its recovered work identity.");
     const auto shared_blocked_refeed = partial_restored.command("Q", O{
@@ -705,20 +705,22 @@ void flat_head_host_custody() {
               "Three more finite timber units supply an actual output obstruction.");
     check(get<bool>(resumed("shape-exit-blocker", "field_craft",
               {{"component", V("wooden_slide")}}), "accepted") &&
-          get<bool>(restored.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 17), "accepted"),
+          get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(2.1)}, 17), "accepted"),
           "The worker brings one starter slide back to obstruct the selected outlet.");
     const auto blocker = resumed("block-slide-exit", "place_component",
         {{"component", V("wooden_slide")},
-         {"center", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+         {"center", V(A{V(I{8}), V(I{0}), V(I{8})})}});
     if (!get<bool>(blocker, "accepted"))
         throw std::runtime_error("Slide outlet blocker refused: " +
             get<std::string>(blocker, "reason"));
+    check(get<bool>(restored.publish_actor("P", {V(4.95), V(1.0), V(2.1)}, 18), "accepted"),
+          "The worker reaches the slide input from beside the occupied cells.");
     Host blocked_direct;
     const auto blocked_saved = restored.checkpoint();
     check(get<bool>(blocked_direct.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
           get<bool>(blocked_direct.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
           get<bool>(blocked_direct.restore_checkpoint(blocked_saved), "accepted") &&
-          get<bool>(blocked_direct.publish_actor("P", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          get<bool>(blocked_direct.publish_actor("P", {V(4.95), V(1.0), V(2.1)}, 1), "accepted"),
           "The blocked outlet also restores with the same partly worked blank and crank.");
     const auto blocked_work = get<A>(blocked_direct.projection(), "dropped_material");
     for (int index = 0; index < 4; ++index) {
@@ -1213,7 +1215,7 @@ void placed_machine_blocks_an_actors_harvest_path() {
               "The actor cuts exactly one finite piece for each requested timber unit.");
     check(get<bool>(host.command("P", wire("shape", "field_craft",
               {{"component", V("wooden_slide")}})), "accepted") &&
-          get<bool>(host.publish_actor("P", {V(4.1), V(0.825), V(3.3)}, 2), "accepted"),
+          get<bool>(host.publish_actor("P", {V(3.7), V(0.825), V(3.3)}, 2), "accepted"),
           "The actor carries one real shaped slide to the path between tree and worker.");
     const auto placed = host.command("P", wire("place-slide", "place_component",
         {{"component", V("wooden_slide")},
@@ -1226,7 +1228,7 @@ void placed_machine_blocks_an_actors_harvest_path() {
               "tree-east-south") &&
           get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 5,
           "A built machine blocks the actor and projected prompt without changing finite stock.");
-    check(get<bool>(host.publish_actor("P", {V(5.7), V(0.825), V(3.3)}, 3), "accepted") &&
+    check(get<bool>(host.publish_actor("P", {V(6.15), V(0.825), V(3.3)}, 3), "accepted") &&
           get<bool>(host.command("P", cut("P", "tree-clear-slide", "tree-east-south")), "accepted") &&
           get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 4,
           "The same source can be cut from the machine's clear side.");

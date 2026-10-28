@@ -74,6 +74,20 @@ void component_fit_and_belts() {
     check(!geometry::slide_head_fitting(Component::flat_head, {0, 0, 0},
                                        Component::wooden_slide, {4, 1, 0}),
           "A displaced slide cannot borrow the fitted-head exception.");
+    check(geometry::workbed_tray_fitting(Component::anvil, {0, 0, 0},
+                                        Component::receiver_tray, {1, 0, 0}) &&
+          geometry::workbed_tray_fitting(Component::receiver_tray, {0, 0, -1},
+                                        Component::anvil, {0, 0, 0}) &&
+          !geometry::workbed_tray_fitting(Component::anvil, {0, 0, 0},
+                                         Component::receiver_tray, {2, 0, 0}),
+          "Only a named low receiver fits under either open workbed edge.");
+    check(geometry::shaft_meets_slide_input(Component::wooden_slide, {0, 2, 0},
+                                            {1, 2, 0}, Axis::x) &&
+          !geometry::shaft_meets_slide_input(Component::wooden_slide, {0, 2, 0},
+                                             {2, 2, 0}, Axis::x) &&
+          !geometry::shaft_meets_slide_input(Component::wooden_slide, {0, 2, 0},
+                                             {1, 2, 0}, Axis::z),
+          "Only the registered X input may share the full-cell slide housing.");
     check(geometry::shaft_meets_component_cog(Component::wooden_cog, {0, 0, 0},
                                              {2, 0, 0}, Axis::x),
           "The fitted shaft end can enter its component cog hub.");
