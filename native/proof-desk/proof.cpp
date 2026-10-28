@@ -1,5 +1,6 @@
 #include "proof.hpp"
 #include "codex_rpc.hpp"
+#include "revision_history.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -91,16 +92,23 @@ Json load_bundle(const fs::path &store, const std::string &id) {
   return m;
 }
 void require_latest(const fs::path &store, const std::string &id) {
+  RevisionHistory revisions;
   for (const auto &entry : fs::directory_iterator(store)) {
-    if (!entry.is_directory() || !fs::exists(entry.path() / "manifest.json"))
+    if (!entry.is_directory() || entry.path().filename().string().front() == '.' ||
+        !fs::exists(entry.path() / "manifest.json"))
       continue;
     auto other = read_json(entry.path() / "manifest.json");
-    require(other.value("previous", std::string()) != id,
-            "A newer revision supersedes this proof");
+    const auto other_id = entry.path().filename().string();
+    revisions.previous.emplace(other_id, other.value("previous", std::string()));
+    if (fs::exists(entry.path() / "discarded.json"))
+      revisions.discarded.insert(other_id);
   }
+  require(revisions.current(id), "A newer active revision supersedes this proof");
 }
 Json approved(const fs::path &store, const std::string &id) {
   require_latest(store, id);
+  require(!fs::exists(store / id / "discarded.json"),
+          "A discarded proof does not grant approval");
   auto m = load_bundle(store, id);
   verify_media(store / id, m);
   auto d = read_json(store / id / "decision.json");
@@ -498,6 +506,8 @@ Json decide(const fs::path &store, const std::string &id, Json d) {
   Lock lock(store);
   auto m = load_bundle(store, id);
   auto dir = store / id;
+  require(!fs::exists(dir / "discarded.json"),
+          "This proof was discarded locally. Restore it before reviewing.");
   require(!fs::exists(dir / "decision.json"),
           "This revision already has a final decision");
   require(d.value("reviewed_manifest_sha256", std::string()) ==
@@ -538,11 +548,40 @@ Json decide(const fs::path &store, const std::string &id, Json d) {
   save_state(dir, "pending");
   return d;
 }
+Json set_discarded(const fs::path &store, const std::string &id,
+                   const std::string &manifest_hash, bool discarded) {
+  Lock lock(store);
+  load_bundle(store, id);
+  const auto dir = store / id;
+  require(!fs::exists(dir / "decision.json"),
+          "A submitted decision cannot be discarded or restored");
+  require(manifest_hash == digest(dir / "manifest.json"),
+          "This window refers to different evidence. Reopen the proof.");
+  require_latest(store, id);
+  Json result{{"proof", id},
+              {"status", discarded ? "discarded" : "waiting_for_human"}};
+  if (discarded) {
+    result["manifest_sha256"] = manifest_hash;
+    write_json(dir / "discarded.json", result);
+  } else {
+    fs::remove(dir / "discarded.json");
+    int fd = open(dir.c_str(), O_DIRECTORY | O_RDONLY);
+    require(fd >= 0, "Cannot open proof directory for sync");
+    const bool synced = fsync(fd) == 0;
+    close(fd);
+    require(synced, "Cannot sync restored proof");
+  }
+  // This local queue action never writes a decision, contacts Beads or Codex,
+  // resumes a goal, or delivers a notification.
+  return result;
+}
 Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
              const std::string &socket, const std::string &beads) {
   Lock lock(store);
   auto m = load_bundle(store, id);
   auto dir = store / id;
+  require(!fs::exists(dir / "discarded.json"),
+          "Discarded proofs cannot deliver feedback");
   auto d = read_json(dir / "decision.json");
   validate_decision(m, d);
   require(d.at("manifest_sha256") == digest(dir / "manifest.json"),

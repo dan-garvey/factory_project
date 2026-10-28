@@ -4,6 +4,7 @@
 #include <QtWidgets>
 #include <cmath>
 #include <functional>
+#include "revision_history.hpp"
 
 namespace {
 QJsonObject readObject(const QString &path) {
@@ -310,7 +311,8 @@ public:
   QListWidget *queue, *cases, *mediaList, *notes;
   QLabel *title, *subtitle, *caseTitle, *context, *summary, *delivery,
       *timeLabel, *beforeCaption, *afterCaption;
-  QPushButton *approve, *reject, *play, *caseApprove, *caseChanges, *retry;
+  QPushButton *approve, *reject, *play, *caseApprove, *caseChanges, *retry,
+      *localAction, *pendingTab, *historyTab;
   QPlainTextEdit *caseNote, *generalNote;
   QCheckBox *compare;
   Canvas *before, *after;
@@ -350,10 +352,22 @@ public:
     auto *ll = new QVBoxLayout(left);
     ll->setContentsMargins(18, 22, 18, 20);
     ll->setSpacing(12);
-    ll->addWidget(label("Review queue", "heading"));
+    auto *queueHeading = new QHBoxLayout;
+    queueHeading->addWidget(label("Review queue", "heading"), 1);
+    localAction = button("");
+    localAction->setFixedWidth(40);
+    queueHeading->addWidget(localAction);
+    ll->addLayout(queueHeading);
     auto *tabs = new QHBoxLayout;
     auto *pending = button("Pending");
     auto *past = button("History");
+    pendingTab = pending;
+    historyTab = past;
+    auto *queueTabs = new QButtonGroup(this);
+    for (auto *tab : {pending, past}) {
+      tab->setCheckable(true);
+      queueTabs->addButton(tab);
+    }
     tabs->addWidget(pending);
     tabs->addWidget(past);
     ll->addLayout(tabs);
@@ -594,7 +608,7 @@ public:
     before->onMark = after->onMark = onMark;
     before->onReady = after->onReady = [this] { updateDecision(); };
     connect(removeNote, &QPushButton::clicked, this, [this] {
-      if (decided())
+      if (decided() || discarded() || bundleId.isEmpty())
         return;
       int row = notes->currentRow();
       if (row < 0)
@@ -651,29 +665,59 @@ public:
     connect(approve, &QPushButton::clicked, this, [this] { send("approved"); });
     connect(reject, &QPushButton::clicked, this,
             [this] { send("changes_requested"); });
+    connect(localAction, &QPushButton::clicked, this, [this] {
+      if (fixture || bundleId.isEmpty() || decided() ||
+          process.state() != QProcess::NotRunning)
+        return;
+      saveDraft();
+      bridge(discarded() ? "restore" : "discard",
+             {"--manifest-sha256", reviewedManifestHash});
+    });
+    new QShortcut(QKeySequence("Shift+Delete"), this, [this] {
+      if (!discarded() && !caseNote->hasFocus() && !generalNote->hasFocus())
+        localAction->click();
+    });
+    new QShortcut(QKeySequence("Ctrl+Shift+Z"), this, [this] {
+      if (discarded() && !caseNote->hasFocus() && !generalNote->hasFocus())
+        localAction->click();
+    });
     connect(&watcher, &QFileSystemWatcher::directoryChanged, this, [this] {
       if (process.state() == QProcess::NotRunning)
         refreshQueue();
     });
     watcher.addPath(store);
-    connect(
-        &process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-        this, [this](int code, QProcess::ExitStatus status) {
-          auto output = QString::fromUtf8(process.readAllStandardOutput()) +
-                        QString::fromUtf8(process.readAllStandardError());
-          if (code != 0 || status != QProcess::NormalExit) {
-            delivery->setText("Saved locally; delivery needs attention");
-            QMessageBox::warning(this, "Review delivery", output.left(6000));
-            updateDecision();
-            return;
-          }
-          if (pendingCommand == "decide") {
-            bridge("deliver", {});
-            return;
-          }
-          delivery->setText("Feedback queued to the originating agent");
-          refreshQueue();
-        });
+    connect(&process,
+            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this](int code, QProcess::ExitStatus status) {
+              auto output = QString::fromUtf8(process.readAllStandardOutput()) +
+                            QString::fromUtf8(process.readAllStandardError());
+              if (code != 0 || status != QProcess::NormalExit) {
+                const bool local =
+                    pendingCommand == "discard" || pendingCommand == "restore";
+                delivery->setText(
+                    local ? "Local queue action needs attention"
+                          : "Saved locally; delivery needs attention");
+                QMessageBox::warning(this,
+                                     local ? "Review queue" : "Review delivery",
+                                     output.left(6000));
+                updateDecision();
+                return;
+              }
+              if (pendingCommand == "discard" || pendingCommand == "restore") {
+                if (pendingCommand == "restore") {
+                  history = false;
+                  delivery->setText("Agent waiting");
+                }
+                refreshQueue();
+                return;
+              }
+              if (pendingCommand == "decide") {
+                bridge("deliver", {});
+                return;
+              }
+              delivery->setText("Feedback queued to the originating agent");
+              refreshQueue();
+            });
     connect(&process, &QProcess::errorOccurred, this,
             [this](QProcess::ProcessError) {
               delivery->setText("Bridge unavailable; review remains saved");
@@ -692,6 +736,10 @@ public:
   bool decided() const {
     return QFileInfo::exists(directory() + "/decision.json");
   }
+  bool discarded() const {
+    return !bundleId.isEmpty() &&
+           QFileInfo::exists(directory() + "/discarded.json");
+  }
   QJsonObject caseObject() const {
     for (auto c : manifest["cases"].toArray())
       if (c.toObject()["id"].toString() == caseId)
@@ -702,7 +750,7 @@ public:
     return draft["cases"].toObject()[caseId].toObject();
   }
   void saveDraft() {
-    if (!bundleId.isEmpty() && !decided())
+    if (!bundleId.isEmpty() && !decided() && !discarded())
       try {
         saveObject(directory() + "/draft.json", draft);
       } catch (const std::exception &e) {
@@ -719,22 +767,29 @@ public:
   void refreshQueue() {
     if (changing)
       return;
+    pendingTab->setChecked(!history);
+    historyTab->setChecked(history);
     auto selected = bundleId;
     QSignalBlocker block(queue);
     queue->clear();
     QDir dir(store);
     auto folders =
         dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
-    QSet<QString> superseded;
+    factory::proof::RevisionHistory revisions;
     for (const auto &folder : folders) {
+      if (folder.fileName().startsWith('.'))
+        continue;
       if (QFileInfo::exists(folder.absoluteFilePath() + "/manifest.json"))
         try {
           auto m = readObject(folder.absoluteFilePath() + "/manifest.json");
-          if (m.contains("previous"))
-            superseded.insert(m["previous"].toString());
+          const auto id = folder.fileName().toStdString();
+          revisions.previous.emplace(id, m["previous"].toString().toStdString());
+          if (QFileInfo::exists(folder.absoluteFilePath() + "/discarded.json"))
+            revisions.discarded.insert(id);
         } catch (const std::exception &) {
         }
     }
+    const auto superseded = revisions.superseded();
     for (const auto &folder : folders) {
       if (folder.fileName().startsWith('.'))
         continue;
@@ -746,17 +801,21 @@ public:
       if (!QFileInfo::exists(path + "/manifest.json") ||
           !QFileInfo::exists(path + "/registered.json"))
         continue;
-      if (!history && superseded.contains(folder.fileName()))
+      if (!history && superseded.contains(folder.fileName().toStdString()))
         continue;
       try {
         auto m = readObject(path + "/manifest.json");
-        bool done = QFileInfo::exists(path + "/decision.json");
+        const bool localDiscard = QFileInfo::exists(path + "/discarded.json");
+        bool done = QFileInfo::exists(path + "/decision.json") || localDiscard;
         if (done != history)
           continue;
         auto *item = new QListWidgetItem(
             m["title"].toString() + "\n" +
             (m["stage"] == "direction" ? "Early direction" : "Final proof") +
-            " · " + QString::number(m["cases"].toArray().size()) + " cases");
+            (localDiscard
+                 ? " · Discarded locally"
+                 : " · " + QString::number(m["cases"].toArray().size()) +
+                       " cases"));
         item->setData(Qt::UserRole, folder.fileName());
         item->setToolTip(m["bead"].toString() + "\n" +
                          m["revision"].toString());
@@ -772,6 +831,8 @@ public:
     if (auto *item = queue->currentItem()) {
       if (item->data(Qt::UserRole).toString() != bundleId)
         loadBundle(item->data(Qt::UserRole).toString());
+      else
+        updateDecision();
     } else
       clearSelection();
   }
@@ -797,10 +858,11 @@ public:
     caseTitle->clear();
     context->clear();
     delivery->clear();
-    title->setText(history ? "No completed reviews" : "No pending reviews");
-    subtitle->setText(history ? "Submitted decisions will appear here."
-                              : "Completed reviews are in History. New proofs "
-                                "appear automatically.");
+    title->setText(history ? "No review history" : "No pending reviews");
+    subtitle->setText(history
+                          ? "Submitted and discarded reviews will appear here."
+                          : "Completed reviews are in History. New proofs "
+                            "appear automatically.");
     changing = false;
     updateDecision();
   }
@@ -963,20 +1025,44 @@ public:
     }
     int total = manifest["cases"].toArray().size();
     const bool selected = !bundleId.isEmpty();
+    const bool localDiscard = discarded();
     evidencePanel->setVisible(selected);
     feedbackPanel->setVisible(selected);
     caseHeading->setVisible(selected);
     cases->setVisible(selected);
-    approve->setVisible(selected);
-    reject->setVisible(selected);
+    approve->setVisible(selected && !localDiscard);
+    reject->setVisible(selected && !localDiscard);
     summary->setText(
         !selected ? (history ? "History is empty" : "Pending queue is empty")
-                  : QString("%1 approved / %2 need changes / %3 not reviewed")
-                        .arg(passed)
-                        .arg(changes)
-                        .arg(total - passed - changes));
-    bool active = !bundleId.isEmpty() && !decided() &&
+        : localDiscard
+            ? "Discarded locally · No agent notified"
+            : QString("%1 approved / %2 need changes / %3 not reviewed")
+                  .arg(passed)
+                  .arg(changes)
+                  .arg(total - passed - changes));
+    bool active = selected && !decided() && !localDiscard &&
                   process.state() == QProcess::NotRunning;
+    localAction->setVisible(selected && !decided());
+    localAction->setEnabled(selected && !decided() &&
+                            process.state() == QProcess::NotRunning);
+    auto actionPixmap = style()
+                            ->standardIcon(localDiscard ? QStyle::SP_ArrowBack
+                                                        : QStyle::SP_TrashIcon)
+                            .pixmap(20, 20);
+    {
+      QPainter tint(&actionPixmap);
+      tint.setCompositionMode(QPainter::CompositionMode_SourceIn);
+      tint.fillRect(actionPixmap.rect(), QColor("#dde4ef"));
+    }
+    localAction->setIcon(QIcon(actionPixmap));
+    localAction->setAccessibleName(localDiscard
+                                       ? "Restore discarded proof"
+                                       : "Discard pending proof locally");
+    localAction->setToolTip(
+        localDiscard
+            ? "Restore to Pending (Ctrl+Shift+Z). No agent notification."
+            : "Discard pending proof (Shift+Delete). No agent notification or "
+              "approval; restore from History.");
     approve->setText(manifest["stage"] == "direction" ? "Approve direction"
                                                       : "Approve change");
     approve->setEnabled(active && total > 0 && passed == total);
@@ -999,6 +1085,10 @@ public:
     retry->setVisible(needsDelivery);
     retry->setEnabled(needsDelivery &&
                       process.state() == QProcess::NotRunning && !fixture);
+    if (localDiscard) {
+      retry->hide();
+      delivery->setText("Discarded locally. No agent notified.");
+    }
   }
   void send(const QString &verdict) {
     if (fixture) {
@@ -1061,8 +1151,10 @@ public:
                      "--id",
                      bundleId};
     args += extra;
-    delivery->setText(command == "decide" ? "Saving human decision…"
-                                          : "Delivering feedback…");
+    delivery->setText(command == "discard"   ? "Discarding locally…"
+                      : command == "restore" ? "Restoring to Pending…"
+                      : command == "decide"  ? "Saving human decision…"
+                                             : "Delivering feedback…");
     process.start("wsl.exe", args);
     updateDecision();
   }
@@ -1209,6 +1301,9 @@ int main(int argc, char **argv) {
         desk.after->fit();
         (*state)["zoom_and_fit"] =
             zoomed.width() > desk.after->imageRect().width();
+        (*state)["discard_action_available"] =
+            desk.localAction->isVisible() && desk.localAction->isEnabled() &&
+            desk.localAction->toolTip().contains("No agent notification");
         if (parser.isSet("capture"))
           (*state)["review_capture_saved"] =
               desk.grab().save(parser.value("capture"));
@@ -1261,6 +1356,67 @@ int main(int argc, char **argv) {
         QDir(probe).removeRecursively();
         QFile::remove(desk.store + "/" + completed + "/decision.json");
         desk.refreshQueue();
+        // Discard is a distinct local state, never a fixture approval.
+        saveObject(desk.directory() + "/discarded.json",
+                   QJsonObject{{"status", "discarded"}});
+        desk.refreshQueue();
+        (*state)["discard_clears_pending"] =
+            desk.queue->count() == 0 && desk.bundleId.isEmpty();
+        desk.history = true;
+        desk.refreshQueue();
+        (*state)["discarded_history_readonly"] =
+            desk.bundleId == completed && desk.discarded() &&
+            desk.historyTab->isChecked() && !desk.pendingTab->isChecked() &&
+            desk.caseNote->isReadOnly() && !desk.approve->isVisible() &&
+            !desk.retry->isVisible() && desk.localAction->isEnabled() &&
+            desk.localAction->accessibleName().contains("Restore") &&
+            desk.summary->text().contains("No agent notified");
+        if (parser.isSet("capture"))
+          (*state)["discard_capture_saved"] =
+              desk.grab().save(parser.value("capture") + ".discarded.png");
+        QFile::remove(desk.directory() + "/discarded.json");
+        desk.history = false;
+        desk.refreshQueue();
+        (*state)["restored_pending_editable"] =
+            desk.bundleId == completed && !desk.discarded() &&
+            desk.pendingTab->isChecked() && !desk.historyTab->isChecked() &&
+            !desk.caseNote->isReadOnly() && desk.localAction->isEnabled() &&
+            desk.localAction->accessibleName().contains("Discard");
+        // A discarded replacement must stop hiding its predecessor. An active
+        // descendant still hides every ancestor through a discarded revision.
+        QDir().mkpath(probe);
+        next["previous"] = completed;
+        saveObject(probe + "/manifest.json", next);
+        saveObject(probe + "/registered.json",
+                   QJsonObject{{"registered", true}});
+        desk.refreshQueue();
+        (*state)["replacement_hides_previous"] =
+            desk.queue->count() == 1 && desk.bundleId == "watcher-probe";
+        saveObject(probe + "/discarded.json",
+                   QJsonObject{{"status", "discarded"}});
+        desk.refreshQueue();
+        (*state)["discarded_replacement_releases_previous"] =
+            desk.queue->count() == 1 && desk.bundleId == completed &&
+            !desk.caseNote->isReadOnly();
+        QFile::remove(probe + "/discarded.json");
+        desk.refreshQueue();
+        (*state)["restored_replacement_hides_previous"] =
+            desk.queue->count() == 1 && desk.bundleId == "watcher-probe";
+        saveObject(probe + "/discarded.json",
+                   QJsonObject{{"status", "discarded"}});
+        const auto successor = desk.store + "/successor-probe";
+        QDir().mkpath(successor);
+        next["id"] = "successor-probe";
+        next["previous"] = "watcher-probe";
+        saveObject(successor + "/manifest.json", next);
+        saveObject(successor + "/registered.json",
+                   QJsonObject{{"registered", true}});
+        desk.refreshQueue();
+        (*state)["active_descendant_hides_discarded_ancestry"] =
+            desk.queue->count() == 1 && desk.bundleId == "successor-probe";
+        QDir(successor).removeRecursively();
+        QDir(probe).removeRecursively();
+        desk.refreshQueue();
         bool passed = true;
         for (auto key :
              {"partial_bundle_blocks_approval", "image_loaded", "clip_advanced",
@@ -1269,11 +1425,16 @@ int main(int argc, char **argv) {
               "annotation_frame_saved", "late_registration_detected",
               "completed_pending_cleared", "completed_in_history",
               "history_to_empty_pending", "new_pending_selected",
-              "next_pending_selected"})
+              "next_pending_selected", "discard_action_available",
+              "discard_clears_pending", "discarded_history_readonly",
+              "restored_pending_editable", "replacement_hides_previous",
+              "discarded_replacement_releases_previous",
+              "restored_replacement_hides_previous",
+              "active_descendant_hides_discarded_ancestry"})
           passed &= (*state)[key].toBool();
         if (parser.isSet("capture"))
           for (auto key : {"review_capture_saved", "empty_capture_saved",
-                           "history_capture_saved"})
+                           "history_capture_saved", "discard_capture_saved"})
             passed &= (*state)[key].toBool();
         (*state)["status"] = passed ? "pass" : "fail";
         saveObject(parser.value("self-test"), *state);

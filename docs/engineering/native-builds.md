@@ -276,6 +276,13 @@ feedback allows 32 annotations. Split larger changes into bounded reviews.
 Retain media while its approval is needed; missing or altered media invalidates
 approval. Follow the existing artifact lifecycle after integration and review.
 
+To clear a pending proof after discussing it elsewhere, use the queue's trash
+icon or Shift+Delete. It moves into History as discarded; the restore arrow
+or Ctrl+Shift+Z returns it to Pending. Discard and restore are local only: they
+send no agent message, change no goal, and grant no approval. Submitted decisions
+remain immutable. The native `discard` and `restore` commands require the proof
+ID and its `--manifest-sha256` to reject stale windows.
+
 Build `//native/proof-desk:factory-proof` and run its two Bazel tests. On Windows,
 configure `native/proof-desk/CMakeLists.txt` with MSVC 2022 and the Qt SDK pinned in
 `qt-sdk.json`, build Release, and deploy dynamic dependencies with `windeployqt`.

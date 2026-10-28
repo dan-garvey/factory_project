@@ -30,6 +30,8 @@ Json source_inputs(const fs::path &repo, const std::string &revision,
 Json submit(const fs::path &store, const fs::path &repo, Json manifest,
             const std::string &thread);
 Json decide(const fs::path &store, const std::string &id, Json decision);
+Json set_discarded(const fs::path &store, const std::string &id,
+                   const std::string &manifest_hash, bool discarded);
 Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
              const std::string &socket, const std::string &beads);
 void check_gate(const fs::path &store, const fs::path &repo,

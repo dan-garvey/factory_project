@@ -3,7 +3,7 @@ package(default_visibility = ["//visibility:public"])
 cc_library(
     name = "proof",
     srcs = ["proof.cpp", "codex_rpc.cpp"],
-    hdrs = ["proof.hpp", "codex_rpc.hpp", "vendor/json.hpp"],
+    hdrs = ["proof.hpp", "codex_rpc.hpp", "revision_history.hpp", "vendor/json.hpp"],
     linkopts = ["-lcrypto"],
 )
 cc_binary(name = "factory-proof", srcs = ["main.cpp"], deps = [":proof"])

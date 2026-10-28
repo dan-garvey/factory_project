@@ -186,10 +186,27 @@ int main() {
           digest(store / proofId / "manifest.json");
       return value;
     };
+    const auto manifestHash = digest(store / id / "manifest.json");
+    refuses([&] { set_discarded(store, id, "stale-window", true); });
+    ok(set_discarded(store, id, manifestHash, true).at("status") ==
+       "discarded");
+    ok(set_discarded(store, id, manifestHash, true).at("status") ==
+       "discarded");
+    ok(digest(store / id / "manifest.json") == manifestHash &&
+       !fs::exists(store / id / "decision.json") &&
+       !fs::exists(store / id / "delivery.json") &&
+       !fs::exists(store / id / "beads-receipt.json"));
+    refuses([&] { decide(store, id, reviewedDecision(id)); });
+    refuses([&] { deliver(store, repo, id, "/not-called", "/not-called"); });
+    ok(set_discarded(store, id, manifestHash, false).at("status") ==
+       "waiting_for_human");
+    ok(!fs::exists(store / id / "discarded.json"));
     refuses([&] { decide(store, id, decision()); });
     auto approval = decide(store, id, reviewedDecision(id));
     ok(approval.at("manifest_sha256") == digest(store / id / "manifest.json"));
     refuses([&] { decide(store, id, reviewedDecision(id)); });
+    refuses([&] { set_discarded(store, id, manifestHash, true); });
+    refuses([&] { set_discarded(store, id, manifestHash, false); });
     auto final = m;
     final["stage"] = "final";
     final["direction"] = id;
@@ -352,6 +369,59 @@ int main() {
     ok(general.size() == 1);
     ok(general[0].at("text").get<std::string>().find(
            overall.at("note").get<std::string>()) != std::string::npos);
+    // A discarded replacement cannot invalidate an earlier approved proof or
+    // block a fresh replacement. Restore must not create competing branches.
+    auto replacement = final;
+    replacement["previous"] = finalId;
+    auto replace = [&](const Json &manifest) {
+      return submit(store, repo, manifest,
+                    "00000000-0000-0000-0000-000000000001")
+          .at("id").get<std::string>();
+    };
+    auto discard = [&](const std::string &proofId, bool value = true) {
+      return set_discarded(store, proofId,
+                           digest(store / proofId / "manifest.json"), value);
+    };
+    const auto abandoned = replace(replacement);
+    refuses([&] { check_gate(store, repo, baseline, candidate); });
+    discard(abandoned);
+    check_gate(store, repo, baseline, candidate);
+    ++checks;
+    const auto fresh = replace(replacement);
+    refuses([&] { check_gate(store, repo, baseline, candidate); });
+    refuses([&] { discard(abandoned, false); });
+    replacement["previous"] = abandoned;
+    refuses([&] { replace(replacement); });
+    discard(fresh);
+    discard(abandoned, false);
+    refuses([&] { check_gate(store, repo, baseline, candidate); });
+    discard(abandoned);
+    const auto descendant = replace(replacement);
+    // This active successor still supersedes the approved ancestor through
+    // the discarded middle revision; discard never becomes approval.
+    refuses([&] { check_gate(store, repo, baseline, candidate); });
+    refuses([&] { discard(abandoned, false); });
+    decide(store, descendant, reviewedDecision(descendant));
+    check_gate(store, repo, baseline, candidate);
+    ++checks;
+    auto directionReplacement = m;
+    directionReplacement["previous"] = id;
+    const auto abandonedDirection = replace(directionReplacement);
+    replacement["previous"] = descendant;
+    refuses([&] { replace(replacement); });
+    discard(abandonedDirection);
+    const auto nextFinal = replace(replacement);
+    discard(nextFinal);
+    check_gate(store, repo, baseline, candidate);
+    ++checks;
+    const auto pending = replace(m);
+    directionReplacement["previous"] = pending;
+    const auto pendingReplacement = replace(directionReplacement);
+    refuses([&] { decide(store, pending, reviewedDecision(pending)); });
+    discard(pendingReplacement);
+    decide(store, pending, reviewedDecision(pending));
+    ok(!fs::exists(store / abandoned / "decision.json") &&
+       !fs::exists(store / abandoned / "delivery.json"));
     // Disjoint changes can reuse approval; a changed visual input cannot.
     std::ofstream(repo / "unrelated.txt") << "unrelated\n";
     commitAll();
@@ -398,6 +468,10 @@ int main() {
     revision["previous"] = next_id;
     submit(store, repo, revision, "00000000-0000-0000-0000-000000000001");
     refuses([&] { decide(store, next_id, reviewedDecision(next_id)); });
+    refuses([&] {
+      set_discarded(store, next_id, digest(store / next_id / "manifest.json"),
+                    true);
+    });
     // A transport ambiguity never causes automatic duplicate delivery.
     write_json(store / id / "delivery.json", Json{{"status", "sending"}});
     refuses([&] { deliver(store, repo, id, "/not-called", "/not-called"); });
