@@ -41,12 +41,16 @@ const CATALOG_KEYS := {KEY_C: "collector", KEY_F: "foundation", KEY_B: "belt",
 const COMPONENT_PREFIX := "component:"
 const ARRIVAL_SLOTS: Array[String] = ["", "", "", "", "", "", "", ""]
 const MIN_CARRIED_CELLS := 32
-const COLLECTOR_PROJECT_COMPONENTS := ["wooden_frame", "tool_mount", "cutting_edge",
-	"receiver_tray", "wooden_shaft", "wooden_cog", "hand_crank"]
-const BELT_ROUTE_COMPONENTS := ["wooden_shaft", "wooden_cog", "hand_crank"]
+const RECIPE_CATEGORIES: Array[String] = ["machine", "power", "logistics", "other"]
+const RECIPE_CATEGORY_LABELS := {"machine": "Machine parts", "power": "Power",
+	"logistics": "Logistics", "other": "Other"}
+const POWER_COMPONENTS := ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]
+const LOGISTICS_COMPONENTS := ["channel_narrow_x", "channel_narrow_z",
+	"channel_broad_x", "channel_broad_z"]
+const MACHINE_COMPONENTS := ["wooden_frame", "receiver_tray", "tool_mount", "sliding_guide",
+	"cutting_edge", "anvil", "broad_anvil", "ram_face", "wooden_slide", "copper_slide",
+	"broad_copper_slide", "flat_head", "broad_flat_head", "hand_crank"]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
-const COLLECTOR_ICON = preload("res://opening/assets/build-icons/collector.svg")
-const BELT_ICON = preload("res://opening/assets/build-icons/belt.svg")
 const FOOTPRINT_ONE_ICON = preload("res://opening/assets/build-icons/footprint-one.svg")
 const FOOTPRINT_FOUR_ICON = preload("res://opening/assets/build-icons/footprint-four.svg")
 const MATERIALS := {
@@ -91,13 +95,12 @@ var recipe_grid: GridContainer
 var recipe_buttons: Dictionary = {}
 var recipe_names: Dictionary = {}
 var recipe_costs: Dictionary = {}
+var recipe_stations: Dictionary = {}
 var recipe_side: VBoxContainer
-var recipe_focus_row: HBoxContainer
-var recipe_focus_label: Label
-var recipe_tip_label: Label
-var project_focus_button: Button
-var all_focus_button: Button
-var recipe_focus := "project"
+var recipe_tabs_row: HBoxContainer
+var recipe_tabs: Dictionary = {}
+var recipe_category := "machine"
+var recipe_category_manual := false
 var recipe_scroll: ScrollContainer
 var inventory_scroll: ScrollContainer
 var catalog_columns: BoxContainer
@@ -227,7 +230,7 @@ func configure(host, ui: Control) -> void:
 	inventory_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	inventory_side.add_child(inventory_scroll)
 	material_grid = GridContainer.new()
-	material_grid.columns = 4
+	material_grid.columns = 5
 	material_grid.add_theme_constant_override("h_separation", 6)
 	material_grid.add_theme_constant_override("v_separation", 6)
 	inventory_scroll.add_child(material_grid)
@@ -264,13 +267,7 @@ func configure(host, ui: Control) -> void:
 		button.pressed.connect(_select_inventory_tool.bind(tool))
 		material_grid.add_child(button)
 		_style_inventory_tile(button, catalog_buttons.gear.icon)
-		var size_badge := Label.new()
-		size_badge.text = "%dT" % teeth
-		size_badge.position = Vector2(5, 3)
-		size_badge.add_theme_font_size_override("font_size", 11)
-		size_badge.add_theme_color_override("font_color", Color("e7b875"))
-		size_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		button.add_child(size_badge)
+		button.add_theme_constant_override("icon_max_width", 15 if teeth == 2 else 25)
 		catalog_buttons[tool] = button
 		catalog_counts[tool] = _count_badge(button)
 		button.focus_entered.connect(_describe_focus.bind(button))
@@ -278,7 +275,7 @@ func configure(host, ui: Control) -> void:
 	component_grid = material_grid
 	for index in MIN_CARRIED_CELLS:
 		var empty := Panel.new()
-		empty.custom_minimum_size = Vector2(78, 66)
+		empty.custom_minimum_size = Vector2(60, 58)
 		var empty_style := StyleBoxFlat.new()
 		empty_style.bg_color = Color(0.08, 0.13, 0.15, 0.55)
 		empty_style.set_corner_radius_all(5)
@@ -289,29 +286,22 @@ func configure(host, ui: Control) -> void:
 	recipe_side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	recipe_side.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	catalog_columns.add_child(recipe_side)
-	recipe_focus_row = HBoxContainer.new()
-	recipe_focus_row.add_theme_constant_override("separation", 6)
-	recipe_side.add_child(recipe_focus_row)
-	var recipe_heading: Label = Widgets.label(recipe_focus_row, "CRAFT / BUILD", 13)
-	recipe_heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	project_focus_button = Widgets.button(recipe_focus_row, "", _set_recipe_focus.bind("project"))
-	project_focus_button.icon = COLLECTOR_ICON
-	project_focus_button.custom_minimum_size = Vector2(38, 34)
-	project_focus_button.toggle_mode = true
-	project_focus_button.tooltip_text = "Collector project · show parts for a finite ore collector"
-	project_focus_button.accessibility_name = "Collector project recipes"
-	_style_slot(project_focus_button)
-	project_focus_button.focus_entered.connect(_describe_focus.bind(project_focus_button))
-	all_focus_button = Widgets.button(recipe_focus_row, "", _set_recipe_focus.bind("all"))
-	all_focus_button.icon = COMPONENT_ICON
-	all_focus_button.custom_minimum_size = Vector2(38, 34)
-	all_focus_button.toggle_mode = true
-	all_focus_button.tooltip_text = "All parts · show every unlocked recipe"
-	all_focus_button.accessibility_name = "All unlocked recipes"
-	_style_slot(all_focus_button)
-	all_focus_button.focus_entered.connect(_describe_focus.bind(all_focus_button))
-	recipe_focus_label = Widgets.label(recipe_focus_row, "COLLECTOR PROJECT", 11)
-	recipe_tip_label = Widgets.label(recipe_side, "T timber · Cu copper · choose an icon to craft", 11)
+	Widgets.label(recipe_side, "CRAFT / BUILD", 13)
+	recipe_tabs_row = HBoxContainer.new()
+	recipe_tabs_row.add_theme_constant_override("separation", 4)
+	recipe_side.add_child(recipe_tabs_row)
+	for category: String in RECIPE_CATEGORIES:
+		var tab := Widgets.button(recipe_tabs_row, RECIPE_CATEGORY_LABELS[category],
+			_set_recipe_category.bind(category))
+		tab.toggle_mode = true
+		tab.custom_minimum_size = Vector2(85, 40)
+		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tab.add_theme_font_size_override("font_size", 10)
+		tab.tooltip_text = "%s recipes · Left and Right switch tabs" % RECIPE_CATEGORY_LABELS[category]
+		tab.accessibility_name = "%s recipe tab" % RECIPE_CATEGORY_LABELS[category]
+		_style_slot(tab)
+		tab.focus_entered.connect(_describe_focus.bind(tab))
+		recipe_tabs[category] = tab
 	recipe_scroll = ScrollContainer.new()
 	recipe_scroll.name = "CraftRecipes"
 	recipe_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -319,7 +309,7 @@ func configure(host, ui: Control) -> void:
 	recipe_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	recipe_side.add_child(recipe_scroll)
 	recipe_grid = GridContainer.new()
-	recipe_grid.columns = 4
+	recipe_grid.columns = 5
 	recipe_grid.add_theme_constant_override("h_separation", 6)
 	recipe_grid.add_theme_constant_override("v_separation", 6)
 	recipe_scroll.add_child(recipe_grid)
@@ -364,20 +354,20 @@ func _style_slot(button: Button, worksite: bool = false) -> void:
 	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 func _style_inventory_tile(button: Button, texture: Texture2D) -> void:
-	button.custom_minimum_size = Vector2(78, 66)
+	button.custom_minimum_size = Vector2(60, 58)
 	button.icon = texture
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	button.expand_icon = true
-	button.add_theme_constant_override("icon_max_width", 36)
+	button.add_theme_constant_override("icon_max_width", 23)
 	button.focus_mode = Control.FOCUS_ALL
 	_style_slot(button)
 
 func _count_badge(button: Button) -> Label:
 	var badge := Label.new()
-	badge.position = Vector2(48, 44)
-	badge.size = Vector2(26, 18)
+	badge.position = Vector2(37, 38)
+	badge.size = Vector2(20, 16)
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	badge.add_theme_font_size_override("font_size", 13)
+	badge.add_theme_font_size_override("font_size", 10)
 	badge.add_theme_color_override("font_color", Color("f6e5c5"))
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(badge)
@@ -387,6 +377,8 @@ func _describe_focus(button: Button) -> void:
 	focus_description.text = button.tooltip_text
 	if inventory_scroll.is_ancestor_of(button):
 		inventory_scroll.call_deferred("ensure_control_visible", button)
+	elif recipe_scroll.is_ancestor_of(button):
+		recipe_scroll.call_deferred("ensure_control_visible", button)
 
 func _track_tile_hover(tile: PlaceableTile) -> void:
 	tile.mouse_entered.connect(func(): _hovered_tool = tile.tool)
@@ -414,6 +406,8 @@ func _catalog_input(event: InputEvent) -> void:
 		_use_context_action()
 	elif event.keycode == KEY_P and _arrival_active and _material_count("fabrication_hub", _view()) > 0:
 		_select_hub_tool()
+	elif event.keycode in [KEY_LEFT, KEY_RIGHT] and recipe_tabs.values().has(catalog.gui_get_focus_owner()):
+		_step_recipe_tab(-1 if event.keycode == KEY_LEFT else 1)
 	elif CATALOG_KEYS.has(event.keycode):
 		_select_inventory_tool(CATALOG_KEYS[event.keycode])
 	else:
@@ -463,26 +457,23 @@ func _configure_catalog_layout(extent: Vector2) -> void:
 	var compact := extent.x <= 720.0
 	var stacked := extent.x < 600.0
 	var starter := _arrival_active and _view() != null and not _plate_unlocked(_view())
-	for button: Button in [project_focus_button, all_focus_button]:
-		button.custom_minimum_size = Vector2(28, 28) if compact else Vector2(38, 34)
-	recipe_focus_label.visible = project_focus_button.visible and not compact
+	for category: String in RECIPE_CATEGORIES:
+		var button: Button = recipe_tabs[category]
+		button.text = "Machine" if compact and category == "machine" else RECIPE_CATEGORY_LABELS[category]
+		button.custom_minimum_size = Vector2(72, 34) if compact else Vector2(85, 40)
 	catalog_columns.vertical = stacked
-	material_grid.columns = 3 if compact else 4
-	recipe_grid.columns = 3 if compact else 4
+	material_grid.columns = 3 if stacked else 4 if compact else 5
+	recipe_grid.columns = 3 if stacked else 4 if compact else 5
 	context_label.visible = not compact or starter
-	var scroll_height := 48 if stacked else 145 if starter and compact else 100 if starter else 125 if compact else 275
+	var scroll_height := 48 if stacked else 125 if compact else 260
 	inventory_scroll.custom_minimum_size = Vector2(0, scroll_height)
 	recipe_scroll.custom_minimum_size = Vector2(0, scroll_height)
 	for side in ["left", "right", "top", "bottom"]:
-		catalog_margin.add_theme_constant_override("margin_" + side,
-			7 if compact and project_focus_button.visible else 8 if compact else 16)
+		catalog_margin.add_theme_constant_override("margin_" + side, 8 if compact else 16)
 
 func _catalog_dimensions(extent: Vector2) -> Vector2i:
 	var width := int(extent.x) if extent.x <= 720.0 else mini(800, int(extent.x) - 16)
-	var starter := _arrival_active and _view() != null and not _plate_unlocked(_view())
-	var project: bool = _arrival_active and _view() != null and _plate_unlocked(_view())
-	var starter_height := 464 if extent.x <= 720.0 else 420
-	return Vector2i(width, mini(starter_height if starter else 520 if project else 620,
+	return Vector2i(width, mini(520 if _arrival_active else 620,
 		maxi(1, int(_hotbar_top(extent) - 16.0))))
 
 func _hotbar_top(extent: Vector2) -> float:
@@ -527,7 +518,8 @@ func _material_count(kind: String, host) -> int:
 
 func _tool_label(tool: String) -> String:
 	if tool.begins_with("gear:"):
-		return "Cogwheel · %s teeth" % tool.trim_prefix("gear:")
+		return {"2": "Small cogwheel", "4": "Large cogwheel"}.get(
+			tool.trim_prefix("gear:"), "Cogwheel · %s pitch units" % tool.trim_prefix("gear:"))
 	if tool == "pod_workshop":
 		return "Pod workshop"
 	return str(_component_labels.get(tool.trim_prefix(COMPONENT_PREFIX), "Component")) \
@@ -558,26 +550,107 @@ func _plate_unlocked(host) -> bool:
 	return not _arrival_active or not host.state.get("first_plate_unlock", true) or \
 		host.state.get("workshop_completed_actors", []).has(host.client)
 
-func _set_recipe_focus(value: String) -> void:
-	recipe_focus = value
+func _set_recipe_category(value: String) -> void:
+	if not RECIPE_CATEGORIES.has(value) or recipe_tabs[value].disabled:
+		return
+	recipe_category = value
+	recipe_category_manual = true
 	refresh()
+	recipe_scroll.scroll_vertical = 0
 
-func _suggested_project(host) -> String:
-	if host == null:
-		return "collector"
+func _step_recipe_tab(direction: int) -> void:
+	var start := RECIPE_CATEGORIES.find(recipe_category)
+	for distance in range(1, RECIPE_CATEGORIES.size() + 1):
+		var index: int = posmod(start + distance * direction, RECIPE_CATEGORIES.size())
+		var category: String = RECIPE_CATEGORIES[index]
+		if not recipe_tabs[category].disabled:
+			_set_recipe_category(category)
+			_focus_catalog_button(recipe_tabs[category])
+			return
+
+func _press_has_water_drive(host) -> bool:
+	var motion: Dictionary = host.state.get("motion", {})
+	var entities: Dictionary = host.state.get("entities", {})
+	var turning_wheels: Array[String] = []
+	for entity_id: String in entities:
+		var entity: Dictionary = entities[entity_id]
+		if entity.get("kind") == "wheel" and motion.get(entity_id, {}).get("state") == "rotating":
+			turning_wheels.append(entity_id)
+	if turning_wheels.is_empty():
+		return false
+	var turning_slides: Dictionary = {}
+	for press: Dictionary in host.state.get("sliding_press_assemblies", []):
+		if press.get("status") != "ready":
+			continue
+		var slide_id: String = str(press.get("parts", {}).get("slide", ""))
+		if not slide_id.is_empty() and motion.get(slide_id, {}).get("state") == "rotating":
+			turning_slides[slide_id] = true
+	if turning_slides.is_empty():
+		return false
+	var neighbors: Dictionary = {}
+	for edge: Dictionary in host.state.get("engagements", []):
+		var a: String = str(edge.get("a", ""))
+		var b: String = str(edge.get("b", ""))
+		if a.is_empty() or b.is_empty():
+			continue
+		if not neighbors.has(a):
+			neighbors[a] = []
+		if not neighbors.has(b):
+			neighbors[b] = []
+		neighbors[a].append(b)
+		neighbors[b].append(a)
+	var frontier: Array[String] = turning_wheels.duplicate()
+	var seen: Dictionary = {}
+	while not frontier.is_empty():
+		var id: String = frontier.pop_back()
+		if seen.has(id):
+			continue
+		seen[id] = true
+		if turning_slides.has(id):
+			return true
+		for next_id: String in neighbors.get(id, []):
+			if not seen.has(next_id):
+				frontier.append(next_id)
+	return false
+
+func _suggested_recipe_category(host) -> String:
+	if host == null or not _plate_unlocked(host):
+		return "machine"
 	for assembly: Dictionary in host.state.get("collector_assemblies", []):
 		if assembly.get("status") == "ready":
-			return "belt"
-	return "collector"
+			return "logistics"
+	return "machine" if _press_has_water_drive(host) else "power"
 
-func _recipe_in_focus(key: String, kind: String = "") -> bool:
-	if recipe_focus == "all":
-		return true
-	var belt_route: bool = _suggested_project(_view()) == "belt"
+func _recipe_category(key: String, kind: String = "") -> String:
 	if key.begins_with(COMPONENT_PREFIX):
-		return (BELT_ROUTE_COMPONENTS if belt_route else COLLECTOR_PROJECT_COMPONENTS).has(
-			key.trim_prefix(COMPONENT_PREFIX))
-	return kind in (["shaft", "gear", "belt", "wheel"] if belt_route else ["shaft", "gear"])
+		var component := key.trim_prefix(COMPONENT_PREFIX)
+		if POWER_COMPONENTS.has(component):
+			return "power"
+		if LOGISTICS_COMPONENTS.has(component):
+			return "logistics"
+		return "machine" if MACHINE_COMPONENTS.has(component) else "other"
+	if key == "foundation":
+		return "other"
+	if kind in ["wheel", "shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
+		return "power"
+	return "logistics" if kind == "belt" else "other"
+
+func _recipe_rank(key: String, kind: String, teeth: int, host) -> int:
+	if key.begins_with(COMPONENT_PREFIX):
+		var component := key.trim_prefix(COMPONENT_PREFIX)
+		var preferred := ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray"] \
+			if _plate_unlocked(host) and _suggested_recipe_category(host) == "machine" else \
+			["anvil", "flat_head", "wooden_slide", "hand_crank"]
+		var index := preferred.find(component)
+		return index if index >= 0 else 20 + _component_names.find(component)
+	if key == "foundation":
+		return 0
+	match kind:
+		"wheel": return 0
+		"shaft": return 1
+		"gear": return 2 if teeth == 2 else 3 if teeth == 4 else 10 + teeth
+		"belt": return 0
+		_: return 20
 
 func _sync_arrival(host) -> void:
 	var arrival: bool = host._native_transmission() and host.state.has("hand_sources")
@@ -624,33 +697,42 @@ func _recipe_tile(key: String, icon: Texture2D) -> Button:
 	var host = _view()
 	var tile: Button = Widgets.button(recipe_grid, "", _craft_recipe.bind(key))
 	_style_inventory_tile(tile, icon)
-	tile.custom_minimum_size = Vector2(78, 98)
+	tile.custom_minimum_size = Vector2(68, 101)
 	tile.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-	tile.add_theme_constant_override("icon_max_width", 32)
+	tile.add_theme_constant_override("icon_max_width", 23)
 	tile.clip_contents = true
 	tile.focus_entered.connect(_describe_focus.bind(tile))
 	var name_label := Label.new()
 	name_label.name = "RecipeName"
-	name_label.position = Vector2(2, 42)
-	name_label.size = Vector2(74, 29)
+	name_label.position = Vector2(2, 40)
+	name_label.size = Vector2(64, 29)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_label.add_theme_font_size_override("font_size", 10)
+	name_label.add_theme_font_size_override("font_size", 9)
 	name_label.add_theme_color_override("font_color", Color("dde5d9"))
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tile.add_child(name_label)
 	var cost := Label.new()
 	cost.position = Vector2(2, 73)
-	cost.size = Vector2(74, 18)
+	cost.size = Vector2(64, 14)
 	cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cost.add_theme_font_size_override("font_size", 12)
+	cost.add_theme_font_size_override("font_size", 9)
 	cost.add_theme_color_override("font_color", Color("f6e5c5"))
 	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tile.add_child(cost)
+	var station := Label.new()
+	station.position = Vector2(2, 87)
+	station.size = Vector2(64, 12)
+	station.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	station.add_theme_font_size_override("font_size", 8)
+	station.add_theme_color_override("font_color", Color("e7b875"))
+	station.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_child(station)
 	recipe_buttons[key] = tile
 	recipe_names[key] = name_label
 	recipe_costs[key] = cost
+	recipe_stations[key] = station
 	return tile
 
 func _recipe_state(host, key: String, label: String, cost: Dictionary,
@@ -659,7 +741,9 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
 	var timber := int(cost.get("timber", 0))
 	var copper := int(cost.get("copper", 0))
-	var affordable := int(cargo.get("timber", 0)) >= timber and int(cargo.get("raw", 0)) >= copper
+	var plate := int(cost.get("plate", 0))
+	var affordable := int(cargo.get("timber", 0)) >= timber and int(cargo.get("raw", 0)) >= copper \
+		and int(cargo.get("products", 0)) >= plate
 	var at_bench := _valid_bench(host.state, context_bench)
 	var station := "Field or bench" if field_allowed else "Bench"
 	var rating := int(cost.get("load_rating", 0))
@@ -678,12 +762,17 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 		var surface := tile.get_theme_stylebox(state_name, "Button") as StyleBoxFlat
 		surface.border_color = Color("e7b875")
 		surface.border_width_bottom = 2 if craftable else 0
-	tile.tooltip_text = "%s · %d timber + %d copper · %s%s · %s" % [
-		label, timber, copper, station, rating_detail, reason]
-	tile.accessibility_name = "%s recipe, needs %d timber and %d copper, %s%s, %s" % [
-		label, timber, copper, station, rating_detail, reason]
+	var ingredients := "%d timber + %d copper" % [timber, copper] if plate == 0 else \
+		"%d timber + %d copper plate" % [timber, plate] if copper == 0 else \
+		"%d timber + %d copper + %d copper plate" % [timber, copper, plate]
+	tile.tooltip_text = "%s · %s · %s%s · %s" % [
+		label, ingredients, station, rating_detail, reason]
+	tile.accessibility_name = "%s recipe, needs %s, %s%s, %s" % [
+		label, ingredients, station, rating_detail, reason]
 	recipe_names[key].text = label
-	recipe_costs[key].text = "%dT · %dCu" % [timber, copper]
+	recipe_costs[key].text = "%dT · %d plate" % [timber, plate] if plate > 0 else \
+		"%dT · %dCu" % [timber, copper]
+	recipe_stations[key].text = "BENCH" if not field_allowed else ""
 
 func _refresh_recipes(host, ready: bool) -> void:
 	for tile: Button in recipe_buttons.values():
@@ -708,45 +797,48 @@ func _refresh_recipes(host, ready: bool) -> void:
 		"Field recipes can be made anywhere · E opens a bench"
 	if not _plate_unlocked(host):
 		context_label.text = "First plate: build a press with a hand crank. Feed copper, turn the crank, collect the plate."
-	var project_focus: bool = _arrival_active and _plate_unlocked(host) and bool(host.state.get("first_plate_unlock", false))
-	var belt_route: bool = _suggested_project(host) == "belt"
-	project_focus_button.visible = project_focus
-	project_focus_button.icon = BELT_ICON if belt_route else COLLECTOR_ICON
-	project_focus_button.tooltip_text = "Belt route · connect two shafts and power a belt toward the press" if belt_route else \
-		"Collector project · show parts for a finite ore collector"
-	project_focus_button.accessibility_name = "Belt route recipes" if belt_route else "Collector project recipes"
-	if catalog.gui_get_focus_owner() == project_focus_button:
-		_describe_focus(project_focus_button)
-	all_focus_button.visible = project_focus
-	recipe_focus_label.visible = project_focus and get_parent().size.x > 720.0
-	recipe_tip_label.visible = not project_focus
-	recipe_focus_label.text = ("BELT ROUTE" if belt_route else "COLLECTOR PROJECT") if recipe_focus == "project" else "ALL UNLOCKED PARTS"
-	project_focus_button.button_pressed = recipe_focus == "project"
-	all_focus_button.button_pressed = recipe_focus == "all"
+	else:
+		match _suggested_recipe_category(host):
+			"power": context_label.text = "Next, run your press from the river. Craft power parts at a bench."
+			"machine": context_label.text = "Press driven by river power. Build a collector at the ore face."
+			"logistics": context_label.text = "Collector working. Move its ore toward the press."
+	var category_keys := {}
+	var key_categories := {}
+	var ranks := {}
+	for category: String in RECIPE_CATEGORIES:
+		category_keys[category] = []
 	var recipes: Dictionary = host.state.get("component_recipes", {})
 	var recipe_names: Array[String] = []
 	if _plate_unlocked(host):
 		recipe_names.assign(_component_names)
+		for component: String in recipes:
+			if not recipe_names.has(component):
+				recipe_names.append(component)
 	else:
 		for starter: String in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
 			recipe_names.append(starter)
 	for component: String in recipe_names:
-		if not _component_labels.has(component):
-			continue
 		var cost: Dictionary = recipes.get(component, {})
 		if cost.is_empty():
 			continue
-		var field_allowed := int(cost.get("timber", 0)) > 0 and int(cost.get("copper", 0)) == 0
-		_recipe_state(host, COMPONENT_PREFIX + component, _component_labels[component], cost,
-			component_textures[component], field_allowed, ready)
-		if project_focus:
-			recipe_buttons[COMPONENT_PREFIX + component].visible = _recipe_in_focus(COMPONENT_PREFIX + component)
+		var key := COMPONENT_PREFIX + component
+		var field_allowed := int(cost.get("timber", 0)) > 0 and int(cost.get("copper", 0)) == 0 \
+			and int(cost.get("plate", 0)) == 0
+		var label: String = str(_component_labels.get(component,
+			component.replace("_", " ").capitalize()))
+		_recipe_state(host, key, label, cost,
+			component_textures.get(component, COMPONENT_ICON), field_allowed, ready)
+		var category := _recipe_category(key)
+		category_keys[category].append(key)
+		key_categories[key] = category
+		ranks[key] = RECIPE_CATEGORIES.find(category) * 100 + _recipe_rank(key, "", 0, host)
 	var foundation: Dictionary = host.state.get("foundation_recipe", {})
 	if _plate_unlocked(host) and not foundation.is_empty():
 		_recipe_state(host, "foundation", "Foundation", foundation,
 			catalog_buttons.foundation.icon, false, ready)
-		if project_focus:
-			recipe_buttons.foundation.visible = recipe_focus == "all" or belt_route
+		category_keys.other.append("foundation")
+		key_categories.foundation = "other"
+		ranks.foundation = RECIPE_CATEGORIES.find("other") * 100
 	var parts: Array = host.state.get("part_recipes", [])
 	for index in parts.size():
 		if not _plate_unlocked(host):
@@ -758,10 +850,11 @@ func _refresh_recipes(host, ready: bool) -> void:
 		match kind:
 			"shaft":
 				icon_name = "drive"
-				label = "Shaft tile"
+				label = "Shaft"
 			"gear":
 				icon_name = "gear"
-				label = "Cogwheel"
+				label = {2: "Small cogwheel", 4: "Large cogwheel"}.get(
+					int(recipe.get("teeth", 0)), "Cogwheel")
 			"belt":
 				icon_name = "belt"
 				label = "Belt span"
@@ -778,16 +871,51 @@ func _refresh_recipes(host, ready: bool) -> void:
 				icon_name = "chain_drive"
 				label = "Chain drive"
 			_:
-				push_error("Unmapped native part recipe: " + kind)
-				continue
-		if int(recipe.get("half_span", 0)) > 0:
-			label += " · half-span %d" % int(recipe.half_span)
-		if int(recipe.get("teeth", 0)) > 0:
-			label += " · %d teeth" % int(recipe.teeth)
-		_recipe_state(host, "part:%d" % index, label, recipe,
+				icon_name = "component"
+				label = kind.replace("_", " ").capitalize()
+		var key := "part:%d" % index
+		_recipe_state(host, key, label, recipe,
 			load("res://opening/assets/build-icons/%s.svg" % icon_name), false, ready)
-		if project_focus:
-			recipe_buttons["part:%d" % index].visible = _recipe_in_focus("part:%d" % index, kind)
+		var teeth := int(recipe.get("teeth", 0))
+		if kind == "gear":
+			recipe_buttons[key].add_theme_constant_override("icon_max_width", 16 if teeth == 2 else 28)
+			recipe_buttons[key].tooltip_text += " · pitch radius %d" % teeth
+			recipe_buttons[key].accessibility_name += ", pitch radius %d" % teeth
+		elif kind == "shaft":
+			recipe_buttons[key].tooltip_text += " · half-span %d" % int(recipe.get("half_span", 0))
+		var category := _recipe_category(key, kind)
+		category_keys[category].append(key)
+		key_categories[key] = category
+		ranks[key] = RECIPE_CATEGORIES.find(category) * 100 + _recipe_rank(key, kind, teeth, host)
+	var sorted_keys: Array[String] = []
+	for category: String in RECIPE_CATEGORIES:
+		for key: String in category_keys[category]:
+			sorted_keys.append(key)
+	sorted_keys.sort_custom(func(a: String, b: String) -> bool:
+		return int(ranks[a]) < int(ranks[b]) if ranks[a] != ranks[b] else a < b)
+	for index in sorted_keys.size():
+		recipe_grid.move_child(recipe_buttons[sorted_keys[index]], index)
+	var suggested := _suggested_recipe_category(host)
+	if category_keys[suggested].is_empty():
+		for category: String in RECIPE_CATEGORIES:
+			if not category_keys[category].is_empty():
+				suggested = category
+				break
+	var prior_category := recipe_category
+	if not recipe_category_manual or category_keys[recipe_category].is_empty():
+		recipe_category = suggested
+		recipe_category_manual = false
+	for category: String in RECIPE_CATEGORIES:
+		var tab: Button = recipe_tabs[category]
+		tab.disabled = category_keys[category].is_empty()
+		tab.button_pressed = recipe_category == category
+	for key: String in sorted_keys:
+		recipe_buttons[key].visible = key_categories[key] == recipe_category
+	if prior_category != recipe_category:
+		recipe_scroll.scroll_vertical = 0
+	var focused: Control = catalog.gui_get_focus_owner()
+	if catalog.visible and focused != null and recipe_scroll.is_ancestor_of(focused) and not focused.visible:
+		_focus_catalog_button(recipe_tabs[recipe_category])
 
 func _craft_recipe(key: String) -> void:
 	var host = _view()
@@ -798,7 +926,7 @@ func _craft_recipe(key: String) -> void:
 		focus_description.text = "Carry your first copper plate to unlock this recipe."
 		return
 	if not recipe_buttons.has(key) or not recipe_buttons[key].visible:
-		focus_description.text = "Choose All parts to see that unlocked recipe."
+		focus_description.text = "Choose the recipe's type tab first."
 		return
 	var cargo: Dictionary = host.state.get("cargo", {}).get(host.client, {})
 	var cost: Dictionary = {}
@@ -808,7 +936,8 @@ func _craft_recipe(key: String) -> void:
 		cost = host.state.get("component_recipes", {}).get(component, {})
 		if not context_bench.is_empty() and _valid_bench(host.state, context_bench):
 			action = {"action": "craft_component", "entity": context_bench, "component": component}
-		elif int(cost.get("timber", 0)) > 0 and int(cost.get("copper", 0)) == 0:
+		elif int(cost.get("timber", 0)) > 0 and int(cost.get("copper", 0)) == 0 \
+				and int(cost.get("plate", 0)) == 0:
 			action = {"action": "field_craft", "component": component}
 	elif key == "foundation":
 		cost = host.state.get("foundation_recipe", {})
@@ -829,7 +958,8 @@ func _craft_recipe(key: String) -> void:
 		focus_description.text = "Open a fabrication bench with E for this recipe."
 		return
 	if int(cargo.get("timber", 0)) < int(cost.get("timber", 0)) or \
-			int(cargo.get("raw", 0)) < int(cost.get("copper", 0)):
+			int(cargo.get("raw", 0)) < int(cost.get("copper", 0)) or \
+			int(cargo.get("products", 0)) < int(cost.get("plate", 0)):
 		focus_description.text = "Carry the ingredients shown on the recipe."
 		return
 	host.issue(action)
@@ -961,6 +1091,7 @@ func open_catalog() -> void:
 	_catalog_resize_pending = false
 	_hovered_tool = ""
 	context_bench = ""
+	recipe_category_manual = false
 	refresh()
 	var viewport_size: Vector2 = get_parent().size
 	_configure_catalog_layout(viewport_size)
@@ -977,6 +1108,7 @@ func open_at_bench(bench_id: String) -> void:
 	_catalog_resize_pending = false
 	_hovered_tool = ""
 	context_bench = bench_id
+	recipe_category_manual = false
 	refresh()
 	host._release_character_controls()
 	var viewport_size: Vector2 = get_parent().size
@@ -986,16 +1118,17 @@ func open_at_bench(bench_id: String) -> void:
 	_place_catalog.call_deferred()
 
 func _focus_inventory_item() -> void:
+	for tile: Button in recipe_grid.get_children():
+		if tile.visible and not tile.disabled:
+			_focus_catalog_button(tile)
+			return
 	for tile: PlaceableTile in catalog_buttons.values() + component_buttons.values() + [material_buttons.fabrication_hub]:
 		if _binding_available(tile.tool):
 			_focus_catalog_button(tile)
 			return
-	if project_focus_button.visible and not project_focus_button.disabled:
-		_focus_catalog_button(project_focus_button)
-		return
-	for tile: Button in recipe_grid.get_children():
-		if tile.visible and not tile.disabled:
-			_focus_catalog_button(tile)
+	for category: String in RECIPE_CATEGORIES:
+		if not recipe_tabs[category].disabled:
+			_focus_catalog_button(recipe_tabs[category])
 			return
 	_focus_catalog_button(catalog_close_button)
 
