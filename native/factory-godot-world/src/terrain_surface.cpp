@@ -100,6 +100,25 @@ ParseResult parse(const Object& input, const world::Profile& profile) {
     auto next_profile = profile;
     if (source_obstacle && next_profile.material.manual_ore)
         next_profile.manual_ore_contact_bounds = surface.obstacles[*surface.source_obstacle];
+    if (profile.ore_field) {
+        for (mineral_site::Integer region = 0;
+                region < mineral_site::field_region_count; ++region) {
+            const auto cell = mineral_site::field_exposure_cell(region);
+            if (!cell) return {{}, "invalid_terrain"};
+            if (region == mineral_site::field_region({0, 0}) && source_obstacle) {
+                next_profile.ore_exposures[static_cast<std::size_t>(region)] =
+                    surface.obstacles[*surface.source_obstacle];
+                continue;
+            }
+            const double x = cell->x * site_geometry::pitch;
+            const double z = cell->z * site_geometry::pitch;
+            const auto ground = surface.range(x, z, 0.45, 0.45);
+            if (!ground) return {{}, "invalid_terrain"};
+            next_profile.ore_exposures[static_cast<std::size_t>(region)] =
+                std::pair<authority::Point, authority::Point>{{x - 0.55, ground->second + 0.02, z - 0.55},
+                    {x + 0.55, ground->second + 0.22, z + 0.55}};
+        }
+    }
     if (flow_cells) {
         if (flow_cells->empty() || flow_cells->size() > 65536) return {{}, "invalid_water"};
         std::vector<waterflow::Cell> cells;
@@ -134,7 +153,7 @@ ParseResult parse(const Object& input, const world::Profile& profile) {
         }
     }
     return {Binding{std::move(surface), std::move(next_profile),
-        water || flow_cells || (source_obstacle && profile.material.manual_ore)}, nullptr};
+        water || flow_cells || profile.ore_field || (source_obstacle && profile.material.manual_ore)}, nullptr};
 }
 
 bool Surface::blocked(const authority::Point& low, const authority::Point& high,

@@ -1387,11 +1387,12 @@ void shared_harvest() {
           "The trusted arrival site initializes one native source roster.");
     const auto initial = host.projection();
     const auto sources = get<O>(initial, "hand_sources");
-    check(sources.size() == 13 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
+    check(sources.size() == 19 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
           get<I>(sources.at("broadleaf_00"), "remaining") == 8 &&
           get<I>(sources.at("fir_05"), "remaining") == 8 &&
-          get<I>(sources.at("opening-copper"), "remaining") == 4096,
-          "The four starter pines, eight mature bank trees and ore reserve share native custody.");
+          get<I>(sources.at("opening-copper"), "remaining") == 4096 &&
+          sources.contains("opening-copper-region-0") && sources.contains("opening-copper-region-5"),
+          "Four starter trees, eight mature trees, the ore total and six local exposures share native custody.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "P walks to the clear east timber site while Q remains on the deployed deck.");
@@ -1507,7 +1508,7 @@ void mature_bank_tree_stock_survives_shared_restore() {
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "The mature bank tree roster initializes inside the one native arrival profile.");
     const auto sources = get<O>(host.projection(), "hand_sources");
-    check(sources.size() == 13 && get<I>(sources.at("broadleaf_00"), "initial") == 8 &&
+    check(sources.size() == 19 && get<I>(sources.at("broadleaf_00"), "initial") == 8 &&
           get<I>(sources.at("fir_00"), "initial") == 8,
           "Mature broadleaf and fir instances have separate finite source identities.");
     const auto wire = [](const char* actor, const std::string& request, const char* action, O extra) {

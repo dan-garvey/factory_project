@@ -60,15 +60,15 @@ one `--environment-case=NAME`: `botanical-species`, `collector-carrier`,
 `bank-fir-lifecycle`, `bank-firs`, `fir-resource`, `pine-reflectance`,
 `pine-roots`, `pine-understory`, `stone-material`, `sourced-sky`,
 `meadow-patches`, `foliage-mipmaps`, `sourced-foliage`, `ground-material`,
-`ground-render`, `site-render`, `water-flow`, `water-pattern`, `water-render`,
+`ground-render`, `site-render`, `ore-field-render`, `water-flow`, `water-pattern`, `water-render`,
 `bank-ferns`, `rock-collision-shape`, `surface-composition`,
 `foreground-bank`, or `foliage`. The resource and capture cases `bank-firs`,
 `fir-resource`, `pine-reflectance`, `pine-understory`, `stone-material`,
 `sourced-sky`, `sourced-foliage`, `ground-material`, `ground-render`,
-`site-render`, `water-render`, and `bank-ferns` require
+`site-render`, `ore-field-render`, `water-render`, and `bank-ferns` require
 `--artifacts=EXISTING_ABSOLUTE_DIRECTORY`. The `bank-firs` case instead accepts
 `--fir-layout-only` without an artifact directory to inspect its existing
-layout without moving the optional source asset. The three `*-render` cases
+layout without moving the optional source asset. The four `*-render` cases
 require an actual renderer and a labeled tracked agent launch. Every selected
 case emits JSON `mode`, `status` and `checks`; require the selected mode,
 `status: pass`, a positive check count, zero exit and no engine or script errors.

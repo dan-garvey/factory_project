@@ -180,6 +180,28 @@ Object tick_fields(const world::Profile& profile, const world::Snapshot& snapsho
             projected_ore.emplace("contact_bounds", Value(Array{point_value(low), point_value(high)}));
         }
         sources.emplace(ore.id, Value(std::move(projected_ore)));
+        if (profile.ore_field && state.ore_field) {
+            const auto initial = mineral_site::allocate_field(profile.initial_units);
+            for (mineral_site::Integer region = 0;
+                    region < mineral_site::field_region_count; ++region) {
+                const auto bounds = world::ore_region_contact_bounds(profile, region);
+                if (!bounds) continue;
+                const auto index = static_cast<std::size_t>(region);
+                const authority::Point midpoint{
+                    (bounds->first[0] + bounds->second[0]) / 2,
+                    (bounds->first[1] + bounds->second[1]) / 2,
+                    (bounds->first[2] + bounds->second[2]) / 2};
+                Object projected_region{
+                    {"kind", Value("ore_deposit")},
+                    {"position", point_value(midpoint)},
+                    {"initial", Value(initial->remaining[index])},
+                    {"remaining", Value(state.ore_field->remaining[index])},
+                    {"contact_bounds", Value(Array{point_value(bounds->first),
+                        point_value(bounds->second)})}};
+                sources.emplace(world::ore_region_id(profile, region),
+                    Value(std::move(projected_region)));
+            }
+        }
         fields.emplace("hand_sources", Value(std::move(sources)));
     }
     return fields;

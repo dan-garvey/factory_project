@@ -118,6 +118,17 @@ Value profile_value(const Profile& profile) {
         {"meters_per_grid_unit", Value(profile.meters_per_grid_unit)},
         {"anchor_offset", Value(Array{Value(profile.anchor_offset[0]), Value(profile.anchor_offset[1]), Value(profile.anchor_offset[2])})},
         {"build_reach", Value(profile.build_reach)}};
+    if (profile.ore_field) {
+        output.emplace("ore_field", Value(true));
+        Array exposures;
+        const auto point = [](const authority::Point& value) {
+            return Value(Array{Value(value[0]), Value(value[1]), Value(value[2])});
+        };
+        for (const auto& exposure : profile.ore_exposures)
+            exposures.emplace_back(exposure ?
+                Value(Array{point(exposure->first), point(exposure->second)}) : Value(nullptr));
+        output.emplace("ore_exposures", Value(std::move(exposures)));
+    }
     if (profile.first_plate_unlock) output.emplace("first_plate_unlock", Value(true));
     if (profile.manual_cut_reach > 0)
         output.emplace("manual_cut_reach", Value(profile.manual_cut_reach));
@@ -321,7 +332,8 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"remaining_ticks", Value(cut.remaining_ticks)},
                 {"interrupted_revision", Value(cut.interrupted_revision)}}));
         Value output(Object{
-            {"schema", Value(Integer{22})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{profile.ore_field ? 23 : 22})},
+            {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -329,6 +341,16 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"next_entity_serial", Value(snapshot.state.next_entity_serial)},
                 {"manual_cuts", Value(std::move(manual_cuts))},
                 {"developer_conveniences", Value(snapshot.state.developer_conveniences)}})}});
+        if (profile.ore_field) {
+            Array regions;
+            for (const auto remaining : snapshot.state.ore_field->remaining)
+                regions.emplace_back(remaining);
+            auto root = std::get<Object>(output.storage());
+            auto state = std::get<Object>(root.at("state").storage());
+            state.emplace("ore_regions", Value(std::move(regions)));
+            root.at("state") = Value(std::move(state));
+            output = Value(std::move(root));
+        }
         if (profile.foundation_parts > 0) {
             Object foundations, foundation_kits;
             for (const auto& [id, foundation] : snapshot.state.foundations)
@@ -472,9 +494,23 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
         const auto schema = integer(root, "schema", "$");
-        if (schema != 20 && schema != 21 && schema != 22)
+        if (schema != 20 && schema != 21 && schema != 22 && schema != 23)
             refuse(CheckpointReason::unsupported_schema, "$.schema");
-        if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
+        if (schema == 23 && !profile.ore_field)
+            refuse(CheckpointReason::profile_mismatch, "$.profile.ore_field");
+        const bool migrating_field = profile.ore_field && schema == 22;
+        auto checkpoint_profile = profile;
+        if (migrating_field) {
+            checkpoint_profile.ore_field = false;
+            checkpoint_profile.ore_exposures = {};
+            checkpoint_profile.collector_faces.clear();
+            for (const auto& cell : mineral_site::opening_cells)
+                for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
+                    checkpoint_profile.collector_faces.push_back(
+                        {{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
+        }
+        if (const auto difference = values::typed_difference(
+                profile_value(checkpoint_profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
         Snapshot candidate;
         candidate.revision = integer(root, "revision", "$");
@@ -482,7 +518,9 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         if (!history.history) refuse(CheckpointReason::invalid_history, "$.history");
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
-        const auto& state = profile.landing_pod_center && schema == 22 ? fields(root.at("state"), "$.state",
+        const auto& state = profile.ore_field && schema == 23 ? fields(root.at("state"), "$.state",
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "ore_regions", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            profile.landing_pod_center && schema == 22 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.landing_pod_center ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
@@ -603,7 +641,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                         read_point(entry.at("exit"), "$.state.slide_press_routes.exit")).second)
                     refuse(CheckpointReason::invalid_world, "$.state.slide_press_routes");
             }
-            if (schema == 22)
+            if (schema >= 22)
                 for (const auto& value : array(state.at("press_output_on_work"),
                         "$.state.press_output_on_work", materials::maximum_drop_points)) {
                     const auto& entry = fields(value, "$.state.press_output_on_work",
@@ -740,6 +778,16 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         if (!std::holds_alternative<materials::State>(material))
             refuse(CheckpointReason::invalid_material, "$.state.material");
         candidate.state.material = std::move(std::get<materials::State>(material));
+        if (schema == 23) {
+            const auto& regions = array(state.at("ore_regions"), "$.state.ore_regions",
+                mineral_site::field_region_count);
+            if (regions.size() != mineral_site::field_region_count)
+                refuse(CheckpointReason::invalid_world, "$.state.ore_regions");
+            mineral_site::FieldStock stock;
+            for (std::size_t index = 0; index < regions.size(); ++index)
+                stock.remaining[index] = scalar<Integer>(regions[index], "$.state.ore_regions");
+            candidate.state.ore_field = stock;
+        }
         const auto& kits = object(state.at("kits"), "$.state.kits");
         if (kits.size() > 16) refuse(CheckpointReason::limit, "$.state.kits");
         for (const auto& [actor, kit] : kits) candidate.state.kits.emplace(actor, decode_kit(kit, "$.state.kits"));
@@ -748,6 +796,11 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         for (const auto& [id, generation] : issued)
             candidate.state.issued_entities.emplace(id, scalar<Integer>(generation, "$.state.issued_entities"));
         candidate.state.next_entity_serial = integer(state, "next_entity_serial", "$.state");
+        if (migrating_field) {
+            if (!validate(checkpoint_profile, candidate))
+                refuse(CheckpointReason::invalid_world, "$");
+            candidate.state.ore_field = mineral_site::allocate_field(candidate.state.material.stock.source);
+        }
         if (!validate(profile, candidate)) refuse(CheckpointReason::invalid_world, "$");
         return candidate;
     } catch (const CheckpointRefusal& failure) { return failure; }

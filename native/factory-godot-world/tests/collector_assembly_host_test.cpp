@@ -45,8 +45,13 @@ O source_contact_site(bool other_obstacle = false, bool foot_obstacle = false) {
 
 V ground_inspection(const Host& host) {
     const auto entries = get<A>(host.projection(), "collector_assemblies");
-    check(entries.size() == 6, "Both ore workcells and three common-grid heights are inspected.");
-    return entries.front();
+    check(entries.size() == 300, "The ten by ten ore field exposes three cutting heights per cell.");
+    for (const auto& entry : entries) {
+        const auto& center = get<A>(entry, "center");
+        if (!factory::values::typed_difference(V(center),
+                V(A{V(I{0}), V(I{0}), V(I{0})}))) return entry;
+    }
+    throw std::runtime_error("The original workcell remains available within the larger field.");
 }
 
 std::string place(Host& host, const char* kind, I x, I y, I z, const char* id) {

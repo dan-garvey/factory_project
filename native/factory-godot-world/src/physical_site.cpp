@@ -154,11 +154,16 @@ const char* transmission_refusal(const Site& site, const world::State& state, co
 
 const char* collector_refusal(const Site& site, const mechanics::Point& center) {
     const mineral_site::Cell cell{center[0] / height_denominator, center[2] / height_denominator};
-    if (!mineral_site::contains(cell)) return "not_at_seam";
+    if (site.profile.ore_field ? !mineral_site::field_contains(cell) :
+            !mineral_site::contains(cell)) return "not_at_seam";
     const auto surface = site.terrain.range(center[0] * height_step, center[2] * height_step);
     if (!surface) return "terrain_unavailable";
-    const auto allowed = mineral_site::admit(cell, center[1] * height_step,
-        {surface->first, surface->second}, mineral_site::extraction_depth_steps * height_step);
+    const auto measured = mineral_site::Surface{surface->first, surface->second};
+    const auto allowed = site.profile.ore_field ?
+        mineral_site::admit_field(cell, center[1] * height_step, measured,
+            mineral_site::extraction_depth_steps * height_step) :
+        mineral_site::admit(cell, center[1] * height_step, measured,
+            mineral_site::extraction_depth_steps * height_step);
     return allowed == mineral_site::Error::none ? nullptr : mineral_site::error_name(allowed);
 }
 
@@ -310,7 +315,9 @@ bool harvest_path_clear(const Site& site, const world::State& state,
     };
     for (std::size_t index = 0; index < site.terrain.obstacles.size(); ++index) {
         if (site.terrain.source_obstacle == index && site.profile.material.manual_ore &&
-            site.profile.material.manual_ore->id == source) continue;
+            (site.profile.material.manual_ore->id == source ||
+                world::ore_region_index(site.profile, source) ==
+                    mineral_site::field_region({0, 0}))) continue;
         if (const auto tree = site.terrain.tree_obstacles.find(index);
             tree != site.terrain.tree_obstacles.end() &&
             (tree->second == source || state.material.timber_remaining.at(tree->second) == 0)) continue;
@@ -351,6 +358,13 @@ std::map<std::string, bool> harvest_clearances(const Site& site,
     };
     if (site.profile.material.manual_ore)
         examine(site.profile.material.manual_ore->id, site.profile.material.manual_ore->center, true);
+    if (site.profile.ore_field && site.profile.material.manual_ore)
+        for (mineral_site::Integer region = 0;
+                region < mineral_site::field_region_count; ++region) {
+            const auto id = world::ore_region_id(site.profile, region);
+            const auto contact = world::ore_region_cut_target(site.profile, region, actor);
+            clear.emplace(id, harvest_path_clear(site, state, id, actor, contact));
+        }
     for (const auto& [id, timber] : site.profile.material.timber_sites)
         examine(id, timber.center, false);
     return clear;

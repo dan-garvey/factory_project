@@ -3,6 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 using V = factory::values::Value;
@@ -108,9 +109,20 @@ void bench_requires_ground_bearing() {
           get<bool>(flat.command("P", flat_place), "accepted"),
           "The same wooden bench is valid on level natural ground.");
     const auto saved = flat.checkpoint();
+    // The restore control lowers only the saved bench's feet, keeping all
+    // terrain-bound ore exposures identical to the saved profile.
+    auto restore_low_site = factory::godot_world::tests::flat_site();
+    restore_low_site["axis"] = V(A{V(-128.0), V(6.9), V(7.0), V(9.2), V(9.3), V(128.0)});
+    A restore_heights;
+    for (int row = 0; row < 6; ++row) {
+        restore_heights.emplace_back(-0.02); restore_heights.emplace_back(-0.02);
+        restore_heights.emplace_back(-1.65); restore_heights.emplace_back(-1.65);
+        restore_heights.emplace_back(-0.02); restore_heights.emplace_back(-0.02);
+    }
+    restore_low_site["heights"] = V(std::move(restore_heights));
     Host changed_site;
     check(get<bool>(changed_site.initialize_arrival_advanced_fixture("low-bench-site", {"P", "Q"}), "accepted") &&
-          get<bool>(changed_site.configure_terrain(low_site), "accepted"),
+          get<bool>(changed_site.configure_terrain(restore_low_site), "accepted"),
           "A fresh Host binds the local low pocket before importing the saved bench.");
     const auto before = changed_site.checkpoint();
     const auto validation = changed_site.validate_checkpoint(saved);

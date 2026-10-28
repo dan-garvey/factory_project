@@ -411,7 +411,10 @@ void powers_two_modular_collectors_with_distinct_custody() {
     f.profile.collector_faces.push_back({{8, 0, 0}, {-1, 0, 0}});
     f.profile.material.timber_sites.at("tree").initial = 20;
     f.state.material.timber_remaining.at("tree") = 20;
-    f.profile.initial_units = f.state.material.initial_units = f.state.material.stock.source = 8;
+    f.profile.initial_units = f.state.material.initial_units =
+        f.state.material.stock.source = factory::mineral_site::opening_reserve;
+    f.profile.ore_field = true;
+    f.state.ore_field = factory::mineral_site::allocate_field(f.profile.initial_units);
     f.profile.material.hand_carry_capacity = 24;
     f.profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}};
     f.state.topology.parts = {{{"wheel", g::Kind::hub, {4, 0, 0}, g::Axis::x, 0, 0},
@@ -456,11 +459,14 @@ void powers_two_modular_collectors_with_distinct_custody() {
           "The first two-collector powered tick is accepted.");
     const auto first_tick = world->snapshot();
     check(first_tick.state.material.stock.source == before.state.material.stock.source - 1 &&
+          first_tick.state.ore_field->remaining[4] == before.state.ore_field->remaining[4] - 1 &&
+          first_tick.state.ore_field->remaining[5] == before.state.ore_field->remaining[5] &&
           first_tick.state.material.dropped_material.at({0, 0, 1}) == m::Cargo{1, 0, {}} &&
           first_tick.state.material.dropped_material.at({8, 0, 1}) == m::Cargo{1, 0, {}},
           "The full first tray blocks only its own source debit while the second fills.");
     check(world->tick().error == w::TransactionError::none &&
-          world->snapshot().state.material.stock.source == first_tick.state.material.stock.source,
+          world->snapshot().state.material.stock.source == first_tick.state.material.stock.source &&
+          world->snapshot().state.ore_field == first_tick.state.ore_field,
           "Two full receivers leave the finite source unchanged on a later tick.");
     auto pickup = request("empty-first-receiver", "pickup_material");
     pickup.emplace("center", V(V::Array{V(g::Integer{0}), V(g::Integer{0}), V(g::Integer{1})}));
@@ -512,7 +518,8 @@ void powers_two_modular_collectors_with_distinct_custody() {
     const auto refilled = restored->snapshot();
     check(refilled.state.material.dropped_material.at({0, 0, 1}) == m::Cargo{1, 0, {}} &&
           refilled.state.material.dropped_material.at({8, 0, 1}) == m::Cargo{1, 0, {}} &&
-          refilled.state.material.stock.source == cleared.state.material.stock.source - 2,
+          refilled.state.material.stock.source == cleared.state.material.stock.source - 2 &&
+          refilled.state.ore_field->remaining[4] == cleared.state.ore_field->remaining[4] - 2,
           "Two restored rotating collectors refill distinct receivers from exactly two finite source units.");
     auto duplicate = f.profile;
     duplicate.collector_faces.push_back(duplicate.collector_faces.front());
@@ -542,6 +549,49 @@ void powers_two_modular_collectors_with_distinct_custody() {
           "Two candidate receiver routes make that face inert while the other tray retains its item.");
 }
 
+void hand_collector_cuts_only_its_field_region() {
+    auto f = fixture();
+    f.profile.initial_units = f.state.material.initial_units =
+        f.state.material.stock.source = factory::mineral_site::opening_reserve;
+    f.profile.ore_field = true;
+    f.state.ore_field = factory::mineral_site::allocate_field(f.profile.initial_units);
+    f.profile.collector_faces = {{{16, 0, 0}, {-1, 0, 0}}};
+    const auto initial = *f.state.ore_field;
+    auto world = prepared(f, 16);
+    const auto after = world->snapshot();
+    check(after.state.material.stock.source == f.profile.initial_units - 2 &&
+        after.state.ore_field->remaining[4] == initial.remaining[4] - 1 &&
+        after.state.ore_field->remaining[5] == initial.remaining[5] - 1 &&
+        after.state.ore_field->remaining[0] == initial.remaining[0],
+        "The old hand contact and a distant crank collector each debit only their own field region.");
+    const auto& crank = after.state.crank_items.begin()->second;
+    auto attach = request("fit-field-crank-again", "attach_hand_crank");
+    attach.emplace("target", V("native-part-2"));
+    attach.emplace("generation", V(g::Integer{2}));
+    attach.emplace("crank", V(crank.id));
+    attach.emplace("crank_generation", V(crank.generation));
+    attach.emplace("port", V(V::Array{V(g::Integer{15}), V(g::Integer{0}), V(g::Integer{0})}));
+    accepted(*world, attach);
+    const auto blocked_before = world->snapshot();
+    auto turn = request("field-receiver-full", "turn_hand_crank");
+    turn.emplace("target", V("native-part-2"));
+    turn.emplace("generation", V(g::Integer{2}));
+    const auto refused = world->command({"P", "P-client"}, turn,
+        [](const std::string& actor) -> std::optional<a::ActorCut> {
+            return a::ActorCut{actor, {0, 0, 0}, 1, true, 100};
+        });
+    check(refused.completed() && refused.result &&
+        std::get<std::string>(refused.result->at("reason").storage()) == "receiver_full" &&
+        world->snapshot().state.ore_field == blocked_before.state.ore_field &&
+        world->snapshot().state.material.stock.source == blocked_before.state.material.stock.source,
+        "A blocked receiver cannot debit either the local region or aggregate ore.");
+    const auto saved = w::encode_checkpoint(f.profile, world->snapshot());
+    check(std::holds_alternative<V>(saved) &&
+        std::holds_alternative<w::Snapshot>(
+            w::decode_checkpoint(f.profile, "collector-belt", std::get<V>(saved))),
+        "Crank and hand regional custody survives the field checkpoint.");
+}
+
 } // namespace
 
 int main() {
@@ -550,6 +600,7 @@ int main() {
         transfers_only_to_outward_belt();
         builds_powered_route_from_finite_arrival_stock();
         powers_two_modular_collectors_with_distinct_custody();
+        hand_collector_cuts_only_its_field_region();
         std::cout << "collector_belt_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

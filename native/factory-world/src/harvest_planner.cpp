@@ -29,6 +29,38 @@ Owner::Decision plan_harvest(const Profile& profile, const Binding& binding,
     using Value = values::Value;
     const auto& state = snapshot.state;
     const auto pending = state.manual_cuts.find(binding.actor);
+    const auto ore_region = [&](const std::string& target) {
+        return ore_region_index(profile, target);
+    };
+    const auto is_ore = [&](const std::string& target) {
+        return profile.material.manual_ore && (profile.ore_field ?
+            ore_region(target).has_value() : profile.material.manual_ore->id == target);
+    };
+    const auto contact = [&](const std::string& target,
+            const materials::DropPoint& center, const authority::Point& actor) {
+        if (profile.material.manual_ore && target != profile.material.manual_ore->id)
+            if (const auto region = ore_region(target))
+                return ore_region_cut_target(profile, *region, actor);
+        return manual_cut_target(profile, center, actor, is_ore(target));
+    };
+    const auto local_available = [&](const std::string& target) {
+        const auto region = ore_region(target);
+        return !region || (state.ore_field &&
+            state.ore_field->remaining[static_cast<std::size_t>(*region)] > 0);
+    };
+    const auto harvest = [&](State& candidate, const std::string& target) {
+        const auto region = ore_region(target);
+        const auto& material_target = region ? profile.material.manual_ore->id : target;
+        const auto error = materials::harvest_source(candidate.material, profile.material,
+            material_path(candidate.topology), binding.actor, material_target);
+        if (error == materials::Error::none && region) {
+            const auto bounds = mineral_site::field_region_cells(*region);
+            if (!bounds || !candidate.ore_field ||
+                !mineral_site::debit_field(*candidate.ore_field, bounds->low))
+                return materials::Error::invalid_state;
+        }
+        return error;
+    };
     if (command.kind == HarvestCommand::Kind::cancel) {
         if (pending == state.manual_cuts.end()) return refused("no_active_cut");
         auto candidate = state;
@@ -44,11 +76,11 @@ Owner::Decision plan_harvest(const Profile& profile, const Binding& binding,
             return refused("cut_interrupted", target);
         if (pending->second.remaining_ticks != 0)
             return refused("cut_in_progress", target);
-        const bool ore = profile.material.manual_ore &&
-            profile.material.manual_ore->id == target;
+        const bool ore = is_ore(target);
         const auto tree = profile.material.timber_sites.find(target);
         if (!ore && tree == profile.material.timber_sites.end())
             return refused("unknown_target", target);
+        if (!local_available(target)) return refused("unavailable_source", target);
         const auto& center = ore ? profile.material.manual_ore->center : tree->second.center;
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready", target);
@@ -56,13 +88,12 @@ Owner::Decision plan_harvest(const Profile& profile, const Binding& binding,
         checked_cut.build_reach = profile.manual_cut_reach > 0 ?
             profile.manual_cut_reach : profile.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {manual_cut_target(profile, center, checked_cut.position, ore)});
+            {contact(target, center, checked_cut.position)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), target, std::move(facts));
         auto candidate = state;
-        const auto error = materials::harvest_source(candidate.material, profile.material,
-            material_path(candidate.topology), binding.actor, target);
+        const auto error = harvest(candidate, target);
         if (error != materials::Error::none)
             return refused(materials::error_name(error), target, std::move(facts));
         candidate.manual_cuts.erase(binding.actor);
@@ -75,9 +106,10 @@ Owner::Decision plan_harvest(const Profile& profile, const Binding& binding,
     const bool fast = command.kind == HarvestCommand::Kind::fast;
     if (fast && !state.developer_conveniences) return refused("developer_mode_off");
     const auto& target = command.target;
-    const bool ore = profile.material.manual_ore && profile.material.manual_ore->id == target;
+    const bool ore = is_ore(target);
     const auto tree = profile.material.timber_sites.find(target);
     if (!ore && tree == profile.material.timber_sites.end()) return refused("unknown_target", target);
+    if (!local_available(target)) return refused("unavailable_source", target);
     const auto& center = ore ? profile.material.manual_ore->center : tree->second.center;
     const auto cut = observe ? observe(binding.actor) : std::nullopt;
     if (!cut) return refused("actor_unready", target);
@@ -85,7 +117,7 @@ Owner::Decision plan_harvest(const Profile& profile, const Binding& binding,
     checked_cut.build_reach = profile.manual_cut_reach > 0 ?
         profile.manual_cut_reach : profile.build_reach;
     const auto checked = authority::check_reach(binding.actor, checked_cut,
-        {manual_cut_target(profile, center, checked_cut.position, ore)});
+        {contact(target, center, checked_cut.position)});
     auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
     if (checked.error != authority::Error::none)
         return refused(authority::error_name(checked.error), target, std::move(facts));
@@ -93,8 +125,7 @@ Owner::Decision plan_harvest(const Profile& profile, const Binding& binding,
             [&](const auto& entry) { return entry.second.target == target; }))
         return refused("source_busy", target, std::move(facts));
     auto candidate = state;
-    const auto error = materials::harvest_source(candidate.material, profile.material,
-        material_path(candidate.topology), binding.actor, target);
+    const auto error = harvest(candidate, target);
     if (error != materials::Error::none)
         return refused(materials::error_name(error), target, std::move(facts));
     if (!fast) {

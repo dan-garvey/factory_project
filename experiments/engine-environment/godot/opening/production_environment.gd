@@ -1111,6 +1111,147 @@ class ProductionEnvironment:
 		outcrops.material_override = finish
 		return outcrops
 
+	static func ore_field(state: Dictionary) -> Node3D:
+		# This surface is read from the native deposit cells and region balances.
+		# It adds no body collision, stock, or admission rule to the renderer.
+		var deposit: Dictionary = state.get("source_deposit", {})
+		var cells: Array = deposit.get("cells", [])
+		if Surface == null or cells.size() < 100:
+			return null
+		var cell_regions: Array = deposit.get("cell_regions", [])
+		if cell_regions.size() != cells.size():
+			return null
+		var low := Vector2i(1000000, 1000000)
+		var high := Vector2i(-1000000, -1000000)
+		for cell: Array in cells:
+			if cell.size() != 2:
+				return null
+			low = low.min(Vector2i(int(cell[0]), int(cell[1])))
+			high = high.max(Vector2i(int(cell[0]), int(cell[1])))
+		var left: float = (float(low.x) - 0.5) * Geometry.PITCH
+		var right: float = (float(high.x) + 0.5) * Geometry.PITCH
+		var back: float = (float(low.y) - 0.5) * Geometry.PITCH
+		var front: float = (float(high.y) + 0.5) * Geometry.PITCH
+		var regions: Array[Dictionary] = []
+		var balances := {}
+		for id: String in state.get("hand_sources", {}):
+			if id.begins_with(str(deposit.get("id", "")) + "-region-"):
+				var region: Dictionary = state.hand_sources[id]
+				regions.append(region)
+				balances[id] = clampf(float(region.remaining) / maxf(1.0, float(region.initial)), 0.0, 1.0)
+		var root := Node3D.new()
+		root.name = "OreField"
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var stones: Array[Transform3D] = []
+		var stone_colors: Array[Color] = []
+		for index in range(cells.size()):
+			var cell: Array = cells[index]
+			var cx: float = float(cell[0]) * Geometry.PITCH
+			var cz: float = float(cell[1]) * Geometry.PITCH
+			var fraction: float = float(balances.get(str(cell_regions[index]), 0.0))
+			for z_step in range(4):
+				for x_step in range(4):
+					var x0: float = cx - Geometry.PITCH * 0.5 + float(x_step) * Geometry.PITCH / 4.0
+					var z0: float = cz - Geometry.PITCH * 0.5 + float(z_step) * Geometry.PITCH / 4.0
+					var x1: float = x0 + Geometry.PITCH / 4.0
+					var z1: float = z0 + Geometry.PITCH / 4.0
+					for point: Vector2 in [Vector2(x0, z0), Vector2(x1, z0), Vector2(x1, z1),
+							Vector2(x0, z0), Vector2(x1, z1), Vector2(x0, z1)]:
+						var edge: float = minf(minf(point.x - left, right - point.x),
+							minf(point.y - back, front - point.y))
+						var roughness: float = sin(point.x * 1.17 + point.y * 0.73) * 0.18 \
+							+ cos(point.x * 0.61 - point.y * 1.29) * 0.13
+						var opacity: float = smoothstep(-0.20, 0.90, edge + roughness) * 0.64
+						var color := Color("786d5a").lerp(Color("aa6947"), fraction)
+						color.a = opacity
+						surface.set_normal(Surface.normal(point.x, point.y))
+						surface.set_color(color)
+						surface.add_vertex(Vector3(point.x,
+							Surface.height_at(point.x, point.y) + 0.028, point.y))
+			if fraction <= 0.01:
+				continue
+			for n in range(3):
+				var seed: int = absi(int(cell[0]) * 73856093 ^ int(cell[1]) * 19349663 ^ n * 83492791)
+				var dx: float = (float(seed % 101) / 100.0 - 0.5) * 1.12
+				var dz: float = (float((seed / 101) % 101) / 100.0 - 0.5) * 1.12
+				var x: float = cx + dx
+				var z: float = cz + dz
+				var size: float = 0.14 + float(seed % 7) * 0.025
+				var height: float = 0.055 + float((seed / 7) % 5) * 0.012
+				var basis := Basis(Vector3.UP, float(seed % 360) * PI / 180.0)
+				basis = basis.scaled_local(Vector3(size, height, size * 0.72))
+				stones.append(Transform3D(basis,
+					Vector3(x, Surface.height_at(x, z) + height * 0.45, z)))
+				stone_colors.append(Color("b47a55").lerp(Color("855745"), float(seed % 5) / 5.0))
+		var soil := MeshInstance3D.new()
+		soil.name = "CopperBearingGround"
+		soil.mesh = surface.commit()
+		var soil_finish := StandardMaterial3D.new()
+		soil_finish.vertex_color_use_as_albedo = true
+		soil_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		soil_finish.roughness = 1.0
+		soil.material_override = soil_finish
+		soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(soil)
+		if not stones.is_empty():
+			var pebble := SphereMesh.new()
+			pebble.radius = 0.5
+			pebble.height = 1.0
+			pebble.radial_segments = 8
+			pebble.rings = 4
+			var multimesh := MultiMesh.new()
+			multimesh.transform_format = MultiMesh.TRANSFORM_3D
+			multimesh.use_colors = true
+			multimesh.mesh = pebble
+			multimesh.instance_count = stones.size()
+			for index in range(stones.size()):
+				multimesh.set_instance_transform(index, stones[index])
+				multimesh.set_instance_color(index, stone_colors[index])
+			var gravel := MultiMeshInstance3D.new()
+			gravel.name = "CopperGravel"
+			gravel.multimesh = multimesh
+			var stone_finish := StandardMaterial3D.new()
+			stone_finish.vertex_color_use_as_albedo = true
+			stone_finish.roughness = 0.94
+			stone_finish.metallic = 0.06
+			gravel.material_override = stone_finish
+			root.add_child(gravel)
+		var seam_mesh := SphereMesh.new()
+		seam_mesh.radius = 0.5
+		seam_mesh.height = 1.0
+		seam_mesh.radial_segments = 9
+		seam_mesh.rings = 4
+		var seam_finish := StandardMaterial3D.new()
+		seam_finish.albedo_color = Color("8c5944")
+		seam_finish.roughness = 0.86
+		seam_finish.metallic = 0.10
+		var original: Dictionary = state.get("hand_sources", {}).get(deposit.get("id", ""), {})
+		var original_position: Array = original.get("position", [])
+		for region: Dictionary in regions:
+			if int(region.get("remaining", 0)) <= 0:
+				continue
+			var center: Array = region.get("position", [])
+			if center.size() != 3:
+				continue
+			var x: float = float(center[0])
+			var z: float = float(center[2])
+			if original_position.size() == 3 and Vector2(x - float(original_position[0]),
+					z - float(original_position[2])).length() < 1.8:
+				continue
+			for offset: Vector2 in [Vector2(-0.31, -0.11), Vector2(0.19, 0.22), Vector2(0.38, -0.23)]:
+				var seam := MeshInstance3D.new()
+				seam.name = "LowCopperExposure"
+				seam.mesh = seam_mesh
+				seam.material_override = seam_finish
+				seam.scale = Vector3(0.82, 0.13, 0.52)
+				seam.rotation.y = atan2(offset.y, offset.x)
+				seam.position = Vector3(x + offset.x,
+					Surface.height_at(x + offset.x, z + offset.y) + 0.055, z + offset.y)
+				seam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				root.add_child(seam)
+		return root
+
 	static func build(parent: Node3D) -> Node3D:
 		var scenery := Node3D.new()
 		scenery.name = "ProductionScenery"

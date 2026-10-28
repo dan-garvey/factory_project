@@ -66,7 +66,7 @@ var save_slot_owned := false
 var last_save_result: Dictionary = {}
 var last_load_result: Dictionary = {}
 var startup_resume_checkpoint: Dictionary = {}
-const FIRST_COLLECTOR_HINT := "Choose Collector [1] on the ore-colored ground beside the rock."
+const FIRST_COLLECTOR_HINT := "Choose Collector [1] on the ore-bearing ground."
 var mode := "inspect"
 var pending_link := ""
 var selected := ""
@@ -85,6 +85,8 @@ var visual_revision := -1
 var geometry_key := ""
 var ui_refresh_key: Array = []
 var hand_tree_nodes: Dictionary = {}
+var ore_field_visual: Node3D
+var ore_field_visual_key := ""
 var hand_tree_assets: Dictionary = {}
 var mature_tree_nodes: Dictionary = {}
 var mature_tree_collision_rows: Dictionary = {}
@@ -889,7 +891,7 @@ func issue(action: Dictionary) -> Dictionary:
 			"held_stock": "Retrieve the material before removing this machine.",
 			"contains_stock": "Retrieve the material before removing this machine.",
 			"not_at_stream": "Set the wheel in the water with its lower rim immersed and clear of the bed.",
-			"not_at_seam": "Place the collector over the ore deposit beside the rock.",
+			"not_at_seam": "Place the collector on the ore-bearing ground.",
 			"no_shaft": "All carried shafts are in use."}.get(outcome.reason, "That action is unavailable here."), action.action)
 		if action.action == "craft_component":
 			refusal = {"unavailable_input": "Gather the timber or copper shown for this component.",
@@ -984,7 +986,7 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 			and not outcome.get("uncertain", false):
 		return _press_contact_refusal(str(outcome.get("entity", "")))
 	if _native_transmission() and outcome.get("reason") == "not_at_seam":
-		return "Place the collector on the ore-colored ground beside the rock. A foundation there at factory floor height can support it."
+		return "Place the collector on the ore-bearing ground. A foundation at factory floor height can support it."
 	return fallback
 
 func _process(delta: float) -> void:
@@ -1570,7 +1572,7 @@ func _select_tool(tool: String) -> void:
 		"collector": "Place the collector on the ore deposit.",
 		"wheel": "Place the waterwheel in the flowing stream. Set its height to align its axle with your shafts."}
 	if _native_transmission():
-		instructions["collector"] = "Place the collector on the ore-colored ground beside the rock, or on a foundation there at factory floor height."
+		instructions["collector"] = "Place the collector on ore-bearing ground, or on a foundation there at factory floor height."
 		instructions["belt"] = "Choose two parallel shafts within reach. The belt runs across their axle, not along it."
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Point at a floor to match its height, a part face to snap beside it, or a belt to add a pulley. Set the shaft axis in its menu."
@@ -1828,6 +1830,42 @@ func _hand_source_in_reach(source: Dictionary) -> bool:
 func _hand_source_clear(id: String) -> bool:
 	var actor: Dictionary = state.get("actors", {}).get(client, {})
 	return actor.get("harvest_clear", {}).get(id, true) == true
+
+func _field_source_at(at: Vector3) -> String:
+	var deposit: Dictionary = state.get("source_deposit", {})
+	if deposit.get("cells", []).size() < 100:
+		return ""
+	var prefix := str(deposit.get("id", "")) + "-region-"
+	for id: String in state.get("hand_sources", {}):
+		if not id.begins_with(prefix):
+			continue
+		var source := _hand_source(id)
+		if source.is_empty() or not source.has("contact_bounds"):
+			continue
+		var bounds: Array = source.contact_bounds
+		if at.x >= float(bounds[0][0]) and at.x <= float(bounds[1][0]) \
+				and at.z >= float(bounds[0][2]) and at.z <= float(bounds[1][2]):
+			return id
+	return ""
+
+func _refresh_ore_field() -> void:
+	var deposit: Dictionary = state.get("source_deposit", {})
+	var scenery := get_node_or_null("ProductionScenery")
+	if scenery == null:
+		return
+	var key := str(deposit.get("cells", []).size())
+	for id: String in state.get("hand_sources", {}):
+		if id.begins_with(str(deposit.get("id", "")) + "-region-"):
+			key += ":" + id + "=" + str(state.hand_sources[id].get("remaining", -1))
+	if key == ore_field_visual_key:
+		return
+	ore_field_visual_key = key
+	if ore_field_visual != null:
+		ore_field_visual.queue_free()
+		ore_field_visual = null
+	ore_field_visual = ProductionEnvironment.ore_field(state)
+	if ore_field_visual != null:
+		scenery.add_child(ore_field_visual)
 
 func _prepare_hand_tree_assets() -> bool:
 	if not hand_tree_assets.is_empty():
@@ -2153,6 +2191,8 @@ func _screen_hand_source(screen: Vector2) -> String:
 	# nearby source from camera distance. Host retains the actor-reach check.
 	var id: String = str(hit.collider.get_meta("hand_source", ""))
 	if id.is_empty() and actor_world != null and hit.collider == actor_world.floor_body:
+		id = _field_source_at(hit.position)
+	if id.is_empty() and actor_world != null and hit.collider == actor_world.floor_body:
 		# Standing mature trunks use the same exact triangles in the actor floor
 		# and in a resource picker. Resolve the coincident hit by its pick ID,
 		# but keep a nearer terrain surface as an occluder.
@@ -2165,7 +2205,11 @@ func _screen_hand_source(screen: Vector2) -> String:
 	if id.is_empty() and hit.collider == get_node_or_null("SharedOreSourcePicker"):
 		# The shared view owns only a pick shape. The server projection supplies
 		# the source identity and remains the sole stock and reach authority.
-		id = str(state.get("source_deposit", {}).get("id", ""))
+		id = _field_source_at(hit.position)
+		if id.is_empty():
+			id = str(state.get("source_deposit", {}).get("id", ""))
+	if id.is_empty() and actor_world != null and hit.collider == actor_world.site_bodies.get("source_outcrop"):
+		id = _field_source_at(hit.position)
 	if id.is_empty() and actor_world != null and hit.collider == actor_world.site_bodies.get("source_outcrop"):
 		var deposits: Array[String] = []
 		for key: String in state.hand_sources:
@@ -4154,11 +4198,16 @@ func _packed_machine_preview_variant(kind: String, axis: int, tiles: int,
 	var anchor := default.instantiate() as Node3D
 	if kind == "collector":
 		if cell != Vector2i(0, 1) or level != 0:
-			var source: PackedScene = _packed_preview_resource(_collector_preview_source_path(cell, level))
-			if source == null:
-				anchor.free()
-				return null
-			_replace_preview_parts(anchor, source, ["Source"])
+			if cell.x == 0 and cell.y in [0, 1]:
+				var source: PackedScene = _packed_preview_resource(_collector_preview_source_path(cell, level))
+				if source == null:
+					anchor.free()
+					return null
+				_replace_preview_parts(anchor, source, ["Source"])
+			else:
+				for child in anchor.get_children():
+					if child.name == "Source":
+						child.free()
 		var drive := anchor.get_node("DriveStub") as MeshInstance3D
 		if axis == 1:
 			for child in anchor.get_children():
@@ -4575,6 +4624,7 @@ func _belt_inspection(span: Dictionary, motions: Dictionary) -> String:
 
 func _refresh_ui() -> void:
 	_refresh_hand_trees()
+	_refresh_ore_field()
 	if stock_label == null:
 		return
 	if _object_menu_open() and not _contains_target(state, object_menu_target):

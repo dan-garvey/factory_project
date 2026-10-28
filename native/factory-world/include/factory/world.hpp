@@ -1,6 +1,7 @@
 #pragma once
 
 #include "factory/assembly.hpp"
+#include "factory/mineral_site.hpp"
 #include "factory/stationary.hpp"
 #include "factory/transactions.hpp"
 #include "factory/waterwheel.hpp"
@@ -52,6 +53,10 @@ struct Profile {
     // The trusted opening terrain supplies the visible ore hull's world-space
     // bounds. A cut measures from its nearest contact instead of its midpoint.
     std::optional<std::pair<authority::Point, authority::Point>> manual_ore_contact_bounds;
+    // Terrain-bound hand exposures for the six addressed field regions.
+    // Their contact volumes are immutable World profile facts after binding.
+    std::array<std::optional<std::pair<authority::Point, authority::Point>>,
+        mineral_site::field_region_count> ore_exposures{};
     // Separate construction custody; foundations are not mechanical hubs.
     authority::Integer foundation_parts{};
     // Immutable actor allocation before any construction history. A pod deck
@@ -66,10 +71,22 @@ struct Profile {
     // Trusted ore-facing workcells. The profile, not a client command,
     // decides which placed assemblies can extract from the finite deposit.
     std::vector<assembly::OreFace> collector_faces;
+    // Arrival uses one field reserve partitioned into local native regions.
+    // Fixtures without a field retain their one-source material profile.
+    bool ore_field{};
 };
 
 [[nodiscard]] authority::Point manual_cut_target(const Profile&, const materials::DropPoint& center,
     const authority::Point& actor_position, bool ore);
+[[nodiscard]] std::string ore_region_id(const Profile&, mineral_site::Integer region);
+[[nodiscard]] std::optional<mineral_site::Integer> ore_region_index(const Profile&,
+    const std::string& target);
+[[nodiscard]] authority::Point ore_region_cut_target(const Profile&, mineral_site::Integer region,
+    const authority::Point& actor_position);
+[[nodiscard]] std::optional<std::pair<authority::Point, authority::Point>>
+ore_region_contact_bounds(const Profile&, mineral_site::Integer region);
+[[nodiscard]] std::optional<mineral_site::Integer> collector_ore_region(
+    const assembly::Collector&) noexcept;
 
 struct Foundation {
     mechanics::Point center{}; // X/Z tile centers, Y quarter-pitch top level.
@@ -177,6 +194,7 @@ inline constexpr authority::Integer slide_cycle_subticks =
 
 struct State {
     materials::State material;
+    std::optional<mineral_site::FieldStock> ore_field;
     stationary::Topology topology;
     std::map<std::string, stationary::Kit> kits;
     // Removed identities remain issued. Rebuilding allocates a new identity,

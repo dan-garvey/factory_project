@@ -171,7 +171,11 @@ Later alloys and heads require new processes, not merely recolored tiers.
 - Deposits must be recognizable, have useful coverage and match the extraction
   footprint. Use “ore deposit,” not “mineral seam.” Leveling foundations must
   allow bounded extraction depth without moving, refilling or duplicating ore.
-  One large collector versus multiple local collectors remains open.
+  The Chapter 1 opening aims for at least a 10 × 10 U ore field with several
+  reachable exposures and finite local stock. Exhausting one area leaves other
+  areas mineable; hand cuts and collectors debit the same native stock, and a
+  blocked receiver leaves it untouched. One large collector versus multiple
+  local collectors remains open.
 - Invalid recipe conditions and overload stall without destructive cascades.
   An unintended solid obstruction stalls its connected drivetrain; clutches
   or slipping couplings can isolate branches. Partial/ready work stays owned

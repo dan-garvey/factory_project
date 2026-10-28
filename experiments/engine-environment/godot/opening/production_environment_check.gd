@@ -17,13 +17,13 @@ const CASES := ["environment", "botanical-species", "collector-carrier",
 	"foundation-depth-vegetation", "construction-vegetation", "bank-fir-lifecycle",
 	"bank-firs", "fir-resource", "pine-reflectance", "pine-roots", "pine-understory",
 	"stone-material", "sourced-sky", "meadow-patches", "foliage-mipmaps",
-	"sourced-foliage", "ground-material", "ground-render", "site-render",
+	"sourced-foliage", "ground-material", "ground-render", "site-render", "ore-field-render",
 	"water-flow", "water-pattern", "water-render", "bank-ferns",
 	"rock-collision-shape", "surface-composition", "foreground-bank", "foliage"]
 const ARTIFACT_CASES := ["bank-firs", "fir-resource", "pine-reflectance",
 	"pine-understory", "stone-material", "sourced-sky", "sourced-foliage",
-	"ground-material", "ground-render", "site-render", "water-render", "bank-ferns"]
-const RENDER_CASES := ["ground-render", "site-render", "water-render"]
+	"ground-material", "ground-render", "site-render", "ore-field-render", "water-render", "bank-ferns"]
+const RENDER_CASES := ["ground-render", "site-render", "ore-field-render", "water-render"]
 
 class FixtureView:
 	extends "res://opening/opening.gd"
@@ -1069,6 +1069,56 @@ func check_site_render() -> void:
 		"input": "not_used", "gameplay": "not_run"}))
 	viewport.free()
 
+func check_ore_field_render() -> void:
+	if not verify(DisplayServer.get_name().to_lower() != "headless" and fixture_directory.is_absolute_path(),
+		"The field image needs a real renderer and an owned artifact directory."):
+		return
+	var native := NativeModel.new("ore-field-render", ["P"], true, true)
+	if not verify(native.boot_result.get("accepted", false),
+		"The field image needs the actual terrain-bound native opening projection."):
+		return
+	var state: Dictionary = native.projection()
+	var deposit: Dictionary = state.get("source_deposit", {})
+	verify(deposit.get("cells", []).size() == 100 and deposit.get("cell_regions", []).size() == 100,
+		"The scene receives all one hundred ore cells and their native region addresses.")
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(1600, 900)
+	viewport.own_world_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(viewport)
+	var view := FixtureView.new()
+	viewport.add_child(view)
+	view._build_world()
+	view.state = state
+	view._refresh_ore_field()
+	var field := view.get_node_or_null("ProductionScenery/OreField")
+	if not verify(field != null, "The projected ore field appears in the ordinary scenery."):
+		viewport.free()
+		return
+	inspect_visual(field)
+	verify(field.get_node_or_null("CopperBearingGround") != null and
+		field.get_node_or_null("CopperGravel") != null,
+		"The rendered field retains both broad ground and surface stone cues.")
+	for shot in [
+		["ore-field-bank-side.png", Vector3(-3.0, 3.2, 10.0), Vector3(1.0, 0.0, 3.0)],
+		["ore-field-aerial.png", Vector3(14.0, 20.0, 12.0), Vector3(5.0, 0.0, -5.5)],
+		["ore-field-land-eye.png", Vector3(9.0, 1.7, 3.6), Vector3(5.0, 0.0, -7.0)]]:
+		view.camera.position = shot[1]
+		view.camera.look_at(shot[2])
+		await process_frame
+		await RenderingServer.frame_post_draw
+		await process_frame
+		await RenderingServer.frame_post_draw
+		var image := viewport.get_texture().get_image()
+		var destination: String = fixture_directory.path_join(shot[0])
+		verify(image.get_size() == viewport.size and not FileAccess.file_exists(destination)
+			and image.save_png(destination) == OK,
+			"Retain each complete worksite view without replacing prior evidence.")
+	print(JSON.stringify({"phase": "ore-field-render", "source": "native terrain-bound opening",
+		"cells": deposit.get("cells", []).size(), "views": 3, "viewport": [1600, 900],
+		"input": "not_used", "human_quality": "not_assessed"}))
+	viewport.free()
+
 func check_rock_shapes(rocks: MultiMesh) -> void:
 	var specs: Array[Dictionary] = Scenery.Surface.rock_boxes()
 	var buffer := rocks.buffer
@@ -2089,6 +2139,10 @@ func run() -> void:
 		return
 	if mode == "site-render":
 		await check_site_render()
+		finish()
+		return
+	if mode == "ore-field-render":
+		await check_ore_field_render()
 		finish()
 		return
 	if mode == "water-flow":

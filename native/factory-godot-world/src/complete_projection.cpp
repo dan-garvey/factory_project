@@ -75,8 +75,18 @@ std::optional<Value> build(const world::Profile& profile,
         {"harvest_clear", Value(harvest_clearances(profile, terrain, state,
             sample.position, sample.ready))}}));
     Array mineral_cells;
-    for (const auto& cell : mineral_site::opening_cells)
-        mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
+    Array cell_regions;
+    if (profile.ore_field) {
+        for (Integer x = mineral_site::field_min.x; x <= mineral_site::field_max.x; ++x)
+        for (Integer z = mineral_site::field_min.z; z <= mineral_site::field_max.z; ++z) {
+            mineral_cells.emplace_back(Array{Value(x), Value(z)});
+            cell_regions.emplace_back(world::ore_region_id(profile,
+                *mineral_site::field_region({x, z})));
+        }
+    } else {
+        for (const auto& cell : mineral_site::opening_cells)
+            mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
+    }
     const auto local = world::machine_power(state.topology, power);
     Object projection{{"context", Value(snapshot.history.context)},
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile.initial_units)},
@@ -87,7 +97,9 @@ std::optional<Value> build(const world::Profile& profile,
         {"foundations", Value(std::move(topology.foundations))},
         {"source_deposit", Value(Object{{"id", Value(profile.material.manual_ore ?
             profile.material.manual_ore->id : std::string{})},
-            {"cells", Value(std::move(mineral_cells))}, {"initial_units", Value(profile.initial_units)},
+            {"cells", Value(std::move(mineral_cells))},
+            {"cell_regions", Value(std::move(cell_regions))},
+            {"initial_units", Value(profile.initial_units)},
             {"collector_capacity", Value(profile.material.collector_capacity)},
             {"maximum_depth", Value(mineral_site::extraction_depth_steps * height_step)}})},
         {"powered", Value(local.collector || local.belt || local.processor)},

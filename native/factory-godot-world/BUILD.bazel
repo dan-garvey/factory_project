@@ -315,6 +315,14 @@ cc_test(
 )
 
 cc_test(
+    name = "ore_field_test",
+    srcs = ["tests/ore_field_test.cpp"],
+    deps = [":arrival_configuration", ":host", ":test_site",
+        "//native/factory-world:checkpoint", "//native/mineral-site:mineral_site"],
+    size = "small",
+)
+
+cc_test(
     name = "arrival_geometry_test",
     srcs = ["tests/arrival_geometry_test.cpp"],
     deps = [":arrival_geometry", ":test_site"],

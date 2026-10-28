@@ -58,6 +58,60 @@ authority::Point manual_cut_target(const Profile& profile, const materials::Drop
         center[2] * profile.meters_per_grid_unit + profile.anchor_offset[2]};
 }
 
+std::string ore_region_id(const Profile& profile, mineral_site::Integer region) {
+    if (!profile.ore_field || !profile.material.manual_ore ||
+        region < 0 || region >= mineral_site::field_region_count) return {};
+    return profile.material.manual_ore->id + "-region-" + std::to_string(region);
+}
+
+std::optional<mineral_site::Integer> ore_region_index(const Profile& profile,
+        const std::string& target) {
+    if (!profile.ore_field) return std::nullopt;
+    // The former single-source target remains a stable address for in-flight
+    // cuts and older clients. It cuts only the region containing that source.
+    if (profile.material.manual_ore && target == profile.material.manual_ore->id)
+        return mineral_site::field_region({0, 0});
+    for (mineral_site::Integer index = 0; index < mineral_site::field_region_count; ++index)
+        if (target == ore_region_id(profile, index)) return index;
+    return std::nullopt;
+}
+
+std::optional<mineral_site::Integer> collector_ore_region(
+        const assembly::Collector& collector) noexcept {
+    if (collector.machine_center[0] % 4 || collector.machine_center[2] % 4)
+        return std::nullopt;
+    return mineral_site::field_region({collector.machine_center[0] / 4,
+        collector.machine_center[2] / 4});
+}
+
+std::optional<std::pair<authority::Point, authority::Point>> ore_region_contact_bounds(
+        const Profile& profile, mineral_site::Integer region) {
+    const auto cells = mineral_site::field_region_cells(region);
+    if (!cells) return std::nullopt;
+    if (profile.ore_exposures[static_cast<std::size_t>(region)])
+        return profile.ore_exposures[static_cast<std::size_t>(region)];
+    const double pitch = profile.meters_per_grid_unit * 4;
+    const double x0 = (cells->low.x - 0.5) * pitch + profile.anchor_offset[0];
+    const double x1 = (cells->high.x + 0.5) * pitch + profile.anchor_offset[0];
+    const double z0 = (cells->low.z - 0.5) * pitch + profile.anchor_offset[2];
+    const double z1 = (cells->high.z + 0.5) * pitch + profile.anchor_offset[2];
+    const double y0 = profile.manual_ore_contact_bounds ?
+        profile.manual_ore_contact_bounds->first[1] : profile.anchor_offset[1] - 0.08;
+    const double y1 = profile.manual_ore_contact_bounds ?
+        profile.manual_ore_contact_bounds->second[1] : profile.anchor_offset[1] + 0.08;
+    return std::pair<authority::Point, authority::Point>{{x0, y0, z0}, {x1, y1, z1}};
+}
+
+authority::Point ore_region_cut_target(const Profile& profile, mineral_site::Integer region,
+        const authority::Point& actor_position) {
+    const auto bounds = ore_region_contact_bounds(profile, region);
+    if (!bounds) return {};
+    authority::Point contact{};
+    for (std::size_t axis = 0; axis < contact.size(); ++axis)
+        contact[axis] = std::clamp(actor_position[axis], bounds->first[axis], bounds->second[axis]);
+    return contact;
+}
+
 mechanics::Point landing_hub_center(const mechanics::Point& pod_center) {
     // The east deck tile is a full global tile from the hatch, not a separate
     // bench origin or a fractional placement grid.
@@ -550,10 +604,13 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         if (!id || !entity || *entity != *id || !generation || *generation != 1 ||
             !raw || !timber || result.size() != 18) return false;
         const bool starting = worksite == worksite_commands::Action::harvest;
-        if (profile.material.manual_ore && *id == profile.material.manual_ore->id)
+        if (profile.material.manual_ore &&
+                (profile.ore_field ? ore_region_index(profile, *id).has_value() :
+                    *id == profile.material.manual_ore->id))
             return *raw == (starting ? 0 : 1) && *timber == 0 &&
-                targets.front() == manual_cut_target(profile,
-                    profile.material.manual_ore->center, *actor_position, true);
+                targets.front() == (profile.ore_field && *id != profile.material.manual_ore->id ?
+                    ore_region_cut_target(profile, *ore_region_index(profile, *id), *actor_position) :
+                    manual_cut_target(profile, profile.material.manual_ore->center, *actor_position, true));
         const auto found = profile.material.timber_sites.find(*id);
         return found != profile.material.timber_sites.end() && *raw == 0 &&
             *timber == (starting ? 0 : 1) &&
@@ -1877,7 +1934,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (worksite == worksite_commands::Action::finish_harvest ||
             worksite == worksite_commands::Action::fast_harvest) {
             const auto& id = *entity;
-            if (profile.material.manual_ore && id == profile.material.manual_ore->id) {
+            if (profile.material.manual_ore &&
+                    (profile.ore_field ? ore_region_index(profile, id).has_value() :
+                        id == profile.material.manual_ore->id)) {
                 if (!add(harvested_ore, 1) ||
                     (profile.landing_pod_center && !add(carried_raw[*actor], 1))) return false;
             } else if (!add(harvested_timber[id], 1) || !add(carried_timber[*actor], 1)) return false;
@@ -4277,6 +4336,24 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             if (!std::isfinite(low[axis]) || !std::isfinite(high[axis]) || low[axis] >= high[axis])
                 return false;
     }
+    if (profile.ore_field && (!profile.landing_pod_center ||
+            !profile.material.manual_ore || profile.initial_units != mineral_site::opening_reserve))
+        return false;
+    for (mineral_site::Integer region = 0; region < mineral_site::field_region_count; ++region)
+        if (const auto& exposure = profile.ore_exposures[static_cast<std::size_t>(region)]) {
+            if (!profile.ore_field) return false;
+            const auto footprint = mineral_site::field_region_cells(region);
+            const double pitch = profile.meters_per_grid_unit * 4;
+            for (std::size_t axis = 0; axis < 3; ++axis)
+                if (!std::isfinite(exposure->first[axis]) ||
+                    !std::isfinite(exposure->second[axis]) ||
+                    exposure->first[axis] >= exposure->second[axis]) return false;
+            if (exposure->first[0] < (footprint->low.x - 0.5) * pitch + profile.anchor_offset[0] ||
+                exposure->second[0] > (footprint->high.x + 0.5) * pitch + profile.anchor_offset[0] ||
+                exposure->first[2] < (footprint->low.z - 0.5) * pitch + profile.anchor_offset[2] ||
+                exposure->second[2] > (footprint->high.z + 0.5) * pitch + profile.anchor_offset[2])
+                return false;
+        }
     if ((!profile.fabrication_parts.empty() || profile.first_plate_unlock) &&
         !profile.landing_pod_center) return false;
     for (const auto& [spec, cost] : profile.fabrication_parts)
@@ -4339,11 +4416,22 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     for (const auto& actor : profile.actors) if (!identity(actor)) return false;
     for (const auto coordinate : profile.anchor_offset) if (!std::isfinite(coordinate)) return false;
     const auto& state = snapshot.state;
+    if (state.ore_field.has_value() != profile.ore_field) return false;
+    if (state.ore_field && mineral_site::field_total(*state.ore_field) !=
+            std::optional<Integer>{state.material.stock.source}) return false;
+    if (state.ore_field) {
+        const auto initial = mineral_site::allocate_field(profile.initial_units);
+        if (!initial) return false;
+        for (std::size_t index = 0; index < state.ore_field->remaining.size(); ++index)
+            if (state.ore_field->remaining[index] > initial->remaining[index]) return false;
+    }
     if (state.manual_cuts.size() > profile.actors.size()) return false;
     std::set<std::string> occupied_sources;
     for (const auto& [actor, cut] : state.manual_cuts) {
         if (!profile.actors.contains(actor) ||
-            (!(profile.material.manual_ore && profile.material.manual_ore->id == cut.target) &&
+            (!(profile.material.manual_ore && (profile.ore_field ?
+                ore_region_index(profile, cut.target).has_value() :
+                profile.material.manual_ore->id == cut.target)) &&
                 !profile.material.timber_sites.contains(cut.target)) ||
             !occupied_sources.insert(cut.target).second ||
             cut.start_revision < 1 || cut.start_revision > snapshot.revision ||
@@ -4832,12 +4920,15 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
         const auto& placed = tick_layout.placed;
         for (auto& [actor, pending] : candidate.manual_cuts) {
             if (pending.interrupted_revision != 0) continue;
+            const auto region = ore_region_index(profile_, pending.target);
             const bool ore = profile_.material.manual_ore &&
-                profile_.material.manual_ore->id == pending.target;
+                (region || profile_.material.manual_ore->id == pending.target);
             const auto tree = profile_.material.timber_sites.find(pending.target);
             if (!ore && tree == profile_.material.timber_sites.end())
                 throw materials::Error::invalid_state;
-            const bool depleted = ore ? candidate.material.stock.source == 0 :
+            const bool depleted = region ? (!candidate.ore_field ||
+                    candidate.ore_field->remaining[static_cast<std::size_t>(*region)] == 0) :
+                ore ? candidate.material.stock.source == 0 :
                 candidate.material.timber_remaining.at(pending.target) == 0;
             const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
             const auto cut = observe ? observe(actor) : std::nullopt;
@@ -4845,7 +4936,9 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
             checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
                 profile_.manual_cut_reach : profile_.build_reach;
             const auto checked = cut ? authority::check_reach(actor, checked_cut,
-                {manual_cut_target(profile_, center, checked_cut.position, ore)}) :
+                {region && pending.target != profile_.material.manual_ore->id ?
+                    ore_region_cut_target(profile_, *region, checked_cut.position) :
+                    manual_cut_target(profile_, center, checked_cut.position, ore)}) :
                 authority::ReachResult{authority::Error::actor_unready, {}};
             if (depleted || checked.error != authority::Error::none)
                 pending.interrupted_revision = snapshot.revision + 1;
@@ -4904,6 +4997,13 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
             const auto shaft = motion.motion.find(collector->shaft);
             if (shaft == motion.motion.end() || shaft->second.state != mechanics::MotionState::rotating)
                 continue;
+            if (profile_.ore_field) {
+                const auto region = collector_ore_region(*collector);
+                if (!region || !candidate.ore_field ||
+                    candidate.ore_field->remaining[static_cast<std::size_t>(*region)] == 0)
+                    continue;
+                --candidate.ore_field->remaining[static_cast<std::size_t>(*region)];
+            }
             --candidate.material.stock.source;
             candidate.material.dropped_material.emplace(receiver, materials::Cargo{1, 0, {}});
         }

@@ -407,7 +407,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     } else if (worksite_action == worksite_commands::Action::harvest) {
         if (!worksite_commands::valid_wire(wire, worksite_action)) return refuse("invalid_command");
         const auto& id = *field<std::string>(wire, "target");
-        const bool ore = profile_.material.manual_ore && profile_.material.manual_ore->id == id;
+        const auto region = world::ore_region_index(profile_, id);
+        const bool ore = profile_.material.manual_ore &&
+            (profile_.material.manual_ore->id == id || region);
         const auto tree = profile_.material.timber_sites.find(id);
         if (ore || tree != profile_.material.timber_sites.end()) {
             const auto observed = observe()(bound_actor);
@@ -415,7 +417,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
                 if (!physical_site::harvest_path_clear({profile_, terrain_}, snapshot.state,
                     id, observed->position,
-                    world::manual_cut_target(profile_, center, observed->position, ore)))
+                    region && id != profile_.material.manual_ore->id ?
+                        world::ore_region_cut_target(profile_, *region, observed->position) :
+                        world::manual_cut_target(profile_, center, observed->position, ore)))
                     return refuse("source_occluded");
             }
         }
@@ -1204,8 +1208,9 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
     const auto snapshot = owned_->world->snapshot();
     for (const auto& [actor, cut] : snapshot.state.manual_cuts) {
         if (observed_actor && actor != *observed_actor) continue;
+        const auto region = world::ore_region_index(profile_, cut.target);
         const bool ore = profile_.material.manual_ore &&
-            profile_.material.manual_ore->id == cut.target;
+            (profile_.material.manual_ore->id == cut.target || region);
         const auto tree = profile_.material.timber_sites.find(cut.target);
         if (!ore && tree == profile_.material.timber_sites.end()) return false;
         const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
@@ -1213,7 +1218,9 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
         auto actor_cut = sampled.value_or(authority::ActorCut{});
         actor_cut.build_reach = profile_.manual_cut_reach > 0 ?
             profile_.manual_cut_reach : profile_.build_reach;
-        const auto target = world::manual_cut_target(profile_, center, actor_cut.position, ore);
+        const auto target = region && cut.target != profile_.material.manual_ore->id ?
+            world::ore_region_cut_target(profile_, *region, actor_cut.position) :
+            world::manual_cut_target(profile_, center, actor_cut.position, ore);
         const bool lost_reach = !sampled || authority::check_reach(actor, actor_cut,
             {target}).error != authority::Error::none ||
             !physical_site::harvest_path_clear({profile_, terrain_}, snapshot.state,

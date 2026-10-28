@@ -237,12 +237,18 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
         if (state.material.stock.source == 0) return refused("source_depleted", *id, std::move(facts));
+        std::optional<mineral_site::Integer> region;
+        if (profile.ore_field) region = collector_ore_region(*assembly.collector);
+        if (profile.ore_field && (!region || !state.ore_field ||
+                state.ore_field->remaining[static_cast<std::size_t>(*region)] == 0))
+            return refused("source_depleted", *id, std::move(facts));
         const auto receiver = assembly.collector->receiver_center;
         if (state.material.dropped_material.contains(receiver))
             return refused("receiver_full", *id, std::move(facts));
         if (state.material.dropped_material.size() >= materials::maximum_drop_points)
             return refused("output_full", *id, std::move(facts));
         auto candidate = state;
+        if (region) --candidate.ore_field->remaining[static_cast<std::size_t>(*region)];
         --candidate.material.stock.source;
         candidate.material.dropped_material.emplace(receiver, materials::Cargo{1, 0, {}});
         facts.emplace("generation", Value(*generation));
