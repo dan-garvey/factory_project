@@ -54,6 +54,8 @@ class ProductionEnvironment:
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
 	static var ore_exposure_finish: StandardMaterial3D
+	static var ore_host_finish: StandardMaterial3D
+	static var ore_chip_mesh: ArrayMesh
 
 	static func ground_material() -> ShaderMaterial:
 		if ground_source_status != "uninitialized":
@@ -1121,6 +1123,7 @@ class ProductionEnvironment:
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
+			ore_ground_finish.albedo_color = Color("8c5a44")
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1138,13 +1141,46 @@ class ProductionEnvironment:
 				return null
 			ore_exposure_finish = StandardMaterial3D.new()
 			ore_exposure_finish.albedo_texture = ImageTexture.create_from_image(albedo)
-			ore_exposure_finish.albedo_color = Color("d7a06e")
+			ore_exposure_finish.albedo_color = Color("bb754d")
 			ore_exposure_finish.roughness = 0.91
 			ore_exposure_finish.normal_enabled = true
 			ore_exposure_finish.normal_texture = ImageTexture.create_from_image(normal)
 			ore_exposure_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
 			ore_exposure_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ore_exposure_finish
+
+	static func _ore_host_material() -> StandardMaterial3D:
+		if ore_host_finish == null:
+			var mineral := _ore_exposure_material()
+			if mineral == null:
+				return null
+			ore_host_finish = mineral.duplicate()
+			ore_host_finish.albedo_color = Color("87786b")
+		return ore_host_finish
+
+	static func _ore_chip() -> ArrayMesh:
+		if ore_chip_mesh != null:
+			return ore_chip_mesh
+		var ring: Array[Vector3] = [Vector3(-0.5, -0.18, -0.31),
+			Vector3(-0.16, -0.19, -0.48), Vector3(0.39, -0.16, -0.34),
+			Vector3(0.5, -0.17, 0.19), Vector3(0.08, -0.18, 0.47),
+			Vector3(-0.42, -0.16, 0.33)]
+		var crest := Vector3(-0.09, 0.49, -0.04)
+		var underside := Vector3(0.0, -0.24, 0.0)
+		var source := SurfaceTool.new()
+		source.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for index in range(ring.size()):
+			for triangle in [[ring[index], ring[(index + 1) % ring.size()], crest],
+					[ring[(index + 1) % ring.size()], ring[index], underside]]:
+				var a: Vector3 = triangle[0]
+				var b: Vector3 = triangle[1]
+				var c: Vector3 = triangle[2]
+				var normal := (b - a).cross(c - a).normalized()
+				for vertex: Vector3 in triangle:
+					source.set_normal(normal)
+					source.add_vertex(vertex)
+		ore_chip_mesh = source.commit()
+		return ore_chip_mesh
 
 	static func ore_field(state: Dictionary) -> Node3D:
 		# This surface is read from the native deposit cells and region balances.
@@ -1181,6 +1217,7 @@ class ProductionEnvironment:
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var stones: Array[Transform3D] = []
 		var stone_colors: Array[Color] = []
+		var fragments: Array[Transform3D] = []
 		for index in range(cells.size()):
 			var cell: Array = cells[index]
 			var cx: float = float(cell[0]) * Geometry.PITCH
@@ -1225,13 +1262,24 @@ class ProductionEnvironment:
 				var dz: float = (float((seed / 101) % 101) / 100.0 - 0.5) * 1.12
 				var x: float = cx + dx
 				var z: float = cz + dz
+				if x <= Surface.river_center_x(z) + Surface.channel_half_width(z) + 0.18:
+					continue
 				var size: float = 0.10 + float(seed % 9) * 0.022
 				var height: float = 0.035 + float((seed / 7) % 5) * 0.012
 				var basis := Basis(Vector3.UP, float(seed % 360) * PI / 180.0)
 				basis = basis.scaled_local(Vector3(size, height, size * 0.72))
 				stones.append(Transform3D(basis,
 					Vector3(x, Surface.height_at(x, z) + height * 0.45, z)))
-				stone_colors.append(Color("a77855").lerp(Color("77695c"), float(seed % 5) / 5.0))
+				stone_colors.append(Color("766554").lerp(Color("554f4a"), float(seed % 5) / 5.0))
+			if index % 4 == 0 and fraction > 0.25:
+				var fx: float = cx + sin(float(index) * 2.39996) * 0.42
+				var fz: float = cz + cos(float(index) * 1.71317) * 0.42
+				if fx > Surface.river_center_x(fz) + Surface.channel_half_width(fz) + 0.35:
+					var dimensions := Vector3(0.34 + float(index % 5) * 0.06,
+						0.10 + float(index % 3) * 0.03, 0.28 + float(index % 4) * 0.05)
+					var turn := Basis(Vector3.UP, float(index) * 2.39996)
+					fragments.append(Transform3D(turn.scaled_local(dimensions / Surface.SOURCE_OUTCROP_MESH.get_aabb().size),
+						Vector3(fx, Surface.height_at(fx, fz) + dimensions.y * 0.19, fz)))
 		var soil := MeshInstance3D.new()
 		soil.name = "CopperBearingGround"
 		soil.mesh = surface.commit()
@@ -1239,15 +1287,10 @@ class ProductionEnvironment:
 		soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(soil)
 		if not stones.is_empty():
-			var pebble := SphereMesh.new()
-			pebble.radius = 0.5
-			pebble.height = 1.0
-			pebble.radial_segments = 8
-			pebble.rings = 4
 			var multimesh := MultiMesh.new()
 			multimesh.transform_format = MultiMesh.TRANSFORM_3D
 			multimesh.use_colors = true
-			multimesh.mesh = pebble
+			multimesh.mesh = _ore_chip()
 			multimesh.instance_count = stones.size()
 			for index in range(stones.size()):
 				multimesh.set_instance_transform(index, stones[index])
@@ -1257,12 +1300,23 @@ class ProductionEnvironment:
 			gravel.multimesh = multimesh
 			var stone_finish := StandardMaterial3D.new()
 			stone_finish.vertex_color_use_as_albedo = true
+			stone_finish.albedo_color = Color("a89a85")
 			stone_finish.roughness = 0.94
-			stone_finish.metallic = 0.06
 			gravel.material_override = stone_finish
 			root.add_child(gravel)
+		if not fragments.is_empty():
+			var loose := MultiMesh.new()
+			loose.transform_format = MultiMesh.TRANSFORM_3D
+			loose.mesh = Surface.SOURCE_OUTCROP_MESH
+			loose.instance_count = fragments.size()
+			for index in range(fragments.size()):
+				loose.set_instance_transform(index, fragments[index])
+			var rock_scatter := MultiMeshInstance3D.new()
+			rock_scatter.name = "LowRockFragments"
+			rock_scatter.multimesh = loose
+			rock_scatter.material_override = _ore_host_material()
+			root.add_child(rock_scatter)
 		var seam_mesh: Mesh = Surface.SOURCE_OUTCROP_MESH
-		var seam_scale: Vector3 = Vector3(0.54, 0.20, 0.40) / seam_mesh.get_aabb().size
 		var seam_finish := _ore_exposure_material()
 		var original: Dictionary = state.get("hand_sources", {}).get(deposit.get("id", ""), {})
 		var original_position: Array = original.get("position", [])
@@ -1277,15 +1331,20 @@ class ProductionEnvironment:
 			if original_position.size() == 3 and Vector2(x - float(original_position[0]),
 					z - float(original_position[2])).length() < 1.8:
 				continue
-			for offset: Vector2 in [Vector2(-0.16, -0.12), Vector2(0.17, 0.10), Vector2(0.12, -0.17)]:
+			for piece: Dictionary in [
+					{"offset": Vector2.ZERO, "size": Vector3(0.90, 0.24, 0.76), "copper": false},
+					{"offset": Vector2(-0.11, 0.10), "size": Vector3(0.42, 0.15, 0.34), "copper": true},
+					{"offset": Vector2(0.14, -0.10), "size": Vector3(0.37, 0.14, 0.30), "copper": true}]:
+				var offset: Vector2 = piece.offset
 				var seam := MeshInstance3D.new()
 				seam.name = "LowCopperExposure"
 				seam.mesh = seam_mesh
-				seam.material_override = seam_finish
-				seam.scale = seam_scale
-				seam.rotation.y = atan2(offset.y, offset.x)
+				seam.material_override = seam_finish if piece.copper else _ore_host_material()
+				var dimensions: Vector3 = piece.size
+				seam.scale = dimensions / seam_mesh.get_aabb().size
+				seam.rotation.y = atan2(offset.y, offset.x) if piece.copper else 0.0
 				seam.position = Vector3(x + offset.x,
-					Surface.height_at(x + offset.x, z + offset.y) + 0.055, z + offset.y)
+					Surface.height_at(x + offset.x, z + offset.y) + 0.065, z + offset.y)
 				seam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				root.add_child(seam)
 		return root
