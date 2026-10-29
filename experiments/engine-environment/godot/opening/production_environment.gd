@@ -1233,12 +1233,19 @@ class ProductionEnvironment:
 		if boulder_finish == null:
 			return root
 		var satellite_layout := [
-			[[Vector2(1.7, 0.8), 0.22, 1.2], [Vector2(-0.9, 1.8), 0.17, -0.6]],
+			[[Vector2(1.7, 0.8), 0.22, 1.2], [Vector2(-0.9, 1.8), 0.17, -0.6],
+				[Vector2(3.2, -0.3), 0.15, 0.4]],
 			[[Vector2(-1.9, 0.9), 0.23, -0.8]],
-			[[Vector2(1.8, -1.1), 0.25, 0.9], [Vector2(-0.7, 1.4), 0.16, 2.4]],
+			[[Vector2(1.8, -1.1), 0.25, 0.9], [Vector2(-0.7, 1.4), 0.16, 2.4],
+				[Vector2(3.3, 0.2), 0.16, -1.2]],
 			[[Vector2(-1.6, 1.1), 0.21, 1.8], [Vector2(1.6, -1.0), 0.17, -1.4]],
-			[[Vector2(2.0, -0.6), 0.20, 1.4]],
-			[[Vector2(-1.7, -0.8), 0.22, 2.1], [Vector2(1.7, 0.9), 0.17, -0.8]]]
+			[[Vector2(2.0, -0.6), 0.20, 1.4], [Vector2(3.6, -1.0), 0.16, -0.7]],
+			[[Vector2(-1.7, -0.8), 0.22, 2.1], [Vector2(1.7, 0.9), 0.17, -0.8],
+				[Vector2(-3.4, 0.3), 0.16, 1.4]]]
+		var principal_scales := [
+			Vector3(0.46, 0.62, 0.50), Vector3(0.38, 0.55, 0.44),
+			Vector3(0.48, 0.58, 0.48), Vector3(0.39, 0.54, 0.45),
+			Vector3.ZERO, Vector3(0.47, 0.61, 0.52)]
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
 				continue
@@ -1255,10 +1262,9 @@ class ProductionEnvironment:
 			if region_index != 4:
 				var patch: Node3D = ORE_FIELD_PATCH.instantiate()
 				patch.name = "StoneAndGravelRegion%d" % region_index
-				patch.position = Vector3(x, Surface.height_at(x, z) - 0.13, z)
+				patch.position = Vector3(x, Surface.height_at(x, z) - 0.20, z)
 				patch.rotation.y = facing
-				patch.scale = Vector3(0.34 + 0.03 * float(region_index % 3),
-					0.50, 0.38 + 0.03 * float((region_index + 1) % 3))
+				patch.scale = principal_scales[region_index]
 				var scan := patch.find_child("Mesh", true, false) as MeshInstance3D
 				if scan == null:
 					push_error("The broad ore field requires the scanned rock and gravel mesh.")

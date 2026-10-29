@@ -1100,6 +1100,8 @@ func check_ore_field_render() -> void:
 		field.get_node_or_null("StoneAndGravelRegion0/Mesh") != null and
 		field.get_node_or_null("StoneAndGravelRegion5/Mesh") != null and
 		field.get_node_or_null("StoneFragmentRegion0_0/Mesh") != null and
+		field.get_node_or_null("StoneFragmentRegion0_2/Mesh") != null and
+		field.get_node_or_null("StoneFragmentRegion5_2/Mesh") != null and
 		field.get_node_or_null("StoneFragmentRegion4_0/Mesh") != null and
 		field.get_node_or_null("StoneAndGravelRegion4") == null,
 		"The rendered field carries broad mineral soil and varied regional exposures while retaining the physical bank source.")
@@ -1134,6 +1136,7 @@ func check_ore_field_render() -> void:
 		verify(depleted_field != null and
 			depleted_field.get_node_or_null("StoneAndGravelRegion5") == null and
 			depleted_field.get_node_or_null("StoneFragmentRegion5_0") == null and
+			depleted_field.get_node_or_null("StoneFragmentRegion5_2") == null and
 			depleted_field.get_node_or_null("StoneAndGravelRegion0/Mesh") != null,
 			"An empty local region loses its own rock patch while another region remains exposed.")
 		view.camera.position = Vector3(14.0, 20.0, 12.0)
