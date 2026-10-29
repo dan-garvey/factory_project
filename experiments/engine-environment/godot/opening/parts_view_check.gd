@@ -4869,6 +4869,31 @@ func _slide_controls_check() -> void:
 		and panel.inventory_drag("player_raw").is_empty()
 		and panel.inventory_drag("workbed_work").get("wire", {}).get("expected", {}).get("offcuts") == 1,
 		"A retained offcut occupies the work face and must be recovered before another blank.")
+	snapshot.dropped_material = [{"center": [12, 0, 8], "raw": 0, "products": 1,
+		"offcuts": 1, "work_lots": []}]
+	panel.refresh(snapshot, "P", "anvil", true)
+	var paired_plate: Dictionary = panel.inventory_drag("workbed_output")
+	var paired_offcut: Dictionary = panel.inventory_drag("workbed_work")
+	verify(panel.inventory_counts.workbed_work.text == "1"
+		and panel.inventory_counts.workbed_output.text == "1"
+		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/offcut.svg")
+		and panel.inventory_slots.workbed_output.icon.resource_path.ends_with("/plate.svg")
+		and panel.inventory_slots.workbed_work.tooltip_text.contains("together")
+		and panel.inventory_slots.workbed_output.tooltip_text.contains("together"),
+		"A formed plate and offcut sharing the supported work cell remain separate visible items with truthful pickup help.")
+	var paired_wire := {"action": "pickup_material", "center": [12, 0, 8],
+		"expected": {"raw": 0, "products": 1, "offcuts": 1, "work_lots": []}}
+	verify(paired_plate.get("wire", {}) == paired_wire
+		and paired_offcut.get("wire", {}) == paired_wire
+		and panel.inventory_can_drop("player", paired_plate),
+		"Either visible item requests the exact native whole-drop pickup for both retained outputs.")
+	view.issued.clear()
+	verify(panel.inventory_shortcut(KEY_P) and view.issued == [paired_wire],
+		"The plate keyboard route submits the same paired pickup as dragging into Carried.")
+	view.issued.clear()
+	snapshot.dropped_material[0].offcuts = 2
+	verify(not panel.inventory_can_drop("player", paired_plate) and view.issued.is_empty(),
+		"A stale paired drag cannot collect changed material from the shared work cell.")
 	snapshot.dropped_material.pop_back()
 	panel.refresh(snapshot, "P", "anvil", true)
 	panel.refresh(snapshot, "P", "anvil", false)
@@ -5095,6 +5120,36 @@ func _slide_inventory_render_check() -> void:
 		await RenderingServer.frame_post_draw
 		verify(scene_root.get_texture().get_image().save_png(destination + "-offcut.png") == OK,
 			"Retain the recoverable offcut at the work face.")
+	view.state.dropped_material[0].products = 1
+	view._refresh_ui()
+	await process_frame
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-paired-normal.png") == OK,
+			"Retain both press outputs in the 1280 by 800 E inventory.")
+	verify(panel.inventory_counts.workbed_work.text == "1"
+		and panel.inventory_counts.workbed_output.text == "1"
+		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/offcut.svg")
+		and panel.inventory_slots.workbed_output.icon.resource_path.ends_with("/plate.svg"),
+		"The normal E inventory shows both output icons from one supported native cell.")
+	scene_root.size = Vector2i(900, 600)
+	view._fit_object_menu(Vector2i(900, 600))
+	await process_frame
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().get_region(Rect2i(0, 0, 900, 600))
+			.save_png(destination + "-paired-narrow.png") == OK,
+			"Retain both press outputs in the 900 by 600 E inventory.")
+	verify(panel.inventory_counts.workbed_work.text == "1"
+		and panel.inventory_counts.workbed_output.text == "1"
+		and view.object_menu_operations.get_global_rect().encloses(
+			panel.inventory_workbed_row.get_global_rect()),
+		"Both output tiles fit inside the narrow ordinary E panel.")
+	view.state.dropped_material[0].products = 0
+	scene_root.size = Vector2i(1280, 800)
+	view._fit_object_menu(Vector2i(1280, 800))
+	view._refresh_ui()
+	await process_frame
 	scene_root.size = Vector2i(640, 480)
 	view._fit_object_menu(Vector2i(640, 480))
 	await process_frame
