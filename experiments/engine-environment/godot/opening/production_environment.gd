@@ -53,9 +53,7 @@ class ProductionEnvironment:
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
-	static var ore_boulder_finish: ShaderMaterial
 	static var ore_stone_finish: ShaderMaterial
-	const ORE_FIELD_PATCH = preload("res://opening/assets/mineral-outcrop/field-rock-gravel-03.glb")
 	const ORE_FIELD_STONES = preload("res://opening/assets/mineral-outcrop/field-rock-moss-set-02.glb")
 	const ORE_FIELD_BOULDER_SHADER = preload("res://opening/ore_field_scan.gdshader")
 
@@ -1133,25 +1131,6 @@ class ProductionEnvironment:
 			ore_ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ore_ground_finish
 
-	static func _ore_boulder_material() -> ShaderMaterial:
-		if ore_boulder_finish != null:
-			return ore_boulder_finish
-		var source := ORE_FIELD_PATCH.instantiate() as Node3D
-		var scan := source.find_child("Mesh", true, false) as MeshInstance3D
-		var material: StandardMaterial3D = null
-		if scan != null:
-			material = scan.mesh.surface_get_material(0) as StandardMaterial3D
-		if material == null or material.albedo_texture == null or material.normal_texture == null:
-			push_error("The broad ore field requires its scanned stone textures.")
-			source.free()
-			return null
-		ore_boulder_finish = ShaderMaterial.new()
-		ore_boulder_finish.shader = ORE_FIELD_BOULDER_SHADER
-		ore_boulder_finish.set_shader_parameter("albedo_map", material.albedo_texture)
-		ore_boulder_finish.set_shader_parameter("normal_map", material.normal_texture)
-		source.free()
-		return ore_boulder_finish
-
 	static func _ore_stone_material() -> ShaderMaterial:
 		if ore_stone_finish != null:
 			return ore_stone_finish
@@ -1255,20 +1234,9 @@ class ProductionEnvironment:
 		soil.material_override = _ore_ground_material()
 		soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(soil)
-		var boulder_finish := _ore_boulder_material()
 		var stone_finish := _ore_stone_material()
-		if boulder_finish == null or stone_finish == null:
+		if stone_finish == null:
 			return root
-		var satellite_layout := [
-			[[Vector2(1.7, 0.8), 0.22, 1.2], [Vector2(-0.9, 1.8), 0.17, -0.6],
-				[Vector2(3.2, -0.3), 0.15, 0.4]],
-			[[Vector2(-1.9, 0.9), 0.23, -0.8]],
-			[[Vector2(1.8, -1.1), 0.25, 0.9], [Vector2(-0.7, 1.4), 0.16, 2.4],
-				[Vector2(3.3, 0.2), 0.16, -1.2]],
-			[[Vector2(-1.6, 1.1), 0.21, 1.8], [Vector2(1.6, -1.0), 0.17, -1.4]],
-			[[Vector2(2.0, -0.6), 0.20, 1.4], [Vector2(3.6, -1.0), 0.16, -0.7]],
-			[[Vector2(-1.7, -0.8), 0.22, 2.1], [Vector2(1.7, 0.9), 0.17, -0.8],
-				[Vector2(-3.4, 0.3), 0.16, 1.4]]]
 		var principal_scales := [
 			Vector3(0.94, 0.82, 0.93), Vector3(0.78, 0.70, 0.82),
 			Vector3(0.91, 0.79, 0.90), Vector3(0.75, 0.69, 0.78),
@@ -1318,25 +1286,6 @@ class ProductionEnvironment:
 					scan.scale = Vector3(size, size * 0.74, size)
 					scan.material_override = stone_finish
 				root.add_child(patch)
-			for number in range(satellite_layout[region_index].size()):
-				var detail: Array = satellite_layout[region_index][number]
-				var offset: Vector2 = detail[0]
-				var dx: float = clampf(x + offset.x, left + 0.8, right - 0.8)
-				var dz: float = clampf(z + offset.y, back + 0.8, front - 0.8)
-				var detail_bank: float = Surface.river_center_x(dz) + Surface.channel_half_width(dz)
-				dx = maxf(dx, detail_bank + 0.8)
-				var fragment: Node3D = ORE_FIELD_PATCH.instantiate()
-				fragment.name = "StoneFragmentRegion%d_%d" % [region_index, number]
-				fragment.position = Vector3(dx, Surface.height_at(dx, dz) - 0.10, dz)
-				fragment.rotation.y = facing + float(detail[2])
-				var size: float = float(detail[1])
-				fragment.scale = Vector3(size, 0.31 + size * 0.25, size * 1.15)
-				var fragment_scan := fragment.find_child("Mesh", true, false) as MeshInstance3D
-				if fragment_scan == null:
-					push_error("The broad ore field requires its secondary scanned stone mesh.")
-					return root
-				fragment_scan.material_override = boulder_finish
-				root.add_child(fragment)
 		return root
 
 	static func build(parent: Node3D) -> Node3D:

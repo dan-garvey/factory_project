@@ -1,20 +1,5 @@
 {
-  "purpose": "Chapter 1 broad ore field scanned rock set and gravel provenance; no collision or material authority",
-  "rock_gravel_patch": {
-    "asset": "Coast Land Rocks 03",
-    "asset_url": "https://polyhaven.com/a/coast_land_rocks_03",
-    "authors": "Rob Tuytel, photography and processing; Rico Cilliers, cleanup",
-    "license": "CC0-1.0",
-    "source_sha256": {
-      "coast_land_rocks_03_2k.gltf": "975cde44cd21bfc660efaf3e98f7d1b450a218f685f97c3246d1060a82670dbf",
-      "coast_land_rocks_03.bin": "69692370dbf2f19ee39eea284397663ce99373c153bb477fea3cbe087f9fec38",
-      "textures/coast_land_rocks_03_diff_2k.jpg": "95faed3dbcf102d09e87f0b889c948ca107a20be6bcd1ed9cc3f0729522b6383",
-      "textures/coast_land_rocks_03_nor_gl_2k.jpg": "06700c592ec7e396d11d20bfcaea3578daad67d1bf5458a3c4b82c0efd248bcd",
-      "textures/coast_land_rocks_03_arm_2k.jpg": "56dfc261dd41f7fe73f95e2e71330a1bf6cfd70e9b0eb2d88c759476b05e4031"
-    },
-    "preparation": "meshoptimizer gltfpack 1.3 Linux SHA-256 595441045457bf3d069ec14fa807b1034d324db003bd66ac6377977cc11e7da3: gltfpack -i coast_land_rocks_03_2k.gltf -o coast-land-03-compact.glb -si 0.04 -se 0.02 -sp -noq -tw -tq 9 -tl color 1024 -tl normal,attrib 512 -v -r coast-land-03-compact-report.json. The source has 1,096,655 triangles; the glTF result has 43,866 triangles, 1k WebP color and 512-pixel normal and ARM images. The satellite gravel fragments use the smaller maps so the fractured-face addition remains within the installed 128 MiB Godot import allowance.",
-    "prepared_glb_sha256": "b51d62b6344bebcdabfe015924b45f033ca63f4562eeae70afd8a531bad2bfc3"
-  },
+  "purpose": "Chapter 1 broad ore field scanned stone set and gravel provenance; no collision or material authority",
   "separate_stones": {
     "asset": "Rock Moss Set 02",
     "asset_url": "https://polyhaven.com/a/rock_moss_set_02",
@@ -37,5 +22,5 @@
     "license": "CC0-1.0",
     "source_and_delivered_sha256": "96ca2e89a5b5d9413217dddaf6b217afccd2cc5ef39a1dbc2a2939aac4cac38e"
   },
-  "limits": "The photographed rocks, gravel and copper shader are presentation only. Source glTF files remain in the task private family; the existing mineral-soil texture and original physical source retain their own provenance. Passive renders cannot establish player collision, collector clearance, depletion in ordinary play, or performance."
+  "limits": "The photographed stones, gravel and copper shader are presentation only. Source glTF files remain in the task private family; the existing mineral-soil texture and original physical source retain their own provenance. Passive renders cannot establish player collision, collector clearance, depletion in ordinary play, or performance."
 }
