@@ -1285,9 +1285,18 @@ class ProductionEnvironment:
 				stone.name = "OreRockRegion%d_%d" % [region_index, number]
 				stone.mesh = ORE_FIELD_ROCK_MESHES[int(detail[0])]
 				stone.material_override = boulder_finish
-				stone.position = Vector3(dx, Surface.height_at(dx, dz) - 0.08, dz)
 				stone.rotation.y = facing + float(detail[3])
 				stone.scale = detail[2]
+				# The terrain changes across each irregular rock. Seat its lowest
+				# side below the sampled footprint, not just the center height.
+				var mesh_size: Vector3 = stone.mesh.get_aabb().size * stone.scale
+				var radius: float = maxf(mesh_size.x, mesh_size.z) * 0.48
+				var low_ground: float = Surface.height_at(dx, dz)
+				for bearing in range(8):
+					var angle: float = float(bearing) * TAU / 8.0
+					low_ground = minf(low_ground, Surface.height_at(
+						dx + cos(angle) * radius, dz + sin(angle) * radius))
+				stone.position = Vector3(dx, low_ground - minf(0.18, mesh_size.y * 0.32), dz)
 				root.add_child(stone)
 		return root
 
