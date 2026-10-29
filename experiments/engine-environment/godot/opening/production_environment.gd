@@ -54,9 +54,9 @@ class ProductionEnvironment:
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
 	static var ore_boulder_finish: ShaderMaterial
-	static var ore_face_finish: ShaderMaterial
+	static var ore_stone_finish: ShaderMaterial
 	const ORE_FIELD_PATCH = preload("res://opening/assets/mineral-outcrop/field-rock-gravel-03.glb")
-	const ORE_FIELD_FACE = preload("res://opening/assets/mineral-outcrop/field-rock-face-01.glb")
+	const ORE_FIELD_STONES = preload("res://opening/assets/mineral-outcrop/field-rock-moss-set-02.glb")
 	const ORE_FIELD_BOULDER_SHADER = preload("res://opening/ore_field_scan.gdshader")
 
 	static func ground_material() -> ShaderMaterial:
@@ -1152,27 +1152,29 @@ class ProductionEnvironment:
 		source.free()
 		return ore_boulder_finish
 
-	static func _ore_face_material() -> ShaderMaterial:
-		if ore_face_finish != null:
-			return ore_face_finish
-		var source := ORE_FIELD_FACE.instantiate() as Node3D
+	static func _ore_stone_material() -> ShaderMaterial:
+		if ore_stone_finish != null:
+			return ore_stone_finish
+		var source := ORE_FIELD_STONES.instantiate() as Node3D
 		var meshes := source.find_children("*", "MeshInstance3D", true, false)
 		var scan := meshes[0] as MeshInstance3D if not meshes.is_empty() else null
 		var material: StandardMaterial3D = null
 		if scan != null:
 			material = scan.mesh.surface_get_material(0) as StandardMaterial3D
 		if material == null or material.albedo_texture == null or material.normal_texture == null:
-			push_error("The broad ore field requires its fractured rock face textures.")
+			push_error("The broad ore field requires its separate stone textures.")
 			source.free()
 			return null
-		ore_face_finish = ShaderMaterial.new()
-		ore_face_finish.shader = ORE_FIELD_BOULDER_SHADER
-		ore_face_finish.set_shader_parameter("albedo_map", material.albedo_texture)
-		ore_face_finish.set_shader_parameter("normal_map", material.normal_texture)
-		ore_face_finish.set_shader_parameter("copper_cover", 0.47)
-		ore_face_finish.set_shader_parameter("copper_strength", 0.78)
+		ore_stone_finish = ShaderMaterial.new()
+		ore_stone_finish.shader = ORE_FIELD_BOULDER_SHADER
+		ore_stone_finish.set_shader_parameter("albedo_map", material.albedo_texture)
+		ore_stone_finish.set_shader_parameter("normal_map", material.normal_texture)
+		ore_stone_finish.set_shader_parameter("copper_cover", 0.45)
+		ore_stone_finish.set_shader_parameter("copper_strength", 0.78)
+		ore_stone_finish.set_shader_parameter("mineral_base_height", 0.08)
+		ore_stone_finish.set_shader_parameter("mineral_top_height", 0.42)
 		source.free()
-		return ore_face_finish
+		return ore_stone_finish
 
 	static func ore_field(state: Dictionary) -> Node3D:
 		# This surface is read from the native deposit cells and region balances.
@@ -1254,8 +1256,8 @@ class ProductionEnvironment:
 		soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(soil)
 		var boulder_finish := _ore_boulder_material()
-		var face_finish := _ore_face_material()
-		if boulder_finish == null or face_finish == null:
+		var stone_finish := _ore_stone_material()
+		if boulder_finish == null or stone_finish == null:
 			return root
 		var satellite_layout := [
 			[[Vector2(1.7, 0.8), 0.22, 1.2], [Vector2(-0.9, 1.8), 0.17, -0.6],
@@ -1268,9 +1270,17 @@ class ProductionEnvironment:
 			[[Vector2(-1.7, -0.8), 0.22, 2.1], [Vector2(1.7, 0.9), 0.17, -0.8],
 				[Vector2(-3.4, 0.3), 0.16, 1.4]]]
 		var principal_scales := [
-			Vector3(0.72, 0.63, 0.23), Vector3(0.56, 0.53, 0.19),
-			Vector3(0.69, 0.62, 0.22), Vector3(0.53, 0.52, 0.18),
-			Vector3.ZERO, Vector3(0.71, 0.63, 0.23)]
+			Vector3(0.94, 0.82, 0.93), Vector3(0.78, 0.70, 0.82),
+			Vector3(0.91, 0.79, 0.90), Vector3(0.75, 0.69, 0.78),
+			Vector3.ZERO, Vector3(0.96, 0.83, 0.94)]
+		var rock_layout := [
+			[Vector2(-0.88, -0.45), 0.88, 0.18],
+			[Vector2(0.35, 0.08), 1.08, -0.36],
+			[Vector2(1.05, -0.56), 0.75, 0.72],
+			[Vector2(-0.28, 0.78), 0.78, -0.62],
+			[Vector2(0.92, 0.85), 0.67, 0.38],
+			[Vector2(-1.08, 0.65), 0.76, 1.08],
+			[Vector2(0.05, -0.88), 0.71, -0.94]]
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
 				continue
@@ -1285,19 +1295,28 @@ class ProductionEnvironment:
 			x = maxf(x, bank + 2.4)
 			var facing: float = [-0.28, 0.45, 0.22, -0.38, 0.15, 0.5][region_index]
 			if region_index != 4:
-				var patch: Node3D = ORE_FIELD_FACE.instantiate()
+				var patch: Node3D = ORE_FIELD_STONES.instantiate()
 				patch.name = "StoneAndGravelRegion%d" % region_index
-				patch.position = Vector3(x, Surface.height_at(x, z) - 0.20, z)
-				patch.rotation.x = PI / 2.0
+				patch.position = Vector3(x, Surface.height_at(x, z), z)
 				patch.rotation.y = facing
 				patch.scale = principal_scales[region_index]
 				var patch_meshes := patch.find_children("*", "MeshInstance3D", true, false)
-				var scan := patch_meshes[0] as MeshInstance3D if not patch_meshes.is_empty() else null
-				if scan == null:
-					push_error("The broad ore field requires the fractured rock face mesh.")
+				if patch_meshes.size() != rock_layout.size():
+					push_error("The broad ore field requires its seven separate stone meshes.")
 					return root
-				scan.name = "Mesh"
-				scan.material_override = face_finish
+				for number in range(patch_meshes.size()):
+					var scan := patch_meshes[number] as MeshInstance3D
+					var rock: Array = rock_layout[number]
+					var local: Vector2 = rock[0].rotated(float(region_index) * 0.23)
+					var world_offset: Vector2 = local.rotated(facing)
+					scan.name = "Mesh" if number == 0 else "Stone%d" % number
+					scan.position = Vector3(local.x,
+							Surface.height_at(x + world_offset.x, z + world_offset.y) -
+							Surface.height_at(x, z) - 0.10, local.y)
+					scan.rotation.y = float(rock[2]) + float(region_index) * 0.16
+					var size: float = float(rock[1])
+					scan.scale = Vector3(size, size * 0.74, size)
+					scan.material_override = stone_finish
 				root.add_child(patch)
 			for number in range(satellite_layout[region_index].size()):
 				var detail: Array = satellite_layout[region_index][number]

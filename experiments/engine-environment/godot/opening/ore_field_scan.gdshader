@@ -5,6 +5,8 @@ uniform sampler2D albedo_map : source_color, filter_linear_mipmap_anisotropic;
 uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic;
 uniform float copper_cover = 0.57;
 uniform float copper_strength = 0.52;
+uniform float mineral_base_height = 0.30;
+uniform float mineral_top_height = 0.68;
 
 varying vec3 scan_point;
 varying vec3 world_point;
@@ -40,7 +42,7 @@ void fragment() {
 	float vein = 1.0 - smoothstep(0.08, 0.22, abs(layer));
 	float fractured = smoothstep(0.38, 0.62,
 		rock_noise(world_point * 4.2 + vec3(-6.0, 3.0, 2.0)));
-	float raised_stone = smoothstep(0.30, 0.68, scan_point.y);
+	float raised_stone = smoothstep(mineral_base_height, mineral_top_height, scan_point.y);
 	float patch = smoothstep(copper_cover, copper_cover + 0.14, warp) * (0.55 + 0.45 * fractured);
 	float copper = max(patch, vein * fractured * 0.25) * raised_stone;
 	vec3 mineral = host * vec3(1.38, 0.75, 0.50) + vec3(0.045, 0.019, 0.006);
