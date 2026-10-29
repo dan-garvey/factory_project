@@ -1268,9 +1268,9 @@ class ProductionEnvironment:
 			[[Vector2(-1.7, -0.8), 0.22, 2.1], [Vector2(1.7, 0.9), 0.17, -0.8],
 				[Vector2(-3.4, 0.3), 0.16, 1.4]]]
 		var principal_scales := [
-			Vector3(0.63, 0.26, 0.64), Vector3(0.49, 0.20, 0.55),
-			Vector3(0.57, 0.24, 0.59), Vector3(0.48, 0.19, 0.54),
-			Vector3.ZERO, Vector3(0.61, 0.25, 0.63)]
+			Vector3(0.72, 0.63, 0.23), Vector3(0.56, 0.53, 0.19),
+			Vector3(0.69, 0.62, 0.22), Vector3(0.53, 0.52, 0.18),
+			Vector3.ZERO, Vector3(0.71, 0.63, 0.23)]
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
 				continue
@@ -1287,8 +1287,8 @@ class ProductionEnvironment:
 			if region_index != 4:
 				var patch: Node3D = ORE_FIELD_FACE.instantiate()
 				patch.name = "StoneAndGravelRegion%d" % region_index
-				patch.position = Vector3(x, Surface.height_at(x, z) - 0.29, z)
-				patch.rotation.x = -PI / 2.0
+				patch.position = Vector3(x, Surface.height_at(x, z) - 0.20, z)
+				patch.rotation.x = PI / 2.0
 				patch.rotation.y = facing
 				patch.scale = principal_scales[region_index]
 				var patch_meshes := patch.find_children("*", "MeshInstance3D", true, false)
