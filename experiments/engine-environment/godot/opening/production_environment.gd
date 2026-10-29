@@ -55,7 +55,15 @@ class ProductionEnvironment:
 	static var ore_ground_finish: StandardMaterial3D
 	static var ore_boulder_finish: ShaderMaterial
 	const ORE_FIELD_PATCH = preload("res://opening/assets/mineral-outcrop/field-rock-gravel-low.glb")
-	const ORE_FIELD_BOULDER = preload("res://opening/assets/mineral-outcrop/field-boulder-lod2.res")
+	const ORE_FIELD_ROCKS := [
+		preload("res://opening/assets/mineral-outcrop/field-scan-rock-04.res"),
+		preload("res://opening/assets/mineral-outcrop/field-scan-rock-07.res"),
+		preload("res://opening/assets/mineral-outcrop/field-scan-rock-12.res"),
+		preload("res://opening/assets/mineral-outcrop/field-scan-rock-14.res"),
+		preload("res://opening/assets/mineral-outcrop/field-scan-rock-15.res"),
+		preload("res://opening/assets/mineral-outcrop/field-scan-rock-17.res"),
+		preload("res://opening/assets/mineral-outcrop/field-scan-rock-19.res"),
+	]
 	const ORE_FIELD_BOULDER_SHADER = preload("res://opening/ore_field_scan.gdshader")
 
 	static func ground_material() -> ShaderMaterial:
@@ -1124,7 +1132,7 @@ class ProductionEnvironment:
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
-			ore_ground_finish.albedo_color = Color("8f7863")
+			ore_ground_finish.albedo_color = Color("b6aca0")
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1135,16 +1143,20 @@ class ProductionEnvironment:
 	static func _ore_boulder_material() -> ShaderMaterial:
 		if ore_boulder_finish != null:
 			return ore_boulder_finish
-		var albedo := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/albedo.webp")
-		var normal := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/normal.webp")
-		if albedo == null or normal == null or albedo.generate_mipmaps() != OK \
-				or normal.generate_mipmaps(true) != OK:
-			push_error("The broad ore field requires its qualified source rock material.")
+		var source := ORE_FIELD_PATCH.instantiate() as Node3D
+		var scan := source.find_child("Mesh", true, false) as MeshInstance3D
+		var material: StandardMaterial3D = null
+		if scan != null:
+			material = scan.mesh.surface_get_material(0) as StandardMaterial3D
+		if material == null or material.albedo_texture == null or material.normal_texture == null:
+			push_error("The broad ore field requires its scanned stone textures.")
+			source.free()
 			return null
 		ore_boulder_finish = ShaderMaterial.new()
 		ore_boulder_finish.shader = ORE_FIELD_BOULDER_SHADER
-		ore_boulder_finish.set_shader_parameter("albedo_map", ImageTexture.create_from_image(albedo))
-		ore_boulder_finish.set_shader_parameter("normal_map", ImageTexture.create_from_image(normal))
+		ore_boulder_finish.set_shader_parameter("albedo_map", material.albedo_texture)
+		ore_boulder_finish.set_shader_parameter("normal_map", material.normal_texture)
+		source.free()
 		return ore_boulder_finish
 
 	static func ore_field(state: Dictionary) -> Node3D:
@@ -1213,7 +1225,7 @@ class ProductionEnvironment:
 						var bank: float = Surface.river_center_x(point.y) + Surface.channel_half_width(point.y)
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
 							* smoothstep(0.12, 0.85, point.x - bank) \
-								* (0.06 + 0.10 * fraction + 0.70 * local_patch) * (0.70 + 0.30 * grain)
+							* (0.06 + 0.10 * fraction + 0.80 * local_patch) * (0.70 + 0.30 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.85)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
@@ -1259,13 +1271,13 @@ class ProductionEnvironment:
 					continue
 				var boulder := MeshInstance3D.new()
 				boulder.name = "CopperBearingRockRegion%dLobe%d" % [region_index, lobe]
-				boulder.mesh = ORE_FIELD_BOULDER
+				boulder.mesh = ORE_FIELD_ROCKS[(region_index * 2 + lobe) % ORE_FIELD_ROCKS.size()]
 				boulder.material_override = boulder_finish
-				boulder.position = Vector3(at.x, Surface.height_at(at.x, at.y) - 0.14, at.y)
+				boulder.position = Vector3(at.x, Surface.height_at(at.x, at.y) - 0.08, at.y)
 				boulder.rotation.y = facing + float(lobe) * 1.43 + float(region_index) * 0.37
-				boulder.scale = Vector3(0.90 + 0.10 * float((region_index + lobe) % 3),
-					0.64 + 0.10 * float((region_index + 2 * lobe) % 3),
-					0.78 + 0.15 * float((2 * region_index + lobe) % 3))
+				boulder.scale = Vector3(1.08 + 0.13 * float((region_index + lobe) % 3),
+					0.55 + 0.05 * float((region_index + 2 * lobe) % 3),
+					1.04 + 0.12 * float((2 * region_index + lobe) % 3))
 				root.add_child(boulder)
 		return root
 

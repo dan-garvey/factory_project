@@ -15,17 +15,21 @@
     "preparation": "meshoptimizer gltfpack 1.3 Linux SHA-256 595441045457bf3d069ec14fa807b1034d324db003bd66ac6377977cc11e7da3: gltfpack -i coast_land_rocks_02_1k.gltf -o coast-land-low.glb -si 0.03 -se 0.02 -sp -noq -v -r coast-land-low-report.json. Pinned Godot 4.7.2 GLTFDocument imported the result as one 38,733-triangle mesh; no compression extension is required.",
     "prepared_glb_sha256": "240e630ad8c3837cf4eccd3e6e167e9e375ae5acb30858cc2e48adeeecc3de1c"
   },
-  "field_boulder": {
-    "asset": "Boulder 01, unscaled visual LOD2 of the existing physical source donor",
-    "asset_url": "https://polyhaven.com/a/boulder_01",
-    "authors": "Rico Cilliers",
+  "field_rock_islands": {
+    "asset": "Seven distinct upright components from Coast Land Rocks 02",
+    "asset_url": "https://polyhaven.com/a/coast_land_rocks_02",
+    "authors": "Rob Tuytel, photography and processing; Rico Cilliers, cleanup",
     "license": "CC0-1.0",
-    "source_sha256": {
-      "boulder_01_1k.gltf": "51487934db898b4c24072780a451e34eca5c02e3ada24a62bbc600bbc4019e92",
-      "boulder_01.bin": "7f5b06503d62bd95bfe9c6b8a354a5cc8ff04a4d271a8cf87a3e3125db4232d7"
+    "prepared_mesh_sha256": {
+      "field-scan-rock-04.res": "8b737e4e29df5d411d8595b8344eb5fb5dc2ebf87f9108fd4541018663c0ac9b",
+      "field-scan-rock-07.res": "8d79cc6d6a5747fcd5918e19086260c2e8144f87afaf159b62682783e17b9ed4",
+      "field-scan-rock-12.res": "8aded276fd49e83d7efe4652124ad03f8b6f3c886b6eb170c50268b11152006d",
+      "field-scan-rock-14.res": "e0c9693dacf9c2b8f6f60f8259ea1d25df19e6115d781b5d7c4caba72fd8a700",
+      "field-scan-rock-15.res": "6b744e155fcb855fe5c0d278a9ff63221b98a210d628eb6d45c7cf21ca38ef77",
+      "field-scan-rock-17.res": "251efb71f0c4ab2f60e247713ae9b941fc2729b2188cc84e178c12f134d1b148",
+      "field-scan-rock-19.res": "9e5b2e632f6ba57333f640f704b126fd7221f62305872de25fb09400f879cc25"
     },
-    "preparation": "Pinned Godot 4.7.2 ImporterMesh LOD2 from 66,122 source triangles at 60 degrees: 8,264 triangles and 5,736 referenced vertices, X/Z recentered, Y grounded, tangents regenerated. Nominal source LOD error 0.0339904 m. This variant does not bake the narrow source fit; it reuses the existing qualified albedo.webp and normal.webp maps with matching donor UVs.",
-    "prepared_mesh_sha256": "79090590ec99d8664f173e0a22ab8a0b9492c8e80b962c1a4a109795eea8d2cc"
+    "preparation": "Pinned Godot 4.7.2 GLTFDocument reads the prepared Coast Land Rocks 02 GLB, groups indexed triangles by connected vertex component, and selects ranked islands 4, 7, 12, 14, 15, 17, 19 by descending triangle count. Each is recentered in X/Z and grounded at its lowest Y, preserving indexed positions, normals, tangents and original scan UVs. The seven islands total 7,103 triangles and use the GLB's shared albedo and normal textures. Private preparation script: coast-land-rocks-source/extract_rocks.gd."
   },
   "limits": "The photographed rocks, gravel and copper material are presentation only. Source glTF files remain in the task private family; the existing mineral-soil texture and original physical source retain their own provenance. Passive renders cannot establish player collision, collector clearance, depletion in ordinary play, or performance."
 }
