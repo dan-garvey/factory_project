@@ -53,9 +53,10 @@ class ProductionEnvironment:
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
-	static var ore_heart_finish: StandardMaterial3D
-	static var ore_rubble_finish: StandardMaterial3D
+	static var ore_heart_finish: ShaderMaterial
+	static var ore_rubble_finish: ShaderMaterial
 	static var ore_chip_mesh: ArrayMesh
+	const ORE_FIELD_ROCK_SHADER = preload("res://opening/ore_field_rock.gdshader")
 	const ORE_FIELD_HEART = preload("res://opening/assets/mineral-outcrop/field-heart-lod3.res")
 	const ORE_FIELD_RUBBLE = preload("res://opening/assets/mineral-outcrop/field-rubble-lod3.res")
 
@@ -1120,12 +1121,17 @@ class ProductionEnvironment:
 	static func _ore_ground_material() -> StandardMaterial3D:
 		if ore_ground_finish == null:
 			var image := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/field-pebbles-albedo.webp")
-			if image == null or image.generate_mipmaps() != OK:
+			var normal := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/field-pebbles-normal-gl.webp")
+			if image == null or normal == null or image.generate_mipmaps() != OK \
+					or normal.generate_mipmaps(true) != OK:
 				push_error("The broad ore field requires its scanned pebble surface.")
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
-			ore_ground_finish.albedo_color = Color("a18e78")
+			ore_ground_finish.albedo_color = Color("aa917a")
+			ore_ground_finish.normal_enabled = true
+			ore_ground_finish.normal_texture = ImageTexture.create_from_image(normal)
+			ore_ground_finish.normal_scale = 0.8
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1133,7 +1139,7 @@ class ProductionEnvironment:
 			ore_ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ore_ground_finish
 
-	static func _ore_scan_material(rubble: bool) -> StandardMaterial3D:
+	static func _ore_scan_material(rubble: bool) -> ShaderMaterial:
 		if rubble and ore_rubble_finish != null:
 			return ore_rubble_finish
 		if not rubble and ore_heart_finish != null:
@@ -1147,14 +1153,11 @@ class ProductionEnvironment:
 				or normal.generate_mipmaps(true) != OK:
 			push_error("The broad ore field requires its scanned outcrop surfaces.")
 			return null
-		var finish := StandardMaterial3D.new()
-		finish.albedo_texture = ImageTexture.create_from_image(albedo)
-		finish.albedo_color = Color("b9ada1") if rubble else Color("afa79b")
-		finish.normal_enabled = true
-		finish.normal_texture = ImageTexture.create_from_image(normal)
-		finish.normal_scale = 0.82
-		finish.roughness = 0.92
-		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		var finish := ShaderMaterial.new()
+		finish.shader = ORE_FIELD_ROCK_SHADER
+		finish.set_shader_parameter("albedo_map", ImageTexture.create_from_image(albedo))
+		finish.set_shader_parameter("normal_map", ImageTexture.create_from_image(normal))
+		finish.set_shader_parameter("copper_threshold", 0.65 if rubble else 0.59)
 		if rubble:
 			ore_rubble_finish = finish
 		else:
@@ -1240,14 +1243,14 @@ class ProductionEnvironment:
 							var center: Array = region.get("position", [])
 							if center.size() != 3:
 								continue
-							var span := Vector2((point.x - float(center[0])) / 4.1,
-								(point.y - float(center[2])) / 3.7).length()
+							var span := Vector2((point.x - float(center[0])) / 2.7,
+								(point.y - float(center[2])) / 2.5).length()
 							var weight: float = 1.0 - smoothstep(0.33, 0.96, span + roughness * 0.16)
 							local_patch = maxf(local_patch, weight * sqrt(float(balances.get(
 								str(region.get("id", "")), 0.0))))
 						var grain: float = smoothstep(-0.45, 0.50, fleck + roughness * 0.25)
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
-							* (0.10 + 0.54 * local_patch) * (0.45 + 0.55 * grain)
+							* (0.17 + 0.64 * local_patch) * (0.40 + 0.60 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.85)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
@@ -1255,7 +1258,7 @@ class ProductionEnvironment:
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
 			if fraction <= 0.01:
 				continue
-			for n in range(9):
+			for n in range(5):
 				var seed: int = absi(int(cell[0]) * 73856093 ^ int(cell[1]) * 19349663 ^ n * 83492791)
 				var dx: float = (float(seed % 101) / 100.0 - 0.5) * 1.12
 				var dz: float = (float((seed / 101) % 101) / 100.0 - 0.5) * 1.12
@@ -1263,15 +1266,16 @@ class ProductionEnvironment:
 				var z: float = cz + dz
 				if x <= Surface.river_center_x(z) + Surface.channel_half_width(z) + 0.18:
 					continue
-				var size: float = 0.05 + float(seed % 9) * 0.011
+				var size: float = 0.05 + float(seed % 9) * 0.009
 				var height: float = 0.02 + float((seed / 7) % 5) * 0.007
 				var basis := Basis(Vector3.UP, float(seed % 360) * PI / 180.0)
 				basis = basis.scaled_local(Vector3(size, height, size * 0.72))
 				stones.append(Transform3D(basis,
 					Vector3(x, Surface.height_at(x, z) + height * 0.45, z)))
-				var chip_color := Color("b56f4b") if seed % 9 == 0 else \
-					Color("b2a392").lerp(Color("87776a"), float(seed % 5) / 5.0)
+				var chip_color := Color("b88460") if seed % 9 == 0 else \
+					Color("c3ad98").lerp(Color("a89480"), float(seed % 5) / 5.0)
 				stone_colors.append(chip_color)
+		surface.generate_tangents()
 		var soil := MeshInstance3D.new()
 		soil.name = "CopperBearingGround"
 		soil.mesh = surface.commit()
@@ -1319,9 +1323,9 @@ class ProductionEnvironment:
 				clump.material_override = heart_finish
 				clump.position = Vector3(x, Surface.height_at(x, z) - 0.09, z)
 				clump.rotation.y = facing
-				clump.scale = Vector3(0.74 + 0.07 * float(region_index % 3),
-					0.35 + 0.04 * float(region_index % 2),
-					0.78 + 0.07 * float((region_index + 1) % 3))
+				clump.scale = Vector3(0.67 + 0.05 * float(region_index % 3),
+					0.46 + 0.04 * float(region_index % 2),
+					0.70 + 0.06 * float((region_index + 1) % 3))
 				root.add_child(clump)
 			for satellite in range(2):
 				var angle: float = facing + float(satellite) * 2.43

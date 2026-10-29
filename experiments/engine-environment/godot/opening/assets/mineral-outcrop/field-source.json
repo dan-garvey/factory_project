@@ -38,8 +38,11 @@
     "authors": "Charlotte Baglioni, photography; Dario Barresi, processing",
     "license": "CC0-1.0",
     "source_albedo_sha256": "902b115c4c0ace069862368b751e4799f338164cee62b53b61df3b6994165d95",
+    "source_normal_sha256": "9d8bc7221e200aeff6d7072bb617be7182802b52c9d185e67d1e63e950b09132",
     "preparation": "Lanczos resized in linear light to 768 pixels and encoded as lossy WebP at quality 0.79.",
-    "prepared_albedo_sha256": "a9de6ca52b6162997006c6b0ce0f3f99cb4023340c0f572a6783de4cd32a0a82"
+    "prepared_albedo_sha256": "a9de6ca52b6162997006c6b0ce0f3f99cb4023340c0f572a6783de4cd32a0a82",
+    "prepared_normal_sha256": "3478cb6981f46355f1e93d575eff289f6213763d4e8bc869fe1cbd4c7af64287",
+    "normal_preparation": "OpenGL normal Lanczos resized to 512 pixels, renormalized and lossless WebP encoded."
   },
   "limits": "These scans and gravel are presentation assets only. Source glTF files are retained in the task's private asset family, not shipped in the game. A passive render cannot establish player collision, collector clearance, depletion behavior in ordinary play, or performance."
 }
