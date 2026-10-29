@@ -53,12 +53,9 @@ class ProductionEnvironment:
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
-	static var ore_heart_finish: StandardMaterial3D
-	static var ore_rubble_finish: StandardMaterial3D
-	static var ore_chip_mesh: ArrayMesh
+	static var ore_patch_finish: ShaderMaterial
 	const ORE_FIELD_PATCH = preload("res://opening/assets/mineral-outcrop/field-rock-gravel-low.glb")
-	const ORE_FIELD_HEART = preload("res://opening/assets/mineral-outcrop/field-heart-lod3.res")
-	const ORE_FIELD_RUBBLE = preload("res://opening/assets/mineral-outcrop/field-rubble-lod3.res")
+	const ORE_FIELD_PATCH_SHADER = preload("res://opening/ore_field_scan.gdshader")
 
 	static func ground_material() -> ShaderMaterial:
 		if ground_source_status != "uninitialized":
@@ -1120,18 +1117,13 @@ class ProductionEnvironment:
 
 	static func _ore_ground_material() -> StandardMaterial3D:
 		if ore_ground_finish == null:
-			var image := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/field-pebbles-albedo.webp")
-			var normal := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/field-pebbles-normal-gl.webp")
-			if image == null or normal == null or image.generate_mipmaps() != OK \
-					or normal.generate_mipmaps(true) != OK:
-				push_error("The broad ore field requires its scanned pebble surface.")
+			var image := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/ore-soil.webp")
+			if image == null or image.generate_mipmaps() != OK:
+				push_error("The broad ore field requires its prepared mineral-soil surface.")
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
-			ore_ground_finish.albedo_color = Color("b3aea5")
-			ore_ground_finish.normal_enabled = true
-			ore_ground_finish.normal_texture = ImageTexture.create_from_image(normal)
-			ore_ground_finish.normal_scale = 0.8
+			ore_ground_finish.albedo_color = Color.WHITE
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1139,52 +1131,18 @@ class ProductionEnvironment:
 			ore_ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ore_ground_finish
 
-	static func _ore_scan_material(rubble: bool) -> StandardMaterial3D:
-		if rubble and ore_rubble_finish != null:
-			return ore_rubble_finish
-		if not rubble and ore_heart_finish != null:
-			return ore_heart_finish
-		var basename := "field-rubble" if rubble else "field-heart"
-		var albedo := ProductionVisuals.read_image(
-			"res://opening/assets/mineral-outcrop/" + basename + "-albedo.webp")
-		var normal := ProductionVisuals.read_image(
-			"res://opening/assets/mineral-outcrop/" + basename + "-normal-gl.webp")
-		if albedo == null or normal == null or albedo.generate_mipmaps() != OK \
-				or normal.generate_mipmaps(true) != OK:
-			push_error("The broad ore field requires its scanned outcrop surfaces.")
+	static func _ore_patch_material(mesh_part: MeshInstance3D) -> ShaderMaterial:
+		if ore_patch_finish != null:
+			return ore_patch_finish
+		var scanned := mesh_part.get_active_material(0) as StandardMaterial3D
+		if scanned == null or scanned.albedo_texture == null or scanned.normal_texture == null:
+			push_error("The broad ore field requires its scanned rock material.")
 			return null
-		var finish := StandardMaterial3D.new()
-		finish.albedo_texture = ImageTexture.create_from_image(albedo)
-		finish.normal_enabled = true
-		finish.normal_texture = ImageTexture.create_from_image(normal)
-		finish.normal_scale = 0.8
-		finish.roughness = 0.95
-		finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		if rubble:
-			ore_rubble_finish = finish
-		else:
-			ore_heart_finish = finish
-		return finish
-
-	static func _ore_chip() -> ArrayMesh:
-		if ore_chip_mesh != null:
-			return ore_chip_mesh
-		var ring: Array[Vector3] = [Vector3(-0.5, -0.18, -0.31),
-			Vector3(-0.16, -0.19, -0.48), Vector3(0.39, -0.16, -0.34),
-			Vector3(0.5, -0.17, 0.19), Vector3(0.08, -0.18, 0.47),
-			Vector3(-0.42, -0.16, 0.33)]
-		var crest := Vector3(-0.09, 0.49, -0.04)
-		var source := SurfaceTool.new()
-		source.begin(Mesh.PRIMITIVE_TRIANGLES)
-		for index in range(ring.size()):
-			var a: Vector3 = ring[(index + 1) % ring.size()]
-			var b: Vector3 = ring[index]
-			var normal := (b - a).cross(crest - a).normalized()
-			for vertex: Vector3 in [a, b, crest]:
-				source.set_normal(normal)
-				source.add_vertex(vertex)
-		ore_chip_mesh = source.commit()
-		return ore_chip_mesh
+		ore_patch_finish = ShaderMaterial.new()
+		ore_patch_finish.shader = ORE_FIELD_PATCH_SHADER
+		ore_patch_finish.set_shader_parameter("albedo_map", scanned.albedo_texture)
+		ore_patch_finish.set_shader_parameter("normal_map", scanned.normal_texture)
+		return ore_patch_finish
 
 	static func ore_field(state: Dictionary) -> Node3D:
 		# This surface is read from the native deposit cells and region balances.
@@ -1219,8 +1177,6 @@ class ProductionEnvironment:
 		root.name = "OreField"
 		var surface := SurfaceTool.new()
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-		var stones: Array[Transform3D] = []
-		var stone_colors: Array[Color] = []
 		for index in range(cells.size()):
 			var cell: Array = cells[index]
 			var cx: float = float(cell[0]) * Geometry.PITCH
@@ -1245,38 +1201,21 @@ class ProductionEnvironment:
 							var center: Array = region.get("position", [])
 							if center.size() != 3:
 								continue
-							var span := Vector2((point.x - float(center[0])) / 2.7,
-								(point.y - float(center[2])) / 2.5).length()
+							var span := Vector2((point.x - float(center[0])) / 4.0,
+								(point.y - float(center[2])) / 3.5).length()
 							var weight: float = 1.0 - smoothstep(0.33, 0.96, span + roughness * 0.16)
 							local_patch = maxf(local_patch, weight * sqrt(float(balances.get(
 								str(region.get("id", "")), 0.0))))
 						var grain: float = smoothstep(-0.45, 0.50, fleck + roughness * 0.25)
+						var bank: float = Surface.river_center_x(point.y) + Surface.channel_half_width(point.y)
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
-							* (0.10 + 0.48 * local_patch) * (0.40 + 0.60 * grain)
+							* smoothstep(0.12, 0.85, point.x - bank) \
+							* (0.04 + 0.08 * fraction + 0.74 * local_patch) * (0.65 + 0.35 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.85)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
 						surface.add_vertex(Vector3(point.x,
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
-			if fraction <= 0.01:
-				continue
-			for n in range(2):
-				var seed: int = absi(int(cell[0]) * 73856093 ^ int(cell[1]) * 19349663 ^ n * 83492791)
-				var dx: float = (float(seed % 101) / 100.0 - 0.5) * 1.12
-				var dz: float = (float((seed / 101) % 101) / 100.0 - 0.5) * 1.12
-				var x: float = cx + dx
-				var z: float = cz + dz
-				if x <= Surface.river_center_x(z) + Surface.channel_half_width(z) + 0.18:
-					continue
-				var size: float = 0.035 + float(seed % 9) * 0.006
-				var height: float = 0.02 + float((seed / 7) % 5) * 0.007
-				var basis := Basis(Vector3.UP, float(seed % 360) * PI / 180.0)
-				basis = basis.scaled_local(Vector3(size, height, size * 0.72))
-				stones.append(Transform3D(basis,
-					Vector3(x, Surface.height_at(x, z) + height * 0.45, z)))
-				var chip_color := Color("a68c75") if seed % 9 == 0 else \
-					Color("c3ad98").lerp(Color("a89480"), float(seed % 5) / 5.0)
-				stone_colors.append(chip_color)
 		surface.generate_tangents()
 		var soil := MeshInstance3D.new()
 		soil.name = "CopperBearingGround"
@@ -1284,29 +1223,6 @@ class ProductionEnvironment:
 		soil.material_override = _ore_ground_material()
 		soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(soil)
-		if not stones.is_empty():
-			var multimesh := MultiMesh.new()
-			multimesh.transform_format = MultiMesh.TRANSFORM_3D
-			multimesh.use_colors = true
-			multimesh.mesh = _ore_chip()
-			multimesh.instance_count = stones.size()
-			for index in range(stones.size()):
-				multimesh.set_instance_transform(index, stones[index])
-				multimesh.set_instance_color(index, stone_colors[index])
-			var gravel := MultiMeshInstance3D.new()
-			gravel.name = "CopperGravel"
-			gravel.multimesh = multimesh
-			var stone_finish := StandardMaterial3D.new()
-			stone_finish.vertex_color_use_as_albedo = true
-			stone_finish.albedo_color = Color.WHITE
-			stone_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
-			stone_finish.roughness = 0.94
-			gravel.material_override = stone_finish
-			root.add_child(gravel)
-		var heart_finish := _ore_scan_material(false)
-		var rubble_finish := _ore_scan_material(true)
-		if heart_finish == null or rubble_finish == null:
-			return root
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
 				continue
@@ -1314,27 +1230,25 @@ class ProductionEnvironment:
 			if center.size() != 3:
 				continue
 			var region_index: int = int(str(region.get("id", "")).get_slice("-region-", 1))
+			# Region 4 retains the preexisting physical bank rock and its own soil cue.
+			if region_index == 4:
+				continue
 			var x: float = float(center[0])
 			var z: float = float(center[2])
 			var bank: float = Surface.river_center_x(z) + Surface.channel_half_width(z)
-			x = maxf(x, bank + 1.6)
+			x = maxf(x, bank + 2.2)
 			var facing: float = [-0.28, 0.45, 0.22, -0.38, 0.15, 0.5][region_index]
 			var patch: Node3D = ORE_FIELD_PATCH.instantiate()
 			patch.name = "StoneAndGravelRegion%d" % region_index
 			patch.position = Vector3(x, Surface.height_at(x, z) - 0.03, z)
 			patch.rotation.y = facing
-			patch.scale = Vector3.ONE * 0.4
+			patch.scale = Vector3.ONE * 0.45
+			var rock_part := patch.get_node_or_null("Mesh") as MeshInstance3D
+			if rock_part == null:
+				push_error("The broad ore field requires its scanned rock mesh.")
+				return root
+			rock_part.material_override = _ore_patch_material(rock_part)
 			root.add_child(patch)
-			# The physical contact rock already occupies near-bank region 4.
-			if region_index != 4:
-				var clump := MeshInstance3D.new()
-				clump.name = "CopperOutcropRegion%d" % region_index
-				clump.mesh = ORE_FIELD_HEART
-				clump.material_override = heart_finish
-				clump.position = Vector3(x + 0.35, Surface.height_at(x + 0.35, z) - 0.09, z)
-				clump.rotation.y = facing
-				clump.scale = Vector3(0.42, 0.40, 0.44)
-				root.add_child(clump)
 		return root
 
 	static func build(parent: Node3D) -> Node3D:
