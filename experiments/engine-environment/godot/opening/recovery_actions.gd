@@ -720,7 +720,7 @@ class ArrivalAssemblyControls:
 		button.destination = destination
 		button.icon = load("res://opening/assets/build-icons/%s.svg" % icon_name)
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		button.custom_minimum_size = Vector2(52, 42)
+		button.custom_minimum_size = Vector2(52, 56)
 		button.focus_mode = Control.FOCUS_ALL
 		button.tooltip_text = description
 		button.accessibility_name = description
@@ -942,7 +942,9 @@ class ArrivalAssemblyControls:
 				else "Compact four carried copper offcuts here to recover copper." if int(cargo.get("offcuts", 0)) >= 4 \
 				else "Cut ore with the multitool or build a collector."
 			if not work.is_empty():
-				advice = "Pick up the copper offcut beneath the %s before feeding again." % work_face if int(work.get("offcuts", 0)) > 0 \
+				advice = "Pick up the copper plate and offcut together before feeding again." \
+					if int(work.get("offcuts", 0)) > 0 and int(work.get("products", 0)) > 0 else \
+					"Pick up the copper offcut beneath the %s before feeding again." % work_face if int(work.get("offcuts", 0)) > 0 \
 					else "Exit holds a copper plate; pick it up, then turn again." if int(exit_drop.get("products", 0)) > 0 \
 					else "Turn the crank to advance retained work."
 				var work_lots: Array = work.get("work_lots", [])
@@ -1266,6 +1268,9 @@ class ArrivalAssemblyControls:
 				return output
 		return _drop_at(_route().get("exit", []))
 
+	func _plate_drop(work: Dictionary) -> Dictionary:
+		return work if int(work.get("products", 0)) > 0 else _exit_drop()
+
 	func _host_view():
 		return _host.get_ref() if _host != null else null
 
@@ -1286,7 +1291,7 @@ class ArrivalAssemblyControls:
 			return
 		var cargo: Dictionary = _snapshot.get("cargo", {}).get(_actor, {})
 		var work: Dictionary = _drop_at(_broad_press.get("origin", [])) if _inventory_broad else _work_drop()
-		var output: Dictionary = work if _inventory_broad else _exit_drop()
+		var output: Dictionary = work if _inventory_broad else _plate_drop(work)
 		var bench_lots: Array = work.get("work_lots", [])
 		var counts := {
 			"workbed_work": int(work.get("raw", 0)) + int(work.get("offcuts", 0)) + bench_lots.size(),
@@ -1354,7 +1359,10 @@ class ArrivalAssemblyControls:
 			count.visible = occupied
 			count.text = str(counts[key]) if occupied else ""
 			button.disabled = not ready or not occupied
-		inventory_workbed_heading.text = "ON 2×2 WORKBED  →  SHEET" if _inventory_broad else "ON THE WORKBED  →  OUTLET"
+		var plate_on_workbed: bool = not _inventory_broad and int(work.get("products", 0)) > 0
+		var paired_on_workbed: bool = plate_on_workbed and counts.workbed_work > 0
+		inventory_workbed_heading.text = "ON 2×2 WORKBED  →  SHEET" if _inventory_broad else \
+			"ON THE WORKBED" if plate_on_workbed else "ON THE WORKBED  →  OUTLET"
 		var work_icon := "offcut" if int(work.get("offcuts", 0)) > 0 else \
 			"ore" if int(work.get("raw", 0)) > 0 else \
 			"sheet" if _inventory_broad else "workpiece"
@@ -1367,10 +1375,13 @@ class ArrivalAssemblyControls:
 			"%d copper offcut" % int(work.get("offcuts", 0)) if int(work.get("offcuts", 0)) > 0 else \
 			"Copper ×%d" % int(work.get("raw", 0)) if int(work.get("raw", 0)) > 0 else \
 			"Copper workpiece, %d strokes remain" % int(bench_lots[0].get("remaining", 0)) if not bench_lots.is_empty() and bench_lots[0] is Dictionary else "Empty work face"
-		inventory_slots.workbed_work.tooltip_text = "%s. Select or drag to carry · U" % work_label
+		inventory_slots.workbed_work.tooltip_text = "%s. Select or drag to carry both together · U" % work_label \
+			if paired_on_workbed else "%s. Select or drag to carry · U" % work_label
 		inventory_slots.workbed_work.accessibility_name = inventory_slots.workbed_work.tooltip_text
 		inventory_slots.workbed_output.tooltip_text = "Copper sheet ×%d on four anvils. Select or drag to carry · P" % counts.workbed_output \
-			if _inventory_broad else "Copper plate ×%d at outlet. Select or drag to carry · P" % counts.workbed_output
+			if _inventory_broad else "Copper plate ×%d on workbed. Select or drag to carry both together · P" % counts.workbed_output \
+			if paired_on_workbed else "Copper plate ×%d on workbed. Select or drag to carry · P" % counts.workbed_output \
+			if plate_on_workbed else "Copper plate ×%d at outlet. Select or drag to carry · P" % counts.workbed_output
 		inventory_slots.workbed_output.accessibility_name = inventory_slots.workbed_output.tooltip_text
 
 	func _inventory_can_issue() -> bool:
@@ -1392,7 +1403,7 @@ class ArrivalAssemblyControls:
 			return {}
 		var cargo: Dictionary = _snapshot.get("cargo", {}).get(_actor, {})
 		var work: Dictionary = _drop_at(_broad_press.get("origin", [])) if _inventory_broad else _work_drop()
-		var output: Dictionary = work if _inventory_broad else _exit_drop()
+		var output: Dictionary = work if _inventory_broad else _plate_drop(work)
 		var route := _route()
 		var selected_exit: Array = _press.get("selected_exit", [])
 		var clear_route: bool = not route.is_empty() and (selected_exit.is_empty() or route.get("exit") == selected_exit)
@@ -1415,7 +1426,7 @@ class ArrivalAssemblyControls:
 			"workbed_work":
 				var held_work: bool = int(work.get("raw", 0)) > 0 or int(work.get("offcuts", 0)) > 0 \
 					or not work.get("work_lots", []).is_empty()
-				if not work.is_empty() and (not _inventory_broad or held_work):
+				if held_work:
 					var expected := work.duplicate(true)
 					expected.erase("center")
 					wire = {"action": "pickup_material", "center": work.center.duplicate(), "expected": expected}

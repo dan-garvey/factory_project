@@ -113,6 +113,7 @@ inline constexpr std::array mass_fields{
     Field{"stock_chunks", Type::integer}, Field{"work_chunks", Type::integer},
     Field{"plates", Type::integer}, Field{"offcut_units", Type::integer},
     Field{"sheets", Type::integer}, Field{"embodied_chunks", Type::integer},
+    Field{"embodied_plates", Type::integer},
     Field{"accounted_mass", Type::integer}, Field{"initial_mass", Type::integer},
 };
 inline constexpr std::array<std::string_view, 2> hand_source_kinds{
@@ -241,7 +242,7 @@ inline constexpr std::array recipe_fields{
 inline constexpr std::array part_recipe_fields{
     Field{"kind", Type::string}, Field{"teeth", Type::integer},
     Field{"half_span", Type::integer}, Field{"timber", Type::integer},
-    Field{"copper", Type::integer},
+    Field{"copper", Type::integer}, Field{"plate", Type::integer},
 };
 inline constexpr std::array supplied_hardware_fields{
     Field{"entity", Type::string}, Field{"generation", Type::integer},

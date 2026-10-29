@@ -1,4 +1,5 @@
 #include "../proof.hpp"
+#include "rpc_server.hpp"
 #include <fstream>
 #include <iostream>
 using namespace factory::proof;
@@ -147,8 +148,95 @@ int main(int argc, char **argv) {
     git({"update-ref", "refs/heads/main", candidate, baseline});
     require(git({"rev-parse", "main"}) == candidate + "\n",
             "Approved main update failed");
+    // End-to-end CLI test for Antigravity submit, session persistence, and
+    // clean-environment WSL delivery.
+    const auto fakeBr = root / "fake-br";
+    std::ofstream(fakeBr)
+        << "#!/bin/sh\n"
+           "if [ \"$1\" = \"show\" ]; then\n"
+           "  printf '[{\"id\":\"factory-fixture\",\"status\":\"in_progress\","
+           "\"assignee\":\"test\"}]\\n'\n"
+           "fi\n"
+           "exit 0\n";
+    fs::permissions(fakeBr, fs::perms::owner_all);
+    write_json(repo / ".git/factory-proof/config.json",
+               Json{{"store", store.string()},
+                    {"socket", "/unused-codex-socket"},
+                    {"beads", fakeBr.string()}});
+    const auto agyStateFile = root / "agy-cli-state.json";
+    write_json(agyStateFile,
+               Json{{"csrf_token", "cli-csrf"},
+                    {"status", "CASCADE_RUN_STATUS_IDLE"},
+                    {"steps", Json::array()}});
+    AntigravityRpcFixture agyServer(agyStateFile);
+    const std::string agyAddr =
+        "127.0.0.1:" + std::to_string(agyServer.port);
+    const std::string agyThread = "00000000-0000-0000-0000-000000000009";
+    auto runAgyCli = [&](const std::string &subcmd,
+                         const std::string &extra = "") {
+      return run({"sh", "-c",
+                  "unset CODEX_THREAD_ID; "
+                  "export ANTIGRAVITY_CONVERSATION_ID=" +
+                      agyThread + " ANTIGRAVITY_LS_ADDRESS=" + agyAddr +
+                      " ANTIGRAVITY_CSRF_TOKEN=cli-csrf; "
+                      "exec \"$1\" " +
+                      subcmd + " --root \"$2\" " + extra,
+                  "agy-cli", tool.string(), repo.string()},
+                 repo);
+    };
+    const auto connCheck = runAgyCli("check-connection");
+    require(connCheck.code == 0 &&
+                Json::parse(connCheck.output).at("runtime") == "antigravity",
+            "Antigravity CLI check-connection failed: " + connCheck.output);
+    const auto bothSet = run(
+        {"sh", "-c",
+         "export CODEX_THREAD_ID=" + agyThread +
+             " ANTIGRAVITY_CONVERSATION_ID=" + agyThread +
+             " ANTIGRAVITY_LS_ADDRESS=" + agyAddr +
+             " ANTIGRAVITY_CSRF_TOKEN=cli-csrf; "
+             "exec \"$1\" check-connection --root \"$2\"",
+         "agy-both", tool.string(), repo.string()},
+        repo);
+    require(bothSet.code != 0,
+            "CLI accepted simultaneous CODEX_THREAD_ID and "
+            "ANTIGRAVITY_CONVERSATION_ID");
+    m["stage"] = "direction";
+    m.erase("direction");
+    m["cases"][0]["media"][0]["role"] = "concept";
+    const auto manifestFile = root / "agy-manifest.json";
+    write_json(manifestFile, m);
+    const auto subOut =
+        runAgyCli("submit", "--manifest \"" + manifestFile.string() + "\"");
+    require(subOut.code == 0, "Antigravity CLI submit failed: " + subOut.output);
+    const auto cliBundleId =
+        Json::parse(subOut.output).at("id").get<std::string>();
+    const auto decisionFile = root / "agy-decision.json";
+    write_json(decisionFile,
+               Json{{"verdict", "approved"},
+                    {"reviewed_manifest_sha256",
+                     digest(store / cliBundleId / "manifest.json")},
+                    {"cases",
+                     {{"shape",
+                       {{"status", "approved"}, {"note", "CLI approval"}}}}}});
+    require(run({tool.string(), "decide", "--root", repo.string(), "--id",
+                 cliBundleId, "--decision", decisionFile.string()},
+                repo)
+                    .code == 0,
+            "Antigravity CLI decide failed");
+    const auto wslDeliver = run(
+        {"sh", "-c",
+         "unset CODEX_THREAD_ID ANTIGRAVITY_CONVERSATION_ID "
+         "ANTIGRAVITY_LS_ADDRESS ANTIGRAVITY_CSRF_TOKEN; "
+         "exec \"$1\" deliver --root \"$2\" --id \"$3\"",
+         "wsl-deliver", tool.string(), repo.string(), cliBundleId},
+        repo);
+    require(wslDeliver.code == 0 &&
+                Json::parse(wslDeliver.output).at("status") == "delivered" &&
+                read_json(agyStateFile).at("steps").size() == 1,
+            "Clean-environment WSL delivery to Antigravity failed: " +
+                wslDeliver.output);
     fs::remove_all(root);
-    std::cout << "PROOF_HOOKS_PASS 12\n";
+    std::cout << "PROOF_HOOKS_PASS 17\n";
     return 0;
   } catch (const std::exception &e) {
     std::cerr << e.what() << "\nRetained: " << root << '\n';

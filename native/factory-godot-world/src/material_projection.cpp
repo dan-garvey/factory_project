@@ -63,6 +63,7 @@ static Value material_mass_value(const materials::State& state, const materials:
     Integer offcuts = state.stock.offcuts;
     Integer sheets = 0;
     Integer embodied_chunks = state.fabricated_raw;
+    Integer embodied_plates = state.fabricated_plates;
     const auto count_cargo = [&](const materials::Cargo& cargo) {
         stock_chunks += cargo.raw_units;
         plates += cargo.products;
@@ -84,11 +85,12 @@ static Value material_mass_value(const materials::State& state, const materials:
     const Integer plate_mass = config.plate_mass == 0 ?
         config.input_units_per_product * config.raw_mass : config.plate_mass;
     const Integer accounted = (stock_chunks + work_chunks + embodied_chunks) * config.raw_mass +
-        plates * plate_mass + offcuts + sheets * config.sheet_mass;
+        (plates + embodied_plates) * plate_mass + offcuts + sheets * config.sheet_mass;
     return Value(Object{{"stock_chunks", Value(stock_chunks)},
         {"work_chunks", Value(work_chunks)}, {"plates", Value(plates)},
         {"offcut_units", Value(offcuts)}, {"sheets", Value(sheets)},
         {"embodied_chunks", Value(embodied_chunks)},
+        {"embodied_plates", Value(embodied_plates)},
         {"accounted_mass", Value(accounted)},
         {"initial_mass", Value(state.initial_units * config.raw_mass)}});
 }

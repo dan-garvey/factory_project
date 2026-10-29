@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <regex>
 #include <sstream>
 
 using namespace factory::proof;
@@ -32,6 +33,60 @@ Json beads_issue(const std::string &br, const fs::path &repo,
   auto result = Json::parse(r.output.substr(start));
   return result.is_array() ? result.at(0) : result;
 }
+std::string configure_active_session(const fs::path &config_path,
+                                     Json &config) {
+  const auto codex_thread = env("CODEX_THREAD_ID");
+  const auto agy_thread = env("ANTIGRAVITY_CONVERSATION_ID");
+  require(codex_thread.empty() || agy_thread.empty(),
+          "Set only one of CODEX_THREAD_ID or ANTIGRAVITY_CONVERSATION_ID");
+  if (!agy_thread.empty()) {
+    require(std::regex_match(
+                agy_thread,
+                std::regex("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")),
+            "Invalid ANTIGRAVITY_CONVERSATION_ID");
+    const auto address = env("ANTIGRAVITY_LS_ADDRESS");
+    const auto csrf = env("ANTIGRAVITY_CSRF_TOKEN");
+    require(!address.empty() && !csrf.empty(),
+            "Antigravity proof commands require ANTIGRAVITY_LS_ADDRESS and "
+            "ANTIGRAVITY_CSRF_TOKEN");
+    const auto endpoint = "http://" + address + "#" + csrf;
+    write_json(config_path.parent_path() / "sessions" / (agy_thread + ".json"),
+               Json{{"runtime", "antigravity"},
+                    {"address", address},
+                    {"csrf_token", csrf}});
+    config["socket"] = endpoint;
+    return agy_thread;
+  }
+  return codex_thread;
+}
+void configure_bundle_session(const fs::path &config_path,
+                              const fs::path &store, const std::string &id,
+                              Json &config) {
+  const auto manifest_path = store / id / "manifest.json";
+  if (!fs::exists(manifest_path))
+    return;
+  const auto m = read_json(manifest_path);
+  const auto thread = m.value("thread", std::string());
+  if (thread.empty())
+    return;
+  const auto session_path =
+      config_path.parent_path() / "sessions" / (thread + ".json");
+  if (fs::exists(session_path)) {
+    const auto session = read_json(session_path);
+    if (session.value("runtime", std::string()) == "antigravity") {
+      config["socket"] = "http://" + session.at("address").get<std::string>() +
+                         "#" + session.at("csrf_token").get<std::string>();
+      return;
+    }
+  }
+  const auto wait_path = store / id / "goal-wait.json";
+  if (fs::exists(wait_path) &&
+      read_json(wait_path).value("runtime", std::string()) == "antigravity") {
+    throw std::runtime_error(
+        "Missing Antigravity session endpoint for conversation " + thread +
+        "; run scripts/proof.sh check-connection in that session");
+  }
+}
 } // namespace
 int main(int argc, char **argv) {
   try {
@@ -42,7 +97,8 @@ int main(int argc, char **argv) {
              "reconcile|declare-"
              "nonvisual> "
              "--root REPO [options]\n"
-             "submit --manifest FILE uses CODEX_THREAD_ID; end your turn after "
+             "submit --manifest FILE uses CODEX_THREAD_ID or "
+             "ANTIGRAVITY_CONVERSATION_ID; end your turn after "
              "submission.\n"
              "decide --id ID --decision FILE records the human decision.\n"
              "discard|restore --id ID --manifest-sha256 HASH changes only the "
@@ -94,15 +150,28 @@ int main(int argc, char **argv) {
     fs::path store(config.at("store").get<std::string>());
     auto br = config.at("beads").get<std::string>();
     if (command == "check-connection") {
-      auto result =
-          codex_rpc(config.at("socket").get<std::string>(), "thread/goal/get",
-                    Json{{"threadId", env("CODEX_THREAD_ID")}});
-      std::cout << Json{{"connected", true},
-                        {"goal_status", result.at("goal").is_null()
-                                            ? Json("none")
-                                            : result.at("goal").at("status")}}
-                       .dump()
-                << '\n';
+      const auto thread = configure_active_session(config_path, config);
+      const auto endpoint = config.at("socket").get<std::string>();
+      if (is_antigravity_endpoint(endpoint)) {
+        auto result = antigravity_rpc(endpoint, "GetCascadeTrajectory",
+                                      Json{{"cascadeId", thread}});
+        std::cout << Json{{"connected", true},
+                          {"runtime", "antigravity"},
+                          {"cascade_status", result.value("status", "unknown")},
+                          {"goal_status", "none"}}
+                         .dump()
+                  << '\n';
+      } else {
+        auto result =
+            codex_rpc(endpoint, "thread/goal/get", Json{{"threadId", thread}});
+        std::cout << Json{{"connected", true},
+                          {"goal_status",
+                           result.at("goal").is_null()
+                               ? Json("none")
+                               : result.at("goal").at("status")}}
+                         .dump()
+                  << '\n';
+      }
     } else if (command == "submit") {
       auto m = read_json(need(flags, "manifest"));
       validate_manifest(m);
@@ -111,7 +180,8 @@ int main(int argc, char **argv) {
               "Proof actor must own the Bead");
       require(issue.at("status") != "closed",
               "Cannot submit proof for closed work");
-      auto result = submit(store, repo, m, env("CODEX_THREAD_ID"));
+      const auto thread = configure_active_session(config_path, config);
+      auto result = submit(store, repo, m, thread);
       auto id = result.at("id").get<std::string>();
       auto record =
           run({br, "comments", "add", m.at("bead"), "--actor", m.at("actor"),
@@ -127,7 +197,7 @@ int main(int argc, char **argv) {
       require(record.code == 0,
               "Bundle saved but Beads registration failed: " + record.output);
       write_json(store / id / "goal-wait.json",
-                 pause_for_review(config, env("CODEX_THREAD_ID")));
+                 pause_for_review(config, thread));
       write_json(store / id / "registered.json", Json{{"registered", true}});
       std::cout << Json{{"id", id},
                         {"status", "waiting_for_human"},
@@ -168,6 +238,7 @@ int main(int argc, char **argv) {
       require(id.find('/') == std::string::npos &&
                   id.find("..") == std::string::npos,
               "Invalid id");
+      configure_bundle_session(config_path, store, id, config);
       if (fs::exists(store / id / "delivery.json")) {
         auto old = read_json(store / id / "delivery.json");
         if (old.at("status") == "uncertain" || old.at("status") == "sending")
@@ -207,6 +278,7 @@ int main(int argc, char **argv) {
       require(id.find('/') == std::string::npos &&
                   id.find("..") == std::string::npos,
               "Invalid id");
+      configure_bundle_session(config_path, store, id, config);
       require(reconcile_delivery(config, store / id),
               "No matching user-message receipt found; no message was resent");
       std::cout

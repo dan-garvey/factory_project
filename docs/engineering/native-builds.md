@@ -245,8 +245,9 @@ their own records.
 
 Factory Proof Desk runs on Windows; its C++ WSL bridge owns immutable proof
 bundles, Beads records and exact-thread feedback. No additional API key or hosted
-review service is needed. The local Codex daemon must be running. Images, clips, annotations and
-thread identifiers remain private in the configured Windows-local store.
+review service is needed. The local Codex daemon or Antigravity language server
+must be running. Images, clips, annotations and thread identifiers remain private
+in the configured Windows-local store.
 
 Start with [the JSON example](../../native/proof-desk/example-proof.json). Each
 required case declares its acceptance criteria, view conditions and media.
@@ -258,17 +259,21 @@ correction can reference a prior approved proof with `minor_correction: true`
 and a `direction_reason`; this still requires final human approval.
 
 `./scripts/proof.sh submit --manifest /absolute/proof.json` binds the proof to
-`CODEX_THREAD_ID` and the owning Bead's assignee. End the turn immediately after
-submission. The native bridge pauses an active goal under the user's review
-policy; no model polling loop runs. The Windows review decision queues a compact
-approval receipt or requested corrections to that exact thread, then resumes
-only the goal it paused. Approvals carry no images or repeated evidence lists.
-Corrections carry human notes and marked frames, or original context for an
-unmarked case; untouched cases are omitted. Clip paths and timestamps accompany
+`CODEX_THREAD_ID` (or `ANTIGRAVITY_CONVERSATION_ID` with `ANTIGRAVITY_LS_ADDRESS`
+and `ANTIGRAVITY_CSRF_TOKEN`) and the owning Bead's assignee. End the turn
+immediately after submission. The native bridge pauses an active Codex goal under
+the user's review policy; no model polling loop runs. The Windows review decision
+queues a compact approval receipt or requested corrections to that exact
+originating Codex thread or Antigravity conversation, then resumes only the goal
+it paused. Approvals carry no images or repeated evidence lists.
+Corrections carry human notes and only explicitly marked images or frames;
+text-only notes do not resend original evidence. Clip paths and timestamps accompany
 marked frames without expanding every frame. Budgets and unrelated goals
 remain unchanged. Connection failures and invalid-request refusals retain their
 diagnostics and can be retried. An uncertain delivery requires a matching pending
 queue entry or user-message receipt; retry never blindly sends a duplicate.
+Image-bearing receipts allow 64 MiB; marked feedback is checked against that
+budget before sending, including base64 expansion and envelope headroom.
 
 The viewer keeps drafts until Send, and cannot approve a bundle with missing or
 unapproved cases. A bundle allows 64 media items, including at most 32 images;

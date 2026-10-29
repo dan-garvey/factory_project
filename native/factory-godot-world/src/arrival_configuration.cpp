@@ -70,9 +70,9 @@ std::optional<ArrivalConfiguration> make_arrival_configuration(
         profile.material.component_capacity = 0;
         // Reversible cold-workshop costs for a real powered receiver route.
         // Every kit remains in the one World inventory and history ledger.
-        profile.fabrication_parts = {{{Role::shaft, 0, 2}, {1, 0}},
+        profile.fabrication_parts = {{{Role::shaft, 0, 2}, {1, 0, 1}},
             {{Role::belt, 0, 0}, {2, 1}}, {{Role::waterwheel, 0, 0}, {2, 1}},
-            {{Role::gear, 2, 0}, {1, 1}}, {{Role::gear, 4, 0}, {2, 1}},
+            {{Role::gear, 2, 0}, {1, 0, 1}}, {{Role::gear, 4, 0}, {2, 0, 1}},
             {{Role::gearbox, 0, 0}, {1, 1}},
             {{Role::vertical_gearbox, 0, 0}, {1, 1}}};
     } else {

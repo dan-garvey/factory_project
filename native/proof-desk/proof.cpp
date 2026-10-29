@@ -427,7 +427,8 @@ Json submit(const fs::path &store, const fs::path &repo, Json m,
   require(std::regex_match(
               thread,
               std::regex("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")),
-          "Submit from the exact originating CODEX_THREAD_ID");
+          "Submit from the exact originating CODEX_THREAD_ID or "
+          "ANTIGRAVITY_CONVERSATION_ID");
   Lock lock(store);
   std::string stage = m.at("stage");
   auto revision = trimmed(git(repo, {"rev-parse", "HEAD"}));
@@ -610,6 +611,7 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
     message << d.at("note").get<std::string>() << "\n";
   std::vector<std::string> images;
   std::set<std::string> imageHashes;
+  bool hasMarks = false;
   auto addImage = [&](const fs::path &path, const std::string &hash) {
     if (imageHashes.insert(hash).second)
       images.push_back(path.string());
@@ -617,6 +619,7 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
   for (const auto &c : m.at("cases")) {
     const auto &review = d.at("cases").at(c.at("id").get<std::string>());
     const auto marks = review.value("annotations", Json::array());
+    hasMarks |= !marks.empty(); // validate_decision requires annotation text.
     const auto note = review.value("note", std::string());
     if (note.empty() && marks.empty() &&
         review.at("status") != "changes_requested")
@@ -630,17 +633,17 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
       message << "Media " << a.at("media").get<std::string>() << " at "
               << a.at("time_ms") << " ms, (" << a.at("x") << ", " << a.at("y")
               << "): " << a.at("text").get<std::string>() << "\n";
-    if (!corrections)
+    if (!corrections || marks.empty())
       continue;
     for (const auto &media : c.at("media")) {
-      // Marked frames already supply the corrected view. Keep clip references
-      // and fall back to original context only for unmarked case feedback.
-      if (!marks.empty() &&
-          std::none_of(marks.begin(), marks.end(), [&](const Json &a) {
+      // Only explicitly marked evidence accompanies feedback. Text-only case
+      // notes never reattach context already available to the originating
+      // agent.
+      if (std::none_of(marks.begin(), marks.end(), [&](const Json &a) {
             return a.at("media") == media.at("id");
           }))
         continue;
-      if (media.at("kind") == "image" && !marks.empty() &&
+      if (media.at("kind") == "image" &&
           !d.value("attachments", Json::array()).empty())
         continue;
       auto path = (dir / media.at("path").get<std::string>()).string();
@@ -652,11 +655,19 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
   for (const auto &a : d.value("attachments", Json::array())) {
     auto path = dir / a.at("path").get<std::string>();
     require(digest(path) == a.at("sha256"), "Marked feedback changed");
-    if (corrections)
+    if (corrections && hasMarks)
       addImage(path, a.at("sha256"));
   }
   require(images.size() <= 64, "Too many images for one feedback message; "
                                "reduce this proof's media before sending");
+  // The daemon echoes resolved images in its receipt. Refuse before any
+  // mutation if that receipt cannot fit, reserving space for JSON metadata.
+  uintmax_t receiptBytes = Json(message.str()).dump().size() + 1024 * 1024;
+  for (const auto &image : images)
+    receiptBytes += 4 * ((fs::file_size(image) + 2) / 3);
+  require(receiptBytes <= codex_message_limit,
+          "Marked feedback exceeds the 64 MiB delivery limit. Reduce marked "
+          "images or split the review; no agent message was sent.");
   if (!fs::exists(dir / "beads-receipt.json")) {
     auto result = run({beads, "comments", "add", m.at("bead"), "--actor",
                        "factory-proof-desk-human", "--message", message.str()},
@@ -665,24 +676,31 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
             "Decision saved; Beads record failed: " + result.output);
     write_json(dir / "beads-receipt.json", Json{{"recorded", true}});
   }
-  Json input = Json::array({Json{{"type", "text"}, {"text", message.str()}}});
-  for (const auto &image : images)
-    input.push_back(Json{{"type", "localImage"}, {"path", image}});
   const auto clientId = "factory-proof-" + d.at("id").get<std::string>();
   save_state(dir, "sending");
   try {
-    const auto response = codex_rpc(socket, "thread/queue/add",
-                                    Json{{"threadId", m.at("thread")},
-                                         {"clientUserMessageId", clientId},
-                                         {"input", input}});
-    const auto &receipt = response.at("queuedSubmission");
-    require(receipt.at("clientUserMessageId") == clientId,
-            "Codex returned a receipt for another message");
-    write_json(dir / "delivery.json",
-               Json{{"status", "delivered"},
-                    {"detail", "Review queued to the originating agent"},
-                    {"client_message_id", clientId},
-                    {"queued_submission_id", receipt.at("id")}});
+    if (is_antigravity_endpoint(socket)) {
+      write_json(dir / "delivery.json",
+                 antigravity_deliver(socket, m.at("thread"), clientId,
+                                     message.str(), images));
+    } else {
+      Json input =
+          Json::array({Json{{"type", "text"}, {"text", message.str()}}});
+      for (const auto &image : images)
+        input.push_back(Json{{"type", "localImage"}, {"path", image}});
+      const auto response = codex_rpc(socket, "thread/queue/add",
+                                      Json{{"threadId", m.at("thread")},
+                                           {"clientUserMessageId", clientId},
+                                           {"input", input}});
+      const auto &receipt = response.at("queuedSubmission");
+      require(receipt.at("clientUserMessageId") == clientId,
+              "Codex returned a receipt for another message");
+      write_json(dir / "delivery.json",
+                 Json{{"status", "delivered"},
+                      {"detail", "Review queued to the originating agent"},
+                      {"client_message_id", clientId},
+                      {"queued_submission_id", receipt.at("id")}});
+    }
   } catch (const RpcFailure &error) {
     save_state(dir, error.may_have_submitted ? "uncertain" : "failed",
                error.what());

@@ -10,7 +10,7 @@ cc_binary(name = "factory-proof", srcs = ["main.cpp"], deps = [":proof"])
 cc_test(name = "proof_test", srcs = ["tests/proof_test.cpp", "tests/rpc_server.hpp"], deps = [":proof"], size = "small")
 cc_test(
     name = "hooks_test",
-    srcs = ["tests/hooks_test.cpp"],
+    srcs = ["tests/hooks_test.cpp", "tests/rpc_server.hpp"],
     args = [
         "$(rootpath :factory-proof)",
         "$(rootpath //:.githooks/reference-transaction)",
