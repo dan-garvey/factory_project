@@ -253,14 +253,17 @@ Owner::Decision plan_fabrication(const Profile& profile, const Binding& binding,
             return refused(authority::error_name(checked.error), id, std::move(facts));
         const auto cost = recipe->second;
         const auto& carried = state.material.cargo.at(binding.actor);
-        if (carried.timber < cost.timber || carried.raw_units < cost.ore)
+        if (carried.timber < cost.timber || carried.raw_units < cost.ore ||
+            carried.products < cost.plate)
             return refused("unavailable_input", id, std::move(facts));
         auto candidate = state;
         auto& next_cargo = candidate.material.cargo.at(binding.actor);
         next_cargo.timber -= cost.timber;
         next_cargo.raw_units -= cost.ore;
+        next_cargo.products -= cost.plate;
         if (!add(candidate.material.fabricated_timber, cost.timber) ||
             !add(candidate.material.fabricated_raw, cost.ore) ||
+            !add(candidate.material.fabricated_plates, cost.plate) ||
             !add(candidate.kits.at(binding.actor)[recipe->first], 1) ||
             candidate.kits.at(binding.actor)[recipe->first] > 4096)
             return refused("quantity_overflow", id, std::move(facts));
@@ -270,6 +273,7 @@ Owner::Decision plan_fabrication(const Profile& profile, const Binding& binding,
         facts.emplace("half_span", Value(half_span));
         facts.emplace("spent_timber", Value(cost.timber));
         facts.emplace("spent_raw", Value(cost.ore));
+        facts.emplace("spent_plate", Value(cost.plate));
         facts.emplace("part_count", Value(candidate.kits.at(binding.actor).at(recipe->first)));
         return accepted(std::move(candidate), id, std::move(facts));
     }

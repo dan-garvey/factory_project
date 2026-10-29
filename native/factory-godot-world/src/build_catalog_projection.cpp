@@ -103,7 +103,8 @@ Object fields(const world::Profile& profile, const world::Snapshot& snapshot) {
     for (const auto& [specification, cost] : profile.fabrication_parts)
         fabrication.emplace_back(Object{{"kind", Value(kind(specification.role))},
             {"teeth", Value(specification.teeth)}, {"half_span", Value(specification.half_span)},
-            {"timber", Value(cost.timber)}, {"copper", Value(cost.ore)}});
+            {"timber", Value(cost.timber)}, {"copper", Value(cost.ore)},
+            {"plate", Value(cost.plate)}});
     output.emplace("part_recipes", Value(std::move(fabrication)));
     output.emplace("foundation_recipe", Value(Object{{"timber", Value(world::foundation_timber_cost)},
         {"copper", Value(Integer{0})}}));

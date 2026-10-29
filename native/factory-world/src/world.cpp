@@ -631,6 +631,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* made_span = field<Integer>(result, "half_span");
         const auto* timber = field<Integer>(result, "spent_timber");
         const auto* raw = field<Integer>(result, "spent_raw");
+        const auto* plate = field<Integer>(result, "spent_plate");
         const auto* count = field<Integer>(result, "part_count");
         const auto bench_center = historical_bench_center(hub, placed_components, target);
         return bench_center && target && requested_generation && *requested_generation > 0 &&
@@ -639,9 +640,10 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             (requested_teeth ? made_teeth && *made_teeth == *requested_teeth : !made_teeth) &&
             requested_span && made_span && *made_span == *requested_span &&
             recipe != profile.fabrication_parts.end() && timber && *timber == recipe->second.timber &&
-            raw && *raw == recipe->second.ore && count && *count > 0 && *count <= 4096 &&
+            raw && *raw == recipe->second.ore && plate && *plate == recipe->second.plate &&
+            count && *count > 0 && *count <= 4096 &&
             targets.front() == anchor(profile, *bench_center) &&
-            result.size() == (requested_teeth ? 22U : 21U);
+            result.size() == (requested_teeth ? 23U : 22U);
     }
     if (action == "craft_foundation") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -1044,6 +1046,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     // A landing starts every actor with empty raw cargo, so its command history
     // can account for each later unit without inventing a second material State.
     std::map<std::string, Integer> carried_raw;
+    std::map<std::string, Integer> carried_products;
     std::map<std::string, Integer> carried_offcuts;
     std::map<std::string, std::map<materials::WorkId, Value>> carried_work;
     std::map<mechanics::Point, materials::Cargo> broad_work;
@@ -2003,12 +2006,14 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (recipe == profile.fabrication_parts.end() ||
                 carried_timber[*actor] < recipe->second.timber ||
                 carried_raw[*actor] < recipe->second.ore ||
+                carried_products[*actor] < recipe->second.plate ||
                 !add(fabricated_parts[spec], 1) || fabricated_parts[spec] > 4096 ||
                 !add(fabricated_balances[*actor][spec], 1) ||
                 fabricated_balances[*actor][spec] != *field<Integer>(record.result, "part_count"))
                 return false;
             carried_timber[*actor] -= recipe->second.timber;
             carried_raw[*actor] -= recipe->second.ore;
+            carried_products[*actor] -= recipe->second.plate;
         }
         if (*action == "turn_hand_crank") {
             const auto mount = placed_components.find(*entity);
@@ -3134,6 +3139,18 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 carried -= *raw;
             }
         }
+        if (profile.landing_pod_center &&
+            (*action == "collect" || *action == "pickup_material" ||
+             *action == "recover" || *action == "recover_belt_slot" ||
+             *action == "load_belt_slot")) {
+            const auto* moved = field<Integer>(record.result, "moved_products");
+            if (!moved || *moved < 0) return false;
+            auto& carried = carried_products[*actor];
+            if (*action == "load_belt_slot") {
+                if (carried < *moved) return false;
+                carried -= *moved;
+            } else if (!add(carried, *moved)) return false;
+        }
         if (copper_profile(profile.material) && *action == "pickup_material") {
             const auto* moved = field<Integer>(record.result, "moved_offcuts");
             if (!moved || !add(carried_offcuts[*actor], *moved)) return false;
@@ -3636,7 +3653,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (claimed < 1 || claimed != waiting + received_count + exported_count) return false;
     }
     Integer live_products = 0;
-    if (!add(live_products, snapshot.state.material.stock.output)) return false;
+    if (!add(live_products, snapshot.state.material.stock.output) ||
+        !add(live_products, snapshot.state.material.fabricated_plates)) return false;
     const auto count_cargo = [&](const materials::Cargo& cargo) {
         if (!add(live_products, cargo.products)) return false;
         for (const auto& work : cargo.work_lots)
@@ -3663,7 +3681,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (carried_timber[actor] != cargo.timber) return false;
     if (profile.landing_pod_center)
         for (const auto& [actor, cargo] : snapshot.state.material.cargo)
-            if (carried_raw[actor] != cargo.raw_units) return false;
+            if (carried_raw[actor] != cargo.raw_units ||
+                carried_products[actor] != cargo.products) return false;
     if (copper_profile(profile.material))
         for (const auto& [actor, cargo] : snapshot.state.material.cargo)
             if (carried_offcuts[actor] != cargo.offcuts || carried_sheets[actor] != cargo.sheets)
@@ -3709,17 +3728,19 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         (void)recipe;
         expected_parts.try_emplace(spec, 0);
     }
-    Integer embodied_timber = 0, embodied_raw = 0;
+    Integer embodied_timber = 0, embodied_raw = 0, embodied_plates = 0;
     if (!weighted_add(embodied_timber, fabricated_foundations, foundation_timber_cost)) return false;
     for (const auto& [spec, count] : fabricated_parts) {
         const auto recipe = profile.fabrication_parts.find(spec);
         if (recipe == profile.fabrication_parts.end() || count < 1 ||
             !add(expected_parts[spec], count) ||
             !weighted_add(embodied_timber, count, recipe->second.timber) ||
-            !weighted_add(embodied_raw, count, recipe->second.ore)) return false;
+            !weighted_add(embodied_raw, count, recipe->second.ore) ||
+            !weighted_add(embodied_plates, count, recipe->second.plate)) return false;
     }
     if (expected_parts != totals || embodied_timber != snapshot.state.material.fabricated_timber ||
-        embodied_raw != snapshot.state.material.fabricated_raw) return false;
+        embodied_raw != snapshot.state.material.fabricated_raw ||
+        embodied_plates != snapshot.state.material.fabricated_plates) return false;
     for (const auto& [actor, kits] : snapshot.state.kits)
         for (const auto& [spec, recipe] : profile.fabrication_parts) {
             (void)recipe;
@@ -4253,6 +4274,7 @@ static bool tick_preserves_history_bound_fields(const State& prior, const State&
         candidate.material.timber_remaining == prior.material.timber_remaining &&
         candidate.material.fabricated_timber == prior.material.fabricated_timber &&
         candidate.material.fabricated_raw == prior.material.fabricated_raw &&
+        candidate.material.fabricated_plates == prior.material.fabricated_plates &&
         candidate.material.next_work_id >= prior.material.next_work_id;
 }
 
@@ -4284,8 +4306,11 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             (spec.role != Role::waterwheel && spec.role != Role::shaft &&
              spec.role != Role::belt && spec.role != Role::gearbox &&
              spec.role != Role::vertical_gearbox && spec.role != Role::gear) ||
-            cost.timber < 0 || cost.ore < 0 || (cost.timber == 0 && cost.ore == 0) ||
-            cost.timber > 256 || cost.ore > profile.initial_units) return false;
+            cost.timber < 0 || cost.ore < 0 || cost.plate < 0 ||
+            (cost.timber == 0 && cost.ore == 0 && cost.plate == 0) ||
+            (cost.plate > 0 && !copper_profile(profile.material)) ||
+            cost.timber > 256 || cost.ore > profile.initial_units ||
+            cost.plate > profile.initial_units) return false;
     if (profile.landing_pod_center) {
         const auto& center = *profile.landing_pod_center;
         if (profile.foundation_parts < landing_deck_parts || center[0] % 4 || center[1] % 4 || center[2] % 4)

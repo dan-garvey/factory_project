@@ -941,12 +941,92 @@ void flat_head_host_custody() {
           get<I>(get<O>(tray_restored.projection(), "cargo").at("Q"), "products") == 2 &&
           get<bool>(tray_restored.validate_checkpoint(tray_restored.checkpoint()), "accepted"),
           "Workbed pickup keeps the exact finite WorkId after receiver replacement and checkpoint replay.");
+    const auto two_plate_saved = tray_restored.checkpoint();
+    Host cog_host;
+    check(get<bool>(cog_host.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(cog_host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(cog_host.restore_checkpoint(two_plate_saved), "accepted") &&
+          get<bool>(cog_host.publish_actor("Q", {V(5.8), V(1.0), V(-1.0)}, 2), "accepted"),
+          "Both identified plates survive replay before the sized cogwheel branch gathers wood.");
+    for (int index = 0; index < 3; ++index) {
+        const O cut{{"context", V("flat-head-site")}, {"client", V("Q")},
+            {"request", V("plate-cog-wood-" + std::to_string(index))},
+            {"action", V("harvest_source")}, {"target", V("tree-east-upstream")}};
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(cog_host, "Q", cut),
+                  "accepted"), "The two cogwheel frames use three finite timber units.");
+    }
+    const O distant_cog{{"context", V("flat-head-site")}, {"client", V("Q")},
+        {"request", V("plate-cog-too-far")}, {"action", V("craft_part")},
+        {"entity", V("pod-fabrication-hub")}, {"role", V("gear")},
+        {"teeth", V(I{2})}, {"half_span", V(I{0})}};
+    check(get<std::string>(cog_host.command("Q", distant_cog), "reason") == "out_of_reach" &&
+          get<I>(get<O>(cog_host.projection(), "cargo").at("Q"), "products") == 2,
+          "The plate holder must reach the actual workbench before spending a plate.");
+    check(get<bool>(cog_host.publish_actor("Q", {V(3.3), V(1.0), V(4.8)}, 3), "accepted"),
+          "The plate holder reaches the real pod workbench.");
+    check(get<bool>(cog_host.publish_actor("P", {V(5.8), V(1.0), V(11.55)}, 1), "accepted"),
+          "The other worker reaches separate finite timber for a competing recipe.");
+    const O other_timber{{"context", V("flat-head-site")}, {"client", V("P")},
+        {"request", V("other-actor-cog-timber")}, {"action", V("harvest_source")},
+        {"target", V("tree-east-north")}};
+    check(get<bool>(factory::godot_world::tests::complete_manual_cut(cog_host, "P", other_timber),
+              "accepted") &&
+          get<bool>(cog_host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 2), "accepted"),
+          "The other worker brings its own timber to the same workbench.");
+    const auto other_actor_cog = cog_host.command("P", O{
+        {"context", V("flat-head-site")}, {"client", V("P")},
+        {"request", V("other-actor-plate-cog")}, {"action", V("craft_part")},
+        {"entity", V("pod-fabrication-hub")}, {"role", V("gear")},
+        {"teeth", V(I{2})}, {"half_span", V(I{0})}});
+    check(!get<bool>(other_actor_cog, "accepted") &&
+          (get<std::string>(other_actor_cog, "reason") == "unavailable_input" ||
+           get<std::string>(other_actor_cog, "reason") == "first_plate_required") &&
+          get<I>(get<O>(cog_host.projection(), "cargo").at("P"), "products") == 0 &&
+          get<I>(get<O>(cog_host.projection(), "cargo").at("Q"), "products") == 2,
+          "A second worker cannot spend the first worker's carried plates.");
+    const auto make_cog = [&](I teeth) {
+        return cog_host.command("Q", O{{"context", V("flat-head-site")}, {"client", V("Q")},
+            {"request", V("plate-cog-" + std::to_string(teeth))}, {"action", V("craft_part")},
+            {"entity", V("pod-fabrication-hub")}, {"role", V("gear")},
+            {"teeth", V(teeth)}, {"half_span", V(I{0})}});
+    };
+    for (I teeth : {I{2}, I{4}})
+        check(get<bool>(make_cog(teeth), "accepted"),
+              "Each sized gear consumes a finished plate at the workbench.");
+    const auto duplicate_cog = make_cog(I{2});
+    check(get<bool>(duplicate_cog, "accepted") && get<bool>(duplicate_cog, "duplicate"),
+          "Retrying a sized gear receipt cannot spend another plate or add another kit.");
+    const auto cog_view = cog_host.projection();
+    const auto cog_cargo = get<O>(cog_view, "cargo").at("Q");
+    const auto cog_mass = V(get<O>(cog_view, "material_mass"));
+    const auto cog_specs = std::get<A>(get<O>(cog_view, "part_specifications").at("Q").storage());
+    for (I teeth : {I{2}, I{4}})
+        check(std::any_of(cog_specs.begin(), cog_specs.end(), [&](const V& entry) {
+                  return get<std::string>(entry, "kind") == "gear" &&
+                      get<I>(entry, "teeth") == teeth && get<I>(entry, "count") == 1;
+              }), "The two gear sizes keep independent native kit counts.");
+    check(get<I>(cog_cargo, "products") == 0 &&
+          get<I>(cog_mass, "embodied_plates") == 2 &&
+          get<I>(cog_mass, "accounted_mass") == get<I>(cog_mass, "initial_mass"),
+          "Both plate identities are embodied in gears while total copper mass stays conserved.");
+    check(std::find_if(get<A>(cog_view, "workshop_completed_actors").begin(),
+              get<A>(cog_view, "workshop_completed_actors").end(), [](const V& value) {
+                  return std::get<std::string>(value.storage()) == "Q";
+              }) != get<A>(cog_view, "workshop_completed_actors").end(),
+          "Spending the physical plates does not erase the earned first-plate milestone.");
+    const auto cog_saved = cog_host.checkpoint();
+    Host cog_reopened;
+    check(get<bool>(cog_reopened.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
+          get<bool>(cog_reopened.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
+          get<bool>(cog_reopened.restore_checkpoint(cog_saved), "accepted") &&
+          !factory::values::typed_difference(cog_saved, cog_reopened.checkpoint()),
+          "A fresh Host replays both plate debits and separately sized gears.");
     Host unlocked_restored;
     check(get<bool>(unlocked_restored.initialize_arrival("flat-head-site", {"P", "Q"}), "accepted") &&
           get<bool>(unlocked_restored.configure_terrain(factory::godot_world::tests::flat_site()), "accepted") &&
-          get<bool>(unlocked_restored.restore_checkpoint(unlocked_saved), "accepted") &&
-          !factory::values::typed_difference(unlocked_saved, unlocked_restored.checkpoint()),
-          "Fresh replay preserves the actor-specific first-plate unlock and carried plate.");
+          get<bool>(unlocked_restored.restore_checkpoint(two_plate_saved), "accepted") &&
+          !factory::values::typed_difference(two_plate_saved, unlocked_restored.checkpoint()),
+          "Fresh replay preserves both carried plates for the later shaft route.");
     const auto q_command = [&](const std::string& request, const char* action, O extra) {
         O wire{{"context", V("flat-head-site")}, {"client", V("Q")},
             {"request", V(request)}, {"action", V(action)}};
@@ -956,15 +1036,19 @@ void flat_head_host_custody() {
             throw std::runtime_error(request + " refused: " + get<std::string>(reply, "reason"));
         return reply;
     };
+    check(get<bool>(unlocked_restored.publish_actor("Q", {V(6.0), V(1.0), V(3.3)}, 1), "accepted"),
+          "The plate holder resumes within reach of the now-empty receiver tray.");
+    q_command("remote-route-remove-empty-tray", "reclaim_component",
+        {{"entity", V(get<std::string>(tray, "entity"))}});
     check(get<bool>(unlocked_restored.publish_actor("Q", {V(-1.2375), V(1.0), V(0.0)}, 2), "accepted"),
           "The worker with the plate can reach finite copper for a later, distant belt.");
     q_command("remote-belt-ore", "harvest_source",
         {{"target", V("opening-copper")}});
-    check(get<bool>(unlocked_restored.publish_actor("Q", {V(5.8), V(1.0), V(-1.0)}, 3), "accepted"),
+    check(get<bool>(unlocked_restored.publish_actor("Q", {V(0.0), V(1.0), V(11.55)}, 3), "accepted"),
           "The same worker can reach finite timber for the belt kit.");
     for (int index = 0; index < 4; ++index)
         q_command("remote-belt-timber-" + std::to_string(index), "harvest_source",
-            {{"target", V("tree-east-upstream")}});
+            {{"target", V("tree-north")}});
     check(get<bool>(unlocked_restored.publish_actor("Q", {V(3.3), V(1.0), V(4.8)}, 4), "accepted"),
           "The worker brings the real materials back to the native pod bench.");
     for (int index = 0; index < 2; ++index)
@@ -1641,8 +1725,11 @@ void placed_bench_preserves_two_actor_custody() {
     const O craft_shaft{{"context", V("bench-site")}, {"client", V("P")},
         {"request", V("placed-bench-shaft")}, {"action", V("craft_part")},
         {"entity", V(bench_id)}, {"role", V("shaft")}, {"half_span", V(I{2})}};
-    check(get<bool>(host.command("P", craft_shaft), "accepted"),
-          "The player-built bench also replaces the pod for finite stationary shaft kits.");
+    const auto missing_plate = host.command("P", craft_shaft);
+    check(!get<bool>(missing_plate, "accepted") &&
+          get<std::string>(missing_plate, "reason") == "unavailable_input" &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1,
+          "The placed bench also requires a finished plate before it can make a shaft.");
     check(get<bool>(host.publish_actor("P", {V(6.6), V(1.0), V(3.3)}, 4), "accepted"),
           "P returns from the bark to the foundation worksite.");
     const O raised_floor{{"context", V("bench-site")}, {"client", V("P")},
