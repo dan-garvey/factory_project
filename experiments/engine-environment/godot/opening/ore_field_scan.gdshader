@@ -30,7 +30,7 @@ void vertex() {
 void fragment() {
 	vec3 stone = texture(albedo_map, UV).rgb;
 	float value = dot(stone, vec3(0.24, 0.67, 0.09));
-	vec3 host = mix(stone, vec3(value * 0.81, value * 0.86, value * 0.89), 0.57) * 1.04;
+	vec3 host = mix(stone, vec3(value * 0.81, value * 0.86, value * 0.89), 0.52) * 1.12;
 	float warp = rock_noise(scan_point * 1.6 + vec3(4.0, -2.0, 7.0));
 	float layer = sin(dot(scan_point, vec3(2.6, 1.9, 1.2)) + (warp - 0.5) * 4.0);
 	float vein = 1.0 - smoothstep(0.08, 0.22, abs(layer));
@@ -40,7 +40,7 @@ void fragment() {
 	float patch = smoothstep(0.53, 0.70, warp) * (0.55 + 0.45 * fractured);
 	float copper = max(patch, vein * fractured * 0.25) * raised_stone;
 	vec3 mineral = host * vec3(1.36, 0.80, 0.62) + vec3(0.08, 0.025, 0.009);
-	ALBEDO = mix(host, mineral, copper * 0.58);
+	ALBEDO = mix(host, mineral, copper * 0.65);
 	NORMAL_MAP = texture(normal_map, UV).rgb;
 	NORMAL_MAP_DEPTH = 0.76;
 	ROUGHNESS = 0.94;

@@ -1097,26 +1097,12 @@ func check_ore_field_render() -> void:
 		return
 	inspect_visual(field)
 	verify(field.get_node_or_null("CopperBearingGround") != null and
-		field.get_node_or_null("OreRockRegion0_0") != null and
-		field.get_node_or_null("OreRockRegion5_0") != null and
-		field.get_node_or_null("OreRockRegion0_2") != null and
-		field.get_node_or_null("OreRockRegion4_0") != null and
-		field.get_node("OreRockRegion0_0").mesh != field.get_node("OreRockRegion1_0").mesh,
+		field.get_node_or_null("StoneAndGravelRegion0/Mesh") != null and
+		field.get_node_or_null("StoneAndGravelRegion5/Mesh") != null and
+		field.get_node_or_null("StoneFragmentRegion0_0/Mesh") != null and
+		field.get_node_or_null("StoneFragmentRegion4_0/Mesh") != null and
+		field.get_node_or_null("StoneAndGravelRegion4") == null,
 		"The rendered field carries broad mineral soil and varied regional exposures while retaining the physical bank source.")
-	for child in field.get_children():
-		if not child is MeshInstance3D or not child.name.begins_with("OreRockRegion"):
-			continue
-		var rock := child as MeshInstance3D
-		var arrays: Array = rock.mesh.surface_get_arrays(0)
-		var buried := false
-		var exposed := false
-		for vertex: Vector3 in arrays[Mesh.ARRAY_VERTEX]:
-			var world_point: Vector3 = rock.to_global(vertex)
-			var height: float = Scenery.Surface.height_at(world_point.x, world_point.z)
-			buried = buried or world_point.y < height - 0.03
-			exposed = exposed or world_point.y > height + 0.12
-		verify(buried and exposed,
-			"Every distinct ore rock intersects the emitted bank while retaining a visible face.")
 	for shot in [
 		["ore-field-bank-side.png", Vector3(-3.0, 3.2, 10.0), Vector3(1.0, 0.0, 3.0)],
 		["ore-field-aerial.png", Vector3(14.0, 20.0, 12.0), Vector3(5.0, 0.0, -5.5)],
@@ -1146,9 +1132,9 @@ func check_ore_field_render() -> void:
 		view._refresh_ore_field()
 		var depleted_field: Node3D = view.ore_field_visual
 		verify(depleted_field != null and
-			depleted_field.get_node_or_null("OreRockRegion5_0") == null and
-			depleted_field.get_node_or_null("OreRockRegion5_1") == null and
-			depleted_field.get_node_or_null("OreRockRegion0_0") != null,
+			depleted_field.get_node_or_null("StoneAndGravelRegion5") == null and
+			depleted_field.get_node_or_null("StoneFragmentRegion5_0") == null and
+			depleted_field.get_node_or_null("StoneAndGravelRegion0/Mesh") != null,
 			"An empty local region loses its own rock patch while another region remains exposed.")
 		view.camera.position = Vector3(14.0, 20.0, 12.0)
 		view.camera.look_at(Vector3(5.0, 0.0, -5.5))

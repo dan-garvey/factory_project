@@ -15,20 +15,6 @@
     "preparation": "meshoptimizer gltfpack 1.3 Linux SHA-256 595441045457bf3d069ec14fa807b1034d324db003bd66ac6377977cc11e7da3: gltfpack -i coast_land_rocks_03_2k.gltf -o coast-land-03-mixed.glb -si 0.04 -se 0.02 -sp -noq -tw -tq 9 -ts normal,attrib 0.5 -v -r coast-land-03-mixed-report.json. The source has 1,096,655 triangles; the glTF result has 43,866 triangles, 2k WebP color and 1k WebP normal and ARM images. Pinned Godot 4.7.2 GLTFDocument imported the mesh and required material textures without error. The reduced maps target the staged 64 MiB source and 128 MiB import-cache allowances.",
     "prepared_glb_sha256": "b097619e58e85c9aae895a167e18979e86498f17f4b5b50ccb057ff224d7beb9"
   },
-  "distinct_rock_meshes": {
-    "source": "The same prepared Coast Land Rocks 03 glTF mesh and UV set above",
-    "preparation": "Godot 4.7.2 GLTFDocument imports the prepared GLB; union shared triangle indices into connected components, sort by descending face count, select ranks 5, 7, 8, 9, 12, 17, 23 and 26, then save each UV/normal/tangent-preserving mesh centered horizontally at its bounds and vertically at its lowest source vertex. The original GLB remains the material-texture carrier. The eight mesh resources total about 200 KiB.",
-    "sha256": {
-      "field-rock-05.res": "71448973903b862b8fb175de5dc4f4b3c7f8204902e88bd8db515d514d86036b",
-      "field-rock-07.res": "79e6d90dfdddd225be67589fa852bb19920fdeba63c3610aa9b709544db94577",
-      "field-rock-08.res": "4be67e6d5992a9c18574cb5fb68343923b50e3219bcfff20168d51cebfd5a21e",
-      "field-rock-09.res": "7920f1f5cdea05217b30ff155f82d28b804a51d8440005b808201cc64e70a2b5",
-      "field-rock-12.res": "83550e995179bc818326f0ec0075699d28afee6e1b4ab864d6848b6d7aa6e754",
-      "field-rock-17.res": "b7f92154f608d51e98dfc4f261c603ed871e60c0874cfb0ebd1ad397612bec5b",
-      "field-rock-23.res": "9955fa9836c8a1bceb1b69e8d73fe85f6e873e91a3cc921ede4c907a48807d3f",
-      "field-rock-26.res": "a82bd8a33058a3f7b0ffb357a751f002fc9beb73aed42731e5a8d1c277c121ba"
-    }
-  },
   "field_gravel": {
     "asset": "Terrain Red 01 diffuse 1k",
     "asset_url": "https://polyhaven.com/a/terrain_red_01",
