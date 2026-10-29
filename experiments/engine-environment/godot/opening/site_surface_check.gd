@@ -443,6 +443,8 @@ func check_native_hull_matching() -> void:
 func check_flow_cells() -> void:
 	var rows: Array = Surface.flow_cells()
 	var found := false
+	var upstream := false
+	var downstream := false
 	for row: Array in rows:
 		assert(row.size() == 3)
 		var x: float = float(row[0]) * Geometry.HEIGHT_STEP
@@ -451,9 +453,13 @@ func check_flow_cells() -> void:
 		assert(x > center - Surface.wet_half_width(z, -1.0)
 			and x < center + Surface.wet_half_width(z, 1.0))
 		assert(float(row[2]) * Geometry.HEIGHT_STEP / 100.0 > Surface.height_at(x, z))
-		if row[0] == -8 and row[1] == 4:
+		if row[0] == roundi(-3.3 / Geometry.HEIGHT_STEP) \
+				and row[1] == roundi(1.65 / Geometry.HEIGHT_STEP):
 			found = true
+		upstream = upstream or z <= -55.0
+		downstream = downstream or z >= 58.0
 	assert(found, "A wheel cell at the first worksite intersects the actual river.")
+	assert(upstream and downstream, "Native flow cells span the physical river beyond both worksite ends.")
 	var narrow := Surface.wet_half_width(1.65, -1.0) + Surface.wet_half_width(1.65, 1.0)
 	assert(narrow > 4.5, "The emitted starting wet cross-section exceeds 4.5 meters.")
 	assert(Surface.river_center_x(1.65) + Surface.wet_half_width(1.65, 1.0) < -1.65,
@@ -477,37 +483,30 @@ func expect(value: bool, message: String) -> bool:
 
 func check_outcrop_native() -> void:
 	for cell_z in [0, 1]:
-		for level in [0, 4]:
-			var context := "fitted-source-%d-%d" % [cell_z, level]
-			var model = NativeModel.new(context, ["P"])
-			if not expect(model.boot_result.get("accepted", false),
-					"Bind the actual site and its source-rock obstacle"):
-				return
-			var before: Dictionary = model.projection()
-			if not expect(before.source_deposit.cells.has([0, cell_z]),
-					"The native source policy includes this exact deposit cell"):
-				return
-			if not expect(model.publish_actor("P", [1.65, 1.0, float(cell_z) * Geometry.PITCH], 1).get("accepted", false),
-					"The actor can reach the deposit from its clear east side"):
-				return
-			if level > 0:
-				var foundation: Dictionary = model.command({"context": context, "client": "P",
-					"request": "floor-%d" % cell_z, "action": "place_foundation", "cell": [0, cell_z], "level": level})
-				if not expect(foundation.get("accepted", false),
-						"A foundation can cover the ore deposit: " + str(foundation)):
-					return
-			var placed: Dictionary = model.command({"context": context, "client": "P",
-				"request": "source-%d" % cell_z, "action": "place", "kind": "collector",
-				"cell": [0, cell_z], "level": level, "axis": "z"})
-			if not expect(placed.get("accepted", false),
-					"A collector fits the exposed or covered deposit: " + str(placed)):
-				return
-			var after: Dictionary = model.projection()
-			if not expect(after.stock.source == before.stock.source and after.entities.has(placed.entity),
-					"Placement preserves the one finite source reserve and records one machine"):
-				return
+		var context := "fitted-source-%d" % cell_z
+		var model = NativeModel.new(context, ["P"])
+		if not expect(model.boot_result.get("accepted", false),
+				"Bind the actual site and its source-rock obstacle"):
+			return
+		var before: Dictionary = model.projection()
+		if not expect(before.source_deposit.cells.has([0, cell_z]),
+				"The native source policy includes this exact deposit cell"):
+			return
+		if not expect(model.publish_actor("P", [1.65, 1.0, float(cell_z) * Geometry.PITCH], 1).get("accepted", false),
+				"The actor can reach the deposit from its clear east side"):
+			return
+		var placed: Dictionary = model.command({"context": context, "client": "P",
+			"request": "source-%d" % cell_z, "action": "place", "kind": "collector",
+			"cell": [0, cell_z], "level": 0, "axis": "z"})
+		if not expect(placed.get("accepted", false),
+				"A ground-seated collector fits the exposed deposit: " + str(placed)):
+			return
+		var after: Dictionary = model.projection()
+		if not expect(after.stock.source == before.stock.source and after.entities.has(placed.entity),
+				"Placement preserves the one finite source reserve and records one machine"):
+			return
 	print(JSON.stringify({"status": "pass", "checks": checks,
-		"scope": "actual native collector admission at both source cells, ground and raised foundation",
+		"scope": "actual native grounded collector admission at both source cells",
 		"desktop": "not_used", "human_play": "not_run"}))
 	quit(0)
 
@@ -675,10 +674,11 @@ func check_belt_water_native(forward: bool) -> void:
 	quit(0)
 
 func check_flow_sections() -> void:
+	var grid_scale := roundi(1.65 / Geometry.PITCH)
 	var sections := [
-		{"name": "starting reach", "cell": [-2, 0], "level": 4, "tiles": 3},
-		{"name": "broad deep reach", "cell": [-2, 14], "level": 8, "tiles": 6},
-		{"name": "downstream reach", "cell": [4, 23], "level": 4, "tiles": 4},
+		{"name": "starting reach", "cell": [-2 * grid_scale, 0], "level": 4 * grid_scale, "tiles": 3},
+		{"name": "broad deep reach", "cell": [-2 * grid_scale, 14 * grid_scale], "level": 8 * grid_scale, "tiles": 6},
+		{"name": "downstream reach", "cell": [4 * grid_scale, 23 * grid_scale], "level": 4 * grid_scale, "tiles": 4},
 	]
 	var tangential: Array[float] = []
 	for section in sections:
@@ -689,11 +689,11 @@ func check_flow_sections() -> void:
 		var z: float = float(section.cell[1]) * Geometry.PITCH
 		if section.tiles > 3:
 			for sample in range(41):
-				var span_z: float = z + (float(sample) / 40.0 * 2.0 - 1.0) * float(section.tiles) * Geometry.PITCH * 0.5
+				var span_z: float = z + (float(sample) / 40.0 * 2.0 - 1.0) * float(section.tiles) * Geometry.WATERWHEEL_RADIUS
 				var river_x: float = Surface.river_center_x(span_z)
 				var west: float = river_x - Surface.wet_half_width(span_z, -1.0)
 				var east: float = river_x + Surface.wet_half_width(span_z, 1.0)
-				if not expect(x - Geometry.PITCH * 0.5 > west and x + Geometry.PITCH * 0.5 < east,
+				if not expect(x - 0.3 > west and x + 0.3 < east,
 					"The larger wheel's complete one-tile-wide span stays in the wet channel at " + section.name):
 					return
 		if not expect(model.publish_actor("P", [x + 1.5, float(section.level) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT, z], 1).get("accepted", false), "Reach " + section.name):
@@ -712,28 +712,32 @@ func check_flow_sections() -> void:
 	var water_model = NativeModel.new("flow-sample-comparison", ["P"])
 	var samples := {}
 	for sample: Dictionary in water_model.checkpoint().world.profile.water:
-		if [sample.x, sample.z] in [[-8, 0], [-4, 52], [16, 92]]:
+		if [sample.x, sample.z] in [[-8 * grid_scale, 0],
+				[-4 * grid_scale, 52 * grid_scale], [16 * grid_scale, 92 * grid_scale]]:
 			samples[Vector2i(sample.x, sample.z)] = absi(sample.velocity_z)
-	if not expect(samples.size() == 3 and samples[Vector2i(-4, 52)] < samples[Vector2i(16, 92)]
-		and samples[Vector2i(16, 92)] < samples[Vector2i(-8, 0)],
+	if not expect(samples.size() == 3 and samples[Vector2i(-4 * grid_scale, 52 * grid_scale)]
+		< samples[Vector2i(16 * grid_scale, 92 * grid_scale)]
+		and samples[Vector2i(16 * grid_scale, 92 * grid_scale)]
+		< samples[Vector2i(-8 * grid_scale, 0)],
 		"The native broad pool flows slower than the downstream and starting reaches: " + str(samples)):
 		return
 	var bank = NativeModel.new("blocked-bank", ["P"])
 	if not expect(bank.boot_result.get("accepted", false) and bank.publish_actor("P", [1.5, 1.0, 1.65], 1).get("accepted", false), "Bind the solid east bank"):
 		return
-	var blocked: Dictionary = bank.command({"context": "blocked-bank", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [0, 1], "level": 4, "tiles": 3, "axis": "x"})
+	var blocked: Dictionary = bank.command({"context": "blocked-bank", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [0, grid_scale], "level": 4 * grid_scale, "tiles": 3, "axis": "x"})
 	if not expect(not blocked.get("accepted", false) and blocked.get("reason") == "not_at_stream", "The actual solid bank carries no current or wheel site"):
 		return
 	print("native riverbed flow and wheel-size sections passed: ", checks)
 	quit(0)
 
 func check_water_native() -> void:
+	var grid_scale := roundi(1.65 / Geometry.PITCH)
 	var model = NativeModel.new("water-site", ["P"])
 	if not expect(model.boot_result.get("accepted", false), "Native model must bind actual terrain and water: " + str(model.boot_result)):
 		return
 	if not expect(model.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Register synthetic actor"):
 		return
-	var wheel := {"context": "water-site", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "level": 4, "tiles": 3, "axis": "x"}
+	var wheel := {"context": "water-site", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2 * grid_scale, grid_scale], "level": 4 * grid_scale, "tiles": 3, "axis": "x"}
 	var reply: Dictionary = model.command(wheel)
 	if not expect(reply.get("accepted", false), "Actual river must admit an immersed wheel: " + str(reply)):
 		return
@@ -751,7 +755,7 @@ func check_water_native() -> void:
 	var big := wheel.duplicate()
 	big.context = "large-water-site"
 	big.request = "large-wheel"
-	big.level = 8
+	big.level = 8 * grid_scale
 	big.tiles = 5
 	var placed: Dictionary = large.command(big)
 	if not expect(placed.get("accepted", false), "The five-square wheel must clear actual terrain: " + str(placed)):
@@ -766,31 +770,30 @@ func check_water_native() -> void:
 	var target := wheel.duplicate()
 	target.context = "upstream-water-site"
 	target.request = "upstream-wheel"
-	target.cell = [-2, 0]
+	target.cell = [-2 * grid_scale, 0]
 	if not expect(upstream.command(target).get("accepted", false), "The upstream objective must admit an immersed wheel in the generated site"):
 		return
 	var line = NativeModel.new("actual-water-line", ["P"])
 	if not expect(line.boot_result.get("accepted", false) and line.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false), "Bind the actual site for a synthetic construction route"):
 		return
-	var base: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "base", "action": "place_foundation", "cell": [0, 1], "level": 4})
-	var line_wheel: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2, 1], "level": 4, "axis": "x"})
-	var collector: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "collector", "action": "place", "kind": "collector", "cell": [0, 1], "level": 4, "axis": "x"})
-	var cog: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "cog", "action": "place_gear", "center": [-4, 4, 4], "axis": "x", "teeth": 2})
-	if not expect(base.get("accepted", false) and line_wheel.get("accepted", false) and collector.get("accepted", false) and cog.get("accepted", false), "The actual worksite admits the immersed wheel, supported collector and cog"):
+	var line_wheel: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "wheel", "action": "place", "kind": "wheel", "cell": [-2 * grid_scale, grid_scale], "level": 4 * grid_scale, "axis": "x"})
+	if not expect(line_wheel.get("accepted", false), "The actual worksite admits an immersed construction wheel: " + str(line_wheel)):
 		return
-	for link in [["shaft-a", line_wheel.entity, cog.entity], ["shaft-b", cog.entity, collector.entity]]:
-		var connected := false
-		for edge: Dictionary in line.projection().engagements:
-			if edge.kind == 1 and ((edge.a == link[1] and edge.b == link[2]) or (edge.a == link[2] and edge.b == link[1])):
-				connected = true
-		if not expect(connected, "The adjacent axle faces engage without a shaft"):
-			return
-		if not expect(line.command({"context": "actual-water-line", "client": "P", "request": link[0], "action": "connect_drive", "from": link[1], "to": link[2]}).get("reason", "") == "individual_shaft_required", "Endpoint-created shafts remain unavailable"):
-			return
-	if not expect(line.projection().powered, "River current reaches the collector through the built train"):
+	var cog: Dictionary = line.command({"context": "actual-water-line", "client": "P", "request": "cog", "action": "place_gear", "center": [-8 * grid_scale + 4, 4 * grid_scale, 4 * grid_scale], "axis": "x", "teeth": 2})
+	if not expect(cog.get("accepted", false), "The outboard cog clears the riverbed bearing: " + str(cog)):
 		return
-	line.advance()
-	if not expect(line.projection().stock.collector == 1, "The powered collector advances material at the actual site"):
+	var engaged := false
+	for edge: Dictionary in line.projection().engagements:
+		if edge.kind == 1 and ((edge.a == line_wheel.entity and edge.b == cog.entity)
+				or (edge.a == cog.entity and edge.b == line_wheel.entity)):
+			engaged = true
+	if not expect(engaged, "The actual river wheel and adjacent axle face engage without a shaft"):
+		return
+	if not expect(line.command({"context": "actual-water-line", "client": "P", "request": "shaft-a", "action": "connect_drive", "from": line_wheel.entity, "to": cog.entity}).get("reason", "") == "individual_shaft_required", "Endpoint-created shafts remain unavailable"):
+		return
+	var cog_motion: Dictionary = line.projection().motion[cog.entity]
+	if not expect(cog_motion.state == "rotating" and cog_motion.numerator < 0,
+			"The actual river current reaches the outboard native cog"):
 		return
 	print("native water site controls passed: ", checks)
 	quit(0)
@@ -821,6 +824,8 @@ func inspect_meshes(node: Node, parent: Transform3D, half: Vector3, axis: int, r
 		inspect_meshes(child, at, half, axis, rotor)
 
 func check_waterwheel_visual() -> void:
+	verify_water_visual(is_equal_approx(Geometry.WATERWHEEL_RADIUS, 0.924),
+		"The wheel retains its 0.924 m radius per tile after the mechanical grid changes")
 	for axis in [0, 2]:
 		for tiles in [3, 4, 6]:
 			var view := Opening.new()

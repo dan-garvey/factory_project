@@ -449,7 +449,7 @@ static func flow_cells() -> Array:
 	# Coordinates and levels use the shared quarter-pitch height denominator.
 	var result: Array = []
 	var unit: float = Geometry.HEIGHT_STEP / 100.0
-	for cell_z in range(-35, 37):
+	for cell_z in range(floori(-58.0 / Geometry.PITCH), ceili(61.0 / Geometry.PITCH) + 1):
 		var z: float = cell_z * Geometry.PITCH
 		var center := river_center_x(z)
 		var west := wet_half_width(z, -1.0)

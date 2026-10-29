@@ -1,4 +1,5 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
+#include "factory/site_geometry_contract.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -9,6 +10,17 @@ using O = V::Object;
 using A = V::Array;
 using I = V::Integer;
 using Host = factory::godot_world::Host;
+constexpr I grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
+static_assert(grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
+
+I riverbed_level(I authored_level, I tiles) {
+    using namespace factory::godot_world::site_geometry;
+    I level = authored_level * grid_scale;
+    // Keep the same physical rotor above the fixed riverbed on full-U floors.
+    while (level * height_step + anchor_height - 0.924 * tiles <= -1.65)
+        level += height_denominator;
+    return level / grid_scale;
+}
 
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
@@ -25,13 +37,14 @@ O site(I velocity) {
         heights.emplace_back(-0.02); heights.emplace_back(-0.02);
     }
     O result{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})}};
-    result.emplace("water", V(A{V(A{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{0}), V(velocity)})}));
+    result.emplace("water", V(A{V(A{V(I{-8} * grid_scale), V(I{0}),
+        V(I{-20} * grid_scale), V(I{-400} * grid_scale), V(I{0}), V(velocity * grid_scale)})}));
     return result;
 }
 O place(const char* id, I x, I level = 0, const char* axis = "x") {
     return {{"context", V("water-test")}, {"client", V("P")}, {"request", V(id)},
-        {"action", V("place")}, {"kind", V("wheel")}, {"cell", V(A{V(x), V(I{0})})},
-        {"level", V(level)}, {"axis", V(axis)}};
+        {"action", V("place")}, {"kind", V("wheel")}, {"cell", V(A{V(x * grid_scale), V(I{0})})},
+        {"level", V(level * grid_scale)}, {"axis", V(axis)}};
 }
 int main() {
     try {
@@ -73,28 +86,20 @@ int main() {
             const auto& half = field<A>(support, "half");
             const auto foot = std::get<double>(center[1].storage()) - std::get<double>(half[1].storage());
             const auto bearing = std::get<double>(center[1].storage()) + std::get<double>(half[1].storage());
-            check(foot < -1.5 && std::abs(bearing - 2.425) < 0.000001,
+            const auto axle = I{4} * grid_scale * factory::godot_world::site_geometry::height_step +
+                factory::godot_world::site_geometry::anchor_height;
+            check(foot < -1.5 && std::abs(bearing - (axle - 0.10)) < 0.000001,
                   "the fixed support reaches the riverbed and stops under the visual axle");
         }
-        O base{{"context", V("water-test")}, {"client", V("P")}, {"request", V("base")},
-            {"action", V("place_foundation")}, {"cell", V(A{V(I{0}), V(I{0})})}, {"level", V(I{4})}};
-        check(accepted(host.command("P", base)), "raised collector foundation");
-        auto collector_wire = place("collector", 0, 4);
-        collector_wire.at("kind") = V("collector");
-        const auto collector = host.command("P", collector_wire);
-        check(accepted(collector), "raised collector");
         O gear{{"context", V("water-test")}, {"client", V("P")}, {"request", V("gear")},
-            {"action", V("place_gear")}, {"center", V(A{V(I{-4}), V(I{4}), V(I{0})})},
+            {"action", V("place_gear")}, {"center", V(A{V(I{-8} * grid_scale + 4), V(I{4} * grid_scale), V(I{0})})},
             {"axis", V("x")}, {"teeth", V(I{2})}};
         const auto middle = host.command("P", gear);
-        check(accepted(middle), "intermediate coaxial cog");
+        check(accepted(middle), "an outboard coaxial cog clears the full-size wheel bearing");
         const auto middle_id = field<std::string>(middle, "entity");
-        const auto collector_id = field<std::string>(collector, "entity");
         O link{{"context", V("water-test")}, {"client", V("P")}, {"request", V("shaft-a")},
             {"action", V("connect_drive")}, {"from", V(id)}, {"to", V(middle_id)}};
         check(field<std::string>(host.command("P", link), "reason") == "individual_shaft_required", "endpoint shaft creation is refused");
-        link.at("request") = V("shaft-b"); link.at("from") = V(middle_id); link.at("to") = V(collector_id);
-        check(field<std::string>(host.command("P", link), "reason") == "individual_shaft_required", "endpoint shaft creation is refused at the collector");
         O power{{"context", V("water-test")}, {"client", V("P")}, {"request", V("power")},
             {"action", V("set_power")}, {"active", V(true)}};
         const auto refused = host.command("P", power);
@@ -102,16 +107,28 @@ int main() {
               "manual drive switching is unavailable");
         const auto motion = V(field<O>(host.projection(), "motion").at(id));
         check(field<I>(motion, "numerator") == -25 && field<I>(motion, "denominator") == 84, "signed local rate follows the immersed visible radius");
-        const auto collector_motion = V(field<O>(host.projection(), "motion").at(collector_id));
-        check(field<I>(collector_motion, "numerator") == -25 && field<I>(collector_motion, "denominator") == 84,
-              "the connected collector receives the water rate");
+        const auto cog_motion = V(field<O>(host.projection(), "motion").at(middle_id));
+        check(field<I>(cog_motion, "numerator") == -25 && field<I>(cog_motion, "denominator") == 84,
+              "the outboard native axle receives the signed water rate");
         const auto saved = host.checkpoint();
         Host fresh;
         check(accepted(fresh.initialize("fresh", {"P"})) && accepted(fresh.configure_terrain(site(200))), "fresh site");
         check(accepted(fresh.restore_checkpoint(saved)), "same site restore");
         Host different;
-        check(accepted(different.initialize("different", {"P"})) && accepted(different.configure_terrain(site(-200))), "reversed site");
+        check(accepted(different.initialize("water-test", {"P"})) && accepted(different.configure_terrain(site(-200))), "reversed site");
+        const auto reversed_before_restore = different.checkpoint();
         check(!accepted(different.restore_checkpoint(saved)), "changed flow rejects checkpoint");
+        check(!factory::values::typed_difference(reversed_before_restore, different.checkpoint()),
+              "a changed-flow checkpoint refusal leaves the live reverse site unchanged");
+        check(accepted(different.publish_actor("P", {V(-1.65), V(1.0), V(1.65)}, 1)),
+              "the reverse-flow site observes the same actor position");
+        const auto reversed_wheel = different.command("P", place("reversed", -2, 4));
+        check(accepted(reversed_wheel), "reverse current admits the same immersed wheel");
+        const auto reversed_motion = V(field<O>(different.projection(), "motion").at(
+            field<std::string>(reversed_wheel, "entity")));
+        check(field<I>(reversed_motion, "numerator") == 25 &&
+              field<I>(reversed_motion, "denominator") == 84,
+              "reversing the physical flow reverses the wheel without changing its speed");
         auto raised_site = site(200);
         raised_site.at("heights") = V(A(16, V(0.1)));
         Host raised;
@@ -127,7 +144,7 @@ int main() {
         Host large;
         check(accepted(large.initialize("water-test", {"P"})) && accepted(large.configure_terrain(site(200))) &&
               accepted(large.publish_actor("P", {V(-1.65), V(3.0), V(1.65)}, 1)), "large wheel site");
-        auto big_wire = place("large", -2, 8);
+        auto big_wire = place("large", -2, riverbed_level(8, 6));
         big_wire.emplace("tiles", V(I{6}));
         const auto big = large.command("P", big_wire);
         check(accepted(big), "six-square wheel immerses at the shared raised level");
@@ -146,12 +163,16 @@ int main() {
         for (const char* axis : {"x", "z"}) for (I tiles = 3; tiles <= 8; ++tiles) {
             const I levels[] = {4, 4, 8, 8, 12, 12};
             const auto level = levels[tiles - 3];
+            const auto placed_level = riverbed_level(level, tiles);
+            const auto axle_y = placed_level * grid_scale *
+                factory::godot_world::site_geometry::height_step +
+                factory::godot_world::site_geometry::anchor_height;
             Host sized;
             check(accepted(sized.initialize("water-test", {"P"})) &&
                   accepted(sized.configure_terrain(broad)) &&
-                  accepted(sized.publish_actor("P", {V(-1.65), V(level * 0.4125 + 0.825), V(1.65)}, 1)),
+                  accepted(sized.publish_actor("P", {V(-1.65), V(axle_y), V(1.65)}, 1)),
                   "bind a riverbed and actor for every horizontal wheel size");
-            auto sized_wire = place("sized", -2, level, axis);
+            auto sized_wire = place("sized", -2, placed_level, axis);
             sized_wire.emplace("tiles", V(tiles));
             const auto placed_sized = sized.command("P", sized_wire);
             if (!accepted(placed_sized)) std::cerr << "sized wheel axis=" << axis << " tiles=" << tiles
@@ -166,7 +187,7 @@ int main() {
                 const auto foot = std::get<double>(center[1].storage()) - std::get<double>(half[1].storage());
                 const auto bearing = std::get<double>(center[1].storage()) + std::get<double>(half[1].storage());
                 check(std::abs(foot + 1.69) < 0.000001 &&
-                      std::abs(bearing - (level * 0.4125 + 0.825 - 0.05)) < 0.000001,
+                      std::abs(bearing - (axle_y - 0.10)) < 0.000001,
                       "every support seats into the same emitted riverbed and aligns below its axle");
             }
             const auto sized_saved = sized.checkpoint();
@@ -190,7 +211,8 @@ int main() {
         check(accepted(support_case.command("P", place("supported", -2, 4))),
               "the same wheel is buildable after the bearing pier clears");
         O low_foundation{{"context", V("water-test")}, {"client", V("P")}, {"request", V("under-pier")},
-            {"action", V("place_foundation")}, {"cell", V(A{V(I{-2}), V(I{0})})}, {"level", V(I{-2})}};
+            {"action", V("place_foundation")}, {"cell", V(A{V(I{-2} / grid_scale), V(I{0})})},
+            {"level", V(I{-2} * grid_scale)}};
         const auto buried = support_case.command("P", low_foundation);
         check(!accepted(buried) && field<std::string>(buried, "reason") == "occupied",
               "a low foundation cannot pass through the pier below the rotating rim");

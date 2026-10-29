@@ -12,6 +12,8 @@ using O = V::Object;
 using A = V::Array;
 using I = V::Integer;
 using Host = factory::godot_world::Host;
+constexpr I grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
+static_assert(grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
 int checks{};
 
 void check(bool condition, const char* message) {
@@ -44,8 +46,11 @@ O source_contact_site(bool other_obstacle = false, bool foot_obstacle = false) {
 }
 
 V ground_inspection(const Host& host) {
-    const auto entries = get<A>(host.projection(), "collector_assemblies");
-    check(entries.size() == 6, "Both ore workcells and three common-grid heights are inspected.");
+    const auto view = host.projection();
+    const auto entries = get<A>(view, "collector_assemblies");
+    const auto cells = get<A>(V(get<O>(view, "source_deposit")), "cells");
+    check(entries.size() == cells.size() * (1 + 2 * grid_scale),
+          "Every ore workcell is inspected through the conserved physical drill depth.");
     return entries.front();
 }
 
@@ -54,7 +59,9 @@ std::string place(Host& host, const char* kind, I x, I y, I z, const char* id) {
     wire.emplace("component", V(kind));
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
     const auto response = host.command("P", wire);
-    check(get<bool>(response, "accepted"), "A crafted component installs through the ordinary Host command.");
+    check(get<bool>(response, "accepted"),
+          (std::string("A crafted ") + kind + " installs as " + id + ": " +
+              get<std::string>(response, "reason")).c_str());
     return get<std::string>(response, "entity");
 }
 
@@ -113,7 +120,7 @@ void collector_readiness_tracks_real_parts() {
           "The frame publishes one load-bearing envelope from the floor to the installed bed.");
     auto overlapping_deck = request("deck-through-frame", "place_foundation");
     overlapping_deck.emplace("cell", V(A{V(I{0}), V(I{0})}));
-    overlapping_deck.emplace("level", V(I{2}));
+    overlapping_deck.emplace("level", V(I{4}));
     const auto blocked_deck = host.command("P", overlapping_deck);
     check(!get<bool>(blocked_deck, "accepted") &&
           get<std::string>(blocked_deck, "reason") == "occupied",
@@ -127,16 +134,16 @@ void collector_readiness_tracks_real_parts() {
           "A later complete machine cannot cover a placed component.");
     check(get<std::string>(ground_inspection(host), "status") == "missing_mount",
           "A frame alone does not become a machine.");
-    const auto mount = place(host, "tool_mount", -1, 0, 0, "mount");
+    const auto mount = place(host, "tool_mount", -1 * grid_scale, 0, 0, "mount");
     auto wrong_source_part = request("wrong-source-part", "place_component");
     wrong_source_part.emplace("component", V("receiver_tray"));
-    wrong_source_part.emplace("center", V(A{V(I{-2}), V(I{0}), V(I{0})}));
+    wrong_source_part.emplace("center", V(A{V(I{-2} * grid_scale), V(I{0}), V(I{0})}));
     const auto wrong_source_result = host.command("P", wrong_source_part);
     check(!get<bool>(wrong_source_result, "accepted") &&
           get<std::string>(wrong_source_result, "reason") == "site_occupied" &&
           get<O>(host.projection(), "placed_components").size() == 2,
           "A non-cutting component cannot occupy the tagged ore source.");
-    const auto edge = place(host, "cutting_edge", -2, 0, 0, "edge");
+    const auto edge = place(host, "cutting_edge", -2 * grid_scale, 0, 0, "edge");
     const auto placed_tools = get<O>(host.projection(), "placed_components");
     const auto mount_box = get<O>(V(placed_tools.at(mount)), "occupied");
     const auto edge_box = get<O>(V(placed_tools.at(edge)), "occupied");
@@ -154,7 +161,7 @@ void collector_readiness_tracks_real_parts() {
           std::abs(component_face(mount_center, mount_half, 0, -1) -
               component_face(edge_center, edge_half, 0, 1)) < 1e-9,
           "Trusted collector tool boxes meet the floor, frame and each other without overlap.");
-    const auto receiver = place(host, "receiver_tray", 0, 0, 1, "receiver");
+    const auto receiver = place(host, "receiver_tray", 0, 0, grid_scale, "receiver");
     const auto ready = ground_inspection(host);
     const auto parts = get<O>(ready, "parts");
     check(get<std::string>(ready, "status") == "ready" &&
@@ -177,7 +184,7 @@ void collector_readiness_tracks_real_parts() {
     auto attach = request("fit-collector-crank", "attach_hand_crank");
     attach.emplace("entity", V(mount));
     attach.emplace("crank", V(crank_items.begin()->first));
-    attach.emplace("port", V(A{V(I{-1}), V(I{0}), V(I{0})}));
+    attach.emplace("port", V(A{V(I{-1} * grid_scale), V(I{0}), V(I{0})}));
     check(get<bool>(host.command("P", attach), "accepted"),
           "The crafted crank seats on the collector mount's spindle.");
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 6), "accepted"),
@@ -225,7 +232,8 @@ void collector_readiness_tracks_real_parts() {
     check(!get<bool>(obstructed_restore, "accepted") &&
           get<std::string>(obstructed_restore, "reason") == "site_occupied" &&
           get<O>(obstructed.projection(), "placed_components").empty(),
-          "A second obstacle at the cutter refuses checkpoint import without installing parts.");
+          ("A second obstacle at the cutter refuses checkpoint import without installing parts: " +
+              get<std::string>(obstructed_restore, "reason")).c_str());
     Host foot_obstructed;
     check(get<bool>(foot_obstructed.initialize_arrival_advanced_fixture("assembly-site", {"P", "Q"}), "accepted") &&
           get<bool>(foot_obstructed.configure_terrain(source_contact_site(false, true)), "accepted"),
@@ -238,7 +246,7 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 8), "accepted"),
           "The restored actor publishes a current physical pose before edits.");
     auto pickup = request("pickup-first", "pickup_material");
-    pickup.emplace("center", V(A{V(I{0}), V(I{0}), V(I{1})}));
+    pickup.emplace("center", V(A{V(I{0}), V(I{0}), V(grid_scale)}));
     pickup.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
         {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
     check(get<bool>(restored.command("P", pickup), "accepted") &&
@@ -256,11 +264,11 @@ void collector_readiness_tracks_real_parts() {
           !get<O>(get<O>(restored.projection(), "cargo").at("P"), "components")
               .contains("wooden_shaft"),
           "Reclaiming the embodied input removes drive readiness without creating loose shaft stock.");
-    const auto remount = place(restored, "tool_mount", -1, 0, 0, "remount");
+    const auto remount = place(restored, "tool_mount", -1 * grid_scale, 0, 0, "remount");
     auto refit = request("refit-remounted-crank", "attach_hand_crank");
     refit.emplace("entity", V(remount));
     refit.emplace("crank", V(crank_items.begin()->first));
-    refit.emplace("port", V(A{V(I{-1}), V(I{0}), V(I{0})}));
+    refit.emplace("port", V(A{V(I{-1} * grid_scale), V(I{0}), V(I{0})}));
     check(get<bool>(restored.command("P", refit), "accepted"),
           "The same paid crank fits the rebuilt collector input.");
     auto take_tray = request("take-tray", "reclaim_component");
@@ -294,7 +302,7 @@ void collector_readiness_tracks_real_parts() {
           get<I>(get<O>(resumed_without_tray.projection(), "hand_sources")
               .at("opening-copper"), "remaining") == 4094,
           "A saved crank cannot cut ore without the receiver or debit finite stock.");
-    const auto resumed_tray = place(resumed_without_tray, "receiver_tray", 0, 0, -1,
+    const auto resumed_tray = place(resumed_without_tray, "receiver_tray", 0, 0, -1 * grid_scale,
         "resumed-tray");
     auto resumed_turn = request("resumed-tray-turn", "turn_hand_crank");
     resumed_turn.emplace("entity", V(remount));
@@ -311,7 +319,7 @@ void collector_readiness_tracks_real_parts() {
     check(!get<bool>(incomplete, "accepted") &&
           get<std::string>(incomplete, "reason") == "incomplete_assembly",
           "A driven mount without a receiver cannot debit ore.");
-    const auto mirrored_tray = place(restored, "receiver_tray", 0, 0, -1, "mirrored-tray");
+    const auto mirrored_tray = place(restored, "receiver_tray", 0, 0, -1 * grid_scale, "mirrored-tray");
     const auto mirrored = ground_inspection(restored);
     check(get<std::string>(mirrored, "status") == "ready" &&
           get<std::string>(V(get<O>(mirrored, "parts")), "receiver") == mirrored_tray &&
@@ -338,7 +346,7 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(restored.command("P", extra_craft), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 11), "accepted"),
           "The actor fabricates the competing receiver from finite stock.");
-    const auto extra_tray = place(restored, "receiver_tray", 0, 0, 1, "alternate-tray");
+    const auto extra_tray = place(restored, "receiver_tray", 0, 0, grid_scale, "alternate-tray");
     check(get<std::string>(ground_inspection(restored), "status") == "ambiguous",
           "Two valid receiver routes cannot be selected silently.");
     auto ambiguous_turn = request("ambiguous-turn", "turn_hand_crank");
@@ -347,7 +355,8 @@ void collector_readiness_tracks_real_parts() {
     check(!get<bool>(ambiguous, "accepted") &&
           get<std::string>(ambiguous, "reason") == "ambiguous_assembly" &&
           get<I>(get<O>(restored.projection(), "hand_sources").at("opening-copper"), "remaining") == 4093,
-          "An ambiguous assembly refuses a turn without spending ore.");
+          ("An ambiguous assembly refuses a turn without spending ore: " +
+              get<std::string>(ambiguous, "reason")).c_str());
     auto remove_extra = request("remove-extra-tray", "reclaim_component");
     remove_extra.emplace("entity", V(extra_tray));
     check(get<bool>(restored.command("P", remove_extra), "accepted") &&
@@ -358,7 +367,7 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(restored.command("P", take_mirrored_tray), "accepted"),
           "Dismantling a full receiver preserves its separately owned raw item.");
     auto recover_loose = request("pickup-after-dismantle", "pickup_material");
-    recover_loose.emplace("center", V(A{V(I{0}), V(I{0}), V(I{-1})}));
+    recover_loose.emplace("center", V(A{V(I{0}), V(I{0}), V(I{-1} * grid_scale)}));
     recover_loose.emplace("expected", V(O{{"raw", V(I{1})}, {"products", V(I{0})},
         {"work_lots", V(A{})}, {"offcuts", V(I{0})}, {"sheets", V(I{0})}}));
     check(get<bool>(restored.command("P", recover_loose), "accepted") &&
@@ -378,7 +387,7 @@ void collector_readiness_tracks_real_parts() {
           "The restored actor supplies a fresh native cut before testing support clearance.");
     auto blocked_mount = request("blocked-mount-support", "place_component");
     blocked_mount.emplace("component", V("tool_mount"));
-    blocked_mount.emplace("center", V(A{V(I{-1}), V(I{0}), V(I{0})}));
+    blocked_mount.emplace("center", V(A{V(I{-1} * grid_scale), V(I{0}), V(I{0})}));
     const auto blocked_mount_result = blocked_support.command("P", blocked_mount);
     check(!get<bool>(blocked_mount_result, "accepted") &&
           get<std::string>(blocked_mount_result, "reason") == "site_occupied",
@@ -391,8 +400,8 @@ void collector_readiness_tracks_real_parts() {
     check(get<bool>(upper_tools.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 1), "accepted"),
           "The restored actor supplies a fresh native cut before building the raised layout.");
     place(upper_tools, "wooden_frame", 0, 0, 0, "upper-frame");
-    const auto upper_mount = place(upper_tools, "tool_mount", -1, 1, 0, "upper-mount");
-    const auto upper_edge = place(upper_tools, "cutting_edge", -2, 1, 0, "upper-edge");
+    const auto upper_mount = place(upper_tools, "tool_mount", -1 * grid_scale, 1, 0, "upper-mount");
+    const auto upper_edge = place(upper_tools, "cutting_edge", -2 * grid_scale, 1, 0, "upper-edge");
     const auto upper_parts = get<O>(upper_tools.projection(), "placed_components");
     const auto upper_mount_box = get<O>(V(upper_parts.at(upper_mount)), "occupied");
     const auto upper_edge_box = get<O>(V(upper_parts.at(upper_edge)), "occupied");

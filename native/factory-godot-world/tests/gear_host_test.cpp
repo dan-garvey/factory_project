@@ -15,6 +15,8 @@ using O = V::Object;
 using A = V::Array;
 using I = V::Integer;
 using Host = factory::godot_world::Host;
+constexpr I grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
+static_assert(grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
 int checks{};
 
 void check(bool condition, const std::string& message) {
@@ -36,6 +38,13 @@ O machine(const char* kind, I x, const char* id, const char* axis = "y") {
     command.emplace("kind", V(kind)); command.emplace("cell", V(A{V(x), V(I{1})}));
     if (std::string(kind) == "wheel") command.emplace("level", V(I{4}));
     if (axis) command.emplace("axis", V(axis));
+    return command;
+}
+
+O channel_wheel(const char* id, const char* axis = "z") {
+    auto command = machine("wheel", -3 * grid_scale, id, axis);
+    command.at("cell") = V(A{V(I{-3} * grid_scale), V(I{1} * grid_scale)});
+    command.at("level") = V(I{4} * grid_scale);
     return command;
 }
 
@@ -454,19 +463,42 @@ void relay_shell_terrain() {
 
 void powered_relay_route() {
     Host host;
+    const auto valid = [&host](const char* stage) {
+        const auto result = host.validate_checkpoint(host.checkpoint());
+        check(accepted(result), std::string(stage) + " checkpoint validates" +
+            (accepted(result) ? std::string{} : ": " + field<std::string>(result, "reason")));
+    };
     check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
           accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
           "The powered relay fixture uses the ordinary native Host and channel site.");
     observe(host, -3.3, 3.3, 1);
-    create(host, machine("wheel", -3, "relay-wheel", "z"));
-    const auto first = create(host, relay("chain_drive", -12, 4, 8, "first-chain", "z", "x"));
+    create(host, channel_wheel("relay-wheel"));
+    valid("Wheel");
+    create(host, shaft(-12 * grid_scale, 4 * grid_scale,
+        4 * grid_scale + 4, "wheel-outboard-shaft", "z"));
+    valid("Wheel outboard shaft");
+    const auto first = create(host, relay("chain_drive", -12 * grid_scale, 4 * grid_scale,
+        4 * grid_scale + 8, "first-chain", "z", "x"));
+    valid("First chain");
     observe(host, -1.65, 1.65, 2);
-    const auto second = create(host, relay("chain_drive", -8, 4, 8, "second-chain", "z", "x"));
+    const auto second = create(host, relay("chain_drive", -12 * grid_scale + 4, 4 * grid_scale,
+        4 * grid_scale + 8, "second-chain", "z", "x"));
+    valid("Second chain");
     observe(host, -1.65, 3.3, 3);
-    const auto gearbox = create(host, relay("gearbox", -8, 4, 12, "relay-box", "y"));
+    const auto gearbox = create(host, relay("gearbox", -12 * grid_scale + 4, 4 * grid_scale,
+        4 * grid_scale + 12, "relay-box", "y"));
+    valid("Gearbox");
     observe(host, 0.0, 3.3, 4);
-    const auto output = create(host, shaft(-4, 4, 12, "relay-output", "x"));
+    const auto output = create(host, shaft(-12 * grid_scale + 8, 4 * grid_scale,
+        4 * grid_scale + 12, "relay-output", "x"));
+    valid("Output shaft");
     observe(host, -3.3, 3.3, 5);
+    const auto motion_detail = [&](const std::string& id) {
+        const auto value = motion(host, id);
+        return field<std::string>(value, "state") + " " +
+            std::to_string(field<I>(value, "numerator")) + "/" +
+            std::to_string(field<I>(value, "denominator"));
+    };
     check(field<std::string>(motion(host, first), "state") == "rotating" &&
           field<I>(motion(host, first), "numerator") == field<I>(motion(host, second), "numerator") &&
           field<std::string>(motion(host, gearbox), "state") == "rotating" &&
@@ -474,13 +506,18 @@ void powered_relay_route() {
           field<I>(motion(host, first), "numerator") == field<I>(motion(host, gearbox), "numerator") &&
           field<I>(motion(host, first), "numerator") == field<I>(motion(host, output), "numerator") &&
           field<I>(motion(host, first), "denominator") == field<I>(motion(host, output), "denominator"),
-          "A placed waterwheel drives both chain cases, the gearbox and its turned shaft.");
+          "A placed waterwheel drives both chain cases, the gearbox and its turned shaft: " +
+              motion_detail(first) + ", " + motion_detail(second) + ", " +
+              motion_detail(gearbox) + ", " + motion_detail(output));
     const auto saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
-          accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())) &&
-          accepted(fresh.restore_checkpoint(saved)),
-          "A powered relay route survives a fresh Host checkpoint restore.");
+          accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())),
+          "A fresh Host binds the same channel before restoring the powered relay.");
+    const auto restored = fresh.restore_checkpoint(saved);
+    check(accepted(restored),
+          "A powered relay route survives a fresh Host checkpoint restore" +
+              (accepted(restored) ? std::string{} : ": " + field<std::string>(restored, "reason")));
     check(!factory::values::typed_difference(saved, fresh.checkpoint()),
           "The restored powered relay route retains exact native topology, custody and signed motion.");
 }
@@ -1455,21 +1492,25 @@ void individual_shafts() {
               accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
           "The shaft fixture binds a synthetic flowing channel.");
     observe(host, -1.65, 3.3, 1);
-    create(host, machine("wheel", -2, "shaft-wheel", "z"));
-    observe(host, -1.65, 0, 2);
-    const auto first_wire = shaft(-8, 4, 8, "first-segment");
+    create(host, channel_wheel("shaft-wheel"));
+    observe(host, -3.3, 1.65, 2);
+    const auto first_wire = shaft(-12 * grid_scale, 4 * grid_scale,
+        4 * grid_scale + 4, "first-segment");
     const auto first = create(host, first_wire);
     const auto before_parts = field<O>(host.projection(), "transmission_parts");
-    const auto duplicate = shaft(-8, 4, 8, "overlap-identical");
+    const auto duplicate = shaft(-12 * grid_scale, 4 * grid_scale,
+        4 * grid_scale + 4, "overlap-identical");
     check(field<std::string>(host.command("P", duplicate), "reason") == "occupied" &&
-              field<std::string>(host.command("P", shaft(-8, 4, 9, "off-grid")), "reason") == "invalid_cell" &&
+              field<std::string>(host.command("P", shaft(-12 * grid_scale, 4 * grid_scale,
+                  4 * grid_scale + 5, "off-grid")), "reason") == "invalid_cell" &&
               !factory::values::typed_difference(V(field<O>(host.projection(), "transmission_parts")), V(before_parts)) &&
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 7,
           "Occupied and off-grid shaft placements are refused without consuming parts.");
     check(field<bool>(host.command("P", duplicate), "duplicate"),
           "An overlapping placement refusal is stable on replay.");
     observe(host, -1.65, 3.3, 3);
-    const auto second = create(host, shaft(-8, 4, 12, "second-segment"));
+    const auto second = create(host, shaft(-12 * grid_scale, 4 * grid_scale,
+        4 * grid_scale + 8, "second-segment"));
     check(field<I>(motion(host, second), "numerator") == 25 &&
               field<I>(motion(host, second), "denominator") == 84,
           "Two individually placed, touching shaft segments carry the wheel rotation.");
@@ -1479,11 +1520,12 @@ void individual_shafts() {
               field<I>(motion(host, second), "numerator") == 0 &&
               field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 7,
           "Removing the first segment disconnects the second and refunds one part.");
-    const auto replacement = create(host, shaft(-8, 4, 8, "replacement-segment"));
+    const auto replacement = create(host, shaft(-12 * grid_scale, 4 * grid_scale,
+        4 * grid_scale + 4, "replacement-segment"));
     check(field<I>(motion(host, replacement), "numerator") == 25 &&
               field<I>(motion(host, second), "numerator") == 25,
           "A replacement one-tile segment reconnects the source to the remaining segment.");
-    observe(host, 0, 3.3, 4);
+    observe(host, 0, 8 * factory::godot_world::site_geometry::height_step, 4);
     check(field<std::string>(host.command("P", shaft(0, 0, 8, "actor-overlap-shaft", "x")), "reason") == "actor_occupied",
           "A shaft cannot be placed through the observed actor.");
     check(field<std::string>(host.command("P", shaft(0, 0, 0, "bad-axis", "bad")), "reason") == "invalid_axis" &&
@@ -1991,6 +2033,16 @@ void building_rotation() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--powered-relay-only") {
+            powered_relay_route();
+            std::cout << "{\"status\":\"pass\",\"evidence\":\"native_river_relay\",\"checks\":" << checks << "}\n";
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--individual-shafts-only") {
+            individual_shafts();
+            std::cout << "{\"status\":\"pass\",\"evidence\":\"native_river_shaft\",\"checks\":" << checks << "}\n";
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--stacked-relays-only") {
             stacked_vertical_relay_support();
             std::cout << "{\"status\":\"pass\",\"evidence\":\"native_stacked_relays\",\"checks\":" << checks << "}\n";

@@ -36,6 +36,27 @@ void face_contact_and_actor() {
 }
 
 void support_and_site_shapes() {
+    near(site::wheel_radius_hundredths * site::height_step / 100.0, 0.924,
+         "A wheel tile retains its approved physical radius as the mechanical grid changes.");
+    near(site::wheel_axle_offset_hundredths * site::height_step / 100.0,
+         site::anchor_height,
+         "The sampled water axle and the rendered shaft use the same vertical center.");
+    factory::world::Profile profile;
+    profile.wheel_radius = site::wheel_radius_hundredths;
+    const factory::stationary::PlacedPart wheel{{"wheel", Kind::hub, {0, 4, 0}, Axis::x, 0, 0},
+        1, factory::stationary::Role::waterwheel, 3};
+    const auto wheel_box = geometry::part_bounds(profile, wheel);
+    near(wheel_box.half[1], 2.772,
+         "The complete three-tile rotor retains its physical rim and water-contact radius.");
+    near(wheel_box.half[0], 0.3,
+         "The full-size wheel keeps its axial occupied thickness.");
+    const factory::stationary::PlacedPart collector{{"collector", Kind::hub, {0, 0, 0}, Axis::x, 0, 0},
+        1, factory::stationary::Role::collector};
+    const auto collector_box = geometry::part_bounds(profile, collector);
+    near(collector_box.half[0], 0.725,
+         "The deferred collector redesign leaves its current visible body clearance intact.");
+    near(collector_box.half[1], 0.825,
+         "The deferred collector retains its full-height occupied body.");
     int terrain_calls = 0;
     const auto terrain = [&terrain_calls](double, double, double, double) {
         ++terrain_calls;
@@ -47,6 +68,11 @@ void support_and_site_shapes() {
     near((*feet)[1].center[0], 0.5, "The second bearing stands outside the east disc face.");
     near((*feet)[0].center[1] - (*feet)[0].half[1], -0.04,
          "A wheel foot seats slightly into the lowest terrain triangle.");
+    near((*feet)[1].center[1] + (*feet)[1].half[1],
+         4 * site::height_step + site::anchor_height - 0.10,
+         "The pier cap seats below the native axle envelope and visible bearing.");
+    check(!geometry::transmission_intersects((*feet)[1], {4, 4, 0}, Axis::x, true),
+          "An adjacent U-centered coaxial gear can leave the wheel through its bearing.");
     check(!geometry::wheel_support_bounds({0, 4, 0}, Axis::y, terrain),
           "Vertical wheel axles have no admitted foot geometry.");
     check(!geometry::wheel_support_bounds({0, 4, 0}, Axis::x,

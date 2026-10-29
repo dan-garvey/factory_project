@@ -10,6 +10,10 @@ namespace {
 using stationary::Role;
 using values::Value;
 using Integer = Value::Integer;
+// The authored landscape uses the original 1.65 m fine-grid coordinates.
+// Remap them only where they identify fixed physical site positions.
+constexpr Integer site_grid_scale = static_cast<Integer>(1.65 / site_geometry::pitch);
+static_assert(site_grid_scale * site_geometry::pitch == 1.65);
 }  // namespace
 
 std::optional<ArrivalConfiguration> make_arrival_configuration(
@@ -33,33 +37,33 @@ std::optional<ArrivalConfiguration> make_arrival_configuration(
     profile.build_reach = site_geometry::base_reach;
     if (arrival) profile.manual_cut_reach = 2.55;
     profile.foundation_parts = 24;
-    // East of the river and clear of the exposed ore deposit. This is a
-    // reversible authored site anchor, expressed in the one quarter-tile grid.
+    // East of the river and clear of the exposed ore deposit. The pod and
+    // landscape retain their meter positions while the mechanical grid halves.
     if (arrival) {
-        profile.landing_pod_center = mechanics::Point{4, 0, 16};
+        profile.landing_pod_center = mechanics::Point{4 * site_grid_scale, 0, 16 * site_grid_scale};
         profile.first_plate_unlock = !advanced_fixture;
-        profile.material.manual_ore = materials::OreSite{"opening-copper", {-3, 0, 0}};
+        profile.material.manual_ore = materials::OreSite{"opening-copper", {-3 * site_grid_scale, 0, 0}};
         profile.material.raw_mass = 4;
         profile.material.plate_mass = 3;
         profile.material.sheet_mass = 12;
         for (const auto& cell : mineral_site::opening_cells)
-            for (Integer level = 0; level <= mineral_site::extraction_depth_steps; level += 4)
-                profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-1, 0, 0}});
+            for (Integer level = 0; level <= mineral_site::extraction_depth_steps * site_grid_scale; level += 4)
+                profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-site_grid_scale, 0, 0}});
         profile.material.timber_sites = {
-            {"tree-east-south", {{16, 0, 8}, 8}},
-            {"tree-east-north", {{16, 0, 28}, 8}},
-            {"tree-north", {{0, 0, 28}, 8}},
-            {"tree-east-upstream", {{16, 0, -4}, 8}},
+            {"tree-east-south", {{16 * site_grid_scale, 0, 8 * site_grid_scale}, 8}},
+            {"tree-east-north", {{16 * site_grid_scale, 0, 28 * site_grid_scale}, 8}},
+            {"tree-north", {{0, 0, 28 * site_grid_scale}, 8}},
+            {"tree-east-upstream", {{16 * site_grid_scale, 0, -4 * site_grid_scale}, 8}},
             // Mature bank trees have stable native identities. The scene
             // matches each prepared mesh root to these quarter-tile centers.
-            {"fir_00", {{-28, 0, -44}, 8}},
-            {"fir_01", {{-31, 0, -11}, 8}},
-            {"fir_02", {{-51, 0, 37}, 8}},
-            {"fir_03", {{29, 0, -24}, 8}},
-            {"fir_04", {{32, 0, -2}, 8}},
-            {"fir_05", {{44, 0, 15}, 8}},
-            {"broadleaf_00", {{15, 1, -46}, 8}},
-            {"broadleaf_01", {{-46, 0, -34}, 8}}};
+            {"fir_00", {{-28 * site_grid_scale, 0, -44 * site_grid_scale}, 8}},
+            {"fir_01", {{-31 * site_grid_scale, 0, -11 * site_grid_scale}, 8}},
+            {"fir_02", {{-51 * site_grid_scale, 0, 37 * site_grid_scale}, 8}},
+            {"fir_03", {{29 * site_grid_scale, 0, -24 * site_grid_scale}, 8}},
+            {"fir_04", {{32 * site_grid_scale, 0, -2 * site_grid_scale}, 8}},
+            {"fir_05", {{44 * site_grid_scale, 0, 15 * site_grid_scale}, 8}},
+            {"broadleaf_00", {{15 * site_grid_scale, site_grid_scale, -46 * site_grid_scale}, 8}},
+            {"broadleaf_01", {{-46 * site_grid_scale, 0, -34 * site_grid_scale}, 8}}};
         // Zero means no carried-count limit. Finite sources and native custody
         // still bound the material that can exist in the opening.
         profile.material.hand_carry_capacity = 0;
@@ -106,7 +110,7 @@ std::optional<ArrivalConfiguration> make_arrival_configuration(
         // Start on the unfolded front deck, clear of the rear pressure shell,
         // side doors and threshold. Both capsules remain near the local bench.
         content.actor_starts.emplace_back(actor, arrival ?
-            authority::Point{(actor == "P" ? 1.0 : 0.5) * site_geometry::pitch, 1.0, 4.8} :
+            authority::Point{actor == "P" ? 1.65 : 0.825, 1.0, 4.8} :
             authority::Point{-site_geometry::pitch, 1.0,
                 (actor == "P" ? 2.0 : 3.0) * site_geometry::pitch});
     }

@@ -1,5 +1,6 @@
 #pragma once
 #include "factory/godot_world.hpp"
+#include "factory/site_geometry_contract.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -16,19 +17,22 @@ inline values::Value::Object flat_site() {
 inline values::Value::Object channel_site() {
     using V = values::Value;
     using I = V::Integer;
+    constexpr I grid_scale = static_cast<I>(1.65 / site_geometry::pitch);
+    static_assert(grid_scale * site_geometry::pitch == 1.65);
     V::Array heights;
     for (int row = 0; row < 4; ++row) {
         heights.emplace_back(-1.65); heights.emplace_back(-1.65);
         heights.emplace_back(-0.02); heights.emplace_back(-0.02);
     }
+    const auto water = [grid_scale](I x, I z) {
+        return V(V::Array{V(x * grid_scale), V(z * grid_scale),
+            V(I{-20} * grid_scale), V(I{-400} * grid_scale),
+            V(I{200} * grid_scale), V(I{-200} * grid_scale)});
+    };
     return {{"axis", V(V::Array{V(-128.0), V(-1.1), V(-1.0), V(128.0)})},
             {"heights", V(heights)}, {"obstacles", V(V::Array{})},
-            {"water", V(V::Array{V(V::Array{V(I{-12}), V(I{0}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
-                                 V(V::Array{V(I{-12}), V(I{4}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
-                                 V(V::Array{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
-                                 V(V::Array{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
-                                 V(V::Array{V(I{-4}), V(I{0}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})}),
-                                 V(V::Array{V(I{-4}), V(I{4}), V(I{-20}), V(I{-400}), V(I{200}), V(I{-200})})})}};
+            {"water", V(V::Array{water(-12, 0), water(-12, 4),
+                water(-8, 0), water(-8, 4), water(-4, 0), water(-4, 4)})}};
 }
 
 // Setup consumers complete real native time before spending harvested stock.
