@@ -208,16 +208,19 @@ void arrival_projection_and_restore() {
     initialized(host);
     const auto view = host.projection();
     const auto pod = get<O>(view, "landing_pod");
+    constexpr I site_grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
+    static_assert(site_grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
     check(get<std::string>(V(pod), "id") == "landing-pod" &&
           get<bool>(V(pod), "deployed") && get<bool>(V(pod), "hub_ready") &&
           !factory::values::typed_difference(V(get<A>(V(pod), "center")),
-              V(A{V(I{1}), V(I{0}), V(I{4})})),
+              V(A{V(site_grid_scale), V(I{0}), V(I{4} * site_grid_scale)})),
           "The view describes a settled pod with a usable local fabrication hub.");
     const auto hub = get<O>(view, "fabrication_hub");
     check(get<std::string>(V(hub), "id") == "pod-fabrication-hub" &&
           get<bool>(V(hub), "installed") && get<A>(view, "fabrication_benches").empty() &&
           !factory::values::typed_difference(V(get<A>(V(hub), "center")),
-              V(A{V(I{2}), V(I{0}), V(I{4})})),
+              V(A{V(site_grid_scale + (site_grid_scale == 1 ? 1 : 3)),
+                  V(I{0}), V(I{4} * site_grid_scale)})),
           "The bench has its own identity on the shared east deck tile.");
     check(get<A>(view, "workshop_completed_actors").empty() &&
           !std::get<O>(view.storage()).contains("freight_beacon"),
@@ -303,6 +306,8 @@ void arrival_projection_and_restore() {
     check(get<bool>(host.publish_actor("P", p_spawn, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", q_spawn, 1), "accepted"),
           "Both physical actors can become ready on the same deployed deck.");
+    check(get<bool>(host.publish_actor("P", {V(5.7), V(1.0), V(8.4)}, 2), "accepted"),
+          "P walks beside the east worksite to reach a new slab outside its occupied footprint.");
     const O build{{"context", V("arrival-site")}, {"client", V("P")},
         {"request", V("expand-east")}, {"action", V("place_foundation")},
         {"cell", V(A{V(I{3}), V(I{4})})}, {"level", V(I{0})}};
@@ -313,10 +318,12 @@ void arrival_projection_and_restore() {
     check(get<bool>(host.command("P", build), "duplicate") &&
           get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 14,
           "A retried construction command cannot mint another tile or spend twice.");
+    check(get<bool>(host.publish_actor("Q", {V(2.0), V(1.0), V(1.5)}, 2), "accepted"),
+          "Q can inspect a separate clear site without gaining a second foundation kit.");
     auto other = build;
     other.at("client") = V("Q");
     other.at("request") = V("Q-expand");
-    other.at("cell") = V(A{V(I{1}), V(I{2})});
+    other.at("cell") = V(A{V(I{0}), V(I{0})});
     const auto q_result = host.command("Q", other);
     check(!get<bool>(q_result, "accepted") &&
           get<std::string>(q_result, "reason") == "no_part" &&
@@ -454,10 +461,22 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
          {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}});
     check(get<bool>(slide, "accepted"), "The slide body spends its own crafted item.");
     const auto slide_id = get<std::string>(slide, "entity");
+    const auto input_ports = get<A>(V(get<O>(restored.projection(), "placed_components").at(slide_id)),
+        "input_ports");
+    check(input_ports.size() == 2, "The installed slide exposes two native crank ends.");
+    const auto west_port = std::get<A>(input_ports.front().storage());
+    const auto east_port = std::get<A>(input_ports.back().storage());
+    check(std::get<I>(west_port[0].storage()) < 12 &&
+          std::get<I>(east_port[0].storage()) > 12,
+          "The projected input ends flank the installed slide on its X axis.");
+    const double step = factory::godot_world::site_geometry::height_step;
+    check(get<bool>(restored.publish_actor("P", {V(std::get<I>(east_port[0].storage()) * step + 0.5),
+              V(1.0), V(std::get<I>(east_port[2].storage()) * step)}, 4), "accepted"),
+          "The actor approaches the east crank end from its exposed side.");
     const auto first_id = get<std::string>(first, "crank_id");
     const auto second_id = get<std::string>(second, "crank_id");
     const O attach{{"entity", V(slide_id)}, {"crank", V(first_id)},
-        {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
+        {"port", V(east_port)}};
     const auto fitted = resumed("attach-first", "attach_hand_crank", attach);
     check(get<bool>(fitted, "accepted") && get<std::string>(fitted, "entity") == first_id &&
           get<I>(get<O>(restored.projection(), "placed_components").at(slide_id),
@@ -473,13 +492,13 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
     check(get<bool>(resumed("attach-first", "attach_hand_crank", attach), "duplicate") &&
           !get<bool>(resumed("attach-second", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(second_id)},
-               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
+               {"port", V(east_port)}}), "accepted"),
           "A retry cannot mint a crank, and one occupied port blocks another crank.");
     const auto before_bad_crank_commands = restored.projection();
     for (const auto& refused : {
              resumed("bad-attach", "attach_hand_crank",
                  {{"entity", V(slide_id)}, {"crank", V(first_id)},
-                  {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}, {"face", V(true)}}),
+                  {"port", V(east_port)}, {"face", V(true)}}),
              resumed("bad-detach", "detach_hand_crank",
                  {{"entity", V(first_id)}, {"unexpected", V(I{1})}}),
              resumed("bad-operate", "operate_hand_crank", {{"entity", V(I{7})}}),
@@ -500,11 +519,11 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
               V(get<O>(before_bad_crank_commands, "slide_phases")),
               V(get<O>(after_bad_crank_commands, "slide_phases"))),
           "Malformed crank requests leave the native revision, item custody and slide phase unchanged.");
-    check(get<bool>(restored.publish_actor("P", {V(4.95), V(1.0), V(2.1)}, 4), "accepted"),
+    check(get<bool>(restored.publish_actor("P", {V(4.95), V(1.0), V(2.1)}, 5), "accepted"),
           "The worker steps beside the full-cell housing to reach either crank face.");
     const auto turn = resumed("turn-fitted", "turn_slide_crank",
         {{"entity", V(slide_id)},
-         {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}});
+         {"port", V(east_port)}});
     check(get<bool>(turn, "accepted") &&
           get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") > 0,
           "Turning the fitted crank advances the actual slide phase.");
@@ -533,7 +552,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
               V(get<A>(get<O>(fitted_reopened.projection(), "crank_items").at(first_id), "face")),
               V(A{V(I{1}), V(I{0}), V(I{0})})),
           "A fresh Host reopens the exact fitted crank face and finite identity.");
-    check(get<bool>(fitted_reopened.publish_actor("P", {V(4.95), V(1.0), V(2.1)}, 5),
+    check(get<bool>(fitted_reopened.publish_actor("P", {V(4.95), V(1.0), V(2.1)}, 6),
               "accepted"),
           "The service branch refreshes the actor observation beside the placed crank.");
     const auto service = [&](const char* request, const char* action, O extra) {
@@ -573,18 +592,21 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
               "components")), "hand_crank") == 2 &&
           !get<bool>(resumed("turn-after-detach", "turn_slide_crank",
               {{"entity", V(slide_id)},
-               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
+               {"port", V(east_port)}}), "accepted"),
           "Detaching returns the same crank identity and removes its manual drive.");
+    check(get<bool>(restored.publish_actor("P", {V(std::get<I>(west_port[0].storage()) * step - 0.5),
+              V(1.0), V(std::get<I>(west_port[2].storage()) * step)}, 6), "accepted"),
+          "The actor moves around the slide to approach the west crank end.");
     const auto wrong_west_face = resumed("attach-west-wrong-face", "attach_hand_crank",
         {{"entity", V(slide_id)}, {"crank", V(second_id)},
-         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})},
+         {"port", V(west_port)},
          {"face", V(A{V(I{1}), V(I{0}), V(I{0})})}});
     check(!get<bool>(wrong_west_face, "accepted") &&
           get<std::string>(wrong_west_face, "reason") == "invalid_crank_face",
           "A west slide port cannot be fitted with the east-facing handle.");
     const auto west = resumed("attach-second-west", "attach_hand_crank",
         {{"entity", V(slide_id)}, {"crank", V(second_id)},
-         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+         {"port", V(west_port)}});
     if (!get<bool>(west, "accepted"))
         throw std::runtime_error("West crank attachment refused: " +
             get<std::string>(west, "reason"));
@@ -594,7 +616,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
           "The mirrored fitted slide reports its negative X face to the ordinary view.");
     const auto west_turn = resumed("turn-west", "turn_slide_crank",
         {{"entity", V(slide_id)},
-         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+         {"port", V(west_port)}});
     if (!get<bool>(west_turn, "accepted"))
         throw std::runtime_error("West crank turn refused: " +
             get<std::string>(west_turn, "reason"));
@@ -612,10 +634,10 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
     };
     check(!get<bool>(q_command("q-steal-held", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(first_id)},
-               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted") &&
+               {"port", V(east_port)}}), "accepted") &&
           get<bool>(q_command("q-turn-attached", "turn_slide_crank",
               {{"entity", V(slide_id)},
-               {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}}), "accepted") &&
+               {"port", V(west_port)}}), "accepted") &&
           get<bool>(q_command("q-detach", "detach_hand_crank",
               {{"entity", V(second_id)}}), "accepted") &&
           get<std::string>(get<O>(restored.projection(), "crank_items").at(second_id),
@@ -839,6 +861,8 @@ void crafted_foundation_extends_exhausted_kit() {
     check(get<bool>(host.command("P", later_craft), "accepted") &&
           get<I>(get<O>(host.projection(), "part_kits").at("P"), "foundation") == 1,
           "An exhausted kit can gain exactly one locally crafted part.");
+    check(get<bool>(host.publish_actor("P", {V(5.7), V(1.0), V(8.4)}, 6), "accepted"),
+          "The actor reaches a clear extension site after returning from the workshop.");
     const O extra{{"context", V("arrival-site")}, {"client", V("P")},
         {"request", V("extra-floor")}, {"action", V("place_foundation")},
         {"cell", V(A{V(I{3}), V(I{4})})}, {"level", V(I{0})}};

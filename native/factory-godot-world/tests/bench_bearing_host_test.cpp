@@ -1,5 +1,6 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -22,6 +23,8 @@ template<class T> const T& get(const V& value, const char* key) {
 }
 
 void bench_requires_ground_bearing() {
+    constexpr I site_grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
+    static_assert(site_grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
     Host host;
     auto low_site = factory::godot_world::tests::flat_site();
     low_site["axis"] = V(A{V(-128.0), V(7.0), V(8.0), V(128.0)});
@@ -50,7 +53,7 @@ void bench_requires_ground_bearing() {
     const O place_bench{{"context", V("low-bench-site")}, {"client", V("P")},
         {"request", V("low-place-bench")}, {"action", V("place_component")},
         {"component", V("wooden_workbench")},
-        {"center", V(A{V(I{20}), V(I{0}), V(I{8})})}};
+        {"center", V(A{V(I{20} * site_grid_scale), V(I{0}), V(I{8} * site_grid_scale)})}};
     const auto outcome = host.command("P", place_bench);
     if (get<bool>(outcome, "accepted"))
         throw std::runtime_error("Ground-level bench floated 1.65 metres above the actual terrain.");
@@ -58,30 +61,36 @@ void bench_requires_ground_bearing() {
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")),
               "wooden_workbench") == 1,
           "A bench needs natural ground or an ordinary foundation under its feet.");
+    check(get<bool>(host.publish_actor("P", {V(5.4), V(1.0), V(3.3)}, 2), "accepted"),
+          "P clears the physical slab footprint while staying within construction reach.");
+    constexpr double slab_pitch = factory::godot_world::site_geometry::pitch *
+        (site_grid_scale == 1 ? 1 : 3);
     const O foundation{{"context", V("low-bench-site")}, {"client", V("P")},
         {"request", V("low-bench-foundation")}, {"action", V("place_foundation")},
-        {"cell", V(A{V(I{5}), V(I{2})})}, {"level", V(I{4})}};
+        {"cell", V(A{V(static_cast<I>(std::floor(8.25 / slab_pitch))),
+            V(static_cast<I>(std::floor(3.3 / slab_pitch)))})},
+        {"level", V(I{4})}};
     check(get<bool>(host.command("P", foundation), "accepted"),
           "P builds one ordinary foundation above the low ground.");
     auto raised_bench = place_bench;
     raised_bench.at("request") = V("raised-bench");
-    raised_bench.at("center") = V(A{V(I{20}), V(I{4}), V(I{8})});
+    raised_bench.at("center") = V(A{V(I{20} * site_grid_scale), V(I{4}), V(I{8} * site_grid_scale)});
     check(get<bool>(host.command("P", raised_bench), "accepted") &&
           get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
           "The same finite bench sits on an aligned elevated foundation and saves.");
-    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 2), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(6.6)}, 3), "accepted"),
           "P moves back within reach of the issued pod workshop.");
     const O stow{{"context", V("low-bench-site")}, {"client", V("P")},
         {"request", V("low-stow-pod")}, {"action", V("stow_fabrication_hub")},
         {"entity", V("pod-fabrication-hub")}};
     check(get<bool>(host.command("P", stow), "accepted"),
           "The issued workshop enters P custody before a redeploy attempt.");
-    check(get<bool>(host.publish_actor("P", {V(8.25), V(1.0), V(3.3)}, 3), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(8.25), V(1.0), V(3.3)}, 4), "accepted"),
           "P reaches the lowered candidate workshop site.");
     const O deploy{{"context", V("low-bench-site")}, {"client", V("P")},
         {"request", V("low-deploy-pod")}, {"action", V("deploy_fabrication_hub")},
         {"entity", V("pod-fabrication-hub")},
-        {"center", V(A{V(I{24}), V(I{0}), V(I{8})})}};
+        {"center", V(A{V(I{24} * site_grid_scale), V(I{0}), V(I{8} * site_grid_scale)})}};
     const auto refused_deploy = host.command("P", deploy);
     check(!get<bool>(refused_deploy, "accepted") &&
           get<std::string>(refused_deploy, "reason") == "support_required" &&
