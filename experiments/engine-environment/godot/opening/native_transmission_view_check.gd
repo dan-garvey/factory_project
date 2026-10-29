@@ -364,6 +364,61 @@ func _component_record(kind: String, cell: Array, center: Array, half: Array) ->
 	return {"component": kind, "generation": 1, "center": cell,
 		"occupied": {"center": center, "half": half}}
 
+func _press_component_record(kind: String, cell: Vector3i) -> Dictionary:
+	# These projected boxes use the accepted small-workcell dimensions. Native
+	# Host tests independently check the same occupied faces and contacts.
+	var scale: float = Geometry.PITCH / 1.65
+	var step: float = Geometry.HEIGHT_STEP
+	var floor_y: float = float(cell.y) * step
+	var at := Vector3(float(cell.x) * step, floor_y + Geometry.ANCHOR_HEIGHT,
+		float(cell.z) * step)
+	var center := at
+	var half := Vector3.ZERO
+	match kind:
+		"wooden_frame":
+			center.y = floor_y + 0.45 * scale
+			half = Vector3(0.2025, 0.45, 0.2025) * scale
+		"anvil":
+			half = Vector3(Geometry.PITCH * 0.5, Geometry.PRESS_WORK_HEIGHT * 0.5,
+				Geometry.PITCH * 0.5)
+			center.y = floor_y + half.y
+		"flat_head":
+			var low: float = floor_y - step + Geometry.PRESS_WORK_HEIGHT
+			var high: float = at.y + step * 0.30
+			center.y = (low + high) * 0.5
+			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
+				Geometry.PITCH * 0.5)
+		"wooden_slide", "copper_slide":
+			var low: float = floor_y - 2.0 * step + Geometry.PRESS_WORK_HEIGHT
+			var lift: float = 2.0 * step if absi(cell.y % 4) == 2 else 0.0
+			var high: float = at.y + lift + step * 0.25
+			center.y = (low + high) * 0.5
+			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
+				Geometry.PITCH * 0.5)
+		"ram_face":
+			var low: float = floor_y - step + Geometry.PRESS_WORK_HEIGHT
+			var high: float = at.y + step * 0.5
+			center.y = (low + high) * 0.5
+			half = Vector3(0.14 * scale, (high - low) * 0.5, 0.14 * scale)
+		"sliding_guide":
+			var low: float = at.y - step * 1.5
+			var high: float = at.y + step - 0.08 * scale
+			center.y = (low + high) * 0.5
+			half = Vector3(0.14 * scale, (high - low) * 0.5, 0.14 * scale)
+		"tool_mount":
+			center.y += 0.10 * scale
+			half = Vector3(step - 0.205 * scale, 0.18 * scale,
+				step - 0.205 * scale)
+		"wooden_shaft", "copper_shaft":
+			half = Vector3(0.205, 0.12, 0.205) * scale
+		"wooden_cog", "copper_cog":
+			half = Vector3(step - 0.205 * scale, 0.14 * scale,
+				step - 0.205 * scale)
+		_:
+			assert(false, "Unexpected press fixture component")
+	return _component_record(kind, [cell.x, cell.y, cell.z],
+		[center.x, center.y, center.z], [half.x, half.y, half.z])
+
 func _component_fixture() -> Dictionary:
 	return {"context": "component-view-fixture", "revision": 1,
 		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
@@ -1006,14 +1061,13 @@ func _press_component_view() -> void:
 		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
 		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
 		"collector_assemblies": [], "placed_components": {
-			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
-			"anvil": _component_record("anvil", [0, 1, 0], [0.0, 0.4125 + Geometry.PRESS_WORK_HEIGHT * 0.5, 0.0],
-				[Geometry.PITCH * 0.5, Geometry.PRESS_WORK_HEIGHT * 0.5, Geometry.PITCH * 0.5]),
-			"ram": _component_record("ram_face", [0, 2, 0], [0.0, 1.618125, 0.0], [0.14, 0.238125, 0.14]),
-			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
-			"mount": _component_record("tool_mount", [0, 4, 0], [0.0, 2.575, 0.0], [0.2075, 0.18, 0.2075]),
-			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
-			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
+			"frame": _press_component_record("wooden_frame", Vector3i(0, 0, 0)),
+			"anvil": _press_component_record("anvil", Vector3i(0, 1, 0)),
+			"ram": _press_component_record("ram_face", Vector3i(0, 2, 0)),
+			"guide": _press_component_record("sliding_guide", Vector3i(0, 3, 0)),
+			"mount": _press_component_record("tool_mount", Vector3i(0, 4, 0)),
+			"shaft": _press_component_record("wooden_shaft", Vector3i(1, 4, 0)),
+			"cog": _press_component_record("wooden_cog", Vector3i(2, 4, 0))},
 		"press_assemblies": [{"status": "ready", "parts": {"frame": "frame", "anvil": "anvil",
 			"ram": "ram", "guide": "guide", "mount": "mount", "shaft": "shaft", "drive_cog": "cog"}}]}
 	var parsed: Dictionary = Geometry.component_boxes(state)
@@ -1045,7 +1099,7 @@ func _press_component_view() -> void:
 	var foot_bounds: AABB = framed_foot.global_transform * framed_foot.mesh.get_aabb()
 	var shelf_bounds: AABB = framed_shelf.global_transform * framed_shelf.mesh.get_aabb()
 	var leg_bounds: AABB = framed_leg.global_transform * framed_leg.mesh.get_aabb()
-	verify(absf(foot_bounds.position.y - 0.4125) < 0.0002
+	verify(absf(foot_bounds.position.y - Geometry.HEIGHT_STEP) < 0.0002
 		and absf(shelf_bounds.end.y - foot_bounds.position.y) < 0.0002
 		and foot_bounds.size.x > Geometry.PITCH * 0.9,
 		"The full-cell anvil base meets the centered raised shelf without an unsupported gap.")
@@ -1068,12 +1122,12 @@ func _press_component_view() -> void:
 		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
 			var mesh := found as MeshInstance3D
 			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
-			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
-				"Each visible press member stays inside its own native collision volume.")
-	state.placed_components.shaft.center = [-1, 4, 0]
-	state.placed_components.shaft.occupied.center = [-0.4125, 2.475, 0.0]
-	state.placed_components.cog.center = [-2, 4, 0]
-	state.placed_components.cog.occupied.center = [-0.825, 2.475, 0.0]
+			var native_box := AABB(-spec.size * 0.5, spec.size).grow(0.0002)
+			var art_box := relative * mesh.mesh.get_aabb()
+			verify(native_box.encloses(art_box),
+				"Each visible press member stays inside its own native collision volume: %s/%s %s in %s." % [id, mesh.name, art_box, native_box])
+	state.placed_components.shaft = _press_component_record("wooden_shaft", Vector3i(-1, 4, 0))
+	state.placed_components.cog = _press_component_record("wooden_cog", Vector3i(-2, 4, 0))
 	state.revision = 2
 	host.state = state
 	physical.sync_topology()
@@ -1083,16 +1137,14 @@ func _press_component_view() -> void:
 		if node.has_meta("component_entity"):
 			mirrored[node.get_meta("component_entity")] = node
 	var mirrored_shaft: Node3D = mirrored.shaft.get_node_or_null("LooseDriveShaft")
-	verify(mirrored.size() == 7 and mirrored_shaft != null and mirrored_shaft.basis.y.x > 0.99
+	verify(mirrored.size() == 7 and mirrored_shaft != null and mirrored_shaft.basis.y.normalized().x > 0.99
 		and physical.component_bodies.shaft.position.x < 0.0,
 		"An opposite-side confirmed drive still fits the same seven-part press.")
 	_verify_press_drive_contact(mirrored, state)
 	var retained_shaft_length: float = (mirrored_shaft.get_node("Shaft").mesh as CylinderMesh).height
 	for direction in [-1, 1]:
-		state.placed_components.shaft.center = [0, 4, direction]
-		state.placed_components.shaft.occupied.center = [0.0, 2.475, float(direction) * 0.4125]
-		state.placed_components.cog.center = [0, 4, direction * 2]
-		state.placed_components.cog.occupied.center = [0.0, 2.475, float(direction) * 0.825]
+		state.placed_components.shaft = _press_component_record("wooden_shaft", Vector3i(0, 4, direction))
+		state.placed_components.cog = _press_component_record("wooden_cog", Vector3i(0, 4, direction * 2))
 		state.revision += 1
 		host.state = state
 		physical.sync_topology()
@@ -1102,7 +1154,7 @@ func _press_component_view() -> void:
 			if node.has_meta("component_entity"):
 				transverse[node.get_meta("component_entity")] = node
 		_verify_press_drive_contact(transverse, state)
-		verify(physical.component_bodies.shaft.position.z * float(direction) > 0.4,
+		verify(physical.component_bodies.shaft.position.z * float(direction) > Geometry.HEIGHT_STEP - 0.01,
 			"The transverse press keeps the shaft's native body on its confirmed grid axis.")
 	state.placed_components.erase("cog")
 	state.press_assemblies[0] = {"frame": "frame", "center": [0, 0, 0], "status": "missing_cog"}
@@ -1117,7 +1169,7 @@ func _press_component_view() -> void:
 	var partial_shaft: Node3D = partial.shaft.get_node_or_null("LooseDriveShaft")
 	verify(not physical.component_bodies.has("cog") and partial.size() == 6
 		and partial.mount.get_node_or_null("PressCrown") != null
-		and partial_shaft != null and partial_shaft.basis.y.z < -0.99 \
+		and partial_shaft != null and partial_shaft.basis.y.normalized().z < -0.99 \
 		and is_equal_approx((partial_shaft.get_node("Shaft").mesh as CylinderMesh).height, retained_shaft_length),
 		"Reclaiming the cog clears its body while the remaining crown and shaft keep their press fitting.")
 	view.free()
@@ -1125,8 +1177,8 @@ func _press_component_view() -> void:
 	await process_frame
 
 func _broad_press_component_view() -> void:
-	# The twenty records use Host's one-quarter tile centers and occupied
-	# dimensions. The broad row order is native z row, then x column.
+	# The twenty records use Host's fine-grid centers and occupied dimensions.
+	# The broad row order is native z row, then x column.
 	var state: Dictionary = {"context": "broad-press-component-view", "revision": 1,
 		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
 		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
@@ -1143,17 +1195,15 @@ func _broad_press_component_view() -> void:
 		var cell: Vector3i = cells[pad]
 		var side: Vector3i = sides[pad]
 		var entries := [
-			["anvils", "anvil", "anvil", cell, 0.48375, 0.48375, Geometry.PITCH * 0.5],
-			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0), 1.205625, 0.238125, 0.14],
-			["guides", "guide", "sliding_guide", cell + Vector3i(0, 3, 0), 1.919375, 0.475625, 0.14],
-			["shafts", "shaft", "wooden_shaft", cell + Vector3i(0, 4, 0) + side, 2.475, 0.12, 0.205],
-			["drive_cogs", "cog", "wooden_cog", cell + Vector3i(0, 4, 0) + side * 2, 2.475, 0.14, 0.2075]]
+			["anvils", "anvil", "anvil", cell],
+			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0)],
+			["guides", "guide", "sliding_guide", cell + Vector3i(0, 3, 0)],
+			["shafts", "shaft", "wooden_shaft", cell + Vector3i(0, 4, 0) + side],
+			["drive_cogs", "cog", "wooden_cog", cell + Vector3i(0, 4, 0) + side * 2]]
 		for entry in entries:
 			var id: String = "%s%d" % [entry[1], pad]
 			var point: Vector3i = entry[3]
-			state.placed_components[id] = _component_record(entry[2], [point.x, point.y, point.z],
-				[float(point.x) * step, entry[4] + float(base_y) * step, float(point.z) * step],
-				[entry[6], entry[5], entry[6]])
+			state.placed_components[id] = _press_component_record(entry[2], point)
 			parts[entry[0]].append(id)
 	state.broad_press_assemblies = [{"origin": [0, base_y, 0], "geometry_status": "ready",
 		"status": "ready", "work_centers": [[0, base_y, 0], [4, base_y, 0],
@@ -1194,8 +1244,8 @@ func _broad_press_component_view() -> void:
 			and guide.get_node_or_null("GuideRail") != null
 			and anchors["shaft%d" % pad].get_node_or_null("GuidedBearingSeat") != null
 			and shaft != null and cog != null
-			and shaft.global_basis.y.dot(toward) > 0.99
-			and cog.global_basis.y.dot(toward) > 0.99,
+			and shaft.global_basis.y.normalized().dot(toward) > 0.99
+			and cog.global_basis.y.normalized().dot(toward) > 0.99,
 			"Each distinct broad pad fits its work face and exterior drive toward its own guide.")
 	for id: String in parsed.boxes:
 		var spec: Dictionary = parsed.boxes[id]
@@ -1205,7 +1255,7 @@ func _broad_press_component_view() -> void:
 			var mesh := found as MeshInstance3D
 			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
 			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
-				"Broad fittings stay inside their own native occupied boxes.")
+				"Broad fittings stay inside their own native occupied boxes: %s/%s." % [id, mesh.name])
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--broad-capture=") and DisplayServer.get_name() != "headless":
 			root.size = Vector2i(1280, 800)
@@ -1447,12 +1497,11 @@ func _guided_press_component_view() -> void:
 			"shaft": {"state": "rotating", "numerator": 1, "denominator": 1},
 			"cog": {"state": "rotating", "numerator": 1, "denominator": 1}},
 		"collector_assemblies": [], "press_assemblies": [], "placed_components": {
-			"anvil": _component_record("anvil", [0, 0, 0], [0.0, 0.48375, 0.0],
-				[Geometry.PITCH * 0.5, 0.48375, Geometry.PITCH * 0.5]),
-			"ram": _component_record("ram_face", [0, 1, 0], [0.0, 1.205625, 0.0], [0.14, 0.238125, 0.14]),
-			"guide": _component_record("sliding_guide", [0, 3, 0], [0.0, 1.919375, 0.0], [0.14, 0.475625, 0.14]),
-			"shaft": _component_record("wooden_shaft", [1, 4, 0], [0.4125, 2.475, 0.0], [0.205, 0.12, 0.205]),
-			"cog": _component_record("wooden_cog", [2, 4, 0], [0.825, 2.475, 0.0], [0.2075, 0.14, 0.2075])},
+			"anvil": _press_component_record("anvil", Vector3i(0, 0, 0)),
+			"ram": _press_component_record("ram_face", Vector3i(0, 1, 0)),
+			"guide": _press_component_record("sliding_guide", Vector3i(0, 3, 0)),
+			"shaft": _press_component_record("wooden_shaft", Vector3i(1, 4, 0)),
+			"cog": _press_component_record("wooden_cog", Vector3i(2, 4, 0))},
 		"guided_press_assemblies": [{"anvil": "anvil", "center": [0, 0, 0], "status": "ready",
 			"work_center": [0, 0, 0],
 			"parts": {"anvil": "anvil", "ram": "ram", "guide": "guide",
@@ -1503,7 +1552,7 @@ func _guided_press_component_view() -> void:
 	verify(_component_mesh_shapes(anchors.anvil) == _component_mesh_shapes(anvil_preview),
 		"The anvil preview uses the same floor-seated casting as its committed mesh.")
 	anvil_preview.free()
-	verify(shaft != null and cog != null and shaft.basis.y.x < -0.99 and cog.basis.y.x < -0.99,
+	verify(shaft != null and cog != null and shaft.basis.y.normalized().x < -0.99 and cog.basis.y.normalized().x < -0.99,
 		"The guided shaft and cog point toward the confirmed anvil work column.")
 	var ready_guide_shapes := _component_mesh_shapes(anchors.guide)
 	var guide_preview := Node3D.new()
@@ -1515,8 +1564,8 @@ func _guided_press_component_view() -> void:
 	guide_preview.free()
 	var preview_anchor := Node3D.new()
 	root.add_child(preview_anchor)
-	view.preview_component(preview_anchor, "wooden_shaft", Vector3(0.41, 0.24, 0.41))
-	view.preview_component(preview_anchor, "wooden_cog", Vector3(0.41, 0.28, 0.41))
+	view.preview_component(preview_anchor, "wooden_shaft", parsed.boxes.shaft.size)
+	view.preview_component(preview_anchor, "wooden_cog", parsed.boxes.cog.size)
 	var preview_shaft: Node3D = preview_anchor.get_node_or_null("LooseDriveShaft")
 	var preview_cog: Node3D = preview_anchor.get_node_or_null("PlacedDriveCog")
 	verify(preview_shaft != null and preview_cog != null
@@ -1531,8 +1580,10 @@ func _guided_press_component_view() -> void:
 		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
 			var mesh := found as MeshInstance3D
 			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
-			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
-				"Each frame-free fitting stays inside its own native occupied volume: %s/%s." % [id, mesh.name])
+			var native_box := AABB(-spec.size * 0.5, spec.size).grow(0.0002)
+			var art_box := relative * mesh.mesh.get_aabb()
+			verify(native_box.encloses(art_box),
+				"Each frame-free fitting stays inside its own native occupied volume: %s/%s %s in %s." % [id, mesh.name, art_box, native_box])
 	var shaft_mark: MeshInstance3D = shaft.get_node("ShaftIndexMark")
 	var cog_mark: MeshInstance3D = cog.get_node("CogIndexMark")
 	var shaft_before: Vector3 = shaft_mark.global_position - shaft.global_position
@@ -1541,10 +1592,11 @@ func _guided_press_component_view() -> void:
 	var shaft_after: Vector3 = shaft_mark.global_position - shaft.global_position
 	var cog_after: Vector3 = cog_mark.global_position - cog.global_position
 	var east_winding: float = shaft_before.cross(shaft_after).dot(Vector3.RIGHT)
-	verify(absf(east_winding) > 0.0001 and absf(cog_before.cross(cog_after).dot(Vector3.RIGHT)) > 0.0001
+	var minimum_winding: float = 0.0001 * pow(Geometry.PITCH / 1.65, 2.0)
+	verify(absf(east_winding) > minimum_winding and absf(cog_before.cross(cog_after).dot(Vector3.RIGHT)) > minimum_winding
 		and anchors.shaft.position == parsed.boxes.shaft.center
 		and anchors.cog.position == parsed.boxes.cog.center,
-		"Confirmed signed motion turns both placed rotors while their pick anchors stay fixed.")
+		"Confirmed signed motion turns both placed rotors while their pick anchors stay fixed: shaft %s, cog %s, positions %s/%s." % [east_winding, cog_before.cross(cog_after).dot(Vector3.RIGHT), anchors.shaft.position, anchors.cog.position])
 	state.motion.shaft = {"state": "stalled", "numerator": 0, "denominator": 1}
 	state.motion.cog = {"state": "stalled", "numerator": 0, "denominator": 1}
 	state.revision = 2
@@ -1576,10 +1628,8 @@ func _guided_press_component_view() -> void:
 	view.advance_visual_motion(0.02)
 	verify(resumed_mark.global_position.distance_to(held_position) > 0.0001,
 		"The reconnected placed shaft moves only after native motion resumes.")
-	state.placed_components.shaft.center = [-1, 4, 0]
-	state.placed_components.shaft.occupied.center = [-0.4125, 2.475, 0.0]
-	state.placed_components.cog.center = [-2, 4, 0]
-	state.placed_components.cog.occupied.center = [-0.825, 2.475, 0.0]
+	state.placed_components.shaft = _press_component_record("wooden_shaft", Vector3i(-1, 4, 0))
+	state.placed_components.cog = _press_component_record("wooden_cog", Vector3i(-2, 4, 0))
 	state.revision = 4
 	host.state = state
 	view.refresh()
@@ -1613,7 +1663,7 @@ func _guided_press_component_view() -> void:
 	var loose_shaft: Node3D = partial.shaft.get_node_or_null("LooseDriveShaft")
 	verify(partial.size() == 4 and loose_shaft != null
 		and partial.shaft.get_node_or_null("GuidedBearingSeat") == null
-		and loose_shaft.basis.y.y > 0.99,
+		and loose_shaft.basis.y.normalized().y > 0.99,
 		"A partial native assembly loses its drive fitting without inventing a ready press.")
 	verify(_component_mesh_shapes(partial.guide) == ready_guide_shapes,
 		"Removing a neighboring drive part does not resize or reposition the guide rails.")
@@ -1667,9 +1717,9 @@ func _guided_press_component_view() -> void:
 	verify(absf(rest_y - forming_die.position.y -
 			(Presenter.GUIDED_RAM_REST_LIFT - Presenter.GUIDED_RAM_CONTACT_LIFT)) < 0.001
 		and absf(die_box.position.y - boss_box.end.y) < 0.001
-		and forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * 0.5 >= -half - 0.00001
-		and forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * 0.5 <= half + 0.00001,
-		"Confirmed work brings the die to the retained copper crown inside the swept ram box.")
+		and forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * forming_die.scale.y * 0.5 >= -half - 0.00001
+		and forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * forming_slide.scale.y * 0.5 <= half + 0.00001,
+			"Confirmed work brings the die to the retained copper crown inside the swept ram box: lifts %s/%s, contact %s/%s, die %s, slide %s, half %s." % [rest_y, forming_die.position.y, die_box.position.y, boss_box.end.y, forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * forming_die.scale.y * 0.5, forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * forming_slide.scale.y * 0.5, half])
 	state.dropped_material = []
 	state.revision = 9
 	host.state = state
@@ -1691,7 +1741,7 @@ func _guided_press_component_view() -> void:
 	host.state = state
 	view.refresh()
 	var crank_east := view.get_node_or_null("AttachedHandCrank") as Node3D
-	verify(crank_east != null and crank_east.position.x > 0.4125 * U_SCALE
+	verify(crank_east != null and crank_east.position.x > Geometry.HEIGHT_STEP
 		and absf(crank_east.rotation.y) < 0.001,
 		"The fitted crank seats outward on the confirmed positive X spindle face.")
 	if not crank_capture_prefix.is_empty():
@@ -1701,7 +1751,7 @@ func _guided_press_component_view() -> void:
 	host.state = state
 	view.refresh()
 	var crank_west := view.get_node_or_null("AttachedHandCrank") as Node3D
-	verify(crank_west != null and crank_west.position.x < 0.4125 * U_SCALE
+	verify(crank_west != null and crank_west.position.x < Geometry.HEIGHT_STEP
 		and absf(absf(crank_west.rotation.y) - PI) < 0.001,
 		"Mirroring the fitted face moves and turns the visible grip with its shaft.")
 	if not crank_capture_prefix.is_empty():
@@ -2914,12 +2964,13 @@ func _press_belt_connector_view() -> void:
 	var pan := connector.get_node_or_null("TransferPan") as MeshInstance3D if connector != null else null
 	var rails := connector.find_children("TransferSideRail*", "MeshInstance3D", false, false) if connector != null else []
 	var pan_bounds: AABB = pan.global_transform * pan.mesh.get_aabb() if pan != null else AABB()
+	var press_scale: float = Geometry.PITCH / 1.65
 	verify(connector != null and pan != null and rails.size() == 2
 		and connector.get_meta("belt_span") == "inlet"
 		and absf(pan_bounds.end.y - Geometry.PRESS_WORK_HEIGHT) < 0.0002
 		and absf(pan_bounds.size.z - Geometry.BELT_HALF_WIDTH * 2.0) < 0.0002
-		and absf(pan_bounds.position.x + Geometry.PITCH * 0.5 + 0.025) < 0.0002
-		and absf(pan_bounds.end.x + Geometry.PITCH * 0.5 - 0.085) < 0.0002,
+		and absf(pan_bounds.position.x + Geometry.PITCH * 0.5 + 0.025 * press_scale) < 0.0002
+		and absf(pan_bounds.end.x + Geometry.PITCH * 0.5 - 0.085 * press_scale) < 0.0002,
 		"A confirmed belt mouth has a short belt-width fitting at the workbed edge relief.")
 	presenter.free()
 	state.placed_components.blocker = {"center": [-2, 0, 0]}
@@ -2991,12 +3042,9 @@ func _slide_material_seat() -> void:
 		"motion": {}, "collector_assemblies": [], "press_assemblies": [],
 		"guided_press_assemblies": []}
 	state.placed_components = {
-		"anvil": _component_record("anvil", [0, 0, 0], [0.0, Geometry.PRESS_WORK_HEIGHT * 0.5, 0.0],
-			[Geometry.PITCH * 0.5, Geometry.PRESS_WORK_HEIGHT * 0.5, Geometry.PITCH * 0.5]),
-		"head": _component_record("flat_head", [0, 1, 0], [0.0, 1.165, 0.0],
-			[Geometry.PITCH * 0.5, 0.1975, Geometry.PITCH * 0.5]),
-		"slide": _component_record("wooden_slide", [0, 2, 0], [0.0, 1.34875, 0.0],
-			[Geometry.PITCH * 0.5, 0.38125, Geometry.PITCH * 0.5])}
+		"anvil": _press_component_record("anvil", Vector3i(0, 0, 0)),
+		"head": _press_component_record("flat_head", Vector3i(0, 1, 0)),
+		"slide": _press_component_record("wooden_slide", Vector3i(0, 2, 0))}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
 		"status": "ready", "work_center": [0, 0, 0],
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"}}]
@@ -3014,10 +3062,11 @@ func _slide_material_seat() -> void:
 	var die_plate: MeshInstance3D = anvil.get_node_or_null("ReplaceableDiePlate") if anvil != null else null
 	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")
 	var crown: float = Geometry.PRESS_WORK_HEIGHT
+	var press_scale: float = Geometry.PITCH / 1.65
 	verify(seat != null and die_plate != null and blank != null
-		and is_equal_approx(seat.global_position.y + 0.08, crown)
-		and is_equal_approx(die_plate.global_position.y + 0.003, crown)
-		and is_equal_approx(blank.position.y - 0.04, crown - 0.02),
+		and is_equal_approx(seat.global_position.y + 0.08 * press_scale, crown)
+		and is_equal_approx(die_plate.global_position.y + 0.003 * press_scale, crown)
+		and is_equal_approx(blank.position.y - 0.04 * press_scale, crown - 0.02 * press_scale),
 		"The admitted anvil crown, visible seat and native-confirmed blank share one work surface.")
 	var raw_label: Label3D
 	if blank != null:
@@ -3072,7 +3121,7 @@ func _slide_material_seat() -> void:
 	var work_top: float = (work.global_transform * work.mesh.get_aabb()).end.y if work != null else INF
 	var die_bottom: float = (head_face.global_transform * head_face.mesh.get_aabb()).position.y \
 		if head_face != null else -INF
-	verify(work != null and is_equal_approx(work.position.y - 0.03, crown - 0.02)
+	verify(work != null and is_equal_approx(work.position.y - 0.03 * press_scale, crown - 0.02 * press_scale)
 		and absf(die_bottom - work_top) < 0.001
 		and presenter.get_node_or_null("LooseBlank") == null,
 		"The half-cycle die meets the thinner copper workpiece on the supported anvil.")
@@ -3094,9 +3143,9 @@ func _slide_material_seat() -> void:
 			if child is Label3D:
 				label = child
 	verify(plate != null and sheet != null and trimmings != null and label != null
-		and is_equal_approx(plate.position.y - 0.03, crown - 0.02)
-		and is_equal_approx(sheet.global_position.y - sheet.mesh.get_aabb().size.y * 0.5,
-			crown - 0.02)
+		and is_equal_approx(plate.position.y - 0.03 * press_scale, crown - 0.02 * press_scale)
+		and is_equal_approx((sheet.global_transform * sheet.mesh.get_aabb()).position.y,
+			crown - 0.02 * press_scale)
 		and label.text == "1 plate + 1 offcut",
 		"The finished plate rests on the sliding workbed with its recoverable offcut visible.")
 	verify(plate != null and not plate.find_children("LooseMaterialPicker", "StaticBody3D", true, false).is_empty(),

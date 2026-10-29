@@ -90,7 +90,7 @@ class ProductionFoundationArt:
 		return finish
 
 	static func _footing_outline(mask: int, cap: bool = false, bay_recess: float = 0.0) -> Array[Vector2]:
-		var half := Geometry.PITCH / 2.0 - (FOOTING_BEVEL if cap else 0.0)
+		var half := Geometry.FOUNDATION_PITCH / 2.0 - (FOOTING_BEVEL if cap else 0.0)
 		var corner := FOOTING_BEVEL / 2.0 if cap else FOOTING_BEVEL
 		var nw := corner if cap or (mask & (NORTH | WEST)) == 0 else JOIN_CORNER
 		var ne := corner if cap or (mask & (NORTH | EAST)) == 0 else JOIN_CORNER
@@ -208,7 +208,7 @@ class ProductionFoundationArt:
 		return masks
 
 	static func _deck_top_point(x_index: int, z_index: int, mask: int) -> Vector3:
-		var half := Geometry.PITCH / 2.0
+		var half := Geometry.FOUNDATION_PITCH / 2.0
 		var bevel := minf(0.014, DECK_THICKNESS * 0.12)
 		var positions := [-half, -half + bevel, half - bevel, half]
 		var joined := (x_index == 0 and mask & WEST != 0) or (x_index == 3 and mask & EAST != 0) \
@@ -220,7 +220,7 @@ class ProductionFoundationArt:
 		ProductionVisuals._face(surface, [a, b, c], outward)
 
 	static func _deck_bottom_point(x_index: int, z_index: int) -> Vector3:
-		var half := Geometry.PITCH / 2.0
+		var half := Geometry.FOUNDATION_PITCH / 2.0
 		var bevel := minf(0.014, DECK_THICKNESS * 0.12)
 		var inset := half - bevel
 		var positions := [-inset, -inset + bevel, inset - bevel, inset]

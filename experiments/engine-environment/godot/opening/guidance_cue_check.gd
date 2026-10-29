@@ -157,11 +157,11 @@ func check_foundation_area_input() -> void:
 	view.mode = "foundation"
 	view.foundation_area_mode = true
 	view.foundation_level = 8
-	view._world_click(Vector2i(60, 20))
+	view._world_click(Vector2i(40, 20))
 	verify(view.requests.is_empty() and view.foundation_area_started,
 		"Choosing the first area corner sends no construction request.")
-	view._world_click(Vector2i(62, 21))
-	verify(view.requests == [{"action": "place_foundations", "cell": [60, 20], "end_cell": [62, 21], "level": 8}]
+	view._world_click(Vector2i(42, 21))
+	verify(view.requests == [{"action": "place_foundations", "cell": [40, 20], "end_cell": [42, 21], "level": 8}]
 		and not view.foundation_area_started, "The second corner sends exactly one absolute-height rectangle request.")
 	view._world_click(Vector2i(10, 10))
 	view._select_tool("inspect")
@@ -193,24 +193,25 @@ func check_foundation_view() -> void:
 		await physics_frame
 		await process_frame
 	verify(view.model == null and view.actor_world == null, "Client picking creates no authority or local physical character.")
-	var terrain_point := Vector3(8.25, ProductionEnvironment.Surface.height_at(8.25, 3.3), 3.3)
+	view.mode = "foundation"
+	var terrain_point := Vector3(12.375, ProductionEnvironment.Surface.height_at(12.375, 4.95), 4.95)
 	var screen := view.camera.unproject_position(terrain_point)
 	verify(view._screen_cell(screen) == Vector2i(5, 2), "The client requests a tile beyond the retired build rectangle.")
 	view.mode = "foundation"
-	view.foundation_level = 5
-	var upper_point := Vector3(8.25, 5 * Opening.Geometry.HEIGHT_STEP, 3.3)
+	view.foundation_level = 8
+	var upper_point := Vector3(12.375, 8 * Opening.Geometry.HEIGHT_STEP, 4.95)
 	verify(view._screen_cell(view.camera.unproject_position(upper_point)) == Vector2i(5, 2),
 		"The selected absolute height maps to the same global tile without a terrain collider.")
 	view.foundation_level = 0
 	view.state["foundations"] = {
-		"left": {"cell": [5, 2], "level": 1, "generation": 1},
-		"right": {"cell": [6, 2], "level": 1, "generation": 2},
-		"ore-floor": {"cell": [0, 1], "level": 4, "generation": 3}}
+		"left": {"cell": [5, 2], "level": 4, "generation": 1},
+		"right": {"cell": [6, 2], "level": 4, "generation": 2},
+		"ore-floor": {"cell": [0, 0], "level": 4, "generation": 3}}
 	view._rebuild_machines()
 	for _frame in range(3):
 		await physics_frame
 		await process_frame
-	var top_point := Vector3(8.25, Opening.Geometry.HEIGHT_STEP, 3.3)
+	var top_point := Vector3(12.375, 4 * Opening.Geometry.HEIGHT_STEP, 4.95)
 	var top_screen := view.camera.unproject_position(top_point)
 	verify(view._screen_cell(top_screen) == Vector2i(5, 2) and view._screen_entity(top_screen) == "left",
 		"A projected foundation remains pickable at its real top height without ActorWorld.")
@@ -221,7 +222,7 @@ func check_foundation_view() -> void:
 		and view._construction_level(Vector2i(0, 1)) == 4,
 		"Pointing at a foundation above the deposit selects its supported collector height.")
 	view.mode = "belt"
-	verify(view._construction_level(Vector2i(5, 2)) == 1 and view._construction_level(Vector2i(6, 2)) == 1,
+	verify(view._construction_level(Vector2i(15, 6)) == 4 and view._construction_level(Vector2i(18, 6)) == 4,
 		"Independent projected surfaces select the same machine height.")
 	view.mode = "wheel"
 	view._adjust_foundation_level(1)
@@ -230,23 +231,21 @@ func check_foundation_view() -> void:
 	verify(view.wheel_level == 4, "Wheel elevation returns to the aligned starting tile.")
 	view.mode = "foundation"
 	view._refresh_guided_tools()
+	view.foundation_level = 4
 	view._adjust_foundation_level(1)
 	await settle_footer()
-	verify(view.foundation_level == 2 and view.foundation_level_controls.visible
+	verify(view.foundation_level == 8 and view.foundation_level_controls.visible
 		and is_equal_approx(Opening.Geometry.FOUNDATION_HEIGHT_UNITS * Opening.Geometry.HEIGHT_STEP,
 			Opening.Geometry.FOUNDATION_DEPTH),
 		"One ordinary height change places the next foundation exactly one block thickness above the previous top.")
 	view._adjust_foundation_level(1)
-	verify(view.foundation_level == 4 and view.foundation_level_label.text == "Factory floor · 1.65 m",
-		"Two ordinary height changes reach the whole-tile machine floor.")
-	view.foundation_steps_toggle.button_pressed = true
+	verify(view.foundation_level == 12 and view.foundation_level_label.text.begins_with("Factory floor · ")
+		and view.foundation_level_label.text.ends_with(" m"),
+		"Two height changes each advance one full-U machine floor.")
 	view._adjust_foundation_level(-1)
-	verify(view.foundation_level == 3 and view.foundation_level_label.text.begins_with("Access step"),
-		"Explicit access steps use the same quarter-height denominator for traversal.")
-	view.foundation_steps_toggle.button_pressed = false
-	verify(view.foundation_level == 4 and not view.foundation_steps and not view.foundation_area_started,
-		"Leaving step mode snaps the selected height without moving an existing surface.")
-	verify(view.state.foundations.left.level == 1 and view.state.foundations.right.level == 1,
+	verify(view.foundation_level == 8 and not view.foundation_area_started,
+		"Height controls return to the previous full-U floor without moving an existing surface.")
+	verify(view.state.foundations.left.level == 4 and view.state.foundations.right.level == 4,
 		"The height controls do not migrate or move previously built foundations.")
 	var bounds: Rect2 = view.placement_options_panel.get_global_rect()
 	verify(root.get_visible_rect().encloses(bounds), "The expanded foundation controls fit the viewport.")
@@ -262,7 +261,7 @@ func check_foundation_view() -> void:
 		"A current shared foundation acknowledgement selects the confirmed surface without a client authority.")
 	verify(ack._material_refusal_message({"reason": "invalid_area"}, "missing advice").begins_with("Choose a rectangle"),
 		"Shared refusal advice explains the recovery action in ordinary language.")
-	verify("Access steps off" in ack._material_refusal_message({"reason": "unaligned_elevation"}, "missing advice"),
+	verify("whole-U height" in ack._material_refusal_message({"reason": "unaligned_elevation"}, "missing advice"),
 		"Both shared and ordinary views explain how to align a machine with transmission tiles.")
 	ack.free()
 	view.free()

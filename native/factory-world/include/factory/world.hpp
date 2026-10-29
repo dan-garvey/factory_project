@@ -1,11 +1,13 @@
 #pragma once
 
 #include "factory/assembly.hpp"
+#include "factory/foundation_command_contract.hpp"
 #include "factory/stationary.hpp"
 #include "factory/transactions.hpp"
 #include "factory/waterwheel.hpp"
 
 #include <array>
+#include <cstdlib>
 #include <functional>
 #include <map>
 #include <memory>
@@ -57,8 +59,8 @@ struct Profile {
     // Immutable actor allocation before any construction history. A pod deck
     // spends from the common total but does not grant another actor a kit.
     std::map<std::string, authority::Integer> starting_foundation_kits;
-    // Trusted landing-site center in the same quarter-tile grid as foundations.
-    // The unfolded 3 x 3 deck spends nine of foundation_parts at startup.
+    // Trusted landing-site pose on the 4H mechanical lattice. Its surrounding
+    // 3 x 3 deck uses 12H slab centers and spends nine foundation parts.
     std::optional<mechanics::Point> landing_pod_center;
     // Arrival actors unlock advanced construction after physically carrying a
     // first plate. Generic mechanics fixtures leave this content rule disabled.
@@ -72,10 +74,17 @@ struct Profile {
     const authority::Point& actor_position, bool ore);
 
 struct Foundation {
-    mechanics::Point center{}; // X/Z tile centers, Y quarter-pitch top level.
+    mechanics::Point center{}; // X/Z 12H slab centers, Y 4H top level.
     authority::Integer generation{};
     bool operator==(const Foundation&) const = default;
 };
+
+[[nodiscard]] inline bool foundation_covers_workcell(
+        const Foundation& foundation, const mechanics::Point& cell) {
+    return foundation.center[1] == cell[1] &&
+        std::abs(foundation.center[0] - cell[0]) <= foundation_commands::mechanical_stride_levels &&
+        std::abs(foundation.center[2] - cell[2]) <= foundation_commands::mechanical_stride_levels;
+}
 
 struct LandingPod {
     std::string id;

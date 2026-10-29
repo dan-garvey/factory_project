@@ -33,6 +33,7 @@ std::string gdscript_block() {
     output += "const PITCH := " + number(pitch) + "\n";
     output += "const HEIGHT_DENOMINATOR := " + std::to_string(height_denominator) + "\n";
     output += "const HEIGHT_STEP := PITCH / HEIGHT_DENOMINATOR\n";
+    output += "const FOUNDATION_PITCH := PITCH * 3.0\n";
     output += "const FOUNDATION_HEIGHT_UNITS := " + std::to_string(foundation_height_units) + "\n";
     output += "const FOUNDATION_DEPTH := FOUNDATION_HEIGHT_UNITS * HEIGHT_STEP\n";
     output += "const ANCHOR_HEIGHT := PITCH / 2.0\n";
@@ -51,6 +52,9 @@ std::string gdscript_block() {
     output += "const MACHINE_SIZE := " + array(std::array<double, 3>{
         machine_width, machine_height, machine_width}) + "\n";
     output += "const MACHINE_CENTER_HEIGHT := " + number(machine_center_height) + "\n";
+    output += "const COLLECTOR_SIZE := " + array(std::array<double, 3>{
+        collector_width, collector_height, collector_width}) + "\n";
+    output += "const COLLECTOR_CENTER_HEIGHT := " + number(collector_center_height) + "\n";
     output += "const COLLECTOR_INTAKE_SIZE := " + array(collector_intake_size) + "\n";
     output += "const COLLECTOR_INTAKE_X := " + number(collector_intake_x) + "\n";
     output += "const COLLECTOR_INTAKE_Y := " + number(collector_intake_y) + "\n";

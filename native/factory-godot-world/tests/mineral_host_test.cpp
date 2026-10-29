@@ -51,9 +51,6 @@ O foundation(const std::string& id, I level) {
 O targeted(const char* action, const std::string& id, const std::string& entity, const char* actor = "P") {
     auto wire = request(action, id, actor); wire.emplace("entity", V(entity)); return wire;
 }
-O drive(const std::string& id, const std::string& from, const std::string& to) {
-    auto wire = request("connect_drive", id); wire.emplace("from", V(from)); wire.emplace("to", V(to)); return wire;
-}
 V material_state(const Host& host) { return child(child(host.checkpoint(), "world"), "state"); }
 
 // Retain the actual native checkpoint for a separate engine/Store encoding
@@ -104,14 +101,6 @@ O flat(double height = -0.02) {
     auto site = factory::godot_world::tests::flat_site();
     site.at("heights") = V(A{V(height), V(height), V(height), V(height)});
     return site;
-}
-O wet_site() {
-    A heights;
-    for (int row = 0; row < 4; ++row)
-        for (const auto height : {-1.65, -1.65, -0.02, -0.02}) heights.emplace_back(height);
-    return {{"axis", V(A{V(-128.0), V(-2.8), V(-2.0), V(128.0)})},
-        {"heights", V(std::move(heights))}, {"obstacles", V(A{})},
-        {"water", V(A{V(A{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
 }
 void initialize(Host& host, const O& terrain = flat()) {
     outcome(host.initialize("mineral-site", {"P", "Q"}), true, "initialized");
@@ -195,168 +184,153 @@ void grounded_intake_clearance() {
     observe(neighboring_foundation);
     check(accepted(neighboring_foundation.command("P", place("contact", "collector", 0, 0))),
           "The ground collector occupies its source-facing intake before a neighboring foundation is placed.");
-    auto foundation_at_intake = foundation("foundation-at-intake", 1);
-    foundation_at_intake.at("cell") = V(A{V(I{-1}), V(I{0})});
-    const auto saved = material_state(neighboring_foundation);
-    outcome(neighboring_foundation.command("P", foundation_at_intake), false, "occupied");
-    check(same(saved, material_state(neighboring_foundation)),
-          "An intersecting foundation cannot erase or cover a confirmed source-facing intake.");
+    auto clear_base = foundation("clear-neighbor", 4);
+    clear_base.at("cell") = V(A{V(I{-1}), V(I{0})});
+    outcome(neighboring_foundation.publish_actor("P", {V(0.0), V(1.0), V(2.0)}, 2),
+            true, "actor_published");
+    const auto before_stock = child(neighboring_foundation.projection(), "stock");
+    outcome(neighboring_foundation.command("P", clear_base), true, "ok");
+    check(same(before_stock, child(neighboring_foundation.projection(), "stock")),
+          "A neighboring 3U slab clears the ground pickup without spending ore.");
     Host intake_after_foundation; initialize(intake_after_foundation, source_contact_site());
-    observe(intake_after_foundation);
-    check(accepted(intake_after_foundation.command("P", foundation_at_intake)),
-          "An unused neighboring foundation remains buildable before the collector exists.");
+    observe(intake_after_foundation, 1.0, 2.0, 0.0);
+    outcome(intake_after_foundation.command("P", clear_base), true, "ok");
     outcome(intake_after_foundation.command("P", place("collector-after-foundation", "collector", 0, 0)),
-            false, "occupied");
+            true, "ok");
+    check(same(before_stock, child(intake_after_foundation.projection(), "stock")),
+          "The opposite construction order retains the same finite mineral stock.");
 }
 
 void raised_source_lift_clearance() {
-    for (const I cell : {I{0}, I{1}}) for (const I level : {I{4}, I{8}}) {
+    for (const I cell : {I{0}, I{1}}) {
         Host host; initialize(host, source_contact_site(false, 0.0));
-        observe(host, level * 0.4125 + 1.0, cell * 1.65 + 1.65);
-        auto base = foundation("lift-base", level);
-        base.at("cell") = V(A{V(I{0}), V(cell)});
-        check(accepted(host.command("P", base)), "The raised collector starts with its real supported foundation.");
-        outcome(host.command("P", place("lift", "collector", 0, cell, level)), true, "ok");
-        Host reopened; initialize(reopened, source_contact_site(false, 0.0));
-        outcome(reopened.restore_checkpoint(host.checkpoint()), true, "restored");
-        check(same(material_state(host), material_state(reopened)),
-              "A fresh native Host retains the exact raised collector and foundation custody.");
-        auto neighboring_base = foundation("neighboring-base", level);
-        neighboring_base.at("cell") = V(A{V(I{-1}), V(cell)});
+        observe(host, 2.65, cell * 0.825 + 1.65);
+        const auto base = foundation("raised-base", 4);
+        outcome(host.command("P", base), true, "ok");
         const auto before = material_state(host);
-        outcome(host.command("P", neighboring_base), false, "occupied");
+        const auto raised = place("raised-lift", "collector", 0, cell, 4);
+        outcome(host.command("P", raised), false, "occupied");
         check(same(before, material_state(host)),
-              "A later neighboring foundation cannot cover the confirmed exterior carrier.");
-        auto missing = source_contact_site(false, 0.0);
-        missing.erase("source_obstacle");
-        Host unmarked; initialize(unmarked, missing);
-        observe(unmarked, level * 0.4125 + 1.0, cell * 1.65 + 1.65);
-        check(accepted(unmarked.command("P", base)), "The comparison foundation is independently admitted.");
-        outcome(unmarked.command("P", place("unmarked-lift", "collector", 0, cell, level)),
-            false, "site_occupied");
+              "A full-size lift cannot enter its 3U support slab or spend native material.");
+        const auto duplicate = host.command("P", raised);
+        check(!accepted(duplicate) && field<bool>(duplicate, "duplicate") &&
+              field<std::string>(duplicate, "reason") == "occupied",
+              "The exact occupied lift refusal replays without another placement.");
     }
-    // A thin obstruction above the old flat flight lies within the formed
-    // carrier's occupied back. It must refuse the whole raised placement.
-    auto obstructed_site = source_contact_site(false, 0.0);
-    auto obstacles = field<A>(V(obstructed_site), "obstacles");
-    obstacles.emplace_back(A{V(A{V(-1.15), V(0.90), V(-0.10)}),
-        V(A{V(-1.05), V(0.94), V(0.10)})});
-    obstructed_site.at("obstacles") = V(std::move(obstacles));
-    Host obstructed; initialize(obstructed, obstructed_site);
-    observe(obstructed, 2.65, 1.65, 1.65);
-    check(accepted(obstructed.command("P", foundation("bucket-base", 4))),
-          "The blocked-flight comparison still has a supported factory floor.");
-    const auto before_bucket = material_state(obstructed);
-    outcome(obstructed.command("P", place("blocked-carrier", "collector", 0, 0, 4)),
-        false, "site_occupied");
-    check(same(before_bucket, material_state(obstructed)),
-          "A blocked formed carrier cannot consume stock or construction inventory.");
-    Host actor; initialize(actor, source_contact_site());
-    observe(actor, 2.65, 1.65, 1.65);
-    check(accepted(actor.command("P", foundation("actor-base", 4))),
-          "The actor-clear raised foundation is placed before the exterior carrier test.");
-    outcome(actor.publish_actor("P", {V(-1.05), V(1.4), V(0.0)}, 2), true, "actor_published");
-    outcome(actor.command("P", place("actor-lift", "collector", 0, 0, 4)), false, "actor_occupied");
 }
 
 void foundations_and_restore() {
-    for (const I level : {I{-4}, I{0}, I{4}, I{8}, I{12}}) {
-        Host host; initialize(host, flat(0.0)); observe(host, level * 0.4125 + 1.0);
-        check(accepted(host.command("P", foundation("foundation", level))), "The native foundation uses the shared global level.");
-        const auto before = material_state(host);
-        const auto response = host.command("P", place("collector", "collector", 0, 0, level));
-        if (level < 0) outcome(response, false, "collector_below_source");
-        else if (level > 8) outcome(response, false, "source_too_deep");
-        else check(accepted(response), "A supported collector can extract through the permitted foundation height.");
-        if (!accepted(response)) check(same(before, material_state(host)), "Height refusal is material- and kit-atomic.");
-        else {
-            Host fresh; initialize(fresh, flat(0.0));
-            outcome(fresh.restore_checkpoint(host.checkpoint()), true, "restored");
-            check(same(material_state(host), material_state(fresh)), "Elevated collector and foundation restore exactly.");
-        }
-    }
-    auto slope = flat();
-    slope.at("heights") = V(A{V(-0.3), V(-0.3), V(0.4), V(0.4)});
-    Host host; initialize(host, slope); observe(host, 2.65);
-    outcome(host.command("P", place("unsupported", "collector", 0, 0, 4)), false, "foundation_required");
-    check(accepted(host.command("P", foundation("level-slope", 4))), "A foundation supplies a level global-grid deck over a slope.");
-    check(accepted(host.command("P", place("supported", "collector", 0, 0, 4))), "The same mineral surface remains extractable below the leveled deck.");
-    const auto saved = host.checkpoint();
-    for (const auto& [terrain, reason] : {std::pair{flat(2.0), "collector_below_source"},
-                                       std::pair{flat(-4.0), "source_too_deep"}}) {
-        Host incompatible; initialize(incompatible, terrain);
-        const auto before = incompatible.checkpoint();
-        outcome(incompatible.restore_checkpoint(saved), false, reason);
-        check(same(before, incompatible.checkpoint()), "A mismatched mineral-surface import leaves the fresh Host unchanged.");
-    }
+    Host ground; initialize(ground, flat(0.0)); observe(ground);
+    outcome(ground.command("P", place("ground", "collector", 0, 0)), true, "ok");
+    const auto saved = ground.checkpoint();
+    Host fresh; initialize(fresh, flat(0.0));
+    outcome(fresh.restore_checkpoint(saved), true, "restored");
+    check(same(saved, fresh.checkpoint()),
+          "The grounded collector and finite source restore on the half-U profile.");
+    Host raised; initialize(raised, flat(0.0)); observe(raised, 2.65);
+    outcome(raised.command("P", foundation("raised-base", 4)), true, "ok");
+    const auto before = material_state(raised);
+    outcome(raised.command("P", place("raised", "collector", 0, 0, 4)), false, "occupied");
+    check(same(before, material_state(raised)),
+          "The solid 3U support refuses the old lift without moving ore or kits.");
 }
 
 void full_finite_depletion() {
-    const auto site = wet_site();
-    Host host; initialize(host, site); observe(host, 1.0, 1.65, -1.65);
-    outcome(host.publish_actor("Q", {V(1.65), V(1.0), V(1.65)}, 1), true, "actor_published");
-    check(accepted(host.command("P", foundation("collector-base", 4))), "The collector has a raised foundation.");
-    const auto collector_reply = host.command("P", place("collector", "collector", 0, 0, 4));
-    check(accepted(collector_reply), "The depletion case places its real native collector.");
+    auto site = factory::godot_world::tests::channel_site();
+    auto heights = field<A>(V(site), "heights");
+    for (auto& height : heights)
+        if (std::get<double>(height.storage()) == -1.65) height = V(-3.3);
+    site.at("heights") = V(std::move(heights));
+    auto water = field<A>(V(site), "water");
+    for (auto& sample : water) {
+        auto values = std::get<A>(sample.storage());
+        values[3] = V(I{-1600});
+        sample = V(std::move(values));
+    }
+    site.at("water") = V(std::move(water));
+
+    Host host; initialize(host, site);
+    outcome(host.publish_actor("P", {V(-3.3), V(1.0), V(3.3)}, 1), true, "actor_published");
+    outcome(host.publish_actor("Q", {V(2.0), V(1.0), V(0.0)}, 1), true, "actor_published");
+    auto wheel_wire = place("wheel", "wheel", -6, 2);
+    wheel_wire.emplace("axis", V("z")); wheel_wire.emplace("tiles", V(I{3}));
+    outcome(host.command("P", wheel_wire), true, "ok");
+    outcome(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 2), true, "actor_published");
+    auto collector_wire = place("collector", "collector", 0, 1);
+    collector_wire.emplace("axis", V("z"));
+    const auto collector_reply = host.command("P", collector_wire);
+    outcome(collector_reply, true, "ok");
     const auto collector = field<std::string>(collector_reply, "entity");
-    const auto wheel_reply = host.command("P", place("wheel", "wheel", -2, 0, 4));
-    check(accepted(wheel_reply), "The native wheel supplies the finite extraction case.");
-    auto upper = request("place_gear", "upper");
-    upper.emplace("center", V(A{V(I{-4}), V(I{4}), V(I{0})}));
-    upper.emplace("axis", V("x")); upper.emplace("teeth", V(I{2}));
-    const auto upper_reply = host.command("P", upper);
-    check(accepted(upper_reply), "The cog transfers the wheel's rotation to the raised collector.");
-    const auto gear_id = field<std::string>(upper_reply, "entity");
-    check(field<bool>(host.projection(), "powered"), "The extraction case runs when its wheel and collector are connected.");
+    outcome(host.publish_actor("P", {V(-4.95), V(1.0), V(4.0)}, 3), true, "actor_published");
+    for (const auto& [x, z] : {std::pair<I, I>{-24, 12}, {-20, 12}, {-16, 12}, {-12, 12},
+                              {-8, 12}, {-4, 12}, {-4, 8}, {0, 8}}) {
+        if (x == -8)
+            outcome(host.publish_actor("P", {V(-1.0), V(1.0), V(4.0)}, 4), true, "actor_published");
+        auto cog = request("place_gear", "ground-cog-" + std::to_string(x) + "-" + std::to_string(z));
+        cog.emplace("center", V(A{V(x), V(I{0}), V(z)}));
+        cog.emplace("axis", V("z")); cog.emplace("teeth", V(I{2}));
+        outcome(host.command("P", cog), true, "ok");
+    }
+    check(field<bool>(host.projection(), "powered"),
+          "The full-size wheel powers a legal ground collector without its raised lift.");
+    outcome(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 5), true, "actor_published");
     for (I batch = 0; batch < 128; ++batch) {
         for (int tick = 0; tick < 32; ++tick) (void)host.advance();
         const auto before = host.projection();
         check(field<I>(child(before, "stock"), "source") == 4096 - (batch + 1) * 32 &&
-              field<I>(child(before, "stock"), "collector") == 32, "Each batch mines its exact original raw units once.");
+              field<I>(child(before, "stock"), "collector") == 32,
+              "The legal ground route extracts each finite 32-unit batch exactly once.");
         const char* actor = batch % 2 == 0 ? "P" : "Q";
-        check(accepted(host.command(actor, targeted("recover", "batch-" + std::to_string(batch), collector, actor))),
-              "Either admitted actor can recover the finite collector batch into its own Cargo.");
+        outcome(host.command(actor, targeted("recover", "batch-" + std::to_string(batch), collector, actor)),
+                true, "ok");
         const auto view = host.projection();
         const auto cargo = child(view, "cargo");
         check(field<I>(child(cargo, "P"), "raw") == ((batch + 2) / 2) * 32 &&
               field<I>(child(cargo, "Q"), "raw") == ((batch + 1) / 2) * 32 &&
-              field<I>(child(view, "stock"), "collector") == 0, "Shared custody and emptied buffer account for every mined unit.");
+              field<I>(child(view, "stock"), "collector") == 0,
+              "Alternating actors own the recovered raw batches without duplication.");
         for (const auto* slot : {"belt", "input", "held", "output", "player"})
-            check(field<I>(child(view, "stock"), slot) == 0, "Raw extraction invents no other material holder or product.");
+            check(field<I>(child(view, "stock"), slot) == 0,
+                  "The unbelted ground route invents no other material holder or product.");
         for (const auto* owner : {"P", "Q"})
-            check(field<I>(child(cargo, owner), "products") == 0 && field<A>(child(cargo, owner), "work_lots").empty(),
-                  "Recovered raw units remain raw, with no invented work or product.");
+            check(field<I>(child(cargo, owner), "products") == 0 &&
+                  field<A>(child(cargo, owner), "work_lots").empty(),
+                  "Recovered mineral remains raw and carries no invented work.");
     }
     const auto saved = host.checkpoint();
-    check(accepted(host.validate_checkpoint(saved)), "The entire finite depletion and history fit the native checkpoint budget.");
+    check(accepted(host.validate_checkpoint(saved)) && field<I>(host.projection(), "order") == 138,
+          "Ten physical construction requests and 128 recoveries fit native history bounds.");
     retain_checkpoint(saved, site);
-    check(field<I>(host.projection(), "order") == 132, "Four construction requests and 128 recoveries exhaust the node within history bounds.");
     Host fresh; initialize(fresh, site);
     outcome(fresh.restore_checkpoint(saved), true, "restored");
-    check(same(child(saved, "world"), child(fresh.checkpoint(), "world")), "Fresh native restoration preserves the complete depleted state and original cache.");
+    check(same(child(saved, "world"), child(fresh.checkpoint(), "world")),
+          "Fresh native restoration preserves depleted stock and complete receipt history.");
     const auto restored = material_state(fresh);
     for (I batch = 0; batch < 2; ++batch) {
         const char* actor = batch == 0 ? "P" : "Q";
         const auto duplicate = fresh.command(actor, targeted("recover", "batch-" + std::to_string(batch), collector, actor));
-        check(accepted(duplicate) && field<bool>(duplicate, "duplicate"), "Original accepted recovery outcomes replay without another native admission.");
-        check(same(restored, material_state(fresh)), "Cached replay cannot duplicate or retarget depleted ore.");
+        check(accepted(duplicate) && field<bool>(duplicate, "duplicate") &&
+              same(restored, material_state(fresh)),
+              "Accepted recovery receipts replay without another admission or raw unit.");
     }
-    observe(fresh, 1.0, 1.65, -1.65);
-    check(accepted(fresh.command("P", targeted("remove", "remove", collector))), "The empty collector is removable after depletion.");
-    const auto rebuilt = fresh.command("P", place("rebuilt", "collector", 0, 0, 4));
-    check(accepted(rebuilt) && field<std::string>(rebuilt, "entity") != collector, "Rebuilding the collector allocates a new identity rather than a new deposit.");
-    check(field<bool>(fresh.projection(), "powered"), "The rebuilt collector uses the cog left in place by removal.");
-    const auto before_duplicate_shaft = material_state(fresh);
-    outcome(fresh.command("P", drive("new-shaft", gear_id, field<std::string>(rebuilt, "entity"))), false, "individual_shaft_required");
-    check(same(before_duplicate_shaft, material_state(fresh)), "A duplicate shaft request preserves the depleted stock, kits and identities.");
+    outcome(fresh.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 1), true, "actor_published");
+    outcome(fresh.command("P", targeted("remove", "remove", collector)), true, "ok");
+    auto rebuilt_wire = place("rebuilt", "collector", 0, 1);
+    rebuilt_wire.emplace("axis", V("z"));
+    const auto rebuilt = fresh.command("P", rebuilt_wire);
+    outcome(rebuilt, true, "ok");
+    check(field<std::string>(rebuilt, "entity") != collector && field<bool>(fresh.projection(), "powered"),
+          "A rebuilt ground collector has a new identity and keeps the physical wheel drive.");
     for (int tick = 0; tick < 40; ++tick) (void)fresh.advance();
     const auto final = fresh.projection();
-    check(field<I>(child(final, "stock"), "source") == 0 && field<I>(child(final, "stock"), "collector") == 0 &&
+    check(field<I>(child(final, "stock"), "source") == 0 &&
+          field<I>(child(final, "stock"), "collector") == 0 &&
           field<I>(child(child(final, "cargo"), "P"), "raw") == 2048 &&
-          field<I>(child(child(final, "cargo"), "Q"), "raw") == 2048,
-          "A rebuilt, powered collector cannot refill a depleted node or change either actor's custody.");
-    check(accepted(fresh.validate_checkpoint(fresh.checkpoint())), "Depletion, replay and rebuilt identities remain checkpoint-valid.");
+          field<I>(child(child(final, "cargo"), "Q"), "raw") == 2048 &&
+          accepted(fresh.validate_checkpoint(fresh.checkpoint())),
+          "The depleted source cannot refill a rebuilt powered collector or move either actor's cargo.");
 }
+
 }  // namespace
 
 int main() {

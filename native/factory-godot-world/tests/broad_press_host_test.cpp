@@ -1,4 +1,5 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
+#include "factory/site_geometry_contract.hpp"
 
 #include <array>
 #include <iostream>
@@ -42,6 +43,18 @@ void pose(Host& host, double x, double z, I epoch) {
         "The trusted Host fixture accepts a nearby actor sample.");
 }
 
+void pose_at_pod(Host& host, I epoch) {
+    // The pod and bench keep their original meter dimensions.
+    check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, epoch), "accepted"),
+        "The actor stands clear of the supplied pod while reaching its bench.");
+}
+
+void pose_beyond_press(Host& host, I epoch) {
+    // The worker's capsule stays full-size even around the smaller broad bed.
+    check(get<bool>(host.publish_actor("P", {V(4.95), V(1.0), V(0.0)}, epoch), "accepted"),
+        "The actor stands clear of the finished broad press and reaches its workbed.");
+}
+
 void harvest(Host& host, const char* target, int count, const char* prefix) {
     for (int index = 0; index < count; ++index) {
         auto wire = request(std::string(prefix) + std::to_string(index), "harvest_source");
@@ -61,8 +74,10 @@ void craft(Host& host, const char* kind, int count) {
 
 void place(Host& host, const char* kind, I x, I y, I z, int index, I& epoch) {
     const bool broad_channel = std::string(kind).starts_with("channel_broad_");
-    pose(host, static_cast<double>(x) * 0.4125 - (broad_channel ? 1.65 : 0.0),
-        static_cast<double>(z) * 0.4125 + 1.65, ++epoch);
+    pose(host, static_cast<double>(x) * factory::godot_world::site_geometry::height_step -
+            (broad_channel ? factory::godot_world::site_geometry::pitch : 0.0),
+        static_cast<double>(z) * factory::godot_world::site_geometry::height_step +
+            factory::godot_world::site_geometry::pitch, ++epoch);
     auto wire = request(std::string("broad-place-") + kind + std::to_string(index), "place_component");
     wire.emplace("component", V(kind));
     wire.emplace("center", V(A{V(x), V(y), V(z)}));
@@ -78,14 +93,14 @@ void broad_projection() {
     I epoch = 0;
     pose(host, -0.5, 0.0, ++epoch);
     harvest(host, "opening-copper", 16, "broad-ore-");
-    pose(host, 1.65, 6.6, ++epoch);
+    pose_at_pod(host, ++epoch);
     craft(host, "anvil", 4);
     craft(host, "ram_face", 4);
     pose(host, 5.8, 3.3, ++epoch);
     harvest(host, "tree-east-south", 8, "broad-wood-south-");
     pose(host, 5.8, 11.55, ++epoch);
     harvest(host, "tree-east-north", 8, "broad-wood-north-");
-    pose(host, 1.65, 6.6, ++epoch);
+    pose_at_pod(host, ++epoch);
     craft(host, "sliding_guide", 4);
     craft(host, "wooden_shaft", 4);
     craft(host, "wooden_cog", 4);
@@ -137,7 +152,7 @@ void broad_projection() {
     auto stage = request("broad-no-sheet-stage", "place_sheet");
     stage.emplace("center", V(A{V(I{12}), V(I{0}), V(I{0})}));
     stage.emplace("sheet_id", V(I{1}));
-    pose(host, 4.95, 0.0, ++epoch);
+    pose_beyond_press(host, ++epoch);
     const auto stage_refusal = host.command("P", stage);
     check(!get<bool>(stage_refusal, "accepted") &&
           get<std::string>(stage_refusal, "reason") == "unavailable_input" &&
@@ -145,7 +160,7 @@ void broad_projection() {
         "Host accepts the staging wire but cannot invent a sheet absent from finite arrival cargo.");
     auto feed = request("broad-no-stock-feed", "feed_broad_press");
     feed.emplace("entity", get<A>(V(get<O>(broad.front(), "parts")), "anvils").front());
-    pose(host, 4.95, 0.0, ++epoch);
+    pose_beyond_press(host, ++epoch);
     const auto refused = host.command("P", feed);
     if (get<std::string>(refused, "reason") != "unavailable_input")
         throw std::runtime_error("Broad feed refusal: " + get<std::string>(refused, "reason"));
@@ -172,7 +187,7 @@ void sized_workbed_custody() {
     I epoch = 0;
     pose(host, -0.5, 0.0, ++epoch);
     harvest(host, "opening-copper", 31, "size-ore-");
-    pose(host, 1.65, 6.6, ++epoch);
+    pose_at_pod(host, ++epoch);
     craft(host, "anvil", 4);
     craft(host, "flat_head", 4);
     craft(host, "copper_slide", 4);
@@ -225,8 +240,8 @@ void sized_workbed_custody() {
     check(placed.size() == 3 && sized.size() == 1 &&
           get<std::string>(sized.front(), "geometry_status") == "ready" &&
           get<std::string>(sized.front(), "status") == "unpowered" &&
-          std::get<double>(bed_half[0].storage()) == 1.65 &&
-          std::get<double>(bed_half[2].storage()) == 1.65 &&
+          std::get<double>(bed_half[0].storage()) == factory::godot_world::site_geometry::pitch &&
+          std::get<double>(bed_half[2].storage()) == factory::godot_world::site_geometry::pitch &&
           slide_ports.size() == 4 &&
           get<O>(get<O>(host.projection(), "cargo").at("P"), "components").empty(),
         "One broad face and one sized head meet a single unpowered slide without extra local shafts.");
@@ -282,12 +297,11 @@ void sized_workbed_custody() {
           !factory::values::typed_difference(V(get<O>(before_support, "cargo")),
               V(get<O>(restored.projection(), "cargo"))),
         "The raised broad workbed refuses to spend four anvils until every cell is supported.");
-    for (int index = 0; index < 4; ++index) {
-        auto floor = request("size-raised-floor-" + std::to_string(index), "place_foundation");
-        floor.emplace("cell", V(A{V(I{3 + index % 2}), V(I{index / 2})}));
-        floor.emplace("level", V(I{4}));
-        accepted(restored, floor);
-    }
+    pose_beyond_press(restored, ++epoch);
+    auto floor = request("size-raised-floor", "place_foundation");
+    floor.emplace("cell", V(A{V(I{1}), V(I{0})}));
+    floor.emplace("level", V(I{4}));
+    accepted(restored, floor);
     raised.at("request") = V("size-raised-supported");
     accepted(restored, raised);
     auto raised_head = head;
@@ -302,7 +316,7 @@ void sized_workbed_custody() {
     check(upper.size() == 1 && get<std::string>(upper.front(), "geometry_status") == "ready" &&
           get<A>(upper.front(), "work_centers").size() == 4 &&
           get<bool>(restored.validate_checkpoint(restored.checkpoint()), "accepted"),
-        "Four raised foundations carry one contiguous workbed, fitted head and single slide after restore.");
+        "One 3U raised foundation carries the four-cell workbed, fitted head and slide after restore.");
 }
 
 void channel_projection_and_wire() {
@@ -314,7 +328,7 @@ void channel_projection_and_wire() {
     I epoch = 0;
     pose(host, 5.8, 3.3, ++epoch);
     harvest(host, "tree-east-south", 6, "channel-wood-");
-    pose(host, 1.65, 6.6, ++epoch);
+    pose_at_pod(host, ++epoch);
     craft(host, "channel_narrow_x", 1);
     craft(host, "channel_broad_x", 1);
     place(host, "channel_narrow_x", 28, 0, 0, 0, epoch);
@@ -341,7 +355,7 @@ void channel_projection_and_wire() {
     }
     check(broad_found && narrow_found,
         "Both channel widths retain their selected component identity in projection.");
-    pose(host, 8.25, 1.65, ++epoch);
+    pose(host, 4.125, 0.825, ++epoch);
     auto push = request("channel-no-sheet", "push_channel_sheet");
     push.emplace("from", V(A{V(I{20}), V(I{0}), V(I{0})}));
     push.emplace("to", V(A{V(I{24}), V(I{0}), V(I{0})}));

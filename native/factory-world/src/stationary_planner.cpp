@@ -125,7 +125,7 @@ Owner::Decision plan_stationary(const Profile& profile, const Binding& binding,
         targets.push_back(anchor(profile, *location));
         if (profile.foundation_parts > 0 && material_machine(*selected_role) && (*location)[1] != 0) {
             const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
-                [&](const auto& entry) { return entry.second.center == *location; });
+                [&](const auto& entry) { return foundation_covers_workcell(entry.second, *location); });
             if (!supported) return refused("foundation_required");
         }
         if (command.action == Action::place_connected && !material_machine(*selected_role))

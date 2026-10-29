@@ -13,10 +13,11 @@ using Value = values::Value;
 
 bool foundation_occupied(const State& state, const mechanics::Point& cell) {
     for (const auto& placed : state.topology.parts)
-        if (std::abs(placed.geometry.center[0] - cell[0]) < 4 &&
-            std::abs(placed.geometry.center[2] - cell[2]) < 4 &&
+        if (std::abs(placed.geometry.center[0] - cell[0]) < foundation_commands::foundation_stride_levels / 2 &&
+            std::abs(placed.geometry.center[2] - cell[2]) < foundation_commands::foundation_stride_levels / 2 &&
             placed.geometry.center[1] < cell[1] &&
-            placed.geometry.center[1] + 4 > cell[1] - foundation_depth_levels)
+            placed.geometry.center[1] + foundation_commands::mechanical_stride_levels >
+                cell[1] - foundation_depth_levels)
             return true;
     for (const auto& [id, foundation] : state.foundations) {
         (void)id;
@@ -95,22 +96,24 @@ Owner::Decision plan_foundation(const Profile& profile, const Binding& binding,
         if (found->second.generation != *command.generation)
             return refused("stale_generation", id);
         if (state.fabrication_hub && !state.fabrication_hub->holder &&
-            found->second.center == state.fabrication_hub->center)
+            foundation_covers_workcell(found->second, state.fabrication_hub->center))
             return refused("foundation_in_use", id);
         if (std::any_of(state.placed_components.begin(), state.placed_components.end(),
                 [&](const auto& entry) {
                     const auto occupied = materials::component_workcells(
                         entry.second.kind, entry.second.center);
-                    return occupied ? std::find(occupied->begin(), occupied->end(),
-                        found->second.center) != occupied->end() :
-                        entry.second.center == found->second.center;
+                    return occupied ? std::any_of(occupied->begin(), occupied->end(),
+                        [&](const auto& cell) { return foundation_covers_workcell(found->second, cell); }) :
+                        foundation_covers_workcell(found->second, entry.second.center);
                 }))
             return refused("foundation_in_use", id);
         location = found->second.center;
         entity = id;
         generation = *command.generation;
     }
-    if (!location || (*location)[0] % 4 != 0 || (*location)[2] % 4 != 0)
+    if (!location || (*location)[0] % foundation_commands::foundation_stride_levels != 0 ||
+        (*location)[1] % foundation_depth_levels != 0 ||
+        (*location)[2] % foundation_commands::foundation_stride_levels != 0)
         return refused("invalid_cell");
     const auto cut = observe ? observe(binding.actor) : std::nullopt;
     if (!cut) return refused("actor_unready");
@@ -138,8 +141,8 @@ Owner::Decision plan_foundation(const Profile& profile, const Binding& binding,
         --candidate.foundation_kits.at(binding.actor);
     } else {
         for (const auto& placed : state.topology.parts)
-            if (placed.geometry.center[0] == (*location)[0] &&
-                placed.geometry.center[2] == (*location)[2] &&
+            if (std::abs(placed.geometry.center[0] - (*location)[0]) <= foundation_commands::mechanical_stride_levels &&
+                std::abs(placed.geometry.center[2] - (*location)[2]) <= foundation_commands::mechanical_stride_levels &&
                 placed.geometry.center[1] >= (*location)[1] &&
                 placed.geometry.center[1] < (*location)[1] + foundation_depth_levels)
                 return refused("foundation_in_use", entity, std::move(facts));

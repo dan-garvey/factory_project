@@ -736,10 +736,10 @@ class ProductionEnvironment:
 				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3)))
 			volumes.append(AABB(center - half, half * 2.0).grow(0.08))
 		for foundation: Dictionary in state.get("foundations", {}).values():
-			var top := Vector3(foundation.cell[0] * Geometry.PITCH,
-				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.PITCH)
-			volumes.append(AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
-				Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)).grow(0.08))
+			var top := Vector3(foundation.cell[0] * Geometry.FOUNDATION_PITCH,
+				foundation.level * Geometry.HEIGHT_STEP, foundation.cell[1] * Geometry.FOUNDATION_PITCH)
+			volumes.append(AABB(top - Vector3(Geometry.FOUNDATION_PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH * 0.5),
+				Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH)).grow(0.08))
 		if state.has("landing_pod"):
 			var pod: Dictionary = state.landing_pod
 			if pod.get("deployed", false):
@@ -747,11 +747,31 @@ class ProductionEnvironment:
 				var center := Vector3(float(pod_center[0]) * Geometry.PITCH,
 					float(pod_center[1]) * Geometry.HEIGHT_STEP,
 					float(pod_center[2]) * Geometry.PITCH)
-				var half := 2.475 # Physical pod clearance stays fixed in meters.
-				# The native deck is a cleared landing, including the air above it.
-				# Its nine floor volumes alone only hide plants below panel height.
-				volumes.append(AABB(center - Vector3(half, 0.5, half),
-					Vector3(half * 2.0, 2.7, half * 2.0)))
+				# Clear the air over the actual nine native slabs. Their lower
+				# volumes alone only remove plants below the panel height.
+				var deck_bounds := AABB()
+				var has_deck := false
+				var foundations: Dictionary = state.get("foundations", {})
+				for foundation_id in foundations:
+					if not str(foundation_id).begins_with("pod-floor-"):
+						continue
+					var foundation: Dictionary = foundations[foundation_id]
+					var top := Vector3(foundation.cell[0] * Geometry.FOUNDATION_PITCH,
+						foundation.level * Geometry.HEIGHT_STEP,
+						foundation.cell[1] * Geometry.FOUNDATION_PITCH)
+					var slab := AABB(top - Vector3(Geometry.FOUNDATION_PITCH * 0.5,
+						Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH * 0.5),
+						Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH))
+					deck_bounds = deck_bounds.merge(slab) if has_deck else slab
+					has_deck = true
+				if has_deck:
+					volumes.append(AABB(Vector3(deck_bounds.position.x, deck_bounds.end.y - 0.5,
+						deck_bounds.position.z), Vector3(deck_bounds.size.x, 2.7, deck_bounds.size.z)))
+				else:
+					# An undeployed deck still keeps the unchanged pod shell clear.
+					var half := 2.475
+					volumes.append(AABB(center - Vector3(half, 0.5, half),
+						Vector3(half * 2.0, 2.7, half * 2.0)))
 				var hub: Dictionary = state.get("fabrication_hub", {})
 				if hub.get("installed", false) and hub.has("position"):
 					var position: Array = hub.position

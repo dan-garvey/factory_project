@@ -1,4 +1,5 @@
 #include "factory/physical_site.hpp"
+#include "factory/site_geometry_contract.hpp"
 
 #include <algorithm>
 #include <iostream>
@@ -65,13 +66,16 @@ void physical_admission() {
           "Rechecking the same component identity does not collide with itself.");
     state.placed_components.clear();
 
-    terrain.obstacles.emplace_back(factory::authority::Point{-3.6, -1.0, -0.4},
-        factory::authority::Point{-3.0, 3.0, 0.4});
+    const double wheel_x = -8 * factory::godot_world::site_geometry::height_step;
+    terrain.obstacles.emplace_back(factory::authority::Point{wheel_x - 0.3, -1.0, -0.4},
+        factory::authority::Point{wheel_x + 0.3, 3.0, 0.4});
     refused(policy::wheel_refusal(site, {-8, 4, 0}, Axis::x, 3), "site_occupied",
           "A trusted solid crossing the wheel shell blocks the otherwise valid stream site.");
     terrain.obstacles.clear();
-    terrain.obstacles.emplace_back(factory::authority::Point{-0.3, 1.8, -0.3},
-        factory::authority::Point{0.3, 3.0, 0.3});
+    const double shaft_y = 4 * factory::godot_world::site_geometry::height_step +
+        factory::godot_world::site_geometry::anchor_height;
+    terrain.obstacles.emplace_back(factory::authority::Point{-0.3, shaft_y - 0.3, -0.3},
+        factory::authority::Point{0.3, shaft_y + 0.3, 0.3});
     refused(policy::transmission_refusal(site, state, {0, 4, 0}, Axis::x, false),
           "site_occupied", "A rock crossing the shaft axle is a physical clearance refusal.");
     terrain.obstacles.clear();
@@ -129,8 +133,10 @@ void hand_harvest_clearance() {
     terrain.obstacles.clear();
     terrain.source_obstacle.reset();
 
+    constexpr auto site_grid_scale = static_cast<factory::mechanics::Integer>(
+        1.65 / factory::godot_world::site_geometry::pitch);
     state.placed_components.emplace("table", factory::world::PlacedComponent{
-        Component::wooden_workbench, {0, 2, 0}, 1});
+        Component::wooden_workbench, {0, 2 * site_grid_scale, 0}, 1});
     check(!policy::harvest_path_clear(site, state, "ore", actor, contact),
           "A placed workshop table blocks the hand-cut ray.");
     state.placed_components.clear();

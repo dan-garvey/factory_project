@@ -322,7 +322,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"remaining_ticks", Value(cut.remaining_ticks)},
                 {"interrupted_revision", Value(cut.interrupted_revision)}}));
         Value output(Object{
-            {"schema", Value(Integer{22})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{23})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -473,7 +473,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
         const auto schema = integer(root, "schema", "$");
-        if (schema != 20 && schema != 21 && schema != 22)
+        if (schema != 23)
             refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(profile_value(profile), root.at("profile")))
             refuse(CheckpointReason::profile_mismatch, "$.profile" + difference->path.substr(1));
@@ -483,10 +483,8 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         if (!history.history) refuse(CheckpointReason::invalid_history, "$.history");
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
-        const auto& state = profile.landing_pod_center && schema == 22 ? fields(root.at("state"), "$.state",
+        const auto& state = profile.landing_pod_center ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
-            profile.landing_pod_center ? fields(root.at("state"), "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits"}) :
             fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences"});
@@ -532,11 +530,8 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
             const auto& crank_items = object(state.at("crank_items"), "$.state.crank_items");
             if (crank_items.size() > 4096) refuse(CheckpointReason::limit, "$.state.crank_items");
             for (const auto& [id, value] : crank_items) {
-                const auto& item = schema >= 21 ?
-                    fields(value, "$.state.crank_items",
-                        {"id", "generation", "holder", "attached_to", "port", "face"}) :
-                    fields(value, "$.state.crank_items",
-                        {"id", "generation", "holder", "attached_to", "port"});
+                const auto& item = fields(value, "$.state.crank_items",
+                    {"id", "generation", "holder", "attached_to", "port", "face"});
                 std::optional<std::string> carried_by;
                 std::optional<std::string> attached_to;
                 std::optional<mechanics::Point> port;
@@ -552,7 +547,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                         scalar<Integer>(point[1], "$.state.crank_items.port"),
                         scalar<Integer>(point[2], "$.state.crank_items.port")};
                 }
-                if (schema >= 21 && item.at("face").type() != values::Type::null) {
+                if (item.at("face").type() != values::Type::null) {
                     const auto& point = array(item.at("face"), "$.state.crank_items.face", 3);
                     if (point.size() != 3) refuse(CheckpointReason::invalid_world, "$.state.crank_items.face");
                     face = mechanics::Point{scalar<Integer>(point[0], "$.state.crank_items.face"),
@@ -604,8 +599,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                         read_point(entry.at("exit"), "$.state.slide_press_routes.exit")).second)
                     refuse(CheckpointReason::invalid_world, "$.state.slide_press_routes");
             }
-            if (schema == 22)
-                for (const auto& value : array(state.at("press_output_on_work"),
+            for (const auto& value : array(state.at("press_output_on_work"),
                         "$.state.press_output_on_work", materials::maximum_drop_points)) {
                     const auto& entry = fields(value, "$.state.press_output_on_work",
                         {"work", "work_id", "selected_exit"});

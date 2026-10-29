@@ -1,6 +1,7 @@
 #include "support_edit_preview.hpp"
 
 #include "build_catalog_projection.hpp"
+#include "factory/foundation_command_contract.hpp"
 #include "physical_geometry.hpp"
 
 #include <algorithm>
@@ -83,10 +84,14 @@ Result build(const world::State& before, const Object& normalized) {
         const auto z = std::get<Integer>(start[2].storage());
         const auto ex = end ? std::get<Integer>((*end)[0].storage()) : x;
         const auto ez = end ? std::get<Integer>((*end)[2].storage()) : z;
-        for (auto px = std::min(x, ex); px <= std::max(x, ex); px += 4)
-            for (auto pz = std::min(z, ez); pz <= std::max(z, ez); pz += 4)
-                geometry.foundations.emplace(preview_id + ':' + std::to_string(px) + ':' + std::to_string(pz),
-                                             world::Foundation{{px, y, pz}, 0});
+        for (auto px = std::min(x, ex); px <= std::max(x, ex);
+             px += foundation_commands::foundation_stride_levels)
+            for (auto pz = std::min(z, ez); pz <= std::max(z, ez);
+                 pz += foundation_commands::foundation_stride_levels) {
+                auto id = preview_id + ':' + std::to_string(px) + ':' + std::to_string(pz);
+                while (geometry.foundations.contains(id)) id += '-';
+                geometry.foundations.emplace(std::move(id), world::Foundation{{px, y, pz}, 0});
+            }
     } else if (edit == "remove_foundation") {
         geometry.foundations.erase(*field<std::string>(normalized, "target"));
     } else if (edit == "remove_belt_span") {

@@ -140,9 +140,10 @@ CollectorMatch collector_for_input(const Profile& profile,
         const auto inspected = layout.inspect_collector(face);
         const auto& center = face.machine_center;
         const auto& at = selected->center;
-        const auto adjacent = std::abs(at[0] - center[0]) + std::abs(at[1] - center[1]) +
-            std::abs(at[2] - center[2]) == 1;
-        if (inspected.status == assembly::Status::ambiguous && adjacent)
+        const auto at_mount = at[0] - center[0] == face.toward_ore[0] &&
+            at[2] - center[2] == face.toward_ore[2] &&
+            (at[1] == center[1] || at[1] == center[1] + 1);
+        if (inspected.status == assembly::Status::ambiguous && at_mount)
             found.ambiguous = true;
         if (!inspected.collector || inspected.collector->mount != input) continue;
         if (found.collector) found.ambiguous = true;
@@ -319,23 +320,25 @@ std::optional<mechanics::Point> grid_point(const authority::Object& intent,
     return point;
 }
 
-// A rectangle uses the same absolute quarter-pitch coordinates as every part.
+// A rectangle uses slab centers on the same absolute fine grid as every part.
 // Bound the complete request before enumerating it or changing any custody.
 std::vector<mechanics::Point> foundation_area(const authority::Object& intent) {
     const auto start = grid_point(intent);
     const auto* end = field<values::Value::Array>(intent, "end");
     if (!start || !end) return {};
     const auto finish = grid_point(authority::Object{{"center", values::Value(*end)}});
-    if (!finish || (*start)[1] != (*finish)[1] || (*start)[0] % 4 || (*start)[2] % 4 ||
-        (*finish)[0] % 4 || (*finish)[2] % 4) return {};
-    const auto width = std::abs((*start)[0] - (*finish)[0]) / 4 + 1;
-    const auto depth = std::abs((*start)[2] - (*finish)[2]) / 4 + 1;
+    constexpr auto stride = foundation_commands::foundation_stride_levels;
+    if (!finish || (*start)[1] != (*finish)[1] || (*start)[1] % foundation_depth_levels ||
+        (*start)[0] % stride || (*start)[2] % stride ||
+        (*finish)[0] % stride || (*finish)[2] % stride) return {};
+    const auto width = std::abs((*start)[0] - (*finish)[0]) / stride + 1;
+    const auto depth = std::abs((*start)[2] - (*finish)[2]) / stride + 1;
     if (width > foundation_commands::maximum_area_side ||
         depth > foundation_commands::maximum_area_side ||
         width * depth > foundation_commands::maximum_area_side) return {};
     std::vector<mechanics::Point> points;
-    for (auto x = std::min((*start)[0], (*finish)[0]); x <= std::max((*start)[0], (*finish)[0]); x += 4)
-        for (auto z = std::min((*start)[2], (*finish)[2]); z <= std::max((*start)[2], (*finish)[2]); z += 4)
+    for (auto x = std::min((*start)[0], (*finish)[0]); x <= std::max((*start)[0], (*finish)[0]); x += stride)
+        for (auto z = std::min((*start)[2], (*finish)[2]); z <= std::max((*start)[2], (*finish)[2]); z += stride)
             points.push_back({x, (*start)[1], z});
     return points;
 }

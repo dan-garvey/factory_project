@@ -43,7 +43,7 @@ void versioned_envelopes() {
     const auto& outer = std::get<Object>(saved->storage());
     const auto parsed = envelope::parse(*saved);
     const auto* current = std::get_if<envelope::Parsed>(&parsed);
-    check(current && current->schema == 4 && current->world == &outer.at("world") &&
+    check(current && current->schema == 5 && current->world == &outer.at("world") &&
           current->actors == &std::get<Object>(outer.at("actors").storage()) &&
           current->context && *current->context == "checkpoint-envelope" &&
           current->support_routes.empty() && current->actors->size() == 2 &&
@@ -59,9 +59,8 @@ void versioned_envelopes() {
     historical.erase("support_routes");
     const Value historical_value(historical);
     const auto old = envelope::parse(historical_value);
-    const auto* old_fields = std::get_if<envelope::Parsed>(&old);
-    check(old_fields && old_fields->schema == 3 && old_fields->support_routes.empty(),
-          "The previously accepted schema 3 save has no authored support route preferences.");
+    check(std::get_if<const char*>(&old) != nullptr,
+          "An old schema 3 save refuses before it can change the new geometry.");
 
     auto routed = outer;
     routed.at("support_routes") = Value(Object{{"shaft-one", Value(Integer{2})}});
@@ -69,7 +68,7 @@ void versioned_envelopes() {
     const auto routed_fields = envelope::parse(routed_value);
     const auto* parsed_routes = std::get_if<envelope::Parsed>(&routed_fields);
     check(parsed_routes && parsed_routes->support_routes.at("shaft-one") == 2,
-          "Schema 4 keeps the integer support route for Host's later physical validation.");
+          "Schema 5 keeps the integer support route for Host's later physical validation.");
 
     const Value missing_root(nullptr);
     const auto non_object = envelope::parse(missing_root);

@@ -36,11 +36,20 @@ namespace factory::world {
 
 std::array<mechanics::Point, landing_deck_parts> landing_deck_centers(
         const mechanics::Point& center) {
+    constexpr auto stride = foundation_commands::foundation_stride_levels;
+    const auto nearest_slab = [](mechanics::Integer coordinate) {
+        constexpr auto stride = foundation_commands::foundation_stride_levels;
+        auto remainder = coordinate % stride;
+        if (remainder < 0) remainder += stride;
+        return coordinate - remainder + (remainder >= stride / 2 ? stride : 0);
+    };
+    const auto slab_x = nearest_slab(center[0]);
+    const auto slab_z = nearest_slab(center[2]);
     std::array<mechanics::Point, landing_deck_parts> deck{};
     std::size_t index = 0;
-    for (const auto x : {-4, 0, 4})
-        for (const auto z : {-4, 0, 4})
-            deck[index++] = {center[0] + x, center[1], center[2] + z};
+    for (const auto x : std::array<mechanics::Integer, 3>{-stride, 0, stride})
+        for (const auto z : std::array<mechanics::Integer, 3>{-stride, 0, stride})
+            deck[index++] = {slab_x + x, center[1], slab_z + z};
     return deck;
 }
 
@@ -59,9 +68,9 @@ authority::Point manual_cut_target(const Profile& profile, const materials::Drop
 }
 
 mechanics::Point landing_hub_center(const mechanics::Point& pod_center) {
-    // The east deck tile is a full global tile from the hatch, not a separate
-    // bench origin or a fractional placement grid.
-    return {pod_center[0] + 4, pod_center[1], pod_center[2]};
+    // Preserve the pod shell's physical pose and seat the bench on a clear east cell.
+    return {pod_center[0] + foundation_commands::foundation_stride_levels,
+        pod_center[1], pod_center[2]};
 }
 
 namespace {
@@ -911,7 +920,9 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
     if (placement(action) || action == "place_foundation") {
         const auto location = grid_point(record.intent);
         if (action == "place_foundation")
-            return location && (*location)[0] % 4 == 0 && (*location)[2] % 4 == 0 &&
+            return location && (*location)[0] % foundation_commands::foundation_stride_levels == 0 &&
+                (*location)[2] % foundation_commands::foundation_stride_levels == 0 &&
+                (*location)[1] % foundation_depth_levels == 0 &&
                 targets.front() == anchor(profile, *location) && result.size() == 16;
         const auto* role_name = field<std::string>(record.intent, "role");
         const auto* axis_name = field<std::string>(record.intent, "axis");
@@ -4334,11 +4345,15 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             cost.plate > profile.initial_units) return false;
     if (profile.landing_pod_center) {
         const auto& center = *profile.landing_pod_center;
-        if (profile.foundation_parts < landing_deck_parts || center[0] % 4 || center[1] % 4 || center[2] % 4)
+        if (profile.foundation_parts < landing_deck_parts ||
+            center[0] % foundation_commands::mechanical_stride_levels ||
+            center[1] % foundation_depth_levels ||
+            center[2] % foundation_commands::mechanical_stride_levels)
             return false;
-        for (const auto coordinate : center)
-            if (coordinate < -mechanics::maximum_coordinate + 4 ||
-                coordinate > mechanics::maximum_coordinate - 4) return false;
+        for (const auto& deck_center : landing_deck_centers(center))
+            for (const auto coordinate : deck_center)
+                if (coordinate < -mechanics::maximum_coordinate ||
+                    coordinate > mechanics::maximum_coordinate) return false;
     }
     if (profile.foundation_parts == 0) {
         if (!profile.starting_foundation_kits.empty()) return false;
@@ -4373,8 +4388,10 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             return false;
     for (const auto& [id, site] : profile.material.timber_sites)
         if (!valid_source(id, site.center)) return false;
+    // Radius is expressed in hundredths of H; doubling it preserves the same
+    // physical wheel after H is halved, so retain the old physical size cap.
     if (profile.water.size() > 65536 || profile.wheel_radius <= 0 ||
-        profile.wheel_radius > mechanics::maximum_coordinate / mechanics::maximum_dimension ||
+        profile.wheel_radius > 2 * mechanics::maximum_coordinate / mechanics::maximum_dimension ||
         profile.wheel_axle_offset < -mechanics::maximum_coordinate ||
         profile.wheel_axle_offset > mechanics::maximum_coordinate) return false;
     for (const auto& [location, sample] : profile.water) {
@@ -4445,7 +4462,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             hub.center[0] % 4 != 0 || hub.center[2] % 4 != 0 ||
             (!hub.holder && hub.center[1] != 0 &&
              std::none_of(state.foundations.begin(), state.foundations.end(),
-                 [&](const auto& entry) { return entry.second.center == hub.center; })))
+                 [&](const auto& entry) { return foundation_covers_workcell(entry.second, hub.center); })))
             return false;
         if (snapshot.revision == 0 &&
             (hub.holder || hub.center != landing_hub_center(*profile.landing_pod_center) ||
@@ -4606,7 +4623,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
                  state.fabrication_hub->center == cell) ||
                 (needs_support && placed.center[1] != 0 &&
                  std::none_of(state.foundations.begin(), state.foundations.end(),
-                     [&](const auto& entry) { return entry.second.center == cell; })) ||
+                     [&](const auto& entry) { return foundation_covers_workcell(entry.second, cell); })) ||
                 (area && std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
                      [&](const auto& item) { return item.geometry.center == cell; })))
                 return false;
@@ -4615,7 +4632,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             (placed.center[0] % 4 != 0 || placed.center[2] % 4 != 0 ||
              (placed.center[1] != 0 &&
               std::none_of(state.foundations.begin(), state.foundations.end(),
-                  [&](const auto& entry) { return entry.second.center == placed.center; })))) return false;
+                  [&](const auto& entry) { return foundation_covers_workcell(entry.second, placed.center); })))) return false;
         if (slide_component(placed.kind) != state.slide_phases.contains(id)) return false;
         if (part(state.topology, id) || state.foundations.contains(id) ||
             std::any_of(state.topology.parts.begin(), state.topology.parts.end(),
@@ -4650,7 +4667,10 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     for (const auto& [id, foundation] : state.foundations) {
         const auto issued = state.issued_entities.find(id);
         if (issued == state.issued_entities.end() || issued->second != foundation.generation ||
-            foundation.generation <= 0 || foundation.center[0] % 4 != 0 || foundation.center[2] % 4 != 0) return false;
+            foundation.generation <= 0 ||
+            foundation.center[0] % foundation_commands::foundation_stride_levels != 0 ||
+            foundation.center[1] % foundation_depth_levels != 0 ||
+            foundation.center[2] % foundation_commands::foundation_stride_levels != 0) return false;
         for (const auto coordinate : foundation.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
         if (part(state.topology, id) || std::any_of(state.topology.belt_spans.begin(), state.topology.belt_spans.end(),
@@ -4718,7 +4738,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         if (transmission_role(item.role) && part_center_counts.at(item.geometry.center) != 1) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
             std::none_of(state.foundations.begin(), state.foundations.end(), [&](const auto& entry) {
-                return entry.second.center == item.geometry.center;
+                return foundation_covers_workcell(entry.second, item.geometry.center);
             })) return false;
         const auto issued = state.issued_entities.find(item.geometry.id);
         const auto total = totals.find({item.role, item.geometry.teeth, item.geometry.half_span});

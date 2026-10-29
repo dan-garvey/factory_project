@@ -56,6 +56,28 @@ void west_face_and_alternate_routes() {
           "Two components cannot claim the same world-grid location.");
 }
 
+void half_u_face_keeps_collector_parts_apart() {
+    const a::OreFace face{{0, 0, 0}, {-2, 0, 0}};
+    std::vector<a::Part> placed{
+        part("frame", m::Component::wooden_frame, {0, 0, 0}),
+        part("mount", m::Component::tool_mount, {-2, 0, 0}),
+        part("edge", m::Component::cutting_edge, {-4, 0, 0}),
+        part("tray", m::Component::receiver_tray, {0, 0, 2}),
+    };
+    const auto widened = a::inspect_collector(placed, face);
+    check(widened.status == a::Status::ready && widened.collector &&
+          widened.collector->shaft_center == g::Point{-2, 0, 0} &&
+          widened.collector->receiver_center == g::Point{0, 0, 2},
+          "The half-U face keeps the existing collector spacing at two fine-grid steps.");
+    placed[3].center = {0, 0, -2};
+    const auto mirrored = a::inspect_collector(placed, face);
+    check(mirrored.status == a::Status::ready && mirrored.collector &&
+          mirrored.collector->receiver_center == g::Point{0, 0, -2},
+          "The widened face still admits the mirrored discharge side.");
+    check(a::inspect_collector(placed, {{0, 0, 0}, {-3, 0, 0}}).status == a::Status::invalid_input,
+          "An arbitrary wider direction cannot become a trusted collector face.");
+}
+
 void raised_rotated_face_and_missing_parts() {
     const a::OreFace face{{4, 4, 8}, {0, 0, 1}};
     std::vector<a::Part> placed{
@@ -621,6 +643,7 @@ void indexed_independent_assemblies() {
 int main() {
     try {
         west_face_and_alternate_routes();
+        half_u_face_keeps_collector_parts_apart();
         raised_rotated_face_and_missing_parts();
         malformed_and_ambiguous_input();
         press_arrangements_and_clearance();

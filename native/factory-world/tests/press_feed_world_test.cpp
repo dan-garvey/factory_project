@@ -45,18 +45,18 @@ Site site() {
     Site site;
     auto& [profile, state] = site;
     profile.material = {1, 1, 2};
-    profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
-    profile.material.timber_sites = {{"tree", {{12, 0, 12}, 8}},
-                                     {"tree-branch", {{12, 0, 24}, 4}},
-                                     {"crank-tree", {{16, 0, 12}, 16}}};
+    profile.material.manual_ore = m::OreSite{"ore", {-6, 0, 0}};
+    profile.material.timber_sites = {{"tree", {{24, 0, 24}, 8}},
+                                     {"tree-branch", {{24, 0, 48}, 4}},
+                                     {"crank-tree", {{32, 0, 24}, 16}}};
     profile.material.hand_carry_capacity = 24;
     profile.initial_units = 10;
     profile.actors = {"P", "Q"};
     profile.foundation_parts = 24;
     profile.starting_foundation_kits = {{"P", 15}, {"Q", 0}};
-    profile.landing_pod_center = g::Point{4, 0, 16};
-    profile.meters_per_grid_unit = 0.4125;
-    profile.anchor_offset = {0, 0.825, 0};
+    profile.landing_pod_center = g::Point{8, 0, 32};
+    profile.meters_per_grid_unit = 0.20625;
+    profile.anchor_offset = {0, 0.4125, 0};
     profile.build_reach = 4;
     profile.waterwheel_rate = {2, 1};
     profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}};
@@ -215,7 +215,7 @@ void frame_free_hand_press(g::Point center, g::Point direction) {
     run.p = {2, 1, 0};
     if (center[1] > 0) {
         auto foundation = request("P", "guided-raised-foundation", "place_foundation");
-        foundation.emplace("center", V(point(center[0], center[1], center[2])));
+        foundation.emplace("center", V(point(12, center[1], 12)));
         run.accept("P", foundation);
     }
     const std::pair<const char*, g::Point> parts[] = {
@@ -2490,7 +2490,7 @@ void powered_broad_sheet_custody() {
     for (const auto* id : {"sheet-width-first", "sheet-width-last", "sheet-width-belt"})
         source.state.issued_entities.emplace(id, 1);
     Runner run(source);
-    run.p = {5.8, 1, 0.8};
+    run.p = {3.3, 1, 0.8};
     auto cross = request("P", "sheet-place-cross-shaft", "place");
     cross.emplace("role", V("shaft"));
     cross.emplace("center", V(point(8, 4, -4)));
@@ -2525,7 +2525,7 @@ void powered_broad_sheet_custody() {
             craft.emplace("component", V(kind));
             run.accept("P", craft);
         }
-    run.p = {5.8, 1, 0.8};
+    run.p = {3.3, 1, 0.8};
     std::string first_anvil;
     I first_generation{};
     for (int index = 0; index < 4; ++index) {
@@ -2565,18 +2565,18 @@ void powered_broad_sheet_custody() {
         harvest.emplace("target", V("ore"));
         run.accept("P", harvest);
     }
-    run.p = {5.8, 1, 0.8};
+    run.p = {3.3, 1, 0.8};
     auto feed = request("P", "sheet-feed", "feed_broad_press");
     feed.emplace("target", V(first_anvil));
     feed.emplace("generation", V(first_generation));
     const auto before_distant_feed = run.world->snapshot().state;
-    run.p = {1.05, 1, 0};
+    run.p = {-3.3, 1, 0};
     auto distant_feed = feed;
     distant_feed.at("request") = V("sheet-feed-far-corner-out-of-reach");
     run.refuses("P", distant_feed, "out_of_reach");
     check(run.world->snapshot().state == before_distant_feed,
         "Broad feed cannot place three stock chunks across an unreachable far corner.");
-    run.p = {5.8, 1, 0.8};
+    run.p = {3.3, 1, 0.8};
     run.accept("P", feed);
     const auto fed = run.world->snapshot();
     check(fed.state.material.cargo.at("P").raw_units == 0 &&
@@ -2600,7 +2600,7 @@ void powered_broad_sheet_custody() {
         "A saved broad feed cannot replace far-corner reach with a second origin claim.");
     Runner stopped(source);
     stopped.world = w::World::restore("press-feed", source.profile, fed);
-    stopped.p = {5.8, 1, 0.8};
+    stopped.p = {3.3, 1, 0.8};
     auto stop = request("P", "sheet-stop", "set_drive");
     stop.emplace("target", V("press-wheel"));
     stop.emplace("generation", V(I{1}));
@@ -2614,7 +2614,7 @@ void powered_broad_sheet_custody() {
         "An assembled but stopped four-pad drive leaves the exact batch untouched.");
     Runner disconnected(source);
     disconnected.world = w::World::restore("press-feed", source.profile, fed);
-    disconnected.p = {5.8, 1, 0.8};
+    disconnected.p = {3.3, 1, 0.8};
     auto reclaim = request("P", "sheet-disconnect", "reclaim_component");
     const auto& live_parts = fed.state.placed_components;
     const auto missing = std::find_if(live_parts.begin(), live_parts.end(), [](const auto& entry) {
@@ -2635,7 +2635,7 @@ void powered_broad_sheet_custody() {
     spare.emplace("target", V("ore"));
     disconnected.p = {0, 1, 1.65};
     disconnected.accept("P", spare);
-    disconnected.p = {5.8, 1, 0.8};
+    disconnected.p = {3.3, 1, 0.8};
     const auto second = std::find_if(fed.state.placed_components.begin(),
         fed.state.placed_components.end(), [](const auto& entry) {
             return entry.second.kind == m::Component::anvil &&
@@ -2661,7 +2661,7 @@ void powered_broad_sheet_custody() {
         "A mass-balanced checkpoint cannot rewrite the broad lot's proven powered progress.");
     Runner refed(source);
     refed.world = w::World::restore("press-feed", source.profile, partial);
-    refed.p = {5.8, 1, 0.8};
+    refed.p = {3.3, 1, 0.8};
     const auto& partial_lot = partial.state.material.dropped_material.at({12, 0, 0}).work_lots.front();
     auto recover_partial = request("P", "sheet-recover-partial", "pickup_material");
     recover_partial.emplace("center", V(point(12, 0, 0)));
@@ -2681,7 +2681,7 @@ void powered_broad_sheet_custody() {
     belt_probe.world = w::World::restore("press-feed", source.profile, refed.world->snapshot());
     check(belt_probe.world != nullptr,
         "The carried sheet-bound lot restores beside a valid one-wide belt.");
-    belt_probe.p = {5.8, 1, 0.8};
+    belt_probe.p = {3.3, 1, 0.8};
     auto load_broad = request("P", "sheet-width-refuse", "load_belt_slot");
     load_broad.emplace("target", V("sheet-width-belt"));
     load_broad.emplace("generation", V(I{1}));
@@ -2698,7 +2698,7 @@ void powered_broad_sheet_custody() {
     auto harvest_control = request("P", "sheet-width-control-ore", "harvest_source");
     harvest_control.emplace("target", V("ore"));
     belt_probe.accept("P", harvest_control);
-    belt_probe.p = {5.8, 1, 0.8};
+    belt_probe.p = {3.3, 1, 0.8};
     auto load_control = load_broad;
     load_control.at("request") = V("sheet-width-control-load");
     load_control.at("item") = V("raw");
@@ -2719,13 +2719,13 @@ void powered_broad_sheet_custody() {
     fake_refeed.at("request") = V("sheet-real-refeed");
     fake_refeed.at("work_id") = V(partial_lot.id);
     const auto before_distant_refeed = refed.world->snapshot().state;
-    refed.p = {1.05, 1, 0};
+    refed.p = {-3.3, 1, 0};
     auto distant_refeed = fake_refeed;
     distant_refeed.at("request") = V("sheet-refeed-far-corner-out-of-reach");
     refed.refuses("P", distant_refeed, "out_of_reach");
     check(refed.world->snapshot().state == before_distant_refeed,
         "Broad refeed keeps the same partial lot when the far corner is out of reach.");
-    refed.p = {5.8, 1, 0.8};
+    refed.p = {3.3, 1, 0.8};
     refed.accept("P", fake_refeed);
     check(w::validate(source.profile, refed.world->snapshot()),
         "The reinserted broad partial lot has valid replay after refeed.");
@@ -2745,7 +2745,7 @@ void powered_broad_sheet_custody() {
     channel.world = w::World::restore("press-feed", source.profile, finished);
     check(channel.world != nullptr,
         "A separate channel trial starts from the exact finished-sheet checkpoint.");
-    channel.p = {5.8, 1, 0.8};
+    channel.p = {3.3, 1, 0.8};
     for (const auto& [id, placed] : finished.state.placed_components) {
         if (placed.kind != m::Component::ram_face &&
             placed.kind != m::Component::sliding_guide) continue;
@@ -2770,7 +2770,7 @@ void powered_broad_sheet_custody() {
         craft.emplace("component", V(kind));
         channel.accept("P", craft);
     }
-    channel.p = {7.4, 1, 0.8};
+    channel.p = {3.8, 1, 0.8};
     auto place_narrow = request("P", "channel-place-narrow", "place_component");
     place_narrow.emplace("component", V("channel_narrow_x"));
     place_narrow.emplace("center", V(point(20, 0, 0)));
@@ -2820,7 +2820,7 @@ void powered_broad_sheet_custody() {
     second_segment.at("center") = V(point(24, 0, 0));
     channel.accept("P", second_segment);
     push.at("request") = V("channel-repaired-second-push");
-    channel.p = {8.25, 1, 0.8};
+    channel.p = {4.2, 1, 0.8};
     channel.accept("P", push);
     const auto repaired = channel.world->snapshot();
     check(repaired.state.material.dropped_material.at({20, 0, 0}).sheets ==
@@ -2834,7 +2834,7 @@ void powered_broad_sheet_custody() {
         harvest.emplace("target", V("ore"));
         run.accept("P", harvest);
     }
-    run.p = {5.8, 1, 0.8};
+    run.p = {3.3, 1, 0.8};
     auto blocked_feed = feed;
     blocked_feed.at("request") = V("sheet-blocked-feed");
     run.refuses("P", blocked_feed, "input_full");
@@ -2852,7 +2852,7 @@ void powered_broad_sheet_custody() {
     run.refuses("Q", pickup, "out_of_reach");
     check(run.world->snapshot().state.material.dropped_material.at({12, 0, 0}).sheets.size() == 1,
         "A remote actor cannot claim the four-cell sheet by naming its origin.");
-    run.q = {5.5, 1, 1.0};
+    run.q = {2.9, 1, 0.8};
     pickup.at("request") = V("sheet-near-pickup");
     run.accept("Q", pickup);
     const auto recovered = run.world->snapshot();
@@ -2878,7 +2878,7 @@ void powered_broad_sheet_custody() {
     Runner full_belt(source);
     full_belt.world = w::World::restore("press-feed", source.profile, run.world->snapshot());
     check(full_belt.world != nullptr, "The finished sheet and empty belt restore before a full-path probe.");
-    full_belt.p = {5.8, 1, 0.8};
+    full_belt.p = {3.3, 1, 0.8};
     auto fill_belt = request("P", "finished-sheet-fill-belt", "load_belt_slot");
     fill_belt.emplace("target", V("sheet-width-belt"));
     fill_belt.emplace("generation", V(I{1}));
@@ -2886,7 +2886,7 @@ void powered_broad_sheet_custody() {
     fill_belt.emplace("item", V("raw"));
     fill_belt.emplace("work_id", V(I{0}));
     full_belt.accept("P", fill_belt);
-    full_belt.q = {5.5, 1, 1.0};
+    full_belt.q = {2.9, 1, 0.8};
     auto occupied_load = load_sheet;
     occupied_load.at("request") = V("finished-sheet-full-slot");
     const auto before_occupied_load = full_belt.world->snapshot();
@@ -2898,7 +2898,7 @@ void powered_broad_sheet_custody() {
     auto stage = request("Q", "sheet-stage", "place_sheet");
     stage.emplace("center", V(point(24, 0, 0)));
     stage.emplace("sheet_id", V(sheet_id));
-    run.q = {10.7, 1, 0.8};
+    run.q = {5.7, 1, 0.8};
     auto no_support = stage;
     no_support.at("request") = V("sheet-stage-no-support");
     run.refuses("Q", no_support, "missing_support");
@@ -2922,8 +2922,8 @@ void powered_broad_sheet_custody() {
     for (int index = 0; index < 4; ++index) {
         const I x = 24 + (index % 2) * 4;
         const I z = (index / 2) * 4;
-        run.p = {static_cast<double>(x) * 0.4125, 1,
-            static_cast<double>(z) * 0.4125};
+        run.p = {static_cast<double>(x) * source.profile.meters_per_grid_unit, 1,
+            static_cast<double>(z) * source.profile.meters_per_grid_unit};
         auto place = request("P", "sheet-stage-anvil-" + std::to_string(index),
             "place_component");
         place.emplace("component", V("anvil"));
@@ -2952,11 +2952,11 @@ void powered_broad_sheet_custody() {
     wrong_sheet.at("request") = V("sheet-stage-wrong-id");
     wrong_sheet.at("sheet_id") = V(sheet_id + 1);
     run.refuses("Q", wrong_sheet, "unavailable_input");
-    run.q = {7.65, 1, 0};
+    run.q = {11.0, 1, 0};
     auto far_corner = stage;
     far_corner.at("request") = V("sheet-stage-far-corner");
     run.refuses("Q", far_corner, "out_of_reach");
-    run.q = {10.7, 1, 0.8};
+    run.q = {5.7, 1, 0.8};
     run.accept("Q", stage);
     const auto staged = run.world->snapshot();
     check(staged.state.material.cargo.at("Q").sheets.empty() &&
@@ -2974,7 +2974,7 @@ void powered_broad_sheet_custody() {
     auto reclaim_support = request("P", "sheet-stage-reclaim-support", "reclaim_component");
     reclaim_support.emplace("target", V(support));
     reclaim_support.emplace("generation", V(support_generation));
-    run.p = {9.9, 1, 0};
+    run.p = {4.95, 1, 0};
     run.refuses("P", reclaim_support, "occupied");
     auto recover_staged = request("P", "sheet-stage-recover", "pickup_material");
     recover_staged.emplace("center", V(point(24, 0, 0)));
@@ -2982,7 +2982,7 @@ void powered_broad_sheet_custody() {
         {"work_lots", V(V::Array{})}, {"offcuts", V(I{0})}, {"sheets", V(I{1})},
         {"sheet_items", V(V::Array{V(O{{"id", V(sheet_id)},
             {"rotation", V(I{0})}})})}}));
-    run.p = {10.7, 1, 0.8};
+    run.p = {5.7, 1, 0.8};
     run.accept("P", recover_staged);
     const auto restaged = run.world->snapshot();
     check(restaged.state.material.cargo.at("P").sheets ==
@@ -3028,7 +3028,7 @@ void powered_broad_sheet_custody() {
     wheel.emplace("axis", V("z"));
     wheel.emplace("teeth", V(I{0}));
     wheel.emplace("half_span", V(I{0}));
-    run.p = {9.9, 1, -0.8};
+    run.p = {4.95, 1, -0.8};
     run.accept("P", wheel);
     for (int index = 0; index < 4; ++index) {
         const I x = 24 + (index % 2) * 4;
@@ -3038,8 +3038,8 @@ void powered_broad_sheet_custody() {
             {"cutting_edge", {x, 1, z}}, {"sliding_guide", {x, 3, z}},
             {"copper_shaft", {x, 4, z + outward}},
             {"copper_cog", {x, 4, z + outward * 2}}};
-        run.p = {static_cast<double>(x) * 0.4125, 1,
-            static_cast<double>(z) * 0.4125};
+        run.p = {static_cast<double>(x) * source.profile.meters_per_grid_unit, 1,
+            static_cast<double>(z) * source.profile.meters_per_grid_unit};
         for (const auto& [kind, center] : parts) {
             auto place = request("P", std::string("shear-place-") + kind +
                 std::to_string(index), "place_component");
@@ -3062,7 +3062,7 @@ void powered_broad_sheet_custody() {
         throw std::runtime_error("The separate cutting drive status is " +
             std::to_string(static_cast<int>(shear_drive.status)) + ".");
     ++checks;
-    run.p = {10.7, 1, 0.8};
+    run.p = {5.7, 1, 0.8};
     for (int stroke = 1; stroke <= 3; ++stroke) {
         shear.at("request") = V("sheet-shear-stroke-" + std::to_string(stroke));
         const auto result = run.accept("P", shear);
@@ -3083,7 +3083,7 @@ void powered_broad_sheet_custody() {
             auto remove = request("P", "sheet-shear-remove-blade", "reclaim_component");
             remove.emplace("target", V(blade->first));
             remove.emplace("generation", V(blade->second.generation));
-            run.p = {11.55, 1, 1.65};
+            run.p = {6.0, 1, 1.65};
             run.accept("P", remove);
             shear.at("request") = V("sheet-shear-three-blades");
             run.refuses("P", shear, "incomplete_shear");
@@ -3095,7 +3095,7 @@ void powered_broad_sheet_custody() {
             replace.emplace("component", V("cutting_edge"));
             replace.emplace("center", V(point(28, 1, 4)));
             run.accept("P", replace);
-            run.p = {10.7, 1, 0.8};
+            run.p = {5.7, 1, 0.8};
         }
     }
     auto stop_shear = request("P", "sheet-shear-stop", "set_drive");
@@ -3104,7 +3104,7 @@ void powered_broad_sheet_custody() {
     stop_shear.emplace("enabled", V(false));
     run.p = {3.3, 1, 0};
     run.accept("P", stop_shear);
-    run.p = {10.7, 1, 0.8};
+    run.p = {5.7, 1, 0.8};
     shear.at("request") = V("sheet-shear-unpowered");
     run.refuses("P", shear, "shear_unpowered");
     check(run.world->snapshot().state.shear_progress.at(sheet_id).strokes == 3,
@@ -3113,7 +3113,7 @@ void powered_broad_sheet_custody() {
     stop_shear.at("enabled") = V(true);
     run.p = {3.3, 1, 0};
     run.accept("P", stop_shear);
-    run.p = {10.7, 1, 0.8};
+    run.p = {5.7, 1, 0.8};
     shear.at("request") = V("sheet-shear-finish");
     const auto finish = run.accept("P", shear);
     const auto four = factory::world::Snapshot(run.world->snapshot());
@@ -3138,7 +3138,7 @@ void powered_broad_sheet_custody() {
     small_channel.world = w::World::restore("press-feed", source.profile, four);
     check(small_channel.world != nullptr,
         "A small-channel trial starts from the exact finite four-plate checkpoint.");
-    small_channel.p = {10.7, 1, 0.8};
+    small_channel.p = {5.7, 1, 0.8};
     for (const auto& [id, placed] : four.state.placed_components) {
         if (placed.center != g::Point{28, 1, 0} &&
             placed.center != g::Point{28, 3, 0}) continue;
@@ -3165,7 +3165,7 @@ void powered_broad_sheet_custody() {
         craft.emplace("component", V("channel_narrow_x"));
         small_channel.accept("P", craft);
     }
-    small_channel.p = {12.1, 1, 0.8};
+    small_channel.p = {6.8, 1, 0.8};
     auto place_small = request("P", "small-channel-place-first", "place_component");
     place_small.emplace("component", V("channel_narrow_x"));
     place_small.emplace("center", V(point(32, 0, 0)));
@@ -3198,7 +3198,7 @@ void powered_broad_sheet_custody() {
     place_small.at("request") = V("small-channel-place-second");
     place_small.at("center") = V(point(36, 0, 0));
     small_channel.accept("P", place_small);
-    small_channel.p = {13.3, 1, 0.8};
+    small_channel.p = {7.5, 1, 0.8};
     move_plate.at("request") = V("small-channel-repaired-plate");
     small_channel.accept("P", move_plate);
     check(small_channel.world->snapshot().state.material.dropped_material.at({36, 0, 0}).products == 1 &&

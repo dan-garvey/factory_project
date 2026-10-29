@@ -22,6 +22,10 @@ void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
 
+double site_meters(double reference_meters) {
+    return reference_meters * factory::godot_world::site_geometry::pitch / 1.65;
+}
+
 template<class T> const T& get(const V& value, const char* key) {
     return std::get<T>(std::get<O>(value.storage()).at(key).storage());
 }
@@ -175,7 +179,7 @@ void guided_press_host_path() {
         craft.emplace("component", V(kind));
         accepted(host, craft);
     }
-    check(get<bool>(host.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 4), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(0.0)}, 4), "accepted"),
           "The actor reaches the selected workcell and its drive shaft.");
     Host elevated;
     check(get<bool>(elevated.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted"),
@@ -187,10 +191,10 @@ void guided_press_host_path() {
         throw std::runtime_error("Elevated kit restore refused: " +
             get<std::string>(elevated_restore, "reason"));
     ++checks;
-    check(get<bool>(elevated.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 5), "accepted"),
+    check(get<bool>(elevated.publish_actor("P", {V(-1.0), V(1.0), V(0.0)}, 5), "accepted"),
           "The worker reaches a clear workcell for an elevated standalone anvil.");
     auto raised_floor = request("guided-independent-raised-floor", "place_foundation");
-    raised_floor.emplace("cell", V(A{V(I{2}), V(I{0})}));
+    raised_floor.emplace("cell", V(A{V(I{1}), V(I{0})}));
     raised_floor.emplace("level", V(I{4}));
     accepted(elevated, raised_floor);
     auto offset_anvil = request("guided-offset-anvil", "place_component");
@@ -238,8 +242,9 @@ void guided_press_host_path() {
           "Malformed component requests leave native revision, identities and finite stock unchanged.");
     const auto elevated_faces = vertical_faces(get<O>(elevated.projection(), "placed_components"),
                                                elevated_anvil);
-    check(std::abs(elevated_faces.first - 1.65) < 1e-9 &&
-          std::abs(elevated_faces.second - (1.65 + factory::godot_world::site_geometry::press_work_height)) < 1e-9 &&
+    check(std::abs(elevated_faces.first - factory::godot_world::site_geometry::foundation_depth) < 1e-9 &&
+          std::abs(elevated_faces.second - (factory::godot_world::site_geometry::foundation_depth +
+              factory::godot_world::site_geometry::press_work_height)) < 1e-9 &&
           get<A>(elevated.projection(), "press_assemblies").empty(),
           "A frame-free anvil seats on an elevated foundation without moving its working face.");
     Host deck;
@@ -249,7 +254,7 @@ void guided_press_host_path() {
           "The independent pod-deck case starts with the same carried anvil kit.");
     check(get<bool>(deck.publish_actor("P", {V(0.0), V(1.0), V(3.3)}, 5), "accepted"),
           "The worker reaches the forward deck square from its clear edge.");
-    const auto deck_anvil = place(deck, "anvil", 0, 0, 12, "guided-pod-deck-anvil");
+    const auto deck_anvil = place(deck, "anvil", 0, 0, 24, "guided-pod-deck-anvil");
     const auto deck_faces = vertical_faces(get<O>(deck.projection(), "placed_components"),
                                            deck_anvil);
     check(std::abs(deck_faces.first) < 1e-9 &&
@@ -307,7 +312,7 @@ void guided_press_host_path() {
     accepted(shaft_first, early_craft);
     check(get<I>(get<O>(shaft_first.projection(), "cargo").at("P"), "products") == 0,
           "The new shaft spends the actual finished plate once.");
-    check(get<bool>(shaft_first.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 10), "accepted"),
+    check(get<bool>(shaft_first.publish_actor("P", {V(0.0), V(1.0), V(0.0)}, 10), "accepted"),
           "The worker reaches the first press drive cell.");
     auto early_shaft = request("early-contact-place", "place_shaft");
     early_shaft.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
@@ -378,7 +383,7 @@ void guided_press_host_path() {
     accepted(contact, craft_shaft);
     check(get<I>(get<O>(contact.projection(), "cargo").at("P"), "products") == 0,
           "The connecting shaft consumes one plate without a second raw-copper debit.");
-    check(get<bool>(contact.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 10), "accepted"),
+    check(get<bool>(contact.publish_actor("P", {V(0.0), V(1.0), V(0.0)}, 10), "accepted"),
           "The worker reaches the press cog and its intended transmission cell.");
     auto connecting_shaft = request("contact-place-shaft", "place_shaft");
     connecting_shaft.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
@@ -628,7 +633,7 @@ void placed_press_projection() {
         craft.emplace("component", V(name));
         accepted(host, craft);
     }
-    check(get<bool>(host.publish_actor("P", {V(1.0), V(1.0), V(0.0)}, 5), "accepted"),
+    check(get<bool>(host.publish_actor("P", {V(0.0), V(1.0), V(0.0)}, 5), "accepted"),
           "The actor approaches a distinct press workcell.");
     const auto frame = place(host, "wooden_frame", 8, 0, 0, "place-frame");
     check(get<std::string>(inspection(host), "status") == "missing_anvil",
@@ -676,10 +681,12 @@ void placed_press_projection() {
     const auto mount_half = get<A>(V(mount_box), "half");
     const double mount_bottom = std::get<double>(mount_center[1].storage()) -
         std::get<double>(mount_half[1].storage());
-    check(std::abs(anvil_faces.first - 0.4125) < 1e-9 &&
+    check(std::abs(std::get<double>(frame_half[0].storage()) - site_meters(0.2025)) < 1e-9 &&
+          std::abs(std::get<double>(frame_half[2].storage()) - site_meters(0.2025)) < 1e-9 &&
+          std::abs(anvil_faces.first - site_meters(0.4125)) < 1e-9 &&
           anvil_faces.first < frame_top &&
           std::abs(anvil_faces.second - ram_faces.first) < 1e-9 &&
-          std::abs(ram_faces.second - guide_faces.first - 0.4125) < 1e-9 &&
+          std::abs(ram_faces.second - guide_faces.first - site_meters(0.4125)) < 1e-9 &&
           std::abs(guide_faces.second - mount_bottom) < 1e-9,
           "The frame surrounds the same floor-seated anvil while guide, ram and crown contacts remain fitted.");
     check(get<std::string>(ready, "status") == "ready" &&
@@ -701,7 +708,8 @@ void placed_press_projection() {
     auto other_feed = first_feed;
     other_feed.at("client") = V("Q");
     other_feed.at("request") = V("feed-other-actor");
-    check(get<bool>(host.publish_actor("Q", {V(2.0), V(1.0), V(0.0)}, 1), "accepted"),
+    // This observer stays within reach while clearing both mirrored drive pads.
+    check(get<bool>(host.publish_actor("Q", {V(2.8), V(1.0), V(0.0)}, 1), "accepted"),
           "The second actor observes the same press feed point.");
     const auto other_result = host.command("Q", other_feed);
     check(!get<bool>(other_result, "accepted") &&
@@ -831,8 +839,8 @@ void placed_press_projection() {
     const auto saved = host.checkpoint();
     auto hub_obstruction = factory::godot_world::tests::flat_site();
     hub_obstruction.at("obstacles") = V(A{V(A{
-        V(A{V(2.64), V(2.45), V(-0.03)}),
-        V(A{V(2.66), V(2.50), V(0.03)})})});
+        V(A{V(site_meters(2.64)), V(site_meters(2.45)), V(site_meters(-0.03))}),
+        V(A{V(site_meters(2.66)), V(site_meters(2.50)), V(site_meters(0.03))})})});
     Host obstructed_hub;
     check(get<bool>(obstructed_hub.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(obstructed_hub.configure_terrain(hub_obstruction), "accepted") &&
@@ -852,8 +860,8 @@ void placed_press_projection() {
           "Fresh Host restore derives the same press status and item identities.");
     auto obstructed_site = factory::godot_world::tests::flat_site();
     obstructed_site.at("obstacles") = V(A{V(A{
-        V(A{V(3.63), V(1.15), V(-0.08)}),
-        V(A{V(3.79), V(1.32), V(0.08)})})});
+        V(A{V(site_meters(3.63)), V(site_meters(1.15)), V(site_meters(-0.08))}),
+        V(A{V(site_meters(3.79)), V(site_meters(1.32)), V(site_meters(0.08))})})});
     Host obstructed;
     check(get<bool>(obstructed.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted") &&
           get<bool>(obstructed.configure_terrain(obstructed_site), "accepted") &&
@@ -869,12 +877,13 @@ void placed_press_projection() {
              std::pair{anvil, "reclaim-anvil"},
              std::pair{frame, "reclaim-frame"}})
         reclaim(host, id, request_id);
+    check(get<bool>(host.publish_actor("P", {V(-1.0), V(1.0), V(0.0)}, 6), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(5.0), V(1.0), V(0.0)}, 2), "accepted"),
+          "Both workers clear the raised slab while retaining access to the press.");
     auto foundation = request("raised-press-floor", "place_foundation");
-    foundation.emplace("cell", V(A{V(I{2}), V(I{0})}));
+    foundation.emplace("cell", V(A{V(I{1}), V(I{0})}));
     foundation.emplace("level", V(I{4}));
     accepted(host, foundation);
-    check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 6), "accepted"),
-          "The actor stands within reach of the raised press foundation.");
     place(host, "wooden_frame", 8, 4, 0, "raised-frame");
     place(host, "anvil", 8, 5, 0, "raised-anvil");
     place(host, "ram_face", 8, 6, 0, "raised-ram");
@@ -952,7 +961,7 @@ void belt_fed_press_projection() {
     }
     const O site{{"axis", V(A{V(-128.0), V(1.0), V(1.8), V(128.0)})},
         {"heights", V(std::move(heights))}, {"obstacles", V(A{})},
-        {"water", V(A{V(A{V(I{8}), V(I{-8}), V(I{-20}), V(I{-400}), V(I{200}), V(I{0})})})}};
+        {"water", V(A{V(A{V(I{24}), V(I{-12}), V(I{-40}), V(I{-800}), V(I{200}), V(I{0})})})}};
     Host host;
     check(get<bool>(host.initialize_arrival_advanced_fixture("press-site", {"P", "Q"}), "accepted"),
           "A detached arrival Host initializes its actual opening roster.");
@@ -979,13 +988,13 @@ void belt_fed_press_projection() {
         accepted(host, cut);
     }
     observe(0.0, 11.55);
-    for (int n = 0; n < 2; ++n) {
+    for (int n = 0; n < 3; ++n) {
         auto cut = request("inlet-host-wood-crank-" + std::to_string(n), "harvest_source");
         cut.emplace("target", V("tree-north"));
         accepted(host, cut);
     }
     observe(-0.5, 0.0);
-    for (int n = 0; n < 10; ++n) {
+    for (int n = 0; n < 12; ++n) {
         auto cut = request("inlet-host-ore-" + std::to_string(n), "harvest_source");
         cut.emplace("target", V("opening-copper"));
         accepted(host, cut);
@@ -1007,7 +1016,9 @@ void belt_fed_press_projection() {
         craft.emplace("half_span", V(span));
         accepted(host, craft);
     }
-    observe(1.4, 0);
+    check(get<bool>(host.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, ++epoch), "accepted") &&
+          get<bool>(host.publish_actor("Q", {V(8.0), V(1.0), V(0.0)}, 1), "accepted"),
+          "Both workers clear the raised inlet slab before it is placed.");
     auto foundation = request("inlet-host-foundation", "place_foundation");
     foundation.emplace("cell", V(A{V(I{0}), V(I{0})}));
     foundation.emplace("level", V(I{4}));
@@ -1032,7 +1043,7 @@ void belt_fed_press_projection() {
           get<std::string>(inspection(host), "frame") == frame,
           "The raised press is recognized from its seven placed parts before belt installation.");
     fit_crank(host, plate_crank, plate_press_shaft, 1, 8, 0, "inlet-host-fit-crank");
-    for (int plate = 0; plate < 3; ++plate) {
+    for (int plate = 0; plate < 4; ++plate) {
         accepted(host, feed("inlet-host-plate-feed-" + std::to_string(plate),
                             frame, 1, 5, 0));
         for (int stroke = 0; stroke < 3; ++stroke)
@@ -1041,10 +1052,10 @@ void belt_fed_press_projection() {
         pickup_product(host, 0, 5, 0,
                        ("inlet-host-plate-pickup-" + std::to_string(plate)).c_str(), 1);
     }
-    check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 3,
-          "Three supported press strokes supply the later stationary shafts with real plates.");
+    check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 4,
+          "Four supported press strokes supply the later stationary shafts with real plates.");
     observe(1.65, 6.6);
-    for (int index = 0; index < 3; ++index) {
+    for (int index = 0; index < 4; ++index) {
         auto craft = request("inlet-host-fabricate-shaft-" + std::to_string(index), "craft_part");
         craft.emplace("entity", V("pod-fabrication-hub"));
         craft.emplace("role", V("shaft"));
@@ -1053,20 +1064,28 @@ void belt_fed_press_projection() {
     }
     check(get<I>(get<O>(host.projection(), "cargo").at("P"), "products") == 0,
           "Stationary shaft fabrication spends each earned plate once at the bench.");
-    observe(3.3, 0);
+    check(get<bool>(host.publish_actor("P", {V(4.0), V(1.0), V(-0.5)}, ++epoch), "accepted"),
+          "The worker reaches the physical river wheel from clear bank terrain.");
     auto wheel = request("inlet-host-wheel", "place");
     wheel.emplace("kind", V("wheel"));
-    wheel.emplace("cell", V(A{V(I{2}), V(I{-2})}));
+    wheel.emplace("cell", V(A{V(I{6}), V(I{-3})}));
     wheel.emplace("level", V(I{4}));
     wheel.emplace("axis", V("z"));
     const auto wheel_id = get<std::string>(accepted(host, wheel), "entity");
     std::string outside, mouth;
     for (const auto& [name, center] : {
-             std::pair{"drive", A{V(I{8}), V(I{4}), V(I{-4})}},
-             std::pair{"outside", A{V(I{8}), V(I{4}), V(I{0})}},
+             std::pair{"drive", A{V(I{24}), V(I{4}), V(I{-8})}},
+             std::pair{"middle", A{V(I{24}), V(I{4}), V(I{-4})}},
+             std::pair{"outside", A{V(I{24}), V(I{4}), V(I{0})}},
              std::pair{"mouth", A{V(I{4}), V(I{4}), V(I{0})}}}) {
-        observe(std::get<I>(center[0].storage()) * 0.4125,
-            std::get<I>(center[2].storage()) * 0.4125);
+        const double shaft_x = std::get<I>(center[0].storage()) *
+            factory::godot_world::site_geometry::height_step;
+        const double shaft_z = std::get<I>(center[2].storage()) *
+            factory::godot_world::site_geometry::height_step;
+        const auto actor = std::string(name) == "mouth" ?
+            A{V(-1.6), V(1.0), V(0.0)} : A{V(shaft_x + 1.5), V(1.0), V(shaft_z)};
+        check(get<bool>(host.publish_actor("P", actor, ++epoch), "accepted"),
+              "The builder stands clear of each raised shaft while staying in reach.");
         auto shaft = request(std::string("inlet-host-shaft-") + name, "place_shaft");
         shaft.emplace("center", V(center));
         shaft.emplace("axis", V("z"));
@@ -1075,7 +1094,8 @@ void belt_fed_press_projection() {
         if (std::string(name) == "outside") outside = id;
         if (std::string(name) == "mouth") mouth = id;
     }
-    observe(2.475, 0);
+    check(get<bool>(host.publish_actor("P", {V(2.8875), V(1.0), V(1.6)}, ++epoch), "accepted"),
+          "The belt builder stands beside the span and reaches both shafts.");
     auto install = request("inlet-host-belt", "place_belt_span");
     install.emplace("from", V(outside));
     install.emplace("to", V(mouth));
@@ -1092,10 +1112,8 @@ void belt_fed_press_projection() {
         check(get<bool>(sliding.publish_actor("P", {V(x), V(1.0), V(z)}, ++sliding_epoch), "accepted"),
               "The slide builder reports a physical position.");
     };
-    at_slide(-0.5, 0.0);
-    auto slide_ore = request("slide-auto-ore", "harvest_source");
-    slide_ore.emplace("target", V("opening-copper"));
-    accepted(sliding, slide_ore);
+    check(get<I>(get<O>(sliding.projection(), "cargo").at("P"), "raw") > 0,
+          "The saved worker retains the finite blank gathered before the slab covers the source.");
     at_slide(5.8, -1.65);
     for (int n = 0; n < 3; ++n) {
         auto wood = request("slide-auto-timber-" + std::to_string(n), "harvest_source");
@@ -1109,7 +1127,7 @@ void belt_fed_press_projection() {
         craft.emplace("component", V(kind));
         accepted(sliding, craft);
     }
-    at_slide(1.4, 0.0);
+    at_slide(-3.2, 0.0);
     const auto old_parts = get<O>(inspection(sliding), "parts");
     carry_crank(sliding, plate_crank, "slide-auto-detach-old-crank");
     for (const char* kind : {"drive_cog", "shaft", "mount", "guide", "ram", "anvil", "frame"})
@@ -1122,7 +1140,7 @@ void belt_fed_press_projection() {
     const auto slide_anvil_faces = vertical_faces(slide_placed, slide_anvil);
     const auto slide_head_faces = vertical_faces(slide_placed, slide_head);
     const auto slide_body_faces = vertical_faces(slide_placed, slide_body);
-    check(std::abs(slide_anvil_faces.first - 1.65) < 1e-9 &&
+    check(std::abs(slide_anvil_faces.first - factory::godot_world::site_geometry::foundation_depth) < 1e-9 &&
           std::abs(slide_anvil_faces.second - slide_head_faces.first) < 1e-9 &&
           std::abs(slide_body_faces.first - slide_anvil_faces.second) < 1e-9,
           "The belt-height head reaches its supported workbed while the slide feet meet the side rails.");
@@ -1140,38 +1158,37 @@ void belt_fed_press_projection() {
     reclaim(sliding, slide_body, "slide-auto-body-move");
     reclaim(sliding, slide_head, "slide-auto-head-move");
     reclaim(sliding, slide_anvil, "slide-auto-anvil-move");
-    at_slide(3.3, 1.65);
+    check(get<bool>(sliding.publish_actor("P", {V(4.2), V(1.0), V(1.6)}, ++sliding_epoch), "accepted"),
+          "The worker stands beside the second slab before moving the slide.");
     auto output_floor = request("slide-auto-output-floor", "place_foundation");
-    output_floor.emplace("cell", V(A{V(I{3}), V(I{0})}));
+    output_floor.emplace("cell", V(A{V(I{2}), V(I{0})}));
     output_floor.emplace("level", V(I{4}));
     accepted(sliding, output_floor);
-    const auto output_anvil = place(sliding, "anvil", 12, 4, 0, "slide-auto-output-anvil");
-    place(sliding, "flat_head", 12, 5, 0, "slide-auto-output-head");
-    place(sliding, "wooden_slide", 12, 6, 0, "slide-auto-output-body");
+    const auto output_anvil = place(sliding, "anvil", 28, 4, 0, "slide-auto-output-anvil");
+    place(sliding, "flat_head", 28, 5, 0, "slide-auto-output-head");
+    place(sliding, "wooden_slide", 28, 6, 0, "slide-auto-output-body");
     const auto output_assemblies = get<A>(sliding.projection(), "sliding_press_assemblies");
     check(output_assemblies.size() == 1, "The moved slide has one native west output belt neighbor.");
     const auto output_press = std::get<O>(output_assemblies.front().storage());
     const auto output_feed = get<O>(V(output_press), "auto_feed");
     check(get<bool>(V(output_press), "auto_route") &&
           !factory::values::typed_difference(V(get<A>(V(output_feed), "entry")),
-              V(A{V(I{13}), V(I{4}), V(I{0})})) &&
+              V(A{V(I{29}), V(I{4}), V(I{0})})) &&
           !factory::values::typed_difference(V(get<A>(V(output_feed), "exit")),
-              V(A{V(I{11}), V(I{4}), V(I{0})})) &&
+              V(A{V(I{27}), V(I{4}), V(I{0})})) &&
           get<bool>(sliding.validate_checkpoint(sliding.checkpoint()), "accepted"),
           "The same moving lane becomes a west output only when its endpoint faces away from the slide.");
-    at_slide(-0.5, 0.0);
-    auto retained_ore = request("slide-auto-retained-ore", "harvest_source");
-    retained_ore.emplace("target", V("opening-copper"));
-    accepted(sliding, retained_ore);
+    check(get<I>(get<O>(sliding.projection(), "cargo").at("P"), "raw") > 0,
+          "The moved slide still has a finite retained blank to load.");
     at_slide(4.95, 1.65);
     auto manual_feed = request("slide-auto-retained-feed", "feed_press");
     manual_feed.emplace("entity", V(output_anvil));
-    manual_feed.emplace("entry", V(A{V(I{13}), V(I{4}), V(I{0})}));
+    manual_feed.emplace("entry", V(A{V(I{29}), V(I{4}), V(I{0})}));
     accepted(sliding, manual_feed);
     const auto loaded_slide = std::get<O>(get<A>(sliding.projection(),
         "sliding_press_assemblies").front().storage());
     check(!factory::values::typed_difference(V(get<A>(V(loaded_slide), "selected_exit")),
-              V(A{V(I{11}), V(I{4}), V(I{0})})),
+              V(A{V(I{27}), V(I{4}), V(I{0})})),
           "Manual inventory loading commits the inferred connected outlet in native work custody.");
     const auto slide_saved = sliding.checkpoint();
     Host slide_restored;
@@ -1183,7 +1200,7 @@ void belt_fed_press_projection() {
     const auto resumed_slide = std::get<O>(get<A>(slide_restored.projection(),
         "sliding_press_assemblies").front().storage());
     check(!factory::values::typed_difference(V(get<A>(V(resumed_slide), "selected_exit")),
-              V(A{V(I{11}), V(I{4}), V(I{0})})) &&
+              V(A{V(I{27}), V(I{4}), V(I{0})})) &&
           !factory::values::typed_difference(V(get<O>(V(resumed_slide), "auto_feed")),
               V(output_feed)),
           "Restored projection keeps the same selected connected route without a second feed choice.");
@@ -1195,7 +1212,7 @@ void belt_fed_press_projection() {
     accepted(host, load);
     bool fed = false;
     V previous = host.projection();
-    for (int n = 0; n < 32 && !fed; ++n) {
+    for (int n = 0; n < 96 && !fed; ++n) {
         const auto changes = host.advance_tick_fields();
         O merged = std::get<O>(previous.storage());
         for (const auto& [key, value] : std::get<O>(changes.storage()))

@@ -345,6 +345,34 @@ int main(int argc, char** argv) {
             require(end != std::string::npos && end + 2 < state.size() && state[end + 2] == 'Z',
                     "A graphical descendant survived native launcher cancellation.");
         }
+        write(admission, "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + launched.string() + "'\nexit 0\n", true);
+        auto proof_window = scene_window;
+        proof_window[1] = "--proof-window";
+        fs::remove(launched);
+        require(run(proof_window).exit_code != 0 && !fs::exists(launched),
+                "The proof-only mode refuses a checked main checkout.");
+        git(repo, {"checkout", "-b", "feature/proof-candidate"});
+        require(run(scene_window).exit_code != 0 && !fs::exists(launched),
+                "The ordinary agent window still refuses a feature checkout.");
+        require(run(proof_window).exit_code == 0 &&
+                read(launched).find("--test-purpose=Shared client — vérification") != std::string::npos,
+                "A clean committed proof candidate opens only a labeled private scene runtime.");
+        fs::remove(launched);
+        auto proof_fixture = script_window;
+        proof_fixture[1] = "--proof-window";
+        require(run(proof_fixture).exit_code == 0 &&
+                read(launched).find("--script\nres://opening/parts_view_check.gd") != std::string::npos,
+                "A proof candidate installs its exact committed fixture in the private runtime.");
+        fs::remove(launched);
+        auto stale_proof = proof_window;
+        stale_proof[5] = std::string(40, '0');
+        require(run(stale_proof).exit_code != 0 && !fs::exists(launched),
+                "A proof candidate refuses a mismatched commit before opening a window.");
+        write(repo / "experiments/engine-environment/godot/opening/parts_view_check.gd", "extends Node\n");
+        require(run(proof_window).exit_code != 0 && !fs::exists(launched),
+                "A dirty proof candidate refuses before creating a graphical child.");
+        git(repo, {"checkout", "--", "experiments/engine-environment/godot/opening/parts_view_check.gd"});
+        git(repo, {"checkout", "main"});
         write(script, "#!/bin/sh\nprintf 'fake child failed\\n'\nexit 23\n", true);
         git(repo, {"add", "."});
         git(repo, {"-c", "user.name=Factory Test", "-c", "user.email=test@factory.invalid", "commit", "-m", "failure"});

@@ -60,8 +60,8 @@ Fields fields(const world::State& state,
     }
     for (const auto& [id, foundation] : state.foundations)
         output.foundations.emplace(id, Value(Object{{"cell", Value(Array{
-            Value(foundation.center[0] / site_geometry::height_denominator),
-            Value(foundation.center[2] / site_geometry::height_denominator)})},
+            Value(foundation.center[0] / (site_geometry::height_denominator * 3)),
+            Value(foundation.center[2] / (site_geometry::height_denominator * 3))})},
             {"level", Value(foundation.center[1])},
             {"generation", Value(foundation.generation)}}));
     return output;

@@ -14,7 +14,7 @@ namespace factory::world {
 
 inline constexpr std::size_t maximum_issued_entities = 4096;
 inline constexpr std::string_view allocated_prefix = "native-part-";
-inline constexpr authority::Integer foundation_depth_levels = 2;
+inline constexpr authority::Integer foundation_depth_levels = foundation_commands::foundation_depth_levels;
 
 template<class T> const T* field(const authority::Object& object, const char* name) {
     const auto found = object.find(name);

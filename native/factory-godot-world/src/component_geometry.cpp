@@ -8,9 +8,12 @@ using Bounds = arrival_geometry::Bounds;
 using site_geometry::anchor_height;
 using site_geometry::height_step;
 using site_geometry::pitch;
-constexpr double component_shaft_half = 0.205;
+constexpr double press_scale = pitch / 1.65;
+constexpr double reference_component_shaft_half = 0.205;
+constexpr double press_shaft_half = reference_component_shaft_half * press_scale;
 constexpr double press_work_crown_rise = height_step / 5;
 constexpr double anvil_work_height = site_geometry::press_work_height;
+
 }  // namespace
 
 Bounds component_bounds(const world::Profile& profile,
@@ -18,7 +21,8 @@ Bounds component_bounds(const world::Profile& profile,
     const authority::Point at{center[0] * height_step,
         center[1] * height_step + anchor_height, center[2] * height_step};
     const auto vertical = [&](double low, double high) -> Bounds {
-        return {{at[0], (low + high) / 2, at[2]}, {0.14, (high - low) / 2, 0.14}};
+        return {{at[0], (low + high) / 2, at[2]},
+            {0.14 * press_scale, (high - low) / 2, 0.14 * press_scale}};
     };
     if (!kind) return {at, {0.14, 0.14, 0.14}};
     if (const auto channel = materials::channel_spec(*kind)) {
@@ -61,17 +65,19 @@ Bounds component_bounds(const world::Profile& profile,
     }
     switch (*kind) {
         case materials::Component::wooden_frame:
-            // The frame's four load-bearing feet meet the level's floor.
-            return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.2025, 0.45, 0.2025}};
+            // Every issued frame keeps the same half-U body at any cell.
+            return {{at[0], center[1] * height_step + 0.45 * press_scale, at[2]},
+                {0.2025 * press_scale, 0.45 * press_scale, 0.2025 * press_scale}};
         case materials::Component::wooden_workbench:
             // A floor-seated table is usable on ground or an ordinary joined deck.
             // Keep the issued box and visible joinery at the same U-relative size.
             return {{at[0], center[1] * height_step + 0.45 * pitch / 1.65, at[2]},
                 {0.34 * pitch / 1.65, 0.45 * pitch / 1.65, 0.30 * pitch / 1.65}};
         case materials::Component::tool_mount:
-            return {{at[0], at[1] + 0.10, at[2]},
-                    {height_step - component_shaft_half, 0.18,
-                     height_step - component_shaft_half}};
+            return {{at[0], at[1] + 0.10 * press_scale, at[2]},
+                    {height_step - press_shaft_half,
+                     0.18 * press_scale,
+                     height_step - press_shaft_half}};
         case materials::Component::anvil:
             // The independent workbed owns one full foundation cell. Its
             // inset face and open underframe do not release that cell.
@@ -114,7 +120,8 @@ Bounds component_bounds(const world::Profile& profile,
             // Its full selected rails reach the ram below, whether or not a
             // press is recognized. The admitted box includes that entire
             // span and meets the unchanged tool-mount box above.
-            return vertical(at[1] - height_step * 1.5, at[1] + height_step - 0.08);
+            return vertical(at[1] - height_step * 1.5,
+                at[1] + height_step - 0.08 * press_scale);
         case materials::Component::wooden_slide:
         case materials::Component::copper_slide: {
             // This selected body keeps the same dimensions alone and fitted.
@@ -135,14 +142,13 @@ Bounds component_bounds(const world::Profile& profile,
                 {pitch * 0.11, height_step * 0.36, pitch * 0.124}};
         case materials::Component::wooden_shaft:
         case materials::Component::copper_shaft:
-            return {at, {component_shaft_half * pitch / 1.65, 0.12 * pitch / 1.65,
-                         component_shaft_half * pitch / 1.65}};
+            return {at, {press_shaft_half, 0.12 * press_scale, press_shaft_half}};
         case materials::Component::wooden_cog:
         case materials::Component::copper_cog:
             // Either horizontal press layout seats this hub against the
             // neighboring shaft without moving either common-grid center.
-            return {at, {height_step - component_shaft_half * pitch / 1.65, 0.14 * pitch / 1.65,
-                         height_step - component_shaft_half * pitch / 1.65}};
+            return {at, {height_step - press_shaft_half, 0.14 * press_scale,
+                         height_step - press_shaft_half}};
         default:
             return {at, {0.14, 0.14, 0.14}};
     }

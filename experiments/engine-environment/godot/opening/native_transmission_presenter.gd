@@ -20,14 +20,15 @@ const CRANK_PULSE_SECONDS := 0.45
 const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal tile of surface distance.
 const GEAR_BATCH_THRESHOLD := 4
 const LIVE_GEAR_BATCH_THRESHOLD := 1
-const GUIDED_RAM_REST_LIFT := 0.08
-const GUIDED_RAM_CONTACT_LIFT := -0.0075
+const PRESS_REFERENCE_PITCH := 1.65
+const GUIDED_RAM_REST_LIFT := 0.08 * Geometry.PITCH / PRESS_REFERENCE_PITCH
+const GUIDED_RAM_CONTACT_LIFT := -0.0075 * Geometry.PITCH / PRESS_REFERENCE_PITCH
 const SLIDE_DIE_TRAVEL_MARGIN := 0.175
 const SLIDE_VISIBLE_STROKE := 0.20
 const BROAD_VISIBLE_STROKE := 0.24
-const PRESS_REFERENCE_PITCH := 1.65
 const PRESS_REFERENCE_WORK_HEIGHT := PRESS_REFERENCE_PITCH * 0.5 + 0.1425
-const PRESS_VISUAL_KINDS := ["anvil", "broad_anvil", "flat_head", "broad_flat_head",
+const PRESS_VISUAL_KINDS := ["wooden_frame", "ram_face", "sliding_guide",
+	"anvil", "broad_anvil", "flat_head", "broad_flat_head",
 	"wooden_slide", "copper_slide", "broad_copper_slide", "channel_narrow_x",
 	"channel_narrow_z", "channel_broad_x", "channel_broad_z", "receiver_tray"]
 
@@ -1261,10 +1262,12 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		occupied_size: Vector3, press_role: String, collector_angle: float,
 		collector_support_drop: float, receiver_to_frame: Vector3,
 		slide_phase: Variant = null) -> void:
-	# These fixtures were shaped at the original U. Scale their complete mesh
-	# assemblies about the native occupied center while retaining direct child
+	# These component meshes were shaped at the original U. Scale each complete
+	# assembly about the native occupied center while retaining direct child
 	# names for the same preview, pick and phase consumers.
-	var press_piece: bool = kind in PRESS_VISUAL_KINDS
+	var press_piece: bool = kind in PRESS_VISUAL_KINDS \
+		or (kind == "tool_mount" and press_role == "mount") \
+		or kind in ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]
 	var press_scale: float = Geometry.PITCH / PRESS_REFERENCE_PITCH if press_piece else 1.0
 	var first_child: int = anchor.get_child_count()
 	_placed_component_shape(anchor, kind, drive_direction, occupied_size / press_scale,
@@ -1275,6 +1278,10 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			if child != null:
 				child.position *= press_scale
 				child.scale *= press_scale
+				if child.has_meta("component_rotor_base"):
+					# Motion reapplies this basis on refresh. Cache its fitted size
+					# so rotation cannot restore the old-U shaft or cog mesh.
+					child.set_meta("component_rotor_base", child.basis)
 
 func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vector3,
 		occupied_size: Vector3, press_role: String, collector_angle: float,
@@ -2559,7 +2566,7 @@ func refresh() -> void:
 					(0.09 if not drop.work_lots.is_empty() else 0.04) * press_scale
 			elif guided_work_surfaces.has(drop.center):
 				location.y = float(guided_work_surfaces[drop.center]) + \
-					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else -0.082))
+					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else -0.082)) * press_scale
 			var visual: Node3D
 			if drop.raw > 0:
 				visual = _cylinder(self, "LooseBlank", (0.11 if supported_slide else 0.15) * press_scale,

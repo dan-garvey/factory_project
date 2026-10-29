@@ -3,24 +3,27 @@ extends RefCounted
 ## movement tuning, construction range or eventual world representation.
 
 # BEGIN NATIVE SITE GEOMETRY
-const PITCH := 1.65
+const PITCH := 0.825
 const HEIGHT_DENOMINATOR := 4
 const HEIGHT_STEP := PITCH / HEIGHT_DENOMINATOR
-const FOUNDATION_HEIGHT_UNITS := 2
+const FOUNDATION_PITCH := PITCH * 3.0
+const FOUNDATION_HEIGHT_UNITS := 4
 const FOUNDATION_DEPTH := FOUNDATION_HEIGHT_UNITS * HEIGHT_STEP
 const ANCHOR_HEIGHT := PITCH / 2.0
 const BELT_HALF_WIDTH := PITCH * 0.55 / 2.0
-const BELT_FRAME_OUTER_HALF_WIDTH := 0.57
-const BELT_OUTER_RADIUS := 0.1425
+const BELT_FRAME_OUTER_HALF_WIDTH := 0.285
+const BELT_OUTER_RADIUS := 0.07125
 const PRESS_WORK_HEIGHT := ANCHOR_HEIGHT + BELT_OUTER_RADIUS
-const WATERWHEEL_RADIUS_HUNDREDTHS := 224
+const WATERWHEEL_RADIUS_HUNDREDTHS := 448
 const WATERWHEEL_AXLE_OFFSET_HUNDREDTHS := 200
 const WATERWHEEL_RADIUS := WATERWHEEL_RADIUS_HUNDREDTHS * HEIGHT_STEP / 100.0
 const BASE_REACH := 4.0
 const CAPSULE_RADIUS := 0.3
 const CAPSULE_HEIGHT := 1.8
-const MACHINE_SIZE := [1.45, 1.65, 1.45]
-const MACHINE_CENTER_HEIGHT := 0.8
+const MACHINE_SIZE := [0.725, 0.825, 0.725]
+const MACHINE_CENTER_HEIGHT := 0.4
+const COLLECTOR_SIZE := [1.45, 1.65, 1.45]
+const COLLECTOR_CENTER_HEIGHT := 0.8
 const COLLECTOR_INTAKE_SIZE := [0.28, 0.2, 0.24]
 const COLLECTOR_INTAKE_X := -0.84
 const COLLECTOR_INTAKE_Y := 0.5
@@ -220,6 +223,8 @@ static func component_boxes(snapshot: Dictionary) -> Dictionary:
 			cell[2] * HEIGHT_STEP)
 		var horizontal_limit: float = PITCH if part.component in ["channel_broad_x", "channel_broad_z",
 				"broad_anvil", "broad_flat_head", "broad_copper_slide"] else 1.0
+		if part.component in ["channel_narrow_x", "channel_narrow_z"]:
+			horizontal_limit = PITCH * 0.5
 		var vertical_limit := 1.2 if part.component == "broad_copper_slide" else 1.0
 		if half.x <= 0.0 or half.y <= 0.0 or half.z <= 0.0 \
 				or half.x > horizontal_limit or half.y > vertical_limit or half.z > horizontal_limit \

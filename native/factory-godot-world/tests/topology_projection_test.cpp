@@ -55,7 +55,7 @@ void native_topology_readout() {
     check(field<Integer>(projected_floor, "generation") == floor.generation &&
           field<Integer>(projected_floor, "level") == floor.center[1] &&
           !factory::values::typed_difference(Value(field<Array>(projected_floor, "cell")),
-              Value(Array{Value(floor.center[0] / 4), Value(floor.center[2] / 4)})),
+              Value(Array{Value(floor.center[0] / 12), Value(floor.center[2] / 12)})),
           "Foundation identity, level, and cell derive from the World record.");
 
     auto state = initial.state;

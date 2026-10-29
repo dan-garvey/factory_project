@@ -133,7 +133,7 @@ Owner::Decision plan_fabrication(const Profile& profile, const Binding& binding,
             (center[0] % 4 != 0 || center[2] % 4 != 0 ||
              (center[1] != 0 &&
               std::none_of(state.foundations.begin(), state.foundations.end(),
-                  [&](const auto& entry) { return entry.second.center == center; }))))
+                  [&](const auto& entry) { return foundation_covers_workcell(entry.second, center); }))))
             return refused("unsupported_bench", id);
         if (deploy &&
             (std::any_of(state.placed_components.begin(), state.placed_components.end(),

@@ -99,7 +99,7 @@ const char* machine_refusal(const Site& site, const world::State& state, const m
     const auto floor = center[1] * height_step;
     const auto z = center[2] * height_step;
     const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
-        [&](const auto& entry) { return entry.second.center == center; });
+        [&](const auto& entry) { return world::foundation_covers_workcell(entry.second, center); });
     const auto terrain = site.terrain.range(x, z);
     // A foundation supplies support, not clearance through the real ground.
     // Foundation blocks themselves may be buried; ordinary machines may not.
@@ -109,8 +109,10 @@ const char* machine_refusal(const Site& site, const world::State& state, const m
         // This is the existing seating fit, not additional character reach.
         if (terrain->first < floor - 0.04) return "foundation_required";
     }
-    if (site.terrain.blocked({x - machine_width / 2, floor, z - machine_width / 2},
-                     {x + machine_width / 2, floor + machine_height, z + machine_width / 2}))
+    const auto width = collector ? site_geometry::collector_width : machine_width;
+    const auto height = collector ? site_geometry::collector_height : machine_height;
+    if (site.terrain.blocked({x - width / 2, floor, z - width / 2},
+                     {x + width / 2, floor + height, z + width / 2}))
         return "site_occupied";
     const auto external = collector ? collector_external_bounds(center) : std::vector<Bounds>{};
     for (std::size_t index = 0; index < external.size(); ++index) {
@@ -179,13 +181,13 @@ const char* component_refusal(const Site& site, const world::State& state,
         const auto cells = materials::component_workcells(*kind, center);
         if (!cells || std::any_of(cells->begin(), cells->end(), [&](const auto& cell) {
                 return std::none_of(state.foundations.begin(), state.foundations.end(),
-                    [&](const auto& entry) { return entry.second.center == cell; });
+                    [&](const auto& entry) { return world::foundation_covers_workcell(entry.second, cell); });
             })) return "support_required";
     }
     if (kind == materials::Component::anvil &&
         ground->first < at[1] - volume.half[1] - 0.04) {
         const bool foundation = std::any_of(state.foundations.begin(), state.foundations.end(),
-            [&](const auto& entry) { return entry.second.center == center; });
+            [&](const auto& entry) { return world::foundation_covers_workcell(entry.second, center); });
         const bool frame = std::any_of(state.placed_components.begin(),
             state.placed_components.end(), [&](const auto& entry) {
                 return entry.second.kind == materials::Component::wooden_frame &&
@@ -195,7 +197,7 @@ const char* component_refusal(const Site& site, const world::State& state,
     }
     if (kind == materials::Component::wooden_workbench) {
         const bool supported = std::any_of(state.foundations.begin(), state.foundations.end(),
-            [&](const auto& entry) { return entry.second.center == center; });
+            [&](const auto& entry) { return world::foundation_covers_workcell(entry.second, center); });
         if (!supported && ground->first < at[1] - volume.half[1] - 0.04)
             return "support_required";
     }

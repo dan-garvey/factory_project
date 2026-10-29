@@ -43,8 +43,8 @@ bool valid_face(const OreFace& face) {
     const auto& toward = face.toward_ore;
     if (center[0] % 4 || center[1] % 4 || center[2] % 4 || toward[1] != 0 ||
         (toward[0] == 0) == (toward[2] == 0) ||
-        (toward[0] != 0 && toward[0] != 1 && toward[0] != -1) ||
-        (toward[2] != 0 && toward[2] != 1 && toward[2] != -1)) return false;
+        (toward[0] != 0 && toward[0] != 1 && toward[0] != -1 && toward[0] != 2 && toward[0] != -2) ||
+        (toward[2] != 0 && toward[2] != 1 && toward[2] != -1 && toward[2] != 2 && toward[2] != -2)) return false;
     for (const auto coordinate : center)
         if (coordinate < -mechanics::maximum_coordinate + 3 ||
             coordinate > mechanics::maximum_coordinate - 3) return false;

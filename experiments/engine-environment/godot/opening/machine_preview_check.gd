@@ -608,19 +608,20 @@ func check_partial_drive_guidance() -> void:
 func check_foundation_heights(view) -> void:
 	view.state = observation()
 	view.mode = "belt"
+	view.target = Vector2i(3, 6)
 	view.state["foundations"] = {"surface": {"cell": [1, 2], "level": 2}}
 	var before: Dictionary = view.state.duplicate(true)
 	verify(view.foundation_level == 4, "The default factory floor can carry a whole-tile machine.")
 	view._refresh_machine_preview()
 	verify(view.machine_preview == null or not view.machine_preview.visible,
-		"An intermediate access step cannot suggest a machine at a height that Host rejects.")
-	verify(view._construction_level(Vector2i(1, 2)) == 2,
-		"The view does not round a step into a floating machine floor.")
+		"A malformed half-U projected slab cannot suggest a machine floor that Host rejects.")
+	verify(view._construction_level(Vector2i(3, 6)) == 2,
+		"The view does not round an invalid projected slab into a supported machine floor.")
 	view.state.foundations.surface.level = 4
 	view._refresh_machine_preview()
 	verify(view.machine_preview != null and view.machine_preview.visible
-		and is_equal_approx(view.machine_preview.position.y, 1.65),
-		"An independently built aligned floor restores the preview at its real 1.65 metre top.")
+		and is_equal_approx(view.machine_preview.position.y, Opening.Geometry.PITCH),
+		"An independently built aligned floor restores the preview at its real full-U top.")
 	view.state.foundations.surface.level = 2
 	verify(view.state == before and view.request_sequence == 0 and view.model == null and view.actor_world == null,
 		"Floor preview checks neither mutate the projection nor issue a request.")
@@ -821,6 +822,12 @@ func _bake_preview_variants(wheel_only: bool = false) -> void:
 		if not wheel_only:
 			var drive := Node3D.new()
 			view._machine_drive_stub(drive, {"axis": axis}, true)
+			# The placed press scales each fitted part to one mechanical U.
+			var press_scale: float = Opening.Geometry.PITCH / 1.65
+			for part in drive.get_children():
+				if part is Node3D:
+					part.position *= press_scale
+					part.scale *= press_scale
 			view._style_machine_preview(drive)
 			var drive_path: String = "res://opening/assets/prebuilt-preview-processor-drive-%d.scn" % axis
 			results[drive_path] = _save_preview_variant(drive, drive_path)

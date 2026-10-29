@@ -18,6 +18,9 @@ using Integer = values::Value::Integer;
 using Center = std::array<Integer, 3>;
 
 inline constexpr Integer maximum_area_side = 256;
+inline constexpr Integer mechanical_stride_levels = 4;
+inline constexpr Integer foundation_stride_levels = 12;
+inline constexpr Integer foundation_depth_levels = 4;
 
 enum class Action { none, place_one, place_area, remove_one };
 
@@ -87,15 +90,15 @@ inline std::optional<Center> center(const Object& wire, std::string_view name) {
         return std::nullopt;
     const auto* x = std::get_if<Integer>(&coordinates->at(0).storage());
     const auto* z = std::get_if<Integer>(&coordinates->at(1).storage());
-    constexpr Integer maximum_cell = mechanics::maximum_coordinate / 4;
+    constexpr Integer maximum_cell = mechanics::maximum_coordinate / foundation_stride_levels;
     if (!x || !z || *x < -maximum_cell || *x > maximum_cell ||
         *z < -maximum_cell || *z > maximum_cell) return std::nullopt;
-    return Center{4 * *x, *height, 4 * *z};
+    return Center{foundation_stride_levels * *x, *height, foundation_stride_levels * *z};
 }
 
 inline bool area_fits(const Center& first, const Center& last) {
-    const auto width = std::abs(last[0] - first[0]) / 4 + 1;
-    const auto depth = std::abs(last[2] - first[2]) / 4 + 1;
+    const auto width = std::abs(last[0] - first[0]) / foundation_stride_levels + 1;
+    const auto depth = std::abs(last[2] - first[2]) / foundation_stride_levels + 1;
     return width <= maximum_area_side && depth <= maximum_area_side &&
         width * depth <= maximum_area_side;
 }

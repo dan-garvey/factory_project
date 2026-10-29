@@ -28,7 +28,7 @@ std::optional<Value> encode(const world::Profile& profile, const world::Snapshot
     Object routes;
     for (const auto& [id, route] : support_routes)
         routes.emplace(id, Value(static_cast<Integer>(route)));
-    return Value(Object{{"schema", Value(Integer{4})}, {"format", Value("factory-native-physical")},
+    return Value(Object{{"schema", Value(Integer{5})}, {"format", Value("factory-native-physical")},
         {"world", std::move(std::get<Value>(encoded))}, {"actors", Value(std::move(actors))},
         {"support_routes", Value(std::move(routes))}});
 }
@@ -36,8 +36,7 @@ std::optional<Value> encode(const world::Profile& profile, const world::Snapshot
 ParseResult parse(const Value& input) {
     const auto* root = std::get_if<Object>(&input.storage());
     const auto* schema = root ? field<Integer>(*root, "schema") : nullptr;
-    if (!root || !schema || (*schema != 3 && *schema != 4) ||
-        root->size() != (*schema == 4 ? 5u : 4u) ||
+    if (!root || !schema || *schema != 5 || root->size() != 5 ||
         !field<std::string>(*root, "format") ||
         *field<std::string>(*root, "format") != "factory-native-physical" ||
         !root->contains("world") || !field<Object>(*root, "actors")) return "invalid_checkpoint";
@@ -46,14 +45,12 @@ ParseResult parse(const Value& input) {
     parsed.schema = *schema;
     parsed.world = &root->at("world");
     parsed.actors = field<Object>(*root, "actors");
-    if (*schema == 4) {
-        const auto* routes = field<Object>(*root, "support_routes");
-        if (!routes) return "invalid_checkpoint";
-        for (const auto& [id, value] : *routes) {
-            const auto* route = std::get_if<Integer>(&value.storage());
-            if (!route || *route < 0) return "invalid_support_route";
-            parsed.support_routes.emplace(id, static_cast<std::size_t>(*route));
-        }
+    const auto* routes = field<Object>(*root, "support_routes");
+    if (!routes) return "invalid_checkpoint";
+    for (const auto& [id, value] : *routes) {
+        const auto* route = std::get_if<Integer>(&value.storage());
+        if (!route || *route < 0) return "invalid_support_route";
+        parsed.support_routes.emplace(id, static_cast<std::size_t>(*route));
     }
 
     const auto* native = std::get_if<Object>(&parsed.world->storage());

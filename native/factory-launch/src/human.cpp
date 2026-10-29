@@ -120,11 +120,13 @@ std::string git(const fs::path& repo, std::vector<std::string> tail, std::size_t
     require(result.exit_code == 0, "Cannot verify the current main source.");
     return result.output;
 }
-void current(const fs::path& repo, const std::string& tree) {
-    require(git(repo, {"symbolic-ref", "--quiet", "--short", "HEAD"}) == "main\n" &&
+void current(const fs::path& repo, const std::string& tree, bool proof_candidate = false) {
+    const auto branch = git(repo, {"symbolic-ref", "--quiet", "--short", "HEAD"});
+    require((proof_candidate ? branch.starts_with("feature/") : branch == "main\n") &&
             git(repo, {"rev-parse", "--verify", "HEAD"}) == tree + "\n" &&
             git(repo, {"status", "--porcelain", "--untracked-files=normal"}).empty(),
-            "The main checkout changed or contains uncommitted source.");
+            proof_candidate ? "The proof candidate changed or contains uncommitted source." :
+                "The main checkout changed or contains uncommitted source.");
 }
 void write_new(const fs::path& path, const std::string& bytes) {
     const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
@@ -294,7 +296,7 @@ int human_launch(int argc, char** argv) {
     }
 }
 
-int agent_window_launch(int argc, char** argv) {
+int agent_window_launch(int argc, char** argv, bool proof_candidate) {
     fs::path session;
     try {
         install_handlers();
@@ -332,10 +334,11 @@ int agent_window_launch(int argc, char** argv) {
         const fs::path root(options.at("--sessions"));
         const auto tree = options.at("--tree");
         require(repo.is_absolute() && fs::canonical(repo) == repo && digest(tree, 40),
-                "Use a canonical committed main checkout.");
+                proof_candidate ? "Use a canonical committed proof candidate." :
+                    "Use a canonical committed main checkout.");
         require(root != repo && root.string().rfind(repo.string() + "/", 0) != 0,
                 "Keep native sessions outside the source checkout.");
-        current(repo, tree);
+        current(repo, tree, proof_candidate);
         sealed(engine, options.at("--engine-sha256"), 512 * 1024 * 1024, true);
         sealed(library, options.at("--library-sha256"), 64 * 1024 * 1024, false);
         require(admission.is_absolute() && fs::is_regular_file(admission) &&
@@ -372,7 +375,7 @@ int agent_window_launch(int argc, char** argv) {
         const auto descriptor = session / "native-world.gdextension";
         write_new(descriptor, descriptor_bytes);
         const auto descriptor_digest = sha256(descriptor_bytes);
-        current(repo, tree);
+        current(repo, tree, proof_candidate);
         const auto self = fs::canonical("/proc/self/exe");
         std::vector<std::string> startup{(repo / "scripts/run-human-startup.sh").string(),
             repo.string(), admission.string(), self.string()};
@@ -390,13 +393,13 @@ int agent_window_launch(int argc, char** argv) {
         const auto result = run_process(startup, 360s, 8 * 1024 * 1024, &cancelled, true);
         std::cout << result.output << std::flush;
         require(result.exit_code == 0, "Native startup failed; inspect the retained session logs.");
-        current(repo, tree);
+        current(repo, tree, proof_candidate);
         sealed(engine, options.at("--engine-sha256"), 512 * 1024 * 1024, true);
         sealed(library, options.at("--library-sha256"), 64 * 1024 * 1024, false);
         if (script) {
             // The gameplay snapshot omits fixture scripts and the shared-only
             // classes they import. Supply this allowlisted fixture's exact
-            // checked-main source closure to its private runtime.
+            // committed source closure to its private runtime.
             std::vector<fs::path> fixture_sources{relative};
             if (target == "res://opening/parts_view_check.gd" ||
                     target == "res://opening/machine_body_motion_check.gd" ||
@@ -415,7 +418,7 @@ int agent_window_launch(int argc, char** argv) {
                 const auto tracked = git(repo, {"show", tree + ":experiments/engine-environment/godot/" +
                     fixture.generic_string()}, 1024 * 1024);
                 require(sha256(regular(project / fixture, 1024 * 1024)) == sha256(tracked),
-                    "A fixture script differs from checked main.");
+                    "A fixture script differs from the committed source.");
                 const auto runtime_target = runtime_project / fixture;
                 fs::create_directories(runtime_target.parent_path());
                 require(fs::canonical(runtime_target.parent_path()) == runtime_target.parent_path() &&
@@ -423,7 +426,7 @@ int agent_window_launch(int argc, char** argv) {
                     "The owned runtime cannot receive a fixture script.");
                 write_new(runtime_target, tracked);
                 require(sha256(regular(runtime_target, 1024 * 1024)) == sha256(tracked),
-                    "A runtime fixture script differs from checked main.");
+                    "A runtime fixture script differs from the committed source.");
             }
         }
         std::vector<std::string> command{admission.string(), "--root", repo.string(), "heavy", "--",

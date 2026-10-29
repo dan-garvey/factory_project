@@ -190,8 +190,6 @@ var help_body: Label
 var tool_buttons: Dictionary = {}
 var building_hotbar
 var foundation_level := Geometry.HEIGHT_DENOMINATOR
-var foundation_steps := false
-var foundation_steps_toggle: CheckButton
 var foundation_area_mode := false
 var foundation_area_started := false
 var foundation_area_start := Vector2i.ZERO
@@ -560,7 +558,7 @@ func _transmission_center(screen: Vector2) -> Array:
 			var pulley_target := _belt_pulley_target(hit_id, hit.position)
 			if not pulley_target.is_empty():
 				return pulley_target
-		var target := _transmission_snap_target(hit_id, hit.normal, origin)
+		var target := _transmission_snap_target(hit_id, hit.normal, origin, hit.position)
 		if not target.is_empty():
 			return target
 	if transmission_controls.auto_height:
@@ -613,7 +611,7 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 	transmission_controls.snapped_height = roundi(center.y)
 	return [roundi(center.x), transmission_controls.snapped_height if transmission_controls.auto_height else transmission_controls.gear_height, roundi(center.z)]
 
-func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3) -> Array:
+func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3, hit_position: Vector3 = Vector3.ZERO) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
 	# when following surfaces; the menu can still choose an absolute air level.
 	if transmission_controls.active_tool in ["place_shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
@@ -639,12 +637,13 @@ func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3)
 	var surface: Dictionary = state.get("foundations", {}).get(entity_id, {})
 	if not surface.is_empty():
 		var level: int = int(surface.get("level", 0))
-		# Foundation slabs can end halfway between transmission tile levels.
-		# Select the first shared tile at or above the top, including below zero.
-		level = ceili(float(level) / Geometry.HEIGHT_DENOMINATOR) * Geometry.HEIGHT_DENOMINATOR
+		var slab_x: int = int(surface.cell[0]) * 3
+		var slab_z: int = int(surface.cell[1]) * 3
+		var x: int = clampi(roundi(hit_position.x / PITCH), slab_x - 1, slab_x + 1)
+		var z: int = clampi(roundi(hit_position.z / PITCH), slab_z - 1, slab_z + 1)
 		transmission_controls.snapped_height = level
-		return [int(surface.cell[0]) * 4, level if transmission_controls.auto_height else transmission_controls.gear_height,
-			int(surface.cell[1]) * 4]
+		return [x * 4, level if transmission_controls.auto_height else transmission_controls.gear_height,
+			z * 4]
 	var machine: Dictionary = state.get("entities", {}).get(entity_id, {})
 	if machine.is_empty():
 		return []
@@ -943,7 +942,7 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 		"first_plate_required": "Carry your first copper plate to unlock that part.",
 		"unavailable_source": "That source is unavailable or depleted. Choose another tree or ore deposit.",
 		"source_occluded": "Move around the obstacle before harvesting.",
-		"unaligned_elevation": "Machines and wheels need a whole-tile height. Build a factory floor with Access steps off, or adjust the wheel's drive height.",
+		"unaligned_elevation": "Machines and wheels need a whole-U height. Adjust the floor or wheel drive height.",
 		"axles_already_touch": "These axle ends already touch; no shaft is needed.",
 		"overlapping_shafts": "A shaft already occupies that length. Place the new segment end to end.",
 		"foundation_required": "Build a foundation here first so the machine has a level surface.",
@@ -1442,11 +1441,6 @@ func _input(event: InputEvent) -> void:
 						handled = true
 					elif placement_options_axis.is_visible_in_tree():
 						handled = _activate_button(placement_options_axis)
-				KEY_Z:
-					if foundation_steps_toggle.is_visible_in_tree() and not foundation_steps_toggle.disabled:
-						foundation_steps_toggle.button_pressed = not foundation_steps_toggle.button_pressed
-						_set_foundation_steps(foundation_steps_toggle.button_pressed)
-						handled = true
 				KEY_V:
 					if mode == "component" and arrival_assembly_controls != null \
 							and arrival_assembly_controls.selected_name() in [
@@ -1579,7 +1573,7 @@ func _select_tool(tool: String) -> void:
 		instructions["flow"] = "Choose the upstream machine, then its neighbor at the material outlet."
 		instructions["drive"] = "Point at a floor to match its height, a part face to snap beside it, or a belt to add a pulley. Set the shaft axis in its menu."
 		instructions["gear"] = "Point at a floor to match its height or a part face to snap beside it. Set the cogwheel axis in its menu."
-		instructions["foundation"] = "Place a foundation at the displayed world height. Page Up / Page Down move one foundation thickness so stacked blocks touch; Access steps enables smaller walking steps. Machines need whole-tile factory floors. Area chooses two corners; Esc cancels."
+		instructions["foundation"] = "Place a full-height foundation at the displayed world height. Page Up / Page Down move one U so stacked blocks touch. Every top is a machine floor. Area chooses two corners; Esc cancels."
 		if tool == "component" and arrival_assembly_controls != null:
 			var component_kind: String = arrival_assembly_controls.selected_name()
 			if component_kind == "flat_head":
@@ -2331,6 +2325,10 @@ func _screen_cell(screen: Vector2) -> Vector2i:
 		var id := _screen_entity(screen)
 		var surface: Dictionary = state.get("foundations", {}).get(id, state.get("entities", {}).get(id, {}))
 		if not surface.is_empty():
+			if state.get("foundations", {}).has(id):
+				var hit := _screen_pick(screen)
+				if not hit.is_empty():
+					return Vector2i(roundi(hit.position.x / PITCH), roundi(hit.position.z / PITCH))
 			return Vector2i(surface.cell[0], surface.cell[1])
 	# Select a requested construction datum, not permission or terrain contact.
 	# Shared clients need no duplicate ground collider. The host decides actual
@@ -2339,7 +2337,8 @@ func _screen_cell(screen: Vector2) -> Vector2i:
 	var point = Plane(Vector3.UP, height).intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
 	if point == null:
 		return Vector2i(999999, 999999)
-	return Vector2i(roundi(point.x / PITCH), roundi(point.z / PITCH))
+	var cell_pitch: float = Geometry.FOUNDATION_PITCH if mode == "foundation" else PITCH
+	return Vector2i(roundi(point.x / cell_pitch), roundi(point.z / cell_pitch))
 
 func _screen_entity(screen: Vector2) -> String:
 	return _picked_target_id(_screen_pick(screen))
@@ -2520,6 +2519,7 @@ func _component_collector_face(kind: String, center: Array) -> Dictionary:
 	return {}
 
 func _component_candidate_box(kind: String, center: Array) -> Dictionary:
+	var press_scale: float = Geometry.PITCH / 1.65
 	var at := Vector3(center[0] * Geometry.HEIGHT_STEP,
 		center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
 		center[2] * Geometry.HEIGHT_STEP)
@@ -2539,11 +2539,11 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 		return {"center": occupied, "half": half, "size": half * 2.0}
 	match kind:
 		"wooden_frame":
-			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45
-			half = Vector3(0.2025, 0.45, 0.2025)
+			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45 * press_scale
+			half = Vector3(0.2025, 0.45, 0.2025) * press_scale
 		"wooden_workbench":
-			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45
-			half = Vector3(0.34, 0.45, 0.30)
+			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45 * press_scale
+			half = Vector3(0.34, 0.45, 0.30) * press_scale
 		"channel_narrow_x", "channel_narrow_z", "channel_broad_x", "channel_broad_z":
 			var pitch := Geometry.HEIGHT_STEP * 4.0
 			var wide := kind.begins_with("channel_broad")
@@ -2569,10 +2569,10 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 				Geometry.PITCH * 0.5)
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"ram_face":
-			var low: float = float(center[1]) * Geometry.HEIGHT_STEP + Geometry.HEIGHT_STEP * 1.5
+			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + Geometry.HEIGHT_STEP * 0.5
 			occupied.y = (low + high) * 0.5
-			half.y = (high - low) * 0.5
+			half = Vector3(0.14 * press_scale, (high - low) * 0.5, 0.14 * press_scale)
 		"flat_head":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + Geometry.HEIGHT_STEP * 0.30
@@ -2600,12 +2600,13 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 				Geometry.PITCH * 0.5)
 		"sliding_guide":
 			var low := at.y - Geometry.HEIGHT_STEP * 1.5
-			var high := at.y + Geometry.HEIGHT_STEP - 0.08
+			var high := at.y + Geometry.HEIGHT_STEP - 0.08 * press_scale
 			occupied.y = (low + high) * 0.5
-			half.y = (high - low) * 0.5
+			half = Vector3(0.14 * press_scale, (high - low) * 0.5, 0.14 * press_scale)
 		"tool_mount":
-			occupied.y += 0.10
-			half = Vector3(Geometry.HEIGHT_STEP - 0.205, 0.18, Geometry.HEIGHT_STEP - 0.205)
+			occupied.y += 0.10 * press_scale
+			half = Vector3(Geometry.HEIGHT_STEP - 0.205 * press_scale,
+				0.18 * press_scale, Geometry.HEIGHT_STEP - 0.205 * press_scale)
 		"cutting_edge":
 			occupied.y -= 0.015
 			half = Vector3(0.21, 0.12, 0.18)
@@ -2614,9 +2615,10 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			half = Vector3(Geometry.PITCH * 0.11, Geometry.HEIGHT_STEP * 0.36,
 				Geometry.PITCH * 0.124)
 		"wooden_shaft", "copper_shaft":
-			half = Vector3(0.205, 0.12, 0.205)
+			half = Vector3(0.205, 0.12, 0.205) * press_scale
 		"wooden_cog", "copper_cog":
-			half = Vector3(Geometry.HEIGHT_STEP - 0.205, 0.14, Geometry.HEIGHT_STEP - 0.205)
+			half = Vector3(Geometry.HEIGHT_STEP - 0.205 * press_scale,
+				0.14 * press_scale, Geometry.HEIGHT_STEP - 0.205 * press_scale)
 	return {"center": occupied, "half": half, "size": half * 2.0}
 
 func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) -> bool:
@@ -2684,14 +2686,16 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 		var cell: Variant = foundation.get("cell")
 		if not cell is Array or cell.size() != 2 or typeof(foundation.get("level")) != TYPE_INT:
 			continue
-		var top := Vector3(cell[0] * Geometry.PITCH,
-			foundation.level * Geometry.HEIGHT_STEP, cell[1] * Geometry.PITCH)
+		var top := Vector3(cell[0] * Geometry.FOUNDATION_PITCH,
+			foundation.level * Geometry.HEIGHT_STEP, cell[1] * Geometry.FOUNDATION_PITCH)
 		occupied.append({"center": top - Vector3.UP * Geometry.FOUNDATION_DEPTH * 0.5,
-			"size": Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)})
+			"size": Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH)})
 	for entity: Dictionary in state.get("entities", {}).values():
 		if entity.get("cell") is Array and entity.cell.size() == 2:
-			occupied.append({"center": _entity_position(entity) + Vector3.UP * 0.8,
-				"size": Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])})
+			var kind_name: String = str(entity.get("kind", ""))
+			var center_height: float = Geometry.ANCHOR_HEIGHT if kind_name == "wheel" else Geometry.COLLECTOR_CENTER_HEIGHT if kind_name == "collector" else Geometry.MACHINE_CENTER_HEIGHT
+			var size: Vector3 = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3))) * 2.0 if kind_name == "wheel" else Vector3(Geometry.COLLECTOR_SIZE[0], Geometry.COLLECTOR_SIZE[1], Geometry.COLLECTOR_SIZE[2]) if kind_name == "collector" else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+			occupied.append({"center": _entity_position(entity) + Vector3.UP * center_height, "size": size})
 	for actor: Dictionary in state.get("actors", {}).values():
 		var position: Variant = actor.get("position")
 		if Geometry.valid_position(position):
@@ -2893,10 +2897,17 @@ func _entity_at_cell(cell: Vector2i) -> String:
 func _cell_position(cell: Array) -> Vector3:
 	return Vector3(cell[0] * PITCH, 0, cell[1] * PITCH)
 
+func _foundation_cell_position(cell: Array) -> Vector3:
+	return Vector3(cell[0] * Geometry.FOUNDATION_PITCH, 0,
+		cell[1] * Geometry.FOUNDATION_PITCH)
+
 func _entity_position(entity: Dictionary) -> Vector3:
 	return _cell_position(entity.cell) + Vector3.UP * float(entity.get("level", 0)) * Geometry.HEIGHT_STEP
 
 func _build_cell_allowed(cell: Vector2i) -> bool:
+	if mode == "foundation" and _native_transmission() and ProductionEnvironment.Surface != null:
+		var half: float = ProductionEnvironment.Surface.HALF - Geometry.FOUNDATION_PITCH / 2.0
+		return absf(cell.x * Geometry.FOUNDATION_PITCH) <= half and absf(cell.y * Geometry.FOUNDATION_PITCH) <= half
 	if mode != "foundation" and _native_transmission() and ProductionEnvironment.Surface != null:
 		var half: float = ProductionEnvironment.Surface.HALF - PITCH / 2.0
 		return absf(cell.x * PITCH) <= half and absf(cell.y * PITCH) <= half
@@ -2909,7 +2920,7 @@ func _construction_level(cell: Vector2i) -> int:
 		return wheel_level
 	var top := -1000001
 	for surface: Dictionary in state.get("foundations", {}).values():
-		if surface.cell == [cell.x, cell.y]:
+		if absi(int(surface.cell[0]) * 3 - cell.x) <= 1 and absi(int(surface.cell[1]) * 3 - cell.y) <= 1:
 			top = maxi(top, int(surface.level))
 	return top if top > -1000001 else 0
 
@@ -2919,23 +2930,14 @@ func _adjust_foundation_level(delta: int) -> void:
 	if mode == "wheel":
 		wheel_level = clampi(wheel_level + delta * Geometry.HEIGHT_DENOMINATOR, -1000000, 1000000)
 	else:
-		var step := 1 if foundation_steps else Geometry.FOUNDATION_HEIGHT_UNITS
-		foundation_level = clampi(foundation_level + delta * step, -1000000, 1000000)
+		foundation_level = clampi(foundation_level + delta * Geometry.FOUNDATION_HEIGHT_UNITS, -1000000, 1000000)
 	foundation_area_started = false
 	foundation_level_label.text = _construction_height_text()
-	_message(_construction_height_text() + ". Access steps are for walking; machines need a factory floor.")
-
-func _set_foundation_steps(enabled: bool) -> void:
-	foundation_steps = enabled
-	if not enabled:
-		foundation_level = roundi(float(foundation_level) / Geometry.HEIGHT_DENOMINATOR) * Geometry.HEIGHT_DENOMINATOR
-	foundation_area_started = false
-	foundation_level_label.text = _construction_height_text()
-	_message(_construction_height_text() + ". Existing foundations stay at their built heights.")
+	_message(_construction_height_text() + ". Every foundation top is a machine floor.")
 
 func _construction_height_text() -> String:
 	var level := wheel_level if mode == "wheel" else foundation_level
-	var caption := "Drive height" if mode == "wheel" else "Factory floor" if level % Geometry.HEIGHT_DENOMINATOR == 0 else "Access step"
+	var caption := "Drive height" if mode == "wheel" else "Factory floor"
 	return "%s · %.2f m" % [caption, level * Geometry.HEIGHT_STEP]
 
 func _machine_floor_aligned(cell: Vector2i) -> bool:
@@ -3629,6 +3631,8 @@ func _machine_fastener(parent: Node3D, part_name: String, at: Vector3, normal: V
 func _machine_surface_detail(machine: Node3D, kind: String) -> void:
 	var anchor := Node3D.new()
 	anchor.name = "SurfaceDetail"
+	if _native_transmission() and kind in ["belt", "processor"]:
+		anchor.scale = Vector3.ONE * (Geometry.PITCH / 1.65)
 	machine.add_child(anchor)
 	for x in [-0.55, 0.55]:
 		for z in [-0.55, 0.55]:
@@ -3779,6 +3783,7 @@ func _collector_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	_machine_drive_stub(anchor, entity, false, true)
 
 func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
+	var first_part: int = anchor.get_child_count()
 	var frame: Color = COLORS.belt
 	# The sourced cast coating is brighter than the legacy flat tint. Keep the
 	# finished frame in the same restrained steel palette as nearby machines.
@@ -3803,6 +3808,13 @@ func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		_machine_turned(anchor, "ConveyorRoller", Vector3(x, 0.465, 0), roller_profile, Color("a6b4af"), Vector3.BACK)
 	if not (fitted and ProductionConveyorHubArt.mount(anchor, _machine_axis(entity), fitted_frame)):
 		_machine_drive_stub(anchor, entity)
+	if _native_transmission():
+		var belt_scale: float = Geometry.PITCH / 1.65
+		for index in range(first_part, anchor.get_child_count()):
+			var part := anchor.get_child(index) as Node3D
+			if part != null:
+				part.position *= belt_scale
+				part.scale *= belt_scale
 
 func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var first_part: int = anchor.get_child_count()
@@ -3959,6 +3971,10 @@ func _assemble_machine(anchor: Node3D, entity: Dictionary, rotated := false) -> 
 		plinth.mesh = ProductionSkidArt.skid_mesh()
 		plinth.material_override = ProductionVisuals.material(Color("273c41"), 0.08, 0.5)
 		plinth.set_meta("asset_role", "MachineSupportSkid")
+		if _native_transmission() and entity.kind in ["belt", "processor"]:
+			var skid_scale: float = Geometry.PITCH / 1.65
+			plinth.position *= skid_scale
+			plinth.scale *= skid_scale
 		anchor.add_child(plinth)
 	match entity.kind:
 		"collector":
@@ -4393,7 +4409,7 @@ func _rebuild_machines() -> void:
 	for id in state.get("foundations", {}):
 		var surface: Dictionary = state.foundations[id]
 		var anchor := Node3D.new()
-		anchor.position = _entity_position(surface)
+		anchor.position = _foundation_cell_position(surface.cell) + Vector3.UP * float(surface.level) * Geometry.HEIGHT_STEP
 		anchor.set_meta("arrival_deck_panel", str(id).begins_with("pod-floor-"))
 		anchor.set_meta("arrival_deck_anchor", anchor.position)
 		machine_root.add_child(anchor)
@@ -4404,9 +4420,9 @@ func _rebuild_machines() -> void:
 		body.set_meta("entity", id)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
-		shape.size = Vector3.ONE * PITCH
+		shape.size = Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH)
 		collider.shape = shape
-		collider.position.y = -PITCH / 2.0
+		collider.position.y = -Geometry.FOUNDATION_DEPTH / 2.0
 		body.add_child(collider)
 		anchor.add_child(body)
 	for entity_id in state.entities:
@@ -4446,9 +4462,9 @@ func _rebuild_machines() -> void:
 		body.set_meta("entity", entity_id)
 		var collider := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
-		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
+		shape.size = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3))) * 2.0 if kind == "wheel" and _native_transmission() else Vector3(Geometry.COLLECTOR_SIZE[0], Geometry.COLLECTOR_SIZE[1], Geometry.COLLECTOR_SIZE[2]) if kind == "collector" else Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2])
 		collider.shape = shape
-		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.MACHINE_CENTER_HEIGHT
+		collider.position.y = Geometry.ANCHOR_HEIGHT if kind == "wheel" and _native_transmission() else Geometry.COLLECTOR_CENTER_HEIGHT if kind == "collector" else Geometry.MACHINE_CENTER_HEIGHT
 		body.add_child(collider)
 		if kind == "collector" and _native_transmission():
 			var intake_result: Dictionary = Geometry.collector_intake_boxes(entity)
@@ -4638,16 +4654,20 @@ func _refresh_ui() -> void:
 	retrieve_button.disabled = explanation_open or state.stock.output < 1 or not state.entities.has(selected) or state.entities[selected].kind != "processor"
 	remove_button.disabled = explanation_open or not _contains_target(state, selected)
 	selection_ring.visible = mode in ["inspect", "flow", "drive"] and state.entities.has(selected)
+	selection_ring.scale = Vector3(PITCH / 1.54, 1.0, PITCH / 1.54)
 	if state.entities.has(selected):
+		if state.entities[selected].kind in ["collector", "wheel"]:
+			selection_ring.scale = Vector3(1.0, 1.0, 1.0)
 		selection_ring.position = _entity_position(state.entities[selected]) + Vector3(0, 0.02, 0)
 		inspector.text = _machine_inspection(state.entities[selected], state.stock, state.get("motion", {}).get(selected), _native_transmission())
 		inspector.text += "\n" + _inspection_hint()
 	elif state.get("foundations", {}).has(selected):
 		var surface: Dictionary = state.foundations[selected]
 		selection_ring.visible = mode in ["inspect", "flow", "drive"]
-		selection_ring.position = _entity_position(surface) + Vector3(0, 0.02, 0)
-		var floor_type := "Factory floor" if int(surface.level) % Geometry.HEIGHT_DENOMINATOR == 0 else "Access step · machines need a factory floor"
-		inspector.text = "%s\nSquare %s\nTop %.2f m\nRemove to reclaim the carried part." % [floor_type, str(surface.cell), surface.level * Geometry.HEIGHT_STEP]
+		selection_ring.scale = Vector3(Geometry.FOUNDATION_PITCH / 1.54, 1.0,
+			Geometry.FOUNDATION_PITCH / 1.54)
+		selection_ring.position = _foundation_cell_position(surface.cell) + Vector3.UP * (float(surface.level) * Geometry.HEIGHT_STEP + 0.02)
+		inspector.text = "Factory floor\nSquare %s\nTop %.2f m\nRemove to reclaim the carried part." % [str(surface.cell), surface.level * Geometry.HEIGHT_STEP]
 	elif _native_transmission() and state.get("transmission_parts", {}).has(selected):
 		var part: Dictionary = state.transmission_parts[selected]
 		var motion: Dictionary = state.get("motion", {}).get(selected, {})
@@ -4788,8 +4808,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 	if foundation_level_controls != null:
 		foundation_level_controls.visible = _native_transmission() and mode in ["foundation", "wheel"] and not explanation_open and snapshot_ready
 		foundation_area_toggle.visible = foundation_level_controls.visible and mode == "foundation"
-		foundation_steps_toggle.visible = foundation_area_toggle.visible
-		foundation_steps_toggle.text = "Access steps  [Z]"
 		foundation_area_toggle.text = "Area: two corners  [V]"
 		foundation_level_label.text = _construction_height_text()
 		(foundation_level_controls.get_child(0) as Button).text = "−  [PgDn]"
@@ -5075,7 +5093,7 @@ func _refresh_machine_preview() -> void:
 	if pooled != null:
 		machine_preview_key = key
 	machine_preview.basis = Basis.IDENTITY
-	machine_preview.position = _cell_position([cell.x, cell.y]) + Vector3.UP * level * Geometry.HEIGHT_STEP
+	machine_preview.position = (_foundation_cell_position([cell.x, cell.y]) if mode == "foundation" else _cell_position([cell.x, cell.y])) + Vector3.UP * level * Geometry.HEIGHT_STEP
 	if key != machine_preview_key:
 		for child in machine_preview.get_children():
 			child.free()
@@ -5454,7 +5472,8 @@ func _update_cursor() -> void:
 		_refresh_placement_options()
 		return
 	hover.basis = Basis.IDENTITY
-	hover.scale = Vector3.ONE
+	var hover_width: float = Geometry.FOUNDATION_PITCH if mode == "foundation" else PITCH
+	hover.scale = Vector3(hover_width / 1.5, 1.0, hover_width / 1.5)
 	if mode == "pod_workshop" and _native_transmission():
 		var hub: Dictionary = state.get("fabrication_hub", {})
 		hover.visible = hub.get("holder") == client and _preview_pointer_clear() \
@@ -5471,7 +5490,7 @@ func _update_cursor() -> void:
 	hover.visible = NAMES.has(mode) and _build_cell_allowed(hover_cell) and _machine_floor_aligned(hover_cell) \
 		and (mode == "foundation" or _entity_at_cell(hover_cell).is_empty()) and not explanation_open
 	if hover.visible:
-		hover.position = _cell_position([hover_cell.x, hover_cell.y]) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
+		hover.position = (_foundation_cell_position([hover_cell.x, hover_cell.y]) if mode == "foundation" else _cell_position([hover_cell.x, hover_cell.y])) + Vector3(0, 0.03 + _construction_level(hover_cell) * Geometry.HEIGHT_STEP, 0)
 	_refresh_placement_options()
 
 func _set_transmission_hover(center: Array) -> void:
@@ -5767,7 +5786,7 @@ func _object_name(target: String) -> String:
 	if state.get("entities", {}).has(target):
 		return NAMES.get(state.entities[target].kind, str(state.entities[target].kind).capitalize())
 	if state.get("foundations", {}).has(target):
-		return "Factory floor" if int(state.foundations[target].get("level", 0)) % Geometry.HEIGHT_DENOMINATOR == 0 else "Access step"
+		return "Factory floor"
 	if state.get("transmission_parts", {}).has(target):
 		return str(state.transmission_parts[target].get("kind", "Drive part")).replace("_", " ").capitalize()
 	if state.get("belt_spans", {}).has(target):
@@ -5970,12 +5989,6 @@ func _build_interface() -> void:
 	foundation_level_label = Widgets.label(foundation_level_controls, _construction_height_text(), 14)
 	Widgets.button(foundation_level_controls, "+", _adjust_foundation_level.bind(1))
 	foundation_level_controls.visible = false
-	foundation_steps_toggle = CheckButton.new()
-	foundation_steps_toggle.text = "Access steps"
-	foundation_steps_toggle.tooltip_text = "Use one height unit for walking steps. Normal height changes move one foundation thickness. Machines need whole-tile factory floors; turning this off snaps the selected height to one."
-	foundation_steps_toggle.toggled.connect(_set_foundation_steps)
-	placement_options_column.add_child(foundation_steps_toggle)
-	foundation_steps_toggle.visible = false
 	wheel_size_controls = HBoxContainer.new()
 	placement_options_column.add_child(wheel_size_controls)
 	Widgets.button(wheel_size_controls, "−", _adjust_wheel_size.bind(-1))

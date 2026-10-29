@@ -101,8 +101,10 @@ std::map<std::string, TransmissionSupport> layout(
                 (void)id;
                 const auto bounds = foundation_bounds(foundation);
                 if (std::abs(foot[0] - bounds.center[0]) + foot_half <= bounds.half[0] &&
-                    std::abs(foot[2] - bounds.center[2]) + foot_half <= bounds.half[2])
-                    seat = std::max(seat, bounds.center[1] + bounds.half[1]);
+                    std::abs(foot[2] - bounds.center[2]) + foot_half <= bounds.half[2]) {
+                    const auto top = bounds.center[1] + bounds.half[1];
+                    if (top < at[1] - 0.02 * u_scale) seat = std::max(seat, top);
+                }
             }
             const double base_seat = seat;
             for (const auto& obstacle : site.terrain_obstacles) {

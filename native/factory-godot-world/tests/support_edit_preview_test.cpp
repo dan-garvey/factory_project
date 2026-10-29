@@ -86,7 +86,7 @@ void preview_native_edits() {
     const auto foundations = preview::build(before.state,
         Object{{"action", Value("place_foundations")},
             {"center", Value(Array{Value(Integer{0}), Value(Integer{0}), Value(Integer{0})})},
-            {"end", Value(Array{Value(Integer{4}), Value(Integer{0}), Value(Integer{4})})}});
+            {"end", Value(Array{Value(Integer{12}), Value(Integer{0}), Value(Integer{12})})}});
     check(std::holds_alternative<world::State>(foundations) &&
           std::get<world::State>(foundations).foundations.size() == 4 &&
           before.state.foundations.empty(),
@@ -98,6 +98,16 @@ void preview_native_edits() {
           std::get<world::State>(reduced).foundations.size() == 3 &&
           std::get<world::State>(foundations).foundations.size() == 4,
           "Foundation removal changes only the proposed site copy.");
+    const auto stacked = preview::build(std::get<world::State>(foundations),
+        Object{{"action", Value("place_foundation")},
+            {"center", Value(Array{Value(Integer{12}), Value(Integer{4}), Value(Integer{12})})}});
+    check(std::holds_alternative<world::State>(stacked) &&
+          std::get<world::State>(stacked).foundations.size() == 5 &&
+          std::get<world::State>(stacked).foundations.at("support-preview:12:12").center ==
+              factory::mechanics::Point{12, 0, 12} &&
+          std::get<world::State>(stacked).foundations.at("support-preview:12:12-").center ==
+              factory::mechanics::Point{12, 4, 12},
+          "A stacked preview adds exactly one full-U slab at its existing foundation cell.");
     auto unknown = place_shaft(0, 0);
     unknown.at("role") = Value("unknown_part");
     check(reason_is(preview::build(before.state, unknown), "invalid_command") &&

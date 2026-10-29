@@ -5,6 +5,7 @@ const ProductionSteelFloor = preload("res://opening/production_surfaces.gd").Pro
 const Opening = preload("res://opening/opening.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
 const NativeModel = preload("res://opening/native_model.gd")
+const Presenter = preload("res://opening/native_transmission_presenter.gd")
 const Scenery = preload("res://opening/production_environment.gd").ProductionEnvironment
 var checks := 0
 var failed := false
@@ -13,17 +14,19 @@ var mode := "environment"
 var fixture_directory := ""
 var fir_layout_only := false
 const TANGENT_EPSILON := 0.0005
-const CASES := ["environment", "botanical-species", "collector-carrier",
+const CASES := ["environment", "botanical-species", "collector-carrier", "pod-deck-vegetation",
 	"foundation-depth-vegetation", "construction-vegetation", "bank-fir-lifecycle",
 	"bank-firs", "fir-resource", "pine-reflectance", "pine-roots", "pine-understory",
 	"stone-material", "sourced-sky", "meadow-patches", "foliage-mipmaps",
 	"sourced-foliage", "ground-material", "ground-render", "site-render",
+	"river-drive-native", "river-drive-render",
 	"water-flow", "water-pattern", "water-render", "bank-ferns",
 	"rock-collision-shape", "surface-composition", "foreground-bank", "foliage"]
 const ARTIFACT_CASES := ["bank-firs", "fir-resource", "pine-reflectance",
 	"pine-understory", "stone-material", "sourced-sky", "sourced-foliage",
-	"ground-material", "ground-render", "site-render", "water-render", "bank-ferns"]
-const RENDER_CASES := ["ground-render", "site-render", "water-render"]
+	"ground-material", "ground-render", "site-render", "river-drive-render",
+	"water-render", "bank-ferns"]
+const RENDER_CASES := ["ground-render", "site-render", "river-drive-render", "water-render"]
 
 class FixtureView:
 	extends "res://opening/opening.gd"
@@ -234,7 +237,7 @@ func finish() -> void:
 			"pine-understory": "complete pine resource, terrain and confirmed-machine visibility consumer",
 			"botanical-species": "distinct broadleaf trunk contact and soft sourced shrub variants in both opening builders",
 			"construction-vegetation": "detached offline/shared plant clearance at confirmed construction heights",
-			"foundation-depth-vegetation": "actual clump clearance below and inside a short foundation",
+			"foundation-depth-vegetation": "actual clump clearance beneath a full-U foundation floor",
 			"pine-roots": "focused edge-inclusive terrain-root oracle correction",
 			"pine-reflectance": "source-derived normal-incidence dielectric reflectance and cache isolation",
 			"fir-resource": "complete sourced fir, generated distance detail and common resource interface",
@@ -243,13 +246,16 @@ func finish() -> void:
 			"ground-material": "qualified grass material, data channels and cache separation",
 			"ground-render": "source-period and frame-stability observations on separate passive planes",
 			"site-render": "passive worksite, default-orbit and bank-side terrain views",
+			"river-drive-native": "native actual-river wheel, connected cog train and bank-belt motion",
+			"river-drive-render": "source-matched native river wheel and bank-belt in contextual views",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"water-pattern": "straight-band normal energy and actual water-surface geometry",
 			"water-render": "isolated actual terrain and water with a fixed camera and presentation phases",
 			"rock-collision-shape": "visible rock facets versus the shared convex collision hull",
 			"foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
-		"rendered_quality": "not_assessed", "desktop": "not_used", "authority_started": false}))
+		"rendered_quality": "not_assessed", "desktop": "not_used",
+		"authority_started": mode in ["river-drive-native", "river-drive-render"]}))
 	quit(1 if failed else 0)
 
 func check_surface_composition() -> void:
@@ -379,14 +385,17 @@ func check_foundation_depth_vegetation() -> void:
 	var original: PackedFloat32Array = patch.get_meta("candidate_buffer")
 	var source_clump := original.slice(0, 16)
 	var clump := _plant_bounds(patch, original, 0)
-	var cell := Vector2i(roundi(original[3] / Geometry.PITCH), roundi(original[11] / Geometry.PITCH))
-	var level := ceili((clump.end.y + 0.08 + Geometry.FOUNDATION_DEPTH) / Geometry.HEIGHT_STEP)
-	var top := Vector3(cell.x * Geometry.PITCH, level * Geometry.HEIGHT_STEP, cell.y * Geometry.PITCH)
-	var actual := AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
-		Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)).grow(0.08)
-	var obsolete := AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.PITCH, Geometry.PITCH * 0.5), Vector3.ONE * Geometry.PITCH).grow(0.08)
-	if not verify(not clump.intersects(actual) and clump.intersects(obsolete),
-		"The actual clump is below the short slab but inside the obsolete full-height volume."):
+	var cell := Vector2i(roundi(clump.get_center().x / Geometry.FOUNDATION_PITCH),
+		roundi(clump.get_center().z / Geometry.FOUNDATION_PITCH))
+	var level := ceili((clump.end.y + 0.08 + Geometry.FOUNDATION_DEPTH) / Geometry.PITCH) * 4
+	var top := Vector3(cell.x * Geometry.FOUNDATION_PITCH,
+		level * Geometry.HEIGHT_STEP, cell.y * Geometry.FOUNDATION_PITCH)
+	var actual := AABB(top - Vector3(Geometry.FOUNDATION_PITCH * 0.5,
+		Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH * 0.5),
+		Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH)).grow(0.08)
+	var lowered := AABB(actual.position + Vector3.DOWN * Geometry.PITCH, actual.size)
+	if not verify(not clump.intersects(actual) and clump.intersects(lowered),
+		"An actual clump clears a raised full-U floor and contacts the floor one U lower."):
 		scenery.free()
 		return
 	var state := {"entities": {}, "foundations": {"slab": {"cell": [cell.x, cell.y], "level": level}}}
@@ -394,10 +403,10 @@ func check_foundation_depth_vegetation() -> void:
 	var retained := false
 	for offset in range(0, patch.multimesh.buffer.size(), 16):
 		retained = retained or patch.multimesh.buffer.slice(offset, offset + 16) == source_clump
-	print(JSON.stringify({"case": "plant_below_short_slab", "level": level, "depth": Geometry.FOUNDATION_DEPTH,
+	print(JSON.stringify({"case": "plant_below_full_u_slab", "level": level, "depth": Geometry.FOUNDATION_DEPTH,
 		"clump_top": clump.end.y, "slab_base": actual.position.y, "source_clump_retained": retained}))
-	verify(retained, "A raised half-height foundation keeps the actual clear plant beneath it.")
-	state.foundations.slab.level = floori((clump.get_center().y + Geometry.FOUNDATION_DEPTH * 0.5) / Geometry.HEIGHT_STEP)
+	verify(retained, "A raised full-U foundation keeps the actual clear plant beneath it.")
+	state.foundations.slab.level = level - 4
 	Scenery.refresh_vegetation(scenery, state)
 	var removed := true
 	for offset in range(0, patch.multimesh.buffer.size(), 16):
@@ -407,13 +416,30 @@ func check_foundation_depth_vegetation() -> void:
 	verify(patch.multimesh.buffer == original, "Removal restores the complete original plant records.")
 	scenery.free()
 
+func check_pod_deck_vegetation() -> void:
+	var model := NativeModel.new("pod-deck-plants", ["P"], true, true)
+	if not verify(model.boot_result.get("accepted", false),
+			"The actual native arrival supplies the seeded deck for plant clearance."):
+		return
+	var state: Dictionary = model.projection()
+	verify(state.foundations.size() == 9,
+		"The candidate uses nine ordinary full-size native slab floors.")
+	var volumes: Array[AABB] = Scenery._construction_volumes(state)
+	for position in [Vector3(-1.1, 0.3, 3.8), Vector3(6.1, 0.3, 3.8),
+			Vector3(-1.1, 0.3, 11.0), Vector3(6.1, 0.3, 11.0)]:
+		verify(volumes.any(func(volume: AABB): return volume.has_point(position)),
+			"The air above every outer landing slab corner is clear of plants: " + str(position))
+	verify(not volumes.any(func(volume: AABB): return volume.has_point(Vector3(6.3, 0.3, 11.2))),
+		"Vegetation outside the deck does not disappear with its clearance volume.")
+
 func check_construction_vegetation() -> void:
 	# Invented confirmed facts exercise the ordinary detached view callback.
 	# No command, native body, Model, Store or network host is created.
 	for axis in [0, 2]:
 		var facts := {"options": {"native": true}, "entities": {"wheel": {"kind": "wheel", "cell": [-2, 1], "level": 2, "axis": axis, "tiles": 3}}}
 		var boxes: Array[AABB] = Scenery._construction_volumes(facts)
-		var center := Vector3(-3.3, 2.0 * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT, 1.65)
+		var center := Vector3(-2.0 * Geometry.PITCH,
+			2.0 * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT, Geometry.PITCH)
 		var half: Vector3 = Geometry.wheel_half_extents(axis, 3)
 		verify(boxes.size() == 1 and boxes[0].is_equal_approx(AABB(center - half, half * 2.0).grow(0.08)),
 			"Vegetation clearance follows the wheel's size, axis and common shaft height.")
@@ -433,11 +459,14 @@ func check_construction_vegetation() -> void:
 		var bank: MultiMeshInstance3D = view.get_node("ProductionScenery/ForegroundBank")
 		var original := bank.multimesh.buffer
 		var sample := _plant_bounds(bank, original, 0)
-		var cell := Vector2i(roundi(original[3] / Geometry.PITCH), roundi(original[11] / Geometry.PITCH))
-		var level := ceili((sample.position.y + minf(sample.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
-		var top := Vector3(cell.x * Geometry.PITCH, level * Geometry.HEIGHT_STEP, cell.y * Geometry.PITCH)
-		var foundation := AABB(top - Vector3(Geometry.PITCH * 0.5, Geometry.FOUNDATION_DEPTH, Geometry.PITCH * 0.5),
-			Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))
+		var cell := Vector2i(roundi(sample.get_center().x / Geometry.FOUNDATION_PITCH),
+			roundi(sample.get_center().z / Geometry.FOUNDATION_PITCH))
+		var level := ceili(sample.get_center().y / Geometry.PITCH) * 4
+		var top := Vector3(cell.x * Geometry.FOUNDATION_PITCH,
+			level * Geometry.HEIGHT_STEP, cell.y * Geometry.FOUNDATION_PITCH)
+		var foundation := AABB(top - Vector3(Geometry.FOUNDATION_PITCH * 0.5,
+			Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH * 0.5),
+			Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH))
 		verify(sample.intersects(foundation), "The regression fixture actually intersects its original source clump.")
 		view.state = {"entities": {}, "foundations": {"surface": {"cell": [cell.x, cell.y], "level": level}}, "links": []}
 		view._rebuild_machines()
@@ -454,14 +483,14 @@ func check_construction_vegetation() -> void:
 		var cases: Array[Dictionary] = [
 			{"name": "foundation", "entities": {}, "foundations": {"surface": {"cell": [cell.x, cell.y], "level": level}},
 				"volumes": [foundation]},
-			{"name": "elevated_machine", "entities": {"belt": {"kind": "belt", "cell": [cell.x, cell.y], "level": 1000}},
+			{"name": "elevated_machine", "entities": {"belt": {"kind": "belt", "cell": [cell.x * 3, cell.y * 3], "level": 1000}},
 				"foundations": {}, "volumes": [AABB(Vector3(top.x, 1000 * Geometry.HEIGHT_STEP + Geometry.MACHINE_CENTER_HEIGHT, top.z) - machine_size * 0.5, machine_size)]},
-			{"name": "machine_at_plant_height", "entities": {"belt": {"kind": "belt", "cell": [cell.x, cell.y], "level": machine_level}},
+			{"name": "machine_at_plant_height", "entities": {"belt": {"kind": "belt", "cell": [cell.x * 3, cell.y * 3], "level": machine_level}},
 				"foundations": {}, "volumes": [AABB(machine_center - machine_size * 0.5, machine_size)]},
 			{"name": "high_foundation", "entities": {}, "foundations": {"high": {"cell": [cell.x, cell.y], "level": 1000}},
-				"volumes": [AABB(Vector3(top.x - Geometry.PITCH * 0.5, 1000 * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, top.z - Geometry.PITCH * 0.5), Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))]},
+				"volumes": [AABB(Vector3(top.x - Geometry.FOUNDATION_PITCH * 0.5, 1000 * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, top.z - Geometry.FOUNDATION_PITCH * 0.5), Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH))]},
 			{"name": "buried_foundation", "entities": {}, "foundations": {"low": {"cell": [cell.x, cell.y], "level": -1000}},
-				"volumes": [AABB(Vector3(top.x - Geometry.PITCH * 0.5, -1000 * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, top.z - Geometry.PITCH * 0.5), Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))]}]
+				"volumes": [AABB(Vector3(top.x - Geometry.FOUNDATION_PITCH * 0.5, -1000 * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, top.z - Geometry.FOUNDATION_PITCH * 0.5), Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH))]}]
 		# Give every actual patch an intersecting confirmed block in one state.
 		var all_foundations := {}
 		var all_volumes: Array[AABB] = []
@@ -470,11 +499,12 @@ func check_construction_vegetation() -> void:
 			var data: PackedFloat32Array = snapshots[index].buffer
 			var root_at: Vector3 = patch.global_transform * Vector3(data[3], data[7], data[11])
 			var plant := _plant_bounds(patch, data, 0)
-			var patch_cell := Vector2i(roundi(root_at.x / Geometry.PITCH), roundi(root_at.z / Geometry.PITCH))
-			var patch_level := ceili((plant.position.y + minf(plant.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
+			var patch_cell := Vector2i(roundi(root_at.x / Geometry.FOUNDATION_PITCH),
+				roundi(root_at.z / Geometry.FOUNDATION_PITCH))
+			var patch_level := ceili(plant.get_center().y / Geometry.PITCH) * 4
 			all_foundations[str(index)] = {"cell": [patch_cell.x, patch_cell.y], "level": patch_level}
-			all_volumes.append(AABB(Vector3(patch_cell.x * Geometry.PITCH - Geometry.PITCH * 0.5,
-				patch_level * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, patch_cell.y * Geometry.PITCH - Geometry.PITCH * 0.5), Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH)))
+			all_volumes.append(AABB(Vector3(patch_cell.x * Geometry.FOUNDATION_PITCH - Geometry.FOUNDATION_PITCH * 0.5,
+				patch_level * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, patch_cell.y * Geometry.FOUNDATION_PITCH - Geometry.FOUNDATION_PITCH * 0.5), Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH)))
 		cases.append({"name": "all_patch_kinds", "entities": {}, "foundations": all_foundations, "volumes": all_volumes})
 		for scenario in cases:
 			view.state = {"entities": scenario.entities, "foundations": scenario.foundations, "links": []}
@@ -504,10 +534,11 @@ func check_construction_vegetation() -> void:
 		var moved_data: PackedFloat32Array = snapshots.back().buffer
 		var moved_root: Vector3 = moved.global_transform * Vector3(moved_data[3], moved_data[7], moved_data[11])
 		var moved_bounds := _plant_bounds(moved, moved_data, 0)
-		var moved_cell := Vector2i(roundi(moved_root.x / Geometry.PITCH), roundi(moved_root.z / Geometry.PITCH))
-		var moved_level := ceili((moved_bounds.position.y + minf(moved_bounds.size.y * 0.5, 0.25)) / Geometry.HEIGHT_STEP)
-		var moved_volume := AABB(Vector3(moved_cell.x * Geometry.PITCH - Geometry.PITCH * 0.5,
-			moved_level * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, moved_cell.y * Geometry.PITCH - Geometry.PITCH * 0.5), Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))
+		var moved_cell := Vector2i(roundi(moved_root.x / Geometry.FOUNDATION_PITCH),
+			roundi(moved_root.z / Geometry.FOUNDATION_PITCH))
+		var moved_level := ceili(moved_bounds.get_center().y / Geometry.PITCH) * 4
+		var moved_volume := AABB(Vector3(moved_cell.x * Geometry.FOUNDATION_PITCH - Geometry.FOUNDATION_PITCH * 0.5,
+			moved_level * Geometry.HEIGHT_STEP - Geometry.FOUNDATION_DEPTH, moved_cell.y * Geometry.FOUNDATION_PITCH - Geometry.FOUNDATION_PITCH * 0.5), Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH))
 		view.state = {"entities": {}, "foundations": {"moved": {"cell": [moved_cell.x, moved_cell.y], "level": moved_level}}, "links": []}
 		view._rebuild_machines()
 		var moved_expected := _expected_plants(moved, moved_data, [moved_volume])
@@ -1067,6 +1098,112 @@ func check_site_render() -> void:
 	print(JSON.stringify({"phase": "site-render", "views": ["west bank from east worksite",
 		"opening default orbit", "bank side from river", "fixed eye height across worksite"], "viewport": [1280, 720],
 		"input": "not_used", "gameplay": "not_run"}))
+	viewport.free()
+
+func check_river_drive(render: bool) -> void:
+	if not verify(is_equal_approx(Geometry.PITCH, 0.825),
+		"The river-drive fixture is pinned to the approved half-U grid."):
+		return
+	var model := NativeModel.new("half-u-river-drive", ["P"])
+	if not verify(model.boot_result.get("accepted", false)
+		and model.publish_actor("P", [-1.65, 1.0, 3.3], 1).get("accepted", false),
+		"The authored site and an actor on its east bank bind one native World."):
+		return
+	var commands: Array[Dictionary] = [
+		{"request": "river-wheel", "action": "place", "kind": "wheel", "cell": [-4, 2],
+			"level": 8, "tiles": 3, "axis": "x"},
+	]
+	for x in [-12, -8, -4, 0]:
+		commands.append({"request": "bank-cog-%d" % x, "action": "place_gear",
+			"center": [x, 8, 8], "axis": "x", "teeth": 2})
+	var wheel_id := ""
+	for command in commands:
+		command["context"] = "half-u-river-drive"
+		command["client"] = "P"
+		var placed: Dictionary = model.command(command)
+		if not verify(placed.get("accepted", false),
+			"The authored river admits " + str(command.request) + ": " + str(placed.get("reason", ""))):
+			return
+		if command.request == "river-wheel":
+			wheel_id = str(placed.entity)
+	if not verify(model.publish_actor("P", [2.0, 2.0, 1.65], 2).get("accepted", false),
+		"The builder moves clear of the first bank shaft."):
+		return
+	var first: Dictionary = model.command({"context": "half-u-river-drive", "client": "P",
+		"request": "drive-shaft", "action": "place_shaft", "center": [4, 8, 8],
+		"axis": "x", "half_span": 2})
+	if not verify(first.get("accepted", false),
+		"The first shaft takes the cog train toward the bank: " + str(first.get("reason", ""))):
+		return
+	if not verify(model.publish_actor("P", [2.0, 2.0, 4.95], 3).get("accepted", false),
+		"The builder moves clear of the second bank shaft."):
+		return
+	var second: Dictionary = model.command({"context": "half-u-river-drive", "client": "P",
+		"request": "bank-shaft", "action": "place_shaft", "center": [4, 8, 16],
+		"axis": "x", "half_span": 2})
+	if not verify(second.get("accepted", false),
+		"The receiving shaft fits the real bank: " + str(second.get("reason", ""))):
+		return
+	if not verify(model.publish_actor("P", [3.0, 2.0, 3.3], 4).get("accepted", false),
+		"The builder reaches the two belt endpoints from clear ground."):
+		return
+	var belt: Dictionary = model.command({"context": "half-u-river-drive", "client": "P",
+		"request": "bank-drive-belt", "action": "place_belt_span",
+		"from": first.entity, "to": second.entity})
+	if not verify(belt.get("accepted", false),
+		"A real belt spans the two placed shafts: " + str(belt.get("reason", ""))):
+		return
+	var snapshot: Dictionary = model.projection()
+	for entity_id in [wheel_id, str(first.entity), str(second.entity)]:
+		var motion: Dictionary = snapshot.motion.get(entity_id, {})
+		verify(motion.get("state", "") == "rotating" and int(motion.get("numerator", 0)) < 0,
+			"The river current turns each disclosed drive endpoint in the same signed direction.")
+	if not verify(snapshot.entities.has(wheel_id) and snapshot.belt_spans.has(belt.entity)
+		and snapshot.transmission_parts.size() == 6 and snapshot.belt_spans.size() == 1,
+		"The visual candidate contains one native wheel, four cogs, two shafts and one belt."):
+		return
+	print(JSON.stringify({"phase": "river-drive-native", "revision": snapshot.revision,
+		"wheel": wheel_id, "belt": belt.entity, "checks": checks,
+		"scope": "actual river powers a bank drive belt; no collector or material transfer"}))
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(1600, 900)
+	viewport.own_world_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(viewport)
+	var view := FixtureView.new()
+	view.model = model
+	view.state = snapshot
+	viewport.add_child(view)
+	view._build_world()
+	view.transmission_presenter = Presenter.new()
+	view.add_child(view.transmission_presenter)
+	view.transmission_presenter.configure(view)
+	view._rebuild_machines()
+	view.transmission_presenter.refresh()
+	verify(view.wheel_rotor != null and view.machine_root.get_child_count() == 1
+		and view.transmission_presenter.get_child_count() > 0,
+		"The ordinary builders present the one native wheel and its connected transmission.")
+	if not render or failed:
+		viewport.free()
+		return
+	var views := [
+		["river-drive-bank-side.png", Vector3(4.7, 5.3, 8.4), Vector3(-1.1, 1.3, 2.0)],
+		["river-drive-wheel-side.png", Vector3(-6.6, 4.0, 6.1), Vector3(-0.8, 1.4, 2.2)],
+	]
+	for entry in views:
+		view.camera.position = entry[1]
+		view.camera.look_at(entry[2])
+		for frame in range(3):
+			await process_frame
+			await RenderingServer.frame_post_draw
+		var image := viewport.get_texture().get_image()
+		var path: String = fixture_directory.path_join(entry[0])
+		verify(image != null and image.get_size() == viewport.size
+			and not FileAccess.file_exists(path) and image.save_png(path) == OK,
+			"Retain an actual-renderer wheel, river, bank cog train and drive-belt context.")
+	print(JSON.stringify({"phase": "river-drive-render", "views": [views[0][0], views[1][0]],
+		"source_revision": snapshot.revision, "display": DisplayServer.get_name(),
+		"input": "not_used", "human_play": "not_run"}))
 	viewport.free()
 
 func check_rock_shapes(rocks: MultiMesh) -> void:
@@ -2023,6 +2160,10 @@ func run() -> void:
 		verify(checks == 125, "All raised cells, levels and formed flights complete the fit check.")
 		finish()
 		return
+	if mode == "pod-deck-vegetation":
+		check_pod_deck_vegetation()
+		finish()
+		return
 	if mode == "foundation-depth-vegetation":
 		check_foundation_depth_vegetation()
 		verify(checks >= 5, "The foundation-depth case completes its required observations.")
@@ -2089,6 +2230,10 @@ func run() -> void:
 		return
 	if mode == "site-render":
 		await check_site_render()
+		finish()
+		return
+	if mode == "river-drive-native" or mode == "river-drive-render":
+		await check_river_drive(mode == "river-drive-render")
 		finish()
 		return
 	if mode == "water-flow":

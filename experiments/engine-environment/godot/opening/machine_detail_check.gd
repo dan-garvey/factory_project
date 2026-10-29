@@ -397,6 +397,7 @@ func resource_span(parent: Node3D, distance: float = Geometry.PITCH * 2.0) -> vo
 
 func check_span_belt_art() -> void:
 	span_belt_checks_complete = false
+	var scale_factor: float = Geometry.PITCH / 1.65
 	var default_mesh := ConveyorArt.loop_mesh()
 	check_closed_asset_mesh(default_mesh, 0.0213, 0.0218)
 	verify(default_mesh.get_aabb().position.is_equal_approx(Vector3(-0.66, -0.09, -0.32))
@@ -424,8 +425,8 @@ func check_span_belt_art() -> void:
 					var frame_box: AABB = child.transform * child.mesh.get_aabb()
 					var inner_side := minf(absf(frame_box.position.z), absf(frame_box.end.z))
 					var outer_side := maxf(absf(frame_box.position.z), absf(frame_box.end.z))
-					verify(inner_side > TransmissionAssets.SPAN_HALF_WIDTH + 0.03
-						and outer_side < TransmissionAssets.SPAN_HALF_WIDTH + 0.10
+					verify(inner_side > TransmissionAssets.SPAN_HALF_WIDTH + 0.03 * scale_factor
+						and outer_side < TransmissionAssets.SPAN_HALF_WIDTH + 0.10 * scale_factor
 						and frame_box.position.y > -TransmissionAssets.SPAN_OUTER_RADIUS
 						and frame_box.end.y < TransmissionAssets.SPAN_OUTER_RADIUS
 						and frame_box.position.x > -distance / 2.0 - TransmissionAssets.SPAN_OUTER_RADIUS
@@ -438,50 +439,61 @@ func check_span_belt_art() -> void:
 			for side in [-1.0, 1.0]:
 				var rail: MeshInstance3D = loop.get_node("SpanFrameRailN" if side < 0 else "SpanFrameRailP")
 				verify(span_ray_hits(rail.mesh, rail.transform,
-					Vector3(0, -0.1, side * 0.535), Vector3(0, 0.1, side * 0.535)) == 4
+					Vector3(0, -0.1, side * 0.535) * scale_factor,
+					Vector3(0, 0.1, side * 0.535) * scale_factor) == 4
 					and span_ray_hits(rail.mesh, rail.transform,
-					Vector3(0, -0.1, side * 0.495), Vector3(0, 0.1, side * 0.495)) == 2,
+					Vector3(0, -0.1, side * 0.495) * scale_factor,
+					Vector3(0, 0.1, side * 0.495) * scale_factor) == 2,
 					"Each closed side channel has two open-side flanges and one continuous inward web, not a solid bar.")
 				for end in [-1.0, 1.0]:
 					var seat: MeshInstance3D = loop.get_node("SpanFrameSeat" + ("N" if end < 0 else "P") + ("N" if side < 0 else "P"))
 					# Sample inside the channel's bevelled end cap, still within
 					# the bored seat surrounding this confirmed shaft centre.
-					var from := Vector3(end * (distance / 2.0 - 0.01), -0.2, side * 0.515)
-					var overlap := press_input_overlap(rail, seat, from, from + Vector3.UP * 0.4)
+					var from := Vector3(end * (distance / 2.0 - 0.01 * scale_factor),
+						-0.2 * scale_factor, side * 0.515 * scale_factor)
+					var overlap := press_input_overlap(rail, seat, from,
+						from + Vector3.UP * 0.4 * scale_factor)
 					minimum_frame_contact = minf(minimum_frame_contact, overlap)
-					verify(overlap > 0.005 and seat.mesh == loop.get_node("SpanFrameSeatNN").mesh,
+					verify(overlap > 0.005 * scale_factor and seat.mesh == loop.get_node("SpanFrameSeatNN").mesh,
 						"Each reusable bored shaft seat has measured solid contact with its fixed side rail.")
 					if tiles == 1 and travel_axis == 0 and side < 0 and end < 0:
 						var original_rail := rail.position
-						rail.position.z += side * 0.15
-						verify(press_input_overlap(rail, seat, from, from + Vector3.UP * 0.4) <= 0,
+						rail.position.z += side * 0.15 * scale_factor
+						verify(press_input_overlap(rail, seat, from,
+							from + Vector3.UP * 0.4 * scale_factor) <= 0,
 							"A displaced side rail fails the same raw shaft-seat contact predicate.")
 						rail.position = original_rail
 						displaced_frame_controls += 1
 			if tiles == 1 and travel_axis == 0:
-				check_closed_asset_mesh(loop.get_node("SpanFrameRailN").mesh, 0.0025, 0.004)
-				check_closed_asset_mesh(loop.get_node("SpanFrameSeatNN").mesh, 0.0005, 0.0008)
+				check_closed_asset_mesh(loop.get_node("SpanFrameRailN").mesh,
+					0.0025 * pow(scale_factor, 3), 0.004 * pow(scale_factor, 3))
+				check_closed_asset_mesh(loop.get_node("SpanFrameSeatNN").mesh,
+					0.0005 * pow(scale_factor, 3), 0.0008 * pow(scale_factor, 3))
 			# A rubber shell's volume is its stadium perimeter times the radial
 			# section. These bounds allow bevel/facet loss, not a filled loop.
-			var volume := (2.0 * distance * 0.045 + PI * (0.1425 * 0.1425 - 0.0975 * 0.0975)) * (Geometry.PITCH * 0.55)
+			var outer_radius: float = 0.1425 * scale_factor
+			var inner_radius: float = 0.0975 * scale_factor
+			var volume := (2.0 * distance * 0.045 * scale_factor
+				+ PI * (outer_radius * outer_radius - inner_radius * inner_radius)) * (Geometry.PITCH * 0.55)
 			if not loop_cache.has(tiles):
 				check_closed_asset_mesh(loop.mesh, volume * 0.98, volume * 1.001)
 				verify(span_shell_closed(loop.mesh), "The belt is one connected closed shell, including both returns.")
 				loop_cache[tiles] = loop.mesh
 			verify(loop.mesh == loop_cache[tiles], "Compatible X and Z spans reuse their physical mesh.")
 			var bounds: AABB = loop.transform * loop.mesh.get_aabb()
-			verify(absf(bounds.position[travel_axis] + distance / 2.0 + 0.1425) < 0.00001
-				and absf(bounds.end[travel_axis] - distance / 2.0 - 0.1425) < 0.00001
+			verify(absf(bounds.position[travel_axis] + distance / 2.0 + outer_radius) < 0.00001
+				and absf(bounds.end[travel_axis] - distance / 2.0 - outer_radius) < 0.00001
 				and absf(bounds.size[2 if travel_axis == 0 else 0] - Geometry.PITCH * 0.55) < 0.00001,
 				"Both horizontal orientations preserve the existing strip width and add only the intended end returns.")
 			var levels := hub_loop_planes(loop)
-			verify(levels.size() == 4 and absf(levels[0] + 0.1425) < 0.000001
-				and absf(levels[1] + 0.0975) < 0.000001 and absf(levels[2] - 0.0975) < 0.000001
-				and absf(levels[3] - 0.1425) < 0.000001, "All four original flat-run surface heights remain exact.")
+			verify(levels.size() == 4 and absf(levels[0] + outer_radius) < 0.000001
+				and absf(levels[1] + inner_radius) < 0.000001 and absf(levels[2] - inner_radius) < 0.000001
+				and absf(levels[3] - outer_radius) < 0.000001, "All four scaled flat-run surface heights remain exact.")
 			for side in [-1.0, 1.0]:
-				var from := Vector3(0, -1, 0)
-				from[travel_axis] = side * (distance / 2.0 + 0.05)
-				verify(span_ray_hits(loop.mesh, loop.transform, from, from + Vector3.UP * 2.0) == 4,
+				var from := Vector3(0, -1, 0) * scale_factor
+				from[travel_axis] = side * (distance / 2.0 + 0.05 * scale_factor)
+				verify(span_ray_hits(loop.mesh, loop.transform, from,
+					from + Vector3.UP * 2.0 * scale_factor) == 4,
 					"Each return has inner and outer rubber on both sides of its empty interior.")
 			var arrays := loop.mesh.surface_get_arrays(0)
 			var uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
@@ -489,7 +501,7 @@ func check_span_belt_art() -> void:
 			var maximum_u := 0.0
 			for coordinate in uv:
 				maximum_u = maxf(maximum_u, coordinate.x)
-			var physical_repeat: float = (2.0 * distance + TAU * 0.1425) / maximum_u
+			var physical_repeat: float = (2.0 * distance + TAU * outer_radius) / maximum_u
 			var seam: Dictionary = {}
 			for n in range(vertices.size()):
 				if uv[n].x > 0.000001 and uv[n].x < maximum_u - 0.000001:
@@ -506,23 +518,25 @@ func check_span_belt_art() -> void:
 			TransmissionAssets.shaft(shaft, Geometry.PITCH, Color.WHITE)
 			var pulley := TransmissionAssets.belt_pulley(shaft)
 			var seat: MeshInstance3D = loop.get_node("SpanFrameSeatNN")
-			verify(absf(seat.position.z) - 0.020 > pulley.mesh.get_aabb().end.y
-				and absf(seat.position.z) + 0.020 < Geometry.PITCH / 2.0,
+			verify(absf(seat.position.z) - 0.020 * scale_factor > pulley.mesh.get_aabb().end.y
+				and absf(seat.position.z) + 0.020 * scale_factor < Geometry.PITCH / 2.0,
 				"The open seat sits on actual shaft stock beyond the pulley face, not at an invented shaft tip.")
 			if pulley_cache == null:
-				check_closed_asset_mesh(pulley.mesh, 0.017, 0.025)
+				check_closed_asset_mesh(pulley.mesh,
+					0.017 * pow(scale_factor, 3), 0.025 * pow(scale_factor, 3))
 				pulley_cache = pulley.mesh
 			verify(pulley.mesh == pulley_cache and TransmissionAssets.belt_pulley(shaft) == pulley,
 				"The fitted pulley reuses one cached mesh and mounts only once per shaft.")
 			var inner_return := span_return_clearance(loop.mesh, distance)
-			verify(span_pulley_fits(pulley, inner_return) and inner_return > 0.097,
+			verify(span_pulley_fits(pulley, inner_return) and inner_return > 0.097 * scale_factor,
 				"Every actual return facet clears the complete pulley envelope by more than one millimetre.")
-			verify(collector_tooling_bore(pulley.mesh) > 0.0388 and absf(pulley.mesh.get_aabb().position.y + 0.49) < 0.000001
-				and absf(pulley.mesh.get_aabb().end.y - 0.49) < 0.000001,
+			verify(collector_tooling_bore(pulley.mesh) > 0.0388 * scale_factor
+				and absf(pulley.mesh.get_aabb().position.y + 0.49 * scale_factor) < 0.000001
+				and absf(pulley.mesh.get_aabb().end.y - 0.49 * scale_factor) < 0.000001,
 				"The complete open bore clears the actual shaft and key, and its axial ends stay between the existing collars.")
-			pulley.position.x += 0.02
+			pulley.position.x += 0.02 * scale_factor
 			verify(not span_pulley_fits(pulley, inner_return), "A displaced pulley fails the same full-envelope clearance predicate.")
-			pulley.position.x -= 0.02
+			pulley.position.x -= 0.02 * scale_factor
 			observations.append({"travel_axis": travel_axis, "tiles": tiles, "inner_return_radius": inner_return,
 				"rubber_repeat_metres": physical_repeat})
 			shaft.free()
@@ -536,8 +550,8 @@ func check_span_belt_art() -> void:
 	var old_strips := SurfaceTool.new()
 	old_strips.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for side in [-1.0, 1.0]:
-		old_strips.append_from(Visuals.box_mesh(Vector3(Geometry.PITCH, 0.045, Geometry.PITCH * 0.55)), 0,
-			Transform3D(Basis.IDENTITY, Vector3(0, side * 0.12, 0)))
+		old_strips.append_from(Visuals.box_mesh(Vector3(Geometry.PITCH, 0.045 * scale_factor, Geometry.PITCH * 0.55)), 0,
+			Transform3D(Basis.IDENTITY, Vector3(0, side * 0.12 * scale_factor, 0)))
 	verify(not span_shell_closed(old_strips.commit()), "Two individually closed original strips are rejected as disconnected rubber.")
 	verify(ConveyorArt.loop_mesh() == default_mesh and loop_cache.size() == 4,
 		"Native span variants never replace the original conveyor's cached mesh.")
@@ -2303,8 +2317,8 @@ func foundation_contact(footing: MeshInstance3D, deck: MeshInstance3D) -> Dictio
 
 func foundation_bounds_match(parent: Node3D) -> bool:
 	var bounds := feed_item_bounds(parent, parent.transform.affine_inverse())
-	return bounds.position.is_equal_approx(Vector3(-Geometry.PITCH / 2.0, -Geometry.FOUNDATION_DEPTH, -Geometry.PITCH / 2.0)) \
-		and bounds.size.is_equal_approx(Vector3(Geometry.PITCH, Geometry.FOUNDATION_DEPTH, Geometry.PITCH))
+	return bounds.position.is_equal_approx(Vector3(-Geometry.FOUNDATION_PITCH / 2.0, -Geometry.FOUNDATION_DEPTH, -Geometry.FOUNDATION_PITCH / 2.0)) \
+		and bounds.size.is_equal_approx(Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH))
 
 func check_foundation_art() -> void:
 	var control_root := OS.get_environment("FACTORY_FOUNDATION_RESOURCE_CONTROLS")
@@ -2357,7 +2371,11 @@ func check_foundation_art() -> void:
 		"Every actual base-level normal remains normalized within its encoding bound, with finite varied source roughness.")
 	var seen: Dictionary = {}
 	var contacts: Array[Dictionary] = []
-	for offset in [Vector3.ZERO, Vector3(3.3, 1.65, -1.65)]:
+	var footprint_area: float = Geometry.FOUNDATION_PITCH * Geometry.FOUNDATION_PITCH
+	var footing_volume: float = footprint_area * Geometry.FOUNDATION_DEPTH
+	var deck_volume: float = footprint_area * FoundationArt.DECK_THICKNESS
+	for offset in [Vector3.ZERO, Vector3(2.0 * Geometry.FOUNDATION_PITCH,
+			2.0 * Geometry.FOUNDATION_DEPTH, -Geometry.FOUNDATION_PITCH)]:
 		var parent := Node3D.new()
 		parent.position = offset
 		verify(FoundationArt.mount(parent) and parent.get_child_count() == 2 and parent.position == offset
@@ -2371,8 +2389,8 @@ func check_foundation_art() -> void:
 				"Each piece is baked passive geometry, without collision, input, processing or state authority.")
 			var key := str(part.name)
 			if not seen.has(key):
-				check_closed_asset_mesh(part.mesh, 2.12 if part == footing else 0.063,
-					2.19 if part == footing else 0.066)
+				check_closed_asset_mesh(part.mesh, footing_volume * 0.94 if part == footing else deck_volume * 0.94,
+					footing_volume * 1.01 if part == footing else deck_volume * 1.01)
 				seen[key] = [part.mesh, part.material_override]
 			verify(part.mesh == seen[key][0] and part.material_override == seen[key][1],
 				"Translated and stacked sections reuse the same actual mesh and surface resources.")
@@ -2396,7 +2414,7 @@ func check_foundation_art() -> void:
 	var patch := Node3D.new()
 	var confirmed := {"a": {"cell": [0, 0], "level": 0}, "b": {"cell": [1, 0], "level": 0},
 		"c": {"cell": [0, 1], "level": 0}, "d": {"cell": [1, 1], "level": 0},
-		"raised": {"cell": [0, -1], "level": 2}}
+		"raised": {"cell": [0, -1], "level": 4}}
 	var masks: Dictionary = FoundationArt.neighbor_masks(confirmed)
 	verify(masks == {"a": FoundationArt.EAST | FoundationArt.SOUTH, "b": FoundationArt.WEST | FoundationArt.SOUTH,
 		"c": FoundationArt.EAST | FoundationArt.NORTH, "d": FoundationArt.WEST | FoundationArt.NORTH,
@@ -2404,21 +2422,23 @@ func check_foundation_art() -> void:
 	for id in ["a", "b", "c", "d"]:
 		var cell := Vector2i(confirmed[id].cell[0], confirmed[id].cell[1])
 		var tile := Node3D.new()
-		tile.position = Vector3(cell.x * Geometry.PITCH, 0, cell.y * Geometry.PITCH)
+		tile.position = Vector3(cell.x * Geometry.FOUNDATION_PITCH, 0, cell.y * Geometry.FOUNDATION_PITCH)
 		patch.add_child(tile)
 		verify(FoundationArt.mount(tile, masks[id]), "Each joined tile uses its confirmed same-level perimeter kit.")
 	var patch_bounds := feed_item_bounds(patch, Transform3D.IDENTITY)
-	verify(patch_bounds.position.is_equal_approx(Vector3(-0.825, -Geometry.FOUNDATION_DEPTH, -0.825))
-		and patch_bounds.size.is_equal_approx(Vector3(3.3, Geometry.FOUNDATION_DEPTH, 3.3)),
+	verify(patch_bounds.position.is_equal_approx(Vector3(-Geometry.FOUNDATION_PITCH / 2.0,
+			-Geometry.FOUNDATION_DEPTH, -Geometry.FOUNDATION_PITCH / 2.0))
+		and patch_bounds.size.is_equal_approx(Vector3(2.0 * Geometry.FOUNDATION_PITCH,
+			Geometry.FOUNDATION_DEPTH, 2.0 * Geometry.FOUNDATION_PITCH)),
 		"A two-by-two assembly joins on the one world grid without cumulative local offsets.")
 	patch.free()
 	var perimeter_meshes := 0
 	for mask in range(16):
 		var mesh: ArrayMesh = FoundationArt.deck_mesh(mask)
-		check_closed_asset_mesh(mesh, 0.063, 0.066)
+		check_closed_asset_mesh(mesh, deck_volume * 0.94, deck_volume * 1.01)
 		verify(mesh == FoundationArt.deck_mesh(mask), "Each of the sixteen edge variants is cached without another state owner.")
 		var concrete_mesh: ArrayMesh = FoundationArt.footing_mesh(mask)
-		check_closed_asset_mesh(concrete_mesh, 2.12, 2.19)
+		check_closed_asset_mesh(concrete_mesh, footing_volume * 0.94, footing_volume * 1.01)
 		verify(concrete_mesh == FoundationArt.footing_mesh(mask),
 			"The concrete exterior courses reuse one bounded mesh per confirmed neighbor arrangement.")
 		var tile := Node3D.new()
@@ -2427,7 +2447,7 @@ func check_foundation_art() -> void:
 			"Every perimeter combination preserves closed deck, footing support and the original tile envelope.")
 		tile.free()
 		perimeter_meshes += 1
-	var half := Geometry.PITCH / 2.0
+	var half := Geometry.FOUNDATION_PITCH / 2.0
 	var top := FoundationArt.DECK_THICKNESS / 2.0
 	var joined_vertices := 0
 	for vertex: Vector3 in FoundationArt.deck_mesh(FoundationArt.EAST).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
@@ -2481,7 +2501,10 @@ func check_foundation_art() -> void:
 	for anchor: Node3D in view.machine_root.get_children():
 		var found_id := ""
 		for id in confirmed:
-			if anchor.position.is_equal_approx(view._entity_position(confirmed[id])):
+			var foundation: Dictionary = confirmed[id]
+			var foundation_position: Vector3 = view._foundation_cell_position(foundation.cell) \
+				+ Vector3.UP * float(foundation.level) * Geometry.HEIGHT_STEP
+			if anchor.position.is_equal_approx(foundation_position):
 				found_id = id
 		if not found_id.is_empty():
 			actual_masks[found_id] = anchor.get_node("FoundationTop").mesh
@@ -2494,7 +2517,8 @@ func check_foundation_art() -> void:
 				"Presentation selection leaves the original per-tile picking body in place.")
 	verify(actual_masks.size() == confirmed.size() and view.state == before_state
 		and view.model == null and view.actor_world == null and view.request_sequence == 0,
-		"The ordinary rebuild uses only confirmed projection rows and changes no native authority or requests.")
+		"The ordinary rebuild uses only confirmed projection rows and changes no native authority or requests: "
+		+ str({"mounted": actual_masks.keys(), "confirmed": confirmed.keys(), "state_equal": view.state == before_state}))
 	for id in confirmed:
 		verify(actual_masks[id] == FoundationArt.deck_mesh(removed_masks[id]),
 			"The ordinary rebuilt foundation mounts the exact edge variant for its confirmed neighbors.")
@@ -2570,9 +2594,9 @@ func journal_shape_matches(mesh: Mesh, height: float, radius: float = 0.085) -> 
 	return hits.size() == 2 and absf(hits[0] + half - 0.020) < 0.000001 \
 		and absf(hits[1] - half + 0.020) < 0.000001
 
-func journal_pose_matches(journal: MeshInstance3D, axis: int) -> bool:
-	return journal.position.is_equal_approx(Vector3(0, Geometry.ANCHOR_HEIGHT, 0)) and journal.scale.is_equal_approx(Vector3.ONE) \
-		and journal.basis.y.dot([Vector3.LEFT, Vector3.UP, Vector3.BACK][axis]) > 0.99999
+func journal_pose_matches(journal: MeshInstance3D, axis: int, size: float = 1.0) -> bool:
+	return journal.position.is_equal_approx(Vector3(0, Geometry.ANCHOR_HEIGHT, 0)) and journal.scale.is_equal_approx(Vector3.ONE * size) \
+		and journal.basis.y.normalized().dot([Vector3.LEFT, Vector3.UP, Vector3.BACK][axis]) > 0.99999
 
 func press_input_hits(part: MeshInstance3D, from: Vector3, to: Vector3) -> Array[float]:
 	var hits: Array[float] = []
@@ -2627,6 +2651,7 @@ func press_input_bore_radius(mesh: Mesh) -> float:
 
 func check_press_input_clearance() -> void:
 	press_input_checks_complete = false
+	var press_scale: float = Geometry.PITCH / 1.65
 	var cache: Dictionary = {}
 	var assemblies := 0
 	var displaced_support_controls := 0
@@ -2660,7 +2685,7 @@ func check_press_input_clearance() -> void:
 						view.free()
 						return
 					minimum_gap = minf(minimum_gap, gap)
-					verify(journal_pose_matches(journal, axis) and machine.position.is_equal_approx(
+					verify(journal_pose_matches(journal, axis, press_scale) and machine.position.is_equal_approx(
 						Vector3(cell[0] * Geometry.PITCH, level * Geometry.HEIGHT_STEP, cell[1] * Geometry.PITCH)),
 						"Input reference frames preserve the confirmed axis, world origin and absolute construction level.")
 					verify(journal.mesh.get_aabb().position.is_equal_approx(Vector3(-0.085, -0.675, -0.085))
@@ -2683,7 +2708,7 @@ func check_press_input_clearance() -> void:
 						former.transform = journal.transform
 						# The earlier lower axle crossed the working body. The current
 						# confirmed shaft height is tested separately above.
-						former.position.y = 0.5
+						former.position.y = 0.5 * press_scale
 						verify(tray_mesh_gap(former, anvil.transform * anvil.mesh.get_aabb()) <= 0,
 							"The former lower full-width journal fails the raw-facet clearance predicate.")
 						former.free()
@@ -2716,14 +2741,16 @@ func check_press_input_clearance() -> void:
 							verify(press_input_bore_radius(part.mesh) - 0.085 > 0.0015,
 								"Raw inner facets leave a real annular gap around the unchanged journal radius.")
 						if role in ["Post", "Bracket"]:
-							verify(tray_mesh_gap(journal, part.transform * part.mesh.get_aabb()) > 0.003,
+							verify(tray_mesh_gap(journal, part.transform * part.mesh.get_aabb()) > 0.003 * press_scale,
 								"Actual journal facets clear their fixed supporting brackets.")
 						if role == "Post":
-							var probe := Vector2(part.position.x + (0.12 if axis == 2 else 0.0), part.position.z)
+							var probe := Vector2(part.position.x + (0.12 * press_scale if axis == 2 else 0.0), part.position.z)
 							var deck: MeshInstance3D = machine.get_node("Plinth")
-							verify(absf(die_height(part.mesh, 0, part.transform, probe, false)
-								- die_height(deck.mesh, 0, deck.transform, probe, true)) < 0.000001,
-								"Each real pedestal bottom meets the actual skid top.")
+							var post_bottom: float = die_height(part.mesh, 0, part.transform, probe, false)
+							var skid_top: float = die_height(deck.mesh, 0, deck.transform, probe, true)
+							verify(absf(post_bottom - skid_top) < 0.000001,
+								"Each real pedestal bottom meets the actual skid top: "
+								+ str({"post_bottom": post_bottom, "skid_top": skid_top, "probe": probe}))
 					for side in [-1, 1]:
 						var suffix := "Left" if side < 0 else "Right"
 						var bearing: MeshInstance3D = machine.get_node("PressInputBearing" + suffix)
@@ -2732,33 +2759,35 @@ func check_press_input_clearance() -> void:
 						if axis == 0:
 							var bracket: MeshInstance3D = machine.get_node("PressInputBracket" + suffix)
 							var ear_join := press_input_overlap(bearing, bracket,
-								Vector3(side * 0.66, Geometry.ANCHOR_HEIGHT - 0.035, -1),
-								Vector3(side * 0.66, Geometry.ANCHOR_HEIGHT - 0.035, 1))
+								Vector3(side * 0.66, 0.825 - 0.035, -1) * press_scale,
+								Vector3(side * 0.66, 0.825 - 0.035, 1) * press_scale)
 							var foot_join := press_input_overlap(post, bracket,
-								Vector3(side * 0.66, -0.1, -0.175), Vector3(side * 0.66, 1, -0.175))
+								Vector3(side * 0.66, -0.1, -0.175) * press_scale, Vector3(side * 0.66, 1, -0.175) * press_scale)
 							support = minf(ear_join, foot_join)
 							if not shared_profile and cell == [0, 0] and level == 0 and side < 0:
 								var original_bracket_position := bracket.position
-								bracket.position.y += 0.20
+								bracket.position.y += 0.20 * press_scale
 								verify(press_input_overlap(bearing, bracket,
-									Vector3(side * 0.66, Geometry.ANCHOR_HEIGHT - 0.035, -1),
-									Vector3(side * 0.66, Geometry.ANCHOR_HEIGHT - 0.035, 1)) <= 0,
+									Vector3(side * 0.66, 0.825 - 0.035, -1) * press_scale,
+									Vector3(side * 0.66, 0.825 - 0.035, 1) * press_scale) <= 0,
 									"The raw contact oracle rejects a lifted X-axis bearing ear.")
 								bracket.position = original_bracket_position
 								displaced_support_controls += 1
 						else:
 							support = press_input_overlap(bearing, post,
-								Vector3(0.095, -0.1, side * 0.66), Vector3(0.095, 1, side * 0.66))
+								Vector3(0.095, -0.1, side * 0.66) * press_scale,
+								Vector3(0.095, 1, side * 0.66) * press_scale)
 							if not shared_profile and cell == [0, 0] and level == 0 and side < 0:
 								var original_post_position := post.position
-								post.position.x += 0.20
+								post.position.x += 0.20 * press_scale
 								verify(press_input_overlap(bearing, post,
-									Vector3(0.095, -0.1, side * 0.66), Vector3(0.095, 1, side * 0.66)) <= 0,
+									Vector3(0.095, -0.1, side * 0.66) * press_scale,
+									Vector3(0.095, 1, side * 0.66) * press_scale) <= 0,
 									"The raw contact oracle rejects a displaced Z-axis support cheek.")
 								post.position = original_post_position
 								displaced_support_controls += 1
 						minimum_support = minf(minimum_support, support)
-						verify(support > 0.001, "Raw closed-mesh probes establish finite bearing-to-frame contact.")
+						verify(support > 0.001 * press_scale, "Raw closed-mesh probes establish finite bearing-to-frame contact.")
 					var item_rows: Array[Dictionary] = []
 					var plates := 0
 					for item in view.item_root.get_children():
@@ -2776,7 +2805,7 @@ func check_press_input_clearance() -> void:
 									"product_part": str(item.node.name), "gap_metres": item_gap}))
 							verify(item_gap > 0.000001,
 								"Actual input facets clear each complete finished-plate component at its original outlet pose.")
-					for travel in [0.0, 0.0075, 0.015]:
+					for travel in [0.0, 0.0075 * press_scale, 0.015 * press_scale]:
 						view._apply_press_pose(rows, travel)
 						var sweep: AABB = head.transform * head.mesh.get_aabb()
 						for index in range(fixed.size()):
@@ -3393,11 +3422,26 @@ func check_collector_cast_frame() -> void:
 		for child in machine.get_children():
 			if child is StaticBody3D:
 				picks.append(child)
-		verify(picks.size() == 1 and picks[0].collision_layer == Geometry.PICK_LAYER and picks[0].collision_mask == 0
-			and picks[0].get_meta("entity", "") == "fixture" and picks[0].get_child_count() == 1
-			and picks[0].get_child(0).shape.size == Vector3(1.45, 1.65, 1.45)
-			and picks[0].get_child(0).position == Vector3(0, Geometry.MACHINE_CENTER_HEIGHT, 0),
-			"The real builder keeps one original entity pick body with its exact size, position and masks.")
+		var pickup: Dictionary = Geometry.collector_intake_boxes(view.state.entities.fixture)
+		var pick_matches: bool = picks.size() == 1 and pickup.get("accepted", false)
+		if pick_matches:
+			var body := picks[0] as StaticBody3D
+			pick_matches = body.collision_layer == Geometry.PICK_LAYER and body.collision_mask == 0 \
+				and body.get_meta("entity", "") == "fixture" \
+				and body.get_child_count() == 1 + pickup.boxes.size() \
+				and body.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45) \
+				and body.get_child(0).position == Vector3(0, 0.8, 0)
+			if pick_matches:
+				for index in range(pickup.boxes.size()):
+					var intake: Dictionary = pickup.boxes[index]
+					var collider := body.get_child(index + 1) as CollisionShape3D
+					pick_matches = collider != null and collider.shape is BoxShape3D \
+						and collider.shape.size == intake.size \
+						and collider.position == intake.center - machine.position
+					if not pick_matches:
+						break
+		verify(pick_matches,
+			"The collector has one native-sized body pick and its exact source-facing intake picks.")
 		for sample in range(24):
 			view._apply_cutter_pose(machine, rows, float(sample) * TAU / 24)
 			var gap := collector_clearance(frame, rows)
@@ -3418,8 +3462,8 @@ func check_collector_cast_frame() -> void:
 		for part in frame.get_children():
 			fixed.append(part.transform)
 		view._animate_wheel(0.1)
-		# One tile per 0.45-second native tick turns the 0.1425-metre pulley rim.
-		var expected_angle := 0.1 * Geometry.PITCH / (0.45 * 0.1425)
+		# One tile per 0.45-second native tick turns the current pulley rim.
+		var expected_angle := 0.1 * Geometry.PITCH / (0.45 * Geometry.BELT_OUTER_RADIUS)
 		verify(is_equal_approx(view.transmission_presenter.visual_angle("fixture"), expected_angle),
 			"The fixed collector frame stays still while its cosmetic cutter angle follows confirmed belt travel.")
 		for n in range(frame.get_child_count()):
@@ -3464,7 +3508,7 @@ func check_machine_support_skid() -> void:
 	verify(deck != null and absf(deck.y - 0.12) < 0.00001,
 		"The actual mounting deck retains the literal top plane.")
 	var instances := 0
-	for kind in ["collector", "belt", "processor", "wheel"]:
+	for kind in ["collector", "belt", "processor"]:
 		for axis in range(3):
 			var view := Opening.new()
 			view.machine_root = Node3D.new()
@@ -3474,10 +3518,15 @@ func check_machine_support_skid() -> void:
 			var before: Dictionary = view.state.duplicate(true)
 			view._rebuild_machines()
 			var machine: Node3D = view.machine_root.get_child(0)
-			var plinth := machine.get_node("Plinth") as MeshInstance3D
-			verify(plinth != null and plinth.mesh == mesh and plinth.position == Vector3(0, 0.12, 0)
-				and plinth.basis == Basis.IDENTITY and plinth.get_meta("asset_role", "") == "MachineSupportSkid",
-				"Every actual machine family and projected spindle axis mounts the same base at the original pose.")
+			var mounted: Node3D = machine.get_node_or_null("RotatedMachineVisual")
+			if mounted == null:
+				mounted = machine
+			var plinth := mounted.get_node("Plinth") as MeshInstance3D
+			var size: float = 1.0 if kind == "collector" else Geometry.PITCH / 1.65
+			verify(plinth != null and plinth.mesh == mesh and plinth.position == Vector3(0, 0.12 * size, 0)
+				and plinth.scale == Vector3.ONE * size and plinth.rotation == Vector3.ZERO
+				and plinth.get_meta("asset_role", "") == "MachineSupportSkid",
+				"The support skid follows the physical machine footprint on each projected axis.")
 			verify(plinth.get_script() == null and plinth.get_child_count() == 0
 				and plinth.material_override == Visuals.material(Color("273c41"), 0.08, 0.5),
 				"The base retains its original opaque finish and has no physical or control children.")
@@ -3485,12 +3534,15 @@ func check_machine_support_skid() -> void:
 			for child in machine.get_children():
 				if child is StaticBody3D:
 					picks += 1
+					var pick_size: Array = Geometry.COLLECTOR_SIZE if kind == "collector" else Geometry.MACHINE_SIZE
 					verify(child.collision_layer == Geometry.PICK_LAYER and child.collision_mask == 0
-						and child.get_meta("entity", "") == "fixture" and child.get_child_count() == 1
-						and child.get_child(0).shape.size == Vector3(1.45, 1.65, 1.45),
-						"The base changes neither the original pick dimensions nor its entity, layers or masks.")
+						and child.get_meta("entity", "") == "fixture" and child.get_child_count() >= 1
+						and child.get_child(0).shape.size == Vector3(pick_size[0], pick_size[1], pick_size[2]),
+						"The skid leaves the native pick dimensions, entity, layers and masks intact.")
 			verify(picks == 1 and count_role(machine, "FoundationFastener") == 4,
-				"The original four mounting fasteners and sole entity pick body remain.")
+				"Four mounting fasteners and one entity pick body remain at the scaled footprint.")
+			verify(mounted.get_node("SurfaceDetail").scale == Vector3.ONE * size,
+				"Mounting details share the skid's actual mechanical scale.")
 			verify(view.state == before and view.model == null and view.actor_world == null and view.request_sequence == 0,
 				"The shared base cannot change observed quantities, construction, requests or authority.")
 			instances += 1
@@ -4055,38 +4107,49 @@ func check_conveyor_loop() -> void:
 		var before: Dictionary = view.state.duplicate(true)
 		view._rebuild_machines()
 		var anchor: Node3D = view.machine_root.get_child(0)
-		var loop := anchor.get_node("ConveyorLoop") as MeshInstance3D
-		verify(loop != null and loop.mesh == mesh and loop.material_override == ConveyorArt.material(),
-			"The sample assembly mounts its authored loop and cached rubber material.")
-		verify(anchor.get_node_or_null("ConveyorBand") == null and anchor.get_node_or_null("ConveyorCleat") == null,
+		var visual: Node3D = anchor.get_node_or_null("RotatedMachineVisual")
+		if visual == null:
+			visual = anchor
+		var scale_factor: float = Geometry.PITCH / 1.65
+		var loop := visual.get_node("ConveyorLoop") as MeshInstance3D
+		var rubber: StandardMaterial3D = ConveyorArt.material()
+		verify(loop != null and loop.mesh == mesh and loop.material_override is StandardMaterial3D
+			and loop.material_override != rubber
+			and loop.material_override.albedo_texture == rubber.albedo_texture
+			and loop.scale == Vector3.ONE * scale_factor,
+			"The sample mounts the authored loop with a separate animated rubber finish.")
+		verify(visual.get_node_or_null("ConveyorBand") == null and visual.get_node_or_null("ConveyorCleat") == null,
 			"The closed loop replaces the old solid band and floating top blocks.")
 		var legs := 0
 		var channels := 0
 		var rollers := 0
-		for child in anchor.get_children():
+		for child in visual.get_children():
 			if child is MeshInstance3D:
 				check_bounds(child, Transform3D.IDENTITY)
 				var role := str(child.get_meta("detail_role", ""))
 				if role.begins_with("ConveyorLeg"):
 					legs += 1
 					var box: AABB = child.transform * child.mesh.get_aabb()
-					verify(is_equal_approx(absf(child.position.z), 0.36) and minf(absf(box.position.z), absf(box.end.z)) >= 0.32999,
+					verify(is_equal_approx(absf(child.position.z), 0.36 * scale_factor)
+						and minf(absf(box.position.z), absf(box.end.z)) >= 0.32999 * scale_factor,
 						"The supports stay outside the returning rubber instead of intersecting it.")
 				elif role.begins_with("ConveyorChannel"):
 					channels += 1
-					verify(is_equal_approx(absf(child.position.z), 0.36)
-						and is_equal_approx(child.position.y, 0.355 if anchor.get_meta("conveyor_frame", false) else 0.43),
+					verify(is_equal_approx(absf(child.position.z), 0.36 * scale_factor)
+						and is_equal_approx(child.position.y,
+							(0.355 if visual.get_meta("conveyor_frame", false) else 0.43) * scale_factor),
 						"Both structural channels connect the side supports outside the belt path.")
 				elif role.begins_with("ConveyorRoller"):
 					rollers += 1
-					verify(child.mesh is ArrayMesh and is_equal_approx(absf(child.position.x), 0.57) and is_equal_approx(child.position.y, 0.465),
+					verify(child.mesh is ArrayMesh and is_equal_approx(absf(child.position.x), 0.57 * scale_factor)
+						and is_equal_approx(child.position.y, 0.465 * scale_factor),
 						"Both turned end drums retain their existing centers and fit inside the loop.")
 		print(JSON.stringify({"axis": axis, "supports": legs, "channels": channels, "drums": rollers}))
 		verify(legs == 4 and channels == 2 and rollers == 2,
 			"The actual assembly contains four supports, two channels and two end drums.")
-		var drive := anchor.get_node("DriveStub") as MeshInstance3D
+		var drive := visual.get_node("DriveStub") as MeshInstance3D
 		var direction: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]
-		verify(absf(drive.basis.y.normalized().dot(direction)) > 0.99999,
+		verify(absf((visual.basis * drive.basis.y).normalized().dot(direction)) > 0.99999,
 			"The sample drive artwork follows its historical projected axis.")
 		view.item_root = Node3D.new()
 		view._redraw_items()
@@ -4102,8 +4165,10 @@ func check_conveyor_loop() -> void:
 			for child in node.get_children():
 				if child is Node3D:
 					pending.append([child, pose])
-		verify(view.item_root.get_child_count() == 1 and lowest - (bounds.end.y + ConveyorArt.HEIGHT) > 0.00499,
-			"The actual unchanged workpiece redraw remains at least five millimetres above the new rubber surface.")
+		var loop_top: float = (visual.transform * loop.transform * bounds).end.y
+		verify(view.item_root.get_child_count() == 1 and lowest - loop_top > 0.00499 * scale_factor,
+			"The workpiece redraw clears the scaled rubber surface: "
+			+ str({"lowest": lowest, "loop_top": loop_top, "gap": lowest - loop_top}))
 		verify(view.state == before and view.model == null and view.actor_world == null,
 			"The asset changes no projection, input, material authority or physical character.")
 		view.item_root.free()

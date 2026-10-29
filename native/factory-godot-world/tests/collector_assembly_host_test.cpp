@@ -14,6 +14,7 @@ using I = V::Integer;
 using Host = factory::godot_world::Host;
 constexpr I grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
 static_assert(grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
+constexpr double u_scale = factory::godot_world::site_geometry::pitch / 1.65;
 int checks{};
 
 void check(bool condition, const char* message) {
@@ -114,10 +115,10 @@ void collector_readiness_tracks_real_parts() {
     const auto frame_occupied = get<O>(V(get<O>(host.projection(), "placed_components").at(frame)), "occupied");
     const auto frame_center = get<A>(V(frame_occupied), "center");
     const auto frame_half = get<A>(V(frame_occupied), "half");
-    check(std::get<double>(frame_center[1].storage()) == 0.45 &&
-          std::get<double>(frame_half[1].storage()) == 0.45 &&
-          std::get<double>(frame_half[0].storage()) == 0.2025,
-          "The frame publishes one load-bearing envelope from the floor to the installed bed.");
+    check(std::abs(std::get<double>(frame_center[1].storage()) - 0.45 * u_scale) < 1e-9 &&
+          std::abs(std::get<double>(frame_half[1].storage()) - 0.45 * u_scale) < 1e-9 &&
+          std::abs(std::get<double>(frame_half[0].storage()) - 0.2025 * u_scale) < 1e-9,
+          "The interchangeable frame retains its native U-sized floor envelope.");
     auto overlapping_deck = request("deck-through-frame", "place_foundation");
     overlapping_deck.emplace("cell", V(A{V(I{0}), V(I{0})}));
     overlapping_deck.emplace("level", V(I{4}));
@@ -160,7 +161,7 @@ void collector_readiness_tracks_real_parts() {
           std::abs(component_face(mount_center, mount_half, 0, 1) + 0.2025) < 1e-9 &&
           std::abs(component_face(mount_center, mount_half, 0, -1) -
               component_face(edge_center, edge_half, 0, 1)) < 1e-9,
-          "Trusted collector tool boxes meet the floor, frame and each other without overlap.");
+          "Trusted collector tool boxes meet the floor and each other without overlap.");
     const auto receiver = place(host, "receiver_tray", 0, 0, grid_scale, "receiver");
     const auto ready = ground_inspection(host);
     const auto parts = get<O>(ready, "parts");
@@ -414,12 +415,139 @@ void collector_readiness_tracks_real_parts() {
           std::abs(component_face(upper_mount_center, upper_mount_half, 0, -1) -
               component_face(upper_edge_center, upper_edge_half, 0, 1)) < 1e-9,
           "A one-step raised cutter still has separately occupied supports down to its frame floor.");
+    place(upper_tools, "receiver_tray", 0, 0, grid_scale, "upper-first-tray");
+    auto upper_attach = request("attach-upper-crank", "attach_hand_crank");
+    upper_attach.emplace("entity", V(upper_mount));
+    upper_attach.emplace("crank", V(get<O>(upper_tools.projection(), "crank_items").begin()->first));
+    upper_attach.emplace("port", V(A{V(I{-1} * grid_scale), V(I{1}), V(I{0})}));
+    check(get<bool>(upper_tools.command("P", upper_attach), "accepted"),
+          "The real crank seats on the raised cutter input before either receiver is chosen.");
+    check(get<bool>(upper_tools.publish_actor("P", {V(5.8), V(1.0), V(-1.65)}, 2), "accepted"),
+          "The actor reaches a finite timber source for a second raised receiver.");
+    for (int index = 0; index < 2; ++index) {
+        auto timber = request("upper-tray-timber-" + std::to_string(index), "harvest_source");
+        timber.emplace("target", V("tree-east-upstream"));
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(upper_tools, "P", timber), "accepted"),
+              "The competing raised receiver uses two real timber units.");
+    }
+    check(get<bool>(upper_tools.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
+          "The actor returns to the issued workshop to craft the alternate tray.");
+    auto upper_craft = request("craft-upper-second-tray", "craft_component");
+    upper_craft.emplace("entity", V("pod-fabrication-hub"));
+    upper_craft.emplace("component", V("receiver_tray"));
+    check(get<bool>(upper_tools.command("P", upper_craft), "accepted") &&
+          get<bool>(upper_tools.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 4), "accepted"),
+          "The second paid tray returns to the actual raised cutter workcell.");
+    place(upper_tools, "receiver_tray", 0, 0, -1 * grid_scale, "upper-second-tray");
+    check(get<std::string>(ground_inspection(upper_tools), "status") == "ambiguous",
+          "Two discharge sides cannot choose a raised cutter route silently.");
+    const auto before_upper_ore = get<I>(get<O>(upper_tools.projection(), "hand_sources").at("opening-copper"), "remaining");
+    auto upper_turn = request("upper-ambiguous-turn", "turn_hand_crank");
+    upper_turn.emplace("entity", V(upper_mount));
+    const auto upper_refusal = upper_tools.command("P", upper_turn);
+    check(!get<bool>(upper_refusal, "accepted") &&
+          get<std::string>(upper_refusal, "reason") == "ambiguous_assembly" &&
+          get<I>(get<O>(upper_tools.projection(), "hand_sources").at("opening-copper"), "remaining") == before_upper_ore,
+          "A raised ambiguous input refuses its turn without spending finite ore.");
+}
+
+void full_size_wheel_powers_ground_source() {
+    if (grid_scale == 1) return;
+    auto site = factory::godot_world::tests::channel_site();
+    auto heights = get<A>(V(site), "heights");
+    for (auto& height : heights)
+        if (std::get<double>(height.storage()) == -1.65) height = V(-3.3);
+    site.at("heights") = V(std::move(heights));
+    auto water = get<A>(V(site), "water");
+    for (auto& sample : water) {
+        auto values = std::get<A>(sample.storage());
+        values[3] = V(I{-1600});
+        sample = V(std::move(values));
+    }
+    site.at("water") = V(std::move(water));
+
+    Host host;
+    check(get<bool>(host.initialize("assembly-site", {"P"}), "accepted") &&
+          get<bool>(host.configure_terrain(site), "accepted"),
+          "The half-U ground source binds one finite World and a disclosed flowing channel.");
+    const auto actor = [&host](double x, double z, I epoch) {
+        check(get<bool>(host.publish_actor("P", {V(x), V(1.0), V(z)}, epoch), "accepted"),
+              "The builder publishes a reachable position outside the next part.");
+    };
+    const auto machine = [&host](const char* id, const char* kind, I x, I z, I level) {
+        auto wire = request(id, "place");
+        wire.emplace("kind", V(kind));
+        wire.emplace("cell", V(A{V(x), V(z)}));
+        wire.emplace("level", V(level));
+        wire.emplace("axis", V("z"));
+        if (std::string(kind) == "wheel") wire.emplace("tiles", V(I{3}));
+        else wire.emplace("rotation", V(I{0}));
+        const auto result = host.command("P", wire);
+        check(get<bool>(result, "accepted"),
+              (std::string("The ") + id + " placement is admitted: " + get<std::string>(result, "reason")).c_str());
+        return get<std::string>(result, "entity");
+    };
+    const auto cog = [&host](const std::string& id, I x, I z) {
+        auto wire = request(id, "place_gear");
+        wire.emplace("center", V(A{V(x), V(I{0}), V(z)}));
+        wire.emplace("axis", V("z"));
+        wire.emplace("teeth", V(I{2}));
+        const auto result = host.command("P", wire);
+        check(get<bool>(result, "accepted"),
+              (std::string("The ") + id + " cog fits: " + get<std::string>(result, "reason")).c_str());
+        return get<std::string>(result, "entity");
+    };
+    actor(-3.3, 3.3, 1);
+    const auto wheel = machine("ground-wheel", "wheel", -6, 2, 0);
+    actor(2.0, 0.0, 2);
+    const auto collector = machine("ground-collector", "collector", 0, 1, 0);
+    actor(-4.95, 4.0, 3);
+    cog("wheel-outboard", -24, 12);
+    for (const I x : {I{-20}, I{-16}, I{-12}})
+        cog("west-train-" + std::to_string(x), x, 12);
+    actor(-1.0, 4.0, 4);
+    for (const I x : {I{-8}, I{-4}})
+        cog("east-train-" + std::to_string(x), x, 12);
+    cog("collector-inlet", -4, 8);
+    cog("collector-face", 0, 8);
+    const auto powered = host.projection();
+    const auto motion = get<O>(powered, "motion");
+    check(get<bool>(powered, "powered") &&
+          get<std::string>(V(motion.at(wheel)), "state") == "rotating" &&
+          get<std::string>(V(motion.at(collector)), "state") == "rotating",
+          "The physically clear eight-cog route powers the ground collector from the full-size wheel.");
+    for (int tick = 0; tick < 32; ++tick) (void)host.advance();
+    const auto view = host.projection();
+    const auto stock = get<O>(view, "stock");
+    check(get<I>(V(stock), "source") == 4096 - 32 &&
+          get<I>(V(stock), "collector") == 32 &&
+          get<I>(V(stock), "belt") == 0,
+          "Powered extraction moves exactly one finite batch from the source into its collector buffer.");
+    const auto saved = host.checkpoint();
+    Host fresh;
+    check(get<bool>(fresh.initialize("fresh", {"P"}), "accepted") &&
+          get<bool>(fresh.configure_terrain(site), "accepted") &&
+          get<bool>(fresh.restore_checkpoint(saved), "accepted") &&
+          !factory::values::typed_difference(saved, fresh.checkpoint()),
+          "The powered batch, signed topology and native material custody restore exactly.");
+    actor(2.0, 0.0, 5);
+    auto recover = request("ground-batch-recover", "recover");
+    recover.emplace("entity", V(collector));
+    const auto receipt = host.command("P", recover);
+    check(get<bool>(receipt, "accepted") &&
+          get<I>(V(get<O>(host.projection(), "stock")), "collector") == 0 &&
+          get<I>(V(get<O>(host.projection(), "cargo").at("P")), "raw") == 32,
+          "A reachable actor recovers the exact powered batch into the World cargo ledger.");
+    check(get<bool>(host.command("P", recover), "duplicate") &&
+          get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
+          "The recovery receipt replays without duplicating ore and the final checkpoint validates.");
 }
 }  // namespace
 
 int main() {
     try {
         collector_readiness_tracks_real_parts();
+        full_size_wheel_powers_ground_source();
         std::cout << "collector_assembly_host_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {

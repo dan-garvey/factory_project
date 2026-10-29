@@ -446,7 +446,7 @@ void run() {
         auto insert = target("insert_work", "insert-original", rebuilt); insert.emplace("work_id", Value(work_id));
         check(accepted(issue(host, insert)), "Insertion moves the original ready lot.");
         const auto saved = host.call("checkpoint", {});
-        check(field<Integer>(saved, "schema") == 4 && !field<Object>(saved, "support_routes").empty() &&
+        check(field<Integer>(saved, "schema") == 5 && !field<Object>(saved, "support_routes").empty() &&
                   !field<Object>(saved, "actors").contains("native_epoch"),
               "The physical checkpoint contains chosen support routes, not a saved actor registration.");
         check(accepted(host.call("validate_checkpoint", {saved})), "The class exposes detached complete checkpoint validation.");

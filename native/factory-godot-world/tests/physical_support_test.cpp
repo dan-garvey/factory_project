@@ -1,4 +1,5 @@
 #include "factory/physical_support.hpp"
+#include "factory/site_geometry_contract.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -7,6 +8,8 @@
 
 namespace {
 namespace support = factory::godot_world::physical_support;
+namespace site_geometry = factory::godot_world::site_geometry;
+constexpr double u_scale = site_geometry::pitch / 1.65;
 using factory::authority::Point;
 using factory::mechanics::Axis;
 using factory::mechanics::Kind;
@@ -43,7 +46,7 @@ void route_identity_and_refusal() {
     const auto first = support::layout(flat, before);
     check(first.size() == 1 && first.contains("shaft-a") && first.at("shaft-a").route == 0,
           "A shaft chooses its first clear physical post route.");
-    near(first.at("shaft-a").foot[0], 0.55,
+    near(first.at("shaft-a").foot[0], 0.55 * u_scale,
          "The bearing foot stands beyond the end of the horizontal shaft.");
     near(first.at("shaft-a").foot[1], 0.0,
          "The post seats on the confirmed flat terrain.");
@@ -53,7 +56,7 @@ void route_identity_and_refusal() {
     const auto retained = support::layout(flat, before, &pinned);
     check(retained.size() == 1 && retained.at("shaft-a").route == 1,
           "A saved route remains pinned even when an earlier route is free.");
-    near(retained.at("shaft-a").foot[2], 0.4,
+    near(retained.at("shaft-a").foot[2], 0.4 * u_scale,
          "The second route moves the post while keeping the bearing coaxial.");
     near(retained.at("shaft-a").bearing[2], 0.0,
          "A route choice does not move the shaft bearing.");
@@ -78,7 +81,8 @@ void route_identity_and_refusal() {
     check(actor && std::string(actor) == "actor_occupied",
           "A new physical support refuses a worker inside any of its boxes.");
 
-    support::TerrainObstacles raised{{Point{0.4, -0.1, -0.1}, Point{0.7, 3.0, 0.1}}};
+    support::TerrainObstacles raised{{Point{0.4 * u_scale, -0.1, -0.1 * u_scale},
+        Point{0.7 * u_scale, 3.0, 0.1 * u_scale}}};
     const support::Site blocked{profile, raised, flat.terrain_range, flat.site_blocked};
     const auto alternative = support::layout(blocked, before);
     check(alternative.contains("shaft-a") && alternative.at("shaft-a").route == 1,

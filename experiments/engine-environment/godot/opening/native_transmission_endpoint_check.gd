@@ -289,10 +289,10 @@ func check_raised_pointer() -> void:
 	view.hover = MeshInstance3D.new()
 	view.add_child(view.hover)
 	view.transmission_controls.choose_tool("place_shaft")
-	pick_body(view, "floor", Vector3(0, Geometry.PITCH, 0), Vector3.ONE * Geometry.PITCH,
+	pick_body(view, "floor", Vector3(0, Geometry.PITCH, 0), Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH),
 		Vector3.DOWN * Geometry.PITCH / 2.0)
 	pick_body(view, "press", Vector3(Geometry.PITCH, Geometry.PITCH, 0),
-		Vector3(1.45, 1.65, 1.45), Vector3.UP * 0.8)
+		Vector3(Geometry.MACHINE_SIZE[0], Geometry.MACHINE_SIZE[1], Geometry.MACHINE_SIZE[2]), Vector3.UP * Geometry.MACHINE_CENTER_HEIGHT)
 	await physics_frame
 	view.camera.position = Vector3(0, 6, 5)
 	view.camera.look_at(Vector3(0, Geometry.PITCH, 0))
@@ -311,25 +311,26 @@ func check_raised_pointer() -> void:
 	view.transmission_controls._height_selected(2)
 	verify(view.transmission_controls.auto_height and view._transmission_center(floor_screen) == [0, 4, 0],
 		"The height menu restores surface following.")
-	view.state.foundations["half-floor"] = {"cell": [-1, 0], "level": 2}
-	pick_body(view, "half-floor", Vector3(-Geometry.PITCH, Geometry.PITCH / 2.0, 0),
-		Vector3.ONE * Geometry.PITCH, Vector3.DOWN * Geometry.PITCH / 2.0)
+	view.state.foundations["edge-floor"] = {"cell": [-1, 0], "level": 4}
+	pick_body(view, "edge-floor", Vector3(-Geometry.FOUNDATION_PITCH, Geometry.PITCH, 0),
+		Vector3(Geometry.FOUNDATION_PITCH, Geometry.FOUNDATION_DEPTH, Geometry.FOUNDATION_PITCH), Vector3.DOWN * Geometry.FOUNDATION_DEPTH / 2.0)
 	await physics_frame
-	view.camera.position = Vector3(-Geometry.PITCH, 6, 5)
-	view.camera.look_at(Vector3(-Geometry.PITCH, Geometry.PITCH / 2.0, 0))
-	var half_screen := view.camera.unproject_position(Vector3(-Geometry.PITCH, Geometry.PITCH / 2.0, 0))
-	var half_target: Array = view._transmission_center(half_screen)
-	verify(half_target == [-4, 4, 0], "An intermediate foundation selects the next global tile above its surface.")
-	view._transmission_click(half_target, "")
+	var edge_x: float = -Geometry.FOUNDATION_PITCH + Geometry.PITCH
+	view.camera.position = Vector3(edge_x, 6, 5)
+	view.camera.look_at(Vector3(edge_x, Geometry.PITCH, 0))
+	var edge_screen := view.camera.unproject_position(Vector3(edge_x, Geometry.PITCH, 0))
+	var edge_target: Array = view._transmission_center(edge_screen)
+	verify(edge_target == [-8, 4, 0], "A foundation face selects the pointed mechanical cell on its 3U top.")
+	view._transmission_click(edge_target, "")
 	verify(view.requests.size() == 2 and view.requests[1] ==
-		{"action": "place_shaft", "center": [-4, 4, 0], "axis": "x", "half_span": 2},
-		"The click submits the same aligned tile displayed above the intermediate foundation.")
-	view.state.foundations["half-floor"].level = -2
-	verify(view._transmission_snap_target("half-floor", Vector3.UP, Vector3.ZERO) == [-4, 0, 0],
-		"A negative intermediate foundation rounds upward to the global zero tile.")
+		{"action": "place_shaft", "center": [-8, 4, 0], "axis": "x", "half_span": 2},
+		"The click submits the specific cell shown on the wide slab.")
+	view.state.foundations["edge-floor"].level = -4
+	verify(view._transmission_snap_target("edge-floor", Vector3.UP, Vector3.ZERO, Vector3(edge_x, 0, 0)) == [-8, -4, 0],
+		"A lower full-U slab retains its own machine floor level.")
 	view.transmission_controls._height_selected(1)
-	verify(view._transmission_snap_target("half-floor", Vector3.UP, Vector3.ZERO) == [-4, 4, 0],
-		"An explicit height still overrides intermediate surface following.")
+	verify(view._transmission_snap_target("edge-floor", Vector3.UP, Vector3.ZERO, Vector3(edge_x, 0, 0)) == [-8, 0, 0],
+		"An explicit height still overrides the slab's surface following.")
 	view.transmission_controls._height_selected(2)
 	view.camera.position = Vector3(5, 3, 0)
 	view.camera.look_at(Vector3(Geometry.PITCH, Geometry.PITCH + 0.8, 0))

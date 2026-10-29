@@ -181,7 +181,8 @@ inline constexpr std::array engagement_fields{
 inline constexpr std::array adapter_profile_fields{
     Field{"pitch", Type::floating}, Field{"anchor_height", Type::floating},
     Field{"height_denominator", Type::integer}, Field{"height_step", Type::floating},
-    Field{"foundation_depth", Type::floating}, Field{"wheel_radius", Type::integer},
+    Field{"foundation_pitch", Type::floating}, Field{"foundation_depth", Type::floating},
+    Field{"wheel_radius", Type::integer},
     Field{"wheel_axle_offset", Type::integer}, Field{"capsule_radius", Type::floating},
     Field{"capsule_height", Type::floating},
     Field{"collector_intake_size", Type::floating3},

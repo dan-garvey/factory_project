@@ -88,6 +88,8 @@ int main(int argc, char** argv) {
         return factory_launch::human_launch(argc - 2, argv + 2);
     if (argc > 1 && std::string(argv[1]) == "--agent-window")
         return factory_launch::agent_window_launch(argc - 2, argv + 2);
+    if (argc > 1 && std::string(argv[1]) == "--proof-window")
+        return factory_launch::agent_window_launch(argc - 2, argv + 2, true);
     using namespace factory_launch;
     using namespace std::chrono_literals;
     fs::path output;

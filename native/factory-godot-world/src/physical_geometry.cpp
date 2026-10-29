@@ -14,6 +14,7 @@ using site_geometry::pitch;
 using site_geometry::height_denominator;
 using site_geometry::height_step;
 using site_geometry::foundation_depth;
+using site_geometry::foundation_pitch;
 using site_geometry::anchor_height;
 using site_geometry::capsule_radius;
 using site_geometry::capsule_height;
@@ -123,7 +124,7 @@ std::vector<Bounds> collector_external_bounds(const mechanics::Point& center) {
 
 Bounds foundation_bounds(const world::Foundation& foundation) {
     return {{foundation.center[0] * height_step, foundation.center[1] * height_step - foundation_depth / 2,
-             foundation.center[2] * height_step}, {pitch / 2, foundation_depth / 2, pitch / 2}};
+             foundation.center[2] * height_step}, {foundation_pitch / 2, foundation_depth / 2, foundation_pitch / 2}};
 }
 
 bool slide_head_fitting(std::optional<materials::Component> first,

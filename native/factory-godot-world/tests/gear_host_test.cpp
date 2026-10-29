@@ -1,5 +1,4 @@
 #include "factory/godot_world.hpp"
-#include "factory/site_geometry_contract.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <iostream>
@@ -16,9 +15,9 @@ using O = V::Object;
 using A = V::Array;
 using I = V::Integer;
 using Host = factory::godot_world::Host;
-constexpr double u_scale = factory::godot_world::site_geometry::pitch / 1.65;
 constexpr I grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
 static_assert(grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
+constexpr double u_scale = factory::godot_world::site_geometry::pitch / 1.65;
 int checks{};
 
 void check(bool condition, const std::string& message) {
@@ -47,6 +46,28 @@ O channel_wheel(const char* id, const char* axis = "z") {
     auto command = machine("wheel", -3 * grid_scale, id, axis);
     command.at("cell") = V(A{V(I{-3} * grid_scale), V(I{1} * grid_scale)});
     command.at("level") = V(I{4} * grid_scale);
+    return command;
+}
+
+O ground_channel_site() {
+    auto site = factory::godot_world::tests::channel_site();
+    auto heights = field<A>(V(site), "heights");
+    for (auto& height : heights)
+        if (std::get<double>(height.storage()) == -1.65) height = V(-3.3);
+    site.at("heights") = V(std::move(heights));
+    auto water = field<A>(V(site), "water");
+    for (auto& sample : water) {
+        auto values = std::get<A>(sample.storage());
+        values[3] = V(I{-1600});
+        sample = V(std::move(values));
+    }
+    site.at("water") = V(std::move(water));
+    return site;
+}
+
+O ground_channel_wheel(const char* id, const char* axis = "z") {
+    auto command = channel_wheel(id, axis);
+    command.at("level") = V(I{0});
     return command;
 }
 
@@ -161,8 +182,9 @@ void transmission_request_shapes() {
 
 void finite_oriented_train_and_restore() {
     Host host;
-    check(accepted(host.initialize("cog-api", {"P", "Q"})), "The original finite profile initializes.");
-    check(accepted(host.configure_terrain(factory::godot_world::tests::channel_site())), "The test binds explicit synthetic terrain.");
+    check(accepted(host.initialize("cog-api", {"P", "Q"})), "The finite half-U profile initializes.");
+    const auto site = ground_channel_site();
+    check(accepted(host.configure_terrain(site)), "The test binds explicit synthetic terrain.");
     observe(host, -3.3, 3.3, 1);
     const auto specs = field<O>(host.projection(), "part_specifications");
     bool saw_gear = false, saw_large = false;
@@ -175,24 +197,25 @@ void finite_oriented_train_and_restore() {
     check(saw_large, "The native starter kit exposes two finite large cogs to the UI.");
     for (const auto& entry : std::get<A>(specs.at("Q").storage()))
         check(field<I>(entry, "count") == 0, "An empty actor kit cannot borrow the other actor's parts.");
-    auto base = wire("place_foundation", "collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
-    check(accepted(host.command("P", base)), "The synthetic stream bank supports a collector foundation.");
-    const auto wheel = create(host, machine("wheel", -3, "wheel", "z"));
+    const auto wheel = create(host, ground_channel_wheel("wheel"));
+    observe(host, 2.0, 0, 2);
     auto collector_wire = machine("collector", 0, "collector", "z");
-    collector_wire.emplace("level", V(I{4}));
+    collector_wire.emplace("level", V(I{0}));
     const auto collector = create(host, collector_wire);
-    observe(host, 0, 0, 2);
-    observe(host, -1.65, 3.3, 3);
-    create(host, gear(-12, 4, 8, "upper", "z"));
-    create(host, gear(-8, 4, 8, "bridge", "z"));
-    observe(host, -2.475, 1.65, 4);
-    const auto a = create(host, gear(-4, 4, 8, "gear-A", "z"));
-    const auto original_b = gear(0, 4, 8, "gear-B", "z");
+    observe(host, -4.95, 4.0, 3);
+    create(host, gear(-24, 0, 12, "upper", "z"));
+    for (I x : {I{-20}, I{-16}, I{-12}})
+        create(host, gear(x, 0, 12, ("bridge-" + std::to_string(x)).c_str(), "z"));
+    observe(host, -1.0, 4.0, 4);
+    for (I x : {I{-8}, I{-4}})
+        create(host, gear(x, 0, 12, ("bridge-" + std::to_string(x)).c_str(), "z"));
+    const auto a = create(host, gear(-4, 0, 8, "gear-A", "z"));
+    const auto original_b = gear(0, 0, 8, "gear-B", "z");
     const auto b = create(host, original_b);
-    check(field<I>(motion(host, a), "numerator") == 25 && field<I>(motion(host, a), "denominator") == 84 &&
-          field<I>(motion(host, b), "numerator") == -25 && field<I>(motion(host, b), "denominator") == 84 &&
-          field<I>(motion(host, collector), "numerator") == -25,
+    const I direction = -1;
+    check(field<I>(motion(host, a), "numerator") == direction * 25 && field<I>(motion(host, a), "denominator") == 84 &&
+          field<I>(motion(host, b), "numerator") == -direction * 25 && field<I>(motion(host, b), "denominator") == 84 &&
+          field<I>(motion(host, collector), "numerator") == -direction * 25,
           "Meshing equal gears reverses the exact signed rate through the touching axles.");
     check(!field<bool>(motion(host, a), "overloaded") &&
               field<double>(motion(host, a), "capacity") > field<double>(motion(host, a), "impact") &&
@@ -200,7 +223,7 @@ void finite_oriented_train_and_restore() {
           "The host projects the same non-overloaded component capacity to its members.");
     check(field<bool>(host.projection(), "powered") &&
           field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8 &&
-          field<I>(V(field<O>(host.projection(), "parts")), "gear") == 6,
+          field<I>(V(field<O>(host.projection(), "parts")), "gear") == 2,
           "The powered train retains the remaining shafts and cogs.");
     const auto ticked = host.advance();
     check(field<I>(V(field<O>(ticked, "stock")), "source") == 4095 &&
@@ -210,14 +233,14 @@ void finite_oriented_train_and_restore() {
           "An individual gear can be removed while the source stays enabled.");
     check(!field<bool>(host.projection(), "powered"), "Removing a gear disconnects the source.");
     observe(host, 0, 1.65, 5);
-    const auto misaligned = create(host, gear(0, 8, 8, "misaligned", "z"));
+    const auto misaligned = create(host, gear(4, 0, 8, "misaligned", "z"));
     check(!field<bool>(host.projection(), "powered"), "A cog in the adjacent tile cannot power the collector through a diagonal gap.");
     check(accepted(host.command("P", target("remove", misaligned, "remove-misaligned"))),
           "The actual misplaced part returns before reconstruction.");
     observe(host, 0, 0, 6);
-    const auto rebuilt = create(host, gear(0, 4, 8, "rebuild-B", "z"));
+    const auto rebuilt = create(host, gear(0, 0, 8, "rebuild-B", "z"));
     check(rebuilt != b && field<bool>(host.projection(), "powered") &&
-          field<I>(motion(host, rebuilt), "numerator") == -25,
+          field<I>(motion(host, rebuilt), "numerator") == -direction * 25,
           "Correct reconstruction restores geometric transmission with a new identity.");
     observe(host, 20, 20, 7);
     const auto retry = host.command("P", original_b);
@@ -231,7 +254,7 @@ void finite_oriented_train_and_restore() {
     check(accepted(host.validate_checkpoint(saved)), "The complete oriented train and original wire histories validate.");
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
-              accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())) &&
+              accepted(fresh.configure_terrain(site)) &&
               accepted(fresh.restore_checkpoint(saved)),
           "A fresh native Host restores the original profile without resetting its kit.");
     check(!factory::values::typed_difference(saved, fresh.checkpoint()),
@@ -243,50 +266,39 @@ void finite_oriented_train_and_restore() {
 void adjacent_axle_faces() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})) &&
-              accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
+          accepted(host.configure_terrain(factory::godot_world::tests::channel_site())),
           "The direct-axle control binds an invented flowing channel.");
     observe(host, -3.3, 3.3, 1);
-    auto base = wire("place_foundation", "direct-collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
-    check(accepted(host.command("P", base)), "The fixture supports the collector foundation.");
-    const auto wheel = create(host, machine("wheel", -3, "direct-wheel", "z"));
-    auto collector_wire = machine("collector", 0, "direct-collector", "z");
-    collector_wire.emplace("level", V(I{4}));
-    const auto collector = create(host, collector_wire);
-    observe(host, 0, 0, 2);
-    observe(host, -1.65, 3.3, 3);
-    const auto upper = create(host, gear(-12, 4, 8, "direct-upper", "z"));
-    create(host, gear(-8, 4, 8, "direct-bridge", "z"));
-    observe(host, -2.475, 1.65, 4);
-    const auto a = create(host, gear(-4, 4, 8, "direct-cog-a", "z"));
-    const auto b = create(host, gear(0, 4, 8, "direct-cog-b", "z"));
-    observe(host, -3.3, 1.65, 5);
+    const auto wheel = create(host, channel_wheel("direct-wheel"));
+    const auto upper = create(host, gear(-12 * grid_scale, 4 * grid_scale,
+        4 * grid_scale + 4, "direct-upper", "z"));
     const auto redundant = host.command("P", connection(wheel, upper, "direct-redundant"));
     check(!accepted(redundant) && field<std::string>(redundant, "reason") == "individual_shaft_required" &&
-              field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
-          "Endpoint shaft construction is refused without consuming a part.");
-    check(field<I>(motion(host, wheel), "numerator") == 25 && field<I>(motion(host, wheel), "denominator") == 84 &&
-              field<I>(motion(host, a), "numerator") == 25 &&
-              field<I>(motion(host, b), "numerator") == -25 &&
-              field<I>(motion(host, collector), "numerator") == -25 &&
-              field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
-          "Adjacent axle faces carry signed rotation without consuming any finite shaft.");
+          field<I>(V(field<O>(host.projection(), "parts")), "shaft") == 8,
+          "Adjacent wheel and cog faces do not consume a finite shaft.");
+    check(field<std::string>(motion(host, wheel), "state") == "rotating" &&
+          field<std::string>(motion(host, upper), "state") == "rotating" &&
+          field<I>(motion(host, wheel), "numerator") == field<I>(motion(host, upper), "numerator") &&
+          field<I>(motion(host, wheel), "denominator") == field<I>(motion(host, upper), "denominator"),
+          "The full-size wheel powers an adjacent outboard cog through its actual axle faces.");
     const auto saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P"})) &&
               accepted(fresh.configure_terrain(factory::godot_world::tests::channel_site())) &&
               accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
           "Fresh Host restore retains direct axle geometry and part custody exactly.");
-    check(accepted(host.command("P", target("remove", b, "direct-remove"))) &&
-              field<std::string>(motion(host, collector), "state") != "rotating",
-          "Removing the actual cog interrupts the adjacent-axle route.");
+    check(accepted(host.command("P", target("remove", upper, "direct-remove"))) &&
+              !field<O>(host.projection(), "motion").contains(upper),
+          "Removing the outboard cog removes the direct axle route.");
+
 }
 
 void refusals_and_legacy_shape() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})), "The refusal fixture initializes.");
     check(accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The refusal fixture binds explicit synthetic terrain.");
-    observe(host, -1.65 * u_scale, 3.3 * u_scale, 1);
+    observe(host, -4 * factory::godot_world::site_geometry::height_step,
+        8 * factory::godot_world::site_geometry::height_step, 1);
     const auto state_before = field<O>(V(field<O>(host.checkpoint(), "world")), "state");
     const auto reject = [&](O command, const char* reason) {
         const auto reply = host.command("P", command);
@@ -307,6 +319,7 @@ void refusals_and_legacy_shape() {
     reject(boolean, "invalid_axis");
     auto overlapping = gear(-4, 4, 8, "actor-overlap");
     reject(overlapping, "actor_occupied");
+    observe(host, 2.0, 0.0, 2);
     const auto old = create(host, machine("collector", 0, "old-cell", nullptr));
     check(field<I>(V(field<O>(host.projection(), "entities").at(old)), "axis") == 0,
           "The unchanged two-dimensional cell wire retains its original default axis.");
@@ -416,11 +429,13 @@ void stacked_vertical_relay_support() {
     const auto& projected = field<O>(projection, "transmission_parts");
     const auto& support = field<O>(projected.at(upper), "support");
     const auto& foot = std::get<A>(support.at("foot").storage());
-    check(std::abs(std::get<double>(foot[0].storage()) - 1.65 * u_scale) >= (1.2 - 1e-9) * u_scale,
+    check(std::abs(std::get<double>(foot[0].storage()) -
+            4 * factory::godot_world::site_geometry::height_step) >=
+            1.2 / grid_scale - 1e-9,
           "The elevated bearing uses a lateral post outside the lower relay shell.");
     const auto& high_support = field<O>(projected.at(high), "support");
     const auto& high_foot = std::get<A>(high_support.at("foot").storage());
-    check(std::get<double>(high_foot[0].storage()) < -1.0 * u_scale,
+    check(std::get<double>(high_foot[0].storage()) < -1.0 / grid_scale,
           "The upper horizontal case seats beyond both the lower shaft and adjacent relay: x=" +
           std::to_string(std::get<double>(high_foot[0].storage())));
     const auto saved = host.checkpoint();
@@ -435,7 +450,7 @@ void stacked_vertical_relay_support() {
 
 void relay_shell_terrain() {
     auto raised_corner = low_flat_site();
-    const A axis{V(-128.0), V(0.0), V(0.8 * u_scale), V(2.3 * u_scale), V(128.0)};
+    const A axis{V(-128.0), V(0.0), V(0.8 / grid_scale), V(2.3 / grid_scale), V(128.0)};
     A heights(25, V(-1.0));
     heights[3 * 5 + 2] = V(3.0);
     raised_corner.at("axis") = V(axis);
@@ -524,49 +539,57 @@ void powered_relay_route() {
           "The restored powered relay route retains exact native topology, custody and signed motion.");
 }
 
-void perpendicular_belt_line() {
-    auto site = factory::godot_world::tests::channel_site();
+void ground_collector_output_gap() {
+    auto site = ground_channel_site();
     Host host;
     check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
               accepted(host.configure_terrain(site)),
           "The perpendicular-line Host binds its synthetic terrain.");
     observe(host, -3.3, 3.3, 1);
-    auto base = wire("place_foundation", "line-collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
-    check(accepted(host.command("P", base)), "The synthetic line has a supported collector.");
-    observe(host, -3.3, 3.3, 2);
-    const auto wheel = create(host, machine("wheel", -3, "line-machine-0", "z"));
-    observe(host, -1.65, 3.3, 3);
-    create(host, gear(-12, 4, 8, "line-gear-0", "z", 2));
-    create(host, gear(-8, 4, 8, "line-extra-bridge", "z", 2));
-    observe(host, -2.475, 1.65, 4);
-    create(host, gear(-4, 4, 8, "line-bridge", "z", 2));
+    std::string wheel, collector, first, last, belt;
+
+    wheel = create(host, ground_channel_wheel("line-machine-0"));
+    observe(host, -4.95, 4.0, 2);
+    const auto inlet = create(host, shaft(-24, 0, 12, "line-drive-first"));
+    observe(host, -1.0, 4.0, 3);
+    const auto outlet = create(host, shaft(-4, 0, 12, "line-drive-last"));
+    auto drive = wire("place_belt_span", "line-drive-span");
+    drive.emplace("from", V(inlet)); drive.emplace("to", V(outlet));
+    observe(host, -2.9, 3.5, 4);
+    create(host, drive);
+    observe(host, 2.0, 0.0, 5);
     auto collector_wire = machine("collector", 0, "line-collector", "z");
-    collector_wire.emplace("level", V(I{4}));
-    const auto collector = create(host, collector_wire);
-    create(host, gear(0, 4, 8, "line-collector-cog", "z", 2));
-    observe(host, 1.65, 0, 5);
-    const auto belt_cog = create(host, gear(4, 4, 8, "line-belt-cog", "z", 2));
-    const auto first = create(host, shaft(4, 4, 4, "line-first"));
-    observe(host, 3.3, 0, 6);
-    const auto last = create(host, shaft(8, 4, 4, "line-last"));
-    observe(host, 2.475, 0, 7);
+    collector_wire.emplace("level", V(I{0}));
+    collector = create(host, collector_wire);
+    observe(host, -1.0, 4.0, 6);
+    create(host, gear(-4, 0, 8, "line-bridge", "z", 2));
+    create(host, gear(0, 0, 8, "line-collector-cog", "z", 2));
+    observe(host, 2.0, 3.0, 7);
+    create(host, gear(4, 0, 8, "line-output-bridge", "z", 2));
+    create(host, gear(8, 0, 8, "line-belt-cog", "z", 2));
+    first = create(host, shaft(8, 0, 4, "line-first"));
+    last = create(host, shaft(12, 0, 4, "line-last"));
     auto install = wire("place_belt_span", "line-span");
     install.emplace("from", V(first)); install.emplace("to", V(last));
-    const auto belt = create(host, install);
+    belt = create(host, install);
     observe(host, -3.3, 1.65, 8);
+
     const auto projected = host.projection();
-    check(field<A>(projected, "links").empty() && field<O>(projected, "belt_spans").size() == 1 &&
-              field<I>(V(field<O>(projected, "parts")), "shaft") == 6 &&
-              field<I>(V(field<O>(projected, "parts")), "gear") == 5,
-          "The connected line uses five small cogs and two physical belt shafts.");
+    check(field<A>(projected, "links").empty() && field<O>(projected, "belt_spans").size() == 2 &&
+              field<I>(V(field<O>(projected, "parts")), "shaft") == 4 &&
+              field<I>(V(field<O>(projected, "parts")), "gear") == 6,
+          "The connected line accounts for its cogs and physical belt shafts.");
     check(field<I>(motion(host, wheel), "numerator") == 25 &&
               field<I>(motion(host, collector), "numerator") == -25 &&
-              field<I>(motion(host, first), "numerator") == 25 &&
-              field<I>(motion(host, last), "numerator") == 25 &&
+              field<I>(motion(host, first), "numerator") == -25 &&
+              field<I>(motion(host, last), "numerator") == -25 &&
               field<I>(motion(host, first), "denominator") == 84 &&
               field<I>(motion(host, last), "denominator") == 84,
-          "The reversed belt shafts share the exact signed rate from the geared source.");
+          "The output belt shafts share the exact signed rate from the geared source: " +
+              std::to_string(field<I>(motion(host, wheel), "numerator")) + "," +
+              std::to_string(field<I>(motion(host, collector), "numerator")) + "," +
+              std::to_string(field<I>(motion(host, first), "numerator")) + "," +
+              std::to_string(field<I>(motion(host, last), "numerator")) + ".");
     const auto saved = host.checkpoint();
     Host fresh;
     check(accepted(fresh.initialize("fresh", {"P", "Q"})) &&
@@ -576,74 +599,44 @@ void perpendicular_belt_line() {
     for (int tick = 0; tick < 96; ++tick) (void)host.advance();
     const auto reversed = host.projection();
     const auto blocked_slots = field<A>(field<O>(reversed, "belt_spans").at(belt), "slots");
-    check(field<I>(V(field<O>(reversed, "stock")), "input") == 0 &&
-              field<A>(reversed, "dropped_material").empty() && field<I>(blocked_slots.front(), "raw") == 1,
-          "Positive Z rotation retains a blank at the collector-facing belt end.");
-    const auto reverse_save = host.checkpoint();
-    Host loaded;
-    check(accepted(loaded.initialize("other", {"P", "Q"})) &&
-              accepted(loaded.configure_terrain(site)) &&
-              accepted(loaded.restore_checkpoint(reverse_save)),
-          "The reverse-end blank survives a fresh Host checkpoint restore.");
-    observe(loaded, 100.0, 100.0, 1);
-    auto far_pickup = target("recover_belt_slot", belt, "pickup-too-far");
-    far_pickup.emplace("slot", V(I{0}));
-    far_pickup.emplace("expected", blocked_slots.front());
-    const auto far_result = loaded.command("P", far_pickup);
-    check(!accepted(far_result) && field<std::string>(far_result, "reason") == "out_of_reach" &&
-              field<I>(field<A>(field<O>(loaded.projection(), "belt_spans").at(belt), "slots").front(), "raw") == 1,
-          "A distant actor cannot pick up or consume the stack.");
-    observe(loaded, 0.0, 0.0, 2);
-    auto pickup = target("recover_belt_slot", belt, "pickup-reverse");
-    pickup.emplace("slot", V(I{0}));
-    pickup.emplace("expected", far_pickup.at("expected"));
-    auto stale = pickup;
-    stale.at("request") = V("pickup-stale");
-    stale.at("expected") = V(O{{"raw", V(I{0})}, {"products", V(I{1})}, {"work_lots", V(A{})}});
-    const auto stale_result = loaded.command("P", stale);
-    check(!accepted(stale_result) && field<std::string>(stale_result, "reason") == "slot_changed" &&
-              field<I>(field<A>(field<O>(loaded.projection(), "belt_spans").at(belt), "slots").front(), "raw") == 1,
-          "A stale selection cannot collect replacement material at the same point.");
-    const auto result = loaded.command("P", pickup);
-    check(accepted(result) && field<I>(result, "moved_raw") == 1 && field<A>(loaded.projection(), "dropped_material").empty(),
-          "A reachable actor collects the original blank into canonical cargo.");
-    check(accepted(loaded.publish_actor("Q", {V(0.0), V(1.0), V(0.0)}, 1)), "Q has a separate nearby synthetic observation.");
-    auto competing = target("recover_belt_slot", belt, "pickup-competing");
-    competing.at("client") = V("Q");
-    competing.emplace("slot", V(I{0}));
-    competing.emplace("expected", far_pickup.at("expected"));
-    const auto denied = loaded.command("Q", competing);
-    check(!accepted(denied) && field<std::string>(denied, "reason") == "slot_changed" &&
-              field<I>(field<O>(loaded.projection(), "cargo").at("Q"), "raw") == 0,
-          "A second actor cannot acquire a stack already picked up by P.");
-    check(field<bool>(loaded.command("P", pickup), "duplicate") && accepted(loaded.validate_checkpoint(loaded.checkpoint())),
-          "Pickup retry and saved wire history retain the original outcome.");
-    observe(host, 1.65, 0, 9);
-    check(accepted(host.command("P", target("remove", belt_cog, "line-remove-belt-cog"))) &&
-              field<std::string>(motion(host, first), "state") != "rotating",
-          "Removing the belt cog breaks belt power and returns the physical part.");
-    const auto occupied_slots = field<A>(field<O>(host.projection(), "belt_spans").at(belt), "slots");
-    check(!accepted(host.command("P", target("remove_belt_span", belt, "line-remove-occupied"))),
-          "An occupied span cannot be dismantled before its contents are recovered.");
-    for (std::size_t index = 0; index < occupied_slots.size(); ++index) {
-        if (occupied_slots[index].type() == factory::values::Type::null) continue;
-        const auto request = "line-recover-slot-" + std::to_string(index);
-        auto recover = target("recover_belt_slot", belt, request.c_str());
-        recover.emplace("slot", V(static_cast<I>(index)));
-        recover.emplace("expected", occupied_slots[index]);
-        check(accepted(host.command("P", recover)), "A reachable belt slot returns its actual retained item.");
-    }
-    check(accepted(host.command("P", target("remove_belt_span", belt, "line-remove-belt"))) &&
-              field<A>(host.projection(), "dropped_material").empty(),
-          "Recovering and dismantling the belt retains cargo without a phantom drop.");
-    const auto after_removal = host.checkpoint();
-    Host after;
-    check(accepted(after.initialize("after", {"P", "Q"})) &&
-              accepted(after.configure_terrain(site)) &&
-              accepted(after.restore_checkpoint(after_removal)),
-          "A fresh Host retains recovered cargo after the belt has been removed.");
-    check(field<I>(field<O>(after.projection(), "cargo").at("P"), "raw") > 0,
-          "The recovered blank remains in the actor's custody.");
+
+    const auto stock = field<O>(reversed, "stock");
+    check(field<I>(V(stock), "source") == 4064 && field<I>(V(stock), "collector") == 32 &&
+          field<I>(V(stock), "input") == 0 && raw_on_belts(reversed) == 0 &&
+          field<A>(reversed, "dropped_material").empty() &&
+          std::all_of(blocked_slots.begin(), blocked_slots.end(), [](const V& slot) {
+              return slot.type() == factory::values::Type::null;
+          }),
+          "The clear two-U output belt stays empty while the powered ground collector retains 32 finite raw units.");
+    observe(host, 2.0, 3.0, 9);
+    const auto direct = create(host, shaft(4, 0, 4, "line-direct-mouth"));
+    auto blocked = wire("place_belt_span", "line-direct-overlap");
+    blocked.emplace("from", V(direct)); blocked.emplace("to", V(first));
+    const auto before = host.projection();
+    const auto refusal = host.command("P", blocked);
+    check(!accepted(refusal) && field<std::string>(refusal, "reason") == "occupied" &&
+          !factory::values::typed_difference(V(field<O>(before, "stock")), V(field<O>(host.projection(), "stock"))) &&
+          !factory::values::typed_difference(V(field<O>(before, "parts")), V(field<O>(host.projection(), "parts"))) &&
+          !factory::values::typed_difference(V(field<O>(before, "belt_spans")), V(field<O>(host.projection(), "belt_spans"))),
+          "The required one-U collector output span intersects its unchanged shell without spending a belt or raw stock.");
+    const auto duplicate = host.command("P", blocked);
+    check(!accepted(duplicate) && field<bool>(duplicate, "duplicate") &&
+          field<std::string>(duplicate, "reason") == "occupied",
+          "The occupied output span refusal replays without another admission.");
+    const auto saved_empty = host.checkpoint();
+    Host restored_empty;
+    check(accepted(restored_empty.initialize("empty-route", {"P", "Q"})) &&
+          accepted(restored_empty.configure_terrain(site)) &&
+          accepted(restored_empty.restore_checkpoint(saved_empty)) &&
+          !factory::values::typed_difference(saved_empty, restored_empty.checkpoint()),
+          "The powered ground collector and refused output overlap restore exactly in a fresh Host.");
+    for (int tick = 0; tick < 40; ++tick) (void)restored_empty.advance();
+    const auto after = restored_empty.projection();
+    check(field<I>(V(field<O>(after, "stock")), "source") == 4064 &&
+          field<I>(V(field<O>(after, "stock")), "collector") == 32 &&
+          raw_on_belts(after) == 0 && field<A>(after, "dropped_material").empty(),
+          "Continued drive does not invent collector-to-belt transfer across the physical gap.");
+
 }
 
 void typed_loose_host() {
@@ -758,25 +751,25 @@ void long_selected_belt_host() {
     const auto first = create(host, shaft(0, 0, 0, "long-first"));
     check(accepted(host.command("P", target("select_belt_shaft", first, "long-selection"))),
           "The actor selects the first shaft while nearby.");
-    observe(host, 31.35 * u_scale, -1.65, 2);
+    observe(host, 31.35 / grid_scale, -1.65, 2);
     const auto last = create(host, shaft(76, 0, 0, "long-last"));
     auto span = wire("place_selected_belt_span", "long-span");
     span.emplace("from", V(first)); span.emplace("to", V(last)); span.emplace("selection", V("forged"));
     const auto forged = host.command("P", span);
     check(!accepted(forged) && field<std::string>(forged, "reason") == "invalid_belt_selection",
           "An unrecorded first-shaft selection cannot authorize a distant belt.");
-    check(accepted(host.publish_actor("Q", {V(31.35 * u_scale), V(1.0), V(-3.3)}, 1)), "A second actor is nearby and clear.");
+    check(accepted(host.publish_actor("Q", {V(31.35 / grid_scale), V(1.0), V(-3.3)}, 1)), "A second actor is nearby and clear.");
     auto stolen = span; stolen.at("client") = V("Q"); stolen.at("request") = V("long-stolen");
     stolen.at("selection") = V("long-selection");
     const auto other_actor = host.command("Q", stolen);
     check(!accepted(other_actor) && field<std::string>(other_actor, "reason") == "invalid_belt_selection",
           "Another actor cannot reuse the first actor's shaft selection.");
     span.at("request") = V("long-span-far"); span.at("selection") = V("long-selection");
-    observe(host, 20 * u_scale, -1.65, 3);
+    observe(host, 20.0 / grid_scale, -1.65, 3);
     const auto far = host.command("P", span);
     check(!accepted(far) && field<std::string>(far, "reason") == "out_of_reach",
           "A valid first selection does not authorize a distant second endpoint.");
-    observe(host, 31.35 * u_scale, -1.65, 4);
+    observe(host, 31.35 / grid_scale, -1.65, 4);
     span.at("request") = V("long-span-valid");
     const auto id = create(host, span);
     check(field<O>(host.projection(), "belt_spans").contains(id) &&
@@ -791,12 +784,12 @@ void long_selected_belt_host() {
     check(accepted(restored.initialize("fresh", {"P", "Q"})) && accepted(restored.configure_terrain(low_flat_site())) &&
               accepted(restored.restore_checkpoint(saved)) && field<bool>(restored.command("P", span), "duplicate"),
           "The long belt and linked selection receipt survive checkpoint and exact replay.");
-    observe(restored, 15.675 * u_scale, -20, 1);
+    observe(restored, 15.675 / grid_scale, -20, 1);
     const auto far_remove = restored.command("P", target("remove_belt_span", id, "long-remove-far"));
     check(!accepted(far_remove) && field<std::string>(far_remove, "reason") == "out_of_reach" &&
               field<O>(restored.projection(), "belt_spans").contains(id),
           "Removing a long belt remains restricted to a reachable path tile.");
-    observe(restored, 15.675 * u_scale, -1.65, 2);
+    observe(restored, 15.675 / grid_scale, -1.65, 2);
     check(accepted(restored.command("P", target("remove_belt_span", id, "long-remove"))) &&
               field<O>(restored.projection(), "belt_spans").empty() &&
               field<I>(V(field<O>(restored.projection(), "parts")), "belt") == 2 &&
@@ -811,16 +804,16 @@ void belt_span_host_commands() {
           "The belt span Host binds a synthetic flat site.");
     observe(host, 0, -1.65, 1);
     const auto left = create(host, shaft(0, 0, 0, "span-left"));
-    observe(host, 3.3 * u_scale, -1.65, 2);
+    observe(host, 3.3, -1.65, 2);
     const auto right = create(host, shaft(8, 0, 0, "span-right"));
     auto install = wire("place_belt_span", "span-place");
     install.emplace("from", V(left)); install.emplace("to", V(right));
-    observe(host, 1.65 * u_scale, 0, 3);
+    observe(host, 1.65, 0, 3);
     const auto blocked = host.command("P", install);
     check(!accepted(blocked) && field<std::string>(blocked, "reason") == "actor_occupied",
           "A synthetic actor occupying the span prevents installation.");
     install.at("request") = V("span-place-clear");
-    observe(host, 1.65 * u_scale, -1.65, 4);
+    observe(host, 1.65, -1.65, 4);
     const auto id = create(host, install);
     const auto projected = field<O>(host.projection(), "belt_spans");
     check(projected.contains(id) && field<std::string>(projected.at(id), "from") == left &&
@@ -885,11 +878,11 @@ void belt_span_host_commands() {
     Host inclined;
     check(accepted(inclined.initialize("cog-api", {"P"})) && accepted(inclined.configure_terrain(low_flat_site())),
           "The inclined fixture binds its own lower terrain.");
-    check(accepted(inclined.publish_actor("P", {V(0.0), V(0.825 * u_scale), V(-1.65)}, 1)), "The actor reaches the low shaft.");
+    check(accepted(inclined.publish_actor("P", {V(0.0), V(0.825), V(-1.65)}, 1)), "The actor reaches the low shaft.");
     const auto low = create(inclined, shaft(0, 0, 0, "incline-low"));
-    check(accepted(inclined.publish_actor("P", {V(3.3 * u_scale), V(4.125 * u_scale), V(-1.65)}, 2)), "The actor reaches the high shaft.");
+    check(accepted(inclined.publish_actor("P", {V(3.3), V(4.125), V(-1.65)}, 2)), "The actor reaches the high shaft.");
     const auto high = create(inclined, shaft(8, 8, 0, "incline-high"));
-    check(accepted(inclined.publish_actor("P", {V(1.65 * u_scale), V(2.475 * u_scale), V(-1.65)}, 3)), "The actor reaches both inclined endpoints.");
+    check(accepted(inclined.publish_actor("P", {V(1.65), V(2.475), V(-1.65)}, 3)), "The actor reaches both inclined endpoints.");
     auto inclined_wire = wire("place_belt_span", "incline-span");
     inclined_wire.emplace("from", V(low)); inclined_wire.emplace("to", V(high));
     create(inclined, inclined_wire);
@@ -957,7 +950,7 @@ void belt_span_host_commands() {
     recover.emplace("slot", V(I{1})); recover.emplace("expected", projected_slots[1]);
     observe(loaded, 50, 50, 1);
     check(!accepted(loaded.command("P", recover)), "Recovery refuses an actor far from the occupied slot.");
-    observe(loaded, 1.65 * u_scale, -1.65, 2);
+    observe(loaded, 1.65, -1.65, 2);
     recover.at("request") = V("span-recover-stale");
     recover.at("expected") = V(O{{"raw", V(I{0})}, {"products", V(I{1})}, {"work_lots", V(A{})}});
     check(!accepted(loaded.command("P", recover)) && field<I>(field<A>(field<O>(loaded.projection(), "belt_spans").at(id), "slots")[1], "raw") == 1,
@@ -971,7 +964,7 @@ void belt_span_host_commands() {
     load.emplace("slot", V(I{1})); load.emplace("item", V("raw")); load.emplace("work_id", V(I{0}));
     observe(loaded, 50, 50, 3);
     check(!accepted(loaded.command("P", load)), "Loading also refuses an actor far from the slot.");
-    observe(loaded, 1.65 * u_scale, -1.65, 4); load.at("request") = V("span-load-near");
+    observe(loaded, 1.65, -1.65, 4); load.at("request") = V("span-load-near");
     check(accepted(loaded.command("P", load)) &&
               field<I>(field<O>(loaded.projection(), "cargo").at("P"), "raw") == 0 &&
               field<I>(field<A>(field<O>(loaded.projection(), "belt_spans").at(id), "slots")[1], "raw") == 1,
@@ -984,8 +977,8 @@ void belt_span_host_commands() {
               field<bool>(loaded.command("P", recover), "duplicate") && accepted(loaded.validate_checkpoint(loaded.checkpoint())),
           "The emptied span can be removed and the recovery history survives removal and validation.");
     auto obstructed_site = low_flat_site();
-    obstructed_site.at("obstacles") = V(A{V(A{V(A{V(1.5 * u_scale), V(0.4 * u_scale), V(-0.2 * u_scale)}),
-                                                 V(A{V(1.8 * u_scale), V(0.7 * u_scale), V(0.2 * u_scale)})})});
+    obstructed_site.at("obstacles") = V(A{V(A{V(A{V(1.5), V(0.4), V(-0.2)}),
+                                                 V(A{V(1.8), V(0.7), V(0.2)})})});
     Host obstructed;
     check(accepted(obstructed.initialize("blocked", {"P"})) &&
               accepted(obstructed.configure_terrain(obstructed_site)) &&
@@ -998,7 +991,7 @@ void belt_span_host_commands() {
               !factory::values::typed_difference(checkpoint, restored.checkpoint()),
           "A fresh Host restores the span and both original wire histories.");
     check(field<bool>(restored.command("P", install), "duplicate"), "Construction retry keeps its original identity.");
-    observe(restored, 1.65 * u_scale, -1.65, 1);
+    observe(restored, 1.65, -1.65, 1);
     const auto removed = restored.command("P", target("remove_belt_span", id, "span-remove"));
     check(accepted(removed) && field<O>(restored.projection(), "belt_spans").empty() &&
               field<I>(V(field<O>(restored.projection(), "parts")), "belt") == 2,
@@ -1021,7 +1014,9 @@ void nonhorizontal_span_host() {
         };
         observe_at(0, (0.825 + example.start_y * 1.65 / 4) * u_scale, -1.65, 1);
         const auto first = create(host, shaft(0, example.start_y, 0, "3d-first", example.axis));
-        observe_at(example.x * 1.65 / 4 * u_scale, (0.825 + example.y * 1.65 / 4) * u_scale, example.z * 1.65 / 4 * u_scale - 1.65, 2);
+        observe_at(example.x * 1.65 / 4 * u_scale,
+            (0.825 + example.y * 1.65 / 4) * u_scale,
+            example.z * 1.65 / 4 * u_scale - 1.65, 2);
         const auto last = create(host, shaft(example.x, example.y, example.z, "3d-last", example.axis));
         auto install = wire("place_belt_span", "3d-blocked");
         install.emplace("from", V(first)); install.emplace("to", V(last));
@@ -1074,210 +1069,47 @@ void nonhorizontal_span_host() {
     }
 }
 
-void complete_span_route_host(bool two_spans = false) {
+void raised_collector_route_refusal() {
     Host host;
-    A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
-    for (int row = 0; row < 4; ++row) {
-        heights.emplace_back(-1.65); heights.emplace_back(-1.65);
-        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
-    }
-    const O stream{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
-        {"water", V(A{V(A{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
-    check(accepted(host.initialize("cog-api", {"P"})) && accepted(host.configure_terrain(stream)),
-          "The complete span route binds an invented channel.");
-    I epoch{};
-    const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
-    at(-1.65, 3.3);
-    auto wheel = machine("wheel", -2, "route-wheel", "x");
-    wheel.at("cell") = V(A{V(I{-2}), V(I{0})});
-    const auto wheel_id = create(host, wheel);
-    at(0, 0);
+    const auto site = ground_channel_site();
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+          accepted(host.configure_terrain(site)),
+          "The half-U raised-route refusal binds a finite flowing channel.");
+    observe(host, -3.3, 3.3, 1);
+    create(host, ground_channel_wheel("route-wheel"));
+    observe(host, 2.0, 0.0, 2);
     auto base = wire("place_foundation", "raised-collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
+    base.emplace("cell", V(A{V(I{0}), V(I{0})}));
+    base.emplace("level", V(I{4}));
     create(host, base);
-    auto collector_command = machine("collector", 0, "route-collector", "z");
-    collector_command.emplace("level", V(I{4}));
-    const auto collector = create(host, collector_command);
-    at(-3.3, 0);
-    create(host, gear(-4, 4, 0, "route-input", "x", 4));
-    at(-3.3, -1.65);
-    create(host, gear(0, 4, -4, "route-output", "z", 4));
-    const auto front_cogs = two_spans ? std::vector<I>{0, 4, 12} : std::vector<I>{0, 4};
-    for (I x : front_cogs) {
-        at(static_cast<double>(x) * 1.65 / 4.0 * u_scale, -3.3);
-        const auto id = "route-cog-" + std::to_string(x);
-        create(host, gear(x, 4, 0, id.c_str(), "z"));
-    }
-    const auto rear_cogs = two_spans ? std::vector<I>{4, 8, 12, 16, 20} : std::vector<I>{4, 8, 12};
-    for (I x : rear_cogs) {
-        at(static_cast<double>(x) * 1.65 / 4.0 * u_scale, -3.3);
-        const auto id = "route-rear-cog-" + std::to_string(x);
-        create(host, gear(x, 4, -4, id.c_str(), "z"));
-    }
-    const I press_x = two_spans ? 20 : 12;
-    at(press_x * 1.65 / 4 * u_scale, -3.3);
-    const auto press_drive = create(host, shaft(press_x, 4, 0, "route-press-drive"));
-    at(1.65, 0);
-    const auto first = create(host, shaft(4, 4, 4, "route-first"));
-    at(3.3, 0);
-    const auto last = create(host, shaft(8, 4, 4, "route-last"));
-    at(2.475, 0);
-    auto install = wire("place_belt_span", "route-span");
-    install.emplace("from", V(first)); install.emplace("to", V(last));
-    const auto span = create(host, install);
-    std::string second_span;
-    if (two_spans) {
-        at(4.95 * u_scale, 0);
-        const auto next_first = create(host, shaft(12, 4, 4, "route-second-first"));
-        at(6.6 * u_scale, 0);
-        const auto next_last = create(host, shaft(16, 4, 4, "route-second-last"));
-        at(5.775 * u_scale, 0);
-        auto second = wire("place_belt_span", "route-second-span");
-        second.emplace("from", V(next_first)); second.emplace("to", V(next_last));
-        second_span = create(host, second);
-    }
-    at(press_x * 1.65 / 4 * u_scale, 0);
-    auto press_base = wire("place_foundation", "raised-press-base");
-    press_base.emplace("cell", V(A{V(press_x / 4), V(I{1})})); press_base.emplace("level", V(I{4}));
-    create(host, press_base);
-    auto press_command = machine("processor", press_x / 4, "route-press", "z");
-    press_command.emplace("level", V(I{4}));
-    const auto press = create(host, press_command);
-    at(-1.65, 0);
-    check(field<std::string>(motion(host, collector), "state") == "rotating" &&
-              field<std::string>(motion(host, first), "state") == "rotating" &&
-              field<std::string>(motion(host, press), "state") == "rotating" &&
-              field<I>(motion(host, first), "numerator") < 0,
-          "The actual source powers collector, forward belt shafts and processor; collector=" + field<std::string>(motion(host, collector), "state") +
-          ", shaft=" + field<std::string>(motion(host, first), "state") + ", press=" + field<std::string>(motion(host, press), "state") +
-          ", shaft rate=" + std::to_string(field<I>(motion(host, first), "numerator")) + ".");
-    bool saw_cargo = false;
-    for (int i = 0; i < 80 && !saw_cargo; ++i) {
-        (void)host.advance();
-        const auto slots = field<A>(field<O>(host.projection(), "belt_spans").at(two_spans ? second_span : span), "slots");
-        saw_cargo = std::any_of(slots.begin(), slots.end(),
-              [](const V& item) { return item.type() != factory::values::Type::null; });
-    }
-    check(saw_cargo, "The checkpoint is taken with cargo on the downstream constructed belt.");
-    const auto flying_projection = host.projection();
-    check(raw_on_belts(flying_projection) > 0 &&
-              field<I>(flying_projection, "line_belt_raw") == raw_on_belts(flying_projection),
-          "The native line counter includes the actual blanks on every constructed belt span.");
-    const auto in_flight = host.checkpoint();
-    Host paused;
-    check(accepted(paused.initialize("paused", {"P"})) &&
-              accepted(paused.configure_terrain(stream)) && accepted(paused.restore_checkpoint(in_flight)),
-          "A separate Host restores the moving constructed route before interrupting it.");
-    check(!factory::values::typed_difference(in_flight, paused.checkpoint()),
-          "The moving route restores its exact in-flight cargo and phase before interruption.");
-    observe(paused, -1.65, 0, 1000);
-    auto remove_wheel = wire("remove", "route-interrupt"); remove_wheel.emplace("entity", V(wheel_id));
-    check(accepted(paused.command("P", remove_wheel)), "Removing the wheel interrupts the drive with cargo on the belt.");
-    std::vector<std::string> lane_ids{span};
-    if (two_spans) lane_ids.push_back(second_span);
-    const auto stopped_spans = field<O>(paused.projection(), "belt_spans");
-    for (int i = 0; i < 5; ++i) (void)paused.advance();
-    const auto held_spans = field<O>(paused.projection(), "belt_spans");
-    for (const auto& lane_id : lane_ids) {
-        const auto stopped_lane = field<A>(stopped_spans.at(lane_id), "slots");
-        const auto held_lane = field<A>(held_spans.at(lane_id), "slots");
-        bool retained = stopped_lane.size() == held_lane.size();
-        for (std::size_t i = 0; i < stopped_lane.size() && retained; ++i)
-            if (stopped_lane[i].type() != factory::values::Type::null)
-                retained = !factory::values::typed_difference(stopped_lane[i], held_lane[i]);
-        check(retained && field<I>(held_spans.at(lane_id), "phase") ==
-                  field<I>(stopped_spans.at(lane_id), "phase"),
-              "Removing the wheel preserves every in-flight item and phase on span " + lane_id +
-                  ", even if a collector fills an empty slot.");
-    }
-    const auto stopped_checkpoint = paused.checkpoint();
-    Host resumed;
-    check(accepted(resumed.initialize("resumed", {"P"})) && accepted(resumed.configure_terrain(stream)) &&
-              accepted(resumed.restore_checkpoint(stopped_checkpoint)), "The interrupted in-flight route restores in a fresh Host.");
-    check(!factory::values::typed_difference(stopped_checkpoint, resumed.checkpoint()),
-          "The stopped route restores its exact retained cargo and phase before restart.");
-    observe(resumed, -1.65, 3.3, 1001);
-    wheel.at("request") = V("route-rebuilt-wheel");
-    create(resumed, wheel);
-    for (int i = 0; i < 100; ++i) (void)resumed.advance();
-    check(field<I>(V(field<O>(resumed.projection(), "stock")), "output") > 0,
-          "The restarted route delivers cargo to the processor and produces a finished item.");
-    if (!two_spans) {
-        Host output_host;
-        check(accepted(output_host.initialize("processor-output", {"P"})) &&
-              accepted(output_host.configure_terrain(stream)) &&
-              accepted(output_host.restore_checkpoint(resumed.checkpoint())),
-              "The finished processor and its original drive route restore before adding an output belt.");
-        observe(output_host, 6.6 * u_scale, 0.0, 1200);
-        for (const auto& [cell, request_id] : {
-                 std::pair{I{4}, "output-mouth-floor"},
-                 std::pair{I{5}, "output-far-floor"}}) {
-            auto foundation = wire("place_foundation", request_id);
-            foundation.emplace("cell", V(A{V(cell), V(I{1})}));
-            foundation.emplace("level", V(I{4}));
-            create(output_host, foundation);
-        }
-        observe(output_host, 4.95 * u_scale, -1.65 * u_scale, 1201);
-        check(accepted(output_host.command("P", target("remove", press_drive, "replace-press-drive"))),
-              "The held plate survives replacing its original press-drive shaft.");
-        create(output_host, relay("chain_drive", 12, 4, 0, "press-branch-drive", "z", "x"));
-        create(output_host, relay("chain_drive", 16, 4, 0, "output-branch-drive", "z", "x"));
-        observe(output_host, 6.6 * u_scale, 3.3 * u_scale, 1202);
-        const auto mouth = create(output_host, shaft(16, 4, 4, "output-mouth-shaft"));
-        const auto far = create(output_host, shaft(20, 4, 4, "output-far-shaft"));
-        auto belt = wire("place_belt_span", "output-span");
-        belt.emplace("from", V(mouth));
-        belt.emplace("to", V(far));
-        const auto output_span = create(output_host, belt);
-        const auto before_export = field<I>(V(field<O>(output_host.projection(), "stock")), "output");
-        check(before_export == 1 && field<std::string>(motion(output_host, mouth), "state") == "rotating",
-              "The added output-side span has one held plate and a real rotating inlet; held=" +
-                  std::to_string(before_export) + ", inlet=" +
-                  field<std::string>(motion(output_host, mouth), "state") + ".");
-        (void)output_host.advance();
-        const auto shown = output_host.projection();
-        const auto output_slots = field<A>(field<O>(shown, "belt_spans").at(output_span), "slots");
-        check(field<I>(V(field<O>(shown, "stock")), "output") == 0 &&
-              output_slots.front().type() != factory::values::Type::null &&
-              field<I>(output_slots.front(), "products") == 1,
-              "The detached Host projects exactly one processor plate on the supported output belt; held=" +
-                  std::to_string(field<I>(V(field<O>(shown, "stock")), "output")) + ", rate=" +
-                  std::to_string(field<I>(motion(output_host, mouth), "numerator")) + ", first-empty=" +
-                  (output_slots.front().type() == factory::values::Type::null ? "true" : "false") + ".");
-        Host output_restored;
-        check(accepted(output_restored.initialize("output-restored", {"P"})) &&
-              accepted(output_restored.configure_terrain(stream)),
-              "The output route has a fresh Host with matching terrain.");
-        const auto output_restore = output_restored.restore_checkpoint(output_host.checkpoint());
-        check(accepted(output_restore), "The exported plate restores in a fresh Host; reason=" +
-              field<std::string>(output_restore, "reason") + ".");
-        auto before_projection = std::get<O>(shown.storage());
-        auto after_projection = std::get<O>(output_restored.projection().storage());
-        before_projection.erase("actors");
-        after_projection.erase("actors");
-        check(!factory::values::typed_difference(V(before_projection), V(after_projection)),
-              "A fresh shared Host projects the identical exported plate and route after restore.");
-    }
+    auto collector = machine("collector", 0, "route-collector", "z");
+    collector.emplace("level", V(I{4}));
+    const auto before = host.projection();
+    const auto refused = host.command("P", collector);
+    const auto after_refusal = host.projection();
+    const bool stock_same = !factory::values::typed_difference(V(field<O>(before, "stock")),
+        V(field<O>(after_refusal, "stock")));
+    const bool parts_same = !factory::values::typed_difference(V(field<O>(before, "parts")),
+        V(field<O>(after_refusal, "parts")));
+    const bool entities_same = !factory::values::typed_difference(V(field<O>(before, "entities")),
+        V(field<O>(after_refusal, "entities")));
+    check(!accepted(refused) && field<std::string>(refused, "reason") == "occupied" &&
+          stock_same && parts_same && entities_same,
+          "The 3U support slab refuses the old raised collector without spending source or kit: " +
+              field<std::string>(refused, "reason") + ", stock=" + std::to_string(stock_same) +
+              ", parts=" + std::to_string(parts_same) + ", entities=" + std::to_string(entities_same));
+    const auto duplicate = host.command("P", collector);
+    check(!accepted(duplicate) && field<bool>(duplicate, "duplicate") &&
+          field<std::string>(duplicate, "reason") == "occupied",
+          "The blocked raised route replays the same refusal.");
+    const auto saved = host.checkpoint();
     Host restored;
     check(accepted(restored.initialize("fresh", {"P"})) &&
-              accepted(restored.configure_terrain(stream)) &&
-              accepted(restored.restore_checkpoint(in_flight)), "An in-flight route restores in a fresh Host.");
-    const auto restored_projection = restored.projection();
-    check(field<I>(restored_projection, "line_belt_raw") == raw_on_belts(restored_projection) &&
-              raw_on_belts(restored_projection) == raw_on_belts(flying_projection),
-          "A fresh Host projects the same in-flight line count after restore.");
-    for (int i = 0; i < 100; ++i) {
-        (void)host.advance(); (void)restored.advance();
-    }
-    check(!factory::values::typed_difference(host.checkpoint(), restored.checkpoint()) &&
-              field<I>(V(field<O>(restored.projection(), "stock")), "output") > 0 &&
-              field<O>(restored.projection(), "belt_spans").contains(span) &&
-              (!two_spans || field<O>(restored.projection(), "belt_spans").contains(second_span)),
-          "The original and restored constructed routes process transported material with identical custody.");
-    at(press_x * 1.65 / 4 * u_scale, 0);
-    auto retrieve = target("retrieve", press, "route-retrieve"); retrieve.emplace("amount", V(I{1}));
-    check(accepted(host.command("P", retrieve)) && field<I>(field<O>(host.projection(), "cargo").at("P"), "products") == 1,
-          "The constructed route yields a finished product in the actor's custody.");
+          accepted(restored.configure_terrain(site)) &&
+          accepted(restored.restore_checkpoint(saved)) &&
+          !factory::values::typed_difference(saved, restored.checkpoint()),
+          "The finite source and raised collector refusal restore without a phantom machine.");
+
 }
 
 void rotated_span_build_orders() {
@@ -1292,29 +1124,43 @@ void rotated_span_build_orders() {
               "The rotated route binds a synthetic flat site.");
         I epoch = 0;
         const auto at = [&](double z) { observe(host, -1.65, z, ++epoch); };
-        for (const I z : {I{0}, I{3}}) {
-            at(static_cast<double>(z) * 1.65);
+        for (const I z : {I{0}, I{2}}) {
+            at(static_cast<double>(z) * factory::godot_world::site_geometry::pitch * 3);
             const auto id = "rotated-base-" + std::to_string(z);
             auto base = wire("place_foundation", id.c_str());
             base.emplace("cell", V(A{V(I{0}), V(z)})); base.emplace("level", V(I{4}));
             create(host, base);
         }
-        at(1.65);
+        at(factory::godot_world::site_geometry::pitch);
         const auto first = create(host, shaft(0, 4, 4, "rotated-first", "x"));
-        at(3.3);
+        at(2 * factory::godot_world::site_geometry::pitch);
         const auto last = create(host, shaft(0, 4, 8, "rotated-last", "x"));
         std::array<std::string, 3> ids;
         for (int index : order) {
-            at(1.65 * (index == 0 ? 0 : index == 1 ? 1.5 : 3));
+            at(factory::godot_world::site_geometry::pitch *
+                (index == 0 ? 0 : index == 1 ? 1.5 : 5));
             const auto request = "rotated-" + std::to_string(index);
             auto command = index == 1 ? wire("place_belt_span", request.c_str()) :
                 machine(index == 0 ? "collector" : "processor", 0, request.c_str(), "x");
             if (index == 1) {
                 command.emplace("from", V(first)); command.emplace("to", V(last));
             } else {
-                command.at("cell") = V(A{V(I{0}), V(I{index == 0 ? 0 : 3})});
+                command.at("cell") = V(A{V(I{0}), V(I{index == 0 ? 0 : 5})});
                 command.emplace("level", V(I{4}));
                 command.emplace("rotation", V(I{1}));
+            }
+            if (index == 0) {
+                const auto before = host.projection();
+                const auto refused = host.command("P", command);
+                check(!accepted(refused) && field<std::string>(refused, "reason") == "occupied" &&
+                      !factory::values::typed_difference(V(field<O>(before, "stock")),
+                          V(field<O>(host.projection(), "stock"))) &&
+                      !factory::values::typed_difference(V(field<O>(before, "parts")),
+                          V(field<O>(host.projection(), "parts"))) &&
+                      !factory::values::typed_difference(V(field<O>(before, "entities")),
+                          V(field<O>(host.projection(), "entities"))),
+                      "A rotated full-size collector cannot enter its 3U slab in any construction order.");
+                continue;
             }
             ids[index] = create(host, command);
         }
@@ -1335,89 +1181,12 @@ void rotated_span_build_orders() {
     }
 }
 
-void cross_axis_belt_line() {
-    Host host;
-    A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
-    for (int row = 0; row < 4; ++row) {
-        heights.emplace_back(-1.65); heights.emplace_back(-1.65);
-        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
-    }
-    const O stream{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
-        {"water", V(A{V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
-    check(accepted(host.initialize("cog-api", {"P"})) &&
-              accepted(host.configure_terrain(stream)),
-          "The cross-axis Host binds an invented flowing stream.");
-    I epoch{};
-    const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
-    at(0, 0);
-    auto base = wire("place_foundation", "cross-collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
-    create(host, base);
-    auto collector_wire = machine("collector", 0, "cross-collector", "z");
-    collector_wire.emplace("level", V(I{4}));
-    const auto collector = create(host, collector_wire);
-    at(4.95, 0);
-    auto press_base = wire("place_foundation", "cross-press-base");
-    press_base.emplace("cell", V(A{V(I{3}), V(I{1})})); press_base.emplace("level", V(I{4}));
-    create(host, press_base);
-    auto press_wire = machine("processor", 3, "cross-press", "z");
-    press_wire.emplace("level", V(I{4}));
-    const auto press = create(host, press_wire);
-    at(-1.65, 3.3);
-    const auto wheel = create(host, machine("wheel", -2, "cross-wheel", "x"));
-    at(-3.3, 0);
-    const auto input = create(host, gear(-4, 4, 4, "cross-input", "x", 4));
-    at(-3.3, 1.65);
-    const auto output = create(host, gear(0, 4, 8, "cross-output", "z", 4));
-    std::array<std::string, 4> small;
-    for (std::size_t n = 0; n < small.size(); ++n) {
-        const I x = static_cast<I>(n) * 4;
-        at(static_cast<double>(x) * 1.65 / 4.0, 3.3);
-        const auto id = "cross-small-" + std::to_string(n);
-        small[n] = create(host, gear(x, 4, 12, id.c_str(), "z", 2));
-    }
-    at(1.65, 0);
-    create(host, shaft(4, 4, 8, "cross-belt-drive"));
-    const auto first = create(host, shaft(4, 4, 4, "cross-belt-first"));
-    at(3.3, 0);
-    const auto last = create(host, shaft(8, 4, 4, "cross-belt-last"));
-    at(2.475, 0);
-    auto belt_wire = wire("place_belt_span", "cross-span");
-    belt_wire.emplace("from", V(first)); belt_wire.emplace("to", V(last));
-    const auto span = create(host, belt_wire);
-    at(4.95, 0);
-    create(host, shaft(12, 4, 8, "cross-press-drive"));
-    at(-1.65, 0);
-    check(field<I>(motion(host, wheel), "numerator") != 0 &&
-              field<I>(motion(host, collector), "numerator") == -25 &&
-              field<I>(motion(host, first), "numerator") == 25 &&
-              field<I>(motion(host, last), "numerator") == 25 &&
-              field<I>(motion(host, press), "numerator") == 25 &&
-              field<I>(motion(host, first), "denominator") == 84,
-          "The corner drives the collector, both parallel belt shafts and the press at the expected signed rates.");
-    const auto advanced = host.advance();
-    const auto slots = field<A>(field<O>(advanced, "belt_spans").at(span), "slots");
-    check(field<I>(V(field<O>(advanced, "stock")), "source") == 4095 &&
-              field<I>(V(field<O>(advanced, "stock")), "collector") == 0 &&
-              field<I>(slots.front(), "raw") == 1,
-          "The flowing wheel powers the collector and transfers one source unit to the shaft span.");
-    const auto saved = host.checkpoint();
-    Host fresh;
-    check(accepted(fresh.initialize("fresh", {"P"})) &&
-              accepted(fresh.configure_terrain(stream)) &&
-              accepted(fresh.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, fresh.checkpoint()),
-          "The complete one-tile shaft route restores exactly in a fresh Host.");
-    at(-3.3, 1.65);
-    check(accepted(host.command("P", target("remove", output, "cross-remove"))) &&
-              field<std::string>(motion(host, first), "state") != "rotating",
-          "Removing the corner cog interrupts belt power.");
-}
-
 void equivalent_gear_exclusion() {
     for (const auto* axis : std::array<const char*, 4>{"x", "y", "z", nullptr}) {
         const auto* effective_axis = axis ? axis : "x";
         const bool axial_x = std::string(effective_axis) == "x";
-        const A blocked{V(axial_x ? 0.0 : 1.1 * u_scale), V(0.9 * u_scale), V((axial_x ? 2.75 : 1.65) * u_scale)};
+        const A blocked{V(axial_x ? 0.0 : 1.1 * u_scale), V(0.9 * u_scale),
+                        V((axial_x ? 2.75 : 1.65) * u_scale)};
         Host legacy, modern;
         check(accepted(legacy.initialize("cog-api", {"P"})) && accepted(modern.initialize("cog-api", {"P"})) &&
                   accepted(legacy.configure_terrain(low_flat_site())) && accepted(modern.configure_terrain(low_flat_site())),
@@ -1483,7 +1252,8 @@ void global_grid() {
     Host host;
     check(accepted(host.initialize("cog-api", {"P"})) &&
               accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The global-grid fixture initializes.");
-    check(accepted(host.publish_actor("P", {V(16.5 * u_scale), V(6.0 * u_scale), V(6.0 * u_scale)}, 1)),
+    constexpr double step = factory::godot_world::site_geometry::height_step;
+    check(accepted(host.publish_actor("P", {V(40 * step), V(16 * step), V(8 * step + 2.7)}, 1)),
           "A disclosed synthetic actor is near the new absolute grid point.");
     const auto placed = host.command("P", gear(40, 16, 8, "global-grid"));
     check(accepted(placed), "Cogwheels are no longer clipped to the old construction rectangle or height range.");
@@ -1545,67 +1315,41 @@ void individual_shafts() {
     check(field<bool>(fresh.command("P", first_wire), "duplicate"), "A removed shaft request remains an exact historical replay.");
 }
 
-void forward_belt_route() {
+void raised_forward_collector_refusal() {
     Host host;
-    A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
-    for (int row = 0; row < 4; ++row) {
-        heights.emplace_back(-1.65); heights.emplace_back(-1.65);
-        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
-    }
-    const O stream{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
-        {"water", V(A{V(A{V(I{-8}), V(I{4}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
-    check(accepted(host.initialize("cog-api", {"P"})) && accepted(host.configure_terrain(stream)),
-          "The alternate belt route binds an explicit invented stream.");
-    I epoch{};
-    const auto at = [&](double x, double z) { observe(host, x, z, ++epoch); };
-    at(0, 0);
-    auto base = wire("place_foundation", "forward-collector-base");
-    base.emplace("cell", V(A{V(I{0}), V(I{1})})); base.emplace("level", V(I{4}));
-    create(host, base);
-    auto collector_wire = machine("collector", 0, "forward-collector", "z");
-    collector_wire.emplace("level", V(I{4}));
-    const auto collector = create(host, collector_wire);
-    at(4.95, 0);
-    auto press_base = wire("place_foundation", "forward-press-base");
-    press_base.emplace("cell", V(A{V(I{3}), V(I{1})})); press_base.emplace("level", V(I{4}));
-    create(host, press_base);
-    auto press_wire = machine("processor", 3, "forward-press", "z");
-    press_wire.emplace("level", V(I{4}));
-    const auto press = create(host, press_wire);
-    at(-1.65, 3.3);
-    const auto wheel = create(host, machine("wheel", -2, "forward-wheel", "x"));
-    at(-3.3, 0);
-    create(host, gear(-4, 4, 4, "forward-input", "x", 4));
-    at(-3.3, -1.65);
-    create(host, gear(0, 4, 0, "forward-output", "z", 4));
-    std::array<std::string, 4> cogs;
-    for (std::size_t n = 0; n < cogs.size(); ++n) {
-        const I x = static_cast<I>(n) * 4;
-        at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
-        const auto id = "forward-cog-" + std::to_string(n);
-        cogs[n] = create(host, gear(x, 4, -4, id.c_str(), "z", 2));
-    }
-    at(1.65, 0);
-    create(host, shaft(4, 4, 0, "forward-belt-drive"));
-    const auto first = create(host, shaft(4, 4, 4, "forward-first"));
-    at(3.3, 0);
-    const auto last = create(host, shaft(8, 4, 4, "forward-last"));
-    at(2.475, 0);
-    auto belt_wire = wire("place_belt_span", "forward-span");
-    belt_wire.emplace("from", V(first)); belt_wire.emplace("to", V(last));
-    create(host, belt_wire);
-    at(4.95, 0);
-    create(host, shaft(12, 4, 0, "forward-press-drive"));
-    at(-3.3, 0);
+    const auto site = ground_channel_site();
+    check(accepted(host.initialize("cog-api", {"P"})) &&
+          accepted(host.configure_terrain(site)),
+          "The half-U forward-route refusal binds a finite flowing channel.");
+    observe(host, -3.3, 3.3, 1);
+    const auto wheel = create(host, ground_channel_wheel("forward-wheel", "x"));
     const auto wheel_rate = field<I>(motion(host, wheel), "numerator");
-    const auto belt_rate = field<I>(motion(host, first), "numerator");
-    check(wheel_rate < 0 && belt_rate < 0 && field<I>(motion(host, last), "numerator") == belt_rate &&
-              field<std::string>(motion(host, collector), "state") == "rotating" &&
-              field<std::string>(motion(host, press), "state") == "rotating" &&
-              field<I>(V(field<O>(host.projection(), "parts")), "gear") == 4,
-          "The raised corner cogs drive the shaft span and press forward within the finite kit; wheel=" +
-          std::to_string(wheel_rate) + ", belt=" + std::to_string(belt_rate) + ".");
+    check(wheel_rate != 0,
+          "The X-axis full-size wheel keeps a signed native flow rate before machine placement.");
+    observe(host, 2.0, 0.0, 2);
+    auto base = wire("place_foundation", "forward-collector-base");
+    base.emplace("cell", V(A{V(I{0}), V(I{0})})); base.emplace("level", V(I{4}));
+    create(host, base);
+    auto collector = machine("collector", 0, "forward-collector", "z");
+    collector.emplace("level", V(I{4}));
+    const auto before = host.projection();
+    const auto refused = host.command("P", collector);
+    check(!accepted(refused) && field<std::string>(refused, "reason") == "occupied" &&
+          !factory::values::typed_difference(V(field<O>(before, "stock")),
+              V(field<O>(host.projection(), "stock"))) &&
+          !factory::values::typed_difference(V(field<O>(before, "parts")),
+              V(field<O>(host.projection(), "parts"))) &&
+          field<I>(motion(host, wheel), "numerator") == wheel_rate,
+          "The old raised forward collector intersects the 3U slab without spending material or changing wheel flow.");
+    for (int tick = 0; tick < 32; ++tick) (void)host.advance();
+    const auto after = host.projection();
+    check(field<I>(V(field<O>(after, "stock")), "source") == 4096 &&
+          field<I>(V(field<O>(after, "stock")), "collector") == 0 &&
+          field<A>(after, "dropped_material").empty(),
+          "A refused collector cannot extract source stock or invent dropped cargo during continued wheel motion.");
+
 }
+
 void cog_at_belt_face() {
     for (const I direction : {I{-1}, I{1}}) {
         for (const bool cog_first : {false, true}) {
@@ -1632,14 +1376,15 @@ void cog_at_belt_face() {
 
 void cog_axle_actor_clearance() {
     const std::array<std::string, 3> axes{"x", "y", "z"};
+    constexpr double scale = factory::godot_world::site_geometry::pitch / 1.65;
     for (std::size_t axis = 0; axis < axes.size(); ++axis) {
         for (const bool alias : {false, true}) {
             Host host;
             check(accepted(host.initialize("cog-api", {"P", "Q"})) &&
                       accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The cog axle clearance Host starts.");
-            check(accepted(host.publish_actor("P", {V(0.0), V(3.8 * u_scale), V(-2.0)}, 1)), "The builder is within reach and clear.");
-            std::array<double, 3> blocker{0.0, 3.8 * u_scale, 0.0};
-            blocker[axis] += (axis == 1 ? 1.55 * u_scale : 0.7 * u_scale);
+            check(accepted(host.publish_actor("P", {V(0.0), V(3.8 * scale), V(-2.0 * scale)}, 1)), "The builder is within reach and clear.");
+            std::array<double, 3> blocker{0.0, 3.8 * scale, 0.0};
+            blocker[axis] += (axis == 1 ? 1.55 : 0.7) * scale;
             check(accepted(host.publish_actor("Q", {V(blocker[0]), V(blocker[1]), V(blocker[2])}, 1)), "A second synthetic actor occupies only the axle envelope.");
             auto request = alias ? machine("gear", 0, "blocked-axle", axes[axis].c_str()) :
                 gear(0, 8, 0, "blocked-axle", axes[axis].c_str());
@@ -1650,7 +1395,7 @@ void cog_axle_actor_clearance() {
             const auto refused = host.command("P", request);
             check(!accepted(refused) && field<std::string>(refused, "reason") == "actor_occupied",
                   "Either cog placement form refuses an actor at the exposed axle.");
-            check(accepted(host.publish_actor("Q", {V(8.0), V(3.8 * u_scale), V(8.0)}, 2)), "The second actor moves clear.");
+            check(accepted(host.publish_actor("Q", {V(8.0), V(3.8), V(8.0)}, 2)), "The second actor moves clear.");
             request.at("request") = V("clear-axle");
             check(accepted(host.command("P", request)), "The cog can be placed after the axle is clear.");
             const auto checkpoint = host.checkpoint();
@@ -1670,8 +1415,10 @@ void transmission_site_clearance() {
         const auto clear = host.command("P", shaft_part ? shaft(0, 4, 0, "clear-shaft", axes[axis]) :
             gear(0, 4, 0, "clear-cog", axes[axis]));
         check(accepted(clear), "An elevated transmission part with clear terrain is accepted.");
-        std::array<double, 3> obstacle{0.0, 2.475 * u_scale, 0.0};
-        obstacle[part_case == 2 ? (axis + 1) % 3 : axis] += 0.5 * u_scale;
+        std::array<double, 3> obstacle{0.0,
+            4 * factory::godot_world::site_geometry::height_step + factory::godot_world::site_geometry::anchor_height,
+            0.0};
+        obstacle[part_case == 2 ? (axis + 1) % 3 : axis] += 0.5 / grid_scale;
         auto obstructed_site = factory::godot_world::tests::flat_site();
         obstructed_site.at("obstacles") = V(A{V(A{
             V(A{V(obstacle[0] - 0.04), V(obstacle[1] - 0.04), V(obstacle[2] - 0.04)}),
@@ -1701,7 +1448,9 @@ void transmission_site_clearance() {
 void transmission_terrain_clearance() {
     const std::array<const char*, 3> axes{"x", "y", "z"};
     for (std::size_t axis = 0; axis < axes.size(); ++axis) for (const bool is_gear : {false, true}) {
-        const double half_height = ((is_gear || axis == 1) ? 0.825 : 0.1) * u_scale;
+        const double half_height = (is_gear || axis == 1) ?
+            factory::godot_world::site_geometry::pitch / 2 :
+            0.1 * factory::godot_world::site_geometry::pitch / 1.65;
         const auto site_at = [](double height) {
             auto site = factory::godot_world::tests::flat_site();
             site.at("heights") = V(A{V(height), V(height), V(height), V(height)});
@@ -1712,7 +1461,7 @@ void transmission_terrain_clearance() {
         };
         Host clear;
         check(accepted(clear.initialize("cog-api", {"P"})) &&
-              accepted(clear.configure_terrain(site_at(0.825 * u_scale - half_height))), "The contact site binds.");
+              accepted(clear.configure_terrain(site_at(factory::godot_world::site_geometry::anchor_height - half_height))), "The contact site binds.");
         observe(clear, 0, -1.65, 1);
         const auto contact = clear.command("P", command("contact"));
         const bool stand_fits = is_gear || axis == 1;
@@ -1724,7 +1473,7 @@ void transmission_terrain_clearance() {
         const auto saved = clear.checkpoint();
         Host buried;
         check(accepted(buried.initialize("cog-api", {"P"})) &&
-              accepted(buried.configure_terrain(site_at(0.825 * u_scale - half_height + 0.01))), "The penetrating site binds.");
+              accepted(buried.configure_terrain(site_at(factory::godot_world::site_geometry::anchor_height - half_height + 0.01))), "The penetrating site binds.");
         observe(buried, 0, -1.65, 1);
         const auto before = world_state(buried);
         const auto refusal = buried.command("P", command("buried"));
@@ -1756,10 +1505,11 @@ void transmission_terrain_clearance() {
 
 void transmission_foundation_clearance() {
     const std::array<const char*, 3> axes{"x", "y", "z"};
+    constexpr I collision_level = 8;
     for (std::size_t axis = 0; axis < axes.size(); ++axis) for (const bool is_gear : {false, true}) {
-        const auto base = [] (const char* id) {
+        const auto base = [collision_level] (const char* id) {
             auto command = wire("place_foundation", id);
-            command.emplace("cell", V(A{V(I{0}), V(I{0})})); command.emplace("level", V(I{6}));
+            command.emplace("cell", V(A{V(I{0}), V(I{0})})); command.emplace("level", V(collision_level));
             return command;
         };
         const auto part = [&] (const char* id) {
@@ -1803,7 +1553,7 @@ void transmission_foundation_clearance() {
             auto state = std::get<O>(world.at("state").storage());
             auto foundations = std::get<O>(state.at("foundations").storage());
             auto moved = std::get<O>(foundations.at(base_id).storage());
-            moved.at("center") = V(A{V(I{0}), V(I{6}), V(I{0})});
+            moved.at("center") = V(A{V(I{0}), V(collision_level), V(I{0})});
             foundations.at(base_id) = V(std::move(moved)); state.at("foundations") = V(std::move(foundations));
             world.at("state") = V(std::move(state)); envelope.at("world") = V(std::move(world));
             const auto refused = host.validate_checkpoint(V(envelope));
@@ -1820,13 +1570,13 @@ void transmission_foundation_clearance() {
     const auto before = world_state(host);
     auto area = wire("place_foundations", "blocked-area");
     area.emplace("cell", V(A{V(I{-1}), V(I{0})})); area.emplace("end_cell", V(A{V(I{1}), V(I{0})}));
-    area.emplace("level", V(I{6}));
+    area.emplace("level", V(collision_level));
     const auto rejected = host.command("P", area);
     check(!accepted(rejected) && field<std::string>(rejected, "reason") == "occupied" &&
               !factory::values::typed_difference(before, world_state(host)),
           "An obstructed foundation area refuses atomically without consuming any blocks.");
     auto touching = wire("place_foundation", "touching-base");
-    touching.emplace("cell", V(A{V(I{1}), V(I{0})})); touching.emplace("level", V(I{6}));
+    touching.emplace("cell", V(A{V(I{1}), V(I{0})})); touching.emplace("level", V(collision_level));
     check(accepted(host.command("P", touching)) && accepted(host.validate_checkpoint(host.checkpoint())),
           "A foundation may touch a cog at an adjacent tile face without overlapping it.");
 }
@@ -1919,15 +1669,15 @@ void transmission_tile_center() {
     }
 }
 
-void transmission_above_half_foundation() {
+void transmission_above_supporting_foundation() {
     for (const auto* axis : {"x", "y", "z"}) for (const I teeth : {I{0}, I{2}, I{4}}) {
         Host host;
         check(accepted(host.initialize("cog-api", {"P"})) &&
                   accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
-              "The half-height foundation fixture binds its site.");
+              "The supporting foundation fixture binds its site.");
         observe(host, 2.5, 0, 1);
         auto base = wire("place_foundation", "half-base");
-        base.emplace("cell", V(A{V(I{0}), V(I{0})})); base.emplace("level", V(I{2}));
+        base.emplace("cell", V(A{V(I{0}), V(I{0})})); base.emplace("level", V(I{4}));
         create(host, base);
         const auto before = world_state(host);
         const auto intersecting = teeth == 0 ? shaft(0, 0, 0, "below", axis) : gear(0, 0, 0, "below", axis, teeth);
@@ -1946,7 +1696,7 @@ void transmission_above_half_foundation() {
         check(accepted(restored.initialize("fresh", {"P"})) &&
                   accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
                   accepted(restored.restore_checkpoint(saved)) && !factory::values::typed_difference(saved, restored.checkpoint()),
-              "The half-height slab and aligned transmission part restore exactly.");
+              "The supporting slab and aligned transmission part restore exactly.");
     }
 }
 
@@ -1959,27 +1709,25 @@ void half_tile_shaft_bridge() {
         observe(host, 2.5, 2.5, 1);
         const auto before = field<I>(V(field<O>(host.projection(), "part_kits").at("P")), "shaft");
         const auto bridge = std::string(axis) == "x" ?
-            shaft(2, 4, 0, "half-tile-bridge", axis) :
-            shaft(0, 4, 2, "half-tile-bridge", axis);
+            shaft(4, 4, 0, "half-tile-bridge", axis) :
+            shaft(0, 4, 4, "half-tile-bridge", axis);
         const auto placed = host.command("P", bridge);
-        check(!accepted(placed) && field<std::string>(placed, "reason") == "invalid_cell" &&
-              field<I>(V(field<O>(host.projection(), "part_kits").at("P")), "shaft") == before,
-              "An axial half-tile loose-shaft center refuses on the single centered U lattice; reason=" +
+        check(accepted(placed), "A half-span-two shaft fits an admitted axle port along its axis; reason=" +
               field<std::string>(placed, "reason") + ".");
         const auto off_axis = std::string(axis) == "x" ?
-            shaft(0, 4, 2, "off-axis-bridge", axis) :
-            shaft(2, 4, 0, "off-axis-bridge", axis);
+            shaft(2, 4, 0, "off-axis-bridge", axis) :
+            shaft(0, 4, 2, "off-axis-bridge", axis);
         const auto refused = host.command("P", off_axis);
         check(!accepted(refused) && field<std::string>(refused, "reason") == "invalid_cell" &&
-              field<I>(V(field<O>(host.projection(), "part_kits").at("P")), "shaft") == before,
-              "An off-axis half-tile center refuses without spending a shaft.");
+              field<I>(V(field<O>(host.projection(), "part_kits").at("P")), "shaft") == before - 1,
+              "An off-axis half-tile center refuses without spending a second shaft.");
         const auto saved = host.checkpoint();
         Host restored;
         check(accepted(restored.initialize("fresh", {"P"})) &&
               accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
               accepted(restored.restore_checkpoint(saved)) &&
               !factory::values::typed_difference(saved, restored.checkpoint()),
-              "Refused half-tile intents survive a fresh Host restore.");
+              "The valid bridge and refused off-axis intent survive a fresh Host restore.");
     }
 }
 
@@ -2059,10 +1807,10 @@ int main(int argc, char** argv) {
             std::cout << "{\"status\":\"pass\",\"evidence\":\"native_building_rotation\",\"checks\":" << checks << "}\n";
             return 0;
         }
-        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); transmission_above_half_foundation(); half_tile_shaft_bridge(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); transmission_above_supporting_foundation(); half_tile_shaft_bridge(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--foundation-only") { transmission_foundation_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--terrain-only") { transmission_terrain_clearance(); return 0; }
-        if (argc == 2 && std::string(argv[1]) == "--raised-route-only") { complete_span_route_host(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--raised-route-only") { raised_collector_route_refusal(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--transmission-site-only") {
             transmission_site_clearance();
             std::cout << "{\"status\":\"pass\",\"evidence\":\"native_transmission_site\",\"checks\":" << checks << "}" << std::endl;
@@ -2078,7 +1826,7 @@ int main(int argc, char** argv) {
             transmission_request_shapes();
             building_rotation();
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
-            transmission_tile_center(); transmission_above_half_foundation(); half_tile_shaft_bridge(); global_grid(); finite_large_cog(); finite_relays_and_restore(); stacked_vertical_relay_support(); relay_shell_terrain(); powered_relay_route(); perpendicular_belt_line(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); complete_span_route_host(); complete_span_route_host(true); rotated_span_build_orders(); cross_axis_belt_line(); individual_shafts(); forward_belt_route();
+            transmission_tile_center(); transmission_above_supporting_foundation(); half_tile_shaft_bridge(); global_grid(); finite_large_cog(); finite_relays_and_restore(); stacked_vertical_relay_support(); relay_shell_terrain(); powered_relay_route(); ground_collector_output_gap(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); raised_collector_route_refusal(); rotated_span_build_orders(); individual_shafts(); raised_forward_collector_refusal();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

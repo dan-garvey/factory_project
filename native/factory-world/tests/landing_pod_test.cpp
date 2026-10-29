@@ -28,7 +28,7 @@ std::pair<w::Profile, w::State> seed() {
     profile.actors = {"P", "Q"};
     profile.foundation_parts = 24;
     profile.starting_foundation_kits = {{"P", 15}, {"Q", 0}};
-    profile.landing_pod_center = factory::mechanics::Point{4, 0, 16};
+    profile.landing_pod_center = factory::mechanics::Point{12, 0, 36};
     profile.build_reach = 10;
     w::State state;
     state.material.initial_units = 16;
@@ -49,6 +49,31 @@ std::pair<w::Profile, w::State> seed() {
     return {profile, state};
 }
 
+void off_center_pod_preserves_fixed_pose_on_global_slabs() {
+    auto [profile, state] = seed();
+    profile.landing_pod_center = factory::mechanics::Point{8, 0, 32};
+    state.landing_pod->center = *profile.landing_pod_center;
+    state.fabrication_hub->center = w::landing_hub_center(*profile.landing_pod_center);
+    const auto deck = w::landing_deck_centers(*profile.landing_pod_center);
+    for (std::size_t index = 0; index < deck.size(); ++index)
+        state.foundations.at("pod-floor-" + std::to_string(index)).center = deck[index];
+    check(deck[0] == factory::mechanics::Point{0, 0, 24} &&
+          deck[4] == factory::mechanics::Point{12, 0, 36} &&
+          deck[8] == factory::mechanics::Point{24, 0, 48} &&
+          state.fabrication_hub->center == factory::mechanics::Point{20, 0, 32} &&
+          w::foundation_covers_workcell(state.foundations.at("pod-floor-7"),
+              state.fabrication_hub->center),
+          "The fixed pod pose keeps nine globally aligned slabs and a supported clear east bench.");
+    auto world = w::World::create("off-center-pod", profile, state);
+    check(world != nullptr && world->snapshot().state == state,
+          "A mechanically aligned pod need not sit on the center of a 3U slab.");
+    const auto saved = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(saved) &&
+          std::holds_alternative<w::Snapshot>(w::decode_checkpoint(
+              profile, "off-center-pod", std::get<V>(saved))),
+          "An off-center unchanged pod and its distinct slab identities reopen together.");
+}
+
 void settled_pod_and_checkpoint() {
     const auto [profile, state] = seed();
     auto world = w::World::create("pod-world", profile, state);
@@ -66,7 +91,7 @@ void settled_pod_and_checkpoint() {
           std::get<w::Snapshot>(decoded).history.order == snapshot.history.order,
           "A late join or restore observes the same pod, deck and finite carried stock.");
     auto changed_site = profile;
-    changed_site.landing_pod_center = factory::mechanics::Point{8, 0, 16};
+    changed_site.landing_pod_center = factory::mechanics::Point{24, 0, 36};
     const auto mismatch = w::decode_checkpoint(changed_site, "pod-world", std::get<V>(encoded));
     check(std::holds_alternative<w::CheckpointRefusal>(mismatch),
           "A saved pod cannot be moved by changing trusted site profile facts.");
@@ -194,7 +219,7 @@ void foundation_custody_cannot_change_actor_on_restore() {
     const O rebuild{{"context", V("pod-foundation-custody")}, {"client", V("Q-client")},
         {"request", V("Q-rebuild-floor")}, {"actor", V("Q")},
         {"action", V("place_foundation")},
-        {"center", V(V::Array{V(I{0}), V(I{0}), V(I{12})})}};
+        {"center", V(V::Array{V(I{0}), V(I{0}), V(I{24})})}};
     const auto rebuilt = world->command({"Q", "Q-client"}, rebuild, cut);
     check(rebuilt.completed() && std::get<bool>(rebuilt.result->at("accepted").storage()) &&
           world->snapshot().state.foundation_kits.at("Q") == 0 &&
@@ -203,8 +228,8 @@ void foundation_custody_cannot_change_actor_on_restore() {
     const O area{{"context", V("pod-foundation-custody")}, {"client", V("P-client")},
         {"request", V("P-expand-two")}, {"actor", V("P")},
         {"action", V("place_foundations")},
-        {"center", V(V::Array{V(I{12}), V(I{0}), V(I{12})})},
-        {"end", V(V::Array{V(I{12}), V(I{0}), V(I{16})})}};
+        {"center", V(V::Array{V(I{12}), V(I{0}), V(I{0})})},
+        {"end", V(V::Array{V(I{12}), V(I{0}), V(I{12})})}};
     const auto expanded = world->command({"P", "P-client"}, area, cut);
     check(expanded.completed() && std::get<bool>(expanded.result->at("accepted").storage()) &&
           world->snapshot().state.foundation_kits.at("P") == 13 &&
@@ -246,7 +271,10 @@ void deck_recovery_is_a_normal_world_transaction() {
     auto bench_floor = intent;
     bench_floor.at("request") = V("take-bench-floor");
     bench_floor.at("target") = V("pod-floor-7");
-    const auto unsupported = world->command({"P", "P-first"}, bench_floor, cut);
+    const auto bench_cut = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {12, 0, 36}, 7, true, 10};
+    };
+    const auto unsupported = world->command({"P", "P-first"}, bench_floor, bench_cut);
     check(unsupported.completed() && !std::get<bool>(unsupported.result->at("accepted").storage()) &&
           std::get<std::string>(unsupported.result->at("reason").storage()) == "foundation_in_use" &&
           world->snapshot().state == after.state,
@@ -264,17 +292,17 @@ void deck_recovery_is_a_normal_world_transaction() {
 void reachable_craft_uses_one_hub_and_owned_ingredients() {
     auto [profile, state] = seed();
     profile.build_reach = 4;
-    profile.material.timber_sites = {{"tree-near-hub", {{8, 0, 20}, 8}}};
+    profile.material.timber_sites = {{"tree-near-hub", {{24, 0, 40}, 8}}};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
     profile.material.component_capacity = 1;
     state.material.timber_remaining = {{"tree-near-hub", 8}};
     auto world = w::World::create("pod-craft", profile, state);
     check(world != nullptr, "The one seeded bench shares a finite resource world.");
     const auto near = [](const std::string& actor) -> std::optional<a::ActorCut> {
-        return a::ActorCut{actor, {8, 0, 16}, 4, true, 4};
+        return a::ActorCut{actor, {24, 0, 36}, 4, true, 4};
     };
     const auto far = [](const std::string& actor) -> std::optional<a::ActorCut> {
-        return a::ActorCut{actor, {20, 0, 16}, 4, true, 4};
+        return a::ActorCut{actor, {32, 0, 36}, 4, true, 4};
     };
     for (int cut = 0; cut < 3; ++cut) {
         const O harvest{{"context", V("pod-craft")}, {"client", V("P-client")},
@@ -367,15 +395,15 @@ void placed_components_keep_custody_and_history() {
     auto [profile, state] = seed();
     profile.build_reach = 4;
     profile.material.component_capacity = 1;
-    profile.material.timber_sites = {{"tree", {{8, 0, 20}, 8}}};
+    profile.material.timber_sites = {{"tree", {{24, 0, 40}, 8}}};
     state.material.timber_remaining = {{"tree", 8}};
     auto world = w::World::create("placed-chapter", profile, state);
     check(world != nullptr, "The placement fixture begins with finite timber and no parts.");
     const auto near = [](const std::string& actor) -> std::optional<a::ActorCut> {
-        return a::ActorCut{actor, {8, 0, 16}, 2, true, 4};
+        return a::ActorCut{actor, {24, 0, 36}, 2, true, 4};
     };
     const auto far = [](const std::string& actor) -> std::optional<a::ActorCut> {
-        return a::ActorCut{actor, {32, 0, 16}, 2, true, 4};
+        return a::ActorCut{actor, {40, 0, 36}, 2, true, 4};
     };
     const auto send = [&](const O& request, w::ObserveActor pose = {}) {
         const auto actor = std::get<std::string>(request.at("actor").storage());
@@ -403,7 +431,7 @@ void placed_components_keep_custody_and_history() {
     const O place{{"context", V("placed-chapter")}, {"client", V("P-client")},
         {"request", V("place-frame")}, {"actor", V("P")}, {"action", V("place_component")},
         {"component", V("wooden_frame")},
-        {"center", V(V::Array{V(I{8}), V(I{0}), V(I{12})})}};
+        {"center", V(V::Array{V(I{24}), V(I{0}), V(I{32})})}};
     const auto remote = send(place, far);
     check(remote.completed() && !std::get<bool>(remote.result->at("accepted").storage()) &&
         std::get<std::string>(remote.result->at("reason").storage()) == "out_of_reach",
@@ -426,12 +454,12 @@ void placed_components_keep_custody_and_history() {
     const auto installed = world->snapshot();
     check(installed.state.material.cargo.at("P").components.empty() &&
           installed.state.material.placed_components.at(m::Component::wooden_frame) == 1 &&
-          installed.state.placed_components.at(id).center == factory::mechanics::Point{8, 0, 12} &&
+          installed.state.placed_components.at(id).center == factory::mechanics::Point{24, 0, 32} &&
           installed.state.material.timber_remaining.at("tree") == 5,
         "The installed frame retains all three timber in the canonical material ledger.");
     const O remove_support{{"context", V("placed-chapter")}, {"client", V("P-client")},
         {"request", V("take-support")}, {"actor", V("P")}, {"action", V("remove_foundation")},
-        {"target", V("pod-floor-6")}, {"generation", V(I{1})}};
+        {"target", V("pod-floor-7")}, {"generation", V(I{1})}};
     const auto supported = send(remove_support);
     check(supported.completed() && !std::get<bool>(supported.result->at("accepted").storage()) &&
           std::get<std::string>(supported.result->at("reason").storage()) == "foundation_in_use" &&
@@ -521,7 +549,7 @@ void placed_components_keep_custody_and_history() {
     auto place_shaft = place;
     place_shaft.at("request") = V("place-shaft");
     place_shaft.at("component") = V("wooden_shaft");
-    place_shaft.at("center") = V(V::Array{V(I{8}), V(I{0}), V(I{15})});
+    place_shaft.at("center") = V(V::Array{V(I{24}), V(I{0}), V(I{35})});
     const auto shaft = send(place_shaft);
     check(shaft.completed() && std::get<bool>(shaft.result->at("accepted").storage()),
           "P installs its shaft while Q's frame remains installed.");
@@ -559,12 +587,12 @@ void unbounded_component_reclaim_keeps_history() {
     profile.build_reach = 4;
     profile.material.hand_carry_capacity = 0;
     profile.material.component_capacity = 0;
-    profile.material.timber_sites = {{"tree", {{8, 0, 20}, 8}}};
+    profile.material.timber_sites = {{"tree", {{24, 0, 40}, 8}}};
     state.material.timber_remaining = {{"tree", 8}};
     auto world = w::World::create("unbounded-chapter", profile, state);
     check(world != nullptr, "The uncapped chapter world starts with finite shared timber.");
     const auto near = [](const std::string& actor) -> std::optional<a::ActorCut> {
-        return a::ActorCut{actor, {8, 0, 16}, 2, true, 4};
+        return a::ActorCut{actor, {24, 0, 36}, 2, true, 4};
     };
     const auto send = [&](O request) {
         const auto actor = std::get<std::string>(request.at("actor").storage());
@@ -592,7 +620,7 @@ void unbounded_component_reclaim_keeps_history() {
           "The bench makes a frame from three finite timber units.");
     auto place = intent("place-frame", "place_component");
     place.emplace("component", V("wooden_frame"));
-    place.emplace("center", V(V::Array{V(I{8}), V(I{0}), V(I{12})}));
+    place.emplace("center", V(V::Array{V(I{24}), V(I{0}), V(I{32})}));
     const auto placed = send(place);
     check(placed.completed() && std::get<bool>(placed.result->at("accepted").storage()),
           "The actor installs the same frame in the world.");
@@ -724,7 +752,7 @@ void portable_bench_crafts_with_finite_shared_stock() {
         {"request", V("stow-pod-workshop")}, {"actor", V("P")},
         {"action", V("stow_fabrication_hub")}, {"target", V("pod-fabrication-hub")},
         {"generation", V(I{1})}};
-    const auto stowed = send(stow_hub, {8, 0, 16});
+    const auto stowed = send(stow_hub, {24, 0, 36});
     check(stowed.completed() && std::get<bool>(stowed.result->at("accepted").storage()) &&
           world->snapshot().state.fabrication_hub->holder == "P",
           "P unbolts the one issued pod workshop into explicit actor custody.");
@@ -732,7 +760,7 @@ void portable_bench_crafts_with_finite_shared_stock() {
         {"request", V("craft-at-stowed-pod")}, {"actor", V("Q")},
         {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
         {"generation", V(I{1})}, {"component", V("cutting_edge")}};
-    const auto absent_pod = send(pod_craft, {8, 0, 16});
+    const auto absent_pod = send(pod_craft, {24, 0, 36});
     check(absent_pod.completed() && !std::get<bool>(absent_pod.result->at("accepted").storage()) &&
           std::get<std::string>(absent_pod.result->at("reason").storage()) == "unknown_target",
           "A stowed pod workshop cannot remain a hidden remote crafting authority.");
@@ -826,13 +854,13 @@ void portable_bench_crafts_with_finite_shared_stock() {
     const O raised_floor{{"context", V("portable-bench")}, {"client", V("P-client")},
         {"request", V("raised-workshop-floor")}, {"actor", V("P")},
         {"action", V("place_foundation")},
-        {"center", V(V::Array{V(I{24}), V(I{2}), V(I{16})})}};
-    const auto floor = send(raised_floor, {20, 0, 16});
+        {"center", V(V::Array{V(I{24}), V(I{4}), V(I{12})})}};
+    const auto floor = send(raised_floor, {24, 0, 16});
     check(floor.completed() && std::get<bool>(floor.result->at("accepted").storage()),
-          "P places an ordinary foundation two shared height units above ground.");
+          "P places an ordinary foundation one full mechanical level above ground.");
     auto off_tile = place;
     off_tile.at("request") = V("off-tile-workshop");
-    off_tile.at("center") = V(V::Array{V(I{25}), V(I{2}), V(I{16})});
+    off_tile.at("center") = V(V::Array{V(I{25}), V(I{4}), V(I{16})});
     const auto misaligned = send(off_tile, {20, 0, 16});
     check(misaligned.completed() && !std::get<bool>(misaligned.result->at("accepted").storage()) &&
           std::get<std::string>(misaligned.result->at("reason").storage()) == "unsupported_bench" &&
@@ -840,17 +868,17 @@ void portable_bench_crafts_with_finite_shared_stock() {
           "A nearby quarter cell does not become a separate bench grid or consume its component.");
     auto reinstall = place;
     reinstall.at("request") = V("reinstall-bench");
-    reinstall.at("center") = V(V::Array{V(I{24}), V(I{2}), V(I{16})});
+    reinstall.at("center") = V(V::Array{V(I{24}), V(I{4}), V(I{16})});
     const auto reinstalled = send(reinstall, {20, 0, 16});
     check(reinstalled.completed() && std::get<bool>(reinstalled.result->at("accepted").storage()) &&
           world->snapshot().state.material.cargo.at("P").components.empty() &&
           w::World::restore("portable-bench", profile, world->snapshot()) != nullptr,
-          "P reinstalls the reclaimed bench at the half-height foundation and frees its carried slot.");
+          "P reinstalls the reclaimed bench at a full-U foundation and frees its carried slot.");
     const O remove_floor{{"context", V("portable-bench")}, {"client", V("P-client")},
         {"request", V("remove-raised-workshop-floor")}, {"actor", V("P")},
         {"action", V("remove_foundation")}, {"target", floor.result->at("entity")},
         {"generation", floor.result->at("generation")}};
-    const auto occupied_floor = send(remove_floor, {20, 0, 16});
+    const auto occupied_floor = send(remove_floor, {24, 0, 16});
     check(occupied_floor.completed() && !std::get<bool>(occupied_floor.result->at("accepted").storage()) &&
           std::get<std::string>(occupied_floor.result->at("reason").storage()) == "foundation_in_use",
           "The raised workshop keeps its exact supporting floor from removal.");
@@ -880,10 +908,10 @@ void portable_bench_crafts_with_finite_shared_stock() {
     raised_craft.at("request") = V("raised-bench-shaft");
     raised_craft.at("target") = reinstalled.result->at("entity");
     raised_craft.at("generation") = reinstalled.result->at("generation");
-    check(std::get<bool>(send(raised_craft, {24, 2, 16}).result->at("accepted").storage()) &&
+    check(std::get<bool>(send(raised_craft, {24, 4, 16}).result->at("accepted").storage()) &&
           world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1 &&
           w::World::restore("portable-bench", profile, world->snapshot()) != nullptr,
-          "The half-height player-built bench crafts and restores on the same foundation level.");
+          "The raised player-built bench crafts and restores on the same foundation level.");
 }
 void powered_slide_ticks_and_restores() {
     auto [profile, state] = seed();
@@ -1042,7 +1070,7 @@ void sized_cog_recipes_keep_finite_actor_custody() {
         return a::ActorCut{actor, {-3, 0, 0}, 1, true, 10};
     };
     const auto near_hub = [](const std::string& actor) -> std::optional<a::ActorCut> {
-        return a::ActorCut{actor, {8, 0, 16}, 1, true, 10};
+        return a::ActorCut{actor, {24, 0, 36}, 1, true, 10};
     };
     for (int index = 0; index < 3; ++index) {
         const O cut{{"context", V("sized-cogs")}, {"client", V("P-client")},
@@ -1128,6 +1156,7 @@ void sized_cog_recipes_keep_finite_actor_custody() {
 
 int main() {
     try {
+        off_center_pod_preserves_fixed_pose_on_global_slabs();
         settled_pod_and_checkpoint();
         field_wood_shaping_keeps_actor_custody();
         seed_cannot_duplicate_or_forge_pod();

@@ -750,13 +750,13 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 	inventory.catalog.hide()
 	if not await _approach(Vector2(9.0, 6.0)):
 		return
-	var placed: Dictionary = _construct({"action": "place_foundation", "cell": [5, 2], "level": 2})
+	var placed: Dictionary = _construct({"action": "place_foundation", "cell": [5, 2], "level": 4})
 	if placed.is_empty():
 		return
 	var built: Dictionary = opening.model.projection()
 	var floor_id := ""
 	for id: String in built.foundations:
-		if built.foundations[id].cell == [5, 2] and built.foundations[id].level == 2:
+		if built.foundations[id].cell == [5, 2] and built.foundations[id].level == 4:
 			floor_id = id
 	if not _expect(not floor_id.is_empty() and built.part_kits.P.foundation == before.part_kits.P.foundation,
 			"The crafted floor can enter the ordinary native construction inventory"):
@@ -1217,29 +1217,27 @@ func _foundations() -> void:
 	# desktop-input test or evidence that a human understood the interaction.
 	opening.auto_advance = false
 	opening.set_process(false)
-	if not await _walk_to(Vector2(9.0, 6.0)):
+	if not await _walk_to(Vector2(12.0, 6.9)):
 		return
 	var before: Dictionary = opening.model.projection()
-	var first: Dictionary = _issue({"action": "place_foundation", "cell": [5, 2], "level": 2})
+	var first: Dictionary = _issue({"action": "place_foundation", "cell": [5, 2], "level": 4})
 	if not _expect(first.accepted, "The real nearby actor can build beyond the removed local rectangle"):
 		return
-	var second: Dictionary = _issue({"action": "place_foundation", "cell": [6, 2], "level": 2})
+	var second: Dictionary = _issue({"action": "place_foundation", "cell": [6, 2], "level": 4})
 	if not _expect(second.accepted, "An independently placed foundation shares the absolute height grid"):
 		return
 	for _frame in range(3):
 		await physics_frame
 		await process_frame
 	opening._select_tool("foundation")
-	opening.foundation_steps_toggle.button_pressed = true
-	opening._adjust_foundation_level(-2)
-	if not _expect(opening.foundation_level == 2 and opening.foundation_level_label.text.begins_with("Access step"),
-			"The actual controls distinguish a traversable intermediate step from a machine floor"):
+	if not _expect(opening.foundation_level == 4 and opening.foundation_level_label.text.begins_with("Factory floor"),
+			"The actual controls present every full-U foundation top as a machine floor"):
 		return
 	if not _expect(opening.actor_world._geometry_registered(), "Displayed foundation levels match registered native box bodies"):
 		return
-	if not await _walk_to(Vector2(8.25, 3.3), true):
+	if not await _walk_to(Vector2(12.375, 4.95), true):
 		return
-	if not _expect(facts.foundation_jump.edge_sent and facts.foundation_jump.highest_foot > 2.0 * OpeningGeometry.HEIGHT_STEP + 0.05,
+	if not _expect(facts.foundation_jump.edge_sent and facts.foundation_jump.highest_foot > 4.0 * OpeningGeometry.HEIGHT_STEP + 0.05,
 			"The actual jump lifts the capsule feet above one full foundation before landing"):
 		return
 	for _frame in range(40):
@@ -1247,7 +1245,7 @@ func _foundations() -> void:
 		await process_frame
 	var body = opening.actor_world.bodies.P
 	facts["standing_on_foundation"] = opening.actor_world.diagnostics("P")
-	if not _expect(body.is_on_floor() and absf(body.global_position.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0 - 2.0 * OpeningGeometry.HEIGHT_STEP) < 0.02,
+	if not _expect(body.is_on_floor() and absf(body.global_position.y - OpeningGeometry.CAPSULE_HEIGHT / 2.0 - 4.0 * OpeningGeometry.HEIGHT_STEP) < 0.02,
 			"The real capsule walks and lands on the constructed surface at the common height"):
 		return
 	var saved: Dictionary = opening._save_worksite()
@@ -1255,15 +1253,15 @@ func _foundations() -> void:
 	if not _expect(saved.accepted and saved.native_preflight.accepted,
 			"Store accepts the real registered pose and foundation custody: " + str(saved)):
 		return
-	if not await _walk_to(Vector2(9.0, 6.0)):
+	if not await _walk_to(Vector2(12.0, 6.9)):
 		return
-	opening.foundation_steps_toggle.button_pressed = false
-	if not _expect(opening.foundation_level == 4 and opening.foundation_level_label.text.begins_with("Factory floor"),
-			"Leaving step mode selects the common whole-tile machine floor"):
+	opening._adjust_foundation_level(1)
+	if not _expect(opening.foundation_level == 8 and opening.foundation_level_label.text.begins_with("Factory floor"),
+			"The next foundation height selects the next complete machine floor"):
 		return
 	opening._world_click(Vector2i(5, 2))
 	if not _expect(opening.model.projection().foundations.size() == 3,
-			"The first ordinary foundation click adds the aligned floor above the access step"):
+			"The first ordinary foundation click adds a second full-U floor above its base"):
 		return
 	opening._world_click(Vector2i(6, 2))
 	if not _expect(opening.model.projection().foundations.size() == 4,
@@ -1271,13 +1269,13 @@ func _foundations() -> void:
 		return
 	opening._select_tool("processor")
 	opening.transmission_controls.selected_axis = "x"
-	opening._world_click(Vector2i(5, 2))
+	opening._world_click(Vector2i(16, 6))
 	if not _expect(opening.model.projection().entities.size() == 1, "The ordinary press placement succeeds before dependent probing"):
 		return
 	opening._select_tool("drive")
 	opening.transmission_controls.selected_axis = "x"
-	opening.transmission_controls.gear_height = 4
-	opening._world_click(Vector2i(6, 2))
+	opening.transmission_controls.gear_height = 8
+	opening._world_click(Vector2i(17, 6))
 	for _frame in range(3):
 		await physics_frame
 		await process_frame
@@ -1296,17 +1294,17 @@ func _foundations() -> void:
 	for id in current.entities:
 		var entity: Dictionary = current.entities[id]
 		var physical: StaticBody3D = opening.actor_world.machines[id]
-		if not _expect(entity.level == 4 and absf(physical.position.y - OpeningGeometry.MACHINE_CENTER_HEIGHT - 4.0 * OpeningGeometry.HEIGHT_STEP) < 0.00001,
+		if not _expect(entity.level == 8 and absf(physical.position.y - OpeningGeometry.MACHINE_CENTER_HEIGHT - 8.0 * OpeningGeometry.HEIGHT_STEP) < 0.00001,
 				"Machine projection, mesh and native contact share the foundation height"):
 			return
 	var shaft: Dictionary = current.transmission_parts[shaft_id]
 	var shaft_body = opening.actor_world.mechanical_bodies.get(shaft_id)
 	# A machine collision box has its own centre offset. The native profile
 	# and actual engagement define the common mechanical axis instead.
-	var mechanical_height: float = 4.0 * current.adapter_profile.height_step + current.adapter_profile.anchor_height
+	var mechanical_height: float = 8.0 * current.adapter_profile.height_step + current.adapter_profile.anchor_height
 	facts["foundation_alignment"] = {"press_collision_y": opening.actor_world.machines[press_id].position.y,
 		"shaft_collision_y": shaft_body.position.y if shaft_body != null else null, "native_mechanical_y": mechanical_height}
-	if not _expect(shaft.kind == "shaft" and shaft.center[1] == 4 and shaft_body != null
+	if not _expect(shaft.kind == "shaft" and shaft.center[1] == 8 and shaft_body != null
 			and absf(shaft_body.position.y - mechanical_height) < 0.00001
 			and opening.actor_world._geometry_registered(),
 			"The shaft uses the engaged press's native mechanical height and both collision bodies remain registered"):
@@ -1316,7 +1314,7 @@ func _foundations() -> void:
 		return
 	var upper := ""
 	for id: String in current.foundations:
-		if current.foundations[id].cell == [5, 2] and current.foundations[id].level == 4:
+		if current.foundations[id].cell == [5, 2] and current.foundations[id].level == 8:
 			upper = id
 	if not _expect(not upper.is_empty() and _issue({"action": "remove", "entity": upper}).reason == "foundation_in_use",
 			"A supporting foundation cannot disappear beneath a machine"):
@@ -3246,6 +3244,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"The native arrival starts with an empty hotbar and its expected plate gate"):
 		return
 	inventory.open_catalog()
+	if raised_snap:
+		inventory.recipe_tabs.machine.pressed.emit()
 	if not _expect(inventory.recipe_buttons.has("component:anvil")
 			and inventory.recipe_buttons.has("component:flat_head")
 			and inventory.recipe_buttons.has("component:wooden_slide")
@@ -3328,19 +3328,24 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	if raised_snap:
 		if not _press_inventory_recipe("foundation", str(start.fabrication_hub.id)):
 			return
-		opening._select_tool("foundation")
-		opening._world_click(Vector2i(3, 4))
-		if not _expect(opening.model.projection().foundations.values().any(func(floor: Variant) -> bool:
-			return floor.cell == [3, 4] and floor.level == OpeningGeometry.HEIGHT_DENOMINATOR),
-			"The starter route places a raised foundation through its ordinary build tool"):
+		if not await _approach(Vector2(5.7, 5.8)):
 			return
-	if not await _approach(Vector2(4.95, 4.95)):
+		opening._select_tool("foundation")
+		opening._world_click(Vector2i(3, 3))
+		var placed_floor: bool = opening.model.projection().foundations.values().any(
+			func(floor: Variant) -> bool:
+				return floor.cell == [3, 3] and floor.level == OpeningGeometry.HEIGHT_DENOMINATOR)
+		if not _expect(placed_floor,
+			"The starter route places a raised foundation through its ordinary build tool: "
+			+ opening.status_label.text):
+			return
+	if not await _approach(Vector2(5.6, 5.6) if raised_snap else Vector2(4.95, 4.95)):
 		return
 	var fitted: Dictionary = {}
 	var rise := OpeningGeometry.HEIGHT_DENOMINATOR if raised_snap else 0
-	var press_x := 12 if raised_snap else 8
-	var press_z := 16 if raised_snap else 12
-	var press_cell := Vector2i(3, 4) if raised_snap else Vector2i(2, 3)
+	var press_x := 32 if raised_snap else 8
+	var press_z := 32 if raised_snap else 12
+	var press_cell := Vector2i(8, 8) if raised_snap else Vector2i(2, 3)
 	for part in [{"kind": "anvil", "center": [press_x, rise, press_z]},
 			{"kind": "flat_head", "center": [press_x, rise + 1, press_z]},
 			{"kind": "wooden_slide", "center": [press_x, rise + 2, press_z]}]:
@@ -3350,7 +3355,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if part.kind == "anvil" and raised_snap:
 			opening.distance = 0.0
 			opening._update_camera()
-			var floor_target := Vector3(4.95, 1.55, 6.6)
+			var floor_target := Vector3(6.6, 0.75, 6.6)
 			var floor_direction: Vector3 = (floor_target - opening.camera.global_position).normalized()
 			opening.orbit_yaw = atan2(-floor_direction.x, -floor_direction.z)
 			opening.orbit_pitch = asin(clampf(-floor_direction.y, -1.0, 1.0))
@@ -3360,10 +3365,14 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			var floor_pointed: String = opening._screen_entity(floor_screen)
 			var floor_cell: Vector2i = opening._screen_cell(floor_screen)
 			opening._refresh_component_preview()
-			if not _expect(floor_cell == Vector2i(3, 4)
+			if not _expect(floor_cell == press_cell
 					and opening._component_place_center(floor_cell, floor_pointed) == part.center
 					and opening.component_preview.visible and not opening.component_preview_blocked,
-					"The actor-eye foundation pick shows a clear, floor-seated anvil ghost"):
+				"The actor-eye foundation pick shows a clear, floor-seated anvil ghost: "
+				+ str({"cell": floor_cell, "expected": press_cell, "pointed": floor_pointed,
+					"center": opening._component_place_center(floor_cell, floor_pointed),
+					"preview": opening.component_preview.visible,
+					"blocked": opening.component_preview_blocked})):
 				return
 			if event_route_pointer:
 				await _ordinary_left_click(floor_screen)
@@ -4755,8 +4764,8 @@ func _arrival_run() -> void:
 			and opening.landing_pod_visual.get_meta("authority_entity", "") == pod_state.landing_pod.id
 			and opening.landing_hub_visual.get_meta("authority_entity", "") == pod_state.fabrication_hub.id
 			and opening.landing_pod_visual.position.distance_to(Vector3(1.65, 0, 6.6)) < 0.001
-			and opening.landing_hub_visual.position.distance_to(Vector3(3.3, 0, 6.6)) < 0.001,
-			"The settled hull and bench meet the native foundation top plane without a pod crank display"):
+			and opening.landing_hub_visual.position.distance_to(Vector3(4.125, 0, 6.6)) < 0.001,
+			"The unchanged pod and east bench meet the native foundation top plane"):
 		return
 	if DisplayServer.get_name() != "headless":
 		while opening.get_node_or_null("MachinePreviewWarmup") != null and Time.get_ticks_msec() < deadline:
@@ -4865,7 +4874,8 @@ func _arrival_run() -> void:
 	if mode == "arrival-craft-capacity":
 		await _arrival_capacity_run(panel, capture_prefix)
 		return
-	if not capture_prefix.is_empty() and mode in ["arrival-press", "arrival-guide-geometry"]:
+	if not capture_prefix.is_empty() and mode in ["arrival-press", "arrival-guide-geometry",
+			"arrival-raised-press"]:
 		await process_frame
 		var landfall: Image = root.get_texture().get_image()
 		if not _expect(landfall != null and landfall.save_png(capture_prefix + "-landfall.png") == OK,
@@ -4977,6 +4987,8 @@ func _arrival_run() -> void:
 	var raised: bool = mode == "arrival-raised-press"
 	opening._open_object_menu_for(str(pod_state.fabrication_hub.id))
 	var inventory = opening.building_hotbar
+	if raised:
+		inventory.recipe_tabs.machine.pressed.emit()
 	if not _expect(inventory.catalog.visible and inventory.context_bench == pod_state.fabrication_hub.id
 			and inventory.recipe_buttons.has("component:wooden_frame")
 			and inventory.recipe_buttons["component:wooden_frame"].visible
@@ -5068,11 +5080,11 @@ func _arrival_run() -> void:
 		opening._select_tool("component")
 		if not _select_inventory_item("component:anvil"):
 			return
-		var deck_center := [0, 0, 12]
+		var deck_center := [0, 0, 24]
 		var before_deck: Dictionary = opening.model.projection()
 		opening.component_nudge_active = true
 		opening.component_nudge_center = deck_center.duplicate()
-		opening._world_click(Vector2i(0, 3))
+		opening._world_click(Vector2i(0, 6))
 		opening.component_nudge_active = false
 		opening.component_nudge_center.clear()
 		var on_deck: Dictionary = opening.model.projection()
@@ -5084,7 +5096,7 @@ func _arrival_run() -> void:
 		if not _expect(on_deck.order == before_deck.order + 1
 				and deck_anvil.get("component") == "anvil" and deck_anvil.get("center") == deck_center
 				and on_deck.foundations.values().any(func(floor: Variant) -> bool:
-					return floor.cell == [0, 3] and floor.level == 0),
+					return floor.cell == [0, 2] and floor.level == 0),
 				"The ordinary component tool places one anvil on the pod's existing forward deck"):
 			return
 		var deck_box: Dictionary = deck_anvil.occupied
@@ -5141,15 +5153,17 @@ func _arrival_run() -> void:
 				"Two local timber make one raised press floor through the ordinary workshop"):
 			return
 		opening._select_tool("foundation")
-		opening._world_click(Vector2i(3, 4))
+		if not await _approach(Vector2(5.7, 5.8)):
+			return
+		opening._world_click(Vector2i(3, 3))
 		var floored: Dictionary = opening.model.projection()
 		if not _expect(floored.order == floor_kit.order + 1
 				and floored.part_kits.P.foundation == before_floor.part_kits.P.foundation
 				and floored.foundations.values().any(func(floor: Variant) -> bool:
-					return floor.cell == [3, 4] and floor.level == OpeningGeometry.HEIGHT_DENOMINATOR),
+					return floor.cell == [3, 3] and floor.level == OpeningGeometry.HEIGHT_DENOMINATOR),
 				"The ordinary foundation tool installs a shared-grid floor under the press"):
 			return
-		if not await _approach(Vector2(4.95, 4.95)):
+		if not await _approach(Vector2(5.6, 5.6)):
 			return
 	opening._select_tool("component")
 	var expected_status := ["missing_ram", "missing_guide", "missing_shaft",
@@ -5163,23 +5177,26 @@ func _arrival_run() -> void:
 		var kind: String = part_list[index]
 		if not _select_inventory_item("component:" + kind):
 			return
-		var requested_center := [3 * OpeningGeometry.HEIGHT_DENOMINATOR + maxi(index - 2, 0),
+		var requested_center := [(32 if raised else 3 * OpeningGeometry.HEIGHT_DENOMINATOR) + maxi(index - 2, 0),
 			[0, 1, 3, 4, 4][index] + (OpeningGeometry.HEIGHT_DENOMINATOR if raised else 0),
-			4 * OpeningGeometry.HEIGHT_DENOMINATOR]
+			32 if raised else 4 * OpeningGeometry.HEIGHT_DENOMINATOR]
 		var before: int = opening.model.projection().order
 		var before_parts: Dictionary = opening.model.projection().placed_components
 		if mode in ["arrival-press", "arrival-guide-geometry", "arrival-raised-press"]:
-			if index == 3 and not await _approach(Vector2(6.6, 6.6)):
-				return
+			if index == 3:
+				if raised and not await _approach(Vector2(8.4, 5.8)):
+					return
+				if not raised and not await _approach(Vector2(6.6, 6.6)):
+					return
 			await physics_frame
 			await process_frame
 			opening.distance = 0.0
 			opening._update_camera()
-			var target := Vector3(4.95, 1.65 if raised else 0.0, 6.6)
+			var target := Vector3(6.6 if raised else 4.95, 0.75 if raised else 0.0, 6.6)
 			var expected_face := Vector3.UP
 			var target_id := ""
 			if index > 0:
-				target_id = str(press_parts["ram_face" if index == 2 else "anvil"])
+				target_id = str(press_parts[["", "anvil", "ram_face", "sliding_guide", "wooden_shaft"][index]])
 				var occupied: Dictionary = opening.model.projection().placed_components[target_id].occupied
 				var center: Array = occupied.center
 				var half: Array = occupied.half
@@ -5201,7 +5218,7 @@ func _arrival_run() -> void:
 			var pointed: String = opening._screen_entity(screen)
 			var tile: Vector2i = opening._screen_cell(screen)
 			if not _expect(not opening.component_nudge_active
-					and (not target_id.is_empty() or tile == Vector2i(3, 4))
+					and (not target_id.is_empty() or tile == (Vector2i(8, 8) if raised else Vector2i(3, 4)))
 					and (target_id.is_empty() or (pointed == target_id
 					and not hit.is_empty() and hit.normal.dot(expected_face) > 0.8)),
 					"The physical actor can point at the fitted %s face for %s: %s" % [
@@ -5215,7 +5232,10 @@ func _arrival_run() -> void:
 					and not opening.component_preview_blocked
 					and opening.component_preview.position.distance_to(
 						opening._component_candidate_box(kind, ghost_center).center) < 0.001,
-					"The native-ready %s ghost shows the same reachable press socket the click will send" % kind):
+				"The native-ready %s ghost shows the same reachable press socket the click will send: %s" %
+				[kind, str({"requested": requested_center, "ghost": ghost_center,
+					"visible": opening.component_preview.visible, "blocked": opening.component_preview_blocked,
+					"pointed": pointed, "tile": tile, "status": opening.status_label.text})]):
 				return
 			if index == 2 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 				await RenderingServer.frame_post_draw
@@ -5276,7 +5296,7 @@ func _arrival_run() -> void:
 			opening._select_tool("inspect")
 			opening.distance = 0.0
 			opening._update_camera()
-			var foot_target := Vector3(4.95, 1.83 if raised else 0.18, 6.6)
+			var foot_target := Vector3(6.6 if raised else 4.95, 1.0 if raised else 0.18, 6.6)
 			var foot_direction: Vector3 = (foot_target - opening.camera.global_position).normalized()
 			opening.orbit_yaw = atan2(-foot_direction.x, -foot_direction.z)
 			opening.orbit_pitch = asin(clampf(-foot_direction.y, -1.0, 1.0))
@@ -5293,10 +5313,10 @@ func _arrival_run() -> void:
 			await RenderingServer.frame_post_draw
 			var third_seat: bool = root.get_texture().get_image().save_png(
 				capture_prefix + "-anvil-" + seat_name + "-third.png") == OK
-			var side_support: float = 1.65 if raised else 0.0
+			var side_support: float = OpeningGeometry.FOUNDATION_DEPTH if raised else 0.0
 			var side_seat: bool = await _capture_anvil_side(
 				capture_prefix + "-anvil-" + seat_name + "-side.png",
-				Vector3(4.95, side_support + 0.22, 6.6), side_support)
+				Vector3(6.6 if raised else 4.95, side_support + 0.22, 6.6), side_support)
 			if not _expect(first_seat and third_seat and side_seat,
 					"Retain the native-placed anvil and its support in first and third person"):
 				return
@@ -5308,7 +5328,7 @@ func _arrival_run() -> void:
 		if index == 0 and anvil_seat_only:
 			var placed_anvil: Dictionary = projection.placed_components[press_parts.anvil]
 			var occupied: Dictionary = placed_anvil.occupied
-			var support_y: float = 1.65 if raised else 0.0
+			var support_y: float = OpeningGeometry.FOUNDATION_DEPTH if raised else 0.0
 			var anvil_top: float = float(occupied.center[1]) + float(occupied.half[1])
 			var ram_snap: Dictionary = opening._guided_press_part_snap(
 				"ram_face", "anvil", requested_center, Vector3.RIGHT)
@@ -5397,7 +5417,7 @@ func _arrival_run() -> void:
 		opening._select_tool("inspect")
 		opening.distance = 0.0
 		opening._update_camera()
-		var press_target := Vector3(4.95, 3.0 if raised else 1.35, 6.6)
+		var press_target := Vector3(6.6 if raised else 4.95, 2.2 if raised else 1.35, 6.6)
 		var press_direction: Vector3 = (press_target - opening.camera.global_position).normalized()
 		opening.orbit_yaw = atan2(-press_direction.x, -press_direction.z)
 		opening.orbit_pitch = asin(clampf(-press_direction.y, -1.0, 1.0))
@@ -5448,9 +5468,9 @@ func _arrival_run() -> void:
 		if not await _approach(Vector2(4.95, 4.95)):
 			return
 	elif raised:
-		if not await _approach_points([Vector2(6.6, 4.95), Vector2(4.95, 4.95)]):
+		if not await _approach(Vector2(5.6, 5.6)):
 			return
-	if raised and not _expect(ready.center == [12, 4, 16] and ready.work_center == [12, 4, 16],
+	if raised and not _expect(ready.center == [32, 4, 32] and ready.work_center == [32, 4, 32],
 			"The raised native press keeps the anvil workface on the same foundation height grid"):
 		return
 	opening._open_object_menu_for(str(ready.anvil))
@@ -5467,7 +5487,7 @@ func _arrival_run() -> void:
 	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked,
 			"The crafted crank has a clear ordinary preview on the guided press shaft input"):
 		return
-	opening._world_click(Vector2i(3, 4), str(ready.parts.shaft))
+	opening._world_click(Vector2i(8, 8) if raised else Vector2i(3, 4), str(ready.parts.shaft))
 	opening.component_nudge_active = false
 	opening.component_nudge_center.clear()
 	var fitted_crank := ""
@@ -5528,14 +5548,16 @@ func _arrival_run() -> void:
 					"The native in-stroke guided press is retained in a close passive frame"):
 				return
 	var after: Dictionary = opening.model.projection()
-	if not _expect(after.dropped_material.size() == 2
+	if not _expect((after.dropped_material.size() == 1 if raised else after.dropped_material.size() == 2)
 			and after.dropped_material.any(func(drop: Variant) -> bool:
-				return drop.products == 1 and (not raised or ready.open_feeds.any(
-					func(feed: Variant) -> bool: return drop.center == feed.exit)))
+				return drop.products == 1 and (drop.center == ready.work_center if raised
+					else ready.open_feeds.any(func(feed: Variant) -> bool: return drop.center == feed.exit)))
 			and after.dropped_material.any(func(drop: Variant) -> bool:
-				return drop.offcuts == 1 and (not raised or drop.center == ready.work_center))
+				return drop.offcuts == 1 and drop.center == ready.work_center)
 			and after.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-			"Repeated hand turns form one plate and retain one copper offcut at the work point"):
+			"Repeated hand turns form one plate and retain one copper offcut under the die: "
+			+ str({"drops": after.dropped_material, "feeds": ready.open_feeds,
+				"work": ready.work_center, "mass": after.material_mass.accounted_mass})):
 		return
 	if raised:
 		facts["raised_press"] = {"assembly": ready, "drops": after.dropped_material,

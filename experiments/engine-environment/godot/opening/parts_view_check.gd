@@ -328,8 +328,9 @@ func _component_placement_check() -> void:
 	view.state = {"options": {"native": true}, "actors": {"P": {"ready": true}},
 		"cargo": {"P": {"components": {"anvil": 1, "ram_face": 1}}},
 		"placed_components": {"frame": {"component": "wooden_frame", "center": [0, 0, 0],
-			"generation": 1, "occupied": {"center": [0.0, 0.45, 0.0],
-			"half": [0.2025, 0.45, 0.2025]}}},
+			"generation": 1, "occupied": {"center": [0.0, 0.45 * Geometry.PITCH / 1.65, 0.0],
+			"half": [0.2025 * Geometry.PITCH / 1.65, 0.45 * Geometry.PITCH / 1.65,
+				0.2025 * Geometry.PITCH / 1.65]}}},
 		"transmission_parts": {}, "belt_spans": {}, "entities": {}, "foundations": {}}
 	root.add_child(view)
 	var choice := ComponentPlacementChoice.new()
@@ -910,14 +911,14 @@ func _component_placement_check() -> void:
 	camera.look_at(head_box.center)
 	await physics_frame
 	var head_hit := _component_center_hit(camera)
-	verify(head_hit.get("collider") == body and absf(head_hit.get("normal", Vector3.UP).y) < 0.5,
-		"A standing eye-level center ray can hit the fitted head's side.")
+	verify(head_hit.get("collider") == body and head_hit.get("normal", Vector3.ZERO).y > 0.5,
+		"A standing eye-level center ray reaches the smaller fitted head from above.")
 	view._refresh_component_preview()
 	verify(view._component_place_center(Vector2i.ZERO, "sample-head") == [12, 2, 8]
 		and view.component_preview.visible and not view.component_preview_blocked
 		and view.component_preview_snap == "Slide over head"
 		and "Aim at the anvil or flat head to place the slide above" in view._component_placement_hint(),
-		"A standing side-face aim on the head shows a clear fitted slide and names the target.")
+		"A standing aim on the smaller head shows a clear fitted slide and names the target.")
 	view._world_click(Vector2i.ZERO, "sample-head")
 	verify(view.issued.back().center == [12, 2, 8],
 		"A click on the head side sends the displayed elevated slide center to Host.")
@@ -1239,7 +1240,7 @@ func _component_placement_check() -> void:
 	choice.kind = "wooden_frame"
 	view.aimed = ""
 	view.component_nudge_active = true
-	view.state.foundations = {"raised_floor": {"cell": [1, 0], "level": 1}}
+	view.state.foundations = {"raised_floor": {"cell": [0, 0], "level": 4}}
 	view.component_nudge_center = [4, 0, 0]
 	view._refresh_component_preview()
 	verify(view.component_preview.visible and view.component_preview_blocked,
@@ -1264,9 +1265,9 @@ func _component_placement_check() -> void:
 	verify(view.component_preview.visible and view.component_preview_blocked,
 		"A normal terrain rock's shared occupied envelope turns the ghost red.")
 	view.state.cargo.P.components.cutting_edge = 1
-	view.state.collector_assemblies = [{"center": [0, 0, 0], "toward_ore": [-1, 0, 0]}]
+	view.state.collector_assemblies = [{"center": [0, 0, 0], "toward_ore": [-2, 0, 0]}]
 	choice.kind = "cutting_edge"
-	view.component_nudge_center = [-2, 0, 0]
+	view.component_nudge_center = [-4, 0, 0]
 	var source: Dictionary = SiteSurface.source_outcrop()
 	var source_box: AABB = Transform3D(source.basis, source.center) * \
 		AABB(-source.size * 0.5, source.size)
@@ -1278,7 +1279,7 @@ func _component_placement_check() -> void:
 		"The trusted ore-face cutting edge remains clear despite its allowed source contact.")
 	verify(view.component_preview.has_node("EdgeSupportPostLeft")
 		and is_equal_approx(view.component_preview.position.y,
-			view.component_nudge_center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT - 0.015),
+			view.component_nudge_center[1] * Geometry.HEIGHT_STEP + 0.825 - 0.015),
 		"The cutter ghost includes its floor-reaching support at the native head height.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		camera.position = view.component_preview.position + Vector3(1.15, 1.7, 2.4)
@@ -1301,7 +1302,7 @@ func _component_placement_check() -> void:
 	body.set_meta("component_entity", "shaft")
 	view._refresh_component_preview()
 	verify(view.component_preview.visible and not view.component_preview_blocked
-		and absf(view.component_preview.position.x - 0.22) < 0.001
+		and absf(view.component_preview.position.x - 0.22 * Geometry.PITCH / 1.65) < 0.001
 		and absf(view.component_preview.rotation.y) < 0.001,
 		"The ordinary crank ghost follows the native positive X spindle face.")
 	view._world_click(Vector2i.ZERO, "shaft")
@@ -1309,7 +1310,7 @@ func _component_placement_check() -> void:
 		"Fitting from the positive X side sends the projected spindle face for native validation.")
 	view.state.actors.P.position = [-1.0, 1.0, 0.0]
 	view._refresh_component_preview()
-	verify(absf(view.component_preview.position.x + 0.22) < 0.001
+	verify(absf(view.component_preview.position.x + 0.22 * Geometry.PITCH / 1.65) < 0.001
 		and absf(absf(view.component_preview.rotation.y) - PI) < 0.001,
 		"Approaching the other side mirrors the visible crank preview.")
 	view._world_click(Vector2i.ZERO, "shaft")
@@ -1318,7 +1319,7 @@ func _component_placement_check() -> void:
 	view.state.placed_components.shaft.crank_axis = 2
 	view.state.actors.P.position = [0.0, 1.0, 1.0]
 	view._refresh_component_preview()
-	verify(absf(view.component_preview.position.z - 0.22) < 0.001
+	verify(absf(view.component_preview.position.z - 0.22 * Geometry.PITCH / 1.65) < 0.001
 		and absf(view.component_preview.rotation.y + PI * 0.5) < 0.001,
 		"A native Z spindle rotates the preview around the actual horizontal axis.")
 	view._world_click(Vector2i.ZERO, "shaft")
@@ -2155,9 +2156,9 @@ func _interaction_controls() -> void:
 		view.mode = "foundation"
 		view._refresh_ui()
 		view._refresh_placement_options()
-		verify(view.foundation_area_toggle.visible and view.foundation_steps_toggle.visible
+		verify(view.foundation_area_toggle.visible and view.foundation_level_controls.visible
 			and view.placement_options_panel.visible,
-			"The foundation ghost exposes area, access step and height choices.")
+			"The foundation ghost exposes area and full-U height choices.")
 		view.machine_preview.visible = false
 		view._refresh_placement_options()
 		verify(not view.placement_options_panel.visible, "The placement menu leaves when its ghost leaves.")

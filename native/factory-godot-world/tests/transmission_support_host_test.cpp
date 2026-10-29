@@ -59,7 +59,7 @@ void stand_seat_and_recovery() {
           "A native Host binds the synthetic flat site.");
     actor(host, 1.65, 1.0, 0.0, 1);
     auto base = request("place_foundation", "base");
-    base.emplace("cell", Value(Array{Value(Integer{1}), Value(Integer{0})}));
+    base.emplace("cell", Value(Array{Value(Integer{0}), Value(Integer{0})}));
     base.emplace("level", Value(Integer{0}));
     const auto base_reply = host.command("P", base);
     check(accepted(base_reply), "The foundation is placed beneath the proposed bearing.");
@@ -103,7 +103,7 @@ void stand_seat_and_recovery() {
           "The ground-supported shaft remains restorable after removal.");
     actor(host, 0.0, 1.0, -1.65, 3);
     auto raised = request("place_foundation", "raised-seat");
-    raised.emplace("cell", Value(Array{Value(Integer{1}), Value(Integer{0})}));
+    raised.emplace("cell", Value(Array{Value(Integer{0}), Value(Integer{0})}));
     raised.emplace("level", Value(Integer{4}));
     const auto raised_reply = host.command("P", raised);
     check(accepted(raised_reply), "A later foundation can lift the same fixed bearing seat.");
@@ -123,8 +123,17 @@ void stand_seat_and_recovery() {
           "Removing the shaft also removes its projected fixed support.");
     auto remove_after_shaft = request("remove", "remove-raised-after-shaft");
     remove_after_shaft.emplace("entity", Value(field<std::string>(raised_reply, "entity")));
+    const auto still_supports_gear = host.command("P", remove_after_shaft);
+    check(!accepted(still_supports_gear) &&
+          field<std::string>(still_supports_gear, "reason") == "foundation_in_use",
+          "The enlarged slab still supports the adjacent cog after its shaft is removed.");
+    auto remove_gear = request("remove", "remove-gear");
+    remove_gear.emplace("entity", Value(gear_id));
+    check(accepted(host.command("P", remove_gear)),
+          "The cog can be reclaimed independently from the neighboring shaft.");
+    remove_after_shaft.at("request") = Value("remove-raised-after-transmission");
     check(accepted(host.command("P", remove_after_shaft)),
-          "The raised foundation can be reclaimed after its shaft is removed.");
+          "The raised foundation can be reclaimed after both supported parts are removed.");
 }
 void blocked_or_excessive_stand() {
     auto site = factory::godot_world::tests::flat_site();
@@ -219,7 +228,8 @@ void blocked_or_excessive_stand() {
     high_base.emplace("level", Value(Integer{8}));
     check(accepted(overhead.command("P", high_base)), "A high foundation can exist above a free lower worksite.");
     const auto hanging = overhead.command("P", gear(0, 0, 0, "hanging"));
-    check(accepted(hanging), "A lateral post can stand beside an overhead foundation.");
+    check(accepted(hanging), "A lateral post can stand beside an overhead foundation; reason=" +
+          field<std::string>(hanging, "reason"));
     const auto below_roof = support(overhead, field<std::string>(hanging, "entity"));
     near(std::get<double>(std::get<Array>(below_roof.at("foot").storage())[1].storage()), -0.02,
          "The lateral post uses the ground instead of hanging from the high foundation.");
@@ -232,7 +242,7 @@ void foundation_dependency() {
           "The deep terrain fixture binds without redefining the world grid.");
     actor(host, 1.65, 1.0, 0.0, 1);
     auto foundation = request("place_foundation", "deep-base");
-    foundation.emplace("cell", Value(Array{Value(Integer{1}), Value(Integer{0})}));
+    foundation.emplace("cell", Value(Array{Value(Integer{0}), Value(Integer{0})}));
     foundation.emplace("level", Value(Integer{0}));
     const auto base = host.command("P", foundation);
     check(accepted(base), "A constructed foundation can seat a shaft above distant terrain.");
@@ -353,16 +363,9 @@ void removing_lower_cog_keeps_surviving_stand() {
         Host migrated;
         check(accepted(migrated.initialize("stand-test", {"P"})) &&
               accepted(migrated.configure_terrain(factory::godot_world::tests::flat_site())) &&
-              accepted(migrated.restore_checkpoint(Value(std::move(legacy)))),
-              "An existing schema-three save seeds the same initial stand choices.");
-        check(!factory::values::typed_difference(Value(before), Value(support(migrated, upper_id))),
-              "The migrated upper stand keeps its originally derived route.");
-        actor(migrated, 1.65, 2.0, -1.65, 1);
-        auto migrated_remove = request("remove", "legacy-remove-lower");
-        migrated_remove.emplace("entity", Value(field<std::string>(lower, "entity")));
-        check(accepted(migrated.command("P", migrated_remove)) &&
-                  !factory::values::typed_difference(Value(before), Value(support(migrated, upper_id))),
-              "After migration, reclaiming the lower cog keeps the surviving stand fixed.");
+              !accepted(migrated.restore_checkpoint(Value(std::move(legacy)))) &&
+              field<Object>(migrated.projection(), "transmission_parts").empty(),
+              "An old schema-three save refuses without changing the new worksite.");
         auto remove_upper = request("remove", "remove-continuity-upper");
         remove_upper.emplace("entity", Value(upper_id));
         const auto upper_removal = host.command("P", remove_upper);

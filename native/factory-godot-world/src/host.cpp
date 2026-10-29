@@ -66,6 +66,7 @@ using physical_geometry::intersects_belt;
 using site_geometry::pitch;
 using site_geometry::height_step;
 using site_geometry::foundation_depth;
+using site_geometry::foundation_pitch;
 using site_geometry::anchor_height;
 using site_geometry::machine_width;
 using site_geometry::machine_height;
@@ -477,7 +478,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 proposed.fabrication_hub->center = center;
                 proposed.fabrication_hub->holder.reset();
                 const bool supported = std::any_of(proposed.foundations.begin(), proposed.foundations.end(),
-                    [&](const auto& floor) { return floor.second.center == center; });
+                    [&](const auto& floor) { return world::foundation_covers_workcell(floor.second, center); });
                 for (const auto& [unused, solid] : arrival_geometry::supplied(proposed, height_step)) {
                     (void)unused;
                     if (solid.entity != proposed.fabrication_hub->id) continue;
@@ -745,26 +746,33 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto first = foundation_commands::center(wire, "cell");
         const auto last = area ? foundation_commands::center(wire, "end_cell") : first;
         if (!first || !last) return refuse("invalid_cell");
+        if ((*first)[1] % foundation_commands::foundation_depth_levels != 0)
+            return refuse("invalid_cell");
         if (!foundation_commands::area_fits(*first, *last)) return refuse("invalid_area");
-        const auto x = (*first)[0] / 4, z = (*first)[2] / 4, level = (*first)[1];
-        const auto end_x = (*last)[0] / 4, end_z = (*last)[2] / 4;
-        const auto top = level * pitch / 4;
+        const auto x = (*first)[0] / foundation_commands::foundation_stride_levels;
+        const auto z = (*first)[2] / foundation_commands::foundation_stride_levels;
+        const auto level = (*first)[1];
+        const auto end_x = (*last)[0] / foundation_commands::foundation_stride_levels;
+        const auto end_z = (*last)[2] / foundation_commands::foundation_stride_levels;
+        const auto top = level * height_step;
         // Foundations intentionally intersect natural ground/scenery and need
         // no gravity support. Constructed parts and actual actors still block.
         for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
             for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz) {
-                if (placement_blocked({px * pitch, top - foundation_depth / 2, pz * pitch},
-                    {pitch / 2, foundation_depth / 2, pitch / 2}))
+                if (placement_blocked({px * foundation_pitch, top - foundation_depth / 2, pz * foundation_pitch},
+                    {foundation_pitch / 2, foundation_depth / 2, foundation_pitch / 2}))
                     return refuse("actor_occupied");
-                if (intersects_belt(snapshot.state, {{px * pitch, top - foundation_depth / 2, pz * pitch},
-                    {pitch / 2, foundation_depth / 2, pitch / 2}})) return refuse("occupied");
+                if (intersects_belt(snapshot.state, {{px * foundation_pitch, top - foundation_depth / 2, pz * foundation_pitch},
+                    {foundation_pitch / 2, foundation_depth / 2, foundation_pitch / 2}})) return refuse("occupied");
             }
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
             if (part.role == Role::shaft || part.role == Role::gear) {
                 for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
                     for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
-                        if (transmission_intersects(foundation_bounds({{4 * px, level, 4 * pz}, 1}),
+                        if (transmission_intersects(foundation_bounds({{
+                                foundation_commands::foundation_stride_levels * px, level,
+                                foundation_commands::foundation_stride_levels * pz}, 1}),
                                                     center, part.geometry.axis, part.role == Role::gear))
                             return refuse("occupied");
                 continue;
@@ -777,7 +785,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 if (!supports) return refuse("support_required");
                 for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
                     for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
-                        if (const auto proposed = foundation_bounds({{4 * px, level, 4 * pz}, 1});
+                        if (const auto proposed = foundation_bounds({{
+                                foundation_commands::foundation_stride_levels * px, level,
+                                foundation_commands::foundation_stride_levels * pz}, 1});
                             overlap(part_bounds(profile_, part), proposed) || overlaps_supports(*supports, proposed))
                             return refuse("occupied");
                 continue;
@@ -786,21 +796,25 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     collector_external_bounds(center) : std::vector<Bounds>{})
                 for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
                     for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
-                        if (overlap(external, foundation_bounds({{4 * px, level, 4 * pz}, 1})))
+                        if (overlap(external, foundation_bounds({{
+                                foundation_commands::foundation_stride_levels * px, level,
+                                foundation_commands::foundation_stride_levels * pz}, 1})))
                             return refuse("occupied");
-            if (center[0] * pitch / 4 > std::min(x, end_x) * pitch - pitch &&
-                center[0] * pitch / 4 < std::max(x, end_x) * pitch + pitch &&
-                center[2] * pitch / 4 > std::min(z, end_z) * pitch - pitch &&
-                center[2] * pitch / 4 < std::max(z, end_z) * pitch + pitch &&
-                center[1] * pitch / 4 < top && center[1] * pitch / 4 + machine_height > top - foundation_depth)
-                return refuse("occupied");
+            for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
+                for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
+                    if (overlap(part_bounds(profile_, part), foundation_bounds({{
+                            foundation_commands::foundation_stride_levels * px, level,
+                            foundation_commands::foundation_stride_levels * pz}, 1})))
+                        return refuse("occupied");
         }
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
             const auto occupied = component_bounds(profile_, component.kind, component.center);
             for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
                 for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
-                    if (overlap(occupied, foundation_bounds({{4 * px, level, 4 * pz}, 1})))
+                    if (overlap(occupied, foundation_bounds({{
+                            foundation_commands::foundation_stride_levels * px, level,
+                            foundation_commands::foundation_stride_levels * pz}, 1})))
                         return refuse("occupied");
         }
         normalized.at("action") = Value(*action);
@@ -844,8 +858,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (*kind_name == "wheel" &&
                 (overlap(part_bounds(profile_, proposed), foundation_bounds(foundation)) ||
                  overlaps_supports(*proposed_supports, foundation_bounds(foundation)))) return refuse("occupied");
-            if (foundation.center[0] == center[0] && foundation.center[2] == center[2] &&
-                foundation.center[1] > center[1] && foundation.center[1] - 2 < center[1] + 4)
+            if (std::abs(foundation.center[0] - center[0]) <= foundation_commands::mechanical_stride_levels &&
+                std::abs(foundation.center[2] - center[2]) <= foundation_commands::mechanical_stride_levels &&
+                foundation.center[1] > center[1] &&
+                foundation.center[1] - foundation_commands::foundation_depth_levels <
+                    center[1] + foundation_commands::mechanical_stride_levels)
                 return refuse("occupied");
         }
         if (*kind_name != "gear" && !(*kind_name == "wheel")) {
@@ -904,12 +921,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         const bool water_wheel = *kind_name == "wheel";
         const auto radius = profile_.wheel_radius * (tiles ? *tiles : 3) * height_step / 100.0;
+        const bool collector = *kind_name == "collector";
         const authority::Point at{*x * pitch, center[1] * pitch / 4 +
-            (is_gear || water_wheel ? anchor_height : machine_center_height), *z * pitch};
+            (is_gear || water_wheel ? anchor_height :
+             collector ? site_geometry::collector_center_height : machine_center_height), *z * pitch};
         const auto half = is_gear ? gear_half_extents(selected_axis, 2) : water_wheel ?
             authority::Point{selected_axis == mechanics::Axis::x ? 0.3 : radius, radius,
                 selected_axis == mechanics::Axis::z ? 0.3 : radius} :
-            authority::Point{machine_width / 2, machine_height / 2, machine_width / 2};
+            authority::Point{collector ? site_geometry::collector_width / 2 : machine_width / 2,
+                collector ? site_geometry::collector_height / 2 : machine_height / 2,
+                collector ? site_geometry::collector_width / 2 : machine_width / 2};
         if (occupied_by_component({at, half})) return refuse("occupied");
         for (const auto& external : proposed_external)
             if (occupied_by_component(external)) return refuse("occupied");
@@ -1309,7 +1330,7 @@ Host::Decoded Host::decode(const Value& input) const {
                 component.center, &id)) return {nullptr, refusal};
     }
     const auto restored_supports = transmission_supports(snapshot.state,
-        parsed.schema == 4 ? &saved_routes : nullptr);
+        &saved_routes);
     for (const auto& record : snapshot.history.records) {
         if (!field<Object>(record.intent, "wire")) return {nullptr, "missing_wire_history"};
         if (!historical_wire(record)) return {nullptr, "inconsistent_wire_history"};
@@ -1327,7 +1348,7 @@ Host::Decoded Host::decode(const Value& input) const {
         if (!actor || !client || *actor != *client) return {nullptr, "invalid_actor_binding"};
     }
     if (const auto* refusal = restore_site_validation::geometry(profile_, terrain_,
-            snapshot.state, restored_supports, parsed.schema == 4 ? &saved_routes : nullptr))
+            snapshot.state, restored_supports, &saved_routes))
         return {nullptr, refusal};
     const auto& actors = *parsed.actors;
     if (actors.size() != profile_.actors.size()) return {nullptr, "actor_roster_mismatch"};

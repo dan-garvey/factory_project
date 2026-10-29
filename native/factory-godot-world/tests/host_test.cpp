@@ -114,13 +114,18 @@ void terrain_binding_atomicity() {
 
 void historical_translation() {
     Host host;
-    A axis{V(-128.0), V(-2.8), V(-2.0), V(128.0)}, heights;
-    for (int row = 0; row < 4; ++row) {
-        heights.emplace_back(-1.65); heights.emplace_back(-1.65);
-        heights.emplace_back(-0.02); heights.emplace_back(-0.02);
+    O site = factory::godot_world::tests::channel_site();
+    auto heights = field<A>(V(site), "heights");
+    for (auto& height : heights)
+        if (std::get<double>(height.storage()) == -1.65) height = V(-3.3);
+    site.at("heights") = V(std::move(heights));
+    auto water = field<A>(V(site), "water");
+    for (auto& sample : water) {
+        auto values = std::get<A>(sample.storage());
+        values[3] = V(I{-1600});
+        sample = V(std::move(values));
     }
-    const O site{{"axis", V(axis)}, {"heights", V(heights)}, {"obstacles", V(A{})},
-        {"water", V(A{V(A{V(I{-8}), V(I{0}), V(I{-20}), V(I{-400}), V(I{0}), V(I{200})})})}};
+    site.at("water") = V(std::move(water));
     check(accepted(host.initialize("host-boundary", {"P"})), "The finite test World initializes.");
     check(accepted(host.configure_terrain(site)), "The test binds its explicit forward-driving synthetic terrain.");
     I epoch{};
@@ -138,53 +143,49 @@ void historical_translation() {
         check(accepted(reply), (std::string("The starter placement succeeds: ") + kind + ", " + field<std::string>(reply, "reason")).c_str());
         return field<std::string>(reply, "entity");
     };
-    const auto foundation = [&](I x, const char* id) {
-        auto base = request("place_foundation", id);
-        base.emplace("cell", V(A{V(x), V(I{1})})); base.emplace("level", V(I{4}));
-        check(accepted(host.command("P", base)), "The machine's raised foundation is placed.");
-    };
-    const auto cog = [&](I x, I z, const char* axis_name, I teeth, const char* id) {
+    const auto cog = [&](I x, I z, const char* id) {
         auto gear = request("place_gear", id);
-        gear.emplace("center", V(A{V(x), V(I{4}), V(z)}));
-        gear.emplace("axis", V(axis_name)); gear.emplace("teeth", V(teeth));
+        gear.emplace("center", V(A{V(x), V(I{0}), V(z)}));
+        gear.emplace("axis", V("z")); gear.emplace("teeth", V(I{2}));
         const auto placed = host.command("P", gear);
         check(accepted(placed), ("The cog placement succeeds: " + field<std::string>(placed, "reason")).c_str());
         return field<std::string>(placed, "entity");
     };
     const auto shaft = [&](I x, I z, const char* id) {
         auto wire = request("place_shaft", id);
-        wire.emplace("center", V(A{V(x), V(I{4}), V(z)})); wire.emplace("axis", V("z"));
+        wire.emplace("center", V(A{V(x), V(I{0}), V(z)})); wire.emplace("axis", V("x"));
         wire.emplace("half_span", V(I{2}));
         const auto placed = host.command("P", wire);
-        check(accepted(placed), ("The shaft placement succeeds: " + field<std::string>(placed, "reason")).c_str());
+        check(accepted(placed), ("The shaft placement succeeds: " + std::string(id) + ", " +
+            field<std::string>(placed, "reason")).c_str());
         return field<std::string>(placed, "entity");
     };
-    at(-1.65, 3.3);
-    const auto wheel = place("wheel", -2, 0, 4, "x", "wheel");
-    at(0, 0); foundation(0, "collector-base");
-    const auto collector = place("collector", 0, 1, 4, "z", "collector");
-    at(-3.3, 0); cog(-4, 0, "x", 4, "input-cog");
-    at(-3.3, -1.65); cog(0, -4, "z", 4, "output-cog");
-    for (I x : {I{0}, I{4}}) {
-        at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
-        const auto id = "front-cog-" + std::to_string(x);
-        cog(x, 0, "z", 2, id.c_str());
+    at(-3.3, 3.3);
+    const auto wheel = place("wheel", -6, 2, 0, "z", "wheel");
+    at(2.0, 0.0);
+    const auto collector = place("collector", 0, 1, 0, "z", "collector");
+    at(-4.95, 4.0);
+    cog(-24, 12, "input-cog");
+    for (I x : {I{-20}, I{-16}, I{-12}}) {
+        const auto id = "middle-cog-" + std::to_string(x);
+        cog(x, 12, id.c_str());
     }
-    for (I x : {I{4}, I{8}, I{12}}) {
-        at(static_cast<double>(x) * 1.65 / 4.0, -3.3);
-        const auto id = "rear-cog-" + std::to_string(x);
-        cog(x, -4, "z", 2, id.c_str());
+    at(-1.0, 4.0);
+    for (I x : {I{-8}, I{-4}}) {
+        const auto id = "near-cog-" + std::to_string(x);
+        cog(x, 12, id.c_str());
     }
-    at(4.95, -3.3); shaft(12, 0, "press-drive");
-    at(1.65, 0); const auto first = shaft(4, 4, "first-shaft");
-    at(3.3, 0); const auto last = shaft(8, 4, "last-shaft");
-    at(2.475, 0);
+    cog(-4, 8, "intake-cog");
+    cog(0, 8, "collector-cog");
+    at(4.0, 1.65); const auto first = shaft(12, 8, "first-shaft");
+    at(4.0, 3.3); const auto last = shaft(12, 16, "last-shaft");
+    at(4.0, 2.475);
     const auto belt_reply = host.command("P", link("place_belt_span", "span", first, last));
     check(accepted(belt_reply), "The physical belt joins both shafts.");
     const auto belt = field<std::string>(belt_reply, "entity");
-    at(4.95, 0); foundation(3, "press-base");
-    const auto press = place("processor", 3, 1, 4, "z", "press");
-    check(field<bool>(host.projection(), "powered"), "The existing wheel supplies the test line automatically.");
+    at(6.5, 0.825);
+    const auto press = place("processor", 6, 1, 0, "z", "press");
+    check(field<bool>(host.projection(), "powered"), "The wheel supplies the ground collector automatically.");
     const auto before_targets = host.projection();
     const auto before_target_state = field<O>(V(field<O>(host.checkpoint(), "world")), "state");
     auto bad_remove = target("remove", "bad-target-remove", press);
@@ -244,11 +245,12 @@ void historical_translation() {
               V(field<O>(V(field<O>(host.checkpoint(), "world")), "state"))),
           "Malformed target requests preserve native revision, material custody and world state.");
     for (int index = 0; index < 150; ++index) (void)host.advance();
-    at(4.95, 0);
-    auto collect = target("retrieve", "collect", press); collect.emplace("amount", V(I{1}));
-    check(accepted(host.command("P", collect)), "The checkpoint includes an accepted product amount.");
-    const auto recovery = target("recover", "recover", press);
-    check(accepted(host.command("P", recovery)), "The checkpoint includes accepted recovery of the original target.");
+    at(2.0, 0);
+    const auto recovery = target("recover", "recover", collector);
+    check(accepted(host.command("P", recovery)),
+          "The checkpoint records finite raw recovery from the legal ground collector.");
+    check(field<I>(V(field<O>(host.projection(), "stock")), "source") < 4096,
+          "The wheel and engaged cogs spent only ore confirmed by the native collector.");
     check(accepted(host.command("P", target("remove", "remove", press))), "The original target can be removed.");
     auto malformed = request("place", "malformed"); malformed.emplace("cell", V(false));
     check(!accepted(host.command("P", malformed)), "An intentionally malformed adapter refusal is retained.");
@@ -292,9 +294,8 @@ void historical_translation() {
         check(!factory::values::typed_difference(saved, host.checkpoint()), "Refused validation never changes the live authority.");
     };
     reject("recover", "entity", V(belt));
-    reject("collect", "amount", V(I{2}));
-    reject("collect", "amount", V(1.0));
-    reject("collect", "action", V("recover"));
+    reject("remove", "entity", V(wheel));
+    reject("recover", "action", V("retrieve"));
     reject("span", "to", V(wheel));
     reject("span", "from", V(collector));
     reject("collector", "cell", V(A{V(I{0}), V(I{0})}));
@@ -315,7 +316,7 @@ void historical_translation() {
                                               V(field<A>(host.actor_projection("P"), "position"))),
           "A restored Host retains the saved pose but requires a fresh physical publication.");
     const auto retry = fresh.command("P", recovery);
-    check(accepted(retry) && field<bool>(retry, "duplicate") && field<std::string>(retry, "entity") == press,
+    check(accepted(retry) && field<bool>(retry, "duplicate") && field<std::string>(retry, "entity") == collector,
           "Historical recovery replays before present target lookup or native readiness.");
 }
 
