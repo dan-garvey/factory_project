@@ -1126,7 +1126,7 @@ class ProductionEnvironment:
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
-			ore_ground_finish.albedo_color = Color.WHITE
+			ore_ground_finish.albedo_color = Color("aa8b72")
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1137,12 +1137,13 @@ class ProductionEnvironment:
 	static func _ore_vein_material() -> StandardMaterial3D:
 		if ore_vein_finish == null:
 			var albedo := ProductionVisuals.read_image(
-				"res://opening/assets/mineral-outcrop/copper-veined-v2.png")
+				"res://opening/assets/mineral-outcrop/copper-veined-v3.png")
 			if albedo == null or albedo.generate_mipmaps() != OK:
 				push_error("The broad ore field requires its copper-bearing stone texture.")
 				return null
 			ore_vein_finish = StandardMaterial3D.new()
 			ore_vein_finish.albedo_texture = ImageTexture.create_from_image(albedo)
+			ore_vein_finish.albedo_color = Color("918986")
 			ore_vein_finish.roughness = 0.91
 			ore_vein_finish.uv1_triplanar = true
 			ore_vein_finish.uv1_world_triplanar = true
@@ -1229,8 +1230,8 @@ class ProductionEnvironment:
 							var center: Array = region.get("position", [])
 							if center.size() != 3:
 								continue
-							var span := Vector2((point.x - float(center[0])) / 3.6,
-								(point.y - float(center[2])) / 3.1).length()
+							var span := Vector2((point.x - float(center[0])) / 4.3,
+								(point.y - float(center[2])) / 3.5).length()
 							var weight: float = 1.0 - smoothstep(0.33, 0.96, span + roughness * 0.16)
 							local_patch = maxf(local_patch, weight * sqrt(float(balances.get(
 								str(region.get("id", "")), 0.0))))
@@ -1304,13 +1305,31 @@ class ProductionEnvironment:
 			var variant: PackedScene = ORE_ROCK_VARIANTS[region_index % ORE_ROCK_VARIANTS.size()]
 			var clump := variant.instantiate() as Node3D
 			clump.name = "CopperOutcropRegion%d" % region_index
-			clump.position = Vector3(x, Surface.height_at(x, z) - 0.10, z)
+			clump.position = Vector3(x, Surface.height_at(x, z) - 0.19, z)
 			clump.rotation.y = float(region_index) * 1.37
-			clump.scale = Vector3.ONE * 0.48
+			clump.scale = Vector3(0.42, 0.25, 0.42)
 			for part in clump.get_children():
 				if part is MeshInstance3D:
 					part.material_override = vein_finish
 			root.add_child(clump)
+			for satellite in range(2):
+				var angle: float = float(region_index) * 1.37 + float(satellite) * 2.43
+				var at: Vector2 = Vector2(x, z) + Vector2(1.65 + 0.38 * float(satellite),
+					0.0).rotated(angle)
+				var bank: float = Surface.river_center_x(at.y) + Surface.channel_half_width(at.y)
+				if at.x < maxf(left + 0.4, bank + 0.65) or at.x > right - 0.4 \
+						or at.y < back + 0.4 or at.y > front - 0.4:
+					continue
+				var piece := MeshInstance3D.new()
+				piece.name = "CopperRubbleRegion%d" % region_index
+				piece.mesh = Surface.SOURCE_OUTCROP_MESH
+				piece.material_override = vein_finish
+				var dimensions := Vector3(0.58 + float(satellite) * 0.18,
+					0.28 + float(region_index % 3) * 0.035, 0.47 + float(satellite) * 0.11)
+				piece.scale = dimensions / piece.mesh.get_aabb().size
+				piece.rotation.y = angle + 0.62
+				piece.position = Vector3(at.x, Surface.height_at(at.x, at.y) + 0.07, at.y)
+				root.add_child(piece)
 		return root
 
 	static func build(parent: Node3D) -> Node3D:
