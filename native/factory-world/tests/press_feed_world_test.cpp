@@ -2493,13 +2493,13 @@ void powered_broad_sheet_custody() {
     run.p = {5.8, 1, 0.8};
     auto cross = request("P", "sheet-place-cross-shaft", "place");
     cross.emplace("role", V("shaft"));
-    cross.emplace("center", V(point(14, 4, 0)));
+    cross.emplace("center", V(point(8, 4, -4)));
     cross.emplace("axis", V("x"));
     cross.emplace("teeth", V(I{0}));
     cross.emplace("half_span", V(I{2}));
     auto misaligned = cross;
     misaligned.at("request") = V("sheet-cross-shaft-wrong-grid");
-    misaligned.at("center") = V(point(14, 4, 2));
+    misaligned.at("center") = V(point(14, 4, 0));
     run.refuses("P", misaligned, "invalid_cell");
     run.accept("P", cross);
     run.p = {0, 1, 1.65};

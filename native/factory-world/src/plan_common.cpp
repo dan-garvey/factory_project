@@ -214,17 +214,11 @@ bool transmission_role(Role role) {
 
 bool transmission_center(Role role, const mechanics::Point& center,
         mechanics::Axis axis, Integer half_span) {
+    (void)axis;
+    (void)half_span;
     if (!transmission_role(role)) return true;
-    const std::size_t along = axis == mechanics::Axis::x ? 0 :
-        axis == mechanics::Axis::y ? 1 : 2;
-    for (std::size_t index = 0; index < center.size(); ++index) {
-        const auto remainder = center[index] % 4;
-        if (remainder == 0) continue;
-        // A two-half-span shaft bridges adjacent full-grid ports from their
-        // common half-tile center. It still uses the same quarter-grid origin.
-        if (role != Role::shaft || half_span != 2 || index != along ||
-            std::abs(remainder) != 2) return false;
-    }
+    for (std::size_t index = 0; index < center.size(); ++index)
+        if (center[index] % 4 != 0) return false;
     return true;
 }
 

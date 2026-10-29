@@ -128,13 +128,14 @@ Bounds component_bounds(const world::Profile& profile,
             return {{at[0], at[1] - 0.0825, at[2]}, {0.18, 0.15, 0.205}};
         case materials::Component::wooden_shaft:
         case materials::Component::copper_shaft:
-            return {at, {component_shaft_half, 0.12, component_shaft_half}};
+            return {at, {component_shaft_half * pitch / 1.65, 0.12 * pitch / 1.65,
+                         component_shaft_half * pitch / 1.65}};
         case materials::Component::wooden_cog:
         case materials::Component::copper_cog:
             // Either horizontal press layout seats this hub against the
             // neighboring shaft without moving either common-grid center.
-            return {at, {height_step - component_shaft_half, 0.14,
-                         height_step - component_shaft_half}};
+            return {at, {height_step - component_shaft_half * pitch / 1.65, 0.14 * pitch / 1.65,
+                         height_step - component_shaft_half * pitch / 1.65}};
         default:
             return {at, {0.14, 0.14, 0.14}};
     }

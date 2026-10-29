@@ -236,12 +236,12 @@ func check_terrain_pointer(shared: bool) -> void:
 				for axis in ["x", "y", "z"]:
 					view.transmission_controls.selected_axis = axis
 					var target: Array = view._transmission_center(slope_screen)
-					var axle := Vector3(0.1, 0.1, 0.1)
+					var axle := Vector3(0.1, 0.1, 0.1) * (Geometry.PITCH / 1.65)
 					axle[["x", "y", "z"].find(axis)] = Geometry.PITCH / 2.0
 					var footprints: Array = [axle]
 					if tool == "gear":
 						var disc := Vector3.ONE * Geometry.PITCH / 2.0
-						disc[["x", "y", "z"].find(axis)] = 0.04
+						disc[["x", "y", "z"].find(axis)] = 0.04 * (Geometry.PITCH / 1.65)
 						footprints.append(disc)
 					var clears := true
 					for half: Vector3 in footprints:
@@ -586,7 +586,7 @@ func check_terrain_host() -> void:
 			var center: Array = view._transmission_center(screen)
 			verify(center.size() == 3 and center[0] == tile.x * 4 and center[2] == tile.y * 4 and center[1] % 4 == 0,
 				"The pointer submits the selected global tile.")
-			var actor := [tile.x * Geometry.PITCH + 1.65, Geometry.ANCHOR_HEIGHT + center[1] * Geometry.HEIGHT_STEP, tile.y * Geometry.PITCH - 1.65]
+			var actor := [tile.x * Geometry.PITCH + Geometry.PITCH, Geometry.ANCHOR_HEIGHT + center[1] * Geometry.HEIGHT_STEP, tile.y * Geometry.PITCH - Geometry.PITCH]
 			verify(model.publish_actor("P", actor, 1).get("accepted", false), "The native Host accepts a synthetic nearby actor.")
 			var wire := {"context": context, "client": "P", "request": "place", "center": center, "axis": axis}
 			if spec.tool == "gear":

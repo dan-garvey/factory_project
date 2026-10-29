@@ -2,6 +2,7 @@ extends SceneTree
 ## Invented confirmed projections and a request sink, never a Model or game.
 const Controls = preload("res://opening/native_transmission_controls.gd")
 const Geometry = preload("res://opening/site_geometry.gd")
+const U_SCALE := Geometry.PITCH / 1.65
 const ActorWorld = preload("res://opening/actor_world.gd")
 const PhysicalActor = preload("res://opening/actor_body.gd")
 const Presenter = preload("res://opening/native_transmission_presenter.gd")
@@ -1652,7 +1653,7 @@ func _guided_press_component_view() -> void:
 	host.state = state
 	view.refresh()
 	var crank_east := view.get_node_or_null("AttachedHandCrank") as Node3D
-	verify(crank_east != null and crank_east.position.x > 0.4125
+	verify(crank_east != null and crank_east.position.x > 0.4125 * U_SCALE
 		and absf(crank_east.rotation.y) < 0.001,
 		"The fitted crank seats outward on the confirmed positive X spindle face.")
 	if not crank_capture_prefix.is_empty():
@@ -1662,7 +1663,7 @@ func _guided_press_component_view() -> void:
 	host.state = state
 	view.refresh()
 	var crank_west := view.get_node_or_null("AttachedHandCrank") as Node3D
-	verify(crank_west != null and crank_west.position.x < 0.4125
+	verify(crank_west != null and crank_west.position.x < 0.4125 * U_SCALE
 		and absf(absf(crank_west.rotation.y) - PI) < 0.001,
 		"Mirroring the fitted face moves and turns the visible grip with its shaft.")
 	if not crank_capture_prefix.is_empty():
@@ -2022,7 +2023,7 @@ func _belt_spans(omit_shared_product := false) -> void:
 	var item0 := _belt_item(span, 0)
 	var item2 := _belt_item(span, 2)
 	var item3 := _belt_item(span, 3)
-	verify(item0 != null and item0.get_meta("belt_item") == "raw" and is_equal_approx(item0.position.x, -2.475),
+	verify(item0 != null and item0.get_meta("belt_item") == "raw" and is_equal_approx(item0.position.x, -2.475 * U_SCALE),
 		"A confirmed raw unit is rendered on its exact first endpoint tile.")
 	verify(_belt_item(span, 1) == null and item2 != null and item2.get_meta("belt_item") == "product" and item3 != null and item3.get_meta("belt_item") == "work",
 		"Empty positions remain empty and distinct confirmed item types retain their positions.")
@@ -2038,12 +2039,12 @@ func _belt_spans(omit_shared_product := false) -> void:
 		"A belt cargo phase update retains the rotating machine and fixed pick geometry.")
 	verify(_belt_item(span, 0).get_instance_id() == moving_item_id,
 		"Fractional cargo progress moves the fitted item without rebuilding it.")
-	verify(is_equal_approx(_belt_item(span, 0).position.x, -1.65), "A free slot shows the confirmed half-tile forward phase.")
-	verify(is_equal_approx(_belt_item(span, 2).position.x, 0.825) and is_equal_approx(_belt_item(span, 3).position.x, 2.475), "A chain blocked at the end does not visually pass through its neighbor.")
+	verify(is_equal_approx(_belt_item(span, 0).position.x, -1.65 * U_SCALE), "A free slot shows the confirmed half-tile forward phase.")
+	verify(is_equal_approx(_belt_item(span, 2).position.x, 0.825 * U_SCALE) and is_equal_approx(_belt_item(span, 3).position.x, 2.475 * U_SCALE), "A chain blocked at the end does not visually pass through its neighbor.")
 	host.state.belt_spans["span"].phase = -2048
 	presenter.refresh()
 	span = _part(presenter, "span")
-	verify(is_equal_approx(_belt_item(span, 0).position.x, -2.475) and is_equal_approx(_belt_item(span, 2).position.x, 0.0) and is_equal_approx(_belt_item(span, 3).position.x, 1.65), "Reverse phase moves an unblocked chain together while the endpoint stays bounded.")
+	verify(is_equal_approx(_belt_item(span, 0).position.x, -2.475 * U_SCALE) and is_equal_approx(_belt_item(span, 2).position.x, 0.0) and is_equal_approx(_belt_item(span, 3).position.x, 1.65 * U_SCALE), "Reverse phase moves an unblocked chain together while the endpoint stays bounded.")
 	verify(Presenter.belt_slot_fraction([raw, null], 0, 0.5) == 0.0 and Presenter.belt_slot_fraction([raw, null], 0, 4096) == 0.0, "Malformed and out-of-range phases do not invent motion.")
 	var session := Session.new()
 	session.context = host.state.context
@@ -2265,7 +2266,7 @@ func _nonhorizontal_presentation() -> void:
 		verify(_part(presenter, "middle").has_node("BeltPulley") and span.get_node("Pick").basis.is_equal_approx(loop.basis), "The intermediate pulley and selection body follow the path.")
 		var item := _belt_item(span, 0)
 		if case.cargo:
-			verify(item != null and (span.position + item.position).is_equal_approx(start.lerp(finish, 0.25) + Vector3.UP * 0.24), "Inclined cargo follows the confirmed half-slot phase.")
+			verify(item != null and (span.position + item.position).is_equal_approx(start.lerp(finish, 0.25) + Vector3.UP * (0.24 * U_SCALE)), "Inclined cargo follows the confirmed half-slot phase.")
 		else:
 			verify(item == null, "Power-only vertical and sideways paths do not display cargo.")
 		var session := Session.new()
@@ -2354,8 +2355,8 @@ func _cog_axles() -> void:
 				"Adjacent cog and %s integral axles meet exactly at their common tile face." % next_kind)
 			var normal := Vector3.UP if axis != 1 else Vector3.RIGHT
 			for probe in [{"part": first, "id": "first"}, {"part": next, "id": "next"}]:
-				var point: Vector3 = probe.part.position + axes[axis] * 0.5
-				var ray := PhysicsRayQueryParameters3D.create(point + normal * 0.4, point - normal * 0.4, Geometry.PICK_LAYER)
+				var point: Vector3 = probe.part.position + axes[axis] * (0.5 * U_SCALE)
+				var ray := PhysicsRayQueryParameters3D.create(point + normal * (0.4 * U_SCALE), point - normal * (0.4 * U_SCALE), Geometry.PICK_LAYER)
 				var hit := presenter.get_world_3d().direct_space_state.intersect_ray(ray)
 				verify(not hit.is_empty() and hit.collider.get_meta("entity", "") == probe.id,
 					"The exposed axle selects its own confirmed %s tile." % probe.id)
@@ -2391,12 +2392,12 @@ func _presentation() -> void:
 	view.configure(host)
 	var a := _part(view, "a")
 	var b := _part(view, "b")
-	verify(a != null and b != null and a.position.is_equal_approx(Vector3(-1.65, 2.475, 1.65)) and b.position.is_equal_approx(Vector3(0, 2.475, 1.65)), "Quarter-grid centers map to the declared world anchors.")
+	verify(a != null and b != null and a.position.is_equal_approx(Vector3(-1.65, 2.475, 1.65) * U_SCALE) and b.position.is_equal_approx(Vector3(0, 2.475, 1.65) * U_SCALE), "Quarter-grid centers map to the declared world anchors.")
 	verify(a.get_node("ConfirmedDirection").get_meta("sign") == 1 and b.get_node("ConfirmedDirection").get_meta("sign") == -1, "Opposite signed rates produce opposite direction marks without a phase clock.")
 	verify(_marks(view) == 1, "Only the confirmed engagement produces a contact mark.")
 	var axes := [Vector3.RIGHT, Vector3.UP, Vector3.BACK]
-	var firsts := [Vector3(0, 0.825, 1.65), Vector3(0, 0.825, 0), Vector3(0, 0.825, 0)]
-	var lasts := [Vector3(1.65, 0.825, 1.65), Vector3(0, 2.475, 0), Vector3(0, 0.825, 1.65)]
+	var firsts := [Vector3(0, 0.825, 1.65) * U_SCALE, Vector3(0, 0.825, 0) * U_SCALE, Vector3(0, 0.825, 0) * U_SCALE]
+	var lasts := [Vector3(1.65, 0.825, 1.65) * U_SCALE, Vector3(0, 2.475, 0) * U_SCALE, Vector3(0, 0.825, 1.65) * U_SCALE]
 	for index in range(3):
 		var part := _part(view, ["sx", "sy", "sz"][index])
 		var mesh: CylinderMesh = part.get_node("Shaft").mesh
@@ -2535,7 +2536,7 @@ func _belt_cargo_cadence() -> void:
 	host.state.belt_spans.span.slots = [null, null, raw]
 	view.refresh()
 	span = _part(view, "span")
-	verify(is_equal_approx(_belt_item(span, 2).position.x, 1.65),
+	verify(is_equal_approx(_belt_item(span, 2).position.x, 1.65 * U_SCALE),
 		"An occupied endpoint stays within the confirmed span at its next native cut.")
 	host.state.motion.first = {"state": "rotating", "numerator": 1, "denominator": 1}
 	view.refresh()
@@ -2556,7 +2557,7 @@ func _belt_cargo_cadence() -> void:
 	view.refresh()
 	span = _part(view, "span")
 	view.advance_visual_motion(0.45)
-	verify(is_equal_approx(_belt_item(span, 0).position.x, -1.65) and
+	verify(is_equal_approx(_belt_item(span, 0).position.x, -1.65 * U_SCALE) and
 		is_equal_approx(_belt_item(span, 1).position.x, 0.0),
 		"A full downstream chain never animates cargo through another item or beyond the end.")
 	view.free()
@@ -2606,7 +2607,7 @@ func _cache_regression() -> void:
 	verify(not _part(view, "a").has_node("ConfirmedDirection"), "Stopping confirmed motion removes the rotation indication.")
 	host.state.transmission_parts.a.center = [-3, 4, 4]
 	view.refresh()
-	verify(_part(view, "a").position.is_equal_approx(Vector3(-1.2375, 2.475, 1.65)), "A changed center refreshes its world-space geometry.")
+	verify(_part(view, "a").position.is_equal_approx(Vector3(-1.2375, 2.475, 1.65) * U_SCALE), "A changed center refreshes its world-space geometry.")
 	first_id = _part(view, "a").get_instance_id()
 	host.state.context = "another-context"
 	view.refresh()
@@ -3121,9 +3122,9 @@ func _mechanical_collision_geometry() -> void:
 		"belt_spans": {"belt": {"from": "a", "to": "b"}}}
 	var result := Geometry.mechanical_boxes(state)
 	verify(result.accepted and result.boxes.size() == 4, "Every confirmed mechanical part receives exactly one body.")
-	verify(result.boxes.a.center.is_equal_approx(Vector3(0, 0.825, 0)) and result.boxes.a.size.is_equal_approx(Vector3(0.2, 0.2, 1.65)), "Shaft bounds match Host placement dimensions.")
-	verify(result.boxes.c.center.is_equal_approx(Vector3(0, 2.475, 1.65)) and result.boxes.c.size.is_equal_approx(Vector3(0.08, 1.65, 1.65)), "Cog bounds use the axle plane and shared height origin.")
-	verify(result.boxes.c.axle_size.is_equal_approx(Vector3(1.65, 0.2, 0.2)), "The cog's separate axle reaches exactly its tile faces.")
+	verify(result.boxes.a.center.is_equal_approx(Vector3(0, 0.825, 0) * U_SCALE) and result.boxes.a.size.is_equal_approx(Vector3(0.2, 0.2, 1.65) * U_SCALE), "Shaft bounds match Host placement dimensions.")
+	verify(result.boxes.c.center.is_equal_approx(Vector3(0, 2.475, 1.65) * U_SCALE) and result.boxes.c.size.is_equal_approx(Vector3(0.08, 1.65, 1.65) * U_SCALE), "Cog bounds use the axle plane and shared height origin.")
+	verify(result.boxes.c.axle_size.is_equal_approx(Vector3(1.65, 0.2, 0.2) * U_SCALE), "The cog's separate axle reaches exactly its tile faces.")
 	var bridge: Dictionary = state.duplicate(true)
 	bridge.belt_spans.clear()
 	bridge.transmission_parts.erase("b")
@@ -3131,23 +3132,22 @@ func _mechanical_collision_geometry() -> void:
 	bridge.transmission_parts.a.axis = 0
 	bridge.transmission_parts.a.center = [2, 0, 0]
 	var bridge_boxes := Geometry.mechanical_boxes(bridge)
-	verify(bridge_boxes.accepted and bridge_boxes.boxes.a.center.is_equal_approx(Vector3(0.825, 0.825, 0))
-			and bridge_boxes.boxes.a.size.is_equal_approx(Vector3(1.65, 0.2, 0.2)),
-			"A half-span shaft centered between adjacent x ports has one exact physical body.")
+	verify(not bridge_boxes.accepted,
+			"An axial half-tile loose shaft center is rejected on the single centered U lattice.")
 	bridge.transmission_parts.a.center = [-2, 0, 0]
-	verify(Geometry.mechanical_boxes(bridge).accepted,
-			"The same half-tile shaft grid works across the global origin.")
+	verify(not Geometry.mechanical_boxes(bridge).accepted,
+			"Negative axial half-tile loose shaft centers are also rejected.")
 	bridge.transmission_parts.a.center = [0, 0, 2]
 	verify(not Geometry.mechanical_boxes(bridge).accepted,
 			"A half-tile center perpendicular to the shaft axis cannot bypass physical validation.")
 	bridge.transmission_parts.a.axis = 2
-	verify(Geometry.mechanical_boxes(bridge).accepted,
-			"The along-axis half-tile bridge also has a valid z-oriented physical body.")
+	verify(not Geometry.mechanical_boxes(bridge).accepted,
+			"Z-oriented half-tile loose shaft centers are also rejected on the single centered U lattice.")
 	bridge.transmission_parts.a.kind = "gear"
 	bridge.transmission_parts.a.teeth = 2
 	verify(not Geometry.mechanical_boxes(bridge).accepted,
-			"A gear cannot inherit the shaft-only half-tile exception.")
-	verify(result.boxes.belt.center.is_equal_approx(Vector3(1.65, 0.825, 0)) and result.boxes.belt.size.is_equal_approx(Vector3(4.95, 0.3, 1.14)), "Belt bounds cover the visible side frame and both pulleys.")
+			"A gear cannot inherit a half-tile center.")
+	verify(result.boxes.belt.center.is_equal_approx(Vector3(1.65, 0.825, 0) * U_SCALE) and result.boxes.belt.size.is_equal_approx(Vector3(4.95, 0.3, 1.14) * U_SCALE), "Belt bounds cover the visible side frame and both pulleys.")
 	var reversed: Dictionary = state.duplicate(true)
 	reversed.belt_spans.belt = {"from": "b", "to": "a"}
 	verify(Geometry.mechanical_boxes(reversed).boxes.belt == result.boxes.belt, "Reversing endpoints preserves physical bounds.")
@@ -3156,7 +3156,7 @@ func _mechanical_collision_geometry() -> void:
 	moved.transmission_parts.a.axis = 0
 	moved.transmission_parts.b.axis = 0
 	var rotated := Geometry.mechanical_boxes(moved)
-	verify(rotated.accepted and rotated.boxes.belt.size.is_equal_approx(Vector3(1.14, 0.3, 4.95)), "The other horizontal direction rotates the span bounds.")
+	verify(rotated.accepted and rotated.boxes.belt.size.is_equal_approx(Vector3(1.14, 0.3, 4.95) * U_SCALE), "The other horizontal direction rotates the span bounds.")
 	for axle in [0, 2]:
 		for sign_value in [-1, 1]:
 			var slope: Dictionary = state.duplicate(true)
@@ -3169,11 +3169,11 @@ func _mechanical_collision_geometry() -> void:
 			verify(sloped.accepted and sloped.boxes.belt.has("basis") and Geometry.mechanical_boxes(reverse_slope).boxes.belt == sloped.boxes.belt, "An inclined belt has a stable rotated body for either axle and slope.")
 	var vertical: Dictionary = state.duplicate(true)
 	vertical.transmission_parts.b.center = [0, 8, 0]
-	verify(Geometry.mechanical_boxes(vertical).boxes.belt.size.is_equal_approx(Vector3(0.3, 4.95, 1.14)), "A vertical power-only belt includes its side frame.")
+	verify(Geometry.mechanical_boxes(vertical).boxes.belt.size.is_equal_approx(Vector3(0.3, 4.95, 1.14) * U_SCALE), "A vertical power-only belt includes its side frame.")
 	var sideways: Dictionary = state.duplicate(true)
 	sideways.transmission_parts.a.axis = 1
 	sideways.transmission_parts.b.axis = 1
-	verify(Geometry.mechanical_boxes(sideways).boxes.belt.size.is_equal_approx(Vector3(4.95, 1.14, 0.3)), "A sideways power-only belt includes its side frame.")
+	verify(Geometry.mechanical_boxes(sideways).boxes.belt.size.is_equal_approx(Vector3(4.95, 1.14, 0.3) * U_SCALE), "A sideways power-only belt includes its side frame.")
 	var bad_slope: Dictionary = state.duplicate(true)
 	bad_slope.transmission_parts.b.center = [8, 4, 0]
 	verify(not Geometry.mechanical_boxes(bad_slope).accepted, "An unequal slope is rejected by physical geometry.")
@@ -3207,18 +3207,18 @@ func _cog_axle_collision() -> void:
 		verify(physical._geometry_registered() and PhysicsServer3D.body_get_shape_count(cog.get_rid()) == 2, "Disc and axle are registered under one cog body.")
 		var query := PhysicsShapeQueryParameters3D.new()
 		var probe := SphereShape3D.new()
-		probe.radius = 0.04
+		probe.radius = 0.04 * U_SCALE
 		query.shape = probe
 		query.collision_mask = Geometry.MACHINE_LAYER
-		query.transform.origin = cog.position + axes[axis] * 0.6
+		query.transform.origin = cog.position + axes[axis] * (0.6 * U_SCALE)
 		var hits := physical.get_world_3d().direct_space_state.intersect_shape(query)
 		verify(hits.any(func(hit: Dictionary): return hit.rid == cog.get_rid() and hit.shape == 1), "A native query hits the exposed cog axle.")
 		var across := Vector3.RIGHT if axis == 1 else Vector3.UP
-		query.transform.origin += across * 0.5
+		query.transform.origin += across * (0.5 * U_SCALE)
 		hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 		verify(not hits.any(func(hit: Dictionary): return hit.rid == cog.get_rid()), "The space beside the axle remains empty.")
 		var actor := PhysicalActor.new()
-		actor.position = cog.position + axes[axis] * (1.55 if axis == 1 else 0.6)
+		actor.position = cog.position + axes[axis] * ((1.55 if axis == 1 else 0.6) * U_SCALE)
 		root.add_child(actor)
 		await physics_frame
 		await physics_frame
@@ -3308,20 +3308,20 @@ func _collision_body_lifecycle() -> void:
 	var tile_center_y := 2.5 * Geometry.PITCH
 	var query := PhysicsShapeQueryParameters3D.new()
 	var probe := SphereShape3D.new()
-	probe.radius = 0.05
+	probe.radius = 0.05 * U_SCALE
 	query.shape = probe
 	query.collision_mask = Geometry.MACHINE_LAYER
-	query.transform.origin = Vector3(1.65, tile_center_y, 0)
+	query.transform.origin = Vector3(1.65 * U_SCALE, tile_center_y, 0)
 	var hits := physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.belt.get_rid()), "The native physics query intersects the belt body.")
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = Geometry.CAPSULE_RADIUS
 	capsule.height = Geometry.CAPSULE_HEIGHT
 	query.shape = capsule
-	query.transform.origin = Vector3(1.65, tile_center_y + 0.55, 0)
+	query.transform.origin = Vector3(1.65 * U_SCALE, tile_center_y + 0.55 * U_SCALE, 0)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.belt.get_rid()), "The actual character-sized capsule detects the belt body.")
-	query.transform.origin = Vector3(1.65, tile_center_y, -2.0)
+	query.transform.origin = Vector3(1.65 * U_SCALE, tile_center_y, -2.0)
 	query.motion = Vector3(0, 0, 4.0)
 	var sweep := physical.get_world_3d().direct_space_state.cast_motion(query)
 	verify(sweep.size() == 2 and sweep[0] < 1.0, "A character-sized sweep is blocked by the belt.")
@@ -3330,12 +3330,12 @@ func _collision_body_lifecycle() -> void:
 	query.transform.origin = Vector3(0, tile_center_y, 0)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.left.get_rid()), "The native physics query intersects the shaft body.")
-	query.transform.origin = Vector3(0, tile_center_y, 1.65)
+	query.transform.origin = Vector3(0, tile_center_y, 1.65 * U_SCALE)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(hits.any(func(hit: Dictionary): return hit.rid == physical.mechanical_bodies.cog.get_rid()), "The native physics query intersects the cog body.")
 	var belt: StaticBody3D = physical.mechanical_bodies.belt
 	var actor := PhysicalActor.new()
-	actor.position = Vector3(1.65, tile_center_y, 0)
+	actor.position = Vector3(1.65 * U_SCALE, tile_center_y, 0)
 	root.add_child(actor)
 	await physics_frame
 	await physics_frame
@@ -3345,7 +3345,7 @@ func _collision_body_lifecycle() -> void:
 	physical.bodies.erase("P")
 	verify(penetrating.get("unsupported_overlap", false), "The actor overlap guard rejects a capsule inside the belt.")
 	verify(occupied_contacts.any(func(hit: Dictionary): return hit.get("rid") == belt.get_rid().get_id() and hit.get("unsupported_overlap", false)), "The admission and checkpoint query detects the actual belt penetration.")
-	actor.position = Vector3(1.65, tile_center_y + 0.15 + Geometry.CAPSULE_HEIGHT / 2.0, 0)
+	actor.position = Vector3(1.65 * U_SCALE, tile_center_y + 0.15 * U_SCALE + Geometry.CAPSULE_HEIGHT / 2.0, 0)
 	await physics_frame
 	await physics_frame
 	physical.bodies["P"] = actor
@@ -3370,17 +3370,17 @@ func _collision_body_lifecycle() -> void:
 	await physics_frame
 	await physics_frame
 	verify(physical._geometry_registered() and not physical.mechanical_bodies.has("belt") and not physical.mechanical_bodies.has("right"), "Removed bodies leave the native world without damaging remaining registrations.")
-	query.transform.origin = Vector3(1.65, tile_center_y, 0)
+	query.transform.origin = Vector3(1.65 * U_SCALE, tile_center_y, 0)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(hits.is_empty(), "The removed belt no longer blocks its former center.")
 	query.shape = capsule
-	query.transform.origin = Vector3(1.65, tile_center_y, -2.0)
+	query.transform.origin = Vector3(1.65 * U_SCALE, tile_center_y, -2.0)
 	query.motion = Vector3(0, 0, 4.0)
 	sweep = physical.get_world_3d().direct_space_state.cast_motion(query)
 	verify(sweep.size() == 2 and sweep[0] == 1.0, "The same character-sized sweep is clear after belt removal.")
 	query.shape = probe
 	query.motion = Vector3.ZERO
-	query.transform.origin = Vector3(1.65, tile_center_y, 0)
+	query.transform.origin = Vector3(1.65 * U_SCALE, tile_center_y, 0)
 	authority.state.transmission_parts["right"] = {"kind": "shaft", "center": [8, 8, 0], "axis": 2, "half_span": 2}
 	authority.state.belt_spans["belt"] = {"from": "left", "to": "right"}
 	verify(physical.sync_topology().accepted, "A restored projection rebuilds its span and shaft bodies.")
@@ -3393,15 +3393,15 @@ func _collision_body_lifecycle() -> void:
 	await physics_frame
 	await physics_frame
 	var incline: StaticBody3D = physical.mechanical_bodies.belt
-	query.transform.origin = Vector3(1.65, tile_center_y + Geometry.PITCH, 0)
+	query.transform.origin = Vector3(1.65 * U_SCALE, tile_center_y + Geometry.PITCH, 0)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(physical._geometry_registered() and hits.any(func(hit: Dictionary): return hit.rid == incline.get_rid()), "The registered inclined body blocks its actual midpoint.")
-	query.transform.origin = Vector3(1.65, tile_center_y, 0)
+	query.transform.origin = Vector3(1.65 * U_SCALE, tile_center_y, 0)
 	hits = physical.get_world_3d().direct_space_state.intersect_shape(query)
 	verify(not hits.any(func(hit: Dictionary): return hit.rid == incline.get_rid()), "The inclined body does not fill the empty space below its midpoint.")
 	var slope_actor := PhysicalActor.new()
 	var normal := incline.basis.y
-	slope_actor.position = incline.position + normal * (0.15 + Geometry.CAPSULE_RADIUS) + Vector3.UP * (Geometry.CAPSULE_HEIGHT / 2.0 - Geometry.CAPSULE_RADIUS)
+	slope_actor.position = incline.position + normal * (0.15 * U_SCALE + Geometry.CAPSULE_RADIUS) + Vector3.UP * (Geometry.CAPSULE_HEIGHT / 2.0 - Geometry.CAPSULE_RADIUS)
 	root.add_child(slope_actor)
 	await physics_frame
 	physical.bodies["slope"] = slope_actor
@@ -3422,7 +3422,7 @@ func _collision_body_lifecycle() -> void:
 func _belt_actor_transport() -> void:
 	var authority := PhysicalProjection.new()
 	authority.state = {"options": {"native": true, "physical": true}, "entities": {}, "foundations": {},
-		"actors": {"P": {"position": [0.0, 5.175, 0.0], "ready": false, "native_epoch": 0}},
+		"actors": {"P": {"position": [0.0, 2.5 * Geometry.PITCH + 0.15 * U_SCALE + Geometry.CAPSULE_HEIGHT / 2.0, 0.0], "ready": false, "native_epoch": 0}},
 		"transmission_parts": {
 			"left": {"kind": "shaft", "center": [0, 8, 0], "axis": 2, "half_span": 2},
 			"right": {"kind": "shaft", "center": [8, 8, 0], "axis": 2, "half_span": 2}},
@@ -3469,14 +3469,14 @@ func _belt_actor_transport() -> void:
 		await physics_frame
 	verify(not physical.failures.has("P") and physical.bodies.P.motion_enabled, "The native actor registers without penetrating the belt.")
 	var forward: float = physical.bodies.P.position.x
-	verify(forward > 0.15 and absf(physical.bodies.P.position.z) < 0.05, "A powered belt carries the uncommanded actor in the cargo direction.")
+	verify(forward > 0.15 * U_SCALE and absf(physical.bodies.P.position.z) < 0.05, "A powered belt carries the uncommanded actor in the cargo direction.")
 	var supported_cut: Dictionary = physical.checkpoint_status()
 	verify(supported_cut.accepted and supported_cut.reason == "native_checkpoint_ready", "A capsule supported by the belt can pass checkpoint admission.")
 	var body: CharacterBody3D = physical.bodies.P
 	var original_pose := body.global_transform
 	body.set_physics_process(false)
 	var embedded_pose := original_pose
-	embedded_pose.origin = Vector3(1.65, 3.8, 0.0)
+	embedded_pose.origin = Vector3(1.65 * U_SCALE, 2.5 * Geometry.PITCH - 0.325 * U_SCALE, 0.0)
 	body.global_transform = embedded_pose
 	await physics_frame
 	await physics_frame
@@ -3498,7 +3498,7 @@ func _belt_actor_transport() -> void:
 	for frame in 25:
 		await physics_frame
 	var reversed: float = physical.bodies.P.position.x
-	verify(reversed < stopped - 0.15, "Reversing the shaft reverses actor transport.")
+	verify(reversed < stopped - 0.15 * U_SCALE, "Reversing the shaft reverses actor transport.")
 	physical.set_belt_step_seconds(0.0)
 	for frame in 10:
 		await physics_frame
@@ -3540,7 +3540,7 @@ func _inclined_belt_actor() -> void:
 			var first_y := 8 if slope > 0 else 16
 			var last_y := 16 if slope > 0 else 8
 			var end := [8 if axle == 2 else 0, last_y, 8 if axle == 0 else 0]
-			var actor_position := [1.65 if axle == 2 else 0.0, 7.605, 1.65 if axle == 0 else 0.0]
+			var actor_position := [1.65 * U_SCALE if axle == 2 else 0.0, 3.5 * Geometry.PITCH + 1.83, 1.65 * U_SCALE if axle == 0 else 0.0]
 			authority.state = {"options": {"native": true, "physical": true}, "entities": {}, "foundations": {},
 				"actors": {"P": {"position": actor_position, "ready": false, "native_epoch": 0}},
 				"transmission_parts": {"left": {"kind": "shaft", "center": [0, first_y, 0], "axis": axle, "half_span": 2},
@@ -3567,7 +3567,7 @@ func _inclined_belt_actor() -> void:
 			var travel := forward.z - start.z if axle == 0 else forward.x - start.x
 			var speed := floorf(1024.0 * 2896.0 / 4096.0) / 4096.0 * Geometry.PITCH / 0.45
 			var expected_forward := speed * 34.0 / float(Engine.physics_ticks_per_second)
-			verify(absf(travel - expected_forward) < 0.04 and (forward.y - start.y) * slope > 0.1, "Inclined carry matches the confirmed belt speed in either slope direction.")
+			verify(absf(travel - expected_forward) < 0.04 and (forward.y - start.y) * slope > 0.1 * U_SCALE, "Inclined carry matches the confirmed belt speed in either slope direction.")
 			authority.state.motion.left.numerator *= -1
 			for frame in 50:
 				await physics_frame
@@ -3631,11 +3631,11 @@ func _stable_finishes() -> void:
 	view.free()
 
 func _fixed_support_frame() -> void:
-	var support := {"foot": [0.4, 1.65, -1.1], "bearing": [0.0, 4.125, -1.1], "boxes": [
-		{"center": [0.4, 2.7675, -1.1], "half": [0.17, 1.1175, 0.17]},
-		{"center": [0.0, 4.125, -1.1], "half": [0.185, 0.185, 0.1525]},
-		{"center": [0.0, 3.925, -1.1], "half": [0.155, 0.04, 0.155]},
-		{"center": [0.2, 3.885, -1.1], "half": [0.2475, 0.0475, 0.0475]}]}
+	var support := {"foot": [0.4 * U_SCALE, 1.65 * U_SCALE, -1.1 * U_SCALE], "bearing": [0.0, 4.125 * U_SCALE, -1.1 * U_SCALE], "boxes": [
+		{"center": [0.4 * U_SCALE, 2.7675 * U_SCALE, -1.1 * U_SCALE], "half": [0.17 * U_SCALE, 1.1175 * U_SCALE, 0.17 * U_SCALE]},
+		{"center": [0.0, 4.125 * U_SCALE, -1.1 * U_SCALE], "half": [0.185 * U_SCALE, 0.185 * U_SCALE, 0.1525 * U_SCALE]},
+		{"center": [0.0, 3.925 * U_SCALE, -1.1 * U_SCALE], "half": [0.155 * U_SCALE, 0.04 * U_SCALE, 0.155 * U_SCALE]},
+		{"center": [0.2 * U_SCALE, 3.885 * U_SCALE, -1.1 * U_SCALE], "half": [0.2475 * U_SCALE, 0.0475 * U_SCALE, 0.0475 * U_SCALE]}]}
 	var part := {"kind": "gear", "center": [0, 8, -4], "axis": 2, "teeth": 2, "half_span": 0,
 		"generation": 1, "support": support}
 	var model := PhysicalProjection.new()
@@ -3656,31 +3656,31 @@ func _fixed_support_frame() -> void:
 		physical.free()
 		await process_frame
 		return
-	var query := PhysicsRayQueryParameters3D.create(Vector3(0.9, 3.0, -1.1), Vector3(0, 3.0, -1.1), Geometry.MACHINE_LAYER)
+	var query := PhysicsRayQueryParameters3D.create(Vector3(0.9, 3.0, -1.1) * U_SCALE, Vector3(0, 3.0, -1.1) * U_SCALE, Geometry.MACHINE_LAYER)
 	var hit: Dictionary = physical.get_world_3d().direct_space_state.intersect_ray(query)
 	verify(hit.get("collider") == body and int(hit.get("shape", -1)) >= 2,
 		"A native query hits the relocated post where the rotating gear itself is absent.")
-	query.from = Vector3(0.9, 3.0, -1.75)
-	query.to = Vector3(0.0, 3.0, -1.75)
+	query.from = Vector3(0.9, 3.0, -1.75) * U_SCALE
+	query.to = Vector3(0.0, 3.0, -1.75) * U_SCALE
 	verify(physical.get_world_3d().direct_space_state.intersect_ray(query).is_empty(),
 		"The support does not fill the empty space behind its narrow column.")
 	var probe := CharacterBody3D.new()
 	probe.collision_layer = Geometry.ACTOR_LAYER
 	probe.collision_mask = Geometry.MACHINE_LAYER
 	var capsule := CapsuleShape3D.new()
-	capsule.radius = Geometry.CAPSULE_RADIUS
-	capsule.height = Geometry.CAPSULE_HEIGHT
+	capsule.radius = Geometry.CAPSULE_RADIUS * U_SCALE
+	capsule.height = Geometry.CAPSULE_HEIGHT * U_SCALE
 	var probe_shape := CollisionShape3D.new()
 	probe_shape.shape = capsule
 	probe.add_child(probe_shape)
-	probe.position = Vector3(0.4, 3.0, -1.1)
+	probe.position = Vector3(0.4, 3.0, -1.1) * U_SCALE
 	root.add_child(probe)
 	await physics_frame
 	physical.bodies["probe"] = probe
 	verify(physical._penetration("probe", body.get_rid(), 2).get("unsupported_overlap", false),
 		"The capsule admission measure uses the translated support shape's real location.")
 	physical.bodies.erase("probe")
-	probe.position = Vector3(0.0, 4.125, -1.65)
+	probe.position = Vector3(0.0, 4.125, -1.65) * U_SCALE
 	await physics_frame
 	physical.bodies["probe"] = probe
 	verify(not physical._penetration("probe", body.get_rid(), 2).get("geometric_overlap", true),
@@ -3703,7 +3703,7 @@ func _fixed_support_frame() -> void:
 	var frame := presenter._confirmed_support("upper", part)
 	var joined := false
 	for child in frame.get_children():
-		if child is MeshInstance3D and (child.transform * child.mesh.get_aabb()).has_point(Vector3(0.2, 3.885, -1.1)):
+		if child is MeshInstance3D and (child.transform * child.mesh.get_aabb()).has_point(Vector3(0.2, 3.885, -1.1) * U_SCALE):
 			joined = true
 	verify(joined, "Solid presentation geometry joins the lateral post to the coaxial bearing.")
 	verify(model.state == before, "Support realization and queries leave the confirmed projection unchanged.")
@@ -4584,11 +4584,11 @@ func _scale_benchmark() -> void:
 			"center": [x * 4, 4, z * 4], "axis": index % 3 if cycle_axes else 1,
 			"teeth": 4 if large_every > 0 and index % large_every == 0 else 2}
 		if supports:
-			var at := Vector3(float(x) * 1.65, 0.0, float(z) * 1.65)
+			var at := Vector3(float(x) * Geometry.PITCH, 0.0, float(z) * Geometry.PITCH)
 			if varied_supports:
-				at.y = 0.06 * sin(float(index) * 0.37)
-			host.state.transmission_parts[id].support = {"foot": [at.x, 0.24 + at.y, at.z],
-				"bearing": [at.x, 0.7325, at.z]}
+				at.y = 0.06 * U_SCALE * sin(float(index) * 0.37)
+			host.state.transmission_parts[id].support = {"foot": [at.x, 0.24 * U_SCALE + at.y, at.z],
+				"bearing": [at.x, 0.7325 * U_SCALE, at.z]}
 		host.state.motion[id] = {"state": "stalled" if stopped else "rotating",
 			"numerator": 0 if stopped else (1 if index % 2 == 0 else -1),
 			"denominator": 1}
@@ -4622,7 +4622,7 @@ func _scale_benchmark() -> void:
 			continue
 		batched_count += child.multimesh.instance_count
 		var mesh: Mesh = child.multimesh.mesh
-		valid_geometry = valid_geometry and mesh.get_aabb().size.x > 1.4 and mesh.get_surface_count() >= 3
+		valid_geometry = valid_geometry and mesh.get_aabb().size.x > 1.4 * U_SCALE and mesh.get_surface_count() >= 3
 		for index in mesh.get_surface_count():
 			var vertices: PackedVector3Array = mesh.surface_get_arrays(index)[Mesh.ARRAY_VERTEX]
 			valid_geometry = valid_geometry and vertices.size() > 0 and vertices.size() % 3 == 0

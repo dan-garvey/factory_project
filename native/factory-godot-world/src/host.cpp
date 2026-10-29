@@ -936,13 +936,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!center) return refuse("invalid_center");
         if (!selected_axis) return refuse("invalid_axis");
         if (!span || *span != 2) return refuse("invalid_shaft");
+        if (std::any_of(center->begin(), center->end(), [](Integer coordinate) { return coordinate % 4 != 0; }))
+            return refuse("invalid_cell");
         const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
-        for (std::size_t index = 0; index < center->size(); ++index) {
-            const auto remainder = (*center)[index] % 4;
-            if (remainder != 0 &&
-                (index != static_cast<std::size_t>(verified_axis) ||
-                 (remainder != 2 && remainder != -2))) return refuse("invalid_cell");
-        }
         if (transmission_intersects_foundations(snapshot.state, *center, verified_axis, false)) return refuse("occupied");
         if (const auto* refusal = transmission_site_refusal(snapshot.state, *center, verified_axis, false)) return refuse(refusal);
         for (const auto& part : snapshot.state.topology.parts)
@@ -950,7 +946,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 for (const auto& external : collector_external_bounds(part.geometry.center))
                     if (transmission_intersects(external, *center, verified_axis, false)) return refuse("occupied");
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
-        authority::Point half{0.1, 0.1, 0.1};
+        auto half = gear_axle_half_extents(verified_axis);
         half[static_cast<std::size_t>(verified_axis)] = *span * pitch / 4;
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;

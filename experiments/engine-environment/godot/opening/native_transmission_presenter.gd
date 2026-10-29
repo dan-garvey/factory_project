@@ -9,6 +9,7 @@ const Finish = preload("res://opening/production_surfaces.gd").ProductionTransmi
 const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
 const WheelArt = preload("res://opening/production_waterwheels.gd").ProductionWheelArt
 const ClampBody = preload("res://opening/assets/collector-clamp/collector_clamp.gltf")
+const U_SCALE := Geometry.PITCH / 1.65
 const UNIT := Geometry.PITCH / 4.0
 ## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
 ## Its pulley rim must travel the same distance in that time.
@@ -352,7 +353,7 @@ func _confirmed_support(id: String, part: Dictionary, attached := true) -> Node3
 		return null
 	var foot := Vector3(support.foot[0], support.foot[1], support.foot[2])
 	var bearing := Vector3(support.bearing[0], support.bearing[1], support.bearing[2])
-	if bearing.y <= foot.y or bearing.y - foot.y > 9.0:
+	if bearing.y <= foot.y or bearing.y - foot.y > 9.0 * U_SCALE:
 		return null
 	var frame := Node3D.new()
 	frame.name = "FixedSupport"
@@ -362,12 +363,12 @@ func _confirmed_support(id: String, part: Dictionary, attached := true) -> Node3
 	var cast := Finish.material("cast", Color("82908d"), 0.78, 0.48)
 	var worked := Finish.material("worked", Color("bac5c0"), 0.86, 0.32)
 	var dark := Finish.material("cast", Color("424e4c"), 0.72, 0.53)
-	_support_box(frame, "FootShoe", foot + Vector3.UP * 0.06, Vector3(0.34, 0.12, 0.34), dark)
+	_support_box(frame, "FootShoe", foot + Vector3.UP * (0.06 * U_SCALE), Vector3(0.34, 0.12, 0.34) * U_SCALE, dark)
 	for x_sign in [-1.0, 1.0]:
 		for z_sign in [-1.0, 1.0]:
-			var bolt := _support_cylinder(frame, "FootAnchor", 0.018, 0.015, worked)
-			bolt.position = foot + Vector3(x_sign * 0.125, 0.128, z_sign * 0.125)
-	var height: float = bearing.y - 0.24 - foot.y
+			var bolt := _support_cylinder(frame, "FootAnchor", 0.018 * U_SCALE, 0.015 * U_SCALE, worked)
+			bolt.position = foot + Vector3(x_sign * 0.125, 0.128, z_sign * 0.125) * U_SCALE
+	var height: float = bearing.y - 0.24 * U_SCALE - foot.y
 	if height <= 0.0:
 		if attached:
 			remove_child(frame)
@@ -377,45 +378,45 @@ func _confirmed_support(id: String, part: Dictionary, attached := true) -> Node3
 	var side: Vector3 = Vector3.UP.cross(across)
 	# The visual frame stays near the one native-confirmed support point. These
 	# braces do not claim extra terrain seats, clearance or structural strength.
-	if height < 0.48:
+	if height < 0.48 * U_SCALE:
 		_support_box(frame, "CompactPedestal", foot + Vector3.UP * height * 0.5,
-			Vector3(0.18, height, 0.18), cast)
+			Vector3(0.18 * U_SCALE, height, 0.18 * U_SCALE), cast)
 	else:
-		var bays: int = ceili(height / 1.15)
+		var bays: int = ceili(height / (1.15 * U_SCALE))
 		var bay_height: float = height / float(bays)
 		for rail_sign in [-1.0, 1.0]:
-			var rail_offset: Vector3 = across * float(rail_sign) * 0.09
+			var rail_offset: Vector3 = across * float(rail_sign) * (0.09 * U_SCALE)
 			for bay in range(bays):
 				var low: Vector3 = foot + Vector3.UP * float(bay) * bay_height + rail_offset
 				var high: Vector3 = low + Vector3.UP * bay_height
-				_support_beam(frame, "CastUpright", low, high, 0.065, cast)
+				_support_beam(frame, "CastUpright", low, high, 0.065 * U_SCALE, cast)
 		for bay in range(bays):
-			var low: Vector3 = foot + Vector3.UP * float(bay) * bay_height - side * 0.07
-			_support_beam(frame, "RearSpine", low, low + Vector3.UP * bay_height, 0.06, dark)
+			var low: Vector3 = foot + Vector3.UP * float(bay) * bay_height - side * (0.07 * U_SCALE)
+			_support_beam(frame, "RearSpine", low, low + Vector3.UP * bay_height, 0.06 * U_SCALE, dark)
 		for bay in range(bays):
 			var low_y: float = float(bay) * bay_height
 			var high_y: float = float(bay + 1) * bay_height
-			var low: Vector3 = foot + Vector3.UP * low_y - across * 0.09
-			var high: Vector3 = foot + Vector3.UP * high_y + across * 0.09
+			var low: Vector3 = foot + Vector3.UP * low_y - across * (0.09 * U_SCALE)
+			var high: Vector3 = foot + Vector3.UP * high_y + across * (0.09 * U_SCALE)
 			if bay % 2 == 1:
-				low = foot + Vector3.UP * low_y + across * 0.09
-				high = foot + Vector3.UP * high_y - across * 0.09
-			_support_beam(frame, "DiagonalBrace", low, high, 0.045, worked)
-			_support_beam(frame, "BayTie", foot + Vector3.UP * high_y - across * 0.09,
-				foot + Vector3.UP * high_y + across * 0.09, 0.05, worked)
-			_support_beam(frame, "SideBrace", foot + Vector3.UP * low_y - side * 0.07,
-				high, 0.035, cast)
+				low = foot + Vector3.UP * low_y + across * (0.09 * U_SCALE)
+				high = foot + Vector3.UP * high_y - across * (0.09 * U_SCALE)
+			_support_beam(frame, "DiagonalBrace", low, high, 0.045 * U_SCALE, worked)
+			_support_beam(frame, "BayTie", foot + Vector3.UP * high_y - across * (0.09 * U_SCALE),
+				foot + Vector3.UP * high_y + across * (0.09 * U_SCALE), 0.05 * U_SCALE, worked)
+			_support_beam(frame, "SideBrace", foot + Vector3.UP * low_y - side * (0.07 * U_SCALE),
+				high, 0.035 * U_SCALE, cast)
 	if not is_equal_approx(foot.x, bearing.x) or not is_equal_approx(foot.z, bearing.z):
-		_support_beam(frame, "BearingArm", Vector3(foot.x, bearing.y - 0.24, foot.z),
-			bearing - Vector3.UP * 0.24, 0.095, worked)
+		_support_beam(frame, "BearingArm", Vector3(foot.x, bearing.y - 0.24 * U_SCALE, foot.z),
+			bearing - Vector3.UP * (0.24 * U_SCALE), 0.095 * U_SCALE, worked)
 	else:
-		_support_box(frame, "BearingArm", bearing - Vector3.UP * 0.24, Vector3(0.31, 0.095, 0.31), worked)
-	_support_box(frame, "BearingSaddle", bearing - Vector3.UP * 0.20, Vector3(0.31, 0.08, 0.31), cast)
-	var socket := _support_cylinder(frame, "BearingHousing", 0.16, 0.23, dark)
+		_support_box(frame, "BearingArm", bearing - Vector3.UP * (0.24 * U_SCALE), Vector3(0.31, 0.095, 0.31) * U_SCALE, worked)
+	_support_box(frame, "BearingSaddle", bearing - Vector3.UP * (0.20 * U_SCALE), Vector3(0.31, 0.08, 0.31) * U_SCALE, cast)
+	var socket := _support_cylinder(frame, "BearingHousing", 0.16 * U_SCALE, 0.23 * U_SCALE, dark)
 	socket.position = bearing
 	socket.basis = axis_basis(part.axis)
-	var rim := _support_cylinder(frame, "MachinedBearingRim", 0.185, 0.045, worked)
-	rim.position = bearing + axis_basis(part.axis).y * 0.13
+	var rim := _support_cylinder(frame, "MachinedBearingRim", 0.185 * U_SCALE, 0.045 * U_SCALE, worked)
+	rim.position = bearing + axis_basis(part.axis).y * (0.13 * U_SCALE)
 	rim.basis = socket.basis
 	return frame
 
@@ -426,7 +427,7 @@ func _support_style(part: Dictionary) -> String:
 	var center := world_center(part.center)
 	var foot := Vector3(support.foot[0], support.foot[1], support.foot[2])
 	var bearing := Vector3(support.bearing[0], support.bearing[1], support.bearing[2])
-	if bearing.y <= foot.y or bearing.y - foot.y > 9.0:
+	if bearing.y <= foot.y or bearing.y - foot.y > 9.0 * U_SCALE:
 		return ""
 	# The mesh is cosmetic. Round only the local template key; each instance
 	# still uses its exact confirmed center and retains its own pick target.
@@ -715,15 +716,15 @@ func _direction(parent: Node3D, radius: float, sign_value: int) -> void:
 	for step in range(6):
 		# Positive rate follows the right-hand rule about the local +Y axis.
 		var angle := -float(sign_value * step) * PI / 8.0
-		var point := Vector3(cos(angle) * radius, 0.13, sin(angle) * radius)
+		var point := Vector3(cos(angle) * radius, 0.13 * U_SCALE, sin(angle) * radius)
 		if step > 0:
-			_segment(arrow, previous, point, 0.025, Color("f4df94"))
+			_segment(arrow, previous, point, 0.025 * U_SCALE, Color("f4df94"))
 		previous = point
 		end = point
 	var tangent := Vector3(end.z, 0, -end.x).normalized() * float(sign_value)
 	var radial := Vector3(end.x, 0, end.z).normalized()
-	_segment(arrow, end - tangent * 0.13 + radial * 0.07, end, 0.035, Color("f4df94"))
-	_segment(arrow, end - tangent * 0.13 - radial * 0.07, end, 0.035, Color("f4df94"))
+	_segment(arrow, end - tangent * (0.13 * U_SCALE) + radial * (0.07 * U_SCALE), end, 0.035 * U_SCALE, Color("f4df94"))
+	_segment(arrow, end - tangent * (0.13 * U_SCALE) - radial * (0.07 * U_SCALE), end, 0.035 * U_SCALE, Color("f4df94"))
 
 func _direction_mesh(radius: float, sign_value: int) -> ArrayMesh:
 	var key := [radius, sign_value]
@@ -781,7 +782,7 @@ func _pick(parent: Node3D, id: String, radius: float, height: float, axle_length
 	if axle_length > 0.0:
 		var axle_collider := CollisionShape3D.new()
 		var axle_shape := CylinderShape3D.new()
-		axle_shape.radius = 0.08
+		axle_shape.radius = 0.08 * U_SCALE
 		axle_shape.height = axle_length
 		axle_collider.shape = axle_shape
 		body.add_child(axle_collider)
@@ -815,25 +816,26 @@ func _relay_case(anchor: Node3D, id: String, part: Dictionary) -> void:
 			var first := 0 if part.axis != 0 else 1
 			var factor: int = 1 if part.kind == "chain_drive" else (1 if axis == first else -1) * side
 			port.set_meta("relay_factor", factor)
-			port.position[axis] = float(side) * 0.72
+			port.position[axis] = float(side) * 0.72 * U_SCALE
 			port.basis = axis_basis(axis)
 			anchor.add_child(port)
-			_cylinder(port, "BearingSocket", 0.245, 0.045, Color("303c3e"),
+			_cylinder(port, "BearingSocket", 0.245 * U_SCALE, 0.045 * U_SCALE, Color("303c3e"),
 				Finish.material("cast", Color("303c3e"), 0.75, 0.52))
-			_cylinder(port, "MachinedCollar", 0.205, 0.07, Color("b8c1b8"),
+			_cylinder(port, "MachinedCollar", 0.205 * U_SCALE, 0.07 * U_SCALE, Color("b8c1b8"),
 				Finish.material("worked", Color("b8c1b8"), 0.85, 0.34))
-			_cylinder(port, "ExposedSpindle", 0.11, 0.12, Color("667b7a"),
+			_cylinder(port, "ExposedSpindle", 0.11 * U_SCALE, 0.12 * U_SCALE, Color("667b7a"),
 				Finish.material("worked", Color("667b7a"), 0.84, 0.4))
-			_segment(port, Vector3(-0.11, 0.055, 0), Vector3(0.11, 0.055, 0), 0.024, Color("e7c780"))
+			_segment(port, Vector3(-0.11 * U_SCALE, 0.055 * U_SCALE, 0),
+				Vector3(0.11 * U_SCALE, 0.055 * U_SCALE, 0), 0.024 * U_SCALE, Color("e7c780"))
 	if part.kind == "chain_drive":
 		for side in [-1, 1]:
 			var marker := MeshInstance3D.new()
 			marker.name = "ChainLinkDirection"
 			var stripe := BoxMesh.new()
-			stripe.size = Vector3(0.04, 0.04, 0.04)
-			stripe.size[part.axis] = 0.34
+			stripe.size = Vector3(0.04, 0.04, 0.04) * U_SCALE
+			stripe.size[part.axis] = 0.34 * U_SCALE
 			marker.mesh = stripe
-			marker.position[part.relay_axis] = float(side) * (Geometry.PITCH / 2.0 - 0.045)
+			marker.position[part.relay_axis] = float(side) * (Geometry.PITCH / 2.0 - 0.045 * U_SCALE)
 			_finish(marker, Color("d3a761"))
 			anchor.add_child(marker)
 
@@ -841,12 +843,13 @@ static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> 
 	var key := "%s:%d:%d" % [kind, closed_axis, link_axis]
 	if _relay_shells.has(key):
 		return _relay_shells[key]
+	var scale_pose := Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * U_SCALE), Vector3.ZERO)
 	var body := SurfaceTool.new()
 	body.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var outline := PackedVector2Array([Vector2(-0.62, -0.69), Vector2(0.62, -0.69),
 		Vector2(0.70, -0.61), Vector2(0.70, 0.61), Vector2(0.62, 0.69),
 		Vector2(-0.62, 0.69), Vector2(-0.70, 0.61), Vector2(-0.70, -0.61)])
-	Assets.append_triangles(body, Visuals.prism_mesh(outline, 1.40, 0.008), 0, Transform3D.IDENTITY)
+	Assets.append_triangles(body, Visuals.prism_mesh(outline, 1.40, 0.008), 0, scale_pose)
 	var shell := ArrayMesh.new()
 	body.commit(shell)
 	shell.surface_set_material(0, Finish.material("cast",
@@ -860,7 +863,7 @@ static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> 
 	for side in [-1.0, 1.0]:
 		var at := Vector3.ZERO
 		at[closed_axis] = side * 0.705
-		Assets.append_triangles(panels, cover, 0, Transform3D(Basis.IDENTITY, at))
+		Assets.append_triangles(panels, cover, 0, scale_pose * Transform3D(Basis.IDENTITY, at))
 	if kind == "chain_drive":
 		var hatch := BoxMesh.new()
 		hatch.size = Vector3.ONE * 0.92
@@ -868,7 +871,7 @@ static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> 
 		for side in [-1.0, 1.0]:
 			var at := Vector3.ZERO
 			at[link_axis] = side * 0.72
-			Assets.append_triangles(panels, hatch, 0, Transform3D(Basis.IDENTITY, at))
+			Assets.append_triangles(panels, hatch, 0, scale_pose * Transform3D(Basis.IDENTITY, at))
 	panels.commit(shell)
 	shell.surface_set_material(1, Finish.material("cast", Color("35464b"), 0.72, 0.60))
 	var trim := SurfaceTool.new()
@@ -879,14 +882,14 @@ static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> 
 	var rib := BoxMesh.new()
 	rib.size = Vector3(1.39, 0.045, 0.075)
 	for side in [-1.0, 1.0]:
-		Assets.append_triangles(trim, rib, 0, Transform3D(Basis.IDENTITY,
+		Assets.append_triangles(trim, rib, 0, scale_pose * Transform3D(Basis.IDENTITY,
 			Vector3(0, 0.745, side * 0.43)))
 	var upright := BoxMesh.new()
 	upright.size = Vector3(0.075, 1.28, 0.075)
 	for x in [-0.62, 0.62]:
 		for z in [-0.62, 0.62]:
 			Assets.append_triangles(trim, upright, 0,
-				Transform3D(Basis.IDENTITY, Vector3(x, 0, z)))
+				scale_pose * Transform3D(Basis.IDENTITY, Vector3(x, 0, z)))
 	var fastener := CylinderMesh.new()
 	fastener.top_radius = 0.035
 	fastener.bottom_radius = 0.035
@@ -907,7 +910,7 @@ static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> 
 				bolt_at[closed_axis] = face * 0.744
 				bolt_at[first_side] = first
 				bolt_at[second_side] = second
-				Assets.append_triangles(trim, fastener, 0, Transform3D(fastener_basis, bolt_at))
+				Assets.append_triangles(trim, fastener, 0, scale_pose * Transform3D(fastener_basis, bolt_at))
 	if kind == "chain_drive":
 		var spine := BoxMesh.new()
 		spine.size = Vector3(0.27, 0.08, 0.27)
@@ -916,7 +919,7 @@ static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> 
 		if link_axis == 1:
 			spine.size.x = 0.08
 			spine_at = Vector3(0.745, 0, 0)
-		Assets.append_triangles(trim, spine, 0, Transform3D(Basis.IDENTITY, spine_at))
+		Assets.append_triangles(trim, spine, 0, scale_pose * Transform3D(Basis.IDENTITY, spine_at))
 		var hatch_bar := BoxMesh.new()
 		hatch_bar.size = Vector3(0.56, 0.065, 0.035)
 		var bar_axis := (link_axis + 1) % 3
@@ -927,7 +930,7 @@ static func relay_shell_mesh(kind: String, closed_axis: int, link_axis: int) -> 
 				var bar_at := Vector3.ZERO
 				bar_at[link_axis] = face * 0.76
 				bar_at[(link_axis + 2) % 3] = row
-				Assets.append_triangles(trim, hatch_bar, 0, Transform3D(Basis.IDENTITY, bar_at))
+				Assets.append_triangles(trim, hatch_bar, 0, scale_pose * Transform3D(Basis.IDENTITY, bar_at))
 	trim.commit(shell)
 	shell.surface_set_material(2, Finish.material("worked", Color("a3ada6"), 0.82, 0.39))
 	_relay_shells[key] = shell
@@ -1044,9 +1047,9 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 	var cursor := -distance / 2.0 + Geometry.PITCH * 0.35
 	var end := distance / 2.0 - Geometry.PITCH * 0.35
 	for offset in pulley_offsets:
-		var gap_start := clampf(offset - 0.18, cursor, end)
+		var gap_start := clampf(offset - 0.18 * U_SCALE, cursor, end)
 		_add_belt_pick_section(body, cursor, gap_start)
-		cursor = clampf(offset + 0.18, cursor, end)
+		cursor = clampf(offset + 0.18 * U_SCALE, cursor, end)
 	_add_belt_pick_section(body, cursor, end)
 	anchor.add_child(body)
 
@@ -1086,7 +1089,7 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 				continue
 			var fraction := belt_slot_fraction(slots, index, span.get("phase"))
 			var position := first_position.lerp(last_position, (float(index) + fraction) / float(slots.size() - 1))
-			position.y += 0.18 if product else 0.24
+			position.y += (0.18 if product else 0.24) * U_SCALE
 			var kind := "product" if product else ("work" if work else "raw")
 			var visual: Node3D = existing.get(index)
 			if visual != null and visual.get_meta("belt_item") != kind:
@@ -1136,7 +1139,7 @@ func _advance_belt_cargo(delta: float, snapshot: Dictionary) -> void:
 			var index := int(item.get_meta("belt_slot"))
 			var fraction := belt_visual_fraction(slots, index, phase)
 			var position := first_position.lerp(last_position, (float(index) + fraction) / float(slots.size() - 1))
-			position.y += 0.18 if item.get_meta("belt_item") == "product" else 0.24
+			position.y += (0.18 if item.get_meta("belt_item") == "product" else 0.24) * U_SCALE
 			item.position = position
 
 func _add_belt_pick_section(body: StaticBody3D, start: float, end: float) -> void:
@@ -1144,7 +1147,7 @@ func _add_belt_pick_section(body: StaticBody3D, start: float, end: float) -> voi
 		return
 	var collider := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(end - start, 0.3, Geometry.PITCH * 0.55)
+	box.size = Vector3(end - start, 0.3 * U_SCALE, Geometry.PITCH * 0.55)
 	collider.position.x = (start + end) / 2.0
 	collider.shape = box
 	body.add_child(collider)
@@ -1181,7 +1184,7 @@ func _shaft_coupling(shaft: Dictionary, gear: Dictionary, parent: Node3D,
 	var offset: float = (gear.center[shaft.axis] - shaft.center[shaft.axis]) * UNIT
 	# Fit outside the existing hub and fasteners, towards shaft interior. A
 	# short admitted shaft may have no room for this art; never extend it.
-	var center: float = offset + (-1.0 if offset > 0.0 else 1.0) * 0.146
+	var center: float = offset + (-1.0 if offset > 0.0 else 1.0) * 0.146 * U_SCALE
 	if absf(center) + Assets.COUPLING_HALF_LENGTH > float(shaft.half_span) * UNIT:
 		return
 	var fitting := Node3D.new()
@@ -1262,16 +1265,16 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		"hand_crank":
 			# The free-floating crank is large enough to read as a source beside
 			# the slide while its spindle still meets the native input.
-			var spindle := _support_cylinder(anchor, "CrankSpindle", 0.048, 0.46, worked)
+			var spindle := _support_cylinder(anchor, "CrankSpindle", 0.048 * U_SCALE, 0.46 * U_SCALE, worked)
 			spindle.rotation.z = PI * 0.5
 			var rotor := Node3D.new()
 			rotor.name = "CrankRotor"
-			rotor.position.x = 0.22
+			rotor.position.x = 0.22 * U_SCALE
 			anchor.add_child(rotor)
-			_support_box(rotor, "CrankArm", Vector3(0, 0.115, 0),
-				Vector3(0.075, 0.29, 0.05), dark, true)
-			var grip := _support_cylinder(rotor, "CrankGrip", 0.036, 0.16, timber)
-			grip.position = Vector3(0.08, 0.25, 0)
+			_support_box(rotor, "CrankArm", Vector3(0, 0.115 * U_SCALE, 0),
+				Vector3(0.075, 0.29, 0.05) * U_SCALE, dark, true)
+			var grip := _support_cylinder(rotor, "CrankGrip", 0.036 * U_SCALE, 0.16 * U_SCALE, timber)
+			grip.position = Vector3(0.08, 0.25, 0) * U_SCALE
 			grip.rotation.z = PI * 0.5
 		"wooden_workbench":
 			# The issued component box seats this whole work surface on the floor.
@@ -1632,18 +1635,18 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				_moving_anchors.append(rotor)
 			anchor.add_child(rotor)
 			var finish: Material = timber if kind == "wooden_cog" else worked
-			_support_cylinder(rotor, "CogRim", 0.095, 0.05, finish)
-			var hub_length: float = occupied_size.dot(direction.abs()) if press_role == "drive_cog" else 0.105
-			_support_cylinder(rotor, "CogHub", 0.05, hub_length, dark)
-			_support_box(rotor, "CogIndexMark", Vector3(0.065, 0.028, 0),
-				Vector3(0.025, 0.008, 0.025), dark)
+			_support_cylinder(rotor, "CogRim", 0.095 * U_SCALE, 0.05 * U_SCALE, finish)
+			var hub_length: float = occupied_size.dot(direction.abs()) if press_role == "drive_cog" else 0.105 * U_SCALE
+			_support_cylinder(rotor, "CogHub", 0.05 * U_SCALE, hub_length, dark)
+			_support_box(rotor, "CogIndexMark", Vector3(0.065, 0.028, 0) * U_SCALE,
+				Vector3(0.025, 0.008, 0.025) * U_SCALE, dark)
 			for index in range(12):
 				var angle := TAU * float(index) / 12.0
 				_support_box(rotor, "CogTooth%02d" % index, Vector3.ZERO,
-					Vector3(0.027, 0.065, 0.035), finish)
+					Vector3(0.027, 0.065, 0.035) * U_SCALE, finish)
 				# _support_box installs the mesh but has no return value.
 				var placed_tooth := rotor.get_child(rotor.get_child_count() - 1) as MeshInstance3D
-				placed_tooth.position = Vector3(sin(angle), 0, cos(angle)) * 0.113
+				placed_tooth.position = Vector3(sin(angle), 0, cos(angle)) * (0.113 * U_SCALE)
 				placed_tooth.rotation.y = angle
 		"cutting_edge":
 			if collector_support_drop > 0.0:
@@ -1726,11 +1729,11 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			elif press_role == "guided_shaft":
 				# The early guide and drive can float. A compact bearing stays
 				# inside this placed shaft's own occupied box, with no false frame.
-				_support_box(anchor, "GuidedBearingSeat", Vector3(0, -0.07, 0),
-					Vector3(0.25, 0.055, 0.25), dark)
+				_support_box(anchor, "GuidedBearingSeat", Vector3(0, -0.07 * U_SCALE, 0),
+					Vector3(0.25, 0.055, 0.25) * U_SCALE, dark)
 			else:
-				_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07, 0),
-					Vector3(0.35, 0.07, 0.35), dark, worked)
+				_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07 * U_SCALE, 0),
+					Vector3(0.35, 0.07, 0.35) * U_SCALE, dark, worked)
 			var rod := Node3D.new()
 			rod.name = "LooseDriveShaft"
 			anchor.add_child(rod)
@@ -1743,31 +1746,31 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				rod.set_meta("component_rotor_base", rod.basis)
 				rod.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
 				_moving_anchors.append(rod)
-			rod.position.y = 0.0 if fitted else 0.035
-			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted else 0.14
+			rod.position.y = 0.0 if fitted else 0.035 * U_SCALE
+			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted else 0.14 * U_SCALE
 			Assets.shaft(rod, shaft_length, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
 			var core := rod.get_node("Shaft") as MeshInstance3D
 			core.material_override = timber if kind == "wooden_shaft" else worked
-			_support_box(rod, "ShaftIndexMark", Vector3(0.057, 0, 0),
-				Vector3(0.016, 0.035, 0.024), dark)
+			_support_box(rod, "ShaftIndexMark", Vector3(0.057 * U_SCALE, 0, 0),
+				Vector3(0.016, 0.035, 0.024) * U_SCALE, dark)
 			if fitted:
 				if collector_fitting:
 					# A collector shaft reaches the frame from its own native box.
 					# The five-millimetre box seam stays clear of another part's
 					# independently removable collision and construction identity.
 					var along_x := absf(direction.x) > 0.5
-					var join_size := Vector3(0.05, 0.09, 0.14) if along_x else Vector3(0.14, 0.09, 0.05)
-					_support_box(anchor, "FrameJoinSocket", direction * (shaft_length * 0.5 - 0.025)
-						+ Vector3.DOWN * 0.015, join_size, dark, true)
+					var join_size := (Vector3(0.05, 0.09, 0.14) if along_x else Vector3(0.14, 0.09, 0.05)) * U_SCALE
+					_support_box(anchor, "FrameJoinSocket", direction * (shaft_length * 0.5 - 0.025 * U_SCALE)
+						+ Vector3.DOWN * (0.015 * U_SCALE), join_size, dark, true)
 				# The two static journals belong to the confirmed frame-facing axis.
 				# Neither their geometry nor this rod becomes a second drive or collider.
 				for sign_value in [-1.0, 1.0]:
 					var suffix := "Near" if sign_value < 0.0 else "Far"
-					var bearing := _support_cylinder(anchor, "BearingShell" + suffix, 0.07, 0.045, dark)
-					bearing.position = direction * sign_value * 0.115
+					var bearing := _support_cylinder(anchor, "BearingShell" + suffix, 0.07 * U_SCALE, 0.045 * U_SCALE, dark)
+					bearing.position = direction * sign_value * (0.115 * U_SCALE)
 					bearing.basis = rod.basis
-					_support_box(anchor, "BearingSeat" + suffix, bearing.position + Vector3.DOWN * 0.05,
-						Vector3(0.10, 0.06, 0.10), dark)
+					_support_box(anchor, "BearingSeat" + suffix, bearing.position + Vector3.DOWN * (0.05 * U_SCALE),
+						Vector3(0.10, 0.06, 0.10) * U_SCALE, dark)
 		_:
 			_support_box(anchor, "UnfittedPart", Vector3.ZERO, Vector3(0.24, 0.20, 0.24), dark)
 
@@ -2105,11 +2108,11 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		crank.name = "AttachedHandCrank"
 		crank.position = Vector3(float(port[0]) * UNIT,
 			float(port[1]) * UNIT + Geometry.ANCHOR_HEIGHT,
-			float(port[2]) * UNIT) + outward * 0.22
+			float(port[2]) * UNIT) + outward * (0.22 * U_SCALE)
 		crank.rotation.y = -atan2(outward.z, outward.x)
 		crank.set_meta("crank_entity", id)
 		add_child(crank)
-		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.25, 0.38, 0.22),
+		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.25, 0.38, 0.22) * U_SCALE,
 			"", 0.0, 0.0, Vector3.ZERO)
 		var rotor := crank.get_node("CrankRotor") as Node3D
 		_crank_rotors[id] = rotor
@@ -2125,9 +2128,9 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		pick.collision_mask = 0
 		var shape := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		box.size = Vector3(0.28, 0.41, 0.28)
+		box.size = Vector3(0.28, 0.41, 0.28) * U_SCALE
 		shape.shape = box
-		shape.position.y = 0.13
+		shape.position.y = 0.13 * U_SCALE
 		pick.add_child(shape)
 		crank.add_child(pick)
 
@@ -2638,7 +2641,7 @@ func refresh() -> void:
 				Assets.gear(anchor, radius, part.teeth, color)
 				Assets.shaft(anchor, Geometry.PITCH, color)
 			if not reused:
-				_pick(anchor, id, radius, 0.24, Geometry.PITCH)
+				_pick(anchor, id, radius, 0.24 * U_SCALE, Geometry.PITCH)
 			if rotating:
 				var sign_value := 1 if motion.numerator > 0 else -1
 				if batch_gears:
@@ -2651,12 +2654,12 @@ func refresh() -> void:
 			var keyway := MeshInstance3D.new()
 			keyway.name = "Keyway"
 			var key_shape := BoxMesh.new()
-			key_shape.size = Vector3(0.012, length * 0.92, 0.006)
+			key_shape.size = Vector3(0.012 * U_SCALE, length * 0.92, 0.006 * U_SCALE)
 			keyway.mesh = key_shape
 			keyway.position.z = Assets.SHAFT_CORE_RADIUS
 			_finish(keyway, Color("e2c58a"))
 			anchor.add_child(keyway)
-			_pick(anchor, id, 0.08, length)
+			_pick(anchor, id, 0.08 * U_SCALE, length)
 		else:
 			_relay_case(anchor, id, part)
 	if batch_gears:
@@ -2709,7 +2712,7 @@ func refresh() -> void:
 				continue
 			if a.kind != "gear" or b.kind != "gear":
 				continue
-			var mark := _cylinder(self, "ConfirmedEngagement", 0.06, 0.07, Color("9bc883"))
+			var mark := _cylinder(self, "ConfirmedEngagement", 0.06 * U_SCALE, 0.07 * U_SCALE, Color("9bc883"))
 			mark.position = world_center(a.center).lerp(world_center(b.center), float(a.teeth) / float(a.teeth + b.teeth))
 			mark.basis = axis_basis(a.axis)
 			mark.set_meta("from", edge.a)

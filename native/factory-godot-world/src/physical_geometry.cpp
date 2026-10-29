@@ -219,15 +219,18 @@ bool overlaps_supports(const std::array<Bounds, 2>& supports, const Bounds& othe
         [&](const auto& support) { return overlap(support, other); });
 }
 
+constexpr double u_scale = pitch / 1.65;
+
 authority::Point gear_half_extents(mechanics::Axis axis, Integer /* teeth */) {
     const auto radius = pitch / 2;
     authority::Point half{radius, radius, radius};
-    half[static_cast<std::size_t>(axis)] = 0.04; // Fixture disc half-thickness, not tooth physics.
+    half[static_cast<std::size_t>(axis)] = 0.04 * u_scale; // Fixture disc half-thickness, not tooth physics.
     return half;
 }
 
 authority::Point gear_axle_half_extents(mechanics::Axis axis) {
-    authority::Point half{0.1, 0.1, 0.1};
+    const auto radial = 0.1 * u_scale;
+    authority::Point half{radial, radial, radial};
     half[static_cast<std::size_t>(axis)] = pitch / 2;
     return half;
 }
@@ -303,7 +306,7 @@ std::vector<Bounds> belt_bounds(const mechanics::Part& first, const mechanics::P
         const auto sections = path->tiles.size() * 8;
         const double length = path->tiles.size() * pitch;
         const double section = length / sections;
-        const double normal = 0.15 / std::sqrt(2.0);
+        const double normal = 0.15 * u_scale / std::sqrt(2.0);
         for (std::size_t i = 0; i < sections; ++i) {
             const double along = -pitch / 2 + (i + 0.5) * section;
             auto center = a;
@@ -320,18 +323,18 @@ std::vector<Bounds> belt_bounds(const mechanics::Part& first, const mechanics::P
     if (path->kind != mechanics::BeltPathKind::horizontal) {
         const auto a = at(path->tiles.front()), b = at(path->tiles.back());
         const auto direction = a[0] != b[0] ? std::size_t{0} : (a[1] != b[1] ? std::size_t{1} : std::size_t{2});
-        authority::Point center{}, half{0.3, 0.3, 0.3};
+        authority::Point center{}, half{0.3 * u_scale, 0.3 * u_scale, 0.3 * u_scale};
         for (std::size_t axis = 0; axis < 3; ++axis) center[axis] = (a[axis] + b[axis]) / 2;
         half[direction] = std::abs(b[direction] - a[direction]) / 2 + pitch / 2;
         const auto axle = static_cast<std::size_t>(first.axis);
-        half[3 - direction - axle] = 0.15;
+        half[3 - direction - axle] = 0.15 * u_scale;
         half[axle] = site_geometry::belt_frame_outer_half_width;
         result.push_back({center, half});
         return result;
     }
     const auto direction = first.axis == mechanics::Axis::x ? std::size_t{2} : std::size_t{0};
     for (const auto& point : path->tiles) {
-        authority::Point half{0.3, 0.15, 0.3}; half[direction] = pitch / 2;
+        authority::Point half{0.3 * u_scale, 0.15 * u_scale, 0.3 * u_scale}; half[direction] = pitch / 2;
         half[static_cast<std::size_t>(first.axis)] = site_geometry::belt_frame_outer_half_width;
         result.push_back({at(point), half});
     }
@@ -365,7 +368,7 @@ bool belt_intersects(const mechanics::Part& first, const mechanics::Part& last, 
         const auto roundoff = 8 * std::numeric_limits<double>::epsilon() * std::max({1.0, distance, extent});
         return distance < extent - roundoff;
     };
-    return overlaps_axis(along, belt_half_length + box_radius) && overlaps_axis(across, 0.15 + box_radius);
+    return overlaps_axis(along, belt_half_length + box_radius) && overlaps_axis(across, 0.15 * u_scale + box_radius);
 }
 
 bool intersects_belt(const world::State& state, const Bounds& bounds,

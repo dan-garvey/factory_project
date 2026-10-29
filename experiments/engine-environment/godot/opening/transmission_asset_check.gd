@@ -16,7 +16,8 @@ const WORKED_RELIEF_METRES := 0.00001
 # The presenter fits every gear in one 1.65 m tile; native ratio units change
 # tooth count, not world radius. Its signed half-rate phase is measured over
 # 0.1 s around the fitted span roller with the established visual phase scale.
-const PRESENTED_GEAR_RADIUS := 0.825
+const U_SCALE := Presenter.U_SCALE
+const PRESENTED_GEAR_RADIUS := 0.825 * U_SCALE
 const PRESENTED_HALF_RATE_STEP := -0.1 * 0.5 * 1.65 / (0.1425 * 0.45)
 var checks := 0
 var failed := false
@@ -446,8 +447,8 @@ func roles(node: Node, role: String) -> int:
 
 func check_rim_face_relief(mesh: Mesh, radius: float) -> void:
 	var inner := radius * 0.56
-	var band := radius - 0.1 - inner
-	var relief := minf(0.008, band * 0.075)
+	var band := radius - 0.1 * U_SCALE - inner
+	var relief := minf(0.008 * U_SCALE, band * 0.075)
 	var recessed := [0, 0]
 	var shoulders := [0, 0]
 	for vertex in mesh.get_faces():
@@ -455,9 +456,9 @@ func check_rim_face_relief(mesh: Mesh, radius: float) -> void:
 		if radial < inner + band * 0.3 or radial > inner + band * 0.7:
 			continue
 		var side := 1 if vertex.y > 0 else 0
-		if absf(absf(vertex.y) - (0.07 - relief)) < 0.0001:
+		if absf(absf(vertex.y) - (0.07 * U_SCALE - relief)) < 0.0001:
 			recessed[side] += 1
-		if absf(absf(vertex.y) - 0.07) < 0.0001:
+		if absf(absf(vertex.y) - 0.07 * U_SCALE) < 0.0001:
 			shoulders[side] += 1
 	verify(recessed[0] > 0 and recessed[1] > 0 and shoulders[0] > 0 and shoulders[1] > 0,
 		"Both actual cog faces retain a measurable recessed annular track and full-height shoulders.")
@@ -470,35 +471,35 @@ func check_assemblies() -> void:
 		var gear := Node3D.new()
 		gear.position = center
 		gear.basis = Presenter.axis_basis(axis)
-		Assets.gear(gear, 0.825, 2, Color("ba9459"))
+		Assets.gear(gear, PRESENTED_GEAR_RADIUS, 2, Color("ba9459"))
 		verify(roles(gear, "GearTooth") == 16 and roles(gear, "GearSpoke") == 4
 			and roles(gear, "HubFastener") == 8, "The ordinary two-unit gear has sixteen beveled render teeth, four spokes and fitted hub fasteners.")
 		verify(gear.get_node("Gear").mesh == previous if previous != null else true,
 			"Changing the world axis reuses the identical cached rim mesh.")
 		previous = gear.get_node("Gear").mesh
-		verify(gear.get_node("GearTooth").multimesh.mesh == Assets.tooth_mesh(0.825, 16),
+		verify(gear.get_node("GearTooth").multimesh.mesh == Assets.tooth_mesh(PRESENTED_GEAR_RADIUS, 16),
 			"Repeated teeth share one closed authored tooth asset.")
-		check_rim_face_relief(gear.get_node("Gear").mesh, 0.825)
-		check_bounds(gear, gear.transform, center, axes[axis], 0.825, 0.12)
+		check_rim_face_relief(gear.get_node("Gear").mesh, PRESENTED_GEAR_RADIUS)
+		check_bounds(gear, gear.transform, center, axes[axis], PRESENTED_GEAR_RADIUS, 0.12 * U_SCALE)
 		var shaft := Node3D.new()
 		shaft.position = center
 		shaft.basis = Presenter.axis_basis(axis)
-		Assets.shaft(shaft, 1.65, Color("687a7b"))
+		Assets.shaft(shaft, 1.65 * U_SCALE, Color("687a7b"))
 		var mesh: CylinderMesh = shaft.get_node("Shaft").mesh
-		verify(is_equal_approx(mesh.height, 1.65) and is_equal_approx(mesh.top_radius, 0.03) and mesh.radial_segments == 48,
+		verify(is_equal_approx(mesh.height, 1.65 * U_SCALE) and is_equal_approx(mesh.top_radius, 0.03 * U_SCALE) and mesh.radial_segments == 48,
 			"The named shaft remains a CylinderMesh with its exact endpoint length and declared art radius.")
 		verify(roles(shaft, "ShaftCollar") == 2 and roles(shaft, "ShaftKey") == 2,
 			"The shaft has a fitted collar and key at both ends.")
-		check_bounds(shaft, shaft.transform, center, axes[axis], 0.08, 0.825)
+		check_bounds(shaft, shaft.transform, center, axes[axis], 0.08 * U_SCALE, PRESENTED_GEAR_RADIUS)
 		gear.free()
 		shaft.free()
 	for units in [1, 3]:
 		var gear := Node3D.new()
-		var radius := float(units) * 0.4125
+		var radius := float(units) * 0.4125 * U_SCALE
 		Assets.gear(gear, radius, units, Color("687a7b"))
 		verify(roles(gear, "GearTooth") == units * 8, "Decorative tooth density remains proportional for other ratio sizes.")
 		check_rim_face_relief(gear.get_node("Gear").mesh, radius)
-		check_bounds(gear, Transform3D.IDENTITY, Vector3.ZERO, Vector3.UP, radius, 0.12)
+		check_bounds(gear, Transform3D.IDENTITY, Vector3.ZERO, Vector3.UP, radius, 0.12 * U_SCALE)
 		gear.free()
 
 func material_part(root_node: Node, id: String) -> Node3D:
@@ -569,7 +570,7 @@ func check_materials() -> void:
 			# The cog's integral axle adds one core, two collars and two keys.
 			verify(counts == [5, 31, 4], "The cog, integral axle and separate shaft expose five cast, thirty-one worked and four copper pieces.")
 			var cylinder: CylinderMesh = shaft.get_node("Shaft").mesh
-			verify(is_equal_approx(cylinder.height, 1.65) and is_equal_approx(cylinder.top_radius, 0.03)
+			verify(is_equal_approx(cylinder.height, 1.65 * U_SCALE) and is_equal_approx(cylinder.top_radius, 0.03 * U_SCALE)
 				and gear.basis.y.is_equal_approx([Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis]),
 				"The material adapter preserves the literal shaft geometry and projected assembly axis.")
 			verify(host.state == before, "Material assignment does not mutate the projected native facts.")
@@ -660,7 +661,7 @@ func bore_mesh_facts(mesh: Mesh, pose: Transform3D = Transform3D.IDENTITY, cache
 			low = minf(low, point.y)
 			high = maxf(high, point.y)
 			maximum_radius = maxf(maximum_radius, Vector2(point.x, point.z).length())
-			if is_equal_approx(absf(point.y), 0.11):
+			if is_equal_approx(absf(point.y), 0.11 * U_SCALE):
 				face_radii.append(Vector2(point.x, point.z).length())
 	face_radii.sort()
 	return {"minimum_radius": minimum_radius, "maximum_radius": maximum_radius, "low": low, "high": high,
@@ -679,8 +680,8 @@ func bore_shaft_envelope(node: Node3D, pose: Transform3D = Transform3D.IDENTITY)
 
 func bore_control_mesh(inner: float) -> Mesh:
 	# Deliberately simple controls use independent solid and undersized profiles.
-	return Assets.Visuals.turned_mesh(PackedVector2Array([Vector2(inner, -0.11), Vector2(0.14, -0.11),
-		Vector2(0.14, 0.11), Vector2(inner, 0.11), Vector2(inner, -0.11)]))
+	return Assets.Visuals.turned_mesh(PackedVector2Array([Vector2(inner, -0.11 * U_SCALE), Vector2(0.14 * U_SCALE, -0.11 * U_SCALE),
+		Vector2(0.14 * U_SCALE, 0.11 * U_SCALE), Vector2(inner, 0.11 * U_SCALE), Vector2(inner, -0.11 * U_SCALE)]))
 
 func check_gear_bores() -> void:
 	var minimum_clearance := INF
@@ -710,9 +711,9 @@ func check_gear_bores() -> void:
 			print(JSON.stringify({"phase": "unconnected hub", "units": units, "axis": axis, "facts": empty_facts,
 				"snapped_cache_facts": bore_mesh_facts(hub_mesh, empty_hub.transform, true)}))
 			check_mesh(hub_mesh)
-			verify(empty_facts.minimum_radius > 0.0388 and empty_facts.minimum_face_radius > 0.0438
-				and is_equal_approx(empty_facts.maximum_radius, minf(0.16, PRESENTED_GEAR_RADIUS * 0.34))
-				and is_equal_approx(empty_facts.low, -0.11) and is_equal_approx(empty_facts.high, 0.11),
+			verify(empty_facts.minimum_radius > 0.0388 * U_SCALE and empty_facts.minimum_face_radius > 0.0438 * U_SCALE
+				and is_equal_approx(empty_facts.maximum_radius, minf(0.16 * U_SCALE, PRESENTED_GEAR_RADIUS * 0.34))
+				and is_equal_approx(empty_facts.low, -0.11 * U_SCALE) and is_equal_approx(empty_facts.high, 0.11 * U_SCALE),
 				"Actual hub triangles leave the whole passage open and chamfer both original end planes.")
 			host.state.transmission_parts["shaft"] = {"kind": "shaft", "center": center, "axis": axis, "half_span": 1, "generation": 2}
 			host.state.motion["shaft"] = {"state": "rotating", "numerator": -1, "denominator": 2}
@@ -732,15 +733,15 @@ func check_gear_bores() -> void:
 			minimum_bore_radius = minf(minimum_bore_radius, facts.minimum_radius)
 			control_radius = maxf(control_radius, shaft_radius)
 			maximum_triangles = maxi(maximum_triangles, facts.triangles)
-			verify(hub.mesh == hub_mesh and facts == empty_facts and clearance > 0.001,
+			verify(hub.mesh == hub_mesh and facts == empty_facts and clearance > 0.001 * U_SCALE,
 				"Adding a shaft reuses the exact open hub and its measured full-turn clearance for core, collars, keys and keyway.")
 			verify(gear.position == Presenter.world_center(center) and shaft.position == gear.position
 				and gear.basis.y == [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis] and shaft.basis == gear.basis,
 				"The actual assemblies preserve the common confirmed point and positive axis.")
 			var gear_pick: CylinderShape3D = gear.get_node("Pick").get_child(0).shape
 			var shaft_pick: CylinderShape3D = shaft.get_node("Pick").get_child(0).shape
-			verify(is_equal_approx(gear_pick.radius, PRESENTED_GEAR_RADIUS) and is_equal_approx(gear_pick.height, 0.24)
-				and is_equal_approx(shaft_pick.radius, 0.08) and is_equal_approx(shaft_pick.height, 0.825),
+			verify(is_equal_approx(gear_pick.radius, PRESENTED_GEAR_RADIUS) and is_equal_approx(gear_pick.height, 0.24 * U_SCALE)
+				and is_equal_approx(shaft_pick.radius, 0.08 * U_SCALE) and is_equal_approx(shaft_pick.height, PRESENTED_GEAR_RADIUS),
 				"The bore changes no gear or shaft selection envelope or endpoint length.")
 			verify(roles(gear, "GearTooth") == units * 8 and roles(gear, "GearSpoke") == 4 and roles(gear, "HubFastener") == 8,
 				"The exact original peripheral assembly remains present for every disclosed size.")
@@ -752,7 +753,7 @@ func check_gear_bores() -> void:
 				and is_equal_approx(view.visual_angle("shaft"), PRESENTED_HALF_RATE_STEP)
 				and gear.basis == shaft.basis and host.state == before,
 				"The existing signed cosmetic rate turns the same rigid assembly without changing the invented native facts.")
-			var cache_key := str(minf(0.16, PRESENTED_GEAR_RADIUS * 0.34))
+			var cache_key := str(minf(0.16 * U_SCALE, PRESENTED_GEAR_RADIUS * 0.34))
 			verify(not hub_meshes.has(cache_key) or hub_meshes[cache_key] == hub.mesh,
 				"Equivalent local hub dimensions reuse their mesh across world axes and cog sizes.")
 			hub_meshes[cache_key] = hub.mesh
@@ -760,11 +761,11 @@ func check_gear_bores() -> void:
 			view.free()
 	verify(bore_mesh_facts(bore_control_mesh(0.0)).minimum_radius < control_radius,
 		"The original solid hub fails the same actual shaft-envelope criterion.")
-	verify(bore_mesh_facts(bore_control_mesh(0.02)).minimum_radius < control_radius,
+	verify(bore_mesh_facts(bore_control_mesh(0.02 * U_SCALE)).minimum_radius < control_radius,
 		"An open but undersized bore cannot pass merely by having no central cap.")
 	verify(bore_triangle_radius(Vector2(-0.1, -0.1), Vector2(0.1, -0.1), Vector2(0.0, 0.1)) == 0.0,
 		"The independent face oracle rejects a closing triangle even when all its vertices clear the shaft.")
-	verify(minimum_bore_radius < 0.045, "The former wide shaft would fail the same fitted opening.")
+	verify(minimum_bore_radius < 0.045 * U_SCALE, "The former wide shaft would fail the same fitted opening.")
 	print(JSON.stringify({"assemblies": assemblies, "sizes": [1, 2, 3, 8], "axes": 3,
 		"minimum_full_turn_clearance_metres": minimum_clearance, "maximum_actual_shaft_radius_metres": control_radius,
 		"maximum_hub_triangles": maximum_triangles, "hub_meshes": hub_meshes.size(), "negative_controls": 4,
@@ -776,11 +777,11 @@ func batch_expected_mesh(role: String, units: int) -> Mesh:
 	if role == "GearTooth":
 		return Assets.tooth_mesh(radius, units * 8)
 	if role == "GearSpoke":
-		return Assets.Visuals.box_mesh(Vector3(radius * 0.56 - minf(0.16, radius * 0.34) + 0.04, 0.08, 0.09))
+		return Assets.Visuals.box_mesh(Vector3(radius * 0.56 - minf(0.16 * U_SCALE, radius * 0.34) + 0.04 * U_SCALE, 0.08 * U_SCALE, 0.09 * U_SCALE))
 	var bolt := CylinderMesh.new()
-	bolt.top_radius = 0.022
-	bolt.bottom_radius = 0.022
-	bolt.height = 0.012
+	bolt.top_radius = 0.022 * U_SCALE
+	bolt.bottom_radius = 0.022 * U_SCALE
+	bolt.height = 0.012 * U_SCALE
 	bolt.radial_segments = 6
 	return bolt
 
@@ -788,7 +789,7 @@ func batch_expected_member(role: String, index: int, units: int, point: Vector3,
 	# Scalar reference for the prior individual-piece layout. This does not
 	# decode a buffer or use the production poses, Basis or batching helper.
 	var radius := PRESENTED_GEAR_RADIUS
-	var hub := minf(0.16, radius * 0.34)
+	var hub := minf(0.16 * U_SCALE, radius * 0.34)
 	if role == "GearTooth":
 		var angle := float(index) * TAU / float(units * 8)
 		return Vector3(cos(angle) * point.x + sin(angle) * point.z, point.y,
@@ -800,7 +801,7 @@ func batch_expected_member(role: String, index: int, units: int, point: Vector3,
 			sin(angle) * (point.x + offset) + cos(angle) * point.z)
 	var angle := float(index >> 1) * PI / 2.0
 	var side := -1.0 if index % 2 == 0 else 1.0
-	var origin := Vector3.ZERO if normal else Vector3(cos(angle) * hub * 0.65, side * 0.108, sin(angle) * hub * 0.65)
+	var origin := Vector3.ZERO if normal else Vector3(cos(angle) * hub * 0.65, side * 0.108 * U_SCALE, sin(angle) * hub * 0.65)
 	return origin + Vector3(point.x, point.y * side, point.z * side)
 
 func batch_expected_world(point: Vector3, axis: int, center: Vector3, angle: float, normal: bool) -> Vector3:
@@ -876,7 +877,7 @@ func batch_control_copy(source: MultiMeshInstance3D) -> MultiMeshInstance3D:
 	return copy
 
 func check_gear_batches() -> void:
-	const HEIGHT := 0.825 + 0.4125
+	var height := Presenter.Geometry.ANCHOR_HEIGHT + Presenter.UNIT
 	var assemblies := 0
 	var expanded_vertices := 0
 	var maximum_position_error := 0.0
@@ -922,7 +923,7 @@ func check_gear_batches() -> void:
 					view.advance_visual_motion(0.1)
 				for member in [gear, peer]:
 					var moving: bool = member == gear
-					var center := Vector3(-1.65 if moving else 0.0, HEIGHT, 3.3)
+					var center := Vector3(-4.0 * Presenter.UNIT if moving else 0.0, height, 8.0 * Presenter.UNIT)
 					var angle := PRESENTED_HALF_RATE_STEP if moving and phase == 1 else 0.0
 					var tint := Color("687a7b")
 					for role in ["GearTooth", "GearSpoke", "HubFastener"]:
@@ -938,11 +939,11 @@ func check_gear_batches() -> void:
 							"Equivalent dimensions reuse batch data across colours, positive axes and signed parent motion.")
 						geometry_seen[key_value] = group.multimesh
 					var hub: MeshInstance3D = member.get_node("Hub")
-					verify(bore_mesh_facts(hub.mesh).minimum_radius > 0.0388 and hub.transform == Transform3D.IDENTITY,
+					verify(bore_mesh_facts(hub.mesh).minimum_radius > 0.0388 * U_SCALE and hub.transform == Transform3D.IDENTITY,
 						"Batching leaves the open machined hub and its original mounting intact.")
 			verify(host.state == before and is_equal_approx(view.visual_angle("gear"), PRESENTED_HALF_RATE_STEP) and view.visual_angle("peer") == 0.0,
 				"The original signed motion and stopped peer remain distinct without mutating the host projection.")
-			verify(is_equal_approx(original_shape.radius, PRESENTED_GEAR_RADIUS) and is_equal_approx(original_shape.height, 0.24)
+			verify(is_equal_approx(original_shape.radius, PRESENTED_GEAR_RADIUS) and is_equal_approx(original_shape.height, 0.24 * U_SCALE)
 				and original_pick.collision_layer == 4 and original_pick.collision_mask == 0,
 				"The existing pick geometry and collision role remain exact.")
 			view.refresh()
@@ -977,7 +978,7 @@ func check_gear_batches() -> void:
 						var altered := StandardMaterial3D.new()
 						altered.albedo_color = Color.RED
 						bad.material_override = altered
-					var report := batch_geometry_report(bad, "GearTooth", units, axis, Vector3(-1.65, HEIGHT, 3.3), PRESENTED_HALF_RATE_STEP, Color("687a7b"))
+					var report := batch_geometry_report(bad, "GearTooth", units, axis, Vector3(-4.0 * Presenter.UNIT, height, 8.0 * Presenter.UNIT), PRESENTED_HALF_RATE_STEP, Color("687a7b"))
 					var rejected_for_change: bool = report.vertices_read == 0 if control == 0 else (
 						report.position_error > 0.000004 if control in [1, 2] else (
 							not report.bounds_valid if control == 3 else not report.material_valid))
@@ -1066,7 +1067,7 @@ func check_shaft_couplings() -> void:
 				verify(fitting.get_meta("shaft") == "shaft" and fitting.get_meta("gear") == "gear"
 					and fitting.get_child_count() == 2 and fitting.get_script() == null,
 					"The fitting keeps explicit endpoint identities and only two passive render halves.")
-				var expected_center: float = float(side) * (0.4125 - 0.146)
+				var expected_center: float = float(side) * (0.4125 * U_SCALE - 0.146 * U_SCALE)
 				verify(fitting.position.is_equal_approx(Vector3(0, expected_center, 0))
 					and shaft.position == Presenter.world_center(shaft_center)
 					and shaft.basis.y == [Vector3.RIGHT, Vector3.UP, Vector3.BACK][axis],
@@ -1076,10 +1077,10 @@ func check_shaft_couplings() -> void:
 				var pick: StaticBody3D = shaft.get_node("Pick")
 				var shape: CylinderShape3D = pick.get_child(0).shape
 				verify(pick.get_meta("entity") == "shaft" and pick.collision_layer == Presenter.Geometry.PICK_LAYER and pick.collision_mask == 0
-					and is_equal_approx(shape.radius, 0.08) and is_equal_approx(shape.height, 1.65),
+					and is_equal_approx(shape.radius, 0.08 * U_SCALE) and is_equal_approx(shape.height, 1.65 * U_SCALE),
 					"The original shaft selection identity, mask, radius and full span remain unchanged.")
 				var gear_pick: CylinderShape3D = gear.get_node("Pick").get_child(0).shape
-				verify(is_equal_approx(gear_pick.radius, Presenter.Geometry.PITCH / 2.0) and is_equal_approx(gear_pick.height, 0.24),
+				verify(is_equal_approx(gear_pick.radius, Presenter.Geometry.PITCH / 2.0) and is_equal_approx(gear_pick.height, 0.24 * U_SCALE),
 					"The coupling does not change the existing cog pick envelope.")
 				for half: MeshInstance3D in fitting.get_children():
 					if shared_mesh == null:
@@ -1093,16 +1094,16 @@ func check_shaft_couplings() -> void:
 					var facts := bore_mesh_facts(half.mesh, half.transform)
 					minimum_gap = minf(minimum_gap, facts.minimum_radius - shaft_radius)
 					maximum_radius = maxf(maximum_radius, facts.maximum_radius)
-					verify(facts.triangles == 360 and facts.minimum_radius - shaft_radius > 0.001
+					verify(facts.triangles == 360 and facts.minimum_radius - shaft_radius > 0.001 * U_SCALE
 						and facts.maximum_radius < shape.radius
 						and maxf(absf(facts.low), absf(facts.high)) <= Assets.COUPLING_HALF_LENGTH + 0.000001,
 						"Actual imported raw triangles preserve the full shaft/collar/key passage and stay inside the original radial envelope.")
 					var fit_valid := true
 					for point in bore_triangles(half.mesh):
 						var at: Vector3 = fitting.transform * half.transform * point
-						var hub_gap: float = absf(at.y - float(side) * 0.4125) - 0.114
+						var hub_gap: float = absf(at.y - float(side) * 0.4125 * U_SCALE) - 0.114 * U_SCALE
 						minimum_hub_gap = minf(minimum_hub_gap, hub_gap)
-						fit_valid = fit_valid and absf(at.y) < shape.height / 2.0 and hub_gap > 0.001
+						fit_valid = fit_valid and absf(at.y) < shape.height / 2.0 and hub_gap > 0.001 * U_SCALE
 					verify(fit_valid, "All actual fitting vertices stay within shaft ends and clear the existing hub and fastener end planes.")
 					for surface in range(2):
 						var arrays := half.mesh.surface_get_arrays(surface)
@@ -1147,7 +1148,7 @@ func check_shaft_couplings() -> void:
 		var wrong := Assets.coupling_finish.duplicate() as StandardMaterial3D
 		wrong.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 		verify(not coupling_material_valid(wrong), "The material oracle rejects a swapped scalar channel.")
-	verify(bore_mesh_facts(bore_control_mesh(0.02)).minimum_radius < 0.037
+	verify(bore_mesh_facts(bore_control_mesh(0.02 * U_SCALE)).minimum_radius < 0.037 * U_SCALE
 		and bore_triangle_radius(Vector2(-0.1, -0.1), Vector2(0.1, -0.1), Vector2(0, 0.1)) == 0.0,
 		"The independent raw-face oracle rejects undersized and plugged passages.")
 	print(JSON.stringify({"assemblies": assemblies, "axes": 3, "halves_per_joint": 2,
@@ -1204,8 +1205,8 @@ func check_shaft_splices() -> void:
 						shared_mesh = half.mesh
 					var facts := bore_mesh_facts(half.mesh, half.transform)
 					verify(half.mesh == shared_mesh and facts.triangles == 360
-						and facts.minimum_radius > original_radius + 0.001
-						and facts.maximum_radius < 0.08
+						and facts.minimum_radius > original_radius + 0.001 * U_SCALE
+						and facts.maximum_radius < 0.08 * U_SCALE
 						and maxf(absf(facts.low), absf(facts.high)) <= Assets.COUPLING_HALF_LENGTH + 0.000001,
 						"The source mesh clears both fitted shaft ends without stretching or widening their pick bodies.")
 				var owner_core: Mesh = owner.get_node("Shaft").mesh
@@ -1286,8 +1287,8 @@ func _initialize() -> void:
 		quit(1 if failed else 0)
 		return
 	for units in [1, 2, 3]:
-		var mesh: ArrayMesh = Assets.tooth_mesh(float(units) * 0.4125, units * 8)
-		verify(mesh == Assets.tooth_mesh(float(units) * 0.4125, units * 8), "The exact tooth profile is cached by its geometry inputs.")
+		var mesh: ArrayMesh = Assets.tooth_mesh(float(units) * 0.4125 * U_SCALE, units * 8)
+		verify(mesh == Assets.tooth_mesh(float(units) * 0.4125 * U_SCALE, units * 8), "The exact tooth profile is cached by its geometry inputs.")
 		check_mesh(mesh)
 	if mode != "tooth-only":
 		check_assemblies()

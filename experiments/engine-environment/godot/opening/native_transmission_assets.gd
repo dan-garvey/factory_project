@@ -3,13 +3,14 @@ extends RefCounted
 const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
 const Finish = preload("res://opening/production_surfaces.gd").ProductionTransmissionFinish
 const ConveyorArt = preload("res://opening/production_conveyors.gd").ProductionConveyorArt
+const U_SCALE := preload("res://opening/site_geometry.gd").PITCH / 1.65
 const UNIT := preload("res://opening/site_geometry.gd").PITCH / 4.0
-const SHAFT_CORE_RADIUS := 0.03
+const SHAFT_CORE_RADIUS := 0.03 * U_SCALE
 const SPAN_HALF_WIDTH := preload("res://opening/site_geometry.gd").BELT_HALF_WIDTH
 const SPAN_OUTER_RADIUS := preload("res://opening/site_geometry.gd").BELT_OUTER_RADIUS
-const SPAN_THICKNESS := 0.045
-const PULLEY_RADIUS := 0.095
-const PULLEY_BORE := 0.039
+const SPAN_THICKNESS := 0.045 * U_SCALE
+const PULLEY_RADIUS := 0.095 * U_SCALE
+const PULLEY_BORE := 0.039 * U_SCALE
 static var meshes: Dictionary = {}
 static var batches: Dictionary = {}
 static var complete_gears: Dictionary = {}
@@ -18,7 +19,7 @@ const COUPLING_ROOT := "res://opening/assets"
 # Use canonical resource paths: imported textures do not resolve parent segments.
 const COUPLING_IMAGES := {"albedo": "pipe-fit/textures/modular_industrial_pipes_01_group01_diff_1k.jpg",
 	"normal": "shaft-coupling/coupling_normal.webp", "arm": "shaft-coupling/coupling_arm.webp"}
-const COUPLING_HALF_LENGTH := (0.42954 - 0.39) * 0.72
+const COUPLING_HALF_LENGTH := (0.42954 - 0.39) * 0.72 * U_SCALE
 static var coupling_mesh: ArrayMesh
 static var coupling_finish: StandardMaterial3D
 static var coupling_status := "uninitialized"
@@ -53,7 +54,12 @@ static func _prepare_coupling() -> void:
 	var complete := ArrayMesh.new()
 	for index in range(2):
 		var surface := SurfaceTool.new()
-		surface.create_from(prepared, index)
+		if is_equal_approx(U_SCALE, 1.0):
+			surface.create_from(prepared, index)
+		else:
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			append_triangles(surface, prepared, index,
+				Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * U_SCALE), Vector3.ZERO))
 		surface.generate_tangents()
 		surface.commit(complete)
 	for role: String in images.images:
@@ -192,17 +198,18 @@ static func tooth_mesh(radius: float, teeth: int) -> ArrayMesh:
 	var key := ["tooth", radius, teeth]
 	if meshes.has(key):
 		return meshes[key]
+	var scale := U_SCALE
 	var pitch := TAU * radius / float(teeth)
-	var root := radius - 0.1
+	var root := radius - 0.1 * scale
 	var tip_width := pitch * 0.17
 	# Outer corners stay inside the unchanged native radius, rather than
 	# enlarging the occupied/pick envelope to accommodate decorative detail.
 	var tip_x := sqrt(radius * radius - tip_width * tip_width)
-	var outline := PackedVector2Array([Vector2(root - 0.015, -pitch * 0.34),
-		Vector2(tip_x, -tip_width), Vector2(tip_x, tip_width), Vector2(root - 0.015, pitch * 0.34)])
-	var center := Vector3((root - 0.015 + tip_x) / 2.0, 0, 0)
+	var outline := PackedVector2Array([Vector2(root - 0.015 * scale, -pitch * 0.34),
+		Vector2(tip_x, -tip_width), Vector2(tip_x, tip_width), Vector2(root - 0.015 * scale, pitch * 0.34)])
+	var center := Vector3((root - 0.015 * scale + tip_x) / 2.0, 0, 0)
 	var rings: Array = []
-	for row in [[-0.07, 0.92], [-0.06, 1.0], [0.06, 1.0], [0.07, 0.92]]:
+	for row in [[-0.07 * scale, 0.92], [-0.06 * scale, 1.0], [0.06 * scale, 1.0], [0.07 * scale, 0.92]]:
 		var points: Array[Vector3] = []
 		for point in outline:
 			points.append(Vector3(lerpf(center.x, point.x, row[1]), row[0], point.y * row[1]))
@@ -225,22 +232,23 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color,
 	# Eight render teeth per native ratio/radius unit. This tessellation stays
 	# proportional; it does not change the wire parameter or model tooth contact.
 	var count := ratio_units * 8
+	var scale := U_SCALE
 	var inner := radius * 0.56
-	var outer := radius - 0.1
+	var outer := radius - 0.1 * scale
 	var band := outer - inner
-	var relief := minf(0.008, band * 0.075)
+	var relief := minf(0.008 * scale, band * 0.075)
 	# Recess one annular track on each face of the wide cast rim. Its shoulders
 	# keep the original 70 mm face plane and its roots stay inside the native
 	# radius, so size variants share the same manufactured reading.
-	var rim := PackedVector2Array([Vector2(inner + 0.006, -0.07),
-		Vector2(inner + band * 0.33, -0.07), Vector2(inner + band * 0.37, -0.07 + relief),
-		Vector2(inner + band * 0.63, -0.07 + relief), Vector2(inner + band * 0.67, -0.07),
-		Vector2(outer - 0.006, -0.07),
-		Vector2(outer, -0.06), Vector2(outer, 0.06), Vector2(outer - 0.006, 0.07),
-		Vector2(inner + band * 0.67, 0.07), Vector2(inner + band * 0.63, 0.07 - relief),
-		Vector2(inner + band * 0.37, 0.07 - relief), Vector2(inner + band * 0.33, 0.07),
-		Vector2(inner + 0.006, 0.07), Vector2(inner, 0.06), Vector2(inner, -0.06),
-		Vector2(inner + 0.006, -0.07)])
+	var rim := PackedVector2Array([Vector2(inner + 0.006 * scale, -0.07 * scale),
+		Vector2(inner + band * 0.33, -0.07 * scale), Vector2(inner + band * 0.37, -0.07 * scale + relief),
+		Vector2(inner + band * 0.63, -0.07 * scale + relief), Vector2(inner + band * 0.67, -0.07 * scale),
+		Vector2(outer - 0.006 * scale, -0.07 * scale),
+		Vector2(outer, -0.06 * scale), Vector2(outer, 0.06 * scale), Vector2(outer - 0.006 * scale, 0.07 * scale),
+		Vector2(inner + band * 0.67, 0.07 * scale), Vector2(inner + band * 0.63, 0.07 * scale - relief),
+		Vector2(inner + band * 0.37, 0.07 * scale - relief), Vector2(inner + band * 0.33, 0.07 * scale),
+		Vector2(inner + 0.006 * scale, 0.07 * scale), Vector2(inner, 0.06 * scale), Vector2(inner, -0.06 * scale),
+		Vector2(inner + 0.006 * scale, -0.07 * scale)])
 	_part(parent, "Gear", Visuals.turned_mesh(rim, maxi(48, count * 2) if detail_segments == 0
 		else maxi(detail_segments, count)), Vector3.ZERO, color)
 	var tooth := tooth_mesh(radius, count)
@@ -248,16 +256,16 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color,
 	for n in range(count):
 		teeth.append(Transform3D(Basis.from_euler(Vector3(0, float(n) * TAU / count, 0)), Vector3.ZERO))
 	_batch(parent, "GearTooth", ["GearTooth", radius, ratio_units], tooth, teeth, color)
-	var hub_radius := minf(0.16, radius * 0.34)
+	var hub_radius := minf(0.16 * scale, radius * 0.34)
 	# Open both machined faces around the existing shaft/collar/key envelope.
 	# This is render clearance, not a new mechanical connection or phase rule.
-	var hub := PackedVector2Array([Vector2(0.044, -0.11), Vector2(hub_radius - 0.008, -0.11),
-		Vector2(hub_radius, -0.102), Vector2(hub_radius, 0.102),
-		Vector2(hub_radius - 0.008, 0.11), Vector2(0.044, 0.11),
-		Vector2(0.039, 0.105), Vector2(0.039, -0.105), Vector2(0.044, -0.11)])
+	var hub := PackedVector2Array([Vector2(0.044 * scale, -0.11 * scale), Vector2(hub_radius - 0.008 * scale, -0.11 * scale),
+		Vector2(hub_radius, -0.102 * scale), Vector2(hub_radius, 0.102 * scale),
+		Vector2(hub_radius - 0.008 * scale, 0.11 * scale), Vector2(0.044 * scale, 0.11 * scale),
+		Vector2(0.039 * scale, 0.105 * scale), Vector2(0.039 * scale, -0.105 * scale), Vector2(0.044 * scale, -0.11 * scale)])
 	_part(parent, "Hub", Visuals.turned_mesh(hub, detail_segments if detail_segments > 0 else 48),
 		Vector3.ZERO, Color("a6b4af"))
-	var spoke_length := inner - hub_radius + 0.04
+	var spoke_length := inner - hub_radius + 0.04 * scale
 	var spokes: Array[Transform3D] = []
 	var fasteners: Array[Transform3D] = []
 	for n in range(4):
@@ -266,9 +274,9 @@ static func gear(parent: Node3D, radius: float, ratio_units: int, color: Color,
 			Vector3(cos(angle), 0, sin(angle)) * (hub_radius + inner) / 2.0))
 		for side in [-1.0, 1.0]:
 			fasteners.append(Transform3D(Basis.from_euler(Vector3(PI if side < 0 else 0.0, 0, 0)),
-				Vector3(cos(angle) * hub_radius * 0.65, side * 0.108, sin(angle) * hub_radius * 0.65)))
-	_batch(parent, "GearSpoke", ["GearSpoke", radius], Visuals.box_mesh(Vector3(spoke_length, 0.08, 0.09)), spokes, color)
-	_batch(parent, "HubFastener", ["HubFastener", hub_radius], _cylinder(0.022, 0.012, 6), fasteners, Color("b8c3bb"))
+				Vector3(cos(angle) * hub_radius * 0.65, side * 0.108 * scale, sin(angle) * hub_radius * 0.65)))
+	_batch(parent, "GearSpoke", ["GearSpoke", radius], Visuals.box_mesh(Vector3(spoke_length, 0.08 * scale, 0.09 * scale)), spokes, color)
+	_batch(parent, "HubFastener", ["HubFastener", hub_radius], _cylinder(0.022 * scale, 0.012 * scale, 6), fasteners, Color("b8c3bb"))
 
 static func complete_gear_mesh(radius: float, ratio_units: int, color: Color, length: float) -> ArrayMesh:
 	# Bake the existing fitted assembly once per specification. Each finish keeps
@@ -321,15 +329,15 @@ static func shaft(parent: Node3D, length: float, color: Color, detail_segments: 
 	# endpoint consumer. Fitted collars do not alter the pick cylinder.
 	_part(parent, "Shaft", _cylinder(SHAFT_CORE_RADIUS, length, detail_segments if detail_segments > 0 else 48),
 		Vector3.ZERO, color)
-	var collar := PackedVector2Array([Vector2(0.03, -0.055), Vector2(0.0345, -0.055),
-		Vector2(0.036, -0.0535), Vector2(0.036, 0.0535), Vector2(0.0345, 0.055),
-		Vector2(0.03, 0.055), Vector2(0.03, -0.055)])
+	var collar := PackedVector2Array([Vector2(0.03 * U_SCALE, -0.055 * U_SCALE), Vector2(0.0345 * U_SCALE, -0.055 * U_SCALE),
+		Vector2(0.036 * U_SCALE, -0.0535 * U_SCALE), Vector2(0.036 * U_SCALE, 0.0535 * U_SCALE), Vector2(0.0345 * U_SCALE, 0.055 * U_SCALE),
+		Vector2(0.03 * U_SCALE, 0.055 * U_SCALE), Vector2(0.03 * U_SCALE, -0.055 * U_SCALE)])
 	for sign_value in [-1.0, 1.0]:
-		var center: float = sign_value * (length / 2.0 - 0.06)
+		var center: float = sign_value * (length / 2.0 - 0.06 * U_SCALE)
 		_part(parent, "ShaftCollar", Visuals.turned_mesh(collar, detail_segments if detail_segments > 0 else 48),
 			Vector3(0, center, 0), Color("a6b4af"))
-		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.012, 0.08, 0.012)),
-			Vector3(0.031, center, 0), Color("b87945"))
+		_part(parent, "ShaftKey", Visuals.box_mesh(Vector3(0.012 * U_SCALE, 0.08 * U_SCALE, 0.012 * U_SCALE)),
+			Vector3(0.031 * U_SCALE, center, 0), Color("b87945"))
 
 static func _belt_frame(loop: MeshInstance3D, distance: float) -> void:
 	# The admitted span includes this fixed frame. Its seats surround the
@@ -339,28 +347,28 @@ static func _belt_frame(loop: MeshInstance3D, distance: float) -> void:
 	var ring_key := "span_frame_seat"
 	if not meshes.has(ring_key):
 		meshes[ring_key] = Visuals.turned_mesh(PackedVector2Array([
-			Vector2(0.034, -0.020), Vector2(0.037, -0.020),
-			Vector2(0.072, -0.020), Vector2(0.078, -0.014),
-			Vector2(0.078, 0.014), Vector2(0.072, 0.020),
-			Vector2(0.037, 0.020), Vector2(0.034, 0.017),
-			Vector2(0.034, -0.020)]))
+			Vector2(0.034 * U_SCALE, -0.020 * U_SCALE), Vector2(0.037 * U_SCALE, -0.020 * U_SCALE),
+			Vector2(0.072 * U_SCALE, -0.020 * U_SCALE), Vector2(0.078 * U_SCALE, -0.014 * U_SCALE),
+			Vector2(0.078 * U_SCALE, 0.014 * U_SCALE), Vector2(0.072 * U_SCALE, 0.020 * U_SCALE),
+			Vector2(0.037 * U_SCALE, 0.020 * U_SCALE), Vector2(0.034 * U_SCALE, 0.017 * U_SCALE),
+			Vector2(0.034 * U_SCALE, -0.020 * U_SCALE)]))
 	# A closed formed channel exposes two narrow flanges and a recessed web.
 	# The open side faces away from the cargo lane; the profile stays rigid as
 	# only its undecorated length changes between confirmed shaft centres.
 	var section := PackedVector2Array([
-		Vector2(-0.026, -0.055), Vector2(0.026, -0.055),
-		Vector2(0.026, -0.043), Vector2(-0.014, -0.043),
-		Vector2(-0.014, 0.043), Vector2(0.026, 0.043),
-		Vector2(0.026, 0.055), Vector2(-0.026, 0.055)])
+		Vector2(-0.026 * U_SCALE, -0.055 * U_SCALE), Vector2(0.026 * U_SCALE, -0.055 * U_SCALE),
+		Vector2(0.026 * U_SCALE, -0.043 * U_SCALE), Vector2(-0.014 * U_SCALE, -0.043 * U_SCALE),
+		Vector2(-0.014 * U_SCALE, 0.043 * U_SCALE), Vector2(0.026 * U_SCALE, 0.043 * U_SCALE),
+		Vector2(0.026 * U_SCALE, 0.055 * U_SCALE), Vector2(-0.026 * U_SCALE, 0.055 * U_SCALE)])
 	for side in [-1.0, 1.0]:
 		var profile := section.duplicate()
 		for index in range(profile.size()):
 			profile[index].x *= -side
 		var rail := MeshInstance3D.new()
 		rail.name = "SpanFrameRailN" if side < 0 else "SpanFrameRailP"
-		rail.mesh = Visuals.prism_mesh(profile, distance, 0.002)
+		rail.mesh = Visuals.prism_mesh(profile, distance, 0.002 * U_SCALE)
 		rail.basis = Basis(Vector3.UP, PI / 2.0)
-		rail.position = Vector3(0, 0, side * 0.515)
+		rail.position = Vector3(0, 0, side * 0.515 * U_SCALE)
 		rail.material_override = rail_finish
 		rail.set_meta("span_frame_role", "Rail")
 		loop.add_child(rail)
@@ -368,7 +376,7 @@ static func _belt_frame(loop: MeshInstance3D, distance: float) -> void:
 			var seat := MeshInstance3D.new()
 			seat.name = "SpanFrameSeat" + ("N" if end < 0 else "P") + ("N" if side < 0 else "P")
 			seat.mesh = meshes[ring_key]
-			seat.position = Vector3(end * distance / 2.0, 0, side * 0.515)
+			seat.position = Vector3(end * distance / 2.0, 0, side * 0.515 * U_SCALE)
 			seat.basis = Basis(Quaternion(Vector3.UP, Vector3.BACK))
 			seat.material_override = seat_finish
 			seat.set_meta("span_frame_role", "Seat")
@@ -385,7 +393,7 @@ static func belt_loop(parent: Node3D, distance: float, travel_axis: int) -> Mesh
 	var loop := MeshInstance3D.new()
 	loop.name = "BeltLoop"
 	loop.mesh = ConveyorArt.loop_mesh(distance / 2.0, SPAN_HALF_WIDTH,
-		SPAN_OUTER_RADIUS, SPAN_THICKNESS, 0.003)
+		SPAN_OUTER_RADIUS, SPAN_THICKNESS, 0.003 * U_SCALE)
 	loop.material_override = source
 	if travel_axis == 2:
 		loop.rotation.y = -PI / 2.0
@@ -402,14 +410,17 @@ static func belt_pulley(parent: Node3D) -> MeshInstance3D:
 		return existing
 	var key := ["belt_pulley"]
 	if not meshes.has(key):
-		var face := SPAN_HALF_WIDTH - 0.006
+		var face := SPAN_HALF_WIDTH - 0.006 * U_SCALE
 		var profile := PackedVector2Array([
-			Vector2(0.044, -0.49), Vector2(0.059, -0.49), Vector2(0.065, -0.484),
-			Vector2(0.065, -0.43), Vector2(0.085, -0.43), Vector2(0.090, -face),
-			Vector2(0.093, -face), Vector2(PULLEY_RADIUS, -face + 0.002),
-			Vector2(PULLEY_RADIUS, face - 0.002), Vector2(0.093, face),
-			Vector2(0.090, face), Vector2(0.085, 0.43), Vector2(0.065, 0.43),
-			Vector2(0.065, 0.484), Vector2(0.059, 0.49), Vector2(0.044, 0.49),
-			Vector2(PULLEY_BORE, 0.485), Vector2(PULLEY_BORE, -0.485), Vector2(0.044, -0.49)])
+			Vector2(0.044 * U_SCALE, -0.49 * U_SCALE), Vector2(0.059 * U_SCALE, -0.49 * U_SCALE),
+			Vector2(0.065 * U_SCALE, -0.484 * U_SCALE), Vector2(0.065 * U_SCALE, -0.43 * U_SCALE),
+			Vector2(0.085 * U_SCALE, -0.43 * U_SCALE), Vector2(0.090 * U_SCALE, -face),
+			Vector2(0.093 * U_SCALE, -face), Vector2(PULLEY_RADIUS, -face + 0.002 * U_SCALE),
+			Vector2(PULLEY_RADIUS, face - 0.002 * U_SCALE), Vector2(0.093 * U_SCALE, face),
+			Vector2(0.090 * U_SCALE, face), Vector2(0.085 * U_SCALE, 0.43 * U_SCALE),
+			Vector2(0.065 * U_SCALE, 0.43 * U_SCALE), Vector2(0.065 * U_SCALE, 0.484 * U_SCALE),
+			Vector2(0.059 * U_SCALE, 0.49 * U_SCALE), Vector2(0.044 * U_SCALE, 0.49 * U_SCALE),
+			Vector2(PULLEY_BORE, 0.485 * U_SCALE), Vector2(PULLEY_BORE, -0.485 * U_SCALE),
+			Vector2(0.044 * U_SCALE, -0.49 * U_SCALE)])
 		meshes[key] = Visuals.turned_mesh(profile)
 	return _part(parent, "BeltPulley", meshes[key], Vector3.ZERO, Color("a6b4af"))

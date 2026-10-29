@@ -43,11 +43,12 @@ std::map<std::string, TransmissionSupport> layout(
     });
     std::map<std::string, TransmissionSupport> result;
     std::vector<Bounds> occupied;
+    constexpr double u_scale = site_geometry::pitch / 1.65;
     const auto beam = [](const authority::Point& a, const authority::Point& b) {
         Bounds bounds{};
         for (std::size_t dimension = 0; dimension < 3; ++dimension) {
             bounds.center[dimension] = (a[dimension] + b[dimension]) / 2;
-            bounds.half[dimension] = std::abs(a[dimension] - b[dimension]) / 2 + 0.0475;
+            bounds.half[dimension] = std::abs(a[dimension] - b[dimension]) / 2 + 0.0475 * u_scale;
         }
         return bounds;
     };
@@ -64,10 +65,11 @@ std::map<std::string, TransmissionSupport> layout(
         // Stacked cases need posts outside lower shells. A diagonal fallback
         // can stand beside the river shaft and ore outcrop while its complete
         // post and arm still pass the same terrain and occupancy checks.
-        constexpr std::array offsets{0.0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6};
+        constexpr std::array offsets{0.0, 0.4 * u_scale, -0.4 * u_scale, 0.8 * u_scale,
+            -0.8 * u_scale, 1.2 * u_scale, -1.2 * u_scale, 1.6 * u_scale, -1.6 * u_scale};
         constexpr std::array diagonals{
-            std::array{-1.6, -1.6}, std::array{-1.6, 1.6},
-            std::array{1.6, -1.6}, std::array{1.6, 1.6}};
+            std::array{-1.6 * u_scale, -1.6 * u_scale}, std::array{-1.6 * u_scale, 1.6 * u_scale},
+            std::array{1.6 * u_scale, -1.6 * u_scale}, std::array{1.6 * u_scale, 1.6 * u_scale}};
         const auto routes = offsets.size() * (axis == mechanics::Axis::y ? 1 : 2) +
             (axis == mechanics::Axis::y ? diagonals.size() : 0);
         const auto pinned = preferred_routes ? preferred_routes->find(part->geometry.id) :
@@ -82,51 +84,54 @@ std::map<std::string, TransmissionSupport> layout(
             if (route >= routes) continue;
             const bool diagonal = axis == mechanics::Axis::y && route >= offsets.size();
             const double offset = diagonal ? diagonals[route - offsets.size()][0] : offsets[route % offsets.size()];
-            const double axial = route < offsets.size() ? 0.55 : -0.55;
+            const double axial = (route < offsets.size() ? 0.55 : -0.55) * u_scale;
             auto bearing = at;
             if (axis == mechanics::Axis::x) bearing[0] += axial;
             else if (axis == mechanics::Axis::z) bearing[2] += axial;
-            else bearing[1] -= 0.50;
+            else bearing[1] -= 0.50 * u_scale;
             auto foot = bearing;
-            if (axis == mechanics::Axis::y) foot[0] += 0.24;
+            if (axis == mechanics::Axis::y) foot[0] += 0.24 * u_scale;
             foot[lateral] += offset;
             if (diagonal) foot[2] += diagonals[route - offsets.size()][1];
-            const auto ground = site.terrain_range(foot[0], foot[2], 0.17, 0.17);
+            constexpr double foot_half = 0.17 * u_scale;
+            const auto ground = site.terrain_range(foot[0], foot[2], foot_half, foot_half);
             if (!ground) continue;
             double seat = ground->second;
             for (const auto& [id, foundation] : state.foundations) {
                 (void)id;
                 const auto bounds = foundation_bounds(foundation);
-                if (std::abs(foot[0] - bounds.center[0]) + 0.17 <= bounds.half[0] &&
-                    std::abs(foot[2] - bounds.center[2]) + 0.17 <= bounds.half[2])
+                if (std::abs(foot[0] - bounds.center[0]) + foot_half <= bounds.half[0] &&
+                    std::abs(foot[2] - bounds.center[2]) + foot_half <= bounds.half[2])
                     seat = std::max(seat, bounds.center[1] + bounds.half[1]);
             }
             const double base_seat = seat;
             for (const auto& obstacle : site.terrain_obstacles) {
                 if (obstacle.first[0] < foot[0] && obstacle.second[0] > foot[0] &&
                     obstacle.first[2] < foot[2] && obstacle.second[2] > foot[2] &&
-                    obstacle.first[1] <= base_seat + 0.12)
+                    obstacle.first[1] <= base_seat + 0.12 * u_scale)
                     seat = std::max(seat, obstacle.second[1]);
             }
-            if (seat > at[1] - 0.02) continue;
+            if (seat > at[1] - 0.02 * u_scale) continue;
             foot[1] = seat;
             const auto fitted_bearing = bearing;
-            if (bearing[1] - seat > 9.0) continue;
-            const double post_top = bearing[1] - 0.24;
+            if (bearing[1] - seat > 9.0 * u_scale) continue;
+            const double post_top = bearing[1] - 0.24 * u_scale;
             if (post_top <= seat) continue;
-            const double column_top = std::max(post_top, seat + 0.14);
+            const double column_top = std::max(post_top, seat + 0.14 * u_scale);
             std::vector<Bounds> boxes{{{foot[0], (seat + column_top) / 2, foot[2]},
-                                      {0.17, (column_top - seat) / 2, 0.17}}};
-            authority::Point half{0.185, 0.185, 0.185};
-            half[static_cast<std::size_t>(axis)] = 0.1525;
+                                      {foot_half, (column_top - seat) / 2, foot_half}}};
+            authority::Point half{0.185 * u_scale, 0.185 * u_scale, 0.185 * u_scale};
+            half[static_cast<std::size_t>(axis)] = 0.1525 * u_scale;
             boxes.push_back({fitted_bearing, half});
-            boxes.push_back({{bearing[0], bearing[1] - 0.20, bearing[2]}, {0.155, 0.04, 0.155}});
+            boxes.push_back({{bearing[0], bearing[1] - 0.20 * u_scale, bearing[2]},
+                            {0.155 * u_scale, 0.04 * u_scale, 0.155 * u_scale}});
             if (foot[0] != fitted_bearing[0] || foot[2] != fitted_bearing[2]) {
                 auto post_arm = foot;
                 auto bearing_arm = fitted_bearing;
-                post_arm[1] = bearing_arm[1] -= 0.24;
+                post_arm[1] = bearing_arm[1] -= 0.24 * u_scale;
                 boxes.push_back(beam(post_arm, bearing_arm));
-            } else boxes.push_back({{bearing[0], post_top, bearing[2]}, {0.155, 0.0475, 0.155}});
+            } else boxes.push_back({{bearing[0], post_top, bearing[2]},
+                                    {0.155 * u_scale, 0.0475 * u_scale, 0.155 * u_scale}});
             bool clear = true;
             for (const auto& box : boxes) {
                 const auto terrain = site.terrain_range(box.center[0], box.center[2], box.half[0], box.half[2]);

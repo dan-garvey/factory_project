@@ -148,18 +148,14 @@ static func valid_position(position) -> bool:
 	# A serialized sanity check must not invent a maximum game-world extent.
 	return true
 
-static func _mechanical_point(value: Variant, part: Dictionary = {}) -> bool:
+static func _mechanical_point(value: Variant, _part: Dictionary = {}) -> bool:
 	if not value is Array or value.size() != 3:
 		return false
 	for index in range(3):
 		var coordinate: Variant = value[index]
 		if typeof(coordinate) != TYPE_INT or coordinate < -1000000 or coordinate > 1000000:
 			return false
-		var remainder: int = coordinate % 4
-		if remainder != 0 and not (part.get("kind") == "shaft"
-				and typeof(part.get("half_span")) == TYPE_INT and part.half_span == 2
-				and typeof(part.get("axis")) == TYPE_INT and part.axis == index
-				and absi(remainder) == 2):
+		if coordinate % 4 != 0:
 			return false
 	return true
 
@@ -247,12 +243,13 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 		if typeof(id) != TYPE_STRING or not part is Dictionary or typeof(part.get("axis")) != TYPE_INT \
 				or part.axis not in [0, 1, 2] or not _mechanical_point(part.get("center"), part):
 			return {"accepted": false}
-		var half := Vector3.ONE * 0.1
+		var u_scale := PITCH / 1.65
+		var half := Vector3.ONE * (0.1 * u_scale)
 		if part.get("kind") == "shaft" and part.get("half_span") == 2 and typeof(part.get("half_span")) == TYPE_INT:
 			half[part.axis] = PITCH / 2.0
 		elif part.get("kind") == "gear" and typeof(part.get("teeth")) == TYPE_INT and part.teeth > 0:
 			half = Vector3.ONE * (PITCH / 2.0)
-			half[part.axis] = 0.04
+			half[part.axis] = 0.04 * u_scale
 		elif part.get("kind") in ["gearbox", "vertical_gearbox", "chain_drive"] and \
 			typeof(part.get("teeth")) == TYPE_INT and part.teeth == 0 and \
 			typeof(part.get("half_span")) == TYPE_INT and part.half_span == 0:
@@ -267,7 +264,7 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 			return {"accepted": false}
 		result[id] = {"center": _mechanical_center(part.center), "size": half * 2.0}
 		if part.kind == "gear":
-			var axle_half := Vector3.ONE * 0.1
+			var axle_half := Vector3.ONE * (0.1 * u_scale)
 			axle_half[part.axis] = PITCH / 2.0
 			result[id]["axle_size"] = axle_half * 2.0
 		if part.has("support"):
@@ -308,16 +305,17 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 					return {"accepted": false}
 		if changed > 2 or (first.axis == 1 and changed != 1):
 			return {"accepted": false}
+		var u_scale := PITCH / 1.65
 		var direction: int = 2 if delta.z != 0 else (0 if delta.x != 0 else 1)
-		var size := Vector3(0.6, 0.3, 0.6)
+		var size := Vector3(0.6 * u_scale, 0.3 * u_scale, 0.6 * u_scale)
 		size[direction] = distance * HEIGHT_STEP + PITCH
 		size[first.axis] = BELT_FRAME_OUTER_HALF_WIDTH * 2.0
 		var basis := Basis.IDENTITY
 		if first.axis == 1:
 			size.y = BELT_FRAME_OUTER_HALF_WIDTH * 2.0
-			size[2 if direction == 0 else 0] = 0.3
+			size[2 if direction == 0 else 0] = 0.3 * u_scale
 		elif direction == 1:
-			size[2 if first.axis == 0 else 0] = 0.3
+			size[2 if first.axis == 0 else 0] = 0.3 * u_scale
 		elif delta.y != 0:
 			size[direction] *= sqrt(2.0)
 			var angle := atan2(float(delta.y), float(delta[direction]))
