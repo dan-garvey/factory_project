@@ -610,6 +610,7 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
     message << d.at("note").get<std::string>() << "\n";
   std::vector<std::string> images;
   std::set<std::string> imageHashes;
+  bool hasMarks = false;
   auto addImage = [&](const fs::path &path, const std::string &hash) {
     if (imageHashes.insert(hash).second)
       images.push_back(path.string());
@@ -617,6 +618,7 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
   for (const auto &c : m.at("cases")) {
     const auto &review = d.at("cases").at(c.at("id").get<std::string>());
     const auto marks = review.value("annotations", Json::array());
+    hasMarks |= !marks.empty(); // validate_decision requires annotation text.
     const auto note = review.value("note", std::string());
     if (note.empty() && marks.empty() &&
         review.at("status") != "changes_requested")
@@ -630,17 +632,17 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
       message << "Media " << a.at("media").get<std::string>() << " at "
               << a.at("time_ms") << " ms, (" << a.at("x") << ", " << a.at("y")
               << "): " << a.at("text").get<std::string>() << "\n";
-    if (!corrections)
+    if (!corrections || marks.empty())
       continue;
     for (const auto &media : c.at("media")) {
-      // Marked frames already supply the corrected view. Keep clip references
-      // and fall back to original context only for unmarked case feedback.
-      if (!marks.empty() &&
-          std::none_of(marks.begin(), marks.end(), [&](const Json &a) {
+      // Only explicitly marked evidence accompanies feedback. Text-only case
+      // notes never reattach context already available to the originating
+      // agent.
+      if (std::none_of(marks.begin(), marks.end(), [&](const Json &a) {
             return a.at("media") == media.at("id");
           }))
         continue;
-      if (media.at("kind") == "image" && !marks.empty() &&
+      if (media.at("kind") == "image" &&
           !d.value("attachments", Json::array()).empty())
         continue;
       auto path = (dir / media.at("path").get<std::string>()).string();
@@ -652,11 +654,19 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
   for (const auto &a : d.value("attachments", Json::array())) {
     auto path = dir / a.at("path").get<std::string>();
     require(digest(path) == a.at("sha256"), "Marked feedback changed");
-    if (corrections)
+    if (corrections && hasMarks)
       addImage(path, a.at("sha256"));
   }
   require(images.size() <= 64, "Too many images for one feedback message; "
                                "reduce this proof's media before sending");
+  // The daemon echoes resolved images in its receipt. Refuse before any
+  // mutation if that receipt cannot fit, reserving space for JSON metadata.
+  uintmax_t receiptBytes = Json(message.str()).dump().size() + 1024 * 1024;
+  for (const auto &image : images)
+    receiptBytes += 4 * ((fs::file_size(image) + 2) / 3);
+  require(receiptBytes <= codex_message_limit,
+          "Marked feedback exceeds the 64 MiB delivery limit. Reduce marked "
+          "images or split the review; no agent message was sent.");
   if (!fs::exists(dir / "beads-receipt.json")) {
     auto result = run({beads, "comments", "add", m.at("bead"), "--actor",
                        "factory-proof-desk-human", "--message", message.str()},

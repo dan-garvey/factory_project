@@ -263,12 +263,14 @@ submission. The native bridge pauses an active goal under the user's review
 policy; no model polling loop runs. The Windows review decision queues a compact
 approval receipt or requested corrections to that exact thread, then resumes
 only the goal it paused. Approvals carry no images or repeated evidence lists.
-Corrections carry human notes and marked frames, or original context for an
-unmarked case; untouched cases are omitted. Clip paths and timestamps accompany
+Corrections carry human notes and only explicitly marked images or frames;
+text-only notes do not resend original evidence. Clip paths and timestamps accompany
 marked frames without expanding every frame. Budgets and unrelated goals
 remain unchanged. Connection failures and invalid-request refusals retain their
 diagnostics and can be retried. An uncertain delivery requires a matching pending
 queue entry or user-message receipt; retry never blindly sends a duplicate.
+Image-bearing receipts allow 64 MiB; marked feedback is checked against that
+budget before sending, including base64 expansion and envelope headroom.
 
 The viewer keeps drafts until Send, and cannot approve a bundle with missing or
 unapproved cases. A bundle allows 64 media items, including at most 32 images;

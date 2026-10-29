@@ -261,6 +261,8 @@ int main() {
     rpcState = read_json(rpcFile);
     ok(rpcState.value("queue", Json::array()).empty());
     rpcState["queue_refuse"] = false;
+    rpcState["receipt_image_bytes"] = 18 * 1024 * 1024;
+    rpcState["single_frame"] = true;
     write_json(rpcFile, rpcState);
     delivery = deliver(store, repo, finalId, endpoint, fakeBr.string());
     ok(delivery.at("status") == "delivered");
@@ -276,10 +278,38 @@ int main() {
        std::string::npos);
     deliver(store, repo, finalId, endpoint, fakeBr.string());
     ok(read_json(rpcFile).at("queue_calls") == 2);
+    // Hydrated image receipts also work across large continuation frames, and
+    // the transport still refuses an excessive declared size before allocation.
+    rpcState = read_json(rpcFile);
+    rpcState["single_frame"] = false;
+    write_json(rpcFile, rpcState);
+    const Json transportInput{{"threadId", "fixture-thread"},
+                              {"clientUserMessageId", "large-receipt"},
+                              {"input", Json::array()}};
+    ok(codex_rpc(endpoint, "thread/queue/add", transportInput)
+           .at("queuedSubmission")
+           .at("clientUserMessageId") == "large-receipt");
+    rpcState = read_json(rpcFile);
+    rpcState["oversized_reply"] = true;
+    write_json(rpcFile, rpcState);
+    bool sizeRefused = false;
+    try {
+      codex_rpc(endpoint, "thread/queue/add", transportInput);
+    } catch (const RpcFailure &error) {
+      sizeRefused =
+          error.may_have_submitted &&
+          std::string(error.what()).find("64 MiB") != std::string::npos;
+    }
+    ok(sizeRefused);
+    rpcState = read_json(rpcFile);
+    rpcState.erase("receipt_image_bytes");
+    rpcState.erase("single_frame");
+    rpcState.erase("oversized_reply");
     // A lost acknowledgement must recover a pending queue receipt without
     // appending a second copy. A missing receipt must continue to refuse.
     rpcState["queue"] = Json::array();
     rpcState["drop_queue_reply"] = true;
+    rpcState["list_image_bytes"] = 18 * 1024 * 1024;
     write_json(rpcFile, rpcState);
     write_json(store / finalId / "delivery.json", Json{{"status", "pending"}});
     delivery = deliver(store, repo, finalId, endpoint, fakeBr.string());
@@ -287,8 +317,9 @@ int main() {
     refuses([&] { deliver(store, repo, finalId, endpoint, fakeBr.string()); });
     ok(reconcile_delivery(config, store / finalId));
     deliver(store, repo, finalId, endpoint, fakeBr.string());
-    ok(read_json(rpcFile).at("queue_calls") == 3);
+    ok(read_json(rpcFile).at("queue_calls") == 5);
     rpcState = read_json(rpcFile);
+    rpcState.erase("list_image_bytes");
     rpcState["drop_queue_reply"] = false;
     rpcState["queue"] = Json::array();
     write_json(rpcFile, rpcState);
@@ -357,11 +388,19 @@ int main() {
     unmarked["cases"]["shaft"]["status"] = "changes_requested";
     unmarked["cases"]["shaft"]["note"] = "Show the contact from the side";
     auto contextual = feedback(unmarked);
-    ok(contextual.size() == 2);
-    ok(contextual[1].at("path").get<std::string>().find("shaft-view.png") !=
+    ok(contextual.size() == 1);
+    ok(contextual[0].at("text").get<std::string>().find("/media/") ==
        std::string::npos);
     ok(contextual[0].at("text").get<std::string>().find("Cog drive") ==
        std::string::npos);
+    // Stale attachment paths without a corresponding human mark are not sent.
+    unmarked["attachments"] = {(root / "media/view.png").string()};
+    ok(feedback(unmarked).size() == 1);
+    rejection["cases"]["shaft"]["status"] = "changes_requested";
+    rejection["cases"]["shaft"]["note"] = "Text-only feedback needs no image";
+    const auto mixed = feedback(rejection);
+    ok(mixed.size() == 2 && mixed[0].at("text").get<std::string>().find(
+                                "shaft-view.png") == std::string::npos);
     auto overall = decision();
     overall["verdict"] = "changes_requested";
     overall["note"] = "Please adjust the spacing consistently.";
@@ -369,6 +408,26 @@ int main() {
     ok(general.size() == 1);
     ok(general[0].at("text").get<std::string>().find(
            overall.at("note").get<std::string>()) != std::string::npos);
+    // Refuse an unreceivable image echo before enqueueing or writing a Beads
+    // receipt, leaving the immutable human decision available for recovery.
+    const auto largeFrame = root / "media/large.png";
+    std::ofstream(largeFrame) << "oversized marked frame fixture";
+    fs::resize_file(largeFrame, 48ULL * 1024 * 1024);
+    const auto tooLarge =
+        submit(store, repo, m, "00000000-0000-0000-0000-000000000001")
+            .at("id")
+            .get<std::string>();
+    auto largeReview = rejection;
+    largeReview["attachments"] = {largeFrame.string()};
+    largeReview["reviewed_manifest_sha256"] =
+        digest(store / tooLarge / "manifest.json");
+    decide(store, tooLarge, largeReview);
+    const auto callsBefore = read_json(rpcFile).at("queue_calls");
+    refuses([&] { deliver(store, repo, tooLarge, endpoint, fakeBr.string()); });
+    ok(read_json(rpcFile).at("queue_calls") == callsBefore &&
+       read_json(store / tooLarge / "delivery.json").at("status") ==
+           "pending" &&
+       !fs::exists(store / tooLarge / "beads-receipt.json"));
     // A discarded replacement cannot invalidate an earlier approved proof or
     // block a fresh replacement. Restore must not create competing branches.
     auto replacement = final;
@@ -376,7 +435,8 @@ int main() {
     auto replace = [&](const Json &manifest) {
       return submit(store, repo, manifest,
                     "00000000-0000-0000-0000-000000000001")
-          .at("id").get<std::string>();
+          .at("id")
+          .get<std::string>();
     };
     auto discard = [&](const std::string &proofId, bool value = true) {
       return set_discarded(store, proofId,

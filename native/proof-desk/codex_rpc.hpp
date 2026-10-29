@@ -2,6 +2,9 @@
 #include "proof.hpp"
 #include <stdexcept>
 namespace factory::proof {
+// Queue receipts and persisted user items can contain base64 image data even
+// when the request supplied only local file paths.
+inline constexpr size_t codex_message_limit = 64ULL * 1024 * 1024;
 struct RpcFailure : std::runtime_error {
   bool may_have_submitted;
   RpcFailure(const std::string &message, bool uncertain)

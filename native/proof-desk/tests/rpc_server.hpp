@@ -81,10 +81,15 @@ struct RpcFixture {
             std::string packet(1, static_cast<char>(first));
             if (body.size() < 126)
               packet.push_back(static_cast<char>(body.size()));
-            else {
+            else if (body.size() < 65536) {
               packet.push_back(126);
               packet.push_back(static_cast<char>(body.size() >> 8));
               packet.push_back(static_cast<char>(body.size()));
+            } else {
+              packet.push_back(127);
+              for (int shift = 56; shift >= 0; shift -= 8)
+                packet.push_back(
+                    static_cast<char>(uint64_t(body.size()) >> shift));
             }
             packet += body;
             writeBytes(packet);
@@ -130,6 +135,14 @@ struct RpcFixture {
             if (method == "thread/queue/list")
               result = Json{{"data", state.value("queue", Json::array())},
                             {"nextCursor", nullptr}};
+            if (method == "thread/queue/list" && !result["data"].empty() &&
+                state.contains("list_image_bytes"))
+              result["data"][0]["input"].push_back(Json{
+                  {"type", "image"},
+                  {"url",
+                   "data:image/png;base64," +
+                       std::string(state.at("list_image_bytes").get<size_t>(),
+                                   'A')}});
             if (method == "thread/read")
               result =
                   Json{{"thread",
@@ -169,6 +182,16 @@ struct RpcFixture {
                   state["queue"] = Json::array();
                 state["queue"].push_back(entry);
                 result = Json{{"queuedSubmission", entry}};
+                // The daemon resolves local images to data URLs in its queue
+                // receipt. The client only needs the receipt identifiers.
+                if (state.contains("receipt_image_bytes"))
+                  result["queuedSubmission"]["input"].push_back(Json{
+                      {"type", "image"},
+                      {"url",
+                       "data:image/png;base64," +
+                           std::string(
+                               state.at("receipt_image_bytes").get<size_t>(),
+                               'A')}});
               }
               write_json(stateFile, state);
               if (state.value("drop_queue_reply", false))
@@ -183,10 +206,25 @@ struct RpcFixture {
                                {{"code", -32602},
                                 {"message", "Fixture rejected queue input"}}}};
             auto response = envelope.dump();
+            if (method == "thread/queue/add" &&
+                state.value("oversized_reply", false)) {
+              std::string packet{"\x81\x7f", 2};
+              const uint64_t size = 64ULL * 1024 * 1024 + 1;
+              for (int shift = 56; shift >= 0; shift -= 8)
+                packet.push_back(static_cast<char>(size >> shift));
+              writeBytes(packet);
+              throw std::runtime_error(
+                  "Oversized fixture header without payload");
+            }
             sendFrame(0x89,
                       "ping"); // The client must answer this control frame.
+            if (state.value("single_frame", false)) {
+              sendFrame(0x81, response);
+              continue;
+            }
             auto split = response.size() / 2;
             sendFrame(1, response.substr(0, split));
+            sendFrame(0x89, "interleaved ping");
             sendFrame(0x80, response.substr(split));
           }
         } catch (const std::exception &) {
