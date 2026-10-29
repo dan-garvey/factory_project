@@ -2528,7 +2528,8 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 	var collector_face := _component_collector_face(kind, center)
 	if not collector_face.is_empty():
 		var floor_y: float = collector_face.center[1] * Geometry.HEIGHT_STEP
-		var top_y: float = at.y + (0.28 if kind == "tool_mount" else 0.105)
+		var top_y: float = center[1] * Geometry.HEIGHT_STEP + 0.825 \
+			+ (0.28 if kind == "tool_mount" else 0.105)
 		var along_x: bool = collector_face.toward_ore[0] != 0
 		var face_half := 0.21 if kind == "tool_mount" else 0.2025
 		occupied.y = (floor_y + top_y) * 0.5
@@ -2814,7 +2815,7 @@ func _refresh_component_preview() -> void:
 		var toward: Array = collector_face.toward_ore
 		collector_angle = atan2(float(toward[2]), -float(toward[0]))
 		var floor_y: float = collector_face.center[1] * Geometry.HEIGHT_STEP
-		visual_center.y = center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT \
+		visual_center.y = center[1] * Geometry.HEIGHT_STEP + 0.825 \
 			+ (0.10 if kind == "tool_mount" else -0.015)
 		collector_support_drop = visual_center.y - floor_y
 	var preview_key := "%s:%s:%s:%s" % [kind, collector_angle,
@@ -3188,16 +3189,18 @@ func _build_landing_pod_visual(pod: Dictionary, hub: Dictionary) -> void:
 	landing_hub_pick.set_meta("component_entity", hub.id)
 	landing_hub_pick.collision_layer = Geometry.PICK_LAYER
 	landing_hub_pick.collision_mask = 0
-	landing_hub_pick.position.y = 0.68
+	var bench_scale: float = Geometry.PITCH / 1.65
+	landing_hub_pick.position.y = 0.68 * bench_scale
 	var pick_shape := CollisionShape3D.new()
 	pick_shape.name = "PickShape"
 	var pick_box := BoxShape3D.new()
-	pick_box.size = Vector3(1.16, 1.25, 0.70)
+	pick_box.size = Vector3(1.16, 1.25, 0.70) * bench_scale
 	pick_shape.shape = pick_box
 	landing_hub_pick.add_child(pick_shape)
 	landing_hub_visual.add_child(landing_hub_pick)
 	var workspace := Node3D.new()
 	workspace.name = "FoldoutBench"
+	workspace.scale = Vector3.ONE * bench_scale
 	landing_hub_visual.add_child(workspace)
 	var frame_finish := ProductionCoating.material(graphite)
 	var work_finish := ProductionTransmissionFinish.material("worked", Color("50504b"), 0.55, 0.57)

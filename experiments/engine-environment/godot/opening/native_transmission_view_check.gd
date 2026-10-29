@@ -12,7 +12,8 @@ const LooseControls = preload("res://opening/recovery_actions.gd").LooseMaterial
 const Session = preload("res://opening-session/session.gd")
 const Opening = preload("res://opening/opening.gd")
 const DIRECT_MODES := [
-	"--supplied-hardware-only", "--component-boxes-only", "--press-components-only",
+	"--supplied-hardware-only", "--component-boxes-only", "--workbench-geometry-only",
+	"--press-components-only",
 	"--press-connector-only", "--broad-belt-dock-only",
 	"--guided-press-components-only", "--broad-press-components-only", "--broad-press-raised-only",
 	"--channel-components-only", "--channel-z-only", "--channel-sheet-only",
@@ -428,7 +429,7 @@ func _supplied_hardware_view() -> void:
 	verify(view.find_children("*", "Node3D", false, false).is_empty(),
 		"Supplied collision proxies do not create component artwork or pick bodies.")
 	host.state.placed_components["player-frame"] = _component_record("wooden_frame",
-		[40, 0, 0], [16.5, 0.45, 0.0], [0.2025, 0.45, 0.2025])
+		[40, 0, 0], [40.0 * Geometry.HEIGHT_STEP, 0.45, 0.0], [0.2025, 0.45, 0.2025])
 	view.refresh()
 	var identities: Array = []
 	for node: Node in view.get_children():
@@ -494,6 +495,30 @@ func _supplied_hardware_view() -> void:
 		"Redeployment moves the same bench by the projected world-grid pitch without a new local datum.")
 	twin.free()
 	opening.free()
+
+func _workbench_geometry_view() -> void:
+	var scale_factor: float = Geometry.PITCH / 1.65
+	var occupied_size := Vector3(0.68, 0.90, 0.60) * scale_factor
+	var presenter := Presenter.new()
+	root.add_child(presenter)
+	var anchor := Node3D.new()
+	anchor.name = "BuildableWorkbench"
+	presenter.add_child(anchor)
+	presenter.preview_component(anchor, "wooden_workbench", occupied_size)
+	var occupied := AABB(-occupied_size * 0.5, occupied_size).grow(0.0002)
+	var foot := INF
+	var meshes := anchor.find_children("*", "MeshInstance3D", true, false)
+	verify(meshes.size() >= 10, "The buildable workshop has its complete visible joinery.")
+	for node: Node in meshes:
+		var mesh := node as MeshInstance3D
+		var local := anchor.global_transform.affine_inverse() * mesh.global_transform
+		var box: AABB = local * mesh.get_aabb()
+		verify(occupied.encloses(box), "Every scaled workshop piece stays inside its native occupied box.")
+		if mesh.name.begins_with("WorkbenchLeg"):
+			foot = minf(foot, box.position.y)
+	verify(is_equal_approx(foot, -occupied_size.y * 0.5),
+		"The lowest visible leg face seats on the native foundation floor.")
+	presenter.free()
 
 func _component_view() -> void:
 	# Invented native facts exercise only the existing view and Godot physics.
@@ -4418,6 +4443,8 @@ func _run() -> void:
 		_supplied_hardware_view()
 	elif "--component-boxes-only" in OS.get_cmdline_user_args():
 		await _component_view()
+	elif "--workbench-geometry-only" in OS.get_cmdline_user_args():
+		_workbench_geometry_view()
 	elif "--press-components-only" in OS.get_cmdline_user_args():
 		await _press_component_view()
 	elif "--press-connector-only" in OS.get_cmdline_user_args():

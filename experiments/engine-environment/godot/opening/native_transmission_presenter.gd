@@ -1304,6 +1304,7 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 			# The issued component box seats this whole work surface on the floor.
 			# Its separate visible joinery makes a player-built station legible
 			# beside the more elaborate pod workshop.
+			var first_child := anchor.get_child_count()
 			for x in [-0.245, 0.245]:
 				for z in [-0.205, 0.205]:
 					_support_box(anchor, "WorkbenchLeg%d" % anchor.get_child_count(),
@@ -1318,6 +1319,13 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 					Vector3(x, 0.071, 0), Vector3(0.012, 0.003, 0.51), dark)
 			_support_box(anchor, "WorkbenchEdgeBand", Vector3(0, 0.035, -0.275),
 				Vector3(0.62, 0.045, 0.025), worked)
+			var bench_scale: float = Geometry.PITCH / 1.65
+			for index in range(first_child, anchor.get_child_count()):
+				var piece := anchor.get_child(index) as Node3D
+				# The issued box is centered 0.45 m above its floor. Seat the
+				# lowest leg face there before scaling the complete joinery.
+				piece.position = (piece.position + Vector3.UP * 0.33) * bench_scale
+				piece.scale *= bench_scale
 		"wooden_frame":
 			for x in [-0.155, 0.155]:
 				for z in [-0.155, 0.155]:
@@ -1906,7 +1914,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 					and typeof(center[2]) == TYPE_INT and typeof(toward[0]) == TYPE_INT \
 					and typeof(toward[1]) == TYPE_INT and typeof(toward[2]) == TYPE_INT:
 				var direction := Vector3i(toward[0], toward[1], toward[2])
-				if direction.y == 0 and absi(direction.x) + absi(direction.z) == 1:
+				if direction.y == 0 and absi(direction.x) + absi(direction.z) in [1, 2]:
 					var origin := Vector3i(center[0], center[1], center[2])
 					var angle := atan2(float(direction.z), -float(direction.x))
 					for height in [0, 1]:
@@ -2093,7 +2101,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		if collector_floors.has(id) and spec.component in ["tool_mount", "cutting_edge"] \
 				and press_roles.get(id, "") != "mount":
 			var cell: Array = placed[id].center
-			var head_y := float(cell[1]) * UNIT + Geometry.ANCHOR_HEIGHT \
+			var head_y := float(cell[1]) * UNIT + 0.825 \
 				+ (0.10 if spec.component == "tool_mount" else -0.015)
 			var floor_y: float = collector_floors[id]
 			var face_span: float = spec.size.x if absf(cos(float(collector_facings[id]))) > 0.5 else spec.size.z

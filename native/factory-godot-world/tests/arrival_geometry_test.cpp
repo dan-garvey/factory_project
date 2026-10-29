@@ -1,4 +1,5 @@
 #include "factory/arrival_geometry.hpp"
+#include "factory/site_geometry_contract.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
 #include <cmath>
@@ -10,6 +11,8 @@ using V = factory::values::Value;
 using O = V::Object;
 using A = V::Array;
 using I = V::Integer;
+constexpr I grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
+static_assert(grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
 int checks{};
 
 void check(bool condition, const char* message) {
@@ -37,6 +40,15 @@ void floor_and_custody_geometry() {
     const auto top = original.at("pod-fabrication-hub/worktop").bounds;
     check(std::abs(top.center[0] - 3.3) < 1e-12 && std::abs(top.center[1] - 0.74) < 1e-12,
           "The workshop top follows its separate east-deck floor anchor.");
+    const auto smaller = godot_world::arrival_geometry::supplied(state, step / 2);
+    const auto& small_top = smaller.at("pod-fabrication-hub/worktop").bounds;
+    check(smaller.at("landing-pod/lower-hull").bounds.half ==
+              original.at("landing-pod/lower-hull").bounds.half &&
+              small_top.half[0] == top.half[0] / 2 &&
+              small_top.half[1] == top.half[1] / 2 &&
+              small_top.half[2] == top.half[2] / 2 &&
+              small_top.center[1] == top.center[1] / 2,
+          "A half-U workshop scales around its own floor while the pod shell keeps its meter size.");
     const auto west_jaw = original.at("pod-fabrication-hub/clamp-west").bounds;
     const auto east_jaw = original.at("pod-fabrication-hub/clamp-east").bounds;
     const auto cutting_rail = original.at("pod-fabrication-hub/tool-rail").bounds;
@@ -63,6 +75,31 @@ void floor_and_custody_geometry() {
     check(moved.at("pod-fabrication-hub/worktop").generation == 2 &&
           std::abs(moved.at("pod-fabrication-hub/worktop").bounds.center[1] - (1.65 + 0.74)) < 1e-12,
           "A relocated workshop retains native identity and the shared height unit.");
+}
+
+void authored_pod_and_workshop_clearance() {
+    using namespace factory;
+    constexpr auto step = godot_world::site_geometry::height_step;
+    constexpr auto pod_x = static_cast<mechanics::Integer>(1.65 / step);
+    constexpr auto pod_z = static_cast<mechanics::Integer>(6.6 / step);
+    static_assert(pod_x * step == 1.65 && pod_z * step == 6.6);
+    world::State state;
+    const mechanics::Point pod_center{pod_x, 0, pod_z};
+    state.landing_pod = world::LandingPod{"landing-pod", pod_center, 1};
+    state.fabrication_hub = world::FabricationHub{"pod-fabrication-hub",
+        world::landing_hub_center(pod_center), 1};
+    const auto solids = godot_world::arrival_geometry::supplied(state, step);
+    for (const auto& [pod_id, pod] : solids) {
+        if (pod.entity != "landing-pod") continue;
+        for (const auto& [bench_id, bench] : solids) {
+            if (bench.entity != "pod-fabrication-hub") continue;
+            bool intersects = true;
+            for (std::size_t axis = 0; axis < 3; ++axis)
+                intersects &= std::abs(pod.bounds.center[axis] - bench.bounds.center[axis]) <
+                    pod.bounds.half[axis] + bench.bounds.half[axis];
+            check(!intersects, "The scaled workshop cannot intersect the unchanged pod shell.");
+        }
+    }
 }
 
 void actual_host_projection() {
@@ -103,11 +140,12 @@ void construction_and_restore() {
     };
     pose(3.3, 4.8);
     const auto before_floor = material();
-    const auto blocked_floor = command("place_foundation", {{"cell", V(A{V(I{1}), V(I{4})})}, {"level", V(I{2})}});
+    const auto blocked_floor = command("place_foundation", {{"cell", V(A{V(I{1}), V(I{5} - grid_scale)})},
+        {"level", V(I{2} * grid_scale)}});
     check(!accepted(blocked_floor) && std::get<std::string>(std::get<O>(blocked_floor.storage()).at("reason").storage()) == "occupied",
           "A vertically adjoining foundation cannot bury the supplied pod hull.");
     check(!factory::values::typed_difference(before_floor, material()), "The occupied foundation refusal conserves all material.");
-    check(accepted(command("place_foundation", {{"cell", V(A{V(I{4}), V(I{4})})}, {"level", V(I{0})}})),
+    check(accepted(command("place_foundation", {{"cell", V(A{V(I{2}), V(I{1})})}, {"level", V(I{0})}})),
           "Ordinary expansion away from the pod remains possible.");
     pose(6.6, 3.3);
     for (int count = 0; count < 3; ++count)
@@ -118,16 +156,16 @@ void construction_and_restore() {
           "The fixture crafts one conserved component at the issued workshop.");
     const auto before_frame = material();
     const auto blocked_frame = command("place_component", {{"component", V("wooden_frame")},
-        {"center", V(A{V(I{4}), V(I{0}), V(I{16})})}});
+        {"center", V(A{V(I{4} * grid_scale), V(I{0}), V(I{16} * grid_scale)})}});
     check(!accepted(blocked_frame), "A crafted frame cannot occupy the pod pallet.");
     check(!factory::values::typed_difference(before_frame, material()), "The component refusal leaves its carried component intact.");
     check(accepted(command("place_component", {{"component", V("wooden_frame")},
-        {"center", V(A{V(I{0}), V(I{0}), V(I{12})})}})), "A separate deck tile remains usable for the same component.");
+        {"center", V(A{V(I{0}), V(I{0}), V(I{12} * grid_scale)})}})), "A separate deck tile remains usable for the same component.");
     check(accepted(command("stow_fabrication_hub", {{"entity", V("pod-fabrication-hub")}})), "The issued workshop stows normally.");
     check(std::get<O>(std::get<O>(host.projection().storage()).at("supplied_hardware_boxes").storage()).size() == 10,
           "The actual native projection removes the carried workshop solids.");
     check(accepted(command("deploy_fabrication_hub", {{"entity", V("pod-fabrication-hub")},
-        {"center", V(A{V(I{0}), V(I{0}), V(I{16})})}})), "The same workshop redeploys on an independent common-grid tile.");
+        {"center", V(A{V(I{0}), V(I{0}), V(I{16} * grid_scale)})}})), "The same workshop redeploys on an independent common-grid tile.");
     const auto saved = host.checkpoint();
     Host restored;
     check(accepted(restored.initialize_arrival_advanced_fixture("fresh-consumer", {"P"})), "The independent consumer initializes.");
@@ -154,6 +192,7 @@ void construction_and_restore() {
 int main() {
     try {
         floor_and_custody_geometry();
+        authored_pod_and_workshop_clearance();
         actual_host_projection();
         construction_and_restore();
         std::cout << "ARRIVAL_GEOMETRY_PASS " << checks << '\n';

@@ -44,7 +44,8 @@ Bounds component_bounds(const world::Profile& profile,
                 // the frame's floor. A press mount or part away from a trusted
                 // ore face retains its shorter original box.
                 const double floor = face.machine_center[1] * height_step;
-                const double top = at[1] + (*kind == materials::Component::tool_mount ?
+                // The deferred collector keeps its original physical cutter height.
+                const double top = center[1] * height_step + 0.825 + (*kind == materials::Component::tool_mount ?
                     0.28 : 0.105);
                 const bool along_x = face.toward_ore[0] != 0;
                 const double face_half = *kind == materials::Component::tool_mount ?
@@ -64,7 +65,9 @@ Bounds component_bounds(const world::Profile& profile,
             return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.2025, 0.45, 0.2025}};
         case materials::Component::wooden_workbench:
             // A floor-seated table is usable on ground or an ordinary joined deck.
-            return {{at[0], center[1] * height_step + 0.45, at[2]}, {0.34, 0.45, 0.30}};
+            // Keep the issued box and visible joinery at the same U-relative size.
+            return {{at[0], center[1] * height_step + 0.45 * pitch / 1.65, at[2]},
+                {0.34 * pitch / 1.65, 0.45 * pitch / 1.65, 0.30 * pitch / 1.65}};
         case materials::Component::tool_mount:
             return {{at[0], at[1] + 0.10, at[2]},
                     {height_step - component_shaft_half, 0.18,

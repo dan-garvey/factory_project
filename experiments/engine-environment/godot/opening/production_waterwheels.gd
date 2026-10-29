@@ -399,7 +399,7 @@ class ProductionWheelSupportArt:
 		else:
 			# The shaped upright must enter the underside of the fixed bearing.
 			# Its former 0.62-height top left a visible gap below the housing.
-			var seat_height := 0.78 - 0.17 * scale_factor / height_factor
+			var seat_height := maxf(0.59, 0.78 - 0.17 * scale_factor / height_factor)
 			var outline := PackedVector2Array([Vector2(-0.19, 0.24), Vector2(0.19, 0.24),
 				Vector2(0.19, 0.32), Vector2(0.18, 0.36), Vector2(0.075, 0.36),
 				Vector2(0.065, 0.58), Vector2(0.065, seat_height), Vector2(-0.065, seat_height),

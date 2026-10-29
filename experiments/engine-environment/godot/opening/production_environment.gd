@@ -727,6 +727,10 @@ class ProductionEnvironment:
 				float(entity.get("level", 0)) * Geometry.HEIGHT_STEP + Geometry.MACHINE_CENTER_HEIGHT,
 				entity.cell[1] * Geometry.PITCH)
 			var half := size * 0.5
+			if entity.get("kind") == "collector":
+				# The collector art remains meter-sized until its separate redesign.
+				center.y = float(entity.get("level", 0)) * Geometry.HEIGHT_STEP + 0.8
+				half = Vector3(1.45, 1.65, 1.45) * 0.5
 			if entity.get("kind") == "wheel" and state.get("options", {}).get("native", false):
 				center.y = float(entity.get("level", 0)) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT
 				half = Geometry.wheel_half_extents(int(entity.get("axis", 0)), int(entity.get("tiles", 3)))
@@ -743,7 +747,7 @@ class ProductionEnvironment:
 				var center := Vector3(float(pod_center[0]) * Geometry.PITCH,
 					float(pod_center[1]) * Geometry.HEIGHT_STEP,
 					float(pod_center[2]) * Geometry.PITCH)
-				var half := Geometry.PITCH * 1.5
+				var half := 2.475 # Physical pod clearance stays fixed in meters.
 				# The native deck is a cleared landing, including the air above it.
 				# Its nine floor volumes alone only hide plants below panel height.
 				volumes.append(AABB(center - Vector3(half, 0.5, half),
@@ -753,7 +757,9 @@ class ProductionEnvironment:
 					var position: Array = hub.position
 					var hub_floor := Vector3(float(position[0]), float(position[1]) - Geometry.ANCHOR_HEIGHT,
 						float(position[2]))
-					volumes.append(AABB(hub_floor - Vector3(0.7, 0.1, 0.5), Vector3(1.4, 1.5, 1.0)))
+					var bench_scale: float = Geometry.PITCH / 1.65
+					volumes.append(AABB(hub_floor - Vector3(0.7, 0.1, 0.5) * bench_scale,
+						Vector3(1.4, 1.5, 1.0) * bench_scale))
 		return volumes
 
 	static func _refresh_plant_patch(patch: MultiMeshInstance3D, volumes: Array[AABB]) -> void:

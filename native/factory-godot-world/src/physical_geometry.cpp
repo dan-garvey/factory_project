@@ -20,6 +20,8 @@ using site_geometry::capsule_height;
 using site_geometry::machine_width;
 using site_geometry::machine_height;
 using site_geometry::machine_center_height;
+constexpr Integer site_grid_scale = static_cast<Integer>(1.65 / pitch);
+static_assert(site_grid_scale * pitch == 1.65);
 }  // namespace
 
 bool capsule_intersects(const authority::Point& actor, const Bounds& box, double tolerance) {
@@ -50,10 +52,12 @@ std::optional<std::array<Bounds, 2>> wheel_support_bounds(const mechanics::Point
         const auto half_z = axis == mechanics::Axis::z ? axial_half : radial_half;
         const auto terrain = terrain_range(foot_x, foot_z, half_x, half_z);
         if (!terrain || !std::isfinite(terrain->first) || !std::isfinite(terrain->second) ||
-            terrain->second >= axle_y - 0.05) return std::nullopt;
+            terrain->second >= axle_y - 0.10) return std::nullopt;
         // Seat the pad slightly into the lowest triangle, avoiding a floating
         // corner on the emitted sloped surface.
-        const auto low = terrain->first - 0.04, high = axle_y - 0.05;
+        // The pier meets the lower bearing housing without filling the
+        // coaxial 0.10 m axle envelope needed by an adjacent U-cell drive.
+        const auto low = terrain->first - 0.04, high = axle_y - 0.10;
         supports[index] = {{foot_x, (low + high) / 2, foot_z},
                            {half_x, (high - low) / 2, half_z}};
     }
@@ -69,6 +73,11 @@ Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& 
             {part.geometry.axis == mechanics::Axis::x ? 0.3 : radius, radius,
              part.geometry.axis == mechanics::Axis::z ? 0.3 : radius}};
     }
+    if (part.role == Role::collector) {
+        // The collector keeps its current meter-sized art and clearance until
+        // the separately directed redesign supplies a new native envelope.
+        return {{x, floor + 0.8, z}, {0.725, 0.825, 0.725}};
+    }
     if (part.role == Role::gearbox || part.role == Role::vertical_gearbox ||
         part.role == Role::chain_drive)
         return {{x, floor + anchor_height, z}, {pitch / 2, pitch / 2, pitch / 2}};
@@ -78,7 +87,7 @@ Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& 
 // The two admitted mineral cells face one fixed west-side rock. Their pickup
 // shoes occupy different strips of its real hull, independent of output turn.
 std::optional<Bounds> collector_intake_bounds(const mechanics::Point& center) {
-    if (center[1] < 0 || center[1] > mineral_site::extraction_depth_steps ||
+    if (center[1] < 0 || center[1] > mineral_site::extraction_depth_steps * site_grid_scale ||
         center[1] % height_denominator != 0 || center[0] != 0 ||
         (center[2] != 0 && center[2] != height_denominator))
         return std::nullopt;

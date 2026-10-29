@@ -2,9 +2,10 @@ extends SceneTree
 ## Presentation controls with invented observations. No authority or desktop.
 const Opening = preload("res://opening/opening.gd")
 const SharedOpening = preload("res://opening/shared_opening.gd")
-const MODES := ["--variant-assemblies-only", "--assemblies-only",
+const MODES := ["--variant-assemblies-only", "--wheel-variants-only", "--assemblies-only",
 	"--transmission-previews-only", "--selection-cursor-only",
-	"--foundation-heights-only", "--bake-packed-previews", "--bake-preview-variants"]
+	"--foundation-heights-only", "--bake-packed-previews", "--bake-preview-variants",
+	"--bake-packed-wheel", "--bake-wheel-variants"]
 
 class PointerView extends Opening:
 	var pointer_clear := true
@@ -353,24 +354,26 @@ func check_packed_assemblies() -> void:
 		expected.free()
 	view.free()
 
-func check_variant_assemblies() -> void:
+func check_variant_assemblies(wheel_only: bool = false) -> void:
 	var view := PointerView.new()
 	view.state = observation()
 	view.transmission_controls = ControlsStub.new()
 	var cases: Array[Dictionary] = []
-	for site in [0, 1]:
-		for level in [0, 4, 8]:
-			for axis in range(3):
-				for facing in range(4):
-					cases.append({"kind": "collector", "axis": axis, "tiles": 3,
-						"rotation": facing, "cell": [0, site], "level": level})
+	if not wheel_only:
+		for site in [0, 1]:
+			for level in [0, 4, 8]:
+				for axis in range(3):
+					for facing in range(4):
+						cases.append({"kind": "collector", "axis": axis, "tiles": 3,
+							"rotation": facing, "cell": [0, site], "level": level})
+		for axis in range(3):
+			for facing in range(4):
+				cases.append({"kind": "processor", "axis": axis, "tiles": 3,
+					"rotation": facing, "cell": [1, 2], "level": 0})
 	for axis in range(3):
-		for facing in range(4):
-			cases.append({"kind": "processor", "axis": axis, "tiles": 3,
-				"rotation": facing, "cell": [1, 2], "level": 0})
-	for axis in range(3):
-		cases.append({"kind": "belt", "axis": axis, "tiles": 3,
-			"rotation": 0, "cell": [1, 2], "level": 0})
+		if not wheel_only:
+			cases.append({"kind": "belt", "axis": axis, "tiles": 3,
+				"rotation": 0, "cell": [1, 2], "level": 0})
 		for tiles in range(3, Opening.BAKED_WHEEL_PREVIEW_MAX_TILES + 1):
 			cases.append({"kind": "wheel", "axis": axis, "tiles": tiles,
 				"rotation": 0, "cell": [1, 2], "level": 4})
@@ -744,13 +747,14 @@ func _own_packed_preview(node: Node, root_node: Node) -> void:
 		child.owner = root_node
 		_own_packed_preview(child, root_node)
 
-func _bake_packed_previews() -> void:
+func _bake_packed_previews(wheel_only: bool = false) -> void:
 	# Explicit asset-generation mode. The ordinary check never writes source.
 	var view := PointerView.new()
 	view.state = observation()
 	view.transmission_controls = ControlsStub.new()
 	var results := {}
-	for kind in ["collector", "belt", "processor", "wheel"]:
+	var kinds := ["wheel"] if wheel_only else ["collector", "belt", "processor", "wheel"]
+	for kind in kinds:
 		var anchor := Node3D.new()
 		anchor.name = "PreviewTemplate"
 		var cell := [0, 1] if kind == "collector" else [1, 2]
@@ -790,42 +794,44 @@ func _save_preview_variant(anchor: Node3D, path: String) -> Dictionary:
 	anchor.free()
 	return {"status": status, "bytes": bytes}
 
-func _bake_preview_variants() -> void:
+func _bake_preview_variants(wheel_only: bool = false) -> void:
 	# Explicit asset-generation mode. The ordinary check never writes source.
 	var view := PointerView.new()
 	view.state = observation()
 	view.transmission_controls = ControlsStub.new()
 	var results := {}
-	for site in [0, 1]:
-		for level in [0, 4, 8]:
-			var cell := [0, site]
-			var anchor := Node3D.new()
-			anchor.position = view._cell_position(cell) + Vector3.UP * level * Opening.Geometry.HEIGHT_STEP
-			view._assemble_machine(anchor, {"kind": "collector", "axis": 0, "tiles": 3,
-				"rotation": 0, "cell": cell, "level": level})
-			var source := Node3D.new()
-			for child in anchor.get_children():
-				if child.name.begins_with("Source"):
-					anchor.remove_child(child)
-					source.add_child(child)
-			view._style_machine_preview(source)
-			var path: String = "res://opening/assets/prebuilt-preview-collector-source-%d-%d.scn" % [site, level]
-			results[path] = _save_preview_variant(source, path)
-			anchor.free()
+	if not wheel_only:
+		for site in [0, 1]:
+			for level in [0, 4, 8]:
+				var cell := [0, site]
+				var anchor := Node3D.new()
+				anchor.position = view._cell_position(cell) + Vector3.UP * level * Opening.Geometry.HEIGHT_STEP
+				view._assemble_machine(anchor, {"kind": "collector", "axis": 0, "tiles": 3,
+					"rotation": 0, "cell": cell, "level": level})
+				var source := Node3D.new()
+				for child in anchor.get_children():
+					if child.name.begins_with("Source"):
+						anchor.remove_child(child)
+						source.add_child(child)
+				view._style_machine_preview(source)
+				var path: String = "res://opening/assets/prebuilt-preview-collector-source-%d-%d.scn" % [site, level]
+				results[path] = _save_preview_variant(source, path)
+				anchor.free()
 	for axis in [1, 2]:
-		var drive := Node3D.new()
-		view._machine_drive_stub(drive, {"axis": axis}, true)
-		view._style_machine_preview(drive)
-		var drive_path: String = "res://opening/assets/prebuilt-preview-processor-drive-%d.scn" % axis
-		results[drive_path] = _save_preview_variant(drive, drive_path)
-		var belt := Node3D.new()
-		belt.position = view._cell_position([1, 2])
-		view._assemble_machine(belt, {"kind": "belt", "axis": axis, "tiles": 3,
-			"rotation": 0, "cell": [1, 2], "level": 0})
-		view._style_machine_preview(belt)
-		belt.position = Vector3.ZERO
-		var belt_path: String = "res://opening/assets/prebuilt-preview-belt-axis-%d.scn" % axis
-		results[belt_path] = _save_preview_variant(belt, belt_path)
+		if not wheel_only:
+			var drive := Node3D.new()
+			view._machine_drive_stub(drive, {"axis": axis}, true)
+			view._style_machine_preview(drive)
+			var drive_path: String = "res://opening/assets/prebuilt-preview-processor-drive-%d.scn" % axis
+			results[drive_path] = _save_preview_variant(drive, drive_path)
+			var belt := Node3D.new()
+			belt.position = view._cell_position([1, 2])
+			view._assemble_machine(belt, {"kind": "belt", "axis": axis, "tiles": 3,
+				"rotation": 0, "cell": [1, 2], "level": 0})
+			view._style_machine_preview(belt)
+			belt.position = Vector3.ZERO
+			var belt_path: String = "res://opening/assets/prebuilt-preview-belt-axis-%d.scn" % axis
+			results[belt_path] = _save_preview_variant(belt, belt_path)
 		var wheel := Node3D.new()
 		view._assemble_machine(wheel, {"kind": "wheel", "axis": axis, "tiles": 3,
 			"rotation": 0, "cell": [1, 2], "level": 4})
@@ -866,11 +872,23 @@ func _run(selected_mode: String) -> void:
 			"variant_cases": variant_cases, "observations": "invented", "desktop": "not_used"}))
 		quit(1 if failed else 0)
 		return
+	if selected_mode == "--wheel-variants-only":
+		check_variant_assemblies(true)
+		print(JSON.stringify({"status": "fail" if failed else "pass", "checks": checks,
+			"variant_cases": variant_cases, "observations": "invented", "desktop": "not_used"}))
+		quit(1 if failed else 0)
+		return
 	if selected_mode == "--bake-packed-previews":
 		_bake_packed_previews()
 		return
+	if selected_mode == "--bake-packed-wheel":
+		_bake_packed_previews(true)
+		return
 	if selected_mode == "--bake-preview-variants":
 		_bake_preview_variants()
+		return
+	if selected_mode == "--bake-wheel-variants":
+		_bake_preview_variants(true)
 		return
 	if selected_mode == "--assemblies-only":
 		check_assemblies()

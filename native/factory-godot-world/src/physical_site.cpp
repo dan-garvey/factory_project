@@ -158,8 +158,9 @@ const char* collector_refusal(const Site& site, const mechanics::Point& center) 
     if (!mineral_site::contains(cell)) return "not_at_seam";
     const auto surface = site.terrain.range(center[0] * height_step, center[2] * height_step);
     if (!surface) return "terrain_unavailable";
+    // The preexisting 3.3 m pickup reach stays in meters as H changes.
     const auto allowed = mineral_site::admit(cell, center[1] * height_step,
-        {surface->first, surface->second}, mineral_site::extraction_depth_steps * height_step);
+        {surface->first, surface->second}, mineral_site::extraction_depth_steps * (1.65 / 4.0));
     return allowed == mineral_site::Error::none ? nullptr : mineral_site::error_name(allowed);
 }
 

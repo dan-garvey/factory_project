@@ -1,5 +1,6 @@
 #include "native/factory-godot-world/src/arrival_configuration.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -60,6 +61,20 @@ int main() {
                   arrival->actor_starts[1].first == "Q" &&
                   arrival->actor_starts[0].second != arrival->actor_starts[1].second,
               "P and Q keep separate native body starts on the shared deck.");
+        const auto meters = arrival->profile.meters_per_grid_unit;
+        const auto& pod = *arrival->profile.landing_pod_center;
+        const auto& fir = arrival->profile.material.timber_sites.at("fir_01").center;
+        const auto& broadleaf = arrival->profile.material.timber_sites.at("broadleaf_00").center;
+        check(std::abs(pod[0] * meters - 1.65) < 1e-12 &&
+                  std::abs(pod[2] * meters - 6.6) < 1e-12 &&
+                  std::abs(fir[0] * meters + 12.7875) < 1e-12 &&
+                  std::abs(fir[2] * meters + 4.5375) < 1e-12 &&
+                  std::abs(broadleaf[1] * meters - 0.4125) < 1e-12 &&
+                  std::abs(arrival->profile.material.manual_ore->center[0] * meters + 1.2375) < 1e-12 &&
+                  arrival->actor_starts[0].second[0] == 1.65 &&
+                  arrival->actor_starts[1].second[0] == 0.825 &&
+                  arrival->actor_starts[0].second[2] == 4.8,
+              "The pod, landscape sources and workers keep their physical positions as U changes.");
 
         const auto advanced = make_arrival_configuration(true, true, {"P", "Q"});
         check(advanced && !advanced->profile.first_plate_unlock &&
