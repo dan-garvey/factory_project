@@ -5,6 +5,7 @@ uniform sampler2D albedo_map : source_color, filter_linear_mipmap_anisotropic;
 uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic;
 
 varying vec3 scan_point;
+varying vec3 world_point;
 
 float hash_cell(vec3 point) {
 	point = fract(point * 0.1031);
@@ -25,22 +26,23 @@ float rock_noise(vec3 point) {
 
 void vertex() {
 	scan_point = VERTEX;
+	world_point = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
 	vec3 stone = texture(albedo_map, UV).rgb;
 	float value = dot(stone, vec3(0.24, 0.67, 0.09));
-	vec3 host = mix(stone, vec3(value * 0.81, value * 0.86, value * 0.89), 0.52) * 1.12;
-	float warp = rock_noise(scan_point * 1.6 + vec3(4.0, -2.0, 7.0));
-	float layer = sin(dot(scan_point, vec3(2.6, 1.9, 1.2)) + (warp - 0.5) * 4.0);
+	vec3 host = mix(stone, vec3(value * 0.78, value * 0.83, value * 0.86), 0.58) * 0.76;
+	float warp = rock_noise(world_point * 1.8 + vec3(4.0, -2.0, 7.0));
+	float layer = sin(dot(world_point, vec3(2.6, 1.9, 1.2)) + (warp - 0.5) * 4.0);
 	float vein = 1.0 - smoothstep(0.08, 0.22, abs(layer));
 	float fractured = smoothstep(0.38, 0.62,
-		rock_noise(scan_point * 4.2 + vec3(-6.0, 3.0, 2.0)));
+		rock_noise(world_point * 4.2 + vec3(-6.0, 3.0, 2.0)));
 	float raised_stone = smoothstep(0.30, 0.68, scan_point.y);
-	float patch = smoothstep(0.53, 0.70, warp) * (0.55 + 0.45 * fractured);
+	float patch = smoothstep(0.54, 0.68, warp) * (0.55 + 0.45 * fractured);
 	float copper = max(patch, vein * fractured * 0.25) * raised_stone;
-	vec3 mineral = host * vec3(1.36, 0.80, 0.62) + vec3(0.08, 0.025, 0.009);
-	ALBEDO = mix(host, mineral, copper * 0.65);
+	vec3 mineral = host * vec3(1.42, 0.62, 0.36) + vec3(0.09, 0.028, 0.006);
+	ALBEDO = mix(host, mineral, copper * 0.78);
 	NORMAL_MAP = texture(normal_map, UV).rgb;
 	NORMAL_MAP_DEPTH = 0.76;
 	ROUGHNESS = 0.94;

@@ -1207,16 +1207,16 @@ class ProductionEnvironment:
 							var center: Array = region.get("position", [])
 							if center.size() != 3:
 								continue
-							var span := Vector2((point.x - float(center[0])) / 4.7,
-								(point.y - float(center[2])) / 4.1).length()
-							var weight: float = 1.0 - smoothstep(0.33, 0.96, span + roughness * 0.16)
+							var span := Vector2((point.x - float(center[0])) / 3.7,
+									(point.y - float(center[2])) / 3.2).length()
+							var weight: float = 1.0 - smoothstep(0.23, 0.93, span + roughness * 0.19)
 							local_patch = maxf(local_patch, weight * sqrt(float(balances.get(
 								str(region.get("id", "")), 0.0))))
 						var grain: float = smoothstep(-0.45, 0.50, fleck + roughness * 0.25)
 						var bank: float = Surface.river_center_x(point.y) + Surface.channel_half_width(point.y)
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
 							* smoothstep(0.12, 0.85, point.x - bank) \
-							* (0.08 + 0.58 * fraction + 0.28 * local_patch) * (0.78 + 0.22 * grain)
+							* (0.12 + 0.20 * fraction + 0.52 * local_patch) * (0.56 + 0.44 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.55)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
