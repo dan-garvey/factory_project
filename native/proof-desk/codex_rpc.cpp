@@ -39,8 +39,10 @@ struct Socket {
             "Codex control timed out; mutation outcome is uncertain");
   }
   std::string read(size_t count) {
-    require(received + count <= 8 * 1024 * 1024,
-            "Codex response exceeds 8 MiB");
+    // Bound total traffic separately from a single message so initialization
+    // and intervening events do not consume the image receipt's size budget.
+    require(count <= 2 * codex_message_limit - received,
+            "Codex connection exceeds 128 MiB");
     received += count;
     std::string out(count, '\0');
     size_t done = 0;
@@ -108,9 +110,14 @@ struct Socket {
         for (unsigned char c : b)
           length = (length << 8) | c;
       }
-      require(length <= 8 * 1024 * 1024, "Oversized server WebSocket frame");
+      require(length <= codex_message_limit,
+              "Codex WebSocket frame exceeds 64 MiB (" +
+                  std::to_string(length) + " bytes)");
       if (op >= 8)
         require(fin && length <= 125, "Invalid WebSocket control frame");
+      else
+        require(length <= codex_message_limit - message.size(),
+                "Codex WebSocket message exceeds 64 MiB");
       auto payload = read(static_cast<size_t>(length));
       if (op == 8)
         throw std::runtime_error("Codex closed the WebSocket");
@@ -123,7 +130,6 @@ struct Socket {
       require((op == 1 && !fragmented) || (op == 0 && fragmented),
               "Unexpected WebSocket message type");
       message += payload;
-      require(message.size() <= 8 * 1024 * 1024, "Oversized Codex message");
       if (fin)
         return Json::parse(message);
       fragmented = true;
@@ -244,7 +250,7 @@ Json codex_rpc(const fs::path &socket, const std::string &method,
   } catch (const RpcFailure &) {
     throw;
   } catch (const std::exception &error) {
-    throw RpcFailure(error.what(), sent);
+    throw RpcFailure(method + ": " + error.what(), sent);
   }
 }
 Json pause_for_review(const Json &config, const std::string &thread) {
