@@ -543,6 +543,142 @@ int main() {
     ok(!visual_path("docs/example.md"));
     auto timed = run({"sh", "-c", "sleep 3"}, {}, 1);
     ok(timed.code == 124);
+    // Antigravity Connect/HTTP transport and conversation delivery contracts.
+    Json agyState{
+        {"csrf_token", "fixture-csrf"},
+        {"status", "CASCADE_RUN_STATUS_IDLE"},
+        {"chunked_reply", true},
+        {"steps",
+         Json::array({Json{
+             {"type", "CORTEX_STEP_TYPE_USER_INPUT"},
+             {"status", "CORTEX_STEP_STATUS_DONE"},
+             {"metadata", {{"executionId", "initial-user-step"}}},
+             {"userInput",
+              {{"items", Json::array({Json{{"text", "Initial prompt"}}})},
+               {"userConfig",
+                {{"plannerConfig",
+                  {{"conversational", {{"plannerMode", 1}}}}}}},
+               {"userAgentSpec", {{"agentId", "self"}}}}}}})}};
+    const auto agyFile = root / "agy-state.json";
+    write_json(agyFile, agyState);
+    AntigravityRpcFixture agyServer(agyFile);
+    const auto agyEndpoint = agyServer.endpoint();
+    const Json agyConfig{{"socket", agyEndpoint}};
+    refuses([&] {
+      pause_for_review(Json{{"socket", agyServer.endpoint("wrong-csrf")}},
+                       "00000000-0000-0000-0000-000000000002");
+    });
+    const auto agyPaused =
+        pause_for_review(agyConfig, "00000000-0000-0000-0000-000000000002");
+    ok(agyPaused.at("paused_by_review") == false &&
+       agyPaused.at("runtime") == "antigravity");
+    resume_after_review(agyConfig, "00000000-0000-0000-0000-000000000002",
+                        agyPaused);
+    const auto agyBundle =
+        submit(store, repo, m, "00000000-0000-0000-0000-000000000002");
+    const auto agyId = agyBundle.at("id").get<std::string>();
+    auto agyReview = rejection;
+    agyReview["attachments"] = {(root / "media/view.png").string()};
+    agyReview["reviewed_manifest_sha256"] =
+        digest(store / agyId / "manifest.json");
+    const auto agyDecision = decide(store, agyId, agyReview);
+    const auto agyDecisionId = agyDecision.at("id").get<std::string>();
+    agyState["send_refuse"] = true;
+    write_json(agyFile, agyState);
+    auto agyDelivery =
+        deliver(store, repo, agyId, agyEndpoint, fakeBr.string());
+    ok(agyDelivery.at("status") == "failed" &&
+       agyDelivery.at("detail").get<std::string>().find(
+           "Fixture rejected cascade message") != std::string::npos);
+    agyState = read_json(agyFile);
+    ok(agyState.at("steps").size() == 1);
+    agyState["send_refuse"] = false;
+    write_json(agyFile, agyState);
+    agyDelivery = deliver(store, repo, agyId, agyEndpoint, fakeBr.string());
+    ok(agyDelivery.at("status") == "delivered");
+    agyState = read_json(agyFile);
+    ok(agyState.at("steps").size() == 2);
+    const auto &sentStep = agyState.at("steps").back().at("userInput");
+    ok(sentStep.at("deliveryStrategy") ==
+       "MESSAGE_DELIVERY_STRATEGY_WHEN_IDLE");
+    ok(sentStep.at("userConfig")
+           .at("plannerConfig")
+           .at("conversational")
+           .at("plannerMode") == 1);
+    ok(sentStep.at("userAgentSpec").at("agentId") == "self");
+    ok(sentStep.at("items").at(0).at("text").get<std::string>().find(
+           "[proof-decision:" + agyDecisionId + "]") != std::string::npos);
+    ok(sentStep.at("media").size() == 1 &&
+       sentStep.at("media").at(0).at("mimeType") == "image/png" &&
+       !sentStep.at("media").at(0).at("inlineData").get<std::string>().empty());
+    // Inline base64 media leaves the retained proof bundle's feedback PNG
+    // untouched on disk.
+    ok(fs::exists(store / agyId /
+                  agyDecision.at("attachments").at(0).at("path")));
+    // Oversized HTTP responses are refused before allocation.
+    agyState["oversized_reply"] = true;
+    write_json(agyFile, agyState);
+    bool agyOversizedRefused = false;
+    try {
+      antigravity_rpc(
+          agyEndpoint, "SendUserCascadeMessage",
+          Json{{"cascadeId", "00000000-0000-0000-0000-000000000002"},
+               {"items", Json::array()}});
+    } catch (const RpcFailure &error) {
+      agyOversizedRefused =
+          error.may_have_submitted &&
+          std::string(error.what()).find("64 MiB") != std::string::npos;
+    }
+    ok(agyOversizedRefused);
+    // Dropped reply recovery reconciles against GetCascadeTrajectory without
+    // sending a duplicate message or matching assistant/planner steps.
+    agyState = read_json(agyFile);
+    agyState.erase("oversized_reply");
+    agyState["drop_send_reply"] = true;
+    write_json(agyFile, agyState);
+    write_json(store / agyId / "delivery.json", Json{{"status", "pending"}});
+    agyDelivery = deliver(store, repo, agyId, agyEndpoint, fakeBr.string());
+    ok(agyDelivery.at("status") == "uncertain");
+    refuses([&] { deliver(store, repo, agyId, agyEndpoint, fakeBr.string()); });
+    ok(reconcile_delivery(agyConfig, store / agyId));
+    ok(read_json(store / agyId / "delivery.json").at("item") == "agy-step-4");
+    const auto sendCallsAfterReconcile = read_json(agyFile).at("send_calls");
+    deliver(store, repo, agyId, agyEndpoint, fakeBr.string());
+    ok(read_json(agyFile).at("send_calls") == sendCallsAfterReconcile);
+    // Assistant/planner steps echoing the marker never satisfy reconciliation.
+    agyState = read_json(agyFile);
+    agyState["drop_send_reply"] = false;
+    agyState["steps"] = Json::array({Json{
+        {"type", "CORTEX_STEP_TYPE_PLANNER_RESPONSE"},
+        {"metadata", {{"executionId", "planner-step"}}},
+        {"userInput",
+         {{"items",
+           Json::array({Json{
+               {"text", "[proof-decision:" + agyDecisionId + "]"}}})}}}}});
+    write_json(agyFile, agyState);
+    write_json(store / agyId / "delivery.json", Json{{"status", "uncertain"}});
+    ok(!reconcile_delivery(agyConfig, store / agyId));
+    // Queued Antigravity steps reconcile and wait for idle before starting.
+    agyState["status"] = "CASCADE_RUN_STATUS_RUNNING";
+    agyState["queued_steps"] = Json::array({Json{
+        {"type", "CORTEX_STEP_TYPE_USER_INPUT"},
+        {"metadata", {{"executionId", "queued-agy-step"}}},
+        {"userInput",
+         {{"items",
+           Json::array(
+               {Json{{"text", "[proof-decision:" + agyDecisionId + "]"}}})}}}}});
+    write_json(agyFile, agyState);
+    ok(reconcile_delivery(agyConfig, store / agyId));
+    ok(read_json(store / agyId / "delivery.json").at("queued_submission_id") ==
+       "queued-agy-step");
+    ok(start_queued_feedback(agyConfig, store / agyId));
+    ok(read_json(agyFile).value("start_calls", 0) == 0);
+    agyState = read_json(agyFile);
+    agyState["status"] = "CASCADE_RUN_STATUS_IDLE";
+    write_json(agyFile, agyState);
+    ok(start_queued_feedback(agyConfig, store / agyId));
+    ok(read_json(agyFile).at("start_calls") == 1 &&
+       read_json(agyFile).at("queued_steps").empty());
     fs::remove_all(root);
     std::cout << "PROOF_CONTRACT_PASS " << checks << '\n';
     return 0;

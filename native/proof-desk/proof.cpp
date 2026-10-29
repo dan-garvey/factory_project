@@ -427,7 +427,8 @@ Json submit(const fs::path &store, const fs::path &repo, Json m,
   require(std::regex_match(
               thread,
               std::regex("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")),
-          "Submit from the exact originating CODEX_THREAD_ID");
+          "Submit from the exact originating CODEX_THREAD_ID or "
+          "ANTIGRAVITY_CONVERSATION_ID");
   Lock lock(store);
   std::string stage = m.at("stage");
   auto revision = trimmed(git(repo, {"rev-parse", "HEAD"}));
@@ -675,24 +676,31 @@ Json deliver(const fs::path &store, const fs::path &repo, const std::string &id,
             "Decision saved; Beads record failed: " + result.output);
     write_json(dir / "beads-receipt.json", Json{{"recorded", true}});
   }
-  Json input = Json::array({Json{{"type", "text"}, {"text", message.str()}}});
-  for (const auto &image : images)
-    input.push_back(Json{{"type", "localImage"}, {"path", image}});
   const auto clientId = "factory-proof-" + d.at("id").get<std::string>();
   save_state(dir, "sending");
   try {
-    const auto response = codex_rpc(socket, "thread/queue/add",
-                                    Json{{"threadId", m.at("thread")},
-                                         {"clientUserMessageId", clientId},
-                                         {"input", input}});
-    const auto &receipt = response.at("queuedSubmission");
-    require(receipt.at("clientUserMessageId") == clientId,
-            "Codex returned a receipt for another message");
-    write_json(dir / "delivery.json",
-               Json{{"status", "delivered"},
-                    {"detail", "Review queued to the originating agent"},
-                    {"client_message_id", clientId},
-                    {"queued_submission_id", receipt.at("id")}});
+    if (is_antigravity_endpoint(socket)) {
+      write_json(dir / "delivery.json",
+                 antigravity_deliver(socket, m.at("thread"), clientId,
+                                     message.str(), images));
+    } else {
+      Json input =
+          Json::array({Json{{"type", "text"}, {"text", message.str()}}});
+      for (const auto &image : images)
+        input.push_back(Json{{"type", "localImage"}, {"path", image}});
+      const auto response = codex_rpc(socket, "thread/queue/add",
+                                      Json{{"threadId", m.at("thread")},
+                                           {"clientUserMessageId", clientId},
+                                           {"input", input}});
+      const auto &receipt = response.at("queuedSubmission");
+      require(receipt.at("clientUserMessageId") == clientId,
+              "Codex returned a receipt for another message");
+      write_json(dir / "delivery.json",
+                 Json{{"status", "delivered"},
+                      {"detail", "Review queued to the originating agent"},
+                      {"client_message_id", clientId},
+                      {"queued_submission_id", receipt.at("id")}});
+    }
   } catch (const RpcFailure &error) {
     save_state(dir, error.may_have_submitted ? "uncertain" : "failed",
                error.what());
