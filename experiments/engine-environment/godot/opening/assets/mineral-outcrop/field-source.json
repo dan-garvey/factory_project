@@ -1,20 +1,36 @@
 {
   "purpose": "Chapter 1 broad ore field visual study; no collision or material authority",
-  "boulder": {
-    "asset": "Namaqualand Boulder 02",
-    "asset_url": "https://polyhaven.com/a/namaqualand_boulder_02",
-    "authors": "Greg Zaal, photography; Rico Cilliers, modeling",
+  "heart_rock": {
+    "asset": "Namaqualand Boulder 04",
+    "asset_url": "https://polyhaven.com/a/namaqualand_boulder_04",
+    "authors": "Jenelle van Heerden",
     "license": "CC0-1.0",
     "source_sha256": {
-      "namaqualand_boulder_02_1k.gltf": "3c41b5946cd5b208673ec481a3969047665688b2fab1de99b57a7b4eedde099b",
-      "namaqualand_boulder_02.bin": "0f6daa7ec9b1a92207c0b09b737ff1eec904aebc1c1eada778afa6e5eacd55c0",
-      "textures/namaqualand_boulder_02_diff_1k.jpg": "e567620fa04906e023e3d3b49860dd32db39b368d72ecfc10ad005945fd4034d",
-      "textures/namaqualand_boulder_02_nor_gl_1k.jpg": "2407a9915ea0cf42b164d42f548618145da892b948327fff67bef6123790a5d7"
+      "namaqualand_boulder_04_1k.gltf": "04c858a3bdb22873efa988633e0c0d9d1468055f34c94d47742f75165a192078",
+      "namaqualand_boulder_04.bin": "99ba28ddc8da9ba24e1a419e69ed05f14c4b483bf06268a8a77495545985318a",
+      "textures/namaqualand_boulder_04_diff_1k.jpg": "1673e031ebcf5015206fec10bec676e55b049705b01fcef6bb2b2fb79e8de54c",
+      "textures/namaqualand_boulder_04_nor_gl_1k.jpg": "a7042070d6e369c80d818b7e787b977bf84c1f78b0c83e3ecf690ac2fa17d291"
     },
-    "preparation": "Godot 4.7.2 ImporterMesh generated LOD3 from the original 97964-triangle mesh at 60 degrees. Selected 6122 triangles and 4396 referenced vertices, recentered X/Z and grounded Y, then generated tangents. Nominal source LOD error is 0.046382 m. Albedo was Lanczos resized in linear light to 512 pixels and encoded as lossy WebP at quality 0.79; the OpenGL normal was renormalized at 768 pixels and encoded as lossless WebP. Source files are retained in the task's private asset family, not shipped in the game.",
-    "prepared_mesh_sha256": "df30104d6594a948dd03f000652040cdca69adfec03fdd58b01a09d7d998c865",
-    "prepared_albedo_sha256": "55808f3106b0d112a1c923f3405de15c72567c255edc17682a922af3d0a64ce8",
-    "prepared_normal_sha256": "933b6fd723cdb726d02141a640454fbe8caf25bf940348f87c3516057f95cea1"
+    "preparation": "Pinned Godot 4.7.2 ImporterMesh LOD3 from 59066 source triangles at 60 degrees: 3690 triangles and 1995 referenced vertices, X/Z recentered, Y grounded, tangents generated. Nominal source LOD error 0.066781 m. Albedo and OpenGL normal were Lanczos resized to 512 pixels with linear-light color and normal renormalization; color is quality-0.79 WebP and normal is lossless WebP.",
+    "prepared_mesh_sha256": "3711eb14ceccb912c2b590d9632ca019dfbd9f29167802dc7f579283c9fe9a91",
+    "prepared_albedo_sha256": "5a4285ff2ccd9603289d04cb3ef564fd33654b91f3e4105cff7471e33d7898b0",
+    "prepared_normal_sha256": "edeb0453e8db5a034a7442b0c69811e18bffc3a1245b3d07de4b6f0de79ef11d"
+  },
+  "rubble_rock": {
+    "asset": "Namaqualand Boulder 06",
+    "asset_url": "https://polyhaven.com/a/namaqualand_boulder_06",
+    "authors": "Greg Zaal, photography; Jenelle van Heerden, modeling",
+    "license": "CC0-1.0",
+    "source_sha256": {
+      "namaqualand_boulder_06_1k.gltf": "4331febbf2e4b20ebdee384522dd5cb9056a22450285ec45cada819dcb6d49db",
+      "namaqualand_boulder_06.bin": "c74e1f84fd9b48ba86420263804da0899d4d2d2f470276be801ef450ac5e08f3",
+      "textures/namaqualand_boulder_06_diff_1k.jpg": "b052fcaa6b9a32f871e6d3fa106ff7598ffb8d0c7f900365ee8d2893262295d7",
+      "textures/namaqualand_boulder_06_nor_gl_1k.jpg": "68ef851810c372e879534249c453289112cd3d0cb670d77e9216d9aeb2d5011c"
+    },
+    "preparation": "Pinned Godot 4.7.2 ImporterMesh LOD3 from 109114 source triangles at 60 degrees: 6818 triangles and 3935 referenced vertices, X/Z recentered, Y grounded, tangents generated. Nominal source LOD error 0.020606 m. Albedo and OpenGL normal were prepared as 512-pixel WebP by the same method as the heart rock.",
+    "prepared_mesh_sha256": "043dbdbf5b01387c7431d4858b9b48d4dbbec5b4f175adb9318b7847b67298dd",
+    "prepared_albedo_sha256": "e46a25384dae4803b84d6dc1612ba30e87a831f17da3a81bd3e9f339910a1f94",
+    "prepared_normal_sha256": "868071a5e3dcd01e9d5495c073a6537e9e46bdf3b6fe2126c8f281cdbcc224ad"
   },
   "pebbles": {
     "asset": "Clean Pebbles",
@@ -25,6 +41,5 @@
     "preparation": "Lanczos resized in linear light to 768 pixels and encoded as lossy WebP at quality 0.79.",
     "prepared_albedo_sha256": "a9de6ca52b6162997006c6b0ce0f3f99cb4023340c0f572a6783de4cd32a0a82"
   },
-  "additional_ore_color": "copper-veined-v3.png and copper-rich-v1.png are image-generated study textures; they are not Poly Haven scans.",
-  "limits": "The scanned boulder and gravel are presentation assets only. A passive render cannot establish player collision, collector clearance, depletion behavior in ordinary play, or performance."
+  "limits": "These scans and gravel are presentation assets only. Source glTF files are retained in the task's private asset family, not shipped in the game. A passive render cannot establish player collision, collector clearance, depletion behavior in ordinary play, or performance."
 }
