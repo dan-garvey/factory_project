@@ -720,7 +720,7 @@ class ArrivalAssemblyControls:
 		button.destination = destination
 		button.icon = load("res://opening/assets/build-icons/%s.svg" % icon_name)
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		button.custom_minimum_size = Vector2(52, 42)
+		button.custom_minimum_size = Vector2(52, 56)
 		button.focus_mode = Control.FOCUS_ALL
 		button.tooltip_text = description
 		button.accessibility_name = description

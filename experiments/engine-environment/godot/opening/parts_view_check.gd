@@ -5088,9 +5088,11 @@ func _slide_inventory_render_check() -> void:
 	view.state.cargo.P.raw = 0
 	view.state.cargo.P.work_lots.clear()
 	view._refresh_ui()
+	await process_frame
 	verify(not panel.inventory_cells.has("player_raw") and not panel.inventory_cells.has("player_work")
 		and not panel.inventory_slots.has("player_offcut")
-		and panel.inventory_player_region.visible and panel.inventory_slots.workbed_output.icon != null,
+		and panel.inventory_player_region.visible and panel.inventory_slots.workbed_output.icon != null
+		and panel.inventory_slots.workbed_work.size == panel.inventory_slots.workbed_output.size,
 		"A finished plate remains recoverable onto a visible carried region with no feed input tiles.")
 	if not destination.is_empty():
 		await RenderingServer.frame_post_draw
@@ -5111,12 +5113,14 @@ func _slide_inventory_render_check() -> void:
 	view.state.dropped_material = [{"center": [12, 0, 8], "raw": 0, "products": 0,
 		"offcuts": 1, "sheets": 0, "work_lots": []}]
 	view._refresh_ui()
+	await process_frame
 	verify(panel.inventory_slots.workbed_work.icon != null
 		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/offcut.svg")
 		and panel.inventory_slots.workbed_output.icon == null
+		and panel.inventory_slots.workbed_work.size == panel.inventory_slots.workbed_output.size
 		and panel.inventory_player_region._can_drop_data(Vector2.ZERO,
 			panel.inventory_drag("workbed_work")),
-		"A retained offcut remains visible and recoverable, with no unusable carried offcut input.")
+		"A retained offcut and its empty neighboring slot keep equal tile bounds and a usable pickup.")
 	if not destination.is_empty():
 		await RenderingServer.frame_post_draw
 		verify(scene_root.get_texture().get_image().save_png(destination + "-offcut.png") == OK,
@@ -5143,10 +5147,20 @@ func _slide_inventory_render_check() -> void:
 			"Retain both press outputs in the 900 by 600 E inventory.")
 	verify(panel.inventory_counts.workbed_work.text == "1"
 		and panel.inventory_counts.workbed_output.text == "1"
+		and panel.inventory_slots.workbed_work.size == panel.inventory_slots.workbed_output.size
 		and view.object_menu_operations.get_global_rect().encloses(
 			panel.inventory_workbed_row.get_global_rect()),
 		"Both output tiles fit inside the narrow ordinary E panel.")
 	view.state.dropped_material[0].products = 0
+	view._refresh_ui()
+	await process_frame
+	verify(panel.inventory_slots.workbed_work.size == panel.inventory_slots.workbed_output.size,
+		"The filled offcut tile and empty plate tile keep equal bounds at 900 by 600.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().get_region(Rect2i(0, 0, 900, 600))
+			.save_png(destination + "-offcut-narrow.png") == OK,
+			"Retain the equal-sized filled and empty workbed slots at 900 by 600.")
 	scene_root.size = Vector2i(1280, 800)
 	view._fit_object_menu(Vector2i(1280, 800))
 	view._refresh_ui()
