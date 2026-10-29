@@ -1123,7 +1123,7 @@ class ProductionEnvironment:
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
-			ore_ground_finish.albedo_color = Color("f0d0b7")
+			ore_ground_finish.albedo_color = Color("ddd4ca")
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1216,7 +1216,7 @@ class ProductionEnvironment:
 						var bank: float = Surface.river_center_x(point.y) + Surface.channel_half_width(point.y)
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
 							* smoothstep(0.12, 0.85, point.x - bank) \
-							* (0.12 + 0.20 * fraction + 0.52 * local_patch) * (0.56 + 0.44 * grain)
+							* (0.18 + 0.25 * fraction + 0.45 * local_patch) * (0.56 + 0.44 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.55)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))

@@ -16,11 +16,11 @@
     "prepared_glb_sha256": "b097619e58e85c9aae895a167e18979e86498f17f4b5b50ccb057ff224d7beb9"
   },
   "field_gravel": {
-    "asset": "Terrain Red 01 diffuse 1k",
-    "asset_url": "https://polyhaven.com/a/terrain_red_01",
-    "author": "Rob Tuytel",
+    "asset": "Rocky Gravel diffuse 1k",
+    "asset_url": "https://polyhaven.com/a/rocky_gravel",
+    "authors": "Dimitrios Savva, photography; Dario Barresi, processing",
     "license": "CC0-1.0",
-    "source_and_delivered_sha256": "f3f3fa6ebcddce22ece1fc8a343b469cbf67faefafac453ba53bce1fa28fc4b0"
+    "source_and_delivered_sha256": "96ca2e89a5b5d9413217dddaf6b217afccd2cc5ef39a1dbc2a2939aac4cac38e"
   },
   "limits": "The photographed rocks, gravel and copper shader are presentation only. Source glTF files remain in the task private family; the existing mineral-soil texture and original physical source retain their own provenance. Passive renders cannot establish player collision, collector clearance, depletion in ordinary play, or performance."
 }
