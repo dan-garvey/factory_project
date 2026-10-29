@@ -4870,7 +4870,7 @@ func _slide_controls_check() -> void:
 		and panel.inventory_drag("workbed_work").get("wire", {}).get("expected", {}).get("offcuts") == 1,
 		"A retained offcut occupies the work face and must be recovered before another blank.")
 	snapshot.dropped_material = [{"center": [12, 0, 8], "raw": 0, "products": 1,
-		"offcuts": 1, "work_lots": []}]
+		"offcuts": 1, "sheets": 0, "work_lots": []}]
 	panel.refresh(snapshot, "P", "anvil", true)
 	var paired_plate: Dictionary = panel.inventory_drag("workbed_output")
 	var paired_offcut: Dictionary = panel.inventory_drag("workbed_work")
@@ -4882,7 +4882,7 @@ func _slide_controls_check() -> void:
 		and panel.inventory_slots.workbed_output.tooltip_text.contains("together"),
 		"A formed plate and offcut sharing the supported work cell remain separate visible items with truthful pickup help.")
 	var paired_wire := {"action": "pickup_material", "center": [12, 0, 8],
-		"expected": {"raw": 0, "products": 1, "offcuts": 1, "work_lots": []}}
+		"expected": {"raw": 0, "products": 1, "offcuts": 1, "sheets": 0, "work_lots": []}}
 	verify(paired_plate.get("wire", {}) == paired_wire
 		and paired_offcut.get("wire", {}) == paired_wire
 		and panel.inventory_can_drop("player", paired_plate),
@@ -4894,7 +4894,16 @@ func _slide_controls_check() -> void:
 	snapshot.dropped_material[0].offcuts = 2
 	verify(not panel.inventory_can_drop("player", paired_plate) and view.issued.is_empty(),
 		"A stale paired drag cannot collect changed material from the shared work cell.")
-	snapshot.dropped_material.pop_back()
+	snapshot.dropped_material[0].offcuts = 0
+	panel.refresh(snapshot, "P", "anvil", true)
+	verify(panel.inventory_counts.workbed_output.text == "1"
+		and panel.inventory_slots.workbed_work.icon == null
+		and panel.inventory_drag("workbed_work").is_empty()
+		and not panel.inventory_shortcut(KEY_U)
+		and panel.inventory_drag("workbed_output").get("wire", {}).get("expected", {}).get("products") == 1,
+		"A plate alone on the workbed leaves no hidden offcut pickup route.")
+	snapshot.dropped_material = [{"center": [13, 0, 8], "raw": 0, "products": 1,
+		"offcuts": 0, "work_lots": []}]
 	panel.refresh(snapshot, "P", "anvil", true)
 	panel.refresh(snapshot, "P", "anvil", false)
 	verify(panel.inventory_drag("workbed_output").is_empty()
@@ -5071,19 +5080,11 @@ func _slide_inventory_render_check() -> void:
 	projected_press.open_feeds.pop_back()
 	view._refresh_ui()
 	var output_drag: Dictionary = panel.inventory_drag("workbed_output")
-	var output_preview := TextureRect.new()
-	output_preview.texture = panel.inventory_slots.workbed_output.icon
-	panel.inventory_slots.workbed_output.force_drag(output_drag, output_preview)
-	await process_frame
-	verify(scene_root.gui_is_dragging() and panel.inventory_player_region.highlighted
-		and output_preview.texture.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.products[1]),
-		"A copper plate drag keeps its literal item art and highlights the carried drop region.")
-	if not destination.is_empty():
-		await RenderingServer.frame_post_draw
-		verify(scene_root.get_texture().get_image().save_png(destination + "-plate-drag.png") == OK,
-			"Retain the plate drag and carried drop region at 1280 by 800.")
-	scene_root.gui_cancel_drag()
-	await process_frame
+	verify(output_drag.get("wire", {}).get("action") == "pickup_material"
+		and panel.inventory_player_region._can_drop_data(Vector2.ZERO, output_drag)
+		and panel.inventory_slots.workbed_output.icon.resource_path.ends_with(
+			"/" + BuildingHotbar.MATERIALS.products[1]),
+		"The plate tile keeps literal art and targets the carried drop region.")
 	view.state.cargo.P.raw = 0
 	view.state.cargo.P.work_lots.clear()
 	view._refresh_ui()
@@ -5108,7 +5109,7 @@ func _slide_inventory_render_check() -> void:
 		verify(scene_root.get_texture().get_image().save_png(destination + "-empty.png") == OK,
 			"Retain the empty workbed and carried pickup region.")
 	view.state.dropped_material = [{"center": [12, 0, 8], "raw": 0, "products": 0,
-		"offcuts": 1, "work_lots": []}]
+		"offcuts": 1, "sheets": 0, "work_lots": []}]
 	view._refresh_ui()
 	verify(panel.inventory_slots.workbed_work.icon != null
 		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/offcut.svg")
