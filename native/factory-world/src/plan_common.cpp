@@ -141,7 +141,8 @@ CollectorMatch collector_for_input(const Profile& profile,
         const auto& center = face.machine_center;
         const auto& at = selected->center;
         const auto adjacent = std::abs(at[0] - center[0]) + std::abs(at[1] - center[1]) +
-            std::abs(at[2] - center[2]) == 1;
+            std::abs(at[2] - center[2]) ==
+                std::abs(face.toward_ore[0]) + std::abs(face.toward_ore[2]);
         if (inspected.status == assembly::Status::ambiguous && adjacent)
             found.ambiguous = true;
         if (!inspected.collector || inspected.collector->mount != input) continue;
