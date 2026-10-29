@@ -55,6 +55,15 @@ class ProductionEnvironment:
 	static var ore_ground_finish: StandardMaterial3D
 	static var ore_boulder_finish: ShaderMaterial
 	const ORE_FIELD_PATCH = preload("res://opening/assets/mineral-outcrop/field-rock-gravel-03.glb")
+	const ORE_FIELD_ROCK_MESHES = [
+		preload("res://opening/assets/mineral-outcrop/field-rock-05.res"),
+		preload("res://opening/assets/mineral-outcrop/field-rock-07.res"),
+		preload("res://opening/assets/mineral-outcrop/field-rock-08.res"),
+		preload("res://opening/assets/mineral-outcrop/field-rock-09.res"),
+		preload("res://opening/assets/mineral-outcrop/field-rock-12.res"),
+		preload("res://opening/assets/mineral-outcrop/field-rock-17.res"),
+		preload("res://opening/assets/mineral-outcrop/field-rock-23.res"),
+		preload("res://opening/assets/mineral-outcrop/field-rock-26.res")]
 	const ORE_FIELD_BOULDER_SHADER = preload("res://opening/ore_field_scan.gdshader")
 
 	static func ground_material() -> ShaderMaterial:
@@ -1232,13 +1241,26 @@ class ProductionEnvironment:
 		var boulder_finish := _ore_boulder_material()
 		if boulder_finish == null:
 			return root
-		var satellite_layout := [
-			[[Vector2(1.7, 0.8), 0.22, 1.2], [Vector2(-0.9, 1.8), 0.17, -0.6]],
-			[[Vector2(-1.9, 0.9), 0.23, -0.8]],
-			[[Vector2(1.8, -1.1), 0.25, 0.9], [Vector2(-0.7, 1.4), 0.16, 2.4]],
-			[[Vector2(-1.6, 1.1), 0.21, 1.8], [Vector2(1.6, -1.0), 0.17, -1.4]],
-			[[Vector2(2.0, -0.6), 0.20, 1.4]],
-			[[Vector2(-1.7, -0.8), 0.22, 2.1], [Vector2(1.7, 0.9), 0.17, -0.8]]]
+		# Indices point into distinct connected stones from the source scan.
+		# Each region presents one principal exposure with smaller neighbors;
+		# region 4's principal rock is the existing physical bank source.
+		var rock_layout := [
+			[[0, Vector2.ZERO, Vector3(1.00, 0.72, 1.12), 0.2],
+				[6, Vector2(1.5, 0.4), Vector3(0.88, 0.72, 0.92), 1.4],
+				[7, Vector2(-0.8, 1.2), Vector3(0.86, 0.68, 0.94), -0.7]],
+			[[1, Vector2.ZERO, Vector3(1.08, 0.66, 1.02), 0.7],
+				[2, Vector2(-1.5, 0.8), Vector3(0.90, 0.65, 0.94), -0.5]],
+			[[3, Vector2.ZERO, Vector3(1.18, 0.70, 1.00), -0.2],
+				[4, Vector2(1.5, -0.7), Vector3(0.92, 0.68, 1.06), 1.8],
+				[7, Vector2(-0.7, 1.6), Vector3(0.78, 0.66, 0.88), 0.3]],
+			[[2, Vector2.ZERO, Vector3(1.08, 0.70, 1.10), 0.1],
+				[0, Vector2(-1.2, 1.1), Vector3(0.76, 0.62, 0.82), 1.7],
+				[6, Vector2(1.4, -0.8), Vector3(0.84, 0.65, 0.90), -1.2]],
+			[[4, Vector2(1.3, -0.5), Vector3(0.80, 0.60, 0.94), 1.1],
+				[7, Vector2(2.1, 0.5), Vector3(0.66, 0.62, 0.76), -0.4]],
+			[[1, Vector2.ZERO, Vector3(1.10, 0.70, 0.96), 1.2],
+				[3, Vector2(-1.4, -0.8), Vector3(0.84, 0.65, 0.92), -0.8],
+				[5, Vector2(1.5, 0.9), Vector3(0.92, 0.70, 0.94), 2.2]]]
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
 				continue
@@ -1252,38 +1274,21 @@ class ProductionEnvironment:
 			var bank: float = Surface.river_center_x(z) + Surface.channel_half_width(z)
 			x = maxf(x, bank + 2.4)
 			var facing: float = [-0.28, 0.45, 0.22, -0.38, 0.15, 0.5][region_index]
-			if region_index != 4:
-				var patch: Node3D = ORE_FIELD_PATCH.instantiate()
-				patch.name = "StoneAndGravelRegion%d" % region_index
-				patch.position = Vector3(x, Surface.height_at(x, z) - 0.13, z)
-				patch.rotation.y = facing
-				patch.scale = Vector3(0.34 + 0.03 * float(region_index % 3),
-					0.50, 0.38 + 0.03 * float((region_index + 1) % 3))
-				var scan := patch.find_child("Mesh", true, false) as MeshInstance3D
-				if scan == null:
-					push_error("The broad ore field requires the scanned rock and gravel mesh.")
-					return root
-				scan.material_override = boulder_finish
-				root.add_child(patch)
-			for number in range(satellite_layout[region_index].size()):
-				var detail: Array = satellite_layout[region_index][number]
-				var offset: Vector2 = detail[0]
+			for number in range(rock_layout[region_index].size()):
+				var detail: Array = rock_layout[region_index][number]
+				var offset: Vector2 = detail[1]
 				var dx: float = clampf(x + offset.x, left + 0.8, right - 0.8)
 				var dz: float = clampf(z + offset.y, back + 0.8, front - 0.8)
 				var detail_bank: float = Surface.river_center_x(dz) + Surface.channel_half_width(dz)
 				dx = maxf(dx, detail_bank + 0.8)
-				var fragment: Node3D = ORE_FIELD_PATCH.instantiate()
-				fragment.name = "StoneFragmentRegion%d_%d" % [region_index, number]
-				fragment.position = Vector3(dx, Surface.height_at(dx, dz) - 0.10, dz)
-				fragment.rotation.y = facing + float(detail[2])
-				var size: float = float(detail[1])
-				fragment.scale = Vector3(size, 0.31 + size * 0.25, size * 1.15)
-				var fragment_scan := fragment.find_child("Mesh", true, false) as MeshInstance3D
-				if fragment_scan == null:
-					push_error("The broad ore field requires its secondary scanned stone mesh.")
-					return root
-				fragment_scan.material_override = boulder_finish
-				root.add_child(fragment)
+				var stone := MeshInstance3D.new()
+				stone.name = "OreRockRegion%d_%d" % [region_index, number]
+				stone.mesh = ORE_FIELD_ROCK_MESHES[int(detail[0])]
+				stone.material_override = boulder_finish
+				stone.position = Vector3(dx, Surface.height_at(dx, dz) - 0.08, dz)
+				stone.rotation.y = facing + float(detail[3])
+				stone.scale = detail[2]
+				root.add_child(stone)
 		return root
 
 	static func build(parent: Node3D) -> Node3D:
