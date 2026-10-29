@@ -54,7 +54,9 @@ class ProductionEnvironment:
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
 	static var ore_boulder_finish: ShaderMaterial
+	static var ore_face_finish: ShaderMaterial
 	const ORE_FIELD_PATCH = preload("res://opening/assets/mineral-outcrop/field-rock-gravel-03.glb")
+	const ORE_FIELD_FACE = preload("res://opening/assets/mineral-outcrop/field-rock-face-01.glb")
 	const ORE_FIELD_BOULDER_SHADER = preload("res://opening/ore_field_scan.gdshader")
 
 	static func ground_material() -> ShaderMaterial:
@@ -1150,6 +1152,28 @@ class ProductionEnvironment:
 		source.free()
 		return ore_boulder_finish
 
+	static func _ore_face_material() -> ShaderMaterial:
+		if ore_face_finish != null:
+			return ore_face_finish
+		var source := ORE_FIELD_FACE.instantiate() as Node3D
+		var meshes := source.find_children("*", "MeshInstance3D", true, false)
+		var scan := meshes[0] as MeshInstance3D if not meshes.is_empty() else null
+		var material: StandardMaterial3D = null
+		if scan != null:
+			material = scan.mesh.surface_get_material(0) as StandardMaterial3D
+		if material == null or material.albedo_texture == null or material.normal_texture == null:
+			push_error("The broad ore field requires its fractured rock face textures.")
+			source.free()
+			return null
+		ore_face_finish = ShaderMaterial.new()
+		ore_face_finish.shader = ORE_FIELD_BOULDER_SHADER
+		ore_face_finish.set_shader_parameter("albedo_map", material.albedo_texture)
+		ore_face_finish.set_shader_parameter("normal_map", material.normal_texture)
+		ore_face_finish.set_shader_parameter("copper_cover", 0.47)
+		ore_face_finish.set_shader_parameter("copper_strength", 0.78)
+		source.free()
+		return ore_face_finish
+
 	static func ore_field(state: Dictionary) -> Node3D:
 		# This surface is read from the native deposit cells and region balances.
 		# It adds no body collision, stock, or admission rule to the renderer.
@@ -1216,7 +1240,7 @@ class ProductionEnvironment:
 						var bank: float = Surface.river_center_x(point.y) + Surface.channel_half_width(point.y)
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
 							* smoothstep(0.12, 0.85, point.x - bank) \
-							* (0.18 + 0.25 * fraction + 0.45 * local_patch) * (0.56 + 0.44 * grain)
+							* (0.12 + 0.20 * fraction + 0.52 * local_patch) * (0.16 + 0.84 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.55)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
@@ -1230,7 +1254,8 @@ class ProductionEnvironment:
 		soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(soil)
 		var boulder_finish := _ore_boulder_material()
-		if boulder_finish == null:
+		var face_finish := _ore_face_material()
+		if boulder_finish == null or face_finish == null:
 			return root
 		var satellite_layout := [
 			[[Vector2(1.7, 0.8), 0.22, 1.2], [Vector2(-0.9, 1.8), 0.17, -0.6],
@@ -1243,9 +1268,9 @@ class ProductionEnvironment:
 			[[Vector2(-1.7, -0.8), 0.22, 2.1], [Vector2(1.7, 0.9), 0.17, -0.8],
 				[Vector2(-3.4, 0.3), 0.16, 1.4]]]
 		var principal_scales := [
-			Vector3(0.46, 0.62, 0.50), Vector3(0.38, 0.55, 0.44),
-			Vector3(0.48, 0.58, 0.48), Vector3(0.39, 0.54, 0.45),
-			Vector3.ZERO, Vector3(0.47, 0.61, 0.52)]
+			Vector3(0.63, 0.26, 0.64), Vector3(0.49, 0.20, 0.55),
+			Vector3(0.57, 0.24, 0.59), Vector3(0.48, 0.19, 0.54),
+			Vector3.ZERO, Vector3(0.61, 0.25, 0.63)]
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
 				continue
@@ -1260,16 +1285,19 @@ class ProductionEnvironment:
 			x = maxf(x, bank + 2.4)
 			var facing: float = [-0.28, 0.45, 0.22, -0.38, 0.15, 0.5][region_index]
 			if region_index != 4:
-				var patch: Node3D = ORE_FIELD_PATCH.instantiate()
+				var patch: Node3D = ORE_FIELD_FACE.instantiate()
 				patch.name = "StoneAndGravelRegion%d" % region_index
-				patch.position = Vector3(x, Surface.height_at(x, z) - 0.20, z)
+				patch.position = Vector3(x, Surface.height_at(x, z) - 0.29, z)
+				patch.rotation.x = -PI / 2.0
 				patch.rotation.y = facing
 				patch.scale = principal_scales[region_index]
-				var scan := patch.find_child("Mesh", true, false) as MeshInstance3D
+				var patch_meshes := patch.find_children("*", "MeshInstance3D", true, false)
+				var scan := patch_meshes[0] as MeshInstance3D if not patch_meshes.is_empty() else null
 				if scan == null:
-					push_error("The broad ore field requires the scanned rock and gravel mesh.")
+					push_error("The broad ore field requires the fractured rock face mesh.")
 					return root
-				scan.material_override = boulder_finish
+				scan.name = "Mesh"
+				scan.material_override = face_finish
 				root.add_child(patch)
 			for number in range(satellite_layout[region_index].size()):
 				var detail: Array = satellite_layout[region_index][number]

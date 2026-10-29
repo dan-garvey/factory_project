@@ -3,6 +3,8 @@ render_mode diffuse_burley, specular_schlick_ggx;
 
 uniform sampler2D albedo_map : source_color, filter_linear_mipmap_anisotropic;
 uniform sampler2D normal_map : hint_normal, filter_linear_mipmap_anisotropic;
+uniform float copper_cover = 0.57;
+uniform float copper_strength = 0.52;
 
 varying vec3 scan_point;
 varying vec3 world_point;
@@ -39,10 +41,10 @@ void fragment() {
 	float fractured = smoothstep(0.38, 0.62,
 		rock_noise(world_point * 4.2 + vec3(-6.0, 3.0, 2.0)));
 	float raised_stone = smoothstep(0.30, 0.68, scan_point.y);
-	float patch = smoothstep(0.54, 0.68, warp) * (0.55 + 0.45 * fractured);
+	float patch = smoothstep(copper_cover, copper_cover + 0.14, warp) * (0.55 + 0.45 * fractured);
 	float copper = max(patch, vein * fractured * 0.25) * raised_stone;
 	vec3 mineral = host * vec3(1.38, 0.75, 0.50) + vec3(0.045, 0.019, 0.006);
-	ALBEDO = mix(host, mineral, copper * 0.52);
+	ALBEDO = mix(host, mineral, copper * copper_strength);
 	NORMAL_MAP = texture(normal_map, UV).rgb;
 	NORMAL_MAP_DEPTH = 0.76;
 	ROUGHNESS = 0.94;
