@@ -415,6 +415,40 @@ void collector_readiness_tracks_real_parts() {
           std::abs(component_face(upper_mount_center, upper_mount_half, 0, -1) -
               component_face(upper_edge_center, upper_edge_half, 0, 1)) < 1e-9,
           "A one-step raised cutter still has separately occupied supports down to its frame floor.");
+    place(upper_tools, "receiver_tray", 0, 0, grid_scale, "upper-first-tray");
+    auto upper_attach = request("attach-upper-crank", "attach_hand_crank");
+    upper_attach.emplace("entity", V(upper_mount));
+    upper_attach.emplace("crank", V(get<O>(upper_tools.projection(), "crank_items").begin()->first));
+    upper_attach.emplace("port", V(A{V(I{-1} * grid_scale), V(I{1}), V(I{0})}));
+    check(get<bool>(upper_tools.command("P", upper_attach), "accepted"),
+          "The real crank seats on the raised cutter input before either receiver is chosen.");
+    check(get<bool>(upper_tools.publish_actor("P", {V(5.8), V(1.0), V(-1.65)}, 2), "accepted"),
+          "The actor reaches a finite timber source for a second raised receiver.");
+    for (int index = 0; index < 2; ++index) {
+        auto timber = request("upper-tray-timber-" + std::to_string(index), "harvest_source");
+        timber.emplace("target", V("tree-east-upstream"));
+        check(get<bool>(factory::godot_world::tests::complete_manual_cut(upper_tools, "P", timber), "accepted"),
+              "The competing raised receiver uses two real timber units.");
+    }
+    check(get<bool>(upper_tools.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 3), "accepted"),
+          "The actor returns to the issued workshop to craft the alternate tray.");
+    auto upper_craft = request("craft-upper-second-tray", "craft_component");
+    upper_craft.emplace("entity", V("pod-fabrication-hub"));
+    upper_craft.emplace("component", V("receiver_tray"));
+    check(get<bool>(upper_tools.command("P", upper_craft), "accepted") &&
+          get<bool>(upper_tools.publish_actor("P", {V(2.0), V(1.0), V(0.0)}, 4), "accepted"),
+          "The second paid tray returns to the actual raised cutter workcell.");
+    place(upper_tools, "receiver_tray", 0, 0, -1 * grid_scale, "upper-second-tray");
+    check(get<std::string>(ground_inspection(upper_tools), "status") == "ambiguous",
+          "Two discharge sides cannot choose a raised cutter route silently.");
+    const auto before_upper_ore = get<I>(get<O>(upper_tools.projection(), "hand_sources").at("opening-copper"), "remaining");
+    auto upper_turn = request("upper-ambiguous-turn", "turn_hand_crank");
+    upper_turn.emplace("entity", V(upper_mount));
+    const auto upper_refusal = upper_tools.command("P", upper_turn);
+    check(!get<bool>(upper_refusal, "accepted") &&
+          get<std::string>(upper_refusal, "reason") == "ambiguous_assembly" &&
+          get<I>(get<O>(upper_tools.projection(), "hand_sources").at("opening-copper"), "remaining") == before_upper_ore,
+          "A raised ambiguous input refuses its turn without spending finite ore.");
 }
 }  // namespace
 
