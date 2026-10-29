@@ -1128,7 +1128,7 @@ func check_ore_field_render() -> void:
 		preview_sources[depleted_id] = depleted_source
 		view.state = preview
 		view._refresh_ore_field()
-		var depleted_field := view.get_node_or_null("ProductionScenery/OreField")
+		var depleted_field: Node3D = view.ore_field_visual
 		verify(depleted_field != null and
 			depleted_field.get_node_or_null("StoneAndGravelRegion5") == null and
 			depleted_field.get_node_or_null("StoneAndGravelRegion0/Mesh") != null,

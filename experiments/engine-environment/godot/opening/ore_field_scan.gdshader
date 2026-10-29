@@ -36,8 +36,8 @@ void fragment() {
 		rock_noise(scan_point * 7.5 + vec3(-6.0, 3.0, 2.0)));
 	float raised_stone = smoothstep(0.12, 0.38, scan_point.y);
 	float copper = seam * fractured * raised_stone;
-	vec3 mineral = stone * vec3(1.25, 0.72, 0.50) + vec3(0.13, 0.015, 0.005);
-	ALBEDO = mix(stone, mineral, copper * 0.92);
+	vec3 mineral = stone * vec3(1.08, 0.80, 0.62) + vec3(0.035, 0.002, 0.0);
+	ALBEDO = mix(stone, mineral, copper * 0.72);
 	NORMAL_MAP = texture(normal_map, UV).rgb;
 	NORMAL_MAP_DEPTH = 0.76;
 	ROUGHNESS = 0.94;
