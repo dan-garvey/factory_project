@@ -6,8 +6,9 @@ const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisual
 const Scenery = preload("res://opening/production_environment.gd").ProductionEnvironment
 const Geometry = preload("res://opening/site_geometry.gd")
 
-const BILLET_HALF_EXTENTS := Vector3(0.135, 0.09, 0.18)
-const PLATE_HALF_EXTENTS := Vector3(0.22, 0.035, 0.265)
+const ITEM_SCALE := Geometry.PITCH / 1.65
+const BILLET_HALF_EXTENTS := Vector3(0.135, 0.09, 0.18) * ITEM_SCALE
+const PLATE_HALF_EXTENTS := Vector3(0.22, 0.035, 0.265) * ITEM_SCALE
 static var source_meshes: Dictionary = {}
 static var ground_meshes: Dictionary = {}
 static var source_rock: StandardMaterial3D
@@ -350,6 +351,7 @@ static func workpiece_billet(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node
 	var assembly := Node3D.new()
 	assembly.name = "WorkpieceBillet"
 	assembly.position = at
+	assembly.scale = Vector3.ONE * ITEM_SCALE
 	assembly.set_meta("item_kind", "workpiece_billet")
 	parent.add_child(assembly)
 	_part(assembly, "CarrierTray", Visuals.box_mesh(Vector3(0.26, 0.036, 0.34)),
@@ -373,6 +375,7 @@ static func stamped_plate(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D:
 	var assembly := Node3D.new()
 	assembly.name = "StampedPlate"
 	assembly.position = at
+	assembly.scale = Vector3.ONE * ITEM_SCALE
 	assembly.set_meta("item_kind", "stamped_plate")
 	parent.add_child(assembly)
 	_part(assembly, "PlateSheet", Visuals.box_mesh(Vector3(0.42, 0.032, 0.50)),
@@ -400,6 +403,7 @@ static func copper_offcuts(parent: Node3D, at: Vector3 = Vector3.ZERO) -> Node3D
 	var assembly := Node3D.new()
 	assembly.name = "CopperOffcuts"
 	assembly.position = at
+	assembly.scale = Vector3.ONE * ITEM_SCALE
 	assembly.set_meta("item_kind", "copper_offcuts")
 	parent.add_child(assembly)
 	# Narrow L-shaped trimmings read as press waste rather than another plate.
@@ -458,7 +462,7 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 		elif kind == "processor":
 			amount = int(stock.get("held", 0)) + int(stock.get("input", 0))
 		for n in range(amount):
-			var offset := Vector3(-0.17 + float(n) * 0.32, 0.65, 0.0)
+			var offset := Vector3(-0.17 + float(n) * 0.32, 0.65, 0.0) * ITEM_SCALE
 			if kind == "collector":
 				# The native buffer's 32 blanks fit in a four-by-four, two-layer
 				# pile inside its body, rather than spilling across other machines.
@@ -468,7 +472,8 @@ static func populate_items(item_root: Node3D, state: Dictionary, pitch: float = 
 			if turned:
 				billet.rotation.y = -PI / 2.0
 		if kind == "processor" and int(stock.get("output", 0)) > 0:
-			var plate := stamped_plate(item_root, pos + orientation * Vector3(0.46, 0.39, 0.15))
+			var plate := stamped_plate(item_root,
+				pos + orientation * (Vector3(0.46, 0.39, 0.15) * ITEM_SCALE))
 			if turned:
 				plate.rotation.y = -PI / 2.0
 	mineral_deposit(item_root, state)

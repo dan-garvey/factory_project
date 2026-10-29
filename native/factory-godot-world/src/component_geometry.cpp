@@ -9,7 +9,7 @@ using site_geometry::anchor_height;
 using site_geometry::height_step;
 using site_geometry::pitch;
 constexpr double component_shaft_half = 0.205;
-constexpr double press_work_crown_rise = 0.082;
+constexpr double press_work_crown_rise = height_step / 5;
 constexpr double anvil_work_height = site_geometry::press_work_height;
 }  // namespace
 
@@ -23,7 +23,7 @@ Bounds component_bounds(const world::Profile& profile,
     if (!kind) return {at, {0.14, 0.14, 0.14}};
     if (const auto channel = materials::channel_spec(*kind)) {
         const double low = center[1] * height_step;
-        const double high = at[1] + press_work_crown_rise + 0.12;
+        const double high = at[1] + press_work_crown_rise + height_step * 0.30;
         const double width_x = pitch * channel->floor.x_cells;
         const double width_z = pitch * channel->floor.z_cells;
         return {{at[0] + (width_x - pitch) / 2, (low + high) / 2,
@@ -87,7 +87,7 @@ Bounds component_bounds(const world::Profile& profile,
             // Reserve the entire carriage-driven die sweep. The named slide
             // may occupy its coaxial upper portion as an intentional fitting.
             const double low = center[1] * height_step - height_step + anvil_work_height;
-            const double high = at[1] + 0.125;
+            const double high = at[1] + height_step * 0.30;
             return {{at[0], (low + high) * 0.5, at[2]},
                 {pitch * 0.5, (high - low) * 0.5, pitch * 0.5}};
         }
@@ -115,17 +115,21 @@ Bounds component_bounds(const world::Profile& profile,
         case materials::Component::wooden_slide:
         case materials::Component::copper_slide: {
             // This selected body keeps the same dimensions alone and fitted.
-            // In a press its four feet meet the workbed side rails, while the
-            // integral shaft stays at the native rotary input height.
+            // In a press its four feet meet the workbed side rails. The
+            // fitted spindle rises internally to a full-U external X
+            // node; a free slide already on a U level needs no rise.
             const double low = center[1] * height_step - 2 * height_step + anvil_work_height;
-            const double high = at[1] + 0.08;
+            const auto port = assembly::small_slide_external_node(center, 1);
+            const double lift = port ? ((*port)[1] - center[1]) * height_step : 0;
+            const double high = at[1] + lift + height_step * 0.25;
             return {{at[0], (low + high) * 0.5, at[2]},
                 {pitch * 0.5, (high - low) * 0.5, pitch * 0.5}};
         }
         case materials::Component::cutting_edge:
             return {{at[0], at[1] - 0.015, at[2]}, {0.21, 0.12, 0.18}};
         case materials::Component::receiver_tray:
-            return {{at[0], at[1] - 0.0825, at[2]}, {0.18, 0.15, 0.205}};
+            return {{at[0], at[1] - height_step * 0.20, at[2]},
+                {pitch * 0.11, height_step * 0.36, pitch * 0.124}};
         case materials::Component::wooden_shaft:
         case materials::Component::copper_shaft:
             return {at, {component_shaft_half, 0.12, component_shaft_half}};

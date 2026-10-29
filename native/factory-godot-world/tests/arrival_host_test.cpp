@@ -457,7 +457,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
     const auto first_id = get<std::string>(first, "crank_id");
     const auto second_id = get<std::string>(second, "crank_id");
     const O attach{{"entity", V(slide_id)}, {"crank", V(first_id)},
-        {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
+        {"port", V(A{V(I{16}), V(I{0}), V(I{8})})}};
     const auto fitted = resumed("attach-first", "attach_hand_crank", attach);
     check(get<bool>(fitted, "accepted") && get<std::string>(fitted, "entity") == first_id &&
           get<I>(get<O>(restored.projection(), "placed_components").at(slide_id),
@@ -473,13 +473,13 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
     check(get<bool>(resumed("attach-first", "attach_hand_crank", attach), "duplicate") &&
           !get<bool>(resumed("attach-second", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(second_id)},
-               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
+               {"port", V(A{V(I{16}), V(I{0}), V(I{8})})}}), "accepted"),
           "A retry cannot mint a crank, and one occupied port blocks another crank.");
     const auto before_bad_crank_commands = restored.projection();
     for (const auto& refused : {
              resumed("bad-attach", "attach_hand_crank",
                  {{"entity", V(slide_id)}, {"crank", V(first_id)},
-                  {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}, {"face", V(true)}}),
+                  {"port", V(A{V(I{16}), V(I{0}), V(I{8})})}, {"face", V(true)}}),
              resumed("bad-detach", "detach_hand_crank",
                  {{"entity", V(first_id)}, {"unexpected", V(I{1})}}),
              resumed("bad-operate", "operate_hand_crank", {{"entity", V(I{7})}}),
@@ -504,7 +504,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
           "The worker steps beside the full-cell housing to reach either crank face.");
     const auto turn = resumed("turn-fitted", "turn_slide_crank",
         {{"entity", V(slide_id)},
-         {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}});
+         {"port", V(A{V(I{16}), V(I{0}), V(I{8})})}});
     check(get<bool>(turn, "accepted") &&
           get<I>(get<O>(restored.projection(), "slide_phases").at(slide_id), "subticks") > 0,
           "Turning the fitted crank advances the actual slide phase.");
@@ -573,18 +573,18 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
               "components")), "hand_crank") == 2 &&
           !get<bool>(resumed("turn-after-detach", "turn_slide_crank",
               {{"entity", V(slide_id)},
-               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
+               {"port", V(A{V(I{16}), V(I{0}), V(I{8})})}}), "accepted"),
           "Detaching returns the same crank identity and removes its manual drive.");
     const auto wrong_west_face = resumed("attach-west-wrong-face", "attach_hand_crank",
         {{"entity", V(slide_id)}, {"crank", V(second_id)},
-         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})},
+         {"port", V(A{V(I{8}), V(I{0}), V(I{8})})},
          {"face", V(A{V(I{1}), V(I{0}), V(I{0})})}});
     check(!get<bool>(wrong_west_face, "accepted") &&
           get<std::string>(wrong_west_face, "reason") == "invalid_crank_face",
           "A west slide port cannot be fitted with the east-facing handle.");
     const auto west = resumed("attach-second-west", "attach_hand_crank",
         {{"entity", V(slide_id)}, {"crank", V(second_id)},
-         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+         {"port", V(A{V(I{8}), V(I{0}), V(I{8})})}});
     if (!get<bool>(west, "accepted"))
         throw std::runtime_error("West crank attachment refused: " +
             get<std::string>(west, "reason"));
@@ -594,7 +594,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
           "The mirrored fitted slide reports its negative X face to the ordinary view.");
     const auto west_turn = resumed("turn-west", "turn_slide_crank",
         {{"entity", V(slide_id)},
-         {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}});
+         {"port", V(A{V(I{8}), V(I{0}), V(I{8})})}});
     if (!get<bool>(west_turn, "accepted"))
         throw std::runtime_error("West crank turn refused: " +
             get<std::string>(west_turn, "reason"));
@@ -612,10 +612,10 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
     };
     check(!get<bool>(q_command("q-steal-held", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(first_id)},
-               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted") &&
+               {"port", V(A{V(I{16}), V(I{0}), V(I{8})})}}), "accepted") &&
           get<bool>(q_command("q-turn-attached", "turn_slide_crank",
               {{"entity", V(slide_id)},
-               {"port", V(A{V(I{11}), V(I{0}), V(I{8})})}}), "accepted") &&
+               {"port", V(A{V(I{8}), V(I{0}), V(I{8})})}}), "accepted") &&
           get<bool>(q_command("q-detach", "detach_hand_crank",
               {{"entity", V(second_id)}}), "accepted") &&
           get<std::string>(get<O>(restored.projection(), "crank_items").at(second_id),

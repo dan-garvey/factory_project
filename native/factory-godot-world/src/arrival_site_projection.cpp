@@ -90,9 +90,11 @@ Object fields(const world::Profile& profile, const world::State& state,
         } else if (component.kind == materials::Component::wooden_slide ||
             component.kind == materials::Component::copper_slide) {
             Array ports;
-            for (const Integer direction : {-1, 1})
-                ports.emplace_back(Array{Value(component.center[0] + direction),
-                    Value(component.center[1]), Value(component.center[2])});
+            for (const Integer direction : {-1, 1}) {
+                const auto port = assembly::small_slide_external_node(component.center, direction);
+                if (port) ports.emplace_back(Array{Value((*port)[0]),
+                    Value((*port)[1]), Value((*port)[2])});
+            }
             part.emplace("input_ports", Value(std::move(ports)));
         } else if (component.kind == materials::Component::tool_mount ||
             component.kind == materials::Component::wooden_shaft ||

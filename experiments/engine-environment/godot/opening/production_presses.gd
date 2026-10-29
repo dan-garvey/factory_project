@@ -420,6 +420,9 @@ class ProductionDriveJournalArt:
 		parent.add_child(part)
 
 	static func mount_press_bearings(parent: Node3D, axis: Vector3) -> void:
+		# This sourced press is shaped in the original 1.65 m workcell. The
+		# processor visual scales as one assembly to the current U at its call site.
+		const press_anchor_height := 0.825
 		var ring := ProductionVisuals.turned_mesh(PackedVector2Array([
 			Vector2(0.087, -0.010), Vector2(0.089, -0.015), Vector2(0.096, -0.015),
 			Vector2(0.100, -0.011), Vector2(0.100, 0.011), Vector2(0.096, 0.015),
@@ -428,27 +431,27 @@ class ProductionDriveJournalArt:
 			var suffix := "Left" if side < 0 else "Right"
 			var at: Vector3 = axis * float(side) * 0.66
 			_press_fixed(parent, "PressInputBearing" + suffix, "Bearing", ring,
-				at + Vector3.UP * Geometry.ANCHOR_HEIGHT, Basis(Quaternion(Vector3.UP, axis)))
+				at + Vector3.UP * press_anchor_height, Basis(Quaternion(Vector3.UP, axis)))
 			if axis == Vector3.RIGHT:
 				# The raised shared axle needs a taller rear load path. Keep the
 				# narrow upper ear outside the original journal radius.
 				var deck_top := 0.24
-				var post_top := Geometry.ANCHOR_HEIGHT - 0.105
+				var post_top := press_anchor_height - 0.105
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
 					ProductionVisuals.box_mesh(Vector3(0.10, post_top - deck_top, 0.12)),
 					at + Vector3(0, (post_top + deck_top) * 0.5, -0.23))
 				_press_fixed(parent, "PressInputBracket" + suffix, "Bracket",
 					ProductionVisuals.box_mesh(Vector3(0.06, 0.13, 0.16)),
-					at + Vector3(0, Geometry.ANCHOR_HEIGHT - 0.08, -0.17))
+					at + Vector3(0, press_anchor_height - 0.08, -0.17))
 			else:
 				if z_input_post_mesh == null:
 					# An offset cast cheek reaches the annular housing but leaves
 					# the central shaft and its original clearance unobstructed.
 					var cheek := PackedVector2Array([Vector2(0.09, 0.24),
 						Vector2(0.24, 0.24), Vector2(0.19, 0.33),
-						Vector2(0.15, Geometry.ANCHOR_HEIGHT - 0.18),
-						Vector2(0.15, Geometry.ANCHOR_HEIGHT - 0.015),
-						Vector2(0.09, Geometry.ANCHOR_HEIGHT - 0.015)])
+						Vector2(0.15, press_anchor_height - 0.18),
+						Vector2(0.15, press_anchor_height - 0.015),
+						Vector2(0.09, press_anchor_height - 0.015)])
 					z_input_post_mesh = ProductionVisuals.prism_mesh(cheek, 0.10, 0.004)
 				_press_fixed(parent, "PressInputPost" + suffix, "Post",
 					z_input_post_mesh, at)

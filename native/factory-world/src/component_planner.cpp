@@ -58,6 +58,10 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
     if (placing && kind == materials::Component::anvil &&
         (center[0] % 4 != 0 || center[2] % 4 != 0))
         return refused("invalid_area_target");
+    if (placing && (kind == materials::Component::wooden_slide ||
+                    kind == materials::Component::copper_slide) &&
+        !assembly::small_slide_external_node(center, 1))
+        return refused("invalid_area_target");
     if ((channel || broad) && (!area_cells || center[0] % 4 != 0 ||
                     center[2] % 4 != 0 ||
                     (kind != materials::Component::broad_flat_head &&

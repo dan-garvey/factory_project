@@ -253,13 +253,13 @@ bool shaft_meets_component_cog(std::optional<materials::Component> kind,
 
 bool shaft_meets_slide_input(std::optional<materials::Component> kind,
         const mechanics::Point& component, const mechanics::Point& shaft, mechanics::Axis axis) {
-    // The current one-cell slide has an embodied X spindle and two registered
-    // quarter-step input ports. Its open housing surrounds the fitted shaft,
-    // while its full-U body still blocks all unrelated transmissions.
+    // The one-cell slide's fitted spindle is internal. Its upper embodied
+    // shaft reaches the two neighboring U-centered X-axis shaft nodes.
     return kind && (*kind == materials::Component::wooden_slide ||
                     *kind == materials::Component::copper_slide) &&
-        axis == mechanics::Axis::x && component[1] == shaft[1] &&
-        component[2] == shaft[2] && std::abs(component[0] - shaft[0]) == 1;
+        axis == mechanics::Axis::x &&
+        (assembly::small_slide_external_node(component, -1) == shaft ||
+         assembly::small_slide_external_node(component, 1) == shaft);
 }
 
 bool collector_intake_intersects(const Bounds& intake, const world::Profile& profile,

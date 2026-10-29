@@ -24,6 +24,11 @@ const GUIDED_RAM_CONTACT_LIFT := -0.0075
 const SLIDE_DIE_TRAVEL_MARGIN := 0.175
 const SLIDE_VISIBLE_STROKE := 0.20
 const BROAD_VISIBLE_STROKE := 0.24
+const PRESS_REFERENCE_PITCH := 1.65
+const PRESS_REFERENCE_WORK_HEIGHT := PRESS_REFERENCE_PITCH * 0.5 + 0.1425
+const PRESS_VISUAL_KINDS := ["anvil", "broad_anvil", "flat_head", "broad_flat_head",
+	"wooden_slide", "copper_slide", "broad_copper_slide", "channel_narrow_x",
+	"channel_narrow_z", "channel_broad_x", "channel_broad_z", "receiver_tray"]
 
 var _host: WeakRef
 var _view_key: Variant = null
@@ -1253,6 +1258,25 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		occupied_size: Vector3, press_role: String, collector_angle: float,
 		collector_support_drop: float, receiver_to_frame: Vector3,
 		slide_phase: Variant = null) -> void:
+	# These fixtures were shaped at the original U. Scale their complete mesh
+	# assemblies about the native occupied center while retaining direct child
+	# names for the same preview, pick and phase consumers.
+	var press_piece: bool = kind in PRESS_VISUAL_KINDS
+	var press_scale: float = Geometry.PITCH / PRESS_REFERENCE_PITCH if press_piece else 1.0
+	var first_child: int = anchor.get_child_count()
+	_placed_component_shape(anchor, kind, drive_direction, occupied_size / press_scale,
+		press_role, collector_angle, collector_support_drop, receiver_to_frame, slide_phase)
+	if press_piece:
+		for index in range(first_child, anchor.get_child_count()):
+			var child := anchor.get_child(index) as Node3D
+			if child != null:
+				child.position *= press_scale
+				child.scale *= press_scale
+
+func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vector3,
+		occupied_size: Vector3, press_role: String, collector_angle: float,
+		collector_support_drop: float, receiver_to_frame: Vector3,
+		slide_phase: Variant = null) -> void:
 	var timber: Material = WheelArt.support_timber_finish()
 	if timber == null:
 		timber = Visuals.material(Color("76604a"), 0.12, 0.78)
@@ -1399,8 +1423,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 						Vector3(0.18, leg_height, 0.18), dark, true)
 					_support_box(anchor, "BroadHousingSocket", Vector3(x, top - 0.08, z),
 						Vector3(0.19, 0.16, 0.19), worked, true)
-			for x in [-Geometry.PITCH * 0.5, Geometry.PITCH * 0.5]:
-				for z in [-Geometry.PITCH * 0.5, Geometry.PITCH * 0.5]:
+			for x in [-PRESS_REFERENCE_PITCH * 0.5, PRESS_REFERENCE_PITCH * 0.5]:
+				for z in [-PRESS_REFERENCE_PITCH * 0.5, PRESS_REFERENCE_PITCH * 0.5]:
 					_support_box(anchor, "WorkbedFace%d" % anchor.get_child_count(),
 						Vector3(x, top - 0.08, z),
 						Vector3(1.53, 0.16, 1.53), face_iron, true)
@@ -1453,7 +1477,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		"broad_copper_slide":
 			var bottom := -occupied_size.y * 0.5
 			var top := occupied_size.y * 0.5
-			var shaft_y := top - Geometry.ANCHOR_HEIGHT
+			var shaft_y := top - PRESS_REFERENCE_PITCH * 0.5
 			var frame := Visuals.material(Color("657d7d"), 0.56, 0.55)
 			var copper := Visuals.material(Color("b68149"), 0.58, 0.37)
 			# One fixed housing fills the four tile positions. Its feet land on
@@ -1475,7 +1499,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			for z in [-0.825, 0.825]:
 				for x in [-0.825, 0.825]:
 					var shaft := _support_cylinder(anchor, "BroadInternalShaft%d" % anchor.get_child_count(), 0.034,
-						Geometry.PITCH, copper)
+						PRESS_REFERENCE_PITCH, copper)
 					shaft.position = Vector3(x, shaft_y, z)
 					shaft.rotation.z = PI * 0.5
 					var outer_x := -1.60 if x < 0.0 else 1.60
@@ -1490,8 +1514,8 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				Assets.gear(gear, 0.825, 2, Color("b68149"))
 			_support_box(anchor, "CentralPistonBearing", Vector3(0, shaft_y, 0),
 				Vector3(0.48, 0.17, 0.48), frame, true)
-			var rest_reach := Geometry.HEIGHT_STEP * 1.5 + Geometry.ANCHOR_HEIGHT \
-				- Geometry.PRESS_WORK_HEIGHT - SLIDE_DIE_TRAVEL_MARGIN
+			var rest_reach := PRESS_REFERENCE_PITCH / 4.0 * 1.5 + PRESS_REFERENCE_PITCH * 0.5 \
+				- PRESS_REFERENCE_WORK_HEIGHT - SLIDE_DIE_TRAVEL_MARGIN
 			var piston_bottom: float = bottom + rest_reach + SLIDE_DIE_TRAVEL_MARGIN + 0.09 \
 				+ slide_carriage_drop(slide_phase, BROAD_VISIBLE_STROKE)
 			var piston_top: float = top - 0.16
@@ -1583,16 +1607,31 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					Vector3(0.07, 0.075, 1.54), finish, true)
 			_support_box(anchor, "SlideCrown", Vector3(0, half_height - 0.048, 0),
 				Vector3(0.44, 0.075, 0.44), finish, true)
-			# The registered native input still lies a quarter-pitch from center;
-			# the visible keyed rod crosses the housing to its open side face.
+			# The embodied X shaft reaches the external U-centered input plane.
 			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.035,
-				Geometry.PITCH, dark)
+				PRESS_REFERENCE_PITCH, dark)
 			shaft.position = Vector3(0, half_height - 0.08, 0)
 			shaft.rotation.z = PI * 0.5
 			for x in [-0.72, 0.72]:
 				var bearing := _support_cylinder(anchor, "InputBearing", 0.052, 0.03, worked)
 				bearing.position = Vector3(x, half_height - 0.08, 0)
 				bearing.rotation.z = PI * 0.5
+			if occupied_size.y > PRESS_REFERENCE_PITCH * 0.8:
+				# The fitted slide's visible upper U shaft drives its embodied
+				# lower spindle through the same two internal couplers as World.
+				var lower_y: float = half_height - 0.08 - PRESS_REFERENCE_PITCH * 0.5
+				var lower_shaft := _support_cylinder(anchor, "FittedLowerSpindle", 0.035,
+					PRESS_REFERENCE_PITCH * 0.50, dark)
+				lower_shaft.position.y = lower_y
+				lower_shaft.rotation.z = PI * 0.5
+				for plane in [lower_y, half_height - 0.08]:
+					var coupler := Node3D.new()
+					coupler.name = "FittedSlideCoupler"
+					coupler.position.y = plane
+					coupler.rotation.z = PI * 0.5
+					anchor.add_child(coupler)
+					Assets.gear(coupler, PRESS_REFERENCE_PITCH * 0.25, 1,
+						Color("a6b4af"))
 			# The shaft turns inside a fixed crown cylinder. Its piston always
 			# overlaps the moving carriage, including at the bottom of the native
 			# stroke, so the head reads as driven rather than suspended below it.
@@ -2213,6 +2252,7 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 	var connector_finish: Material = Finish.material("cast", Color("293b3d"), 0.66, 0.48)
 	var edge_finish: Material = Finish.material("worked", Color("506669"), 0.82, 0.36)
 	var joint_finish: Material = Finish.material("worked", Color("bdc7bd"), 0.82, 0.36)
+	var press_scale: float = Geometry.PITCH / PRESS_REFERENCE_PITCH
 	for press: Variant in presses:
 		if not press is Dictionary or press.get("status") != "ready" \
 				or not press.get("work_center") is Array or not press.get("open_feeds") is Array:
@@ -2249,8 +2289,8 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 				var direction := Vector3(float(dx), 0, 0)
 				# Two short overlaps mask the seams at the inset workface and belt
 				# edge without drawing a trough through the occupied workbed.
-				var start: Vector3 = world_center(work) + direction * (Geometry.PITCH * 0.5 - 0.085)
-				var finish: Vector3 = world_center(mouth) - direction * (Geometry.PITCH * 0.5 - 0.025)
+				var start: Vector3 = world_center(work) + direction * (Geometry.PITCH * 0.5 - 0.085 * press_scale)
+				var finish: Vector3 = world_center(mouth) - direction * (Geometry.PITCH * 0.5 - 0.025 * press_scale)
 				var length: float = start.distance_to(finish)
 				var connector := Node3D.new()
 				connector.name = "PressBeltConnector"
@@ -2263,20 +2303,20 @@ func _render_press_belt_connectors(snapshot: Dictionary) -> void:
 				# darker thin bed, light folded rails and paired end plates keep
 				# the three independently built surfaces visually distinct.
 				_support_box(connector, "TransferPan", Vector3(0,
-					Geometry.BELT_OUTER_RADIUS - 0.009, 0),
-					Vector3(Geometry.BELT_HALF_WIDTH * 2.0, 0.018, length), connector_finish, true)
+					Geometry.BELT_OUTER_RADIUS - 0.009 * press_scale, 0),
+					Vector3(Geometry.BELT_HALF_WIDTH * 2.0, 0.018 * press_scale, length), connector_finish, true)
 				for rail_side in [-1.0, 1.0]:
 					_support_box(connector, "TransferSideRailN" if rail_side < 0 else "TransferSideRailP",
-						Vector3(rail_side * 0.49, Geometry.BELT_OUTER_RADIUS - 0.02, 0),
-						Vector3(0.055, 0.04, length), edge_finish, true)
+						Vector3(rail_side * 0.49 * press_scale, Geometry.BELT_OUTER_RADIUS - 0.02 * press_scale, 0),
+						Vector3(0.055 * press_scale, 0.04 * press_scale, length), edge_finish, true)
 					for end_side in [-1.0, 1.0]:
-						_support_box(connector, "TransferJoint", Vector3(rail_side * 0.49,
-							Geometry.BELT_OUTER_RADIUS - 0.02, end_side * (length * 0.5 - 0.025)),
-							Vector3(0.072, 0.052, 0.045), joint_finish, true)
+						_support_box(connector, "TransferJoint", Vector3(rail_side * 0.49 * press_scale,
+							Geometry.BELT_OUTER_RADIUS - 0.02 * press_scale, end_side * (length * 0.5 - 0.025 * press_scale)),
+							Vector3(0.072, 0.052, 0.045) * press_scale, joint_finish, true)
 				for end_side in [-1.0, 1.0]:
 					_support_box(connector, "TransferEndBrace", Vector3(0,
-						Geometry.BELT_OUTER_RADIUS - 0.042, end_side * (length * 0.5 - 0.025)),
-						Vector3(0.84, 0.045, 0.045), edge_finish, true)
+						Geometry.BELT_OUTER_RADIUS - 0.042 * press_scale, end_side * (length * 0.5 - 0.025 * press_scale)),
+						Vector3(0.84, 0.045, 0.045) * press_scale, edge_finish, true)
 
 func _render_broad_belt_docks(snapshot: Dictionary, boxes: Dictionary) -> void:
 	# A confirmed belt endpoint can meet either row of the broad anvil at the
@@ -2291,6 +2331,7 @@ func _render_broad_belt_docks(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var casting: Material = Finish.material("cast", Color("293b3d"), 0.66, 0.48)
 	var edge: Material = Finish.material("worked", Color("506669"), 0.82, 0.36)
 	var joint: Material = Finish.material("worked", Color("bdc7bd"), 0.82, 0.36)
+	var press_scale: float = Geometry.PITCH / PRESS_REFERENCE_PITCH
 	for bed_id: String in placed:
 		var bed: Variant = boxes.get(bed_id)
 		if not bed is Dictionary or bed.get("component") != "broad_anvil":
@@ -2334,8 +2375,8 @@ func _render_broad_belt_docks(snapshot: Dictionary, boxes: Dictionary) -> void:
 				if (world_center(other.center) - point).dot(toward) >= 0.0 or seen.has(point):
 					continue
 				seen[point] = true
-				var start: Vector3 = point + toward * (Geometry.BELT_OUTER_RADIUS - 0.025)
-				var finish: Vector3 = point + toward * (Geometry.PITCH * 0.5 + 0.11)
+				var start: Vector3 = point + toward * (Geometry.BELT_OUTER_RADIUS - 0.025 * press_scale)
+				var finish: Vector3 = point + toward * (Geometry.PITCH * 0.5 + 0.11 * press_scale)
 				var length: float = start.distance_to(finish)
 				var dock := Node3D.new()
 				dock.name = "BroadBeltDock"
@@ -2344,16 +2385,16 @@ func _render_broad_belt_docks(snapshot: Dictionary, boxes: Dictionary) -> void:
 				dock.position = (start + finish) * 0.5
 				dock.rotation.y = atan2(toward.x, toward.z)
 				add_child(dock)
-				_support_box(dock, "DockPlate", Vector3(0, Geometry.BELT_OUTER_RADIUS - 0.009, 0),
-					Vector3(Geometry.BELT_HALF_WIDTH * 2.0, 0.018, length), casting, true)
+				_support_box(dock, "DockPlate", Vector3(0, Geometry.BELT_OUTER_RADIUS - 0.009 * press_scale, 0),
+					Vector3(Geometry.BELT_HALF_WIDTH * 2.0, 0.018 * press_scale, length), casting, true)
 				for rail_side in [-1.0, 1.0]:
-					_support_box(dock, "DockRailN" if rail_side < 0 else "DockRailP", Vector3(rail_side * 0.49,
-						Geometry.BELT_OUTER_RADIUS - 0.02, 0), Vector3(0.055, 0.04, length), edge, true)
+					_support_box(dock, "DockRailN" if rail_side < 0 else "DockRailP", Vector3(rail_side * 0.49 * press_scale,
+						Geometry.BELT_OUTER_RADIUS - 0.02 * press_scale, 0), Vector3(0.055 * press_scale, 0.04 * press_scale, length), edge, true)
 					for end_side in [-1.0, 1.0]:
 						_support_box(dock, "DockJoint%s%s" % ["N" if rail_side < 0 else "P",
-							"Start" if end_side < 0 else "End"], Vector3(rail_side * 0.49,
-							Geometry.BELT_OUTER_RADIUS - 0.02, end_side * (length * 0.5 - 0.04)),
-							Vector3(0.072, 0.052, 0.08), joint, true)
+							"Start" if end_side < 0 else "End"], Vector3(rail_side * 0.49 * press_scale,
+							Geometry.BELT_OUTER_RADIUS - 0.02 * press_scale, end_side * (length * 0.5 - 0.04 * press_scale)),
+							Vector3(0.072, 0.052, 0.08) * press_scale, joint, true)
 
 func _add_loose_pickers(node: Node3D, drop: Dictionary, context: String) -> void:
 	# Match the visible item, including its offset on a workbed and sheet rotation.
@@ -2484,8 +2525,10 @@ func refresh() -> void:
 		var anvil_id: Variant = press.parts.get("anvil")
 		var anvil: Variant = component_result.boxes.get(anvil_id)
 		if anvil is Dictionary and anvil.get("component") == "anvil":
-			sliding_work_surfaces[press.work_center] = anvil.center.y + anvil.size.y * 0.5 - 0.02
+			sliding_work_surfaces[press.work_center] = anvil.center.y + anvil.size.y * 0.5 \
+				- 0.02 * Geometry.PITCH / PRESS_REFERENCE_PITCH
 	var drops: Variant = snapshot.get("dropped_material", [])
+	var press_scale: float = Geometry.PITCH / PRESS_REFERENCE_PITCH
 	if drops is Array:
 		for drop: Variant in drops:
 			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty() and int(drop.get("offcuts", 0)) == 0 and int(drop.get("sheets", 0)) == 0):
@@ -2499,17 +2542,17 @@ func refresh() -> void:
 							or (drop.raw == 0 and drop.work_lots.size() == 1))))
 			if supported_slide:
 				location.y = float(sliding_work_surfaces[drop.center]) + \
-					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else 0.03))
+					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else 0.03)) * press_scale
 			elif broad_work_surfaces.has(drop.center):
 				location.y = float(broad_work_surfaces[drop.center]) + \
-					(0.09 if not drop.work_lots.is_empty() else 0.04)
+					(0.09 if not drop.work_lots.is_empty() else 0.04) * press_scale
 			elif guided_work_surfaces.has(drop.center):
 				location.y = float(guided_work_surfaces[drop.center]) + \
 					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else -0.082))
 			var visual: Node3D
 			if drop.raw > 0:
-				visual = _cylinder(self, "LooseBlank", 0.11 if supported_slide else 0.15,
-					0.08, Color("b9a88c"))
+				visual = _cylinder(self, "LooseBlank", (0.11 if supported_slide else 0.15) * press_scale,
+					0.08 * press_scale, Color("b9a88c"))
 				visual.position = location
 			elif drop.products > 0:
 				visual = Node3D.new()
@@ -2520,9 +2563,9 @@ func refresh() -> void:
 				# quantities keep their true count in the label without adding
 				# unbounded visual nodes.
 				for layer in range(mini(drop.products, 4)):
-					Items.stamped_plate(visual, Vector3(0, float(layer) * 0.045, 0))
+					Items.stamped_plate(visual, Vector3(0, float(layer) * 0.045 * press_scale, 0))
 				if int(drop.get("offcuts", 0)) > 0:
-					Items.copper_offcuts(visual, Vector3(0.26, 0.025, 0.15))
+					Items.copper_offcuts(visual, Vector3(0.26, 0.025, 0.15) * press_scale)
 			elif int(drop.get("offcuts", 0)) > 0:
 				visual = Items.copper_offcuts(self, location)
 			elif int(drop.get("sheets", 0)) > 0:
@@ -2532,8 +2575,8 @@ func refresh() -> void:
 				# square footprint and material custody stay native-owned.
 				visual = Node3D.new()
 				visual.name = "CopperSheet"
-				var sheet_y: float = float(broad_work_surfaces[drop.center]) + 0.025 + 0.006 \
-					if broad_work_surfaces.has(drop.center) else location.y + 0.082 + 0.025 + 0.006
+				var sheet_y: float = float(broad_work_surfaces[drop.center]) + (0.025 + 0.006) * press_scale \
+					if broad_work_surfaces.has(drop.center) else location.y + (0.082 + 0.025 + 0.006) * press_scale
 				visual.position = Vector3(location.x + Geometry.PITCH * 0.5,
 					sheet_y, location.z + Geometry.PITCH * 0.5)
 				var sheet_items: Variant = drop.get("sheet_items", [])
@@ -2546,18 +2589,20 @@ func refresh() -> void:
 				var bright_edge := Finish.material("worked", Color("ddb08b"), 0.84, 0.35)
 				var stamp := Visuals.material(Color("694f45"), 0.42, 0.72)
 				_support_box(visual, "SheetBody", Vector3.ZERO,
-					Vector3(Geometry.PITCH * 2.0 - 0.26, 0.05, Geometry.PITCH * 2.0 - 0.26), copper, true)
+					Vector3(Geometry.PITCH * 2.0 - 0.26 * press_scale, 0.05 * press_scale,
+						Geometry.PITCH * 2.0 - 0.26 * press_scale), copper, true)
 				for side in [-1.0, 1.0]:
-					_support_box(visual, "SheetWorkedEdge", Vector3(0, 0.026, side * 1.49),
-						Vector3(2.98, 0.006, 0.028), bright_edge)
-					_support_box(visual, "SheetWorkedEdge", Vector3(side * 1.49, 0.026, 0),
-						Vector3(0.028, 0.006, 2.98), bright_edge)
-				_support_box(visual, "SheetCornerMark", Vector3(-1.29, 0.027, -1.29),
-					Vector3(0.25, 0.004, 0.045), stamp)
-				_support_box(visual, "SheetCornerTick", Vector3(-1.39, 0.027, -1.18),
-					Vector3(0.045, 0.004, 0.25), stamp)
+					_support_box(visual, "SheetWorkedEdge", Vector3(0, 0.026, side * 1.49) * press_scale,
+						Vector3(2.98, 0.006, 0.028) * press_scale, bright_edge)
+					_support_box(visual, "SheetWorkedEdge", Vector3(side * 1.49, 0.026, 0) * press_scale,
+						Vector3(0.028, 0.006, 2.98) * press_scale, bright_edge)
+				_support_box(visual, "SheetCornerMark", Vector3(-1.29, 0.027, -1.29) * press_scale,
+					Vector3(0.25, 0.004, 0.045) * press_scale, stamp)
+				_support_box(visual, "SheetCornerTick", Vector3(-1.39, 0.027, -1.18) * press_scale,
+					Vector3(0.045, 0.004, 0.25) * press_scale, stamp)
 			elif supported_slide:
-				visual = _cylinder(self, "PressedWorkpiece", 0.11, 0.06, Color("c88e61"))
+				visual = _cylinder(self, "PressedWorkpiece", 0.11 * press_scale,
+					0.06 * press_scale, Color("c88e61"))
 				visual.position = location
 			else:
 				visual = Items.workpiece_billet(self, location)

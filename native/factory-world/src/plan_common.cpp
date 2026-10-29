@@ -43,8 +43,8 @@ bool crank_input_port(const PlacedComponent& component, const mechanics::Point& 
             (port[2] == center[2] || port[2] == center[2] + 4) &&
             (port[0] == center[0] - 2 || port[0] == center[0] + 6);
     if (slide_component(component.kind))
-        return port[1] == center[1] && port[2] == center[2] &&
-            std::abs(port[0] - center[0]) == 1;
+        return assembly::small_slide_external_node(center, -1) == port ||
+            assembly::small_slide_external_node(center, 1) == port;
     // Collector mounts and routed shafts expose their embodied spindle at
     // their own grid anchor. The crank is visually cantilevered from it.
     return (component.kind == materials::Component::tool_mount ||

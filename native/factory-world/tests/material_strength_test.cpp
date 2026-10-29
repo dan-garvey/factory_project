@@ -116,7 +116,7 @@ void unloaded_slide_shaft_is_native_drive_part() {
     w::State state;
     state.topology.drive_enabled = true;
     state.topology.parts = {
-        {{"wheel", m::Kind::hub, {-1, 4, 0}, m::Axis::x, 0, 0}, 1, s::Role::waterwheel}};
+        {{"wheel", m::Kind::hub, {-4, 4, 0}, m::Axis::x, 0, 0}, 1, s::Role::waterwheel}};
     state.topology.sources = {{"wheel", {1, 1}}};
     add(state, "slide", mat::Component::wooden_slide, {0, 4, 0});
     const auto driven = w::drive_power(profile, state);
@@ -131,18 +131,49 @@ void unloaded_slide_shaft_is_native_drive_part() {
           "Removing power stops the same unloaded slide without removing a part.");
 }
 
+void fitted_slide_accepts_centered_external_route() {
+    for (const m::Integer floor : {m::Integer{0}, m::Integer{4}}) {
+        w::Profile profile;
+        w::State state;
+        state.topology.drive_enabled = true;
+        state.topology.parts = {
+            {{"wheel", m::Kind::hub, {-8, floor + 4, 0}, m::Axis::x, 0, 0},
+                1, s::Role::waterwheel},
+            {{"external-shaft", m::Kind::shaft, {-4, floor + 4, 0},
+                m::Axis::x, 0, 2}, 1, s::Role::shaft}};
+        state.topology.sources = {{"wheel", {1, 1}}};
+        add(state, "anvil", mat::Component::anvil, {0, floor, 0});
+        add(state, "head", mat::Component::flat_head, {0, floor + 1, 0});
+        add(state, "slide", mat::Component::wooden_slide, {0, floor + 2, 0});
+        const auto power = w::drive_power(profile, state);
+        check(power.mechanical.accepted() &&
+              power.mechanical.motion.at("external-shaft").state == m::MotionState::rotating &&
+              power.mechanical.motion.at("slide").state == m::MotionState::rotating &&
+              power.mechanical.motion.at("slide").rate.numerator == -1 &&
+              power.load.at("slide").capacity == 8 &&
+              power.load.at("slide").impact == 8 &&
+              state.placed_components.size() == 3,
+            "A ground or raised U-centered shaft drives the fitted slide through its embodied coupling.");
+        state.topology.drive_enabled = false;
+        const auto stopped = w::drive_power(profile, state);
+        check(stopped.mechanical.accepted() &&
+              stopped.mechanical.motion.at("slide").state != m::MotionState::rotating,
+            "Removing external power leaves the same fitted slide and material custody intact.");
+    }
+}
+
 void held_crank_uses_slide_input_graph() {
     w::Profile profile;
     w::State state;
     add(state, "slide", mat::Component::wooden_slide, {0, 2, 0});
-    const auto idle = w::hand_crank_power(profile, state, "slide", {1, 2, 0});
+    const auto idle = w::hand_crank_power(profile, state, "slide", {4, 4, 0});
     check(idle.mechanical.accepted() && idle.mechanical.motion.at("slide").state ==
               m::MotionState::rotating && idle.load.at("slide").capacity == 8 &&
           idle.load.at("slide").impact == 4,
           "The held crank engages the unchanged integral shaft through its exposed X port.");
     add(state, "anvil", mat::Component::anvil, {0, 0, 0});
     add(state, "head", mat::Component::flat_head, {0, 1, 0});
-    const auto loaded = w::hand_crank_power(profile, state, "slide", {1, 2, 0});
+    const auto loaded = w::hand_crank_power(profile, state, "slide", {4, 4, 0});
     check(loaded.mechanical.accepted() && loaded.mechanical.motion.at("slide").state ==
               m::MotionState::rotating && loaded.load.at("slide").impact == 8 &&
           loaded.load.at("slide").capacity == 8,
@@ -150,12 +181,12 @@ void held_crank_uses_slide_input_graph() {
     check(!w::hand_crank_power(profile, state, "slide", {0, 3, 0}).mechanical.accepted(),
           "A top face cannot impersonate the integral X-axis input.");
     state.placed_components.at("head").center[0] = 1;
-    const auto detached = w::hand_crank_power(profile, state, "slide", {1, 2, 0});
+    const auto detached = w::hand_crank_power(profile, state, "slide", {4, 4, 0});
     check(detached.load.at("slide").impact == 4,
           "A displaced head does not create invisible contact load.");
     state.placed_components.at("head").center[0] = 0;
-    add(state, "linked-slide", mat::Component::wooden_slide, {2, 2, 0});
-    const auto overloaded = w::hand_crank_power(profile, state, "slide", {-1, 2, 0});
+    add(state, "linked-slide", mat::Component::wooden_slide, {4, 2, 0});
+    const auto overloaded = w::hand_crank_power(profile, state, "slide", {-4, 4, 0});
     check(overloaded.mechanical.accepted() &&
           overloaded.mechanical.motion.at("slide").state == m::MotionState::stalled &&
           overloaded.load.at("slide").overloaded && overloaded.load.at("slide").impact == 12 &&
@@ -246,6 +277,7 @@ int main() {
         mixed_material_bottleneck_and_isolation();
         collector_and_press_share_one_frame();
         unloaded_slide_shaft_is_native_drive_part();
+        fitted_slide_accepts_centered_external_route();
         held_crank_uses_slide_input_graph();
         held_crank_drives_fitted_spindles_and_connected_consumers();
         carriage_phase_tracks_signed_fractional_shaft_travel();
