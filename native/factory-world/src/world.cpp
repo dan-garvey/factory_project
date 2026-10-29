@@ -3934,11 +3934,29 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         }
         if (item.kind != materials::Component::wooden_slide &&
             item.kind != materials::Component::copper_slide) continue;
-        // The shaft is embodied in this one crafted part. Its identity is the
-        // placed slide, so drive, load and later carriage phase share an owner.
+        const auto port = assembly::small_slide_external_node(item.center, 1);
+        if (!port) continue;
+        const bool lifted = (*port)[1] != item.center[1];
+        // A free slide at a U level exposes its embodied shaft directly.
+        // The fitted slide retains its internal head socket and lifts the
+        // external shaft through two embodied wheels. In both cases the
+        // placed part owns the phase, load and finite kit.
         append({item.id, mechanics::Kind::shaft, item.center,
-            mechanics::Axis::x, 0, 1});
+            mechanics::Axis::x, 0, lifted ? 1 : 2});
         ratings.emplace(item.id, material_rating(item.kind));
+        if (lifted) {
+            const mechanics::Point upper{item.center[0], (*port)[1], item.center[2]};
+            const auto upper_id = projected_id(item.id + "-external-input");
+            const auto lower_wheel_id = projected_id(item.id + "-lower-coupler");
+            const auto upper_wheel_id = projected_id(item.id + "-upper-coupler");
+            append({upper_id, mechanics::Kind::shaft, upper, mechanics::Axis::x, 0, 2});
+            append({lower_wheel_id, mechanics::Kind::gear, item.center,
+                mechanics::Axis::x, 1, 0});
+            append({upper_wheel_id, mechanics::Kind::gear, upper,
+                mechanics::Axis::x, 1, 0});
+            for (const auto& id : {upper_id, lower_wheel_id, upper_wheel_id})
+                ratings.emplace(id, material_rating(item.kind));
+        }
         impacts.emplace(item.id, 4);
     }
     for (const auto& item : placed) {
@@ -4105,7 +4123,10 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
             append({hub_id, mechanics::Kind::hub, hand_input->port,
                 mechanics::Axis::x, 0, 0});
             manual_sources.emplace(hub_id, 12);
-            manual_rate.numerator = side;
+            // The small slide's two embodied wheels reverse the input once.
+            // Its old fitted spindle keeps the same signed hand-turn phase.
+            manual_rate.numerator = input->kind == materials::Component::broad_copper_slide ||
+                input->center[1] % 4 == 0 ? side : -side;
         } else {
             // A fitted crank presents a temporary source hub coaxial with
             // the embodied spindle. Native sources attach to hubs, while
@@ -4558,6 +4579,9 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             !add(component_totals[placed.kind], 1)) return false;
         for (const auto coordinate : placed.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
+        if ((placed.kind == materials::Component::wooden_slide ||
+             placed.kind == materials::Component::copper_slide) &&
+            !assembly::small_slide_external_node(placed.center, 1)) return false;
         if (placed.kind == materials::Component::broad_copper_slide &&
             std::none_of(state.placed_components.begin(), state.placed_components.end(),
                 [&](const auto& entry) {

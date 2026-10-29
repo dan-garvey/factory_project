@@ -85,6 +85,9 @@ void native_arrival_readout() {
     const auto& slide = entry(parts, "slide-2");
     const auto& shaft = entry(parts, "shaft-3");
     check(parts.size() == 3 && field<Array>(slide, "input_ports").size() == 2 &&
+          !factory::values::typed_difference(Value(field<Array>(slide, "input_ports")),
+              Value(Array{Value(Array{Value(Integer{0}), Value(Integer{4}), Value(Integer{0})}),
+                          Value(Array{Value(Integer{8}), Value(Integer{4}), Value(Integer{0})})})) &&
           field<Array>(shaft, "input_ports").size() == 1 &&
           field<bool>(slide, "crank_source_available") &&
           field<bool>(shaft, "crank_source_available") &&

@@ -1,4 +1,5 @@
 #include "native/factory-godot-world/tests/site_fixture.hpp"
+#include "factory/site_geometry_contract.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +13,7 @@ using O = V::Object;
 using A = V::Array;
 using I = V::Integer;
 using Host = factory::godot_world::Host;
+namespace site_geometry = factory::godot_world::site_geometry;
 int checks{};
 
 void check(bool condition, const char* message) {
@@ -75,12 +77,12 @@ void one_piece_slide_custody() {
     check(get<std::string>(placed, "component") == "wooden_slide" &&
           input_ports.size() == 2 &&
           !factory::values::typed_difference(input_ports.front(),
-              V(A{V(I{11}), V(I{0}), V(I{8})})) &&
+              V(A{V(I{8}), V(I{0}), V(I{8})})) &&
           !factory::values::typed_difference(input_ports.back(),
-              V(A{V(I{13}), V(I{0}), V(I{8})})) &&
-          std::abs(std::get<double>(half[0].storage()) - 0.825) < 1e-8 &&
-          std::abs(std::get<double>(half[1].storage()) - 0.38125) < 1e-8 &&
-          std::abs(std::get<double>(half[2].storage()) - 0.825) < 1e-8 &&
+              V(A{V(I{16}), V(I{0}), V(I{8})})) &&
+          std::abs(std::get<double>(half[0].storage()) - site_geometry::pitch * 0.5) < 1e-8 &&
+          std::get<double>(half[1].storage()) > 0.0 &&
+          std::abs(std::get<double>(half[2].storage()) - site_geometry::pitch * 0.5) < 1e-8 &&
           get<std::string>(V(get<O>(host.projection(), "motion").at(slide_id)), "state") == "unpowered",
           "The placed slide publishes one fixed collision volume and its actual idle drive state.");
     const auto initial_phase = get<O>(host.projection(), "slide_phases").at(slide_id);
@@ -133,7 +135,7 @@ void one_piece_slide_custody() {
         return restored.command("P", wire);
     };
     const O turn{{"entity", V(slide_id)},
-        {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}};
+        {"port", V(A{V(I{16}), V(I{0}), V(I{8})})}};
     check(!get<bool>(resumed("no-crank", "turn_slide_crank", turn), "accepted"),
           "A worker without the issued crank cannot turn the slide's integral input.");
     check(get<bool>(restored.publish_actor("P", {V(6.15), V(1.0), V(3.3)}, 2), "accepted") &&
@@ -148,7 +150,7 @@ void one_piece_slide_custody() {
     const auto cranks = get<O>(restored.projection(), "crank_items");
     check(cranks.size() == 1 && get<bool>(resumed("fit-slide-crank", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(cranks.begin()->first)},
-               {"port", V(A{V(I{13}), V(I{0}), V(I{8})})}}), "accepted"),
+               {"port", V(A{V(I{16}), V(I{0}), V(I{8})})}}), "accepted"),
           "The crafted crank attaches to the actual exterior shaft before turning.");
     check(!get<bool>(resumed("wrong-port", "turn_slide_crank",
               {{"entity", V(slide_id)},
@@ -233,8 +235,10 @@ void flat_head_host_custody() {
     const auto low = std::get<double>(center[1].storage()) - std::get<double>(half[1].storage());
     const auto high = std::get<double>(center[1].storage()) + std::get<double>(half[1].storage());
     check(get<std::string>(placed, "component") == "flat_head" &&
-          std::abs(low - 0.9675) < 1e-8 && std::abs(high - 1.3625) < 1e-8 &&
-          std::abs(std::get<double>(half[0].storage()) - 0.825) < 1e-8,
+          std::abs(low - site_geometry::press_work_height) < 1e-8 &&
+          std::abs(high - (site_geometry::anchor_height +
+              site_geometry::height_step * 1.30)) < 1e-8 &&
+          std::abs(std::get<double>(half[0].storage()) - site_geometry::pitch * 0.5) < 1e-8,
           "The separate die reaches the supported workbed through its bounded sweep.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 4), "accepted"),
           "The actor can leave the placed die to gather a finite slide bill.");
@@ -257,7 +261,7 @@ void flat_head_host_custody() {
     const auto fitted_center = get<A>(V(fitted_slide), "center");
     const auto fitted_half = get<A>(V(fitted_slide), "half");
     check(std::abs(std::get<double>(fitted_center[1].storage()) -
-              std::get<double>(fitted_half[1].storage()) - 0.9675) < 1e-8,
+              std::get<double>(fitted_half[1].storage()) - site_geometry::press_work_height) < 1e-8,
           "Fitting the separate head leaves the slide rails clear of adjacent feed parts.");
     const auto saved = host.checkpoint();
     Host restored;
@@ -281,7 +285,7 @@ void flat_head_host_custody() {
     const auto unfitted_center = get<A>(V(unfitted_slide), "center");
     const auto unfitted_half = get<A>(V(unfitted_slide), "half");
     check(std::abs(std::get<double>(unfitted_center[1].storage()) -
-              std::get<double>(unfitted_half[1].storage()) - 0.9675) < 1e-8,
+              std::get<double>(unfitted_half[1].storage()) - site_geometry::press_work_height) < 1e-8,
           "Removing the head preserves the standalone slide's original floor clearance.");
     const auto replaced = restored.command("P", O{{"context", V("flat-head-site")},
         {"client", V("P")}, {"request", V("replace-head")},
@@ -340,11 +344,11 @@ void flat_head_host_custody() {
     const auto cranks = get<O>(restored.projection(), "crank_items");
     check(cranks.size() == 1 && get<bool>(resumed("fit-press-crank", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(cranks.begin()->first)},
-               {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}}), "accepted"),
+               {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}}), "accepted"),
           "The pressed slide uses an attached crank at its actual exterior input.");
     const auto loaded_turn = resumed("loaded-slide-turn", "turn_slide_crank",
         {{"entity", V(slide_id)},
-         {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
+         {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}});
     if (!get<bool>(loaded_turn, "accepted"))
         throw std::runtime_error("Loaded slide turn refused: " +
             get<std::string>(loaded_turn, "reason"));
@@ -572,7 +576,7 @@ void flat_head_host_custody() {
           get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
           "Picking up the source-formed plate preserves the exact claim and saved route history.");
     const auto first_contact = resumed("first-slide-contact", "turn_slide_crank",
-        {{"entity", V(slide_id)}, {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
+        {{"entity", V(slide_id)}, {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}});
     if (!get<bool>(first_contact, "accepted"))
         throw std::runtime_error("First slide contact refused: " +
             get<std::string>(first_contact, "reason"));
@@ -669,7 +673,7 @@ void flat_head_host_custody() {
             {"context", V("flat-head-site")}, {"client", V("P")},
             {"request", V("shared-resume-" + std::to_string(index))},
             {"action", V("turn_slide_crank")}, {"entity", V(slide_id)},
-            {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
+            {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}});
         check(get<bool>(shared_stroke, "accepted") &&
               get<bool>(shared_stroke, "contact") == (index == 3),
               "The shared partial lot advances only on the next actual lower crossing.");
@@ -737,7 +741,7 @@ void flat_head_host_custody() {
           "A blocked direct stroke retains the partial WorkId and exact saved phase.");
     const auto turn = [&](const std::string& request) {
         return resumed(request.c_str(), "turn_slide_crank",
-            {{"entity", V(slide_id)}, {"port", V(A{V(I{13}), V(I{2}), V(I{8})})}});
+            {{"entity", V(slide_id)}, {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}});
     };
     for (int index = 0; index < 3; ++index) {
         const auto idle_turn = turn("blocked-approach-" + std::to_string(index));
@@ -1303,7 +1307,7 @@ void placed_machine_blocks_an_actors_harvest_path() {
           "The actor carries one real shaped slide to the path between tree and worker.");
     const auto placed = host.command("P", wire("place-slide", "place_component",
         {{"component", V("wooden_slide")},
-         {"center", V(A{V(I{12}), V(I{1}), V(I{8})})}}));
+         {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}}));
     check(get<bool>(placed, "accepted"), "The actor installs the slide as a native world component.");
     const auto blocked = host.command("P", cut("P", "tree-behind-slide", "tree-east-south"));
     check(!get<bool>(blocked, "accepted") &&

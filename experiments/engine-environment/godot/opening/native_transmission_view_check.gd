@@ -1247,9 +1247,12 @@ func _capture_channel_pose(path: String, along_z: bool) -> void:
 	light.light_energy = 2.0
 	root.add_child(light)
 	var camera := Camera3D.new()
-	camera.position = Vector3(6.6, 3.25, 4.2) if along_z else Vector3(4.2, 3.25, 6.6)
+	var press_scale: float = Geometry.PITCH / 1.65
+	camera.position = (Vector3(6.6, 3.25, 4.2) if along_z \
+		else Vector3(4.2, 3.25, 6.6)) * press_scale
 	root.add_child(camera)
-	camera.look_at(Vector3(0.7, 0.65, 2.2) if along_z else Vector3(2.2, 0.65, 0.7))
+	camera.look_at((Vector3(0.7, 0.65, 2.2) if along_z \
+		else Vector3(2.2, 0.65, 0.7)) * press_scale)
 	camera.fov = 45.0
 	camera.current = true
 	for frame in range(3):
@@ -1266,12 +1269,20 @@ func _channel_component_view() -> void:
 	var sheet_mode: bool = "--channel-sheet-only" in OS.get_cmdline_user_args()
 	var broad_kind := "channel_broad_z" if along_z else "channel_broad_x"
 	var narrow_kind := "channel_narrow_z" if along_z else "channel_narrow_x"
-	var broad_center := [0.825, 0.5135, 0.0] if along_z else [0.0, 0.5135, 0.825]
-	var broad_half := [1.65, 0.5135, 0.825] if along_z else [0.825, 0.5135, 1.65]
+	var pitch: float = Geometry.PITCH
+	var sheet_y: float = Geometry.ANCHOR_HEIGHT + 0.113 * pitch / 1.65
+	var channel_half_height: float = (Geometry.ANCHOR_HEIGHT +
+		Geometry.HEIGHT_STEP / 5.0 + Geometry.HEIGHT_STEP * 0.30) * 0.5
+	var broad_center := [pitch * 0.5, channel_half_height, 0.0] if along_z \
+		else [0.0, channel_half_height, pitch * 0.5]
+	var broad_half := [pitch, channel_half_height, pitch * 0.5] if along_z \
+		else [pitch * 0.5, channel_half_height, pitch]
 	var second_cell := [0, 0, 4] if along_z else [4, 0, 0]
-	var second_center := [0.825, 0.5135, 1.65] if along_z else [1.65, 0.5135, 0.825]
+	var second_center := [pitch * 0.5, channel_half_height, pitch] if along_z \
+		else [pitch, channel_half_height, pitch * 0.5]
 	var narrow_cell := [0, 0, 12] if along_z else [12, 0, 0]
-	var narrow_center := [0.0, 0.5135, 4.95] if along_z else [4.95, 0.5135, 0.0]
+	var narrow_center := [0.0, channel_half_height, pitch * 3.0] if along_z \
+		else [pitch * 3.0, channel_half_height, 0.0]
 	var state: Dictionary = {"context": "channel-component-view", "revision": 1,
 		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
 		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
@@ -1280,11 +1291,12 @@ func _channel_component_view() -> void:
 			"broad0": _component_record(broad_kind, [0, 0, 0], broad_center, broad_half),
 			"broad1": _component_record(broad_kind, second_cell, second_center, broad_half),
 			"narrow": _component_record(narrow_kind, narrow_cell, narrow_center,
-				[0.825, 0.5135, 0.825])}}
+				[pitch * 0.5, channel_half_height, pitch * 0.5])}}
 	if sheet_mode:
 		state.placed_components["broad2"] = _component_record(broad_kind,
 			[0, 0, 8] if along_z else [8, 0, 0],
-			[0.825, 0.5135, 3.3] if along_z else [3.3, 0.5135, 0.825], broad_half)
+			[pitch * 0.5, channel_half_height, pitch * 2.0] if along_z \
+				else [pitch * 2.0, channel_half_height, pitch * 0.5], broad_half)
 		state.dropped_material = [{"center": [0, 0, 0], "raw": 0, "products": 0,
 			"offcuts": 0, "sheets": 1, "work_lots": [],
 			"sheet_items": [{"id": 7001, "rotation": 1}]}]
@@ -1293,11 +1305,11 @@ func _channel_component_view() -> void:
 	verify(parsed.get("accepted", false) and parsed.boxes.size() == expected_parts,
 		"The source-matched view uses two broad native boxes and one narrow box.")
 	var invalid: Dictionary = state.duplicate(true)
-	invalid.placed_components.broad0.occupied.half[0 if along_z else 2] = 1.66
+	invalid.placed_components.broad0.occupied.half[0 if along_z else 2] = pitch * 1.01
 	verify(not Geometry.component_boxes(invalid).get("accepted", false),
 		"A broad channel cannot claim more than its two-workcell native extent.")
 	invalid = state.duplicate(true)
-	invalid.placed_components.narrow.occupied.half[2] = 1.65
+	invalid.placed_components.narrow.occupied.half[2] = pitch
 	verify(not Geometry.component_boxes(invalid).get("accepted", false),
 		"A narrow channel cannot borrow the broad geometry allowance.")
 	var opening := SuppliedOpening.new()
@@ -1349,9 +1361,9 @@ func _channel_component_view() -> void:
 	if sheet_mode:
 		var sheet: Node3D = view.get_node_or_null("CopperSheet")
 		var body: MeshInstance3D = sheet.get_node_or_null("SheetBody") if sheet != null else null
-		verify(sheet != null and body != null and body.mesh.get_aabb().size.x > 3.0
-			and body.mesh.get_aabb().size.z > 3.0
-			and sheet.position.distance_to(Vector3(0.825, 0.938, 0.825)) < 0.0001
+		verify(sheet != null and body != null and body.mesh.get_aabb().size.x > 3.0 * pitch / 1.65
+			and body.mesh.get_aabb().size.z > 3.0 * pitch / 1.65
+			and sheet.position.distance_to(Vector3(pitch * 0.5, sheet_y, pitch * 0.5)) < 0.0001
 			and absf(sheet.rotation.y - PI * 0.5) < 0.0001,
 			"One confirmed sheet spans four channel workcells above the deck with its native rotation.")
 	for argument: String in OS.get_cmdline_user_args():
@@ -1362,7 +1374,8 @@ func _channel_component_view() -> void:
 		host.state.revision += 1
 		view.refresh()
 		var moved_sheet: Node3D = view.get_node_or_null("CopperSheet")
-		var expected_move := Vector3(0.825, 0.938, 2.475) if along_z else Vector3(2.475, 0.938, 0.825)
+		var expected_move := Vector3(pitch * 0.5, sheet_y, pitch * 1.5) if along_z \
+			else Vector3(pitch * 1.5, sheet_y, pitch * 0.5)
 		verify(moved_sheet != null and moved_sheet.position.distance_to(expected_move) < 0.0001
 			and absf(moved_sheet.rotation.y - PI * 0.5) < 0.0001,
 			"The same sheet projection follows one workcell step without changing form or orientation.")

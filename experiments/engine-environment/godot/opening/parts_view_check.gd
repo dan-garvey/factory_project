@@ -379,10 +379,13 @@ func _component_placement_check() -> void:
 	var head_box: Dictionary = view._component_candidate_box("flat_head", [12, 1, 8])
 	var slide_box: Dictionary = view._component_candidate_box("copper_slide", [12, 2, 8])
 	var workbed_box: Dictionary = view._component_candidate_box("anvil", [12, 0, 8])
+	var press_scale: float = Geometry.PITCH / 1.65
 	verify(absf(head_box.center.y - head_box.half.y - Geometry.PRESS_WORK_HEIGHT) < 0.0001
-		and absf(head_box.center.y + head_box.half.y - 1.3625) < 0.0001
+		and absf(head_box.center.y + head_box.half.y -
+			(Geometry.ANCHOR_HEIGHT + Geometry.HEIGHT_STEP * 1.30)) < 0.0001
 		and absf(slide_box.center.y - slide_box.half.y - Geometry.PRESS_WORK_HEIGHT) < 0.0001
-		and absf(slide_box.center.y + slide_box.half.y - 1.73) < 0.0001
+		and absf(slide_box.center.y + slide_box.half.y -
+			(Geometry.ANCHOR_HEIGHT + Geometry.HEIGHT_STEP * 4.25)) < 0.0001
 		and absf(workbed_box.size.x - Geometry.PITCH) < 0.0001
 		and absf(workbed_box.size.z - Geometry.PITCH) < 0.0001
 		and absf(head_box.size.x - Geometry.PITCH) < 0.0001
@@ -453,51 +456,52 @@ func _component_placement_check() -> void:
 	var slide_post: MeshInstance3D = slide_sample.get_node_or_null("SlideRail")
 	var input_shaft: MeshInstance3D = slide_sample.get_node_or_null("IntegralInputShaft")
 	verify(mount_rail != null and slide_foot != null and slide_post != null and input_shaft != null
-		and absf(workbed_sample.position.y + mount_rail.position.y + 0.08 - anvil_top) < 0.0001
-		and absf(slide_sample.position.y + slide_foot.position.y - 0.0175 - anvil_top) < 0.0001
+		and absf(workbed_sample.position.y + mount_rail.position.y + 0.08 * press_scale - anvil_top) < 0.0001
+		and absf(slide_sample.position.y + slide_foot.position.y - 0.0175 * press_scale - anvil_top) < 0.0001
 		and absf(slide_foot.position.z - mount_rail.position.z) < 0.0001
-		and 2.0 * (absf(slide_post.position.z) - 0.025) > 2.0 * Geometry.BELT_HALF_WIDTH
-		and absf(slide_sample.position.y + input_shaft.position.y - 1.65) < 0.0001,
+		and 2.0 * (absf(slide_post.position.z) - 0.025 * press_scale) > 2.0 * Geometry.BELT_HALF_WIDTH
+		and absf(slide_sample.position.y + input_shaft.position.y -
+			(Geometry.ANCHOR_HEIGHT + 4.0 * Geometry.HEIGHT_STEP)) < 0.03 * press_scale,
 		"Separate slide feet seat on the workbed rails with belt-width clearance and the native drive axis.")
 	var resting_face_bottom: float = head_sample.position.y \
-		+ head_sample.get_node("FlatHeadMovingDie").position.y - 0.05
+		+ head_sample.get_node("FlatHeadMovingDie").position.y - 0.05 * press_scale
 	var working_face_bottom: float = stroked_head.position.y \
-		+ stroked_head.get_node("FlatHeadMovingDie").position.y - 0.05
+		+ stroked_head.get_node("FlatHeadMovingDie").position.y - 0.05 * press_scale
 	var working_carriage_face_bottom: float = stroked_slide.position.y \
-		+ stroked_slide.get_node("SlideCarriage").position.y - 0.1025
+		+ stroked_slide.get_node("SlideCarriage").position.y - 0.1025 * press_scale
 	var resting_stem_top: float = head_sample.position.y \
-		+ head_sample.get_node("FlatHeadMovingDie").position.y + 0.08
+		+ head_sample.get_node("FlatHeadMovingDie").position.y + 0.08 * press_scale
 	var resting_carriage_body_bottom: float = slide_sample.position.y \
-		+ slide_sample.get_node("SlideCarriage").position.y - 0.07
+		+ slide_sample.get_node("SlideCarriage").position.y - 0.07 * press_scale
 	var resting_carriage_body_top: float = slide_sample.position.y \
-		+ slide_sample.get_node("SlideCarriage").position.y + 0.07
+		+ slide_sample.get_node("SlideCarriage").position.y + 0.07 * press_scale
 	var cylinder: MeshInstance3D = slide_sample.get_node_or_null("SlideCylinder")
 	var resting_piston: MeshInstance3D = slide_sample.get_node_or_null("SlidePiston")
 	var working_piston: MeshInstance3D = stroked_slide.get_node_or_null("SlidePiston")
 	if cylinder != null and resting_piston != null and working_piston != null:
 		var cylinder_bottom: float = slide_sample.position.y + cylinder.position.y \
-			- (cylinder.mesh as CylinderMesh).height * 0.5
+			- (cylinder.mesh as CylinderMesh).height * cylinder.scale.y * 0.5
 		var cylinder_top: float = slide_sample.position.y + cylinder.position.y \
-			+ (cylinder.mesh as CylinderMesh).height * 0.5
+			+ (cylinder.mesh as CylinderMesh).height * cylinder.scale.y * 0.5
 		var resting_piston_bottom: float = slide_sample.position.y + resting_piston.position.y \
-			- (resting_piston.mesh as CylinderMesh).height * 0.5
+			- (resting_piston.mesh as CylinderMesh).height * resting_piston.scale.y * 0.5
 		var resting_piston_top: float = slide_sample.position.y + resting_piston.position.y \
-			+ (resting_piston.mesh as CylinderMesh).height * 0.5
+			+ (resting_piston.mesh as CylinderMesh).height * resting_piston.scale.y * 0.5
 		var working_piston_bottom: float = stroked_slide.position.y + working_piston.position.y \
-			- (working_piston.mesh as CylinderMesh).height * 0.5
+			- (working_piston.mesh as CylinderMesh).height * working_piston.scale.y * 0.5
 		var working_piston_top: float = stroked_slide.position.y + working_piston.position.y \
-			+ (working_piston.mesh as CylinderMesh).height * 0.5
-		verify(cylinder_top > slide_sample.position.y + input_shaft.position.y - 0.02
-			and cylinder_bottom < resting_piston_top - 0.06
-			and resting_piston_bottom < resting_carriage_body_top - 0.02
+			+ (working_piston.mesh as CylinderMesh).height * working_piston.scale.y * 0.5
+		verify(cylinder_top > slide_sample.position.y + input_shaft.position.y - 0.02 * press_scale
+			and cylinder_bottom < resting_piston_top - 0.06 * press_scale
+			and resting_piston_bottom < resting_carriage_body_top - 0.02 * press_scale
 			and absf(working_piston_top - resting_piston_top) < 0.0001
 			and absf(working_piston_bottom - resting_piston_bottom - carriage_drop) < 0.0001,
 			"The crown masks the shaft center while an overlapping piston stays connected through the native stroke.")
-	verify(absf(head_drop + 0.20) < 0.0001 and absf(carriage_drop - head_drop) < 0.0001
-		and absf(resting_face_bottom - anvil_top - 0.24) < 0.0001
-		and absf(working_face_bottom - anvil_top - 0.04) < 0.0001
-		and absf(working_carriage_face_bottom - (slide_box.center.y - slide_box.half.y) - 0.02) < 0.0001
-		and resting_stem_top > resting_carriage_body_bottom + 0.05
+	verify(absf(head_drop + 0.20 * press_scale) < 0.0001 and absf(carriage_drop - head_drop) < 0.0001
+		and absf(resting_face_bottom - anvil_top - 0.24 * press_scale) < 0.0001
+		and absf(working_face_bottom - anvil_top - 0.04 * press_scale) < 0.0001
+		and absf(working_carriage_face_bottom - (slide_box.center.y - slide_box.half.y) - 0.02 * press_scale) < 0.0001
+		and resting_stem_top > resting_carriage_body_bottom + 0.05 * press_scale
 		and resting_stem_top < resting_carriage_body_top
 		and resting_stem_top < head_box.center.y + head_box.half.y,
 		"The compact die mounts within the carriage above the supported workbed.")
@@ -565,7 +569,8 @@ func _component_placement_check() -> void:
 		if panel != null and panel.mesh != null and \
 				absf(absf(panel.position.x) - Geometry.PITCH * 0.5) < 0.0001 and \
 				absf(absf(panel.position.z) - Geometry.PITCH * 0.5) < 0.0001 and \
-				absf(panel.mesh.get_aabb().size.x - (Geometry.PITCH - 0.12)) < 0.0001:
+				absf(panel.mesh.get_aabb().size.x * panel.scale.x -
+					(Geometry.PITCH - 0.12 * press_scale)) < 0.0001:
 			centered_faces += 1
 	verify(broad_faces.size() == 4 and centered_faces == 4,
 		"Each broad face panel aligns with one U-centered small anvil and keeps its edge relief.")
@@ -623,7 +628,7 @@ func _component_placement_check() -> void:
 		var sheet_visual := context_drive.get_node_or_null("CopperSheet") as Node3D
 		var workbed_top: float = broad_bed_box.center.y + broad_bed_box.half.y
 		verify(sheet_visual != null and context_drive.find_child("JoinedWorkbedBase", true, false) != null
-			and absf(sheet_visual.position.y - workbed_top - 0.031) < 0.0001,
+			and absf(sheet_visual.position.y - workbed_top - 0.031 * press_scale) < 0.0001,
 			"The finished 2x2 sheet is visibly seated on the confirmed broad anvil.")
 		broad_bed_sample.visible = false
 		var contact_head := Node3D.new()
@@ -643,9 +648,9 @@ func _component_placement_check() -> void:
 		var piston_drop: float = broad_slide_sample.get_node("BroadSlideCarriage").position.y \
 			- contact_slide.get_node("BroadSlideCarriage").position.y
 		var contact_face_bottom: float = broad_head_box.center.y \
-			+ contact_head.get_node("BroadHeadMovingDie").position.y - 0.08
-		var sheet_top: float = sheet_visual.position.y + 0.025 if sheet_visual != null else -999.0
-		verify(face_drop > 0.20 and face_drop < 0.30
+			+ contact_head.get_node("BroadHeadMovingDie").position.y - 0.08 * press_scale
+		var sheet_top: float = sheet_visual.position.y + 0.025 * press_scale if sheet_visual != null else -999.0
+		verify(face_drop > 0.20 * press_scale and face_drop < 0.30 * press_scale
 			and absf(face_drop - piston_drop) < 0.0001
 			and absf(contact_face_bottom - sheet_top) < 0.005,
 			"The central piston and complete broad face share a stroke ending at the sheet surface.")
@@ -1165,33 +1170,42 @@ func _component_placement_check() -> void:
 	choice.kind = "wooden_shaft"
 	view.aim_normal = Vector3.RIGHT
 	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [1, 5, 0]
-		and view.component_preview.visible and not view.component_preview_blocked
-		and view.component_preview_snap == "Press drive from anvil",
-		"Pointing at an anvil side exposes the elevated neighboring drive shaft.")
-	view._world_click(Vector2i.ZERO, "anvil")
-	verify(view.issued.back().center == [1, 5, 0],
-		"Click uses the shaft's visible anvil-side target rather than the ground datum.")
-	view.state.cargo.P.components.copper_cog = 1
-	choice.kind = "copper_cog"
+	verify(view._component_place_center(Vector2i.ZERO, "anvil").is_empty()
+		and not view.component_preview.visible
+		and view._guided_press_part_snap("wooden_shaft", "anvil", [0, 4, 0],
+			Vector3.RIGHT).is_empty(),
+		"The old fractional anvil-side shaft target is absent from the preview and click route.")
+	var input_slide_box := view._component_candidate_box("wooden_slide", [0, 2, 0])
+	view.state.placed_components["input-slide"] = {"component": "wooden_slide",
+		"center": [0, 2, 0], "generation": 1,
+		"occupied": {"center": [input_slide_box.center.x, input_slide_box.center.y,
+			input_slide_box.center.z], "half": [input_slide_box.half.x,
+			input_slide_box.half.y, input_slide_box.half.z]},
+		"input_ports": [[-4, 4, 0], [4, 4, 0]]}
+	view.aimed = "input-slide"
+	body.set_meta("component_entity", "input-slide")
+	view.aim_normal = Vector3.RIGHT
 	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [2, 5, 0]
-		and view.component_preview.visible and not view.component_preview_blocked,
-		"The same reachable anvil side points to the cog beyond the shaft.")
-	view._world_click(Vector2i.ZERO, "anvil")
-	verify(view.issued.back().center == [2, 5, 0],
-		"Cog click agrees with the elevated preview center.")
-	view.aim_normal = Vector3.BACK
-	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [0, 5, 2]
-		and not view.component_preview_blocked,
-		"The anvil's other open side offers a second horizontal press-drive layout.")
+	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [4, 4, 0]
+		and view.component_preview.visible and view.component_preview_snap == "Slide input shaft",
+		"Pointing at the fitted slide exposes its U-centered raised external shaft node.")
+	view._world_click(Vector2i.ZERO, "input-slide")
+	verify(view.issued.back().center == [4, 4, 0],
+		"The shaft click uses the same full-U port shown by the preview.")
+	view.aim_normal = Vector3.LEFT
+	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [-4, 4, 0]
+		and view._guided_press_part_snap("hand_crank", "wooden_slide", [0, 2, 0],
+			Vector3.LEFT).center == [-4, 4, 0],
+		"The opposite slide face exposes the mirrored U-centered crank input.")
 	view.aim_normal = Vector3.RIGHT
 	view._input(_component_key(KEY_ALT, true, true))
 	view._input(_component_key(KEY_PAGEUP, true, true))
-	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [2, 6, 0],
-		"Manual nudge still overrides the suggested press socket.")
+	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [4, 5, 0],
+		"Manual nudge still overrides the suggested slide input socket.")
 	view._input(_component_key(KEY_ALT, false))
+	view.state.placed_components.erase("input-slide")
+	view.aimed = "anvil"
+	body.set_meta("component_entity", "anvil")
 	view.aim_normal = Vector3.UP
 	choice.kind = "sliding_guide"
 	var guide_box := view._component_candidate_box("sliding_guide", [0, 4, 0])
@@ -5328,6 +5342,7 @@ func _slide_view_check() -> void:
 		"An invalid phase cannot put the carriage outside its occupied volume.")
 	var presenter := ComponentPresenter.new()
 	root.add_child(presenter)
+	var press_scale: float = Geometry.PITCH / 1.65
 	var samples := [
 		{"kind": "wooden_slide", "phase": null, "x": -0.7, "name": "Preview"},
 		{"kind": "wooden_slide", "phase": halfway, "x": 0.0, "name": "PlacedWood"},
@@ -5345,11 +5360,13 @@ func _slide_view_check() -> void:
 		verify(anchor.has_node("SlideRail") and anchor.has_node("SlideCrown")
 			and anchor.has_node("IntegralInputShaft") and anchor.has_node("SlideCarriage"),
 			"Each slide has fixed rails, an exposed input and a separate carriage.")
-		verify(is_equal_approx((anchor.get_node("IntegralInputShaft").mesh as CylinderMesh).height,
+		var input_rod := anchor.get_node("IntegralInputShaft") as MeshInstance3D
+		verify(is_equal_approx((input_rod.mesh as CylinderMesh).height * input_rod.scale.y,
 			Geometry.PITCH),
 			"The visible input rod crosses the full housing and reaches both side faces.")
 		var carriage := anchor.get_node("SlideCarriage") as Node3D
-		verify(carriage.position.y - 0.103 > -0.4125 and carriage.position.y + 0.07 < 0.4125,
+		verify(carriage.position.y - 0.103 * press_scale > -0.4125 \
+			and carriage.position.y + 0.07 * press_scale < 0.4125,
 			"The native phase keeps the carriage inside the admitted swept height.")
 	verify(presenter.get_node("Preview/SlideCarriage").position.y >
 		presenter.get_node("PlacedMetal/SlideCarriage").position.y and

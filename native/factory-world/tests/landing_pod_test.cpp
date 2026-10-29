@@ -889,10 +889,12 @@ void powered_slide_ticks_and_restores() {
     auto [profile, state] = seed();
     profile.material.timber_sites = {{"slide-tree", {{44, 0, 8}, 8}}};
     profile.material.component_capacity = 2;
-    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1}};
+    profile.finite_parts = {{{s::Role::waterwheel, 0, 0}, 1},
+        {{s::Role::shaft, 0, 2}, 1}};
     profile.waterwheel_rate = {1, 2};
     state.material.timber_remaining = {{"slide-tree", 8}};
     state.kits.at("P")[{s::Role::waterwheel, 0, 0}] = 1;
+    state.kits.at("P")[{s::Role::shaft, 0, 2}] = 1;
     state.topology.drive_enabled = true;
     auto world = w::World::create("powered-slide", profile, state);
     check(world != nullptr, "A finite wheel kit and tree initialize beside the pod deck.");
@@ -903,9 +905,16 @@ void powered_slide_ticks_and_restores() {
         {"request", V("place-wheel")}, {"actor", V("P")}, {"action", V("place")},
         {"role", V("waterwheel")}, {"axis", V("x")}, {"wheel_tiles", V(I{3})},
         {"teeth", V(I{0})}, {"half_span", V(I{0})},
-        {"center", V(V::Array{V(I{40}), V(I{4}), V(I{8})})}};
+        {"center", V(V::Array{V(I{36}), V(I{4}), V(I{8})})}};
     check(std::get<bool>(world->command({"P", "P-client"}, wheel, actor).result->at("accepted").storage()),
           "The actor places the issued wheel before the slide connects.");
+    const O shaft{{"context", V("powered-slide")}, {"client", V("P-client")},
+        {"request", V("place-external-shaft")}, {"actor", V("P")},
+        {"action", V("place")}, {"role", V("shaft")}, {"axis", V("x")},
+        {"teeth", V(I{0})}, {"half_span", V(I{2})},
+        {"center", V(V::Array{V(I{40}), V(I{4}), V(I{8})})}};
+    check(std::get<bool>(world->command({"P", "P-client"}, shaft, actor).result->at("accepted").storage()),
+          "The actor places a full-U external shaft between the wheel and slide.");
     for (int index = 0; index < 3; ++index) {
         const O cut{{"context", V("powered-slide")}, {"client", V("P-client")},
             {"request", V("wood-" + std::to_string(index))}, {"actor", V("P")},
@@ -921,11 +930,11 @@ void powered_slide_ticks_and_restores() {
     const O place{{"context", V("powered-slide")}, {"client", V("P-client")},
         {"request", V("slide-place")}, {"actor", V("P")}, {"action", V("place_component")},
         {"component", V("wooden_slide")},
-        {"center", V(V::Array{V(I{41}), V(I{4}), V(I{8})})}};
+        {"center", V(V::Array{V(I{44}), V(I{4}), V(I{8})})}};
     const auto installed = world->command({"P", "P-client"}, place, actor);
     check(installed.completed() &&
           std::get<bool>(installed.result->at("accepted").storage()),
-          "The slide connects to the trusted half-rate wheel at an adjacent shaft port.");
+          "The slide connects to the half-rate wheel through the placed U-centered shaft.");
     const auto id = std::get<std::string>(installed.result->at("entity").storage());
     const auto drive = w::drive_power(profile, world->snapshot().state);
     check(drive.mechanical.motion.at(id).state == factory::mechanics::MotionState::rotating &&

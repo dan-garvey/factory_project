@@ -2402,22 +2402,22 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 	if kind == "broad_copper_slide" and pointed_kind == "broad_flat_head":
 		return {"center": [center[0], center[1] + 3, center[2]],
 			"label": "2×2 housing over broad head"}
+	if kind == "hand_crank" and pointed_kind in ["wooden_slide", "copper_slide"]:
+		var side := 1 if normal.x >= 0.0 else -1
+		var lift := 0 if int(center[1]) % 4 == 0 else 2
+		return {"center": [center[0] + 4 * side, center[1] + lift, center[2]],
+			"label": "Slide input"}
+	if kind in ["wooden_shaft", "copper_shaft"] and pointed_kind in ["wooden_slide", "copper_slide"]:
+		var side := 1 if normal.x >= 0.0 else -1
+		var lift := 0 if int(center[1]) % 4 == 0 else 2
+		return {"center": [center[0] + 4 * side, center[1] + lift, center[2]],
+			"label": "Slide input shaft"}
 	if kind == "ram_face" and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
 	if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
 		var rise := 3 if pointed_kind == "anvil" else 2
 		return {"center": [center[0], center[1] + rise, center[2]],
 			"label": "Guide over %s" % ("ram" if pointed_kind == "ram_face" else "anvil")}
-	if pointed_kind == "anvil" and kind in ["wooden_shaft", "copper_shaft",
-			"wooden_cog", "copper_cog"]:
-		var distance := 1 if kind in ["wooden_shaft", "copper_shaft"] else 2
-		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
-			return {"center": [center[0] + distance * (1 if normal.x > 0.0 else -1),
-				center[1] + 4, center[2]], "label": "Press drive from anvil"}
-		if absf(normal.z) > 0.5:
-			return {"center": [center[0], center[1] + 4,
-				center[2] + distance * (1 if normal.z > 0.0 else -1)],
-				"label": "Press drive from anvil"}
 	if kind in ["wooden_shaft", "copper_shaft"] and pointed_kind == "sliding_guide":
 		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
 			return {"center": [center[0] + (1 if normal.x > 0.0 else -1),
@@ -2442,6 +2442,9 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 			var normal: Vector3 = hit.normal
 			var center: Array = placed[pointed].center.duplicate()
 			var kind: String = arrival_assembly_controls.selected_name() if arrival_assembly_controls != null else ""
+			if kind in ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"] \
+					and placed[pointed].get("component", "") == "anvil":
+				return []
 			if kind == "hand_crank" and placed[pointed].get("component", "") in \
 					["tool_mount", "wooden_shaft", "copper_shaft"]:
 				return center
@@ -2547,7 +2550,8 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			var width_x := pitch * (1.0 if not wide or along_x else 2.0)
 			var width_z := pitch * (1.0 if not wide or not along_x else 2.0)
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP
-			var high: float = at.y + 0.082 + 0.12
+			var high: float = at.y + Geometry.HEIGHT_STEP / 5.0 \
+				+ Geometry.HEIGHT_STEP * 0.30
 			occupied += Vector3((width_x - pitch) * 0.5,
 				(low + high) * 0.5 - occupied.y, (width_z - pitch) * 0.5)
 			half = Vector3(width_x * 0.5, (high - low) * 0.5, width_z * 0.5)
@@ -2570,7 +2574,7 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			half.y = (high - low) * 0.5
 		"flat_head":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
-			var high := at.y + 0.125
+			var high := at.y + Geometry.HEIGHT_STEP * 0.30
 			occupied.y = (low + high) * 0.5
 			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
 				Geometry.PITCH * 0.5)
@@ -2588,7 +2592,8 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"wooden_slide", "copper_slide":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - 2.0 * Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
-			var high := at.y + 0.08
+			var lift := 0.0 if int(center[1]) % 4 == 0 else 2.0 * Geometry.HEIGHT_STEP
+			var high := at.y + lift + Geometry.HEIGHT_STEP * 0.25
 			occupied.y = (low + high) * 0.5
 			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
 				Geometry.PITCH * 0.5)
@@ -2604,8 +2609,9 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied.y -= 0.015
 			half = Vector3(0.21, 0.12, 0.18)
 		"receiver_tray":
-			occupied.y -= 0.0825
-			half = Vector3(0.18, 0.15, 0.205)
+			occupied.y -= Geometry.HEIGHT_STEP * 0.20
+			half = Vector3(Geometry.PITCH * 0.11, Geometry.HEIGHT_STEP * 0.36,
+				Geometry.PITCH * 0.124)
 		"wooden_shaft", "copper_shaft":
 			half = Vector3(0.205, 0.12, 0.205)
 		"wooden_cog", "copper_cog":
@@ -2754,7 +2760,7 @@ func _refresh_component_preview() -> void:
 			face = [-1, 0, 0] if input_cell.size() == 3 and center[0] < input_cell[0] \
 				else [1, 0, 0]
 		var outward := Vector3(float(face[0]), 0.0, float(face[2]))
-		component_preview.position += outward * 0.22
+		component_preview.position += outward * 0.22 * Geometry.PITCH / 1.65
 		component_preview.rotation.y = -atan2(outward.z, outward.x)
 		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked \
 			else Color(0.91, 0.73, 0.40, 0.56)
@@ -2811,7 +2817,8 @@ func _refresh_component_preview() -> void:
 		visual_center.y = center[1] * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT \
 			+ (0.10 if kind == "tool_mount" else -0.015)
 		collector_support_drop = visual_center.y - floor_y
-	var preview_key := "%s:%s:%s" % [kind, collector_angle, collector_support_drop]
+	var preview_key := "%s:%s:%s:%s" % [kind, collector_angle,
+		collector_support_drop, box.size]
 	if preview_key != component_preview_pose_key:
 		for child in component_preview.get_children():
 			child.free()
@@ -3570,7 +3577,7 @@ func _machine_drive_stub(anchor: Node3D, entity: Dictionary, press_input: bool =
 		var height := 0.9 if axis == Vector3.UP else 1.35
 		var journal := MeshInstance3D.new()
 		journal.name = "DriveStub"
-		journal.position = Vector3(0, Geometry.ANCHOR_HEIGHT, 0)
+		journal.position = Vector3(0, 0.825 if press_input else Geometry.ANCHOR_HEIGHT, 0)
 		journal.rotation = _spindle_rotation(axis)
 		var horizontal_press := press_input and axis != Vector3.UP
 		var horizontal_collector := collector_input and axis != Vector3.UP
@@ -3795,6 +3802,7 @@ func _belt_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 		_machine_drive_stub(anchor, entity)
 
 func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
+	var first_part: int = anchor.get_child_count()
 	var frame: Color = COLORS.processor
 	var steel := Color("a6b4af")
 	var dark := Color("29393f")
@@ -3823,6 +3831,15 @@ func _press_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	for x in [-0.48, 0.48]:
 		_machine_cylinder(anchor, "BridgeBolt", Vector3(x, 1.5, -0.1075), 0.035, 0.025,
 			steel, Vector3(PI / 2, 0, 0))
+	if _native_transmission():
+		# The sourced press and its frame form one mechanical U assembly.
+		# Keep direct child paths used by the movement and detail presenters.
+		var press_scale: float = Geometry.PITCH / 1.65
+		for index in range(first_part, anchor.get_child_count()):
+			var part := anchor.get_child(index) as Node3D
+			if part != null:
+				part.position *= press_scale
+				part.scale *= press_scale
 
 func _wheel_visual(anchor: Node3D, entity: Dictionary = {}) -> void:
 	var frame := Color("465a60")

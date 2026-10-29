@@ -21,6 +21,23 @@ struct Part {
     bool operator==(const Part&) const = default;
 };
 
+// Small slides may stand on a U floor or fit at the half-U socket above a
+// head. Either way their external shaft node is on the common U lattice.
+[[nodiscard]] constexpr std::optional<mechanics::Point> small_slide_external_node(
+        const mechanics::Point& slide, mechanics::Integer side) noexcept {
+    if ((side != -1 && side != 1) || slide[0] % 4 || slide[2] % 4 ||
+        slide[0] < -mechanics::maximum_coordinate + 4 ||
+        slide[0] > mechanics::maximum_coordinate - 4) return std::nullopt;
+    const auto phase = slide[1] % 4;
+    if (phase == 0) return mechanics::Point{slide[0] + side * 4,
+        slide[1], slide[2]};
+    if ((phase == 2 || phase == -2) &&
+        slide[1] <= mechanics::maximum_coordinate - 2)
+        return mechanics::Point{slide[0] + side * 4,
+            slide[1] + 2, slide[2]};
+    return std::nullopt;
+}
+
 // Supplied by trusted geology/site geometry. toward_ore is one horizontal
 // quarter-grid step; machine_center is an ordinary four-step workcell center.
 struct OreFace {
