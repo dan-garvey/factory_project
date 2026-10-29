@@ -1117,13 +1117,13 @@ class ProductionEnvironment:
 
 	static func _ore_ground_material() -> StandardMaterial3D:
 		if ore_ground_finish == null:
-			var image := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/ore-soil.webp")
+			var image := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/field-gravel.jpg")
 			if image == null or image.generate_mipmaps() != OK:
-				push_error("The broad ore field requires its prepared mineral-soil surface.")
+				push_error("The broad ore field requires its prepared gravel surface.")
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
-			ore_ground_finish.albedo_color = Color("b6aca0")
+			ore_ground_finish.albedo_color = Color("d9d2c8")
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1218,7 +1218,7 @@ class ProductionEnvironment:
 							* smoothstep(0.12, 0.85, point.x - bank) \
 							* (0.06 + 0.10 * fraction + 0.80 * local_patch) * (0.70 + 0.30 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
-						surface.set_uv(point * 0.85)
+						surface.set_uv(point * 0.55)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
 						surface.add_vertex(Vector3(point.x,
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
