@@ -54,16 +54,7 @@ class ProductionEnvironment:
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
 	static var ore_boulder_finish: ShaderMaterial
-	const ORE_FIELD_PATCH = preload("res://opening/assets/mineral-outcrop/field-rock-gravel-low.glb")
-	const ORE_FIELD_ROCKS := [
-		preload("res://opening/assets/mineral-outcrop/field-scan-rock-04.res"),
-		preload("res://opening/assets/mineral-outcrop/field-scan-rock-07.res"),
-		preload("res://opening/assets/mineral-outcrop/field-scan-rock-12.res"),
-		preload("res://opening/assets/mineral-outcrop/field-scan-rock-14.res"),
-		preload("res://opening/assets/mineral-outcrop/field-scan-rock-15.res"),
-		preload("res://opening/assets/mineral-outcrop/field-scan-rock-17.res"),
-		preload("res://opening/assets/mineral-outcrop/field-scan-rock-19.res"),
-	]
+	const ORE_FIELD_PATCH = preload("res://opening/assets/mineral-outcrop/field-rock-gravel-03.glb")
 	const ORE_FIELD_BOULDER_SHADER = preload("res://opening/ore_field_scan.gdshader")
 
 	static func ground_material() -> ShaderMaterial:
@@ -1258,27 +1249,16 @@ class ProductionEnvironment:
 			var facing: float = [-0.28, 0.45, 0.22, -0.38, 0.15, 0.5][region_index]
 			var patch: Node3D = ORE_FIELD_PATCH.instantiate()
 			patch.name = "StoneAndGravelRegion%d" % region_index
-			patch.position = Vector3(x, Surface.height_at(x, z) - 0.10, z)
+			patch.position = Vector3(x, Surface.height_at(x, z) - 0.13, z)
 			patch.rotation.y = facing
-			patch.scale = Vector3(0.45, 0.18, 0.43)
+			patch.scale = Vector3(0.34 + 0.03 * float(region_index % 3),
+				0.50, 0.38 + 0.03 * float((region_index + 1) % 3))
+			var scan := patch.find_child("Mesh", true, false) as MeshInstance3D
+			if scan == null:
+				push_error("The broad ore field requires the scanned rock and gravel mesh.")
+				return root
+			scan.material_override = boulder_finish
 			root.add_child(patch)
-			var offsets := [Vector2(-0.65, -0.55), Vector2(0.54, 0.36), Vector2(-0.28, 1.06)]
-			for lobe in range(2 + region_index % 2):
-				var shift: Vector2 = offsets[lobe].rotated(facing + float(region_index) * 0.24)
-				var at := Vector2(x, z) + shift
-				var local_bank: float = Surface.river_center_x(at.y) + Surface.channel_half_width(at.y)
-				if at.x <= local_bank + 0.85:
-					continue
-				var boulder := MeshInstance3D.new()
-				boulder.name = "CopperBearingRockRegion%dLobe%d" % [region_index, lobe]
-				boulder.mesh = ORE_FIELD_ROCKS[(region_index * 2 + lobe) % ORE_FIELD_ROCKS.size()]
-				boulder.material_override = boulder_finish
-				boulder.position = Vector3(at.x, Surface.height_at(at.x, at.y) - 0.08, at.y)
-				boulder.rotation.y = facing + float(lobe) * 1.43 + float(region_index) * 0.37
-				boulder.scale = Vector3(1.08 + 0.13 * float((region_index + lobe) % 3),
-					0.55 + 0.05 * float((region_index + 2 * lobe) % 3),
-					1.04 + 0.12 * float((2 * region_index + lobe) % 3))
-				root.add_child(boulder)
 		return root
 
 	static func build(parent: Node3D) -> Node3D:
