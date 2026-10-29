@@ -3335,11 +3335,12 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-narrow-catalog.png") == OK,
 		"Retain the rendered narrow inventory window.")
-	bar.recipe_scroll.scroll_vertical = 10000
+	var final_machine_recipe: Button = bar.recipe_buttons["component:copper_slide"]
+	bar.recipe_scroll.ensure_control_visible(final_machine_recipe)
 	await settle_widgets()
-	verify(bar.recipe_scroll.scroll_vertical > 0
-		and bar.recipe_scroll.get_v_scroll_bar().max_value > bar.recipe_scroll.size.y,
-		"The advanced recipe grid remains scrollable in the narrow inventory.")
+	verify(final_machine_recipe.visible and bar.recipe_scroll.get_global_rect().encloses(
+		final_machine_recipe.get_global_rect()),
+		"The final Machine recipe remains reachable whether or not the compact grid needs scrolling.")
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-narrow-recipes-bottom.png") == OK,
 		"Retain the lower named recipe rows in the narrow inventory.")
