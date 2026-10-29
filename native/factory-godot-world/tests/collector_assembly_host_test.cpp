@@ -14,6 +14,7 @@ using I = V::Integer;
 using Host = factory::godot_world::Host;
 constexpr I grid_scale = static_cast<I>(1.65 / factory::godot_world::site_geometry::pitch);
 static_assert(grid_scale * factory::godot_world::site_geometry::pitch == 1.65);
+constexpr double u_scale = factory::godot_world::site_geometry::pitch / 1.65;
 int checks{};
 
 void check(bool condition, const char* message) {
@@ -114,10 +115,10 @@ void collector_readiness_tracks_real_parts() {
     const auto frame_occupied = get<O>(V(get<O>(host.projection(), "placed_components").at(frame)), "occupied");
     const auto frame_center = get<A>(V(frame_occupied), "center");
     const auto frame_half = get<A>(V(frame_occupied), "half");
-    check(std::get<double>(frame_center[1].storage()) == 0.45 &&
-          std::get<double>(frame_half[1].storage()) == 0.45 &&
-          std::get<double>(frame_half[0].storage()) == 0.2025,
-          "The frame publishes one load-bearing envelope from the floor to the installed bed.");
+    check(std::abs(std::get<double>(frame_center[1].storage()) - 0.45 * u_scale) < 1e-9 &&
+          std::abs(std::get<double>(frame_half[1].storage()) - 0.45 * u_scale) < 1e-9 &&
+          std::abs(std::get<double>(frame_half[0].storage()) - 0.2025 * u_scale) < 1e-9,
+          "The interchangeable frame retains its native U-sized floor envelope.");
     auto overlapping_deck = request("deck-through-frame", "place_foundation");
     overlapping_deck.emplace("cell", V(A{V(I{0}), V(I{0})}));
     overlapping_deck.emplace("level", V(I{4}));
@@ -160,7 +161,7 @@ void collector_readiness_tracks_real_parts() {
           std::abs(component_face(mount_center, mount_half, 0, 1) + 0.2025) < 1e-9 &&
           std::abs(component_face(mount_center, mount_half, 0, -1) -
               component_face(edge_center, edge_half, 0, 1)) < 1e-9,
-          "Trusted collector tool boxes meet the floor, frame and each other without overlap.");
+          "Trusted collector tool boxes meet the floor and each other without overlap.");
     const auto receiver = place(host, "receiver_tray", 0, 0, grid_scale, "receiver");
     const auto ready = ground_inspection(host);
     const auto parts = get<O>(ready, "parts");
