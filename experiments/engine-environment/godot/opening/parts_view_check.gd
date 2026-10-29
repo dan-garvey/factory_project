@@ -2698,8 +2698,9 @@ func _arrival_hotbar() -> void:
 		and bar.recipe_tabs.power.disabled and bar.recipe_tabs.logistics.disabled
 		and bar.material_grid.columns == 5 and bar.recipe_grid.columns == 5
 		and bar.material_buttons.timber.custom_minimum_size == Vector2(60, 58)
-		and bar.recipe_buttons["component:anvil"].custom_minimum_size == Vector2(68, 101),
-		"The starter view keeps one active type tab and compact five-column inventory and recipe grids.")
+		and bar.recipe_buttons["component:anvil"].custom_minimum_size ==
+			bar.material_buttons.timber.custom_minimum_size,
+		"The starter view keeps one active type tab and matching compact five-column grids.")
 	bar.open_catalog()
 	await settle_widgets()
 	var first_recipe: Button = bar.recipe_buttons["component:anvil"]
@@ -2769,11 +2770,11 @@ func _arrival_hotbar() -> void:
 		and not bar.recipe_buttons.foundation.visible,
 		"The first carried plate makes Power the default recipe tab without hiding other earned recipes.")
 	verify(bar.recipe_names["part:0"].text == "Shaft"
-		and bar.recipe_costs["part:0"].text == "1T · 1 plate"
-		and bar.recipe_stations["part:0"].text == "BENCH"
-		and bar.recipe_buttons["part:0"].tooltip_text.contains("1 copper plate")
+		and bar.recipe_buttons["part:0"].tooltip_text.contains("1 timber + 1 copper plate")
+		and bar.recipe_buttons["part:0"].tooltip_text.contains("Bench")
+		and bar.recipe_buttons["part:0"].accessibility_name.contains("1 timber + 1 copper plate")
 		and bar.component_buttons.hand_crank.visible,
-		"The proposed plate-cost projection is shown as a bench-only Shaft while Carried stays unfiltered.")
+		"The projected Shaft plate cost and bench location stay in tooltip and focus text while Carried stays unfiltered.")
 	var postplate_state: Dictionary = view.state.duplicate(true)
 	view.state.entities["wheel-route"] = {"kind": "wheel"}
 	view.state.motion = {"wheel-route": {"state": "rotating"},
@@ -3216,13 +3217,18 @@ func _render_arrival_hotbar() -> void:
 	verify(bar.recipe_category == "power" and bar.recipe_buttons["part:0"].visible
 		and not bar.recipe_buttons["component:wooden_frame"].visible,
 		"The first post-plate catalog selects Power while other earned recipes remain tabbed.")
-	verify(bar.recipe_costs["part:0"].text == "1T · 1 plate"
-		and bar.recipe_costs["part:1"].text == "1T · 1 plate"
-		and bar.recipe_costs["part:2"].text == "2T · 1 plate"
-		and bar.recipe_stations["part:0"].text == "BENCH"
-		and bar.recipe_stations["part:1"].text == "BENCH"
-		and bar.recipe_stations["part:2"].text == "BENCH",
-		"The rendered Power cards show the projected plate costs and bench requirement.")
+	var compact_power := true
+	for index in range(3):
+		var tile: Button = bar.recipe_buttons["part:%d" % index]
+		var timber := 2 if index == 2 else 1
+		compact_power = compact_power and tile.custom_minimum_size == \
+			bar.material_buttons.timber.custom_minimum_size
+		compact_power = compact_power and tile.tooltip_text.contains(
+			"%d timber + 1 copper plate" % timber) and tile.tooltip_text.contains("Bench")
+		compact_power = compact_power and tile.accessibility_name.contains(
+			"%d timber + 1 copper plate" % timber)
+	verify(compact_power,
+		"The compact Power tiles match Carried slots and retain projected plate costs and bench location in tooltip and focus text.")
 	bar.recipe_tabs.machine.pressed.emit()
 	await settle_widgets()
 	verify(bar.recipe_buttons["component:anvil"].visible

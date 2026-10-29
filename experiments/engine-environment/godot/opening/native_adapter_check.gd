@@ -3257,21 +3257,25 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"The ordinary inventory offers press recipes for this route"):
 		return
 	for recipe: Dictionary in [
-		{"kind": "anvil", "name": "Anvil"},
-		{"kind": "flat_head", "name": "Flat pressing head"},
-		{"kind": "wooden_slide", "name": "Wooden slide"},
-		{"kind": "hand_crank", "name": "Hand crank"}]:
+		{"kind": "anvil", "name": "Anvil", "card": "Anvil"},
+		{"kind": "flat_head", "name": "Flat pressing head", "card": "Flat head"},
+		{"kind": "wooden_slide", "name": "Wooden slide", "card": "Wooden slide"},
+		{"kind": "hand_crank", "name": "Hand crank", "card": "Hand crank"}]:
 		var key: String = "component:" + recipe.kind
 		var tile: Button = inventory.recipe_buttons[key]
 		var name_label: Label = inventory.recipe_names[key]
-		var cost_label: Label = inventory.recipe_costs[key]
 		var native_cost: Dictionary = start.component_recipes[recipe.kind]
+		var ingredients := "%d timber + %d copper" % [native_cost.timber, native_cost.copper]
+		var station := "Bench" if native_cost.copper > 0 else "Field or bench"
 		if not _expect(tile.icon != null and tile.focus_mode == Control.FOCUS_ALL
-				and name_label.is_visible_in_tree() and name_label.text == recipe.name
+				and tile.custom_minimum_size == inventory.material_buttons.timber.custom_minimum_size
+				and name_label.is_visible_in_tree() and name_label.text == recipe.card
 				and Rect2(Vector2.ZERO, tile.custom_minimum_size).encloses(name_label.get_rect())
-				and cost_label.text == "%dT · %dCu" % [native_cost.timber, native_cost.copper]
-				and Rect2(Vector2.ZERO, tile.custom_minimum_size).encloses(cost_label.get_rect()),
-				"The %s icon shows a readable name and its native projected cost." % recipe.kind):
+				and tile.tooltip_text.begins_with(recipe.name + " · ")
+				and tile.tooltip_text.contains(ingredients) and tile.tooltip_text.contains(station)
+				and tile.accessibility_name.contains(ingredients)
+				and tile.accessibility_name.contains(station),
+			"The %s compact icon keeps its full native cost and crafting place in tooltip and focus text." % recipe.kind):
 			return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		await process_frame

@@ -94,8 +94,6 @@ var inventory_empty: Array[Control] = []
 var recipe_grid: GridContainer
 var recipe_buttons: Dictionary = {}
 var recipe_names: Dictionary = {}
-var recipe_costs: Dictionary = {}
-var recipe_stations: Dictionary = {}
 var recipe_side: VBoxContainer
 var recipe_tabs_row: HBoxContainer
 var recipe_tabs: Dictionary = {}
@@ -702,15 +700,14 @@ func _recipe_tile(key: String, icon: Texture2D) -> Button:
 	var host = _view()
 	var tile: Button = Widgets.button(recipe_grid, "", _craft_recipe.bind(key))
 	_style_inventory_tile(tile, icon)
-	tile.custom_minimum_size = Vector2(68, 101)
 	tile.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-	tile.add_theme_constant_override("icon_max_width", 28)
+	tile.add_theme_constant_override("icon_max_width", 26)
 	tile.clip_contents = true
 	tile.focus_entered.connect(_describe_focus.bind(tile))
 	var name_label := Label.new()
 	name_label.name = "RecipeName"
-	name_label.position = Vector2(2, 40)
-	name_label.size = Vector2(64, 29)
+	name_label.position = Vector2(2, 29)
+	name_label.size = Vector2(56, 27)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -718,27 +715,17 @@ func _recipe_tile(key: String, icon: Texture2D) -> Button:
 	name_label.add_theme_color_override("font_color", Color("dde5d9"))
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tile.add_child(name_label)
-	var cost := Label.new()
-	cost.position = Vector2(2, 73)
-	cost.size = Vector2(64, 14)
-	cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cost.add_theme_font_size_override("font_size", 9)
-	cost.add_theme_color_override("font_color", Color("f6e5c5"))
-	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tile.add_child(cost)
-	var station := Label.new()
-	station.position = Vector2(2, 87)
-	station.size = Vector2(64, 12)
-	station.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	station.add_theme_font_size_override("font_size", 8)
-	station.add_theme_color_override("font_color", Color("e7b875"))
-	station.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tile.add_child(station)
 	recipe_buttons[key] = tile
 	recipe_names[key] = name_label
-	recipe_costs[key] = cost
-	recipe_stations[key] = station
 	return tile
+
+func _recipe_card_name(label: String) -> String:
+	match label:
+		"Flat pressing head": return "Flat head"
+		"Broad flat pressing head": return "Broad head"
+		"Horizontal gearbox": return "H. gearbox"
+		"Vertical gearbox": return "V. gearbox"
+	return label
 
 func _recipe_state(host, key: String, label: String, cost: Dictionary,
 		icon: Texture2D, field_allowed: bool, ready: bool) -> void:
@@ -774,10 +761,7 @@ func _recipe_state(host, key: String, label: String, cost: Dictionary,
 		label, ingredients, station, rating_detail, reason]
 	tile.accessibility_name = "%s recipe, needs %s, %s%s, %s" % [
 		label, ingredients, station, rating_detail, reason]
-	recipe_names[key].text = label
-	recipe_costs[key].text = "%dT · %d plate" % [timber, plate] if plate > 0 else \
-		"%dT · %dCu" % [timber, copper]
-	recipe_stations[key].text = "BENCH" if not field_allowed else ""
+	recipe_names[key].text = _recipe_card_name(label)
 
 func _refresh_recipes(host, ready: bool) -> void:
 	for tile: Button in recipe_buttons.values():
