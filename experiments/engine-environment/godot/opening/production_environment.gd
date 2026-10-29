@@ -54,6 +54,7 @@ class ProductionEnvironment:
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
 	static var ore_vein_finish: StandardMaterial3D
+	static var ore_rich_finish: StandardMaterial3D
 	static var ore_chip_mesh: ArrayMesh
 	const ORE_ROCK_VARIANTS := [
 		preload("res://opening/assets/mineral-outcrop/variants/river-lens.tscn"),
@@ -1151,6 +1152,21 @@ class ProductionEnvironment:
 			ore_vein_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ore_vein_finish
 
+	static func _ore_rich_material() -> StandardMaterial3D:
+		if ore_rich_finish == null:
+			var albedo := ProductionVisuals.read_image(
+				"res://opening/assets/mineral-outcrop/copper-rich-v1.png")
+			if albedo == null or albedo.generate_mipmaps() != OK:
+				push_error("The broad ore field requires its rich copper-bearing faces.")
+				return null
+			var base := _ore_vein_material()
+			if base == null:
+				return null
+			ore_rich_finish = base.duplicate()
+			ore_rich_finish.albedo_texture = ImageTexture.create_from_image(albedo)
+			ore_rich_finish.albedo_color = Color("8e7e76")
+		return ore_rich_finish
+
 	static func _ore_chip() -> ArrayMesh:
 		if ore_chip_mesh != null:
 			return ore_chip_mesh
@@ -1239,7 +1255,7 @@ class ProductionEnvironment:
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
 							* (0.03 + 0.92 * local_patch) * (0.58 + 0.42 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
-						surface.set_uv(point * 0.36)
+						surface.set_uv(point * 0.85)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
 						surface.add_vertex(Vector3(point.x,
 							Surface.height_at(point.x, point.y) + 0.028, point.y))
@@ -1288,7 +1304,8 @@ class ProductionEnvironment:
 			gravel.material_override = stone_finish
 			root.add_child(gravel)
 		var vein_finish := _ore_vein_material()
-		if vein_finish == null:
+		var rich_finish := _ore_rich_material()
+		if vein_finish == null or rich_finish == null:
 			return root
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
@@ -1305,12 +1322,16 @@ class ProductionEnvironment:
 			var variant: PackedScene = ORE_ROCK_VARIANTS[region_index % ORE_ROCK_VARIANTS.size()]
 			var clump := variant.instantiate() as Node3D
 			clump.name = "CopperOutcropRegion%d" % region_index
-			clump.position = Vector3(x, Surface.height_at(x, z) - 0.19, z)
+			clump.position = Vector3(x, Surface.height_at(x, z) - 0.13, z)
 			clump.rotation.y = float(region_index) * 1.37
-			clump.scale = Vector3(0.42, 0.25, 0.42)
-			for part in clump.get_children():
+			clump.scale = Vector3(0.42, 0.35, 0.42)
+			for part_index in range(clump.get_child_count()):
+				var part := clump.get_child(part_index)
 				if part is MeshInstance3D:
-					part.material_override = vein_finish
+					part.material_override = rich_finish if (part_index + region_index) % 3 == 0 \
+						else vein_finish
+					part.rotation.x = 0.10 * sin(float(part_index) * 2.4 + float(region_index))
+					part.rotation.z = 0.11 * cos(float(part_index) * 1.8 + float(region_index))
 			root.add_child(clump)
 			for satellite in range(2):
 				var angle: float = float(region_index) * 1.37 + float(satellite) * 2.43
@@ -1323,7 +1344,7 @@ class ProductionEnvironment:
 				var piece := MeshInstance3D.new()
 				piece.name = "CopperRubbleRegion%d" % region_index
 				piece.mesh = Surface.SOURCE_OUTCROP_MESH
-				piece.material_override = vein_finish
+				piece.material_override = rich_finish if satellite == 0 else vein_finish
 				var dimensions := Vector3(0.58 + float(satellite) * 0.18,
 					0.28 + float(region_index % 3) * 0.035, 0.47 + float(satellite) * 0.11)
 				piece.scale = dimensions / piece.mesh.get_aabb().size
