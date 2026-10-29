@@ -1,0 +1,30 @@
+{
+  "purpose": "Chapter 1 broad ore field visual study; no collision or material authority",
+  "boulder": {
+    "asset": "Namaqualand Boulder 02",
+    "asset_url": "https://polyhaven.com/a/namaqualand_boulder_02",
+    "authors": "Greg Zaal, photography; Rico Cilliers, modeling",
+    "license": "CC0-1.0",
+    "source_sha256": {
+      "namaqualand_boulder_02_1k.gltf": "3c41b5946cd5b208673ec481a3969047665688b2fab1de99b57a7b4eedde099b",
+      "namaqualand_boulder_02.bin": "0f6daa7ec9b1a92207c0b09b737ff1eec904aebc1c1eada778afa6e5eacd55c0",
+      "textures/namaqualand_boulder_02_diff_1k.jpg": "e567620fa04906e023e3d3b49860dd32db39b368d72ecfc10ad005945fd4034d",
+      "textures/namaqualand_boulder_02_nor_gl_1k.jpg": "2407a9915ea0cf42b164d42f548618145da892b948327fff67bef6123790a5d7"
+    },
+    "preparation": "Godot 4.7.2 ImporterMesh generated LOD3 from the original 97964-triangle mesh at 60 degrees. Selected 6122 triangles and 4396 referenced vertices, recentered X/Z and grounded Y, then generated tangents. Nominal source LOD error is 0.046382 m. Albedo was Lanczos resized in linear light to 512 pixels and encoded as lossy WebP at quality 0.79; the OpenGL normal was renormalized at 768 pixels and encoded as lossless WebP. Source files are retained in the task's private asset family, not shipped in the game.",
+    "prepared_mesh_sha256": "df30104d6594a948dd03f000652040cdca69adfec03fdd58b01a09d7d998c865",
+    "prepared_albedo_sha256": "55808f3106b0d112a1c923f3405de15c72567c255edc17682a922af3d0a64ce8",
+    "prepared_normal_sha256": "933b6fd723cdb726d02141a640454fbe8caf25bf940348f87c3516057f95cea1"
+  },
+  "pebbles": {
+    "asset": "Clean Pebbles",
+    "asset_url": "https://polyhaven.com/a/clean_pebbles",
+    "authors": "Charlotte Baglioni, photography; Dario Barresi, processing",
+    "license": "CC0-1.0",
+    "source_albedo_sha256": "902b115c4c0ace069862368b751e4799f338164cee62b53b61df3b6994165d95",
+    "preparation": "Lanczos resized in linear light to 768 pixels and encoded as lossy WebP at quality 0.79.",
+    "prepared_albedo_sha256": "a9de6ca52b6162997006c6b0ce0f3f99cb4023340c0f572a6783de4cd32a0a82"
+  },
+  "additional_ore_color": "copper-veined-v3.png and copper-rich-v1.png are image-generated study textures; they are not Poly Haven scans.",
+  "limits": "The scanned boulder and gravel are presentation assets only. A passive render cannot establish player collision, collector clearance, depletion behavior in ordinary play, or performance."
+}

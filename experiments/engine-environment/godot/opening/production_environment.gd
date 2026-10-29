@@ -53,13 +53,11 @@ class ProductionEnvironment:
 	static var shrub_meshes: Array[ArrayMesh] = []
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
+	static var ore_scan_finish: StandardMaterial3D
 	static var ore_vein_finish: StandardMaterial3D
 	static var ore_rich_finish: StandardMaterial3D
 	static var ore_chip_mesh: ArrayMesh
-	const ORE_ROCK_VARIANTS := [
-		preload("res://opening/assets/mineral-outcrop/variants/river-lens.tscn"),
-		preload("res://opening/assets/mineral-outcrop/variants/faulted-ridge.tscn"),
-		preload("res://opening/assets/mineral-outcrop/variants/fractured-crown.tscn")]
+	const ORE_FIELD_BOULDER = preload("res://opening/assets/mineral-outcrop/field-boulder-lod3.res")
 
 	static func ground_material() -> ShaderMaterial:
 		if ground_source_status != "uninitialized":
@@ -1121,19 +1119,39 @@ class ProductionEnvironment:
 
 	static func _ore_ground_material() -> StandardMaterial3D:
 		if ore_ground_finish == null:
-			var image := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/ore-soil.webp")
+			var image := ProductionVisuals.read_image("res://opening/assets/mineral-outcrop/field-pebbles-albedo.webp")
 			if image == null or image.generate_mipmaps() != OK:
-				push_error("The broad ore field requires its prepared mineral soil.")
+				push_error("The broad ore field requires its scanned pebble surface.")
 				return null
 			ore_ground_finish = StandardMaterial3D.new()
 			ore_ground_finish.albedo_texture = ImageTexture.create_from_image(image)
-			ore_ground_finish.albedo_color = Color("aa8b72")
+			ore_ground_finish.albedo_color = Color("d4c7b8")
 			ore_ground_finish.vertex_color_use_as_albedo = true
 			ore_ground_finish.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			ore_ground_finish.cull_mode = BaseMaterial3D.CULL_DISABLED
 			ore_ground_finish.roughness = 1.0
 			ore_ground_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 		return ore_ground_finish
+
+	static func _ore_scan_material() -> StandardMaterial3D:
+		if ore_scan_finish == null:
+			var albedo := ProductionVisuals.read_image(
+				"res://opening/assets/mineral-outcrop/field-boulder-albedo.webp")
+			var normal := ProductionVisuals.read_image(
+				"res://opening/assets/mineral-outcrop/field-boulder-normal-gl.webp")
+			if albedo == null or normal == null or albedo.generate_mipmaps() != OK \
+					or normal.generate_mipmaps(true) != OK:
+				push_error("The broad ore field requires its scanned outcrop surface.")
+				return null
+			ore_scan_finish = StandardMaterial3D.new()
+			ore_scan_finish.albedo_texture = ImageTexture.create_from_image(albedo)
+			ore_scan_finish.albedo_color = Color("b6aa9c")
+			ore_scan_finish.normal_enabled = true
+			ore_scan_finish.normal_texture = ImageTexture.create_from_image(normal)
+			ore_scan_finish.normal_scale = 0.82
+			ore_scan_finish.roughness = 0.92
+			ore_scan_finish.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		return ore_scan_finish
 
 	static func _ore_vein_material() -> StandardMaterial3D:
 		if ore_vein_finish == null:
@@ -1246,14 +1264,14 @@ class ProductionEnvironment:
 							var center: Array = region.get("position", [])
 							if center.size() != 3:
 								continue
-							var span := Vector2((point.x - float(center[0])) / 4.3,
-								(point.y - float(center[2])) / 3.5).length()
+							var span := Vector2((point.x - float(center[0])) / 2.8,
+								(point.y - float(center[2])) / 2.5).length()
 							var weight: float = 1.0 - smoothstep(0.33, 0.96, span + roughness * 0.16)
 							local_patch = maxf(local_patch, weight * sqrt(float(balances.get(
 								str(region.get("id", "")), 0.0))))
 						var grain: float = smoothstep(-0.45, 0.50, fleck + roughness * 0.25)
 						var opacity: float = smoothstep(0.0, 1.2, edge + roughness * 0.6) \
-							* (0.03 + 0.92 * local_patch) * (0.58 + 0.42 * grain)
+							* (0.05 + 0.72 * local_patch) * (0.58 + 0.42 * grain)
 						surface.set_normal(Surface.normal(point.x, point.y))
 						surface.set_uv(point * 0.85)
 						surface.set_color(Color(1.0, 1.0, 1.0, opacity))
@@ -1303,9 +1321,10 @@ class ProductionEnvironment:
 			stone_finish.roughness = 0.94
 			gravel.material_override = stone_finish
 			root.add_child(gravel)
+		var scan_finish := _ore_scan_material()
 		var vein_finish := _ore_vein_material()
 		var rich_finish := _ore_rich_material()
-		if vein_finish == null or rich_finish == null:
+		if scan_finish == null or vein_finish == null or rich_finish == null:
 			return root
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
@@ -1319,20 +1338,25 @@ class ProductionEnvironment:
 				continue
 			var x: float = float(center[0])
 			var z: float = float(center[2])
-			var variant: PackedScene = ORE_ROCK_VARIANTS[region_index % ORE_ROCK_VARIANTS.size()]
-			var clump := variant.instantiate() as Node3D
+			var clump := MeshInstance3D.new()
 			clump.name = "CopperOutcropRegion%d" % region_index
-			clump.position = Vector3(x, Surface.height_at(x, z) - 0.13, z)
-			clump.rotation.y = float(region_index) * 1.37
-			clump.scale = Vector3(0.42, 0.35, 0.42)
-			for part_index in range(clump.get_child_count()):
-				var part := clump.get_child(part_index)
-				if part is MeshInstance3D:
-					part.material_override = rich_finish if (part_index + region_index) % 3 == 0 \
-						else vein_finish
-					part.rotation.x = 0.10 * sin(float(part_index) * 2.4 + float(region_index))
-					part.rotation.z = 0.11 * cos(float(part_index) * 1.8 + float(region_index))
+			clump.mesh = ORE_FIELD_BOULDER
+			clump.material_override = scan_finish
+			clump.position = Vector3(x, Surface.height_at(x, z) - 0.10, z)
+			clump.rotation.y = float(region_index) * 1.31 + 0.32
+			clump.scale = Vector3(0.82 + 0.08 * float(region_index % 3),
+				0.80 + 0.06 * float(region_index % 2), 0.84 + 0.10 * float((region_index + 1) % 3))
 			root.add_child(clump)
+			var copper := MeshInstance3D.new()
+			copper.name = "CopperFaceRegion%d" % region_index
+			copper.mesh = ORE_FIELD_BOULDER
+			copper.material_override = rich_finish
+			var copper_at := Vector2(x, z) + Vector2(0.72, 0.0).rotated(clump.rotation.y + 0.45)
+			copper.position = Vector3(copper_at.x, Surface.height_at(copper_at.x, copper_at.y) - 0.04,
+				copper_at.y)
+			copper.rotation.y = clump.rotation.y + 1.3
+			copper.scale = Vector3(0.31, 0.52, 0.42)
+			root.add_child(copper)
 			for satellite in range(2):
 				var angle: float = float(region_index) * 1.37 + float(satellite) * 2.43
 				var at: Vector2 = Vector2(x, z) + Vector2(1.65 + 0.38 * float(satellite),
@@ -1343,8 +1367,8 @@ class ProductionEnvironment:
 					continue
 				var piece := MeshInstance3D.new()
 				piece.name = "CopperRubbleRegion%d" % region_index
-				piece.mesh = Surface.SOURCE_OUTCROP_MESH
-				piece.material_override = rich_finish if satellite == 0 else vein_finish
+				piece.mesh = ORE_FIELD_BOULDER
+				piece.material_override = vein_finish
 				var dimensions := Vector3(0.58 + float(satellite) * 0.18,
 					0.28 + float(region_index % 3) * 0.035, 0.47 + float(satellite) * 0.11)
 				piece.scale = dimensions / piece.mesh.get_aabb().size
