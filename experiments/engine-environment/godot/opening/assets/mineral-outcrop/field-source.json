@@ -44,5 +44,20 @@
     "prepared_normal_sha256": "3478cb6981f46355f1e93d575eff289f6213763d4e8bc869fe1cbd4c7af64287",
     "normal_preparation": "OpenGL normal Lanczos resized to 512 pixels, renormalized and lossless WebP encoded."
   },
+  "rock_gravel_patch": {
+    "asset": "Coast Land Rocks 02",
+    "asset_url": "https://polyhaven.com/a/coast_land_rocks_02",
+    "authors": "Rob Tuytel, photography and processing; Rico Cilliers, cleanup",
+    "license": "CC0-1.0",
+    "source_sha256": {
+      "coast_land_rocks_02_1k.gltf": "f99e5073bf2df714da68e09d80d8546ded2aad0b73f50df8d48e732d4a452774",
+      "coast_land_rocks_02.bin": "e981af395c1a546c2244d95954b8d4406bd11e26047975772b88418f3728adc6",
+      "textures/coast_land_rocks_02_diff_1k.jpg": "2223040a8b7327b8e8b6ae78960a92ea4e10a7d62f3114496851d37dfdc2aff2",
+      "textures/coast_land_rocks_02_nor_gl_1k.jpg": "3d0ecf09774581ac03b363b75a2430caaab5ed91895867dc83e06955ea71aaeb",
+      "textures/coast_land_rocks_02_arm_1k.jpg": "08c0f171f23413d7e063f632a9789085d33e6c8b66aad26bfb463da1dfe3db44"
+    },
+    "preparation": "meshoptimizer gltfpack 1.3 Linux SHA-256 595441045457bf3d069ec14fa807b1034d324db003bd66ac6377977cc11e7da3: gltfpack -i coast_land_rocks_02_1k.gltf -o coast-land-low.glb -si 0.03 -se 0.02 -sp -noq -v -r coast-land-low-report.json. Pinned Godot 4.7.2 GLTFDocument imported the result as one 38,733-triangle mesh; no compression extension is required.",
+    "prepared_glb_sha256": "240e630ad8c3837cf4eccd3e6e167e9e375ae5acb30858cc2e48adeeecc3de1c"
+  },
   "limits": "These scans and gravel are presentation assets only. Source glTF files are retained in the task's private asset family, not shipped in the game. A passive render cannot establish player collision, collector clearance, depletion behavior in ordinary play, or performance."
 }
