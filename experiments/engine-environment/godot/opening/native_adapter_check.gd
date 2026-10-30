@@ -599,7 +599,7 @@ func _arrival_joined_broad_run(capture_prefix: String, on_slab := false) -> void
 			"All four native broad workcells fit inside the same 3U-square pod-deck slab"):
 		return
 	facts.broad_assembly = assembled.broad_press_assemblies[0]
-	if on_slab and not await _approach(Vector2(3.3, 6.6)):
+	if on_slab and not await _approach(Vector2(3.3, 5.775)):
 		return
 	var workface := Vector3(26.0 * OpeningGeometry.HEIGHT_STEP, 0.48,
 		26.0 * OpeningGeometry.HEIGHT_STEP) if on_slab else Vector3(
