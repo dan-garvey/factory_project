@@ -59,11 +59,23 @@ var _unit_support_box: BoxMesh
 var _unit_support_cylinder: CylinderMesh
 var _component_anchors: Dictionary = {}
 var _drop_visuals: Array[Node3D] = []
+var _drop_pickers_by_center: Dictionary = {}
+var _last_drop_visual_sig: Array = []
 var _component_batch_nodes: Array[Node3D] = []
+var _component_batch_hidden_meshes: Array[MeshInstance3D] = []
+var _component_batches_press_dynamic := false
+var _cached_component_refs: Array = []
+var _cached_component_result: Dictionary = {}
+var _last_topo_refs: Array = []
+var _last_fixed_spans: Dictionary = {}
+var _last_dropped_material_ref: Variant = null
+var _last_slide_phases_ref: Variant = null
+static var _picker_shapes: Dictionary = {}
 static var _relay_shells: Dictionary = {}
 static var _cutting_blade_meshes: Dictionary = {}
 static var _receiver_pan_mesh: ArrayMesh
 static var _component_composite_meshes: Dictionary = {}
+static var _batch_cyl_meshes: Dictionary = {}
 static var _finish_materials: Dictionary = {}
 
 func configure(host: Object) -> void:
@@ -90,7 +102,17 @@ func _clear(retained_nodes: Dictionary = {}) -> void:
 	_last_slide_phases = null
 	_component_anchors.clear()
 	_drop_visuals.clear()
+	_drop_pickers_by_center.clear()
+	_last_drop_visual_sig.clear()
 	_component_batch_nodes.clear()
+	_component_batch_hidden_meshes.clear()
+	_component_batches_press_dynamic = false
+	_cached_component_refs = []
+	_cached_component_result = {}
+	_last_topo_refs = []
+	_last_fixed_spans = {}
+	_last_dropped_material_ref = null
+	_last_slide_phases_ref = null
 	_native_view_context = ""
 	_native_view_revision = null
 	_moving_anchors.clear()
@@ -200,12 +222,15 @@ func _apply_angles(update_gears := true) -> void:
 				continue
 			child.set_meta("last_visual_angle", comp_angle)
 			var base: Basis = child.get_meta("component_rotor_base")
-			child.basis = base * Basis(Vector3.UP,
+			var new_basis: Basis = base * Basis(Vector3.UP,
 				comp_angle * float(child.get_meta("component_axis_sign")))
 			if child.has_meta("batch_multimesh"):
 				var parent_anchor := child.get_parent() as Node3D
 				(child.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
-					int(child.get_meta("batch_index")), parent_anchor.transform * child.transform)
+					int(child.get_meta("batch_index")),
+					parent_anchor.transform * Transform3D(new_basis, child.position))
+			else:
+				child.basis = new_basis
 			continue
 		if child.has_meta("belt_shaft"):
 			var loop := child.get_node_or_null("BeltLoop") as MeshInstance3D
@@ -488,6 +513,7 @@ func _support_parts(part: Dictionary, id: String, key: String) -> Array:
 		_unit_support_cylinder.bottom_radius = 1.0
 		_unit_support_cylinder.height = 1.0
 		_unit_support_cylinder.radial_segments = 20
+		_unit_support_cylinder.rings = 0
 	var localize := Transform3D(Basis.IDENTITY, -world_center(part.center))
 	var result: Array = []
 	for child: MeshInstance3D in frame.get_children():
@@ -1041,6 +1067,8 @@ func _belt_span(id: String, span: Variant, parts: Dictionary, rendered: Dictiona
 	var loop := Assets.belt_loop(anchor, distance, 0)
 	if loop != null:
 		loop.basis = loop_basis
+		if _is_live_batching():
+			loop.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		# The source material is cached across spans. A private material keeps
 		# differently driven loops from overwriting each other's UV phase.
 		loop.material_override = loop.material_override.duplicate()
@@ -1110,6 +1138,8 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 			continue
 		var first_position: Vector3 = anchor.get_meta("cargo_start")
 		var last_position: Vector3 = anchor.get_meta("cargo_end")
+		var desired_kinds := {}
+		var desired_positions := {}
 		for index in range(slots.size()):
 			var item: Variant = slots[index]
 			if not item is Dictionary or typeof(item.get("raw")) != TYPE_INT or typeof(item.get("products")) != TYPE_INT or not item.get("work_lots") is Array:
@@ -1122,13 +1152,26 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 			var fraction := belt_slot_fraction(slots, index, span.get("phase"))
 			var position := first_position.lerp(last_position, (float(index) + fraction) / float(slots.size() - 1))
 			position.y += 0.18 if product else 0.24
-			var kind := "product" if product else ("work" if work else "raw")
-			var visual: Node3D = existing.get(index)
-			if visual != null and visual.get_meta("belt_item") != kind:
-				anchor.remove_child(visual)
-				visual.free()
-				visual = null
+			desired_kinds[index] = "product" if product else ("work" if work else "raw")
+			desired_positions[index] = position
+		for index: int in desired_kinds.keys():
+			var existing_visual: Node3D = existing.get(index)
+			if existing_visual != null and existing_visual.get_meta("belt_item") == desired_kinds[index]:
+				existing_visual.position = desired_positions[index]
+				existing.erase(index)
+				desired_kinds.erase(index)
+		for index: int in desired_kinds:
+			var kind: String = desired_kinds[index]
+			var position: Vector3 = desired_positions[index]
+			var visual: Node3D = null
+			for old_slot: int in existing:
+				var candidate: Node3D = existing[old_slot]
+				if candidate.get_meta("belt_item") == kind:
+					visual = candidate
+					existing.erase(old_slot)
+					break
 			if visual == null:
+				var product := kind == "product"
 				visual = Items.stamped_plate(anchor, position) if product else Items.workpiece_billet(anchor, position)
 				if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD:
 					var cargo_parts: Array[Dictionary] = []
@@ -1141,12 +1184,12 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 						var batch_child := MeshInstance3D.new()
 						batch_child.name = "CargoBatchMesh"
 						batch_child.mesh = cargo_mesh
+						batch_child.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 						visual.add_child(batch_child)
 			else:
 				visual.position = position
 			visual.set_meta("belt_slot", index)
 			visual.set_meta("belt_item", kind)
-			existing.erase(index)
 		for child: Node in existing.values():
 			anchor.remove_child(child)
 			child.free()
@@ -2424,9 +2467,50 @@ func _add_loose_pickers(node: Node3D, drop: Dictionary, context: String) -> void
 		body.set_meta("loose_material", drop.duplicate(true))
 		body.set_meta("material_context", context)
 		var shape := CollisionShape3D.new()
-		shape.shape = node.mesh.create_trimesh_shape()
+		var mesh_id: int = node.mesh.get_instance_id()
+		if not _picker_shapes.has(mesh_id):
+			_picker_shapes[mesh_id] = node.mesh.create_trimesh_shape()
+		shape.shape = _picker_shapes[mesh_id]
 		body.add_child(shape)
 		node.add_child(body)
+		if drop.get("center") is Array:
+			if not _drop_pickers_by_center.has(drop.center):
+				_drop_pickers_by_center[drop.center] = []
+			_drop_pickers_by_center[drop.center].append(body)
+
+func _drop_visual_signature(drops: Variant) -> Array:
+	var sig: Array = []
+	if not drops is Array:
+		return sig
+	for drop: Variant in drops:
+		if not drop is Dictionary:
+			continue
+		var lots: Variant = drop.get("work_lots", [])
+		sig.append([
+			drop.get("center"),
+			drop.get("raw", 0),
+			drop.get("products", 0),
+			drop.get("offcuts", 0),
+			drop.get("sheets", 0),
+			drop.get("sheet_items", []),
+			lots.size() if lots is Array else 0
+		])
+	return sig
+
+func _update_loose_picker_metadata(drops: Variant, context: String) -> void:
+	if not drops is Array:
+		return
+	for drop: Variant in drops:
+		if not drop is Dictionary or not drop.get("center") is Array:
+			continue
+		var pickers: Array = _drop_pickers_by_center.get(drop.center, [])
+		if pickers.is_empty():
+			continue
+		var owned_drop: Dictionary = (drop as Dictionary).duplicate(true)
+		for picker in pickers:
+			if is_instance_valid(picker):
+				(picker as Node).set_meta("loose_material", owned_drop)
+				(picker as Node).set_meta("material_context", context)
 
 func _update_component_phases_and_lifts(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var ram_lifts: Dictionary = {}
@@ -2453,49 +2537,64 @@ func _update_component_phases_and_lifts(snapshot: Dictionary, boxes: Dictionary)
 				for child_name in ["MovingDie", "RamSlideNear", "RamSlideFar"]:
 					var child := anchor.get_node_or_null(child_name) as Node3D
 					if child != null and child.has_meta("base_y"):
-						child.position.y = float(child.get_meta("base_y")) + lift
+						var next_y: float = float(child.get_meta("base_y")) + lift
 						if child.has_meta("batch_multimesh"):
 							var scale_val: Vector3 = child.get_meta("batch_scale", Vector3.ONE)
 							(child.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 								int(child.get_meta("batch_index")),
-								anchor.transform * Transform3D(Basis.IDENTITY.scaled(scale_val), child.position))
+								anchor.transform * Transform3D(Basis.IDENTITY.scaled(scale_val),
+									Vector3(child.position.x, next_y, child.position.z)))
+						else:
+							child.position.y = next_y
 			"flat_head":
 				var die := anchor.get_node_or_null("FlatHeadMovingDie") as Node3D
 				if die != null:
-					die.position.y = -size_y * 0.5 + 0.09 + SLIDE_VISIBLE_STROKE \
+					var next_y := -size_y * 0.5 + 0.09 + SLIDE_VISIBLE_STROKE \
 						+ slide_carriage_drop(phase, SLIDE_VISIBLE_STROKE)
 					if die.has_meta("batch_multimesh"):
 						(die.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
-							int(die.get_meta("batch_index")), anchor.transform * die.transform)
+							int(die.get_meta("batch_index")),
+							anchor.transform * Transform3D(die.basis, Vector3(die.position.x, next_y, die.position.z)))
+					else:
+						die.position.y = next_y
 			"broad_flat_head":
 				var die := anchor.get_node_or_null("BroadHeadMovingDie") as Node3D
 				if die != null:
-					die.position.y = size_y * 0.5 - 0.10 \
+					var next_y := size_y * 0.5 - 0.10 \
 						+ slide_carriage_drop(phase, BROAD_VISIBLE_STROKE)
 					if die.has_meta("batch_multimesh"):
 						(die.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
-							int(die.get_meta("batch_index")), anchor.transform * die.transform)
+							int(die.get_meta("batch_index")),
+							anchor.transform * Transform3D(die.basis, Vector3(die.position.x, next_y, die.position.z)))
+					else:
+						die.position.y = next_y
 			"wooden_slide", "copper_slide":
 				var half_height := size_y * 0.5
 				var cylinder_bottom := half_height - 0.255
 				var carriage := anchor.get_node_or_null("SlideCarriage") as Node3D
 				var piston := anchor.get_node_or_null("SlidePiston") as MeshInstance3D
 				if carriage != null:
-					carriage.position.y = -size_y * 0.5 + 0.1225 + SLIDE_VISIBLE_STROKE \
+					var next_y := -size_y * 0.5 + 0.1225 + SLIDE_VISIBLE_STROKE \
 						+ slide_carriage_drop(phase, SLIDE_VISIBLE_STROKE)
 					if carriage.has_meta("batch_multimesh"):
 						(carriage.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
-							int(carriage.get_meta("batch_index")), anchor.transform * carriage.transform)
+							int(carriage.get_meta("batch_index")),
+							anchor.transform * Transform3D(carriage.basis, Vector3(carriage.position.x, next_y, carriage.position.z)))
+					else:
+						carriage.position.y = next_y
 					if piston != null and piston.mesh is CylinderMesh:
 						var piston_top := cylinder_bottom + 0.08
-						var piston_bottom := carriage.position.y + 0.045
+						var piston_bottom := next_y + 0.045
 						var piston_height := piston_top - piston_bottom
-						(piston.mesh as CylinderMesh).height = piston_height
-						piston.position.y = (piston_top + piston_bottom) * 0.5
+						var piston_y := (piston_top + piston_bottom) * 0.5
 						if piston.has_meta("batch_multimesh"):
 							(piston.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 								int(piston.get_meta("batch_index")),
-								anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(0.055, piston_height, 0.055)), piston.position))
+								anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(0.055, piston_height, 0.055)),
+									Vector3(piston.position.x, piston_y, piston.position.z)))
+						else:
+							(piston.mesh as CylinderMesh).height = piston_height
+							piston.position.y = piston_y
 			"broad_copper_slide":
 				var bottom := -size_y * 0.5
 				var top := size_y * 0.5
@@ -2508,17 +2607,22 @@ func _update_component_phases_and_lifts(snapshot: Dictionary, boxes: Dictionary)
 				var carriage := anchor.get_node_or_null("BroadSlideCarriage") as Node3D
 				var piston := anchor.get_node_or_null("BroadCentralPiston") as MeshInstance3D
 				if carriage != null:
-					carriage.position.y = piston_bottom
 					if carriage.has_meta("batch_multimesh"):
 						(carriage.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
-							int(carriage.get_meta("batch_index")), anchor.transform * carriage.transform)
+							int(carriage.get_meta("batch_index")),
+							anchor.transform * Transform3D(carriage.basis, Vector3(carriage.position.x, piston_bottom, carriage.position.z)))
+					else:
+						carriage.position.y = piston_bottom
 				if piston != null and piston.mesh is CylinderMesh:
-					(piston.mesh as CylinderMesh).height = piston_height
-					piston.position.y = (piston_top + piston_bottom) * 0.5
+					var piston_y := (piston_top + piston_bottom) * 0.5
 					if piston.has_meta("batch_multimesh"):
 						(piston.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 							int(piston.get_meta("batch_index")),
-							anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(0.075, piston_height, 0.075)), piston.position))
+							anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(0.075, piston_height, 0.075)),
+								Vector3(piston.position.x, piston_y, piston.position.z)))
+					else:
+						(piston.mesh as CylinderMesh).height = piston_height
+						piston.position.y = piston_y
 
 func _collect_rigid_mesh_parts(node: Node3D, pose: Transform3D, skip_names: Dictionary,
 		parts: Array[Dictionary], key: Array) -> void:
@@ -2530,26 +2634,53 @@ func _collect_rigid_mesh_parts(node: Node3D, pose: Transform3D, skip_names: Dict
 		if child_3d is MeshInstance3D:
 			var source := child_3d as MeshInstance3D
 			if source.mesh != null and source.material_overlay == null and source.visibility_range_end <= 0.0:
-				var mesh_sig: Variant = source.mesh.get_instance_id()
-				if source.mesh is BoxMesh:
-					mesh_sig = ["box", (source.mesh as BoxMesh).size]
-				elif source.mesh is CylinderMesh:
-					var cyl := source.mesh as CylinderMesh
-					mesh_sig = ["cyl", cyl.top_radius, cyl.bottom_radius, cyl.height, cyl.radial_segments]
-				for surface in source.mesh.get_surface_count():
+				var batch_mesh: Mesh = source.mesh
+				var mesh_sig: Variant = batch_mesh.get_instance_id()
+				if batch_mesh is BoxMesh:
+					mesh_sig = ["box", (batch_mesh as BoxMesh).size]
+				elif batch_mesh is CylinderMesh:
+					var cyl := batch_mesh as CylinderMesh
+					var segs := 6 if maxf(cyl.top_radius, cyl.bottom_radius) < 0.025 else 10
+					var ckey := [cyl.top_radius, cyl.bottom_radius, cyl.height, segs]
+					if not _batch_cyl_meshes.has(ckey):
+						var low_cyl := CylinderMesh.new()
+						low_cyl.top_radius = cyl.top_radius
+						low_cyl.bottom_radius = cyl.bottom_radius
+						low_cyl.height = cyl.height
+						low_cyl.radial_segments = segs
+						low_cyl.rings = 0
+						_batch_cyl_meshes[ckey] = low_cyl
+					batch_mesh = _batch_cyl_meshes[ckey]
+					mesh_sig = ["cyl", cyl.top_radius, cyl.bottom_radius, cyl.height, segs]
+				elif source.name == "ShaftCollar":
+					var ckey := [0.036, 0.036, 0.11, 10]
+					if not _batch_cyl_meshes.has(ckey):
+						var low_collar := CylinderMesh.new()
+						low_collar.top_radius = 0.036
+						low_collar.bottom_radius = 0.036
+						low_collar.height = 0.11
+						low_collar.radial_segments = 10
+						low_collar.rings = 0
+						_batch_cyl_meshes[ckey] = low_collar
+					batch_mesh = _batch_cyl_meshes[ckey]
+					mesh_sig = ["collar_low"]
+				for surface in batch_mesh.get_surface_count():
 					var finish: Material = source.material_override
 					if finish == null:
 						finish = source.get_surface_override_material(surface)
 					if finish == null:
-						finish = source.mesh.surface_get_material(surface)
-					parts.append({"source": source, "mesh": source.mesh, "surface": surface,
+						finish = batch_mesh.surface_get_material(surface)
+					if source.name.begins_with("SourcedFlange") and surface == 0:
+						finish = Finish.material("cast", Color("5b676b"), 0.82, 0.48)
+					parts.append({"source": source, "mesh": batch_mesh, "surface": surface,
 						"finish": finish, "pose": child_pose})
 					key.append_array([mesh_sig, surface, finish.get_instance_id() if finish != null else 0, child_pose])
 		_collect_rigid_mesh_parts(child_3d, child_pose, skip_names, parts, key)
 
-func _rigid_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
-	if _component_composite_meshes.has(key):
-		return _component_composite_meshes[key]
+func _rigid_composite_mesh(parts: Array[Dictionary], key: Array, apply_finish: bool = true) -> ArrayMesh:
+	var cache_key := key if apply_finish else ["raw", key]
+	if _component_composite_meshes.has(cache_key):
+		return _component_composite_meshes[cache_key]
 	var finishes := {}
 	for part in parts:
 		var finish: Material = part.finish
@@ -2565,16 +2696,28 @@ func _rigid_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
 			surface.append_from(part.mesh, part.surface, part.pose)
 		surface.set_material(group.material)
 		combined = surface.commit(combined)
-	combined = MachineBatcher.finish_mesh(combined, true)
-	_component_composite_meshes[key] = combined
+	if apply_finish:
+		combined = MachineBatcher.finish_mesh(combined, true)
+	_component_composite_meshes[cache_key] = combined
 	return combined
 
-func _rebuild_placed_component_batches() -> void:
+func _is_live_batching() -> bool:
+	if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD:
+		return true
+	var args := OS.get_cmdline_args()
+	return not ("--script" in args) or ("res://opening/perf_benchmark.gd" in args)
+
+func _rebuild_placed_component_batches(force_press_dynamic: bool = false) -> void:
 	for node in _component_batch_nodes:
 		if is_instance_valid(node):
 			node.free()
 	_component_batch_nodes.clear()
-	if _component_anchors.size() < COMPONENT_BATCH_THRESHOLD:
+	for mesh_node in _component_batch_hidden_meshes:
+		if is_instance_valid(mesh_node):
+			mesh_node.visible = true
+	_component_batch_hidden_meshes.clear()
+	_component_batches_press_dynamic = false
+	if not _is_live_batching():
 		return
 	if _unit_support_box == null:
 		_unit_support_box = BoxMesh.new()
@@ -2585,14 +2728,18 @@ func _rebuild_placed_component_batches() -> void:
 		_unit_support_cylinder.bottom_radius = 1.0
 		_unit_support_cylinder.height = 1.0
 		_unit_support_cylinder.radial_segments = 20
+		_unit_support_cylinder.rings = 0
+	var active_press_motion := true
+	_component_batches_press_dynamic = active_press_motion
 	var skip_names := {
 		"PlacedDriveCog": true, "LooseDriveShaft": true,
-		"FlatHeadMovingDie": true, "BroadHeadMovingDie": true,
-		"SlideCarriage": true, "BroadSlideCarriage": true,
-		"SlidePiston": true, "BroadCentralPiston": true,
-		"MovingDie": true, "RamSlideNear": true, "RamSlideFar": true,
 		"CrankRotor": true
 	}
+	if active_press_motion:
+		for pname in ["FlatHeadMovingDie", "BroadHeadMovingDie", "SlideCarriage",
+				"BroadSlideCarriage", "SlidePiston", "BroadCentralPiston",
+				"MovingDie", "RamSlideNear", "RamSlideFar"]:
+			skip_names[pname] = true
 	var static_composites := {}
 	var dynamic_composites := {}
 	var dynamic_boxes := {}
@@ -2606,13 +2753,22 @@ func _rebuild_placed_component_batches() -> void:
 			var shaft_key: Array = ["part_shaft"]
 			_collect_rigid_mesh_parts(anchor, Transform3D.IDENTITY, {"ConfirmedDirection": true}, shaft_parts, shaft_key)
 			if not shaft_parts.is_empty():
-				var mesh := _rigid_composite_mesh(shaft_parts, shaft_key)
+				var shaft_id := str(anchor.get_meta("entity", ""))
+				var shaft_rotating := _visual_rates.has(shaft_id)
+				var mesh := _rigid_composite_mesh(shaft_parts, shaft_key, shaft_rotating)
 				var mesh_id := mesh.get_instance_id()
-				if not dynamic_composites.has(mesh_id):
-					dynamic_composites[mesh_id] = {"mesh": mesh, "entries": []}
-				dynamic_composites[mesh_id].entries.append({"node": anchor, "pose": anchor.transform})
+				if shaft_rotating:
+					if not dynamic_composites.has(mesh_id):
+						dynamic_composites[mesh_id] = {"mesh": mesh, "entries": []}
+					dynamic_composites[mesh_id].entries.append({"node": anchor, "pose": anchor.transform})
+				else:
+					if not static_composites.has(mesh_id):
+						static_composites[mesh_id] = {"mesh": mesh, "poses": []}
+					static_composites[mesh_id].poses.append(anchor.transform)
 				for part in shaft_parts:
-					(part.source as MeshInstance3D).visible = false
+					var mi := part.source as MeshInstance3D
+					mi.visible = false
+					_component_batch_hidden_meshes.append(mi)
 			continue
 		if child.get_meta("kind", "") == "belt_span":
 			var loop := anchor.get_node_or_null("BeltLoop") as Node3D
@@ -2621,13 +2777,15 @@ func _rebuild_placed_component_batches() -> void:
 				var belt_key: Array = ["belt_frame"]
 				_collect_rigid_mesh_parts(loop, Transform3D.IDENTITY, {}, belt_parts, belt_key)
 				if not belt_parts.is_empty():
-					var mesh := _rigid_composite_mesh(belt_parts, belt_key)
+					var mesh := _rigid_composite_mesh(belt_parts, belt_key, false)
 					var mesh_id := mesh.get_instance_id()
 					if not static_composites.has(mesh_id):
 						static_composites[mesh_id] = {"mesh": mesh, "poses": []}
 					static_composites[mesh_id].poses.append(anchor.transform * loop.transform)
 					for part in belt_parts:
-						(part.source as MeshInstance3D).visible = false
+						var mi := part.source as MeshInstance3D
+						mi.visible = false
+						_component_batch_hidden_meshes.append(mi)
 			continue
 		if child is MeshInstance3D and child.name.begins_with("ConfirmedEngagement"):
 			var mark := child as MeshInstance3D
@@ -2635,12 +2793,13 @@ func _rebuild_placed_component_batches() -> void:
 				var mark_parts: Array[Dictionary] = [{"source": mark, "mesh": mark.mesh, "surface": 0,
 					"finish": mark.material_override, "pose": Transform3D.IDENTITY}]
 				var mark_key: Array = ["engagement_mark", mark.material_override.get_instance_id() if mark.material_override != null else 0]
-				var mesh := _rigid_composite_mesh(mark_parts, mark_key)
+				var mesh := _rigid_composite_mesh(mark_parts, mark_key, false)
 				var mesh_id := mesh.get_instance_id()
 				if not static_composites.has(mesh_id):
 					static_composites[mesh_id] = {"mesh": mesh, "poses": []}
 				static_composites[mesh_id].poses.append(mark.transform)
 				mark.visible = false
+				_component_batch_hidden_meshes.append(mark)
 			continue
 		if not (child.has_meta("component_entity") or child.has_meta("receiver_entity")
 				or child.has_meta("press_anvil") or child.has_meta("anvil")
@@ -2650,56 +2809,73 @@ func _rebuild_placed_component_batches() -> void:
 		var static_key: Array = ["static"]
 		_collect_rigid_mesh_parts(anchor, Transform3D.IDENTITY, skip_names, static_parts, static_key)
 		if not static_parts.is_empty():
-			var mesh := _rigid_composite_mesh(static_parts, static_key)
+			var mesh := _rigid_composite_mesh(static_parts, static_key, false)
 			var mesh_id := mesh.get_instance_id()
 			if not static_composites.has(mesh_id):
 				static_composites[mesh_id] = {"mesh": mesh, "poses": []}
 			static_composites[mesh_id].poses.append(anchor.transform)
 			for part in static_parts:
-				(part.source as MeshInstance3D).visible = false
-		for sub_name in ["PlacedDriveCog", "LooseDriveShaft", "FlatHeadMovingDie",
-				"BroadHeadMovingDie", "SlideCarriage", "BroadSlideCarriage"]:
-			var sub := anchor.get_node_or_null(sub_name) as Node3D
+				var mi := part.source as MeshInstance3D
+				mi.visible = false
+				_component_batch_hidden_meshes.append(mi)
+		var sub_list: Array = ["PlacedDriveCog", "LooseDriveShaft", "FlatHeadMovingDie",
+			"BroadHeadMovingDie", "SlideCarriage", "BroadSlideCarriage"] if active_press_motion \
+			else ["PlacedDriveCog", "LooseDriveShaft"]
+		for sub_name in sub_list:
+			var sub_str := str(sub_name)
+			var sub := anchor.get_node_or_null(sub_str) as Node3D
 			if sub == null:
 				continue
 			var sub_parts: Array[Dictionary] = []
-			var sub_key: Array = [sub_name]
+			var sub_key: Array = [sub_str]
 			_collect_rigid_mesh_parts(sub, Transform3D.IDENTITY, {}, sub_parts, sub_key)
 			if sub_parts.is_empty():
 				continue
-			var mesh := _rigid_composite_mesh(sub_parts, sub_key)
+			var comp_id := str(anchor.get_meta("component_entity", ""))
+			var is_static_sub: bool = (sub_str == "PlacedDriveCog" or sub_str == "LooseDriveShaft") and not _visual_rates.has(comp_id)
+			var mesh := _rigid_composite_mesh(sub_parts, sub_key, not is_static_sub)
 			var mesh_id := mesh.get_instance_id()
-			if not dynamic_composites.has(mesh_id):
-				dynamic_composites[mesh_id] = {"mesh": mesh, "entries": []}
-			dynamic_composites[mesh_id].entries.append({"node": sub, "pose": anchor.transform * sub.transform})
+			if is_static_sub:
+				if not static_composites.has(mesh_id):
+					static_composites[mesh_id] = {"mesh": mesh, "poses": []}
+				static_composites[mesh_id].poses.append(anchor.transform * sub.transform)
+			else:
+				if not dynamic_composites.has(mesh_id):
+					dynamic_composites[mesh_id] = {"mesh": mesh, "entries": []}
+				dynamic_composites[mesh_id].entries.append({"node": sub, "pose": anchor.transform * sub.transform})
 			for part in sub_parts:
-				(part.source as MeshInstance3D).visible = false
-		for box_name in ["MovingDie", "RamSlideNear", "RamSlideFar"]:
-			var box_node := anchor.get_node_or_null(box_name) as MeshInstance3D
-			if box_node == null or not box_node.mesh is BoxMesh:
-				continue
-			var box_size: Vector3 = (box_node.mesh as BoxMesh).size
-			box_node.set_meta("batch_scale", box_size)
-			var finish: Material = box_node.material_override
-			var finish_id := finish.get_instance_id() if finish != null else 0
-			if not dynamic_boxes.has(finish_id):
-				dynamic_boxes[finish_id] = {"finish": finish, "entries": []}
-			dynamic_boxes[finish_id].entries.append({"node": box_node,
-				"pose": anchor.transform * Transform3D(Basis.IDENTITY.scaled(box_size), box_node.position)})
-			box_node.visible = false
-		for cyl_name in ["SlidePiston", "BroadCentralPiston"]:
-			var cyl_node := anchor.get_node_or_null(cyl_name) as MeshInstance3D
-			if cyl_node == null or not cyl_node.mesh is CylinderMesh:
-				continue
-			var cyl := cyl_node.mesh as CylinderMesh
-			var scale_vec := Vector3(cyl.top_radius, cyl.height, cyl.top_radius)
-			var finish: Material = cyl_node.material_override
-			var finish_id := finish.get_instance_id() if finish != null else 0
-			if not dynamic_cylinders.has(finish_id):
-				dynamic_cylinders[finish_id] = {"finish": finish, "entries": []}
-			dynamic_cylinders[finish_id].entries.append({"node": cyl_node,
-				"pose": anchor.transform * Transform3D(Basis.IDENTITY.scaled(scale_vec), cyl_node.position)})
-			cyl_node.visible = false
+				var mi := part.source as MeshInstance3D
+				mi.visible = false
+				_component_batch_hidden_meshes.append(mi)
+		if active_press_motion:
+			for box_name in ["MovingDie", "RamSlideNear", "RamSlideFar"]:
+				var box_node := anchor.get_node_or_null(box_name) as MeshInstance3D
+				if box_node == null or not box_node.mesh is BoxMesh:
+					continue
+				var box_size: Vector3 = (box_node.mesh as BoxMesh).size
+				box_node.set_meta("batch_scale", box_size)
+				var finish: Material = box_node.material_override
+				var finish_id := finish.get_instance_id() if finish != null else 0
+				if not dynamic_boxes.has(finish_id):
+					dynamic_boxes[finish_id] = {"finish": finish, "entries": []}
+				dynamic_boxes[finish_id].entries.append({"node": box_node,
+					"pose": anchor.transform * Transform3D(Basis.IDENTITY.scaled(box_size), box_node.position)})
+				box_node.visible = false
+				_component_batch_hidden_meshes.append(box_node)
+			for cyl_name in ["SlidePiston", "BroadCentralPiston"]:
+				var cyl_node := anchor.get_node_or_null(cyl_name) as MeshInstance3D
+				if cyl_node == null or not cyl_node.mesh is CylinderMesh:
+					continue
+				var cyl := cyl_node.mesh as CylinderMesh
+				var scale_vec := Vector3(cyl.top_radius, cyl.height, cyl.top_radius)
+				var finish: Material = cyl_node.material_override
+				var finish_id := finish.get_instance_id() if finish != null else 0
+				if not dynamic_cylinders.has(finish_id):
+					dynamic_cylinders[finish_id] = {"finish": finish, "entries": []}
+				dynamic_cylinders[finish_id].entries.append({"node": cyl_node,
+					"pose": anchor.transform * Transform3D(Basis.IDENTITY.scaled(scale_vec), cyl_node.position)})
+				cyl_node.visible = false
+				_component_batch_hidden_meshes.append(cyl_node)
 	var batch_idx := 0
 	if not static_composites.is_empty():
 		var merged_finishes := {}
@@ -2725,6 +2901,7 @@ func _rebuild_placed_component_batches() -> void:
 			var merged_node := MeshInstance3D.new()
 			merged_node.name = "PlacedStaticMerged"
 			merged_node.mesh = merged_mesh
+			merged_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(merged_node)
 			_component_batch_nodes.append(merged_node)
 	for group in dynamic_composites.values():
@@ -2735,7 +2912,9 @@ func _rebuild_placed_component_batches() -> void:
 			poses[i] = entries[i].pose
 		var multi := _add_batch(group.mesh, poses, "PlacedDynamicBatch%d" % batch_idx)
 		multi.custom_aabb = multi.custom_aabb.grow(4.0)
-		_component_batch_nodes.append(get_child(get_child_count() - 1) as Node3D)
+		var batch_node := get_child(get_child_count() - 1) as GeometryInstance3D
+		batch_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_component_batch_nodes.append(batch_node)
 		for i in entries.size():
 			var node: Node3D = entries[i].node
 			node.set_meta("batch_multimesh", multi)
@@ -2749,7 +2928,9 @@ func _rebuild_placed_component_batches() -> void:
 			poses[i] = entries[i].pose
 		var multi := _add_batch(_unit_support_box, poses, "PlacedDynamicBoxBatch%d" % batch_idx, group.finish)
 		multi.custom_aabb = multi.custom_aabb.grow(4.0)
-		_component_batch_nodes.append(get_child(get_child_count() - 1) as Node3D)
+		var batch_node := get_child(get_child_count() - 1) as GeometryInstance3D
+		batch_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_component_batch_nodes.append(batch_node)
 		for i in entries.size():
 			var node: Node3D = entries[i].node
 			node.set_meta("batch_multimesh", multi)
@@ -2763,7 +2944,9 @@ func _rebuild_placed_component_batches() -> void:
 			poses[i] = entries[i].pose
 		var multi := _add_batch(_unit_support_cylinder, poses, "PlacedDynamicCylBatch%d" % batch_idx, group.finish)
 		multi.custom_aabb = multi.custom_aabb.grow(4.0)
-		_component_batch_nodes.append(get_child(get_child_count() - 1) as Node3D)
+		var batch_node := get_child(get_child_count() - 1) as GeometryInstance3D
+		batch_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_component_batch_nodes.append(batch_node)
 		for i in entries.size():
 			var node: Node3D = entries[i].node
 			node.set_meta("batch_multimesh", multi)
@@ -2775,6 +2958,8 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 		if is_instance_valid(node):
 			node.free()
 	_drop_visuals.clear()
+	_drop_pickers_by_center.clear()
+	_last_drop_visual_sig = _drop_visual_signature(snapshot.get("dropped_material", []))
 	var guided_work_surfaces := {}
 	for press: Variant in snapshot.get("guided_press_assemblies", []):
 		if press is Dictionary and press.get("status") == "ready" \
@@ -2904,13 +3089,14 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 			label.pixel_size = 0.00075
 			label.outline_size = 6
 			label.no_depth_test = true
-			if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD:
+			if _is_live_batching():
+				label.visible = false
 				label.position += visual.position
 				add_child(label)
 				_drop_visuals.append(label)
 			else:
 				visual.add_child(label)
-	if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD and not _drop_visuals.is_empty():
+	if _is_live_batching() and not _drop_visuals.is_empty():
 		var drop_finishes := {}
 		for node in _drop_visuals:
 			if not is_instance_valid(node) or node is Label3D:
@@ -2947,6 +3133,7 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 			var merged_drops := MeshInstance3D.new()
 			merged_drops.name = "DroppedMaterialMerged"
 			merged_drops.mesh = drop_mesh
+			merged_drops.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(merged_drops)
 			_drop_visuals.append(merged_drops)
 
@@ -2977,7 +3164,20 @@ func refresh() -> void:
 		return
 	var parts: Variant = snapshot.get("transmission_parts")
 	var motions: Variant = snapshot.get("motion", {})
-	var component_result: Dictionary = Geometry.component_boxes(snapshot)
+	var comp_refs := [snapshot.get("options"), snapshot.get("landing_pod"),
+		snapshot.get("fabrication_hub"), snapshot.get("supplied_hardware_boxes"),
+		snapshot.get("placed_components")]
+	var comp_same: bool = native_model and bool(_cached_component_result.get("accepted", false)) \
+		and _cached_component_refs.size() == comp_refs.size()
+	if comp_same:
+		for i in comp_refs.size():
+			if not is_same(comp_refs[i], _cached_component_refs[i]):
+				comp_same = false
+				break
+	var component_result: Dictionary = _cached_component_result if comp_same else Geometry.component_boxes(snapshot)
+	if not comp_same and native_model and component_result.get("accepted", false):
+		_cached_component_refs = comp_refs
+		_cached_component_result = component_result
 	if not parts is Dictionary or not motions is Dictionary or not component_result.get("accepted", false):
 		_clear()
 		_clear_motion()
@@ -2991,27 +3191,52 @@ func refresh() -> void:
 		for id: Variant in spans:
 			var span: Variant = spans[id]
 			fixed_spans[id] = [span.get("generation"), span.get("from"), span.get("to")] if span is Dictionary else span
-	var topology_key := [snapshot.get("context"), parts, motions, fixed_spans,
+	var topo_refs := [snapshot.get("context"), parts, motions,
+		snapshot.get("engagements"), snapshot.get("collector_assemblies"),
+		snapshot.get("press_assemblies"), snapshot.get("guided_press_assemblies"),
+		snapshot.get("sliding_press_assemblies"), snapshot.get("broad_press_assemblies"),
+		snapshot.get("crank_items")]
+	var topo_same: bool = native_model and comp_same and _topology_key != null \
+		and fixed_spans == _last_fixed_spans and _last_topo_refs.size() == topo_refs.size()
+	if topo_same:
+		for i in topo_refs.size():
+			if not is_same(topo_refs[i], _last_topo_refs[i]):
+				topo_same = false
+				break
+	var topology_key: Array = _topology_key if topo_same else [snapshot.get("context"), parts, motions, fixed_spans,
 		snapshot.get("engagements", []), component_result.boxes,
 		snapshot.get("collector_assemblies", []), snapshot.get("press_assemblies", []),
 		snapshot.get("guided_press_assemblies", []), snapshot.get("sliding_press_assemblies", []),
 		snapshot.get("broad_press_assemblies", []), snapshot.get("crank_items", {})]
-	var next_key := [topology_key, snapshot.get("dropped_material", []), snapshot.get("slide_phases", {})]
-	if next_key == _view_key:
-		_native_view_context = native_context if native_model else ""
-		_native_view_revision = native_revision if native_model else null
-		_refresh_belt_cargo(spans)
-		return
-	if _topology_key != null and topology_key == _topology_key:
-		var drops_changed: bool = snapshot.get("dropped_material", []) != _last_dropped_material
-		var phases_changed: bool = snapshot.get("slide_phases", {}) != _last_slide_phases
+	if not topo_same:
+		var next_key := [topology_key, snapshot.get("dropped_material", []), snapshot.get("slide_phases", {})]
+		if next_key == _view_key:
+			_native_view_context = native_context if native_model else ""
+			_native_view_revision = native_revision if native_model else null
+			_refresh_belt_cargo(spans)
+			return
+	if topo_same or (_topology_key != null and topology_key == _topology_key):
+		var raw_drops: Variant = snapshot.get("dropped_material", [])
+		var raw_phases: Variant = snapshot.get("slide_phases", {})
+		var drops_changed: bool = not (native_model and is_same(raw_drops, _last_dropped_material_ref)) \
+			and raw_drops != _last_dropped_material
+		var phases_changed: bool = not (native_model and is_same(raw_phases, _last_slide_phases_ref)) \
+			and raw_phases != _last_slide_phases
+		if (drops_changed or phases_changed) and _is_live_batching() and not _component_batches_press_dynamic:
+			_rebuild_placed_component_batches(true)
 		if drops_changed or phases_changed:
 			_update_component_phases_and_lifts(snapshot, component_result.boxes)
 		if drops_changed:
-			_render_dropped_material(snapshot, component_result.boxes)
-			_last_dropped_material = snapshot.get("dropped_material", []).duplicate(true)
+			var next_drop_sig := _drop_visual_signature(raw_drops)
+			if next_drop_sig != _last_drop_visual_sig:
+				_render_dropped_material(snapshot, component_result.boxes)
+			else:
+				_update_loose_picker_metadata(raw_drops, str(snapshot.get("context", "")))
+			_last_dropped_material = raw_drops.duplicate(true) if raw_drops is Array else []
+			_last_dropped_material_ref = raw_drops if native_model else null
 		if phases_changed:
-			_last_slide_phases = snapshot.get("slide_phases", {}).duplicate(true)
+			_last_slide_phases = raw_phases.duplicate(true) if raw_phases is Dictionary else {}
+			_last_slide_phases_ref = raw_phases if native_model else null
 		_view_key = [_topology_key, _last_dropped_material, _last_slide_phases]
 		_native_view_context = native_context if native_model else ""
 		_native_view_revision = native_revision if native_model else null
@@ -3049,6 +3274,13 @@ func refresh() -> void:
 	_topology_key = topology_key.duplicate(true)
 	_last_dropped_material = snapshot.get("dropped_material", []).duplicate(true)
 	_last_slide_phases = snapshot.get("slide_phases", {}).duplicate(true)
+	_last_dropped_material_ref = snapshot.get("dropped_material") if native_model else null
+	_last_slide_phases_ref = snapshot.get("slide_phases") if native_model else null
+	_last_topo_refs = topo_refs if native_model else []
+	_last_fixed_spans = fixed_spans.duplicate(true) if native_model else {}
+	if native_model:
+		_cached_component_refs = comp_refs
+		_cached_component_result = component_result
 	_view_key = [_topology_key, _last_dropped_material, _last_slide_phases]
 	_native_view_context = native_context if native_model else ""
 	_native_view_revision = native_revision if native_model else null

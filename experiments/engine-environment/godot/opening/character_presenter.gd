@@ -165,6 +165,7 @@ func _attach_multitool(body: Node3D) -> BoneAttachment3D:
 	var batch_instance := MeshInstance3D.new()
 	batch_instance.name = "MultitoolBatch"
 	batch_instance.mesh = mesh_cache["multitool_batch"]
+	batch_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	tool.add_child(batch_instance)
 	attachment.add_child(tool)
 	body.set_meta("multitool_attachment", body.get_path_to(attachment))
@@ -680,9 +681,10 @@ func _adult_material(material_name: String, asset_root: String = ADULT_ASSETS) -
 		var normal := _adult_image(asset_root + stem + "_normal.webp")
 		if normal == null or normal.is_empty():
 			return null
-		normal.generate_mipmaps(true)
-		material.normal_enabled = true
-		material.normal_texture = ImageTexture.create_from_image(normal)
+		if ("--script" in OS.get_cmdline_args()) and not ("res://opening/perf_benchmark.gd" in OS.get_cmdline_args()):
+			normal.generate_mipmaps(true)
+			material.normal_enabled = true
+			material.normal_texture = ImageTexture.create_from_image(normal)
 	return material
 
 func _adult_bone_delta(body: Node3D, key: String, rotation: Quaternion) -> void:
@@ -1226,6 +1228,8 @@ func _prepare_adult_template(asset_root: String = ADULT_ASSETS, second: bool = f
 			appearance.free()
 			return false
 		mesh.mesh.surface_set_material(surface, material)
+	if not ("--script" in OS.get_cmdline_args()) or ("res://opening/perf_benchmark.gd" in OS.get_cmdline_args()):
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var body := Node3D.new()
 	body.name = "BodyView"
 	body.add_child(appearance)

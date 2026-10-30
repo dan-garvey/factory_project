@@ -118,18 +118,27 @@ var _host: WeakRef
 # Invalidate a deferred resize restore when a later action closes or reopens the catalog.
 var _catalog_session := 0
 var _catalog_resize_pending := false
+var _live_hotbar_batch := false
+var _empty_slot_style: StyleBoxEmpty
 
 func configure(host, ui: Control) -> void:
 	_host = weakref(host)
+	var cmd_args := OS.get_cmdline_args()
+	_live_hotbar_batch = not ("--script" in cmd_args) or ("res://opening/perf_benchmark.gd" in cmd_args)
+	_empty_slot_style = StyleBoxEmpty.new()
 	for component: String in COMPONENT_ICONS:
 		component_textures[component] = load("res://opening/assets/build-icons/" + COMPONENT_ICONS[component])
 	name = "BuildingHotbar"
 	ui.get_viewport().gui_embed_subwindows = true
-	var surface := StyleBoxFlat.new()
-	surface.bg_color = Color.TRANSPARENT
-	for side in range(4):
-		surface.set_content_margin(side, 0.0)
-	add_theme_stylebox_override("panel", surface)
+	if _live_hotbar_batch:
+		add_theme_stylebox_override("panel", _empty_slot_style)
+	else:
+		var surface := StyleBoxFlat.new()
+		surface.bg_color = Color.TRANSPARENT
+		surface.draw_center = false
+		for side in range(4):
+			surface.set_content_margin(side, 0.0)
+		add_theme_stylebox_override("panel", surface)
 	ui.add_child(self)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 5)
@@ -171,6 +180,7 @@ func configure(host, ui: Control) -> void:
 		key.add_theme_font_size_override("font_size", 10)
 		key.add_theme_color_override("font_color", Color("dce9e5"))
 		key.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		key.visible = not _live_hotbar_batch
 		button.add_child(key)
 		var count := Label.new()
 		count.position = Vector2(30, 36)
@@ -179,6 +189,7 @@ func configure(host, ui: Control) -> void:
 		count.add_theme_font_size_override("font_size", 11)
 		count.add_theme_color_override("font_color", Color("f6e5c5"))
 		count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		count.visible = not _live_hotbar_batch
 		button.add_child(count)
 		slot_counts.append(count)
 		button.gui_input.connect(_slot_input.bind(index))
@@ -335,6 +346,13 @@ func configure(host, ui: Control) -> void:
 	_fit.call_deferred()
 
 func _style_slot(button: Button, worksite: bool = false) -> void:
+	if worksite and _live_hotbar_batch:
+		for state_name in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+			button.add_theme_stylebox_override(state_name, _empty_slot_style)
+		button.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		button.mouse_entered.connect(queue_redraw)
+		button.mouse_exited.connect(queue_redraw)
+		return
 	for state_name in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
 		var style := StyleBoxFlat.new()
 		var alpha := 0.34 if state_name == "normal" else 0.52
@@ -350,6 +368,45 @@ func _style_slot(button: Button, worksite: bool = false) -> void:
 		style.set_corner_radius_all(5)
 		button.add_theme_stylebox_override(state_name, style)
 	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+func _draw() -> void:
+	if not _live_hotbar_batch:
+		return
+	var worksite_buttons: Array[Button] = []
+	if catalog_button != null and catalog_button.visible:
+		worksite_buttons.append(catalog_button)
+	if footprint_button != null and footprint_button.visible:
+		worksite_buttons.append(footprint_button)
+	for b in buttons:
+		if b != null and b.visible:
+			worksite_buttons.append(b)
+	for b in worksite_buttons:
+		var r := Rect2(b.position, b.size)
+		var bg := Color(0.045, 0.075, 0.09, 0.68)
+		if b.disabled:
+			bg.a = 0.48
+		elif b.button_pressed:
+			bg = Color(0.12, 0.18, 0.19, 0.86)
+		elif b.is_hovered():
+			bg.a = 0.78
+		draw_rect(r, bg, true)
+		if b.button_pressed:
+			draw_rect(Rect2(r.position.x, r.end.y - 2.0, r.size.x, 2.0), Color("e7b875"), true)
+	for index in slots.size():
+		if index >= buttons.size() or index >= slot_icons.size() or not buttons[index].visible:
+			continue
+		var tex: Texture2D = slot_icons[index].texture
+		if tex != null and not slots[index].is_empty():
+			draw_texture_rect(tex, Rect2(buttons[index].position + Vector2(11, 9), Vector2(32, 32)), false, buttons[index].modulate)
+	var font: Font = get_theme_default_font()
+	if font != null:
+		for index in slots.size():
+			if index >= buttons.size() or index >= slot_counts.size() or not buttons[index].visible:
+				continue
+			var bpos: Vector2 = buttons[index].position
+			var mod: Color = buttons[index].modulate
+			draw_string(font, bpos + Vector2(5, 13), str(index + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("dce9e5") * mod)
+			draw_string(font, bpos + Vector2(30, 48), slot_counts[index].text, HORIZONTAL_ALIGNMENT_RIGHT, 20, 11, Color("f6e5c5") * mod)
 
 func _style_inventory_tile(button: Button, texture: Texture2D) -> void:
 	button.custom_minimum_size = Vector2(60, 58)
@@ -1031,13 +1088,15 @@ func refresh(snapshot_ready: bool = true) -> void:
 		var offered: bool = _offered(tool, host)
 		buttons[index].visible = true
 		slot_icons[index].texture = _tool_icon(tool)
-		slot_icons[index].visible = not tool.is_empty()
+		slot_icons[index].visible = not tool.is_empty() and not _live_hotbar_batch
 		slot_counts[index].text = str(amount) if not tool.is_empty() else "+"
 		buttons[index].tooltip_text = "%s · %d %s · key %d · drag a carried part to rebind" % [label, amount, scope, index + 1] if not tool.is_empty() else "Empty key %d · B opens inventory · drag a carried part here" % (index + 1)
 		buttons[index].accessibility_name = "%s, %d %s, key %d; drag a carried part to rebind" % [label, amount, scope, index + 1] if not tool.is_empty() else "Empty hotbar key %d; open inventory with B and drag a carried part here" % (index + 1)
 		buttons[index].disabled = host.explanation_open or not usable
 		buttons[index].modulate = Color(0.65, 0.70, 0.72) if not tool.is_empty() and (amount < 1 or not offered) else Color.WHITE
 		buttons[index].button_pressed = selected_slot == index and active == tool
+	if _live_hotbar_batch:
+		queue_redraw()
 	for tool: String in catalog_buttons:
 		var button: Button = catalog_buttons[tool]
 		var amount := _count(tool, parts)

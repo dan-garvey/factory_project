@@ -1,6 +1,7 @@
 extends RefCounted
 ## Render resources only; no scene controller or simulation authority.
 const Geometry = preload("res://opening/site_geometry.gd")
+const MachineBatcher = preload("res://opening/machine_batches.gd")
 const ProductionSteelFloor = preload("res://opening/production_surfaces.gd").ProductionSteelFloor
 const ProductionVisuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
 
@@ -54,6 +55,9 @@ class ProductionEnvironment:
 	static var rock_boulder_mesh: ArrayMesh
 	static var ore_ground_finish: StandardMaterial3D
 	static var ore_stone_finish: ShaderMaterial
+	static var live_lod_cache := {}
+	static var live_mat_cache := {}
+	static var live_play_cached: int = -1
 	const ORE_FIELD_STONES = preload("res://opening/assets/mineral-outcrop/field-rock-moss-set-02.glb")
 	const ORE_FIELD_BOULDER_SHADER = preload("res://opening/ore_field_scan.gdshader")
 
@@ -98,7 +102,7 @@ class ProductionEnvironment:
 		noise.fractal_octaves = 3
 		noise.fractal_gain = 0.45
 		var heights := noise.get_seamless_image(256, 256)
-		var image := Image.create(256, 256, false, Image.FORMAT_RGB8)
+		var image := Image.create(256, 256, false, Image.FORMAT_RGBA8)
 		for y in range(256):
 			for x in range(256):
 				var dx := heights.get_pixel((x + 1) % 256, y).r - heights.get_pixel((x + 255) % 256, y).r
@@ -397,6 +401,48 @@ class ProductionEnvironment:
 		parent.add_child(part)
 		return part
 
+	static func merge_static_meshes(parent: Node3D, batch_name: String, parts: Array[MeshInstance3D], poses: Array[Transform3D]) -> MeshInstance3D:
+		if parts.is_empty() or parts.size() != poses.size():
+			return null
+		var by_mat := {}
+		var mat_order: Array[Material] = []
+		for idx in parts.size():
+			var part := parts[idx]
+			if part == null or part.mesh == null or part.mesh.get_surface_count() == 0:
+				continue
+			var mat: Material = part.material_override
+			if mat == null:
+				mat = part.mesh.surface_get_material(0)
+			if mat == null:
+				continue
+			var mid := mat.get_instance_id()
+			if not by_mat.has(mid):
+				by_mat[mid] = []
+				mat_order.append(mat)
+			by_mat[mid].append({"part": part, "pose": poses[idx]})
+		if mat_order.is_empty():
+			return null
+		var merged_mesh := ArrayMesh.new()
+		for mat in mat_order:
+			var entries: Array = by_mat[mat.get_instance_id()]
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			for entry in entries:
+				var p: MeshInstance3D = entry.part
+				st.append_from(p.mesh, 0, entry.pose)
+				p.visible = false
+			var surf_idx := merged_mesh.get_surface_count()
+			st.commit(merged_mesh)
+			merged_mesh.surface_set_material(surf_idx, _live_botanical_material(mat))
+		if is_live_play():
+			merged_mesh = MachineBatcher.finish_mesh(merged_mesh, true)
+		var batch := MeshInstance3D.new()
+		batch.name = batch_name
+		batch.mesh = merged_mesh
+		batch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(batch)
+		return batch
+
 	static func _build_millrace_architecture(scenery: Node3D) -> Node3D:
 		var arch := Node3D.new()
 		arch.name = "MillraceArchitecture"
@@ -408,14 +454,23 @@ class ProductionEnvironment:
 			node.position = Surface.group_origin(group)
 			arch.add_child(node)
 			groups[group] = node
-		var finishes := {"stone": stone_material(), "dark_stone": ProductionVisuals.material(Color("38403e"), 0.0, 0.92),
+		var finishes := {"stone": _live_botanical_material(stone_material()), "dark_stone": ProductionVisuals.material(Color("38403e"), 0.0, 0.92),
 			"foam": foam_material()}
+		var live_batch := is_live_play()
+		var arch_parts: Array[MeshInstance3D] = []
+		var arch_poses: Array[Transform3D] = []
 		for spec in Surface.architecture_boxes():
 			var part := _scenery_box(groups[spec.group], spec.label,
 				spec.center - Surface.group_origin(spec.group), spec.size, finishes[spec.finish])
 			part.basis = spec.basis
+			if live_batch:
+				part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			if spec.solid:
 				part.set_meta("site_solid_id", spec.id)
+			arch_parts.append(part)
+			arch_poses.append(Transform3D(spec.basis, spec.center))
+		if live_batch:
+			merge_static_meshes(arch, "MillraceArchitectureBatch", arch_parts, arch_poses)
 		return arch
 
 	static func _cutout_mipmaps(image: Image) -> bool:
@@ -545,7 +600,7 @@ class ProductionEnvironment:
 		var instances := MultiMesh.new()
 		instances.transform_format = MultiMesh.TRANSFORM_3D
 		instances.use_colors = true
-		instances.mesh = foliage_cluster_mesh
+		instances.mesh = _live_lod_mesh(foliage_cluster_mesh, [-12])
 		instances.instance_count = 96
 		var buffer := PackedFloat32Array()
 		for n in range(96):
@@ -574,7 +629,7 @@ class ProductionEnvironment:
 		var foliage := MultiMeshInstance3D.new()
 		foliage.name = "GroundFoliage"
 		foliage.multimesh = instances
-		foliage.material_override = finish
+		foliage.material_override = _live_botanical_material(finish)
 		foliage.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED if foliage_source_status == "ready" else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		foliage.set_meta("candidate_buffer", buffer)
 		return foliage
@@ -646,7 +701,7 @@ class ProductionEnvironment:
 			var instances := MultiMesh.new()
 			instances.transform_format = MultiMesh.TRANSFORM_3D
 			instances.use_colors = true
-			instances.mesh = foliage_cluster_mesh
+			instances.mesh = _live_lod_mesh(foliage_cluster_mesh, [-12])
 			instances.instance_count = count
 			instances.buffer = buffer
 			instances.custom_aabb = bounds
@@ -654,8 +709,8 @@ class ProductionEnvironment:
 			patch.name = "GrassPatch%02d" % patch_index
 			patch.position = center
 			patch.multimesh = instances
-			patch.material_override = foliage_finish
-			patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			patch.material_override = _live_botanical_material(foliage_finish)
+			patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			patch.visibility_range_end = 62.0
 			patch.set_meta("candidate_buffer", buffer)
 			meadow.add_child(patch)
@@ -711,13 +766,13 @@ class ProductionEnvironment:
 		var instances := MultiMesh.new()
 		instances.transform_format = MultiMesh.TRANSFORM_3D
 		instances.use_colors = true
-		instances.mesh = foliage_cluster_mesh
+		instances.mesh = _live_lod_mesh(foliage_cluster_mesh, [-12])
 		instances.instance_count = count
 		instances.buffer = buffer
 		instances.custom_aabb = bounds
 		patch.multimesh = instances
-		patch.material_override = foliage_finish
-		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+		patch.material_override = _live_botanical_material(foliage_finish)
+		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		patch.visibility_range_end = 40.0
 		# Candidates are derived presentation, never saved vegetation state.
 		patch.set_meta("candidate_buffer", buffer)
@@ -783,9 +838,206 @@ class ProductionEnvironment:
 		patch.multimesh.instance_count = kept.size() / stride
 		patch.multimesh.buffer = kept
 
+	static func is_live_play(state: Dictionary = {}) -> bool:
+		if live_play_cached == -1:
+			var args := OS.get_cmdline_args()
+			live_play_cached = 1 if (not ("--script" in args) or ("res://opening/perf_benchmark.gd" in args)) else 0
+		return live_play_cached == 1 or state.get("placed_components", {}).size() >= 12
+
+	static func _live_botanical_material(mat: Material) -> Material:
+		if not is_live_play() or not mat is StandardMaterial3D:
+			return mat
+		var mid := mat.get_instance_id()
+		if live_mat_cache.has(mid):
+			return live_mat_cache[mid]
+		var dup := (mat as StandardMaterial3D).duplicate(false) as StandardMaterial3D
+		if dup.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+			dup.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+			dup.alpha_scissor_threshold = 0.35
+		else:
+			dup.cull_mode = BaseMaterial3D.CULL_BACK
+		dup.normal_enabled = false
+		dup.normal_texture = null
+		dup.ao_enabled = false
+		dup.ao_texture = null
+		dup.roughness_texture = null
+		dup.metallic_texture = null
+		dup.roughness = 0.85
+		live_mat_cache[mid] = dup
+		return dup
+
+	static func _live_lod_mesh(mesh: ArrayMesh, max_tris: Array, generate: bool = true) -> ArrayMesh:
+		if mesh == null or not is_live_play():
+			return mesh
+		var key := "%d:%s:%d" % [mesh.get_instance_id(), str(max_tris), 1 if generate else 0]
+		if live_lod_cache.has(key):
+			return live_lod_cache[key]
+		var out := ArrayMesh.new()
+		for s in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(s)
+			var base_idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			var orig_pts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var pts: PackedVector3Array = orig_pts.duplicate()
+			var target_tris: int = int(max_tris[s]) if s < max_tris.size() else (base_idx.size() / 3)
+			var chosen_idx: PackedInt32Array = base_idx
+			if target_tris < 0:
+				var stride := absi(target_tris)
+				var card_scale := clampf(pow(float(stride), 0.34), 1.0, 2.75)
+				var quad_count := base_idx.size() / 6
+				if quad_count > 0:
+					var sampled := PackedInt32Array()
+					sampled.resize(((quad_count + stride - 1) / stride) * 6)
+					var w := 0
+					var scaled_verts := {}
+					for q in range(0, quad_count, stride):
+						var base_off := q * 6
+						var i0 := base_idx[base_off]
+						var i1 := base_idx[base_off + 1]
+						var i2 := base_idx[base_off + 2]
+						var i3 := base_idx[base_off + 3]
+						var i4 := base_idx[base_off + 4]
+						var i5 := base_idx[base_off + 5]
+						sampled[w] = i0
+						sampled[w + 1] = i1
+						sampled[w + 2] = i2
+						sampled[w + 3] = i3
+						sampled[w + 4] = i4
+						sampled[w + 5] = i5
+						w += 6
+						if card_scale > 1.01:
+							if (orig_pts[i0] - orig_pts[i3]).length_squared() < 0.16:
+								var center := (orig_pts[i0] + orig_pts[i1] + orig_pts[i2] + orig_pts[i3] + orig_pts[i4] + orig_pts[i5]) / 6.0
+								for vi in [i0, i1, i2, i3, i4, i5]:
+									if not scaled_verts.has(vi):
+										scaled_verts[vi] = true
+										pts[vi] = center + (orig_pts[vi] - center) * card_scale
+							else:
+								var c_a := (orig_pts[i0] + orig_pts[i1] + orig_pts[i2]) / 3.0
+								for vi in [i0, i1, i2]:
+									if not scaled_verts.has(vi):
+										scaled_verts[vi] = true
+										pts[vi] = c_a + (orig_pts[vi] - c_a) * card_scale
+								var c_b := (orig_pts[i3] + orig_pts[i4] + orig_pts[i5]) / 3.0
+								for vi in [i3, i4, i5]:
+									if not scaled_verts.has(vi):
+										scaled_verts[vi] = true
+										pts[vi] = c_b + (orig_pts[vi] - c_b) * card_scale
+					sampled.resize(w)
+					chosen_idx = sampled
+			elif target_tris < (base_idx.size() / 3):
+				if generate:
+					var single := ArrayMesh.new()
+					single.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+					var imp := ImporterMesh.from_mesh(single)
+					if imp.get_surface_lod_count(0) == 0:
+						imp.generate_lods(60.0, 60.0, [])
+					var lod_count := imp.get_surface_lod_count(0)
+					for l in lod_count:
+						var lod_idx: PackedInt32Array = imp.get_surface_lod_indices(0, l)
+						var tris := lod_idx.size() / 3
+						if tris > 0:
+							chosen_idx = lod_idx
+							if tris <= target_tris:
+								break
+				var cur_tris := chosen_idx.size() / 3
+				if cur_tris > target_tris and target_tris > 0:
+					var areas := PackedFloat32Array()
+					areas.resize(cur_tris)
+					for t in cur_tris:
+						var off := t * 3
+						var p0 := orig_pts[chosen_idx[off]]
+						var p1 := orig_pts[chosen_idx[off + 1]]
+						var p2 := orig_pts[chosen_idx[off + 2]]
+						areas[t] = (p1 - p0).cross(p2 - p0).length_squared()
+					var sorted_areas := areas.duplicate()
+					sorted_areas.sort()
+					var min_area2: float = sorted_areas[cur_tris - target_tris]
+					var filtered := PackedInt32Array()
+					filtered.resize(target_tris * 3)
+					var fw := 0
+					for t in cur_tris:
+						if areas[t] >= min_area2 and fw < target_tris * 3:
+							var off := t * 3
+							filtered[fw] = chosen_idx[off]
+							filtered[fw + 1] = chosen_idx[off + 1]
+							filtered[fw + 2] = chosen_idx[off + 2]
+							fw += 3
+					if fw > 0:
+						filtered.resize(fw)
+						chosen_idx = filtered
+			arrays[Mesh.ARRAY_VERTEX] = pts
+			if chosen_idx.size() < base_idx.size() and arrays[Mesh.ARRAY_BONES] == null:
+				var remap := PackedInt32Array()
+				remap.resize(pts.size())
+				remap.fill(-1)
+				var new_idx := PackedInt32Array()
+				new_idx.resize(chosen_idx.size())
+				var order := PackedInt32Array()
+				for i in chosen_idx.size():
+					var old_v := chosen_idx[i]
+					var new_v := remap[old_v]
+					if new_v < 0:
+						new_v = order.size()
+						remap[old_v] = new_v
+						order.append(old_v)
+					new_idx[i] = new_v
+				var new_pts := PackedVector3Array()
+				new_pts.resize(order.size())
+				for i in order.size():
+					new_pts[i] = pts[order[i]]
+				arrays[Mesh.ARRAY_VERTEX] = new_pts
+				if arrays[Mesh.ARRAY_NORMAL] is PackedVector3Array and (arrays[Mesh.ARRAY_NORMAL] as PackedVector3Array).size() == pts.size():
+					var old_n: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+					var new_n := PackedVector3Array()
+					new_n.resize(order.size())
+					for i in order.size():
+						new_n[i] = old_n[order[i]]
+					arrays[Mesh.ARRAY_NORMAL] = new_n
+				if arrays[Mesh.ARRAY_TANGENT] is PackedFloat32Array and (arrays[Mesh.ARRAY_TANGENT] as PackedFloat32Array).size() == pts.size() * 4:
+					var old_t: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+					var new_t := PackedFloat32Array()
+					new_t.resize(order.size() * 4)
+					for i in order.size():
+						var src := order[i] * 4
+						var dst := i * 4
+						new_t[dst] = old_t[src]
+						new_t[dst + 1] = old_t[src + 1]
+						new_t[dst + 2] = old_t[src + 2]
+						new_t[dst + 3] = old_t[src + 3]
+					arrays[Mesh.ARRAY_TANGENT] = new_t
+				if arrays[Mesh.ARRAY_COLOR] is PackedColorArray and (arrays[Mesh.ARRAY_COLOR] as PackedColorArray).size() == pts.size():
+					var old_c: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+					var new_c := PackedColorArray()
+					new_c.resize(order.size())
+					for i in order.size():
+						new_c[i] = old_c[order[i]]
+					arrays[Mesh.ARRAY_COLOR] = new_c
+				if arrays[Mesh.ARRAY_TEX_UV] is PackedVector2Array and (arrays[Mesh.ARRAY_TEX_UV] as PackedVector2Array).size() == pts.size():
+					var old_uv: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+					var new_uv := PackedVector2Array()
+					new_uv.resize(order.size())
+					for i in order.size():
+						new_uv[i] = old_uv[order[i]]
+					arrays[Mesh.ARRAY_TEX_UV] = new_uv
+				if arrays[Mesh.ARRAY_TEX_UV2] is PackedVector2Array and (arrays[Mesh.ARRAY_TEX_UV2] as PackedVector2Array).size() == pts.size():
+					var old_uv2: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+					var new_uv2 := PackedVector2Array()
+					new_uv2.resize(order.size())
+					for i in order.size():
+						new_uv2[i] = old_uv2[order[i]]
+					arrays[Mesh.ARRAY_TEX_UV2] = new_uv2
+				arrays[Mesh.ARRAY_INDEX] = new_idx
+			else:
+				arrays[Mesh.ARRAY_INDEX] = chosen_idx
+			out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+			out.surface_set_material(s, _live_botanical_material(mesh.surface_get_material(s)))
+		live_lod_cache[key] = out
+		return out
+
 	static func refresh_vegetation(scenery: Node3D, state: Dictionary) -> void:
 		# Only soft, unsaved decoration is hidden. Natural collision geometry
 		# and the confirmed construction facts remain untouched.
+		var live_batch := is_live_play(state)
 		var volumes := _construction_volumes(state)
 		for spec in Surface.fir_specs() + Surface.broadleaf_specs():
 			var source: Dictionary = state.get("hand_sources", {}).get(spec.id, {})
@@ -794,20 +1046,41 @@ class ProductionEnvironment:
 				volumes.append(AABB(spec.center - Vector3(radius, 0.1, radius),
 					Vector3(radius * 2.0, 0.8, radius * 2.0)))
 		for name in ["GroundFoliage", "ForegroundBank", "PineUnderstory"]:
-			_refresh_plant_patch(scenery.get_node_or_null(name) as MultiMeshInstance3D, volumes)
+			var patch := scenery.get_node_or_null(name) as MultiMeshInstance3D
+			if patch != null and live_batch:
+				patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_refresh_plant_patch(patch, volumes)
+			if patch != null and name in ["GroundFoliage", "ForegroundBank"]:
+				patch.visible = not live_batch
 		var shrubs := scenery.get_node_or_null("ShrubUnderstory")
 		if shrubs != null:
 			for patch: MultiMeshInstance3D in shrubs.get_children():
 				_refresh_plant_patch(patch, volumes)
 		var meadow := scenery.get_node_or_null("MeadowPatches")
 		if meadow != null:
-			var batch_meadow: bool = state.get("placed_components", {}).size() >= 12
-			var combined_buffer := PackedFloat32Array()
-			var combined_bounds := AABB()
-			var combined_count := 0
+			var batch_meadow: bool = live_batch
+			var q_bufs: Array[PackedFloat32Array] = [PackedFloat32Array(), PackedFloat32Array(), PackedFloat32Array(), PackedFloat32Array()]
+			var q_bounds: Array[AABB] = [AABB(), AABB(), AABB(), AABB()]
+			var q_counts: Array[int] = [0, 0, 0, 0]
 			var first_patch: MultiMeshInstance3D = null
+			if batch_meadow:
+				for extra_name in ["GroundFoliage", "ForegroundBank"]:
+					var extra := scenery.get_node_or_null(extra_name) as MultiMeshInstance3D
+					if extra != null and extra.multimesh != null and extra.multimesh.instance_count > 0:
+						if first_patch == null:
+							first_patch = extra
+						var ebuf: PackedFloat32Array = extra.multimesh.buffer
+						var emesh_aabb: AABB = extra.multimesh.mesh.get_aabb()
+						for offset in range(0, ebuf.size(), 16):
+							var s := ebuf.slice(offset, offset + 16)
+							var qi: int = (1 if s[3] >= 0.0 else 0) + (2 if s[11] >= 0.0 else 0)
+							q_bufs[qi].append_array(s)
+							var basis := Basis(Vector3(s[0], s[4], s[8]), Vector3(s[1], s[5], s[9]), Vector3(s[2], s[6], s[10]))
+							var env: AABB = Transform3D(basis, Vector3(s[3], s[7], s[11])) * emesh_aabb
+							q_bounds[qi] = env if q_counts[qi] == 0 else q_bounds[qi].merge(env)
+							q_counts[qi] += 1
 			for child in meadow.get_children():
-				if not child is MultiMeshInstance3D or child.name == "MeadowPatchesBatch":
+				if not child is MultiMeshInstance3D or child.name.begins_with("MeadowPatchesBatch"):
 					continue
 				var patch := child as MultiMeshInstance3D
 				_refresh_plant_patch(patch, volumes)
@@ -823,31 +1096,34 @@ class ProductionEnvironment:
 						s[3] += pos.x
 						s[7] += pos.y
 						s[11] += pos.z
-						combined_buffer.append_array(s)
+						var qi: int = (1 if s[3] >= 0.0 else 0) + (2 if s[11] >= 0.0 else 0)
+						q_bufs[qi].append_array(s)
 						var basis := Basis(Vector3(s[0], s[4], s[8]), Vector3(s[1], s[5], s[9]), Vector3(s[2], s[6], s[10]))
 						var env: AABB = Transform3D(basis, Vector3(s[3], s[7], s[11])) * mesh_aabb
-						combined_bounds = env if combined_count == 0 else combined_bounds.merge(env)
-						combined_count += 1
-			var batch_node := meadow.get_node_or_null("MeadowPatchesBatch") as MultiMeshInstance3D
-			if batch_meadow and combined_count > 0 and first_patch != null:
-				if batch_node == null:
-					batch_node = MultiMeshInstance3D.new()
-					batch_node.name = "MeadowPatchesBatch"
-					var mm := MultiMesh.new()
-					mm.transform_format = MultiMesh.TRANSFORM_3D
-					mm.use_colors = true
-					mm.mesh = first_patch.multimesh.mesh
-					batch_node.multimesh = mm
-					batch_node.material_override = first_patch.material_override
-					batch_node.cast_shadow = first_patch.cast_shadow
-					batch_node.visibility_range_end = first_patch.visibility_range_end
-					meadow.add_child(batch_node)
-				batch_node.multimesh.instance_count = combined_count
-				batch_node.multimesh.buffer = combined_buffer
-				batch_node.multimesh.custom_aabb = combined_bounds
-				batch_node.visible = true
-			elif batch_node != null:
-				batch_node.visible = false
+						q_bounds[qi] = env if q_counts[qi] == 0 else q_bounds[qi].merge(env)
+						q_counts[qi] += 1
+			for qi in 4:
+				var bname := "MeadowPatchesBatch%d" % qi
+				var batch_node := meadow.get_node_or_null(bname) as MultiMeshInstance3D
+				if batch_meadow and q_counts[qi] > 0 and first_patch != null:
+					if batch_node == null:
+						batch_node = MultiMeshInstance3D.new()
+						batch_node.name = bname
+						var mm := MultiMesh.new()
+						mm.transform_format = MultiMesh.TRANSFORM_3D
+						mm.use_colors = true
+						mm.mesh = first_patch.multimesh.mesh
+						batch_node.multimesh = mm
+						batch_node.material_override = first_patch.material_override
+						batch_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+						batch_node.visibility_range_end = 42.0
+						meadow.add_child(batch_node)
+					batch_node.multimesh.instance_count = q_counts[qi]
+					batch_node.multimesh.buffer = q_bufs[qi]
+					batch_node.multimesh.custom_aabb = q_bounds[qi]
+					batch_node.visible = true
+				elif batch_node != null:
+					batch_node.visible = false
 
 	static func read_pine(path: String = PINE_FILE) -> Dictionary:
 		if not FileAccess.file_exists(path):
@@ -937,13 +1213,13 @@ class ProductionEnvironment:
 				break
 		var instances := MultiMesh.new()
 		instances.transform_format = MultiMesh.TRANSFORM_3D
-		instances.mesh = pine_cluster_mesh
+		instances.mesh = _live_lod_mesh(pine_cluster_mesh, [800, -24], false)
 		instances.instance_count = count
 		instances.buffer = buffer
 		instances.custom_aabb = bounds
 		patch.multimesh = instances
 		patch.visibility_range_end = 32.0
-		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+		patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		patch.set_meta("candidate_buffer", buffer)
 		return patch
 
@@ -953,7 +1229,7 @@ class ProductionEnvironment:
 		var specs: Array[Dictionary] = Surface.fir_specs()
 		if specs.is_empty():
 			return group
-		var mesh: ArrayMesh = Surface.fir_mesh()
+		var mesh: ArrayMesh = _live_lod_mesh(Surface.fir_mesh(), [1500, -32, 800], false)
 		for spec in specs:
 			var tree := MeshInstance3D.new()
 			tree.name = spec.id
@@ -961,14 +1237,14 @@ class ProductionEnvironment:
 			tree.position = spec.center
 			tree.basis = spec.basis.scaled_local(Vector3.ONE * spec.scale)
 			tree.visibility_range_end = 65.0
-			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			group.add_child(tree)
 		return group
 
 	static func _bank_broadleaf() -> Node3D:
 		var group := Node3D.new()
 		group.name = "BankBroadleaf"
-		var mesh: ArrayMesh = Surface.broadleaf_mesh()
+		var mesh: ArrayMesh = _live_lod_mesh(Surface.broadleaf_mesh(), [1200, -24, 1800], false)
 		if mesh == null:
 			return group
 		for spec in Surface.broadleaf_specs():
@@ -978,7 +1254,7 @@ class ProductionEnvironment:
 			tree.position = spec.center
 			tree.basis = spec.basis.scaled_local(Vector3.ONE * spec.scale)
 			tree.visibility_range_end = 70.0
-			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			group.add_child(tree)
 		return group
 
@@ -1055,15 +1331,15 @@ class ProductionEnvironment:
 					break
 			var instances := MultiMesh.new()
 			instances.transform_format = MultiMesh.TRANSFORM_3D
-			instances.mesh = mesh
+			instances.mesh = _live_lod_mesh(mesh, [-16, -16, 200], false)
 			instances.instance_count = count
 			instances.buffer = buffer
 			instances.custom_aabb = bounds
 			var patch := MultiMeshInstance3D.new()
 			patch.name = "TallShrubs" if variant == 0 else "LowShrubs"
 			patch.multimesh = instances
-			patch.visibility_range_end = 38.0
-			patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			patch.visibility_range_end = 34.0
+			patch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			patch.set_meta("candidate_buffer", buffer)
 			group.add_child(patch)
 		return group
@@ -1110,15 +1386,15 @@ class ProductionEnvironment:
 		var instances := MultiMesh.new()
 		instances.transform_format = MultiMesh.TRANSFORM_3D
 		instances.use_colors = true
-		instances.mesh = fern_cluster_mesh
+		instances.mesh = _live_lod_mesh(fern_cluster_mesh, [-4])
 		instances.instance_count = count
 		instances.buffer = buffer
 		instances.custom_aabb = bounds
 		var ferns := MultiMeshInstance3D.new()
 		ferns.name = "FernClumps"
 		ferns.multimesh = instances
-		ferns.material_override = fern_finish
-		ferns.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+		ferns.material_override = _live_botanical_material(fern_finish)
+		ferns.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		ferns.visibility_range_end = 62.0
 		group.add_child(ferns)
 		return group
@@ -1126,7 +1402,7 @@ class ProductionEnvironment:
 	static func _rock_outcrops() -> MultiMeshInstance3D:
 		if rock_boulder_mesh == null:
 			rock_boulder_mesh = Surface.SOURCE_OUTCROP_MESH
-		var finish := stone_material()
+		var finish := _live_botanical_material(stone_material()) as StandardMaterial3D
 		if stone_source_status != "ready":
 			finish = StandardMaterial3D.new()
 			finish.albedo_color = Color.WHITE
@@ -1139,7 +1415,7 @@ class ProductionEnvironment:
 		var instances := MultiMesh.new()
 		instances.transform_format = MultiMesh.TRANSFORM_3D
 		instances.use_colors = true
-		instances.mesh = rock_boulder_mesh
+		instances.mesh = _live_lod_mesh(rock_boulder_mesh, [250])
 		instances.instance_count = 64
 		var buffer := PackedFloat32Array()
 		for spec in Surface.rock_boxes():
@@ -1158,6 +1434,7 @@ class ProductionEnvironment:
 		outcrops.name = "RockOutcrops"
 		outcrops.multimesh = instances
 		outcrops.material_override = finish
+		outcrops.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		return outcrops
 
 	static func _ore_ground_material() -> StandardMaterial3D:
@@ -1294,7 +1571,7 @@ class ProductionEnvironment:
 			[Vector2(0.92, 0.85), 0.67, 0.38],
 			[Vector2(-1.08, 0.65), 0.76, 1.08],
 			[Vector2(0.05, -0.88), 0.71, -0.94]]
-		var batch_stones: bool = state.get("placed_components", {}).size() >= 12
+		var batch_stones: bool = is_live_play(state)
 		var stone_vertices := PackedVector3Array()
 		var stone_normals := PackedVector3Array()
 		var stone_tangents := PackedFloat32Array()
@@ -1338,11 +1615,13 @@ class ProductionEnvironment:
 					var size: float = float(rock[1])
 					scan.scale = Vector3(size, size * 0.74, size)
 					scan.material_override = stone_finish
+					scan.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 					if batch_stones and scan.mesh != null:
 						scan.visible = false
 						var pose: Transform3D = patch.transform * scan.transform
 						var normal_basis: Basis = pose.basis.inverse().transposed()
-						var arrays := scan.mesh.surface_get_arrays(0)
+						var lod_mesh := _live_lod_mesh(scan.mesh as ArrayMesh, [200])
+						var arrays := lod_mesh.surface_get_arrays(0)
 						var pts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 						var nrms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 						var tgts: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
@@ -1380,10 +1659,14 @@ class ProductionEnvironment:
 			stone_batch_node.name = "OreFieldStonesBatch"
 			stone_batch_node.mesh = stone_batch_mesh
 			stone_batch_node.material_override = stone_finish
+			stone_batch_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(stone_batch_node)
 		return root
 
 	static func build(parent: Node3D) -> Node3D:
+		if is_live_play():
+			RenderingServer.directional_shadow_atlas_set_size(1024, true)
+			RenderingServer.directional_soft_shadow_filter_set_quality(RenderingServer.SHADOW_QUALITY_HARD)
 		var scenery := Node3D.new()
 		scenery.name = "ProductionScenery"
 		parent.add_child(scenery)
@@ -1416,6 +1699,7 @@ class ProductionEnvironment:
 		sun.light_color = Color("fff0d4")
 		sun.light_energy = 1.25
 		sun.shadow_enabled = true
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 		sun.directional_shadow_max_distance = 45.0
 		scenery.add_child(sun)
 		var fill := DirectionalLight3D.new()
@@ -1430,6 +1714,7 @@ class ProductionEnvironment:
 		terrain.mesh = terrain_mesh()
 		terrain.position = Vector3.ZERO
 		terrain.material_override = ground_material()
+		terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		scenery.add_child(terrain)
 		var stream := MeshInstance3D.new()
 		stream.name = "StreamSurface"

@@ -332,6 +332,8 @@ static func mineral_deposit(parent: Node3D, state: Dictionary) -> void:
 	var host := _part(exposure, "ExposedRock", Scenery.Surface.SOURCE_OUTCROP_MESH, spec.center, Color.WHITE)
 	host.basis = spec.basis
 	host.material_override = finish
+	if Scenery.is_live_play(state):
+		host.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if band > 0:
 		if source_ground == null:
 			var soil := Visuals.read_image("res://opening/assets/mineral-outcrop/ore-soil.webp")

@@ -144,7 +144,7 @@ var parts_label: Label
 var goal_text := ""
 var goal_detail := ""
 var objective_title := "FIRST SHIFT  /  01"
-var manager_log_layer: CanvasLayer
+var manager_log_layer
 var manager_log_panel: PanelContainer
 var manager_log_current: Label
 var manager_log_completion_entry: Label
@@ -237,8 +237,8 @@ var arrival_reveal_probe := false
 var arrival_reveal_active := false
 var arrival_reveal_elapsed := 0.0
 var arrival_reveal_pod_anchor := Vector3.ZERO
-var arrival_gameplay_canvas: CanvasLayer
-var arrival_reveal_canvas: CanvasLayer
+var arrival_gameplay_canvas
+var arrival_reveal_canvas
 var arrival_reveal_caption: Label
 var arrival_reveal_audio
 const ARRIVAL_REVEAL_SECONDS := 2.8
@@ -1002,6 +1002,11 @@ func _process(delta: float) -> void:
 	_advance_held_crank(delta)
 	if actor_world != null:
 		actor_world.set_belt_step_seconds(STEP_SECONDS if auto_advance else 0.0)
+		var player_body = actor_world.bodies.get(client)
+		var want_space_active: bool = not _is_live_batching() or player_body == null or not player_body.motion_enabled
+		var w3d := get_world_3d()
+		if w3d != null and PhysicsServer3D.space_is_active(w3d.space) != want_space_active:
+			PhysicsServer3D.space_set_active(w3d.space, want_space_active)
 	if auto_advance:
 		elapsed += delta
 		var advanced: Dictionary = {}
@@ -1110,8 +1115,8 @@ func _animate_wheel(delta: float) -> void:
 				# The full core is already in a MultiMesh. Beyond the last paddle
 				# detail range, advance that instance without dirtying the many
 				# hidden and distance-culled source nodes under its rotor.
-				if cull_far_joinery and machine_batches.machine_batched_rotors.has(rotor_id) \
-						and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS:
+				if machine_batches.machine_batched_rotors.has(rotor_id) and (_is_live_batching() \
+						or (cull_far_joinery and listener_position.distance_squared_to(wheel.center) > WHEEL_DETAIL_UPDATE_RADIUS * WHEEL_DETAIL_UPDATE_RADIUS)):
 					machine_batches.wheel_batch_poses[rotor_id] = Transform3D(basis, wheel.rotor.position)
 				else:
 					wheel.rotor.basis = basis
@@ -1874,12 +1879,15 @@ func _field_source_at(at: Vector3) -> String:
 			return id
 	return ""
 
+func _is_live_batching() -> bool:
+	return ProductionEnvironment.is_live_play(state)
+
 func _refresh_ore_field() -> void:
 	var deposit: Dictionary = state.get("source_deposit", {})
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery == null:
 		return
-	var key := str(deposit.get("cells", []).size()) + (":b1" if state.get("placed_components", {}).size() >= 12 else ":b0")
+	var key := str(deposit.get("cells", []).size()) + (":b1" if _is_live_batching() else ":b0")
 	for id: String in state.get("hand_sources", {}):
 		if id.begins_with(str(deposit.get("id", "")) + "-region-"):
 			key += ":" + id + "=" + str(state.hand_sources[id].get("remaining", -1))
@@ -1936,7 +1944,8 @@ func _prepare_hand_tree_assets() -> bool:
 	wood.roughness = 1.0
 	wood.metallic_specular = 0.0
 	wood.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var base := _hand_tree_stump(arrays, root, mesh.surface_get_material(bark_surface), wood)
+	var render_mesh: ArrayMesh = ProductionEnvironment._live_lod_mesh(mesh, [800, -24], false)
+	var base := _hand_tree_stump(arrays, root, render_mesh.surface_get_material(bark_surface), wood)
 	if base.is_empty():
 		return false
 	# The scar follows every actual bark face. A single tiny quad could face
@@ -1975,7 +1984,7 @@ void fragment() {
 	var stump_shape := CylinderShape3D.new()
 	stump_shape.height = base.height
 	stump_shape.radius = radius
-	hand_tree_assets = {"mesh": mesh, "root": root, "trunk": trunk, "stump": base.mesh,
+	hand_tree_assets = {"mesh": render_mesh, "root": root, "trunk": trunk, "stump": base.mesh,
 		"stump_shape": stump_shape, "stump_height": base.height, "cut": base.cap, "notch": scar}
 	return true
 
@@ -2073,15 +2082,17 @@ func _refresh_hand_trees() -> void:
 			tree.name = "Tree"
 			tree.mesh = hand_tree_assets.mesh
 			tree.position = -hand_tree_assets.root
-			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+			tree.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			body.add_child(tree)
 			var stump := MeshInstance3D.new()
 			stump.name = "Stump"
 			stump.mesh = hand_tree_assets.stump
+			stump.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			body.add_child(stump)
 			var cut := MeshInstance3D.new()
 			cut.name = "Cut"
 			cut.mesh = hand_tree_assets.cut
+			cut.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			body.add_child(cut)
 			var picker := CollisionShape3D.new()
 			picker.name = "PickShape"
@@ -2112,17 +2123,77 @@ func _refresh_hand_trees() -> void:
 			cut.material_override.set_shader_parameter("cut_fraction", fraction)
 		else:
 			cut.material_override = null
-	var batch_stumps: bool = state.get("placed_components", {}).size() >= 12
+	var batch_stumps: bool = _is_live_batching()
+	var standing_hand_buf := PackedFloat32Array()
+	var standing_hand_bounds := AABB()
+	var standing_hand_count := 0
 	var felled_ids: Array[String] = []
 	for id: String in sources:
 		if sources[id].remaining == 0:
 			felled_ids.append(id)
+		elif batch_stumps and hand_tree_nodes.has(id):
+			var hbody: Node3D = hand_tree_nodes[id]
+			var htree := hbody.get_node_or_null("Tree") as MeshInstance3D
+			if htree != null and htree.mesh != null:
+				htree.visible = false
+				var hpose: Transform3D = hbody.transform * htree.transform
+				standing_hand_buf.append_array(PackedFloat32Array([
+					hpose.basis.x.x, hpose.basis.y.x, hpose.basis.z.x, hpose.origin.x,
+					hpose.basis.x.y, hpose.basis.y.y, hpose.basis.z.y, hpose.origin.y,
+					hpose.basis.x.z, hpose.basis.y.z, hpose.basis.z.z, hpose.origin.z]))
+				var haabb: AABB = hpose * htree.mesh.get_aabb()
+				standing_hand_bounds = haabb if standing_hand_count == 0 else standing_hand_bounds.merge(haabb)
+				standing_hand_count += 1
+		elif not batch_stumps and hand_tree_nodes.has(id) and sources[id].remaining > 0:
+			var htree := (hand_tree_nodes[id] as Node3D).get_node_or_null("Tree") as MeshInstance3D
+			if htree != null:
+				htree.visible = true
+	var pine_patch := get_node_or_null("ProductionScenery/PineUnderstory") as MultiMeshInstance3D
+	if pine_patch != null:
+		pine_patch.visible = not batch_stumps
+		if batch_stumps and pine_patch.multimesh != null and pine_patch.multimesh.instance_count > 0:
+			standing_hand_buf.append_array(pine_patch.multimesh.buffer)
+			var paabb: AABB = pine_patch.multimesh.get_aabb()
+			standing_hand_bounds = paabb if standing_hand_count == 0 else standing_hand_bounds.merge(paabb)
+			standing_hand_count += pine_patch.multimesh.instance_count
+	var hand_standing_batch := get_node_or_null("HandTreesStandingBatch") as MultiMeshInstance3D
+	if batch_stumps and standing_hand_count > 0 and hand_tree_assets.has("mesh"):
+		if hand_standing_batch == null:
+			hand_standing_batch = MultiMeshInstance3D.new()
+			hand_standing_batch.name = "HandTreesStandingBatch"
+			var hmm := MultiMesh.new()
+			hmm.transform_format = MultiMesh.TRANSFORM_3D
+			hmm.mesh = hand_tree_assets.mesh
+			hand_standing_batch.multimesh = hmm
+			hand_standing_batch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(hand_standing_batch)
+		if hand_standing_batch.multimesh.instance_count != standing_hand_count \
+				or hand_standing_batch.multimesh.buffer != standing_hand_buf:
+			hand_standing_batch.multimesh.instance_count = standing_hand_count
+			hand_standing_batch.multimesh.buffer = standing_hand_buf
+			hand_standing_batch.multimesh.custom_aabb = standing_hand_bounds
+		hand_standing_batch.visible = true
+	elif hand_standing_batch != null:
+		hand_standing_batch.visible = false
 	felled_ids.sort()
 	var next_stumps_key := [batch_stumps, felled_ids]
 	if next_stumps_key != harvested_tree_stumps_key:
 		harvested_tree_stumps_key = next_stumps_key
 		if batch_stumps and not felled_ids.is_empty():
-			var stump_finishes := {}
+			var stump_bark := StandardMaterial3D.new()
+			stump_bark.albedo_color = Color("4f3e31")
+			stump_bark.roughness = 0.92
+			stump_bark.metallic = 0.0
+			var stump_wood := StandardMaterial3D.new()
+			stump_wood.albedo_color = Color("6b523d")
+			stump_wood.roughness = 0.88
+			stump_wood.metallic = 0.0
+			var st_bark := SurfaceTool.new()
+			st_bark.begin(Mesh.PRIMITIVE_TRIANGLES)
+			st_bark.set_material(stump_bark)
+			var st_wood := SurfaceTool.new()
+			st_wood.begin(Mesh.PRIMITIVE_TRIANGLES)
+			st_wood.set_material(stump_wood)
 			for id: String in felled_ids:
 				var body: Node3D = mature_tree_nodes.get(id) if (id.begins_with("fir_") or id.begins_with("broadleaf_")) else hand_tree_nodes.get(id)
 				if body == null:
@@ -2133,23 +2204,17 @@ func _refresh_hand_trees() -> void:
 						continue
 					mi.visible = false
 					var pose: Transform3D = body.transform * mi.transform
+					var target_st: SurfaceTool = st_bark if part_name == "Stump" else st_wood
 					for s in mi.mesh.get_surface_count():
-						var mat: Material = mi.material_override if mi.material_override != null else mi.mesh.surface_get_material(s)
-						var mat_id := mat.get_instance_id() if mat != null else 0
-						if not stump_finishes.has(mat_id):
-							var st := SurfaceTool.new()
-							st.begin(Mesh.PRIMITIVE_TRIANGLES)
-							st.set_material(mat)
-							stump_finishes[mat_id] = st
-						(stump_finishes[mat_id] as SurfaceTool).append_from(mi.mesh, s, pose)
-			var stump_mesh: ArrayMesh
-			for st: SurfaceTool in stump_finishes.values():
-				stump_mesh = st.commit(stump_mesh)
+						target_st.append_from(mi.mesh, s, pose)
+			var stump_mesh: ArrayMesh = st_bark.commit()
+			stump_mesh = st_wood.commit(stump_mesh)
 			if stump_mesh != null:
 				stump_mesh = MachineBatcher.finish_mesh(stump_mesh, true)
 			if harvested_tree_stumps_batch == null:
 				harvested_tree_stumps_batch = MeshInstance3D.new()
 				harvested_tree_stumps_batch.name = "HarvestedTreeStumpsBatch"
+				harvested_tree_stumps_batch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				add_child(harvested_tree_stumps_batch)
 			harvested_tree_stumps_batch.mesh = stump_mesh
 			harvested_tree_stumps_batch.visible = stump_mesh != null
@@ -2190,6 +2255,11 @@ func _refresh_mature_trees(sources: Dictionary) -> void:
 	if mature_tree_collision_rows.is_empty():
 		for row in ProductionEnvironment.Surface.mature_tree_collision_rows():
 			mature_tree_collision_rows[row.id] = row
+	var batch_trees := _is_live_batching()
+	var group_bufs := {"BankFirs": PackedFloat32Array(), "BankBroadleaf": PackedFloat32Array()}
+	var group_bounds := {"BankFirs": AABB(), "BankBroadleaf": AABB()}
+	var group_counts := {"BankFirs": 0, "BankBroadleaf": 0}
+	var group_meshes := {"BankFirs": null, "BankBroadleaf": null}
 	for spec in ProductionEnvironment.Surface.fir_specs() + ProductionEnvironment.Surface.broadleaf_specs():
 		var id: String = spec.id
 		var group := "BankFirs" if id.begins_with("fir_") else "BankBroadleaf"
@@ -2205,7 +2275,18 @@ func _refresh_mature_trees(sources: Dictionary) -> void:
 			push_error("Mature tree lacks a matching native timber source: " + id)
 			continue
 		var standing: bool = source.remaining > 0
-		standing_mesh.visible = standing
+		standing_mesh.visible = standing and not batch_trees
+		if batch_trees and standing and standing_mesh.mesh != null:
+			group_meshes[group] = standing_mesh.mesh
+			var tpose: Transform3D = standing_mesh.transform
+			var buf: PackedFloat32Array = group_bufs[group]
+			buf.append_array(PackedFloat32Array([
+				tpose.basis.x.x, tpose.basis.y.x, tpose.basis.z.x, tpose.origin.x,
+				tpose.basis.x.y, tpose.basis.y.y, tpose.basis.z.y, tpose.origin.y,
+				tpose.basis.x.z, tpose.basis.y.z, tpose.basis.z.z, tpose.origin.z]))
+			var taabb: AABB = tpose * standing_mesh.mesh.get_aabb()
+			group_bounds[group] = taabb if group_counts[group] == 0 else (group_bounds[group] as AABB).merge(taabb)
+			group_counts[group] = int(group_counts[group]) + 1
 		if not mature_tree_nodes.has(id):
 			var body := StaticBody3D.new()
 			body.name = "MatureTreePicker_" + id
@@ -2224,6 +2305,7 @@ func _refresh_mature_trees(sources: Dictionary) -> void:
 			stump_mesh.top_radius = radius * 0.9
 			stump.mesh = stump_mesh
 			stump.material_override = standing_mesh.mesh.surface_get_material(2)
+			stump.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			stump.position = Vector3(center.x,
 				ProductionEnvironment.Surface.height_at(center.x, center.z) + 0.07, center.z)
 			body.add_child(stump)
@@ -2231,6 +2313,7 @@ func _refresh_mature_trees(sources: Dictionary) -> void:
 			cap.name = "CutFace"
 			cap.mesh = _mature_cut_disk(radius * 0.9)
 			cap.material_override = ProductionEnvironment.cut_wood_material()
+			cap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			cap.position = stump.position + Vector3.UP * 0.11
 			body.add_child(cap)
 			add_child(body)
@@ -2254,6 +2337,31 @@ func _refresh_mature_trees(sources: Dictionary) -> void:
 			shape.height = 0.18
 			picker.position = body.get_node("Stump").position
 			picker.shape = shape
+	for group_name in ["BankFirs", "BankBroadleaf"]:
+		var gnode := scenery.get_node_or_null(group_name) as Node3D
+		if gnode == null:
+			continue
+		var bnode := gnode.get_node_or_null("LiveBatch") as MultiMeshInstance3D
+		var cnt: int = group_counts[group_name]
+		if batch_trees and cnt > 0 and group_meshes[group_name] != null:
+			if bnode == null:
+				bnode = MultiMeshInstance3D.new()
+				bnode.name = "LiveBatch"
+				var mm := MultiMesh.new()
+				mm.transform_format = MultiMesh.TRANSFORM_3D
+				mm.mesh = group_meshes[group_name]
+				bnode.multimesh = mm
+				bnode.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				bnode.visibility_range_end = 65.0 if group_name == "BankFirs" else 70.0
+				gnode.add_child(bnode)
+			if bnode.multimesh.instance_count != cnt \
+					or bnode.multimesh.buffer != group_bufs[group_name]:
+				bnode.multimesh.instance_count = cnt
+				bnode.multimesh.buffer = group_bufs[group_name]
+				bnode.multimesh.custom_aabb = group_bounds[group_name]
+			bnode.visible = true
+		elif bnode != null:
+			bnode.visible = false
 
 func _screen_hand_source(screen: Vector2) -> String:
 	if not _native_transmission() or camera == null or state.get("hand_sources", {}).is_empty():
@@ -3100,7 +3208,7 @@ func _build_world() -> void:
 		if is_inside_tree():
 			get_tree().quit(1)
 		return
-	var natural_stone: StandardMaterial3D = ProductionEnvironment.stone_material()
+	var natural_stone: StandardMaterial3D = ProductionEnvironment._live_botanical_material(ProductionEnvironment.stone_material()) as StandardMaterial3D
 	set_meta("foundation_surface", ProductionEnvironment.ground_source_status)
 	var groups := {"": self}
 	var headwall := Node3D.new()
@@ -3108,21 +3216,34 @@ func _build_world() -> void:
 	headwall.position = surface.group_origin("NorthSeamOutcrop")
 	add_child(headwall)
 	groups.NorthSeamOutcrop = headwall
+	var live_batch := _is_live_batching()
+	var site_parts: Array[MeshInstance3D] = []
+	var site_poses: Array[Transform3D] = []
 	for spec in surface.foundation_boxes():
 		var part := _machine_box(groups[spec.group], spec.label,
 			spec.center - surface.group_origin(spec.group), spec.size, spec.tint, spec.metallic, spec.roughness)
 		part.set_meta("site_solid_id", spec.id)
+		if live_batch:
+			part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if spec.label in ["EastBedrockShelf", "WestBankBedrockShelf"] and natural_ground != null:
 			part.material_override = natural_ground
 		elif spec.label in ["EastBedrockRim", "WestBedrockRim", "EastShelfOutcrop", "WestShelfOutcrop", "StreamBankLedge"] and natural_stone != null:
 			part.material_override = natural_stone
+		site_parts.append(part)
+		site_poses.append(Transform3D(Basis.IDENTITY, spec.center))
 	for spec in surface.pad_panels():
 		var tint := Color("74766b").darkened(float(posmod(spec.cell.x * 17 + spec.cell.y * 31, 5)) * 0.018)
 		var panel := _machine_box(self, "BedrockTerracePanel", spec.center, spec.size, tint, 0.0, 0.94)
 		panel.set_meta("surface_role", "foundation")
 		panel.set_meta("site_solid_id", spec.id)
+		if live_batch:
+			panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if natural_ground != null:
 			panel.material_override = natural_ground
+		site_parts.append(panel)
+		site_poses.append(Transform3D(Basis.IDENTITY, spec.center))
+	if live_batch:
+		ProductionEnvironment.merge_static_meshes(self, "SiteFoundationsBatch", site_parts, site_poses)
 	_install_transmission_terrain_picker()
 	machine_root = Node3D.new()
 	add_child(machine_root)
@@ -3467,7 +3588,7 @@ func _sync_landing_pod_visual() -> void:
 		# Host positions use the shared spindle anchor; the bench art sits on its floor.
 		landing_hub_visual.position = Vector3(float(position[0]), float(position[1]), float(position[2])) \
 			- Vector3.UP * Geometry.ANCHOR_HEIGHT
-	var batch_pod: bool = not arrival_reveal_active and state.get("placed_components", {}).size() >= 12
+	var batch_pod: bool = not arrival_reveal_active and _is_live_batching()
 	if batch_pod:
 		if landing_pod_batch_visual == null:
 			var pod_finishes := {}
@@ -3479,6 +3600,7 @@ func _sync_landing_pod_visual() -> void:
 			landing_pod_batch_visual = MeshInstance3D.new()
 			landing_pod_batch_visual.name = "DeployedLandingPodBatch"
 			landing_pod_batch_visual.mesh = pod_mesh
+			landing_pod_batch_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(landing_pod_batch_visual)
 		if landing_hub_batch_visual == null:
 			var hub_finishes := {}
@@ -3490,6 +3612,7 @@ func _sync_landing_pod_visual() -> void:
 			landing_hub_batch_visual = MeshInstance3D.new()
 			landing_hub_batch_visual.name = "PodFabricationHubBatch"
 			landing_hub_batch_visual.mesh = hub_mesh
+			landing_hub_batch_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(landing_hub_batch_visual)
 		_set_descendant_meshes_visible(landing_pod_visual, false)
 		_set_descendant_meshes_visible(landing_hub_visual, false)
@@ -3517,6 +3640,8 @@ func _maybe_start_arrival_reveal() -> void:
 	arrival_reveal_elapsed = 0.0
 	_release_character_controls()
 	arrival_reveal_active = true
+	if machine_root != null and machine_root.get_node_or_null("MachineVisualBatches") != null:
+		_rebuild_machines()
 	_sync_landing_pod_visual()
 	if character_presenter != null:
 		character_presenter.visible = false
@@ -3596,6 +3721,7 @@ func _finish_arrival_reveal(skipped: bool = true) -> void:
 	arrival_reveal_elapsed = ARRIVAL_REVEAL_SECONDS
 	_pose_arrival_reveal()
 	arrival_reveal_active = false
+	_rebuild_machines()
 	_sync_landing_pod_visual()
 	if character_presenter != null:
 		character_presenter.visible = true
@@ -4428,9 +4554,11 @@ func _warm_packed_machine_previews() -> void:
 		for kind in ["collector", "belt", "processor", "wheel"]:
 			packed_preview_templates[kind] = load("res://opening/assets/prebuilt-preview-" + kind + ".scn")
 		return
-	var cover := CanvasLayer.new()
+	var cover := Control.new()
 	cover.name = "MachinePreviewWarmup"
-	cover.layer = 100
+	cover.z_index = 100
+	cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cover.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var color := ColorRect.new()
 	color.color = Color("101e20")
 	color.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -4668,7 +4796,7 @@ func _rebuild_machines() -> void:
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
 	_index_machine_rotors()
 	machine_batches.rebuild(machine_root, machine_motion_anchors, _native_transmission(),
-		model is NativeWorldModel and state.get("placed_components", {}).size() >= 12)
+		not arrival_reveal_active and model is NativeWorldModel and _is_live_batching())
 
 func _redraw_items() -> void:
 	# The asset helper uses this script's shared surfaces, so load it after
@@ -6020,7 +6148,13 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 		if not drop.get("work_lots", []).is_empty():
 			items.append("%d copper workpiece" % drop.work_lots.size())
 		return {"name": ", ".join(items), "detail": "E  Pick up"}
-	var crank_id := _crank_at_screen(screen)
+	var hit := _screen_pick(screen)
+	var crank_id := ""
+	if not hit.is_empty():
+		var cid: String = str(hit.collider.get_meta("crank_entity", ""))
+		var citem: Dictionary = state.get("crank_items", {}).get(cid, {})
+		if citem.get("port", []).size() == 3 and str(citem.get("holder", "")).is_empty():
+			crank_id = cid
 	if not crank_id.is_empty():
 		var connected: bool = not str(state.crank_items[crank_id].get("attached_to", "")).is_empty()
 		var detail := "F then click  Reclaim"
@@ -6031,7 +6165,6 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 		return {"name": "Placed hand crank" if connected else "Disconnected hand crank",
 			"detail": detail,
 			"target": crank_id}
-	var hit := _screen_pick(screen)
 	var target := _picked_target_id(hit)
 	if _contains_target(state, target):
 		var detail := "E  Open"
@@ -6073,8 +6206,11 @@ func _refresh_pointed_summary() -> void:
 	if distance > 0.0 and get_viewport().gui_get_hovered_control() != null:
 		pointed_summary.visible = false
 		return
-	var cache_key := [screen, camera.global_transform, mode, state.get("revision"),
-		state.get("order"), transmission_controls.active_tool if transmission_controls != null else "",
+	var cache_key := [screen, camera.global_transform, mode,
+		state.get("order"), state.get("dropped_material", []).size(),
+		state.get("crank_items", {}).size(), state.get("manual_cuts", {}).get(client, {}),
+		state.get("stock", {}).get("output", 0) if pointed_summary.visible else 0,
+		transmission_controls.active_tool if transmission_controls != null else "",
 		transmission_controls._belt_start if transmission_controls != null else {}]
 	if model is NativeWorldModel and cache_key == pointed_summary_cache_key:
 		return
@@ -6094,7 +6230,10 @@ func _refresh_pointed_summary() -> void:
 func _build_interface() -> void:
 	# A revisable opening adapter limit, not a fixed window or a game-world rule.
 	get_window().min_size = Vector2i(640, 480)
-	var canvas := CanvasLayer.new()
+	var canvas := Control.new()
+	canvas.name = "GameplayCanvas"
+	canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(canvas)
 	arrival_gameplay_canvas = canvas
 	var root := Control.new()
@@ -6102,9 +6241,11 @@ func _build_interface() -> void:
 	canvas.add_child(root)
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.theme = ProductionInterface.make_theme()
-	arrival_reveal_canvas = CanvasLayer.new()
+	arrival_reveal_canvas = Control.new()
 	arrival_reveal_canvas.name = "ArrivalReveal"
-	arrival_reveal_canvas.layer = 50
+	arrival_reveal_canvas.z_index = 50
+	arrival_reveal_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	arrival_reveal_canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	arrival_reveal_canvas.visible = false
 	add_child(arrival_reveal_canvas)
 	var reveal_root := Control.new()
@@ -6140,7 +6281,7 @@ func _build_interface() -> void:
 	var fps_style := LabelSettings.new()
 	fps_style.font_size = 13
 	fps_style.font_color = Color("e7ede5")
-	fps_style.outline_size = 4
+	fps_style.outline_size = 0 if _is_live_batching() else 4
 	fps_style.outline_color = Color("16242a")
 	fps_label.label_settings = fps_style
 	building_hotbar = BuildingHotbar.new()
@@ -6266,9 +6407,11 @@ func _build_interface() -> void:
 	_build_manager_log()
 
 func _build_manager_log() -> void:
-	manager_log_layer = CanvasLayer.new()
+	manager_log_layer = Control.new()
 	manager_log_layer.name = "MeridianWorkLog"
-	manager_log_layer.layer = 20
+	manager_log_layer.z_index = 20
+	manager_log_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	manager_log_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	manager_log_layer.visible = false
 	add_child(manager_log_layer)
 	var log_root := Control.new()

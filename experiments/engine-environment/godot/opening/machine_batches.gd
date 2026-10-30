@@ -161,14 +161,55 @@ func _machine_finish_mesh(source: ArrayMesh) -> ArrayMesh:
 	return finish_mesh(source, false)
 
 static func finish_mesh(source: ArrayMesh, allow_extended: bool = false) -> ArrayMesh:
-	if source == null or source.get_surface_count() <= 1:
+	if source == null or source.get_surface_count() == 0 or (not allow_extended and source.get_surface_count() <= 1):
 		return source
 	# Opaque parts can share a surface when their finish differs only by values
 	# carried on vertices. Keep unsupported surfaces intact when allow_extended is set.
 	var groups := {}
 	var passthrough: Array[int] = []
 	for surface_index in source.get_surface_count():
-		var finish := source.surface_get_material(surface_index) as StandardMaterial3D
+		var raw_mat := source.surface_get_material(surface_index)
+		var finish := raw_mat as StandardMaterial3D
+		if allow_extended and finish == null and raw_mat is ShaderMaterial and source.surface_get_primitive_type(surface_index) == Mesh.PRIMITIVE_TRIANGLES:
+			var s_arrays := source.surface_get_arrays(surface_index)
+			var s_pts: PackedVector3Array = s_arrays[Mesh.ARRAY_VERTEX]
+			var s_norms: PackedVector3Array = s_arrays[Mesh.ARRAY_NORMAL]
+			var s_cols = s_arrays[Mesh.ARRAY_COLOR]
+			var s_uv2 = s_arrays[Mesh.ARRAY_TEX_UV2]
+			var s_idx = s_arrays[Mesh.ARRAY_INDEX]
+			var s_uv = s_arrays[Mesh.ARRAY_TEX_UV]
+			var s_tan = s_arrays[Mesh.ARRAY_TANGENT]
+			if s_norms.size() == s_pts.size() and s_cols is PackedColorArray and s_cols.size() == s_pts.size():
+				var s_key := [true, 3]
+				if not groups.has(s_key):
+					groups[s_key] = {"finish": null, "varied": true, "mode": 3, "key": s_key, "vertices": [],
+						"normals": [], "tangents": [], "uv": [], "uv2": [], "colors": [], "indices": []}
+				var s_group: Dictionary = groups[s_key]
+				var s_start: int = s_group.vertices.size()
+				for pi in s_pts.size():
+					s_group.vertices.append(s_pts[pi])
+					s_group.normals.append(s_norms[pi])
+					s_group.uv.append(s_uv[pi] if (s_uv is PackedVector2Array and s_uv.size() == s_pts.size()) else Vector2.ZERO)
+					if s_tan is PackedFloat32Array and s_tan.size() == s_pts.size() * 4:
+						for lane in 4:
+							s_group.tangents.append(s_tan[pi * 4 + lane])
+					else:
+						s_group.tangents.append(1.0)
+						s_group.tangents.append(0.0)
+						s_group.tangents.append(0.0)
+						s_group.tangents.append(1.0)
+					s_group.colors.append(s_cols[pi])
+					var r_val := float(s_uv2[pi].x) if (s_uv2 is PackedVector2Array and s_uv2.size() == s_pts.size()) else 0.55
+					if r_val >= 0.98:
+						r_val = 0.52
+					s_group.uv2.append(Vector2(r_val, 0.0))
+				if not s_idx is PackedInt32Array or s_idx.is_empty():
+					for pi in s_pts.size():
+						s_group.indices.append(s_start + pi)
+				else:
+					for pi in s_idx:
+						s_group.indices.append(s_start + pi)
+				continue
 		if finish == null or finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED \
 				or finish.albedo_texture != null \
 				or source.surface_get_primitive_type(surface_index) != Mesh.PRIMITIVE_TRIANGLES:
@@ -183,9 +224,7 @@ static func finish_mesh(source: ArrayMesh, allow_extended: bool = false) -> Arra
 		var uv = arrays[Mesh.ARRAY_TEX_UV]
 		var colors = arrays[Mesh.ARRAY_COLOR]
 		var indices = arrays[Mesh.ARRAY_INDEX]
-		var varied_plain: bool = allow_extended and not finish.normal_enabled \
-			and finish.roughness_texture == null and finish.metallic_texture == null \
-			and not finish.ao_enabled
+		var varied_plain: bool = allow_extended
 		var has_tangents_uv: bool = normals.size() == points.size() and tangents is PackedFloat32Array \
 			and tangents.size() == points.size() * 4 and uv is PackedVector2Array \
 			and uv.size() == points.size()
@@ -194,25 +233,26 @@ static func finish_mesh(source: ArrayMesh, allow_extended: bool = false) -> Arra
 				passthrough.append(surface_index)
 				continue
 			return source
-		var varied_planar := not finish.uv1_triplanar and finish.normal_enabled \
+		var varied_planar := not varied_plain and not finish.uv1_triplanar and finish.normal_enabled \
 			and finish.normal_texture != null and finish.roughness_texture != null \
 			and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
 			and finish.metallic_texture == null
-		var varied_triplanar := allow_extended and finish.uv1_triplanar and not finish.uv1_world_triplanar \
-			and finish.normal_enabled and finish.normal_texture != null and finish.roughness_texture != null \
-			and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
-			and finish.metallic_texture == null
+		var varied_triplanar := false
 		var varied := varied_planar or varied_triplanar or varied_plain
 		var mode := 1 if varied_planar else (2 if varied_triplanar else (3 if varied_plain else 0))
 		var key := [varied, mode]
-		for property in finish.get_property_list():
-			if (int(property.usage) & PROPERTY_USAGE_STORAGE) == 0 or property.name in [
-					"resource_name", "resource_path", "resource_local_to_scene",
-					"albedo_color", "vertex_color_use_as_albedo"]:
-				continue
-			if varied and property.name in ["metallic", "roughness"]:
-				continue
-			key.append([property.name, finish.get(property.name)])
+		if not varied_plain:
+			for property in finish.get_property_list():
+				if (int(property.usage) & PROPERTY_USAGE_STORAGE) == 0 or property.name in [
+						"resource_name", "resource_path", "resource_local_to_scene",
+						"albedo_color", "vertex_color_use_as_albedo"]:
+					continue
+				if varied and property.name in ["metallic", "roughness"]:
+					continue
+				key.append([property.name, finish.get(property.name)])
+		var eff_roughness: float = finish.roughness
+		if varied_plain and finish.roughness_texture != null and is_equal_approx(finish.roughness, 1.0):
+			eff_roughness = 0.42 if finish.normal_scale > 0.5 else (0.76 if finish.normal_scale < 0.12 else 0.68)
 		if not groups.has(key):
 			groups[key] = {"finish": finish, "varied": varied, "mode": mode, "key": key, "vertices": [],
 				"normals": [], "tangents": [], "uv": [], "uv2": [], "colors": [], "indices": []}
@@ -239,7 +279,7 @@ static func finish_mesh(source: ArrayMesh, allow_extended: bool = false) -> Arra
 				color *= colors[point_index]
 			if varied:
 				color.a = finish.metallic
-				group.uv2.append(Vector2(finish.roughness, 0))
+				group.uv2.append(Vector2(eff_roughness, 0))
 			group.colors.append(color)
 		if not indices is PackedInt32Array or indices.is_empty():
 			for point_index in points.size():
@@ -247,7 +287,7 @@ static func finish_mesh(source: ArrayMesh, allow_extended: bool = false) -> Arra
 		else:
 			for point_index in indices:
 				group.indices.append(start + point_index)
-	if groups.size() + passthrough.size() >= source.get_surface_count():
+	if groups.is_empty() or (not allow_extended and groups.size() + passthrough.size() >= source.get_surface_count()):
 		return source
 	var result := ArrayMesh.new()
 	for group in groups.values():
@@ -582,7 +622,7 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 			var instance := MultiMeshInstance3D.new()
 			instance.name = "MachineBatch%d" % batch_index
 			instance.multimesh = multi
-			instance.cast_shadow = layer_group.shadow
+			instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			instance.layers = layer_group.layers
 			instance.set_meta("spatial_composite", true)
 			batches.add_child(instance)
@@ -629,7 +669,7 @@ func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bo
 			instance.name = "MachineBatch%d" % batch_index
 			instance.multimesh = multi
 			instance.material_override = group.material
-			instance.cast_shadow = group.shadow
+			instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if force_live else group.shadow
 			instance.layers = group.layers
 			instance.set_meta("spatial_composite", group.get("spatial_composite", false))
 			batches.add_child(instance)
@@ -747,7 +787,7 @@ func rebuild(root: Node3D, motion_anchors: Array[Node3D], enabled: bool,
 			moving[row.node.get_instance_id()] = true
 	var static_groups := {}
 	var dynamic_groups := {}
-	var skip_sources := _batch_machine_composites(moving, static_groups, force_live)
+	var skip_sources := {} if force_live else _batch_machine_composites(moving, static_groups, false)
 	_batch_collector_cutters(dynamic_groups, skip_sources)
 	for anchor in machine_root.get_children():
 		if anchor is Node3D:
