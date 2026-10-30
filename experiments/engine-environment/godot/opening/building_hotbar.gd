@@ -124,7 +124,7 @@ var _empty_slot_style: StyleBoxEmpty
 func configure(host, ui: Control) -> void:
 	_host = weakref(host)
 	var cmd_args := OS.get_cmdline_args()
-	_live_hotbar_batch = not ("--script" in cmd_args) or ("res://opening/perf_benchmark.gd" in cmd_args)
+	_live_hotbar_batch = not ("--script" in cmd_args) or ",".join(cmd_args).contains("perf_benchmark.gd")
 	_empty_slot_style = StyleBoxEmpty.new()
 	for component: String in COMPONENT_ICONS:
 		component_textures[component] = load("res://opening/assets/build-icons/" + COMPONENT_ICONS[component])

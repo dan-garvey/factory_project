@@ -681,7 +681,7 @@ func _adult_material(material_name: String, asset_root: String = ADULT_ASSETS) -
 		var normal := _adult_image(asset_root + stem + "_normal.webp")
 		if normal == null or normal.is_empty():
 			return null
-		if ("--script" in OS.get_cmdline_args()) and not ("res://opening/perf_benchmark.gd" in OS.get_cmdline_args()):
+		if ("--script" in OS.get_cmdline_args()) and not ",".join(OS.get_cmdline_args()).contains("perf_benchmark.gd"):
 			normal.generate_mipmaps(true)
 			material.normal_enabled = true
 			material.normal_texture = ImageTexture.create_from_image(normal)
@@ -1228,7 +1228,7 @@ func _prepare_adult_template(asset_root: String = ADULT_ASSETS, second: bool = f
 			appearance.free()
 			return false
 		mesh.mesh.surface_set_material(surface, material)
-	if not ("--script" in OS.get_cmdline_args()) or ("res://opening/perf_benchmark.gd" in OS.get_cmdline_args()):
+	if not ("--script" in OS.get_cmdline_args()) or ",".join(OS.get_cmdline_args()).contains("perf_benchmark.gd"):
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var body := Node3D.new()
 	body.name = "BodyView"

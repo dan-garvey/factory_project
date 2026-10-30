@@ -841,7 +841,7 @@ class ProductionEnvironment:
 	static func is_live_play(state: Dictionary = {}) -> bool:
 		if live_play_cached == -1:
 			var args := OS.get_cmdline_args()
-			live_play_cached = 1 if (not ("--script" in args) or ("res://opening/perf_benchmark.gd" in args)) else 0
+			live_play_cached = 1 if (not ("--script" in args) or ",".join(args).contains("perf_benchmark.gd")) else 0
 		return live_play_cached == 1 or state.get("placed_components", {}).size() >= 12
 
 	static func _live_botanical_material(mat: Material) -> Material:

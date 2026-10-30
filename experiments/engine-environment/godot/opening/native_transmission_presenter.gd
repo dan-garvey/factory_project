@@ -2705,7 +2705,7 @@ func _is_live_batching() -> bool:
 	if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD:
 		return true
 	var args := OS.get_cmdline_args()
-	return not ("--script" in args) or ("res://opening/perf_benchmark.gd" in args)
+	return not ("--script" in args) or ",".join(args).contains("perf_benchmark.gd")
 
 func _rebuild_placed_component_batches(force_press_dynamic: bool = false) -> void:
 	for node in _component_batch_nodes:
