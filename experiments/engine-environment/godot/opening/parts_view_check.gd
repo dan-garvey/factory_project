@@ -447,6 +447,28 @@ func _component_placement_check() -> void:
 	view.add_child(stroked_slide)
 	presenter._placed_component(stroked_slide, "copper_slide", Vector3.ZERO, slide_box.size,
 		0.0, 0.0, Vector3.ZERO, stroke_phase)
+	# A confirmed part is created once and moved by projection refreshes. The
+	# same native phase must give the same pose as a freshly built phase view.
+	head_sample.set_meta("component_kind", "flat_head")
+	head_sample.set_meta("occupied_size_y", head_box.size.y)
+	head_sample.set_meta("phase_source_id", "press-probe")
+	slide_sample.set_meta("component_kind", "copper_slide")
+	slide_sample.set_meta("occupied_size_y", slide_box.size.y)
+	slide_sample.set_meta("phase_source_id", "press-probe")
+	presenter._component_anchors = {"head-probe": head_sample, "slide-probe": slide_sample}
+	presenter._update_component_phases_and_lifts({"slide_phases": {"press-probe": stroke_phase}})
+	var refreshed_piston := slide_sample.get_node("SlidePiston") as MeshInstance3D
+	var new_piston := stroked_slide.get_node("SlidePiston") as MeshInstance3D
+	verify(absf(head_sample.get_node("FlatHeadMovingDie").position.y -
+		stroked_head.get_node("FlatHeadMovingDie").position.y) < 0.0001
+		and absf(slide_sample.get_node("SlideCarriage").position.y -
+		stroked_slide.get_node("SlideCarriage").position.y) < 0.0001
+		and absf(refreshed_piston.position.y - new_piston.position.y) < 0.0001
+		and absf((refreshed_piston.mesh as CylinderMesh).height * refreshed_piston.scale.y -
+			(new_piston.mesh as CylinderMesh).height * new_piston.scale.y) < 0.0001,
+		"A later native phase refresh matches the fitted small head and piston pose built at that phase.")
+	presenter._update_component_phases_and_lifts({"slide_phases": {}})
+	presenter._component_anchors.clear()
 	var head_drop: float = stroked_head.get_node("FlatHeadMovingDie").position.y \
 		- head_sample.get_node("FlatHeadMovingDie").position.y
 	var carriage_drop: float = stroked_slide.get_node("SlideCarriage").position.y \
@@ -642,6 +664,27 @@ func _component_placement_check() -> void:
 		view.add_child(contact_slide)
 		presenter._placed_component(contact_slide, "broad_copper_slide", Vector3.ZERO,
 			broad_slide_box.size, 0.0, 0.0, Vector3.ZERO, stroke_phase)
+		broad_head_sample.set_meta("component_kind", "broad_flat_head")
+		broad_head_sample.set_meta("occupied_size_y", broad_head_box.size.y)
+		broad_head_sample.set_meta("phase_source_id", "broad-probe")
+		broad_slide_sample.set_meta("component_kind", "broad_copper_slide")
+		broad_slide_sample.set_meta("occupied_size_y", broad_slide_box.size.y)
+		broad_slide_sample.set_meta("phase_source_id", "broad-probe")
+		presenter._component_anchors = {"head-probe": broad_head_sample,
+			"slide-probe": broad_slide_sample}
+		presenter._update_component_phases_and_lifts({"slide_phases": {"broad-probe": stroke_phase}})
+		var refreshed_broad_piston := broad_slide_sample.get_node("BroadCentralPiston") as MeshInstance3D
+		var new_broad_piston := contact_slide.get_node("BroadCentralPiston") as MeshInstance3D
+		verify(absf(broad_head_sample.get_node("BroadHeadMovingDie").position.y -
+			contact_head.get_node("BroadHeadMovingDie").position.y) < 0.0001
+			and absf(broad_slide_sample.get_node("BroadSlideCarriage").position.y -
+			contact_slide.get_node("BroadSlideCarriage").position.y) < 0.0001
+			and absf(refreshed_broad_piston.position.y - new_broad_piston.position.y) < 0.0001
+			and absf((refreshed_broad_piston.mesh as CylinderMesh).height * refreshed_broad_piston.scale.y -
+				(new_broad_piston.mesh as CylinderMesh).height * new_broad_piston.scale.y) < 0.0001,
+			"A later native phase refresh keeps the full broad head and piston at their contact pose.")
+		presenter._update_component_phases_and_lifts({"slide_phases": {}})
+		presenter._component_anchors.clear()
 		contact_head.visible = false
 		contact_slide.visible = false
 		var face_drop: float = broad_head_sample.get_node("BroadHeadMovingDie").position.y \

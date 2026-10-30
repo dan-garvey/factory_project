@@ -2286,6 +2286,9 @@ func _add_loose_pickers(node: Node3D, drop: Dictionary, context: String) -> void
 
 func _update_component_phases_and_lifts(snapshot: Dictionary) -> void:
 	var phases: Dictionary = snapshot.get("slide_phases", {}) if snapshot.get("slide_phases") is Dictionary else {}
+	# Initial meshes are authored at PRESS_REFERENCE_PITCH, then their direct
+	# children are scaled to U. Reapply that same transform on every phase tick.
+	var press_scale: float = Geometry.PITCH / PRESS_REFERENCE_PITCH
 	for id: String in _component_anchors:
 		var anchor: Node3D = _component_anchors[id]
 		if not is_instance_valid(anchor):
@@ -2298,63 +2301,69 @@ func _update_component_phases_and_lifts(snapshot: Dictionary) -> void:
 			"flat_head":
 				var die := anchor.get_node_or_null("FlatHeadMovingDie") as Node3D
 				if die != null:
-					die.position.y = -size_y * 0.5 + 0.09 + SLIDE_VISIBLE_STROKE \
-						+ slide_carriage_drop(phase, SLIDE_VISIBLE_STROKE)
+					die.position.y = -size_y * 0.5 + press_scale * (0.09 + SLIDE_VISIBLE_STROKE \
+						+ slide_carriage_drop(phase, SLIDE_VISIBLE_STROKE))
 					if die.has_meta("batch_multimesh"):
 						(die.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 							int(die.get_meta("batch_index")), anchor.transform * die.transform)
 			"broad_flat_head":
 				var die := anchor.get_node_or_null("BroadHeadMovingDie") as Node3D
 				if die != null:
-					die.position.y = size_y * 0.5 - 0.10 \
-						+ slide_carriage_drop(phase, BROAD_VISIBLE_STROKE)
+					die.position.y = size_y * 0.5 + press_scale * (-0.10 \
+						+ slide_carriage_drop(phase, BROAD_VISIBLE_STROKE))
 					if die.has_meta("batch_multimesh"):
 						(die.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 							int(die.get_meta("batch_index")), anchor.transform * die.transform)
 			"wooden_slide", "copper_slide":
 				var half_height := size_y * 0.5
-				var cylinder_bottom := half_height - 0.255
+				var cylinder_bottom := half_height - 0.255 * press_scale
 				var carriage := anchor.get_node_or_null("SlideCarriage") as Node3D
 				var piston := anchor.get_node_or_null("SlidePiston") as MeshInstance3D
 				if carriage != null:
-					carriage.position.y = -size_y * 0.5 + 0.1225 + SLIDE_VISIBLE_STROKE \
-						+ slide_carriage_drop(phase, SLIDE_VISIBLE_STROKE)
+					carriage.position.y = -size_y * 0.5 + press_scale * (0.1225 + SLIDE_VISIBLE_STROKE \
+						+ slide_carriage_drop(phase, SLIDE_VISIBLE_STROKE))
 					if carriage.has_meta("batch_multimesh"):
 						(carriage.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 							int(carriage.get_meta("batch_index")), anchor.transform * carriage.transform)
 					if piston != null and piston.mesh is CylinderMesh:
-						var piston_top := cylinder_bottom + 0.08
-						var piston_bottom := carriage.position.y + 0.045
+						var piston_top := cylinder_bottom + 0.08 * press_scale
+						var piston_bottom := carriage.position.y + 0.045 * press_scale
 						var piston_height := piston_top - piston_bottom
-						(piston.mesh as CylinderMesh).height = piston_height
+						var cylinder_mesh := piston.mesh as CylinderMesh
+						cylinder_mesh.height = piston_height / press_scale
 						piston.position.y = (piston_top + piston_bottom) * 0.5
 						if piston.has_meta("batch_multimesh"):
 							(piston.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 								int(piston.get_meta("batch_index")),
-								anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(0.055, piston_height, 0.055)), piston.position))
+								anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(
+									cylinder_mesh.top_radius * press_scale, piston_height,
+									cylinder_mesh.top_radius * press_scale)), piston.position))
 			"broad_copper_slide":
-				var bottom := -size_y * 0.5
-				var top := size_y * 0.5
-				var rest_reach := Geometry.HEIGHT_STEP * 1.5 + Geometry.ANCHOR_HEIGHT \
-					- Geometry.PRESS_WORK_HEIGHT - SLIDE_DIE_TRAVEL_MARGIN
-				var piston_bottom: float = bottom + rest_reach + SLIDE_DIE_TRAVEL_MARGIN - 0.07 \
+				var reference_bottom := -size_y * 0.5 / press_scale
+				var reference_top := size_y * 0.5 / press_scale
+				var rest_reach := PRESS_REFERENCE_PITCH * 0.875 \
+					- PRESS_REFERENCE_WORK_HEIGHT - SLIDE_DIE_TRAVEL_MARGIN
+				var piston_bottom: float = reference_bottom + rest_reach + SLIDE_DIE_TRAVEL_MARGIN - 0.07 \
 					+ slide_carriage_drop(phase, BROAD_VISIBLE_STROKE)
-				var piston_top: float = top - 0.16
+				var piston_top: float = reference_top - 0.16
 				var piston_height := maxf(0.08, piston_top - piston_bottom + 0.06)
 				var carriage := anchor.get_node_or_null("BroadSlideCarriage") as Node3D
 				var piston := anchor.get_node_or_null("BroadCentralPiston") as MeshInstance3D
 				if carriage != null:
-					carriage.position.y = piston_bottom
+					carriage.position.y = piston_bottom * press_scale
 					if carriage.has_meta("batch_multimesh"):
 						(carriage.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 							int(carriage.get_meta("batch_index")), anchor.transform * carriage.transform)
 				if piston != null and piston.mesh is CylinderMesh:
-					(piston.mesh as CylinderMesh).height = piston_height
-					piston.position.y = (piston_top + piston_bottom) * 0.5
+					var cylinder_mesh := piston.mesh as CylinderMesh
+					cylinder_mesh.height = piston_height
+					piston.position.y = (piston_top + piston_bottom) * 0.5 * press_scale
 					if piston.has_meta("batch_multimesh"):
 						(piston.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 							int(piston.get_meta("batch_index")),
-							anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(0.075, piston_height, 0.075)), piston.position))
+							anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(
+								cylinder_mesh.top_radius * press_scale, piston_height * press_scale,
+								cylinder_mesh.top_radius * press_scale)), piston.position))
 
 func _collect_rigid_mesh_parts(node: Node3D, pose: Transform3D, skip_names: Dictionary,
 		parts: Array[Dictionary], key: Array) -> void:
@@ -2512,7 +2521,8 @@ func _rebuild_placed_component_batches() -> void:
 			if cyl_node == null or not cyl_node.mesh is CylinderMesh:
 				continue
 			var cyl := cyl_node.mesh as CylinderMesh
-			var scale_vec := Vector3(cyl.top_radius, cyl.height, cyl.top_radius)
+			var scale_vec := Vector3(cyl.top_radius * cyl_node.scale.x,
+				cyl.height * cyl_node.scale.y, cyl.top_radius * cyl_node.scale.z)
 			var finish: Material = cyl_node.material_override
 			var finish_id := finish.get_instance_id() if finish != null else 0
 			if not dynamic_cylinders.has(finish_id):
