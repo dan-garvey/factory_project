@@ -370,6 +370,25 @@ func _capture_press_context_side(path: String, target: Vector3, opposite := fals
 	context.queue_free()
 	return captured
 
+func _capture_raised_belt_worksite(path: String, camera_position: Vector3) -> bool:
+	var context := SubViewport.new()
+	context.size = Vector2i(1280, 800)
+	context.world_3d = root.world_3d
+	context.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(context)
+	var camera := Camera3D.new()
+	context.add_child(camera)
+	camera.fov = 58.0
+	camera.position = camera_position
+	camera.look_at(Vector3(7.5, 1.8, 6.6))
+	camera.make_current()
+	for frame in range(3):
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var captured: bool = context.get_texture().get_image().save_png(path) == OK
+	context.queue_free()
+	return captured
+
 func _capture_press_standing_approach(path: String, workface: Vector3) -> bool:
 	var context := SubViewport.new()
 	context.size = Vector2i(1280, 800)
@@ -2912,8 +2931,12 @@ func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictio
 			and await _capture_press_context_side(capture_prefix + "-raised-belt-side.png",
 				Vector3(6.0, 2.2, 6.6))
 			and await _capture_press_standing_approach(capture_prefix + "-raised-belt-standing.png",
-				Vector3(4.95, 2.6175, 6.6)),
-			"Retain the raised workbed and belt from the side and standing-height approach"):
+				Vector3(4.95, 2.6175, 6.6))
+			and await _capture_raised_belt_worksite(capture_prefix + "-raised-belt-wide-south.png",
+				Vector3(10.5, 4.3, 10.4))
+			and await _capture_raised_belt_worksite(capture_prefix + "-raised-belt-wide-north.png",
+				Vector3(10.5, 4.3, 2.8)),
+			"Retain both belt ends, the raised press and its worksite from two wide approaches"):
 			return false
 	return true
 
