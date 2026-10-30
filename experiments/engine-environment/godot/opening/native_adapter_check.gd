@@ -5636,6 +5636,8 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 	deadline = Time.get_ticks_msec() + 240000
 	facts.evidence = "ordinary_finite_broad_pad_assembly"
 	var base_level := 4 if "--broad-raised" in OS.get_cmdline_user_args() else 0
+	var broad_view_target := Vector3(3.5 * OpeningGeometry.PITCH,
+		1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.5 * OpeningGeometry.PITCH)
 	facts.layout_level = base_level
 	if not _expect(opening.save_slot_ready and not opening.save_slot.is_empty(),
 			"The isolated ordinary scene has a fresh owned save destination"):
@@ -5703,7 +5705,8 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		if not _expect(await _capture_actor_area(capture_prefix + "-one-anvil.png",
-				Vector3(4.95, 0.7 + base_level * OpeningGeometry.HEIGHT_STEP, 0.0)),
+				Vector3(3.0 * OpeningGeometry.PITCH,
+					0.7 + base_level * OpeningGeometry.HEIGHT_STEP, 0.0)),
 				"Retain the actor-eye single-anvil ghost before choosing the larger footprint"):
 			return
 	opening._toggle_component_footprint()
@@ -5751,7 +5754,7 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		if not _expect(await _capture_actor_area(capture_prefix + "-blocked-workbed-ghost.png",
-				Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+				broad_view_target),
 				"Retain the actor-eye blocked joined workbed ghost beside a real placed part"):
 			return
 	var reclaimed: Dictionary = opening.issue({"action": "reclaim_component",
@@ -5779,7 +5782,7 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 			return
 		if index == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			if not _expect(await _capture_actor_area(capture_prefix + "-small-anvil-ghost.png",
-					Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+					broad_view_target),
 					"Retain the actor-eye small anvil ghost for the legacy pad route"):
 				return
 		var before_anvil: Dictionary = opening.model.projection()
@@ -5813,12 +5816,14 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
 		if not _expect(await _capture_actor_area(capture_prefix + "-four-anvil-built.png",
-				Vector3(5.775, 1.0 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+				broad_view_target),
 				"Retain the actor-eye installed four-anvil work area"):
 			return
 	if not _select_inventory_item("component:ram_face"):
 		return
 	for index in range(4):
+		if index == 2 and not await _approach(Vector2(5.8, 1.65)):
+			return
 		var x: int = 12 + (index % 2) * 4
 		var z: int = (index / 2) * 4
 		opening.component_nudge_active = true
@@ -5831,7 +5836,7 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 			return
 		if index == 0 and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			if not _expect(await _capture_actor_area(capture_prefix + "-four-ram-ghost.png",
-					Vector3(5.775, 1.45 + base_level * OpeningGeometry.HEIGHT_STEP, 0.825)),
+					broad_view_target + Vector3(0.0, 0.45, 0.0)),
 					"Retain the actor-eye matching ram footprint before placement"):
 				return
 		var before_ram: Dictionary = opening.model.projection()
@@ -5859,6 +5864,12 @@ func _arrival_broad_pad_run(panel, capture_prefix: String) -> void:
 			and built.broad_press_assemblies[0].work_centers.size() == 4,
 			"The real actor places one complete broad work area, which truthfully awaits drive"):
 		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening._select_tool("inspect")
+		if not _expect(await _capture_actor_area(capture_prefix + "-broad-complete.png",
+				broad_view_target + Vector3(0.0, 0.7, 0.0)),
+				"Retain the actual twenty-piece broad press beside its worksite and actor"):
+			return
 	var saved: Dictionary = opening._save_worksite()
 	facts.save = saved
 	facts.save_slot = opening.save_slot
