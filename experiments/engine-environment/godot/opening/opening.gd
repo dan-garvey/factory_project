@@ -91,6 +91,8 @@ var ore_field_visual_key := ""
 var hand_tree_assets: Dictionary = {}
 var mature_tree_nodes: Dictionary = {}
 var mature_tree_collision_rows: Dictionary = {}
+var harvested_tree_stumps_batch: MeshInstance3D
+var harvested_tree_stumps_key: Array = []
 var camera: Camera3D
 var machine_root: Node3D
 var item_root: Node3D
@@ -1877,7 +1879,7 @@ func _refresh_ore_field() -> void:
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery == null:
 		return
-	var key := str(deposit.get("cells", []).size())
+	var key := str(deposit.get("cells", []).size()) + (":b1" if state.get("placed_components", {}).size() >= 12 else ":b0")
 	for id: String in state.get("hand_sources", {}):
 		if id.begins_with(str(deposit.get("id", "")) + "-region-"):
 			key += ":" + id + "=" + str(state.hand_sources[id].get("remaining", -1))
@@ -1885,7 +1887,7 @@ func _refresh_ore_field() -> void:
 		return
 	ore_field_visual_key = key
 	if ore_field_visual != null:
-		ore_field_visual.queue_free()
+		ore_field_visual.free()
 		ore_field_visual = null
 	ore_field_visual = ProductionEnvironment.ore_field(state)
 	if ore_field_visual != null:
@@ -2110,6 +2112,58 @@ func _refresh_hand_trees() -> void:
 			cut.material_override.set_shader_parameter("cut_fraction", fraction)
 		else:
 			cut.material_override = null
+	var batch_stumps: bool = state.get("placed_components", {}).size() >= 12
+	var felled_ids: Array[String] = []
+	for id: String in sources:
+		if sources[id].remaining == 0:
+			felled_ids.append(id)
+	felled_ids.sort()
+	var next_stumps_key := [batch_stumps, felled_ids]
+	if next_stumps_key != harvested_tree_stumps_key:
+		harvested_tree_stumps_key = next_stumps_key
+		if batch_stumps and not felled_ids.is_empty():
+			var stump_finishes := {}
+			for id: String in felled_ids:
+				var body: Node3D = mature_tree_nodes.get(id) if (id.begins_with("fir_") or id.begins_with("broadleaf_")) else hand_tree_nodes.get(id)
+				if body == null:
+					continue
+				for part_name in ["Stump", "Cut", "CutFace"]:
+					var mi := body.get_node_or_null(part_name) as MeshInstance3D
+					if mi == null or mi.mesh == null:
+						continue
+					mi.visible = false
+					var pose: Transform3D = body.transform * mi.transform
+					for s in mi.mesh.get_surface_count():
+						var mat: Material = mi.material_override if mi.material_override != null else mi.mesh.surface_get_material(s)
+						var mat_id := mat.get_instance_id() if mat != null else 0
+						if not stump_finishes.has(mat_id):
+							var st := SurfaceTool.new()
+							st.begin(Mesh.PRIMITIVE_TRIANGLES)
+							st.set_material(mat)
+							stump_finishes[mat_id] = st
+						(stump_finishes[mat_id] as SurfaceTool).append_from(mi.mesh, s, pose)
+			var stump_mesh: ArrayMesh
+			for st: SurfaceTool in stump_finishes.values():
+				stump_mesh = st.commit(stump_mesh)
+			if stump_mesh != null:
+				stump_mesh = MachineBatcher.finish_mesh(stump_mesh, true)
+			if harvested_tree_stumps_batch == null:
+				harvested_tree_stumps_batch = MeshInstance3D.new()
+				harvested_tree_stumps_batch.name = "HarvestedTreeStumpsBatch"
+				add_child(harvested_tree_stumps_batch)
+			harvested_tree_stumps_batch.mesh = stump_mesh
+			harvested_tree_stumps_batch.visible = stump_mesh != null
+		else:
+			if harvested_tree_stumps_batch != null:
+				harvested_tree_stumps_batch.visible = false
+			for id: String in felled_ids:
+				var body: Node3D = mature_tree_nodes.get(id) if (id.begins_with("fir_") or id.begins_with("broadleaf_")) else hand_tree_nodes.get(id)
+				if body == null:
+					continue
+				for part_name in ["Stump", "Cut", "CutFace"]:
+					var mi := body.get_node_or_null(part_name) as MeshInstance3D
+					if mi != null:
+						mi.visible = true
 
 func _mature_cut_disk(radius: float) -> ArrayMesh:
 	var tool := SurfaceTool.new()
@@ -3421,6 +3475,7 @@ func _sync_landing_pod_visual() -> void:
 			var pod_mesh: ArrayMesh
 			for st: SurfaceTool in pod_finishes.values():
 				pod_mesh = st.commit(pod_mesh)
+			pod_mesh = MachineBatcher.finish_mesh(pod_mesh, true)
 			landing_pod_batch_visual = MeshInstance3D.new()
 			landing_pod_batch_visual.name = "DeployedLandingPodBatch"
 			landing_pod_batch_visual.mesh = pod_mesh
@@ -3431,6 +3486,7 @@ func _sync_landing_pod_visual() -> void:
 			var hub_mesh: ArrayMesh
 			for st: SurfaceTool in hub_finishes.values():
 				hub_mesh = st.commit(hub_mesh)
+			hub_mesh = MachineBatcher.finish_mesh(hub_mesh, true)
 			landing_hub_batch_visual = MeshInstance3D.new()
 			landing_hub_batch_visual.name = "PodFabricationHubBatch"
 			landing_hub_batch_visual.mesh = hub_mesh

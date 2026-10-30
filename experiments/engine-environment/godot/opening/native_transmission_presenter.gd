@@ -8,6 +8,7 @@ const NativeModel = preload("res://opening/native_model.gd")
 const Finish = preload("res://opening/production_surfaces.gd").ProductionTransmissionFinish
 const Visuals = preload("res://opening/production_surfaces.gd").ProductionVisuals
 const WheelArt = preload("res://opening/production_waterwheels.gd").ProductionWheelArt
+const MachineBatcher = preload("res://opening/machine_batches.gd")
 const ClampBody = preload("res://opening/assets/collector-clamp/collector_clamp.gltf")
 const UNIT := Geometry.PITCH / 4.0
 ## The native lane moves one horizontal tile per 0.45-second tick at rate 1.
@@ -63,6 +64,7 @@ static var _relay_shells: Dictionary = {}
 static var _cutting_blade_meshes: Dictionary = {}
 static var _receiver_pan_mesh: ArrayMesh
 static var _component_composite_meshes: Dictionary = {}
+static var _finish_materials: Dictionary = {}
 
 func configure(host: Object) -> void:
 	_host = weakref(host)
@@ -697,11 +699,13 @@ static func _formed_receiver_pan() -> ArrayMesh:
 	return _receiver_pan_mesh
 
 func _finish(mesh: MeshInstance3D, color: Color) -> void:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.metallic = 0.65
-	material.roughness = 0.4
-	mesh.material_override = material
+	if not _finish_materials.has(color):
+		var material := StandardMaterial3D.new()
+		material.albedo_color = color
+		material.metallic = 0.65
+		material.roughness = 0.4
+		_finish_materials[color] = material
+	mesh.material_override = _finish_materials[color]
 
 func _cylinder(parent: Node3D, name_value: String, radius: float, height: float,
 		color: Color, sourced_finish: Material = null) -> MeshInstance3D:
@@ -1679,7 +1683,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 			anchor.add_child(rotor)
 			var finish: Material = timber if kind == "wooden_cog" else worked
 			_support_cylinder(rotor, "CogRim", 0.095, 0.05, finish)
-			var hub_length: float = occupied_size.dot(direction.abs()) if press_role == "drive_cog" else 0.105
+			var hub_length: float = snappedf(occupied_size.dot(direction.abs()), 0.001) if press_role == "drive_cog" else 0.105
 			_support_cylinder(rotor, "CogHub", 0.05, hub_length, dark)
 			_support_box(rotor, "CogIndexMark", Vector3(0.065, 0.028, 0),
 				Vector3(0.025, 0.008, 0.025), dark)
@@ -1790,7 +1794,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 				rod.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
 				_moving_anchors.append(rod)
 			rod.position.y = 0.0 if fitted else 0.035
-			var shaft_length: float = occupied_size.dot(direction.abs()) if fitted else 0.14
+			var shaft_length: float = snappedf(occupied_size.dot(direction.abs()), 0.001) if fitted else 0.14
 			Assets.shaft(rod, shaft_length, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
 			var core := rod.get_node("Shaft") as MeshInstance3D
 			core.material_override = timber if kind == "wooden_shaft" else worked
@@ -2561,6 +2565,7 @@ func _rigid_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
 			surface.append_from(part.mesh, part.surface, part.pose)
 		surface.set_material(group.material)
 		combined = surface.commit(combined)
+	combined = MachineBatcher.finish_mesh(combined, true)
 	_component_composite_meshes[key] = combined
 	return combined
 
@@ -2716,6 +2721,7 @@ func _rebuild_placed_component_batches() -> void:
 		for st: SurfaceTool in merged_finishes.values():
 			merged_mesh = st.commit(merged_mesh)
 		if merged_mesh != null:
+			merged_mesh = MachineBatcher.finish_mesh(merged_mesh, true)
 			var merged_node := MeshInstance3D.new()
 			merged_node.name = "PlacedStaticMerged"
 			merged_node.mesh = merged_mesh
@@ -2937,6 +2943,7 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 		for st: SurfaceTool in drop_finishes.values():
 			drop_mesh = st.commit(drop_mesh)
 		if drop_mesh != null:
+			drop_mesh = MachineBatcher.finish_mesh(drop_mesh, true)
 			var merged_drops := MeshInstance3D.new()
 			merged_drops.name = "DroppedMaterialMerged"
 			merged_drops.mesh = drop_mesh

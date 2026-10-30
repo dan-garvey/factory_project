@@ -811,7 +811,11 @@ func checkpoint_status() -> Dictionary:
 func _remember(actor: String, sample: Dictionary) -> void:
 	sample_history[sample.native_epoch] = {"actor": actor, "sample": sample.duplicate(true)}
 	while sample_history.size() > DIAGNOSTIC_HISTORY_LIMIT:
-		sample_history.erase(sample_history.keys()[0])
+		var oldest_epoch: int = int(sample.native_epoch) - DIAGNOSTIC_HISTORY_LIMIT
+		if sample_history.has(oldest_epoch):
+			sample_history.erase(oldest_epoch)
+		else:
+			sample_history.erase(sample_history.keys()[0])
 
 func _fail(actor: String, reason: String) -> Dictionary:
 	if not failures.has(actor):

@@ -29,7 +29,7 @@ float rock_noise(vec3 point) {
 }
 
 void vertex() {
-	scan_point = VERTEX;
+	scan_point = vec3(VERTEX.x, mix(VERTEX.y, UV2.x, 1.0 - COLOR.a), VERTEX.z);
 	world_point = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 

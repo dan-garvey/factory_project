@@ -801,8 +801,53 @@ class ProductionEnvironment:
 				_refresh_plant_patch(patch, volumes)
 		var meadow := scenery.get_node_or_null("MeadowPatches")
 		if meadow != null:
-			for patch: MultiMeshInstance3D in meadow.get_children():
+			var batch_meadow: bool = state.get("placed_components", {}).size() >= 12
+			var combined_buffer := PackedFloat32Array()
+			var combined_bounds := AABB()
+			var combined_count := 0
+			var first_patch: MultiMeshInstance3D = null
+			for child in meadow.get_children():
+				if not child is MultiMeshInstance3D or child.name == "MeadowPatchesBatch":
+					continue
+				var patch := child as MultiMeshInstance3D
 				_refresh_plant_patch(patch, volumes)
+				patch.visible = not batch_meadow
+				if batch_meadow and patch.multimesh != null and patch.multimesh.instance_count > 0:
+					if first_patch == null:
+						first_patch = patch
+					var patch_buf: PackedFloat32Array = patch.multimesh.buffer
+					var pos: Vector3 = patch.position
+					var mesh_aabb: AABB = patch.multimesh.mesh.get_aabb()
+					for offset in range(0, patch_buf.size(), 16):
+						var s := patch_buf.slice(offset, offset + 16)
+						s[3] += pos.x
+						s[7] += pos.y
+						s[11] += pos.z
+						combined_buffer.append_array(s)
+						var basis := Basis(Vector3(s[0], s[4], s[8]), Vector3(s[1], s[5], s[9]), Vector3(s[2], s[6], s[10]))
+						var env: AABB = Transform3D(basis, Vector3(s[3], s[7], s[11])) * mesh_aabb
+						combined_bounds = env if combined_count == 0 else combined_bounds.merge(env)
+						combined_count += 1
+			var batch_node := meadow.get_node_or_null("MeadowPatchesBatch") as MultiMeshInstance3D
+			if batch_meadow and combined_count > 0 and first_patch != null:
+				if batch_node == null:
+					batch_node = MultiMeshInstance3D.new()
+					batch_node.name = "MeadowPatchesBatch"
+					var mm := MultiMesh.new()
+					mm.transform_format = MultiMesh.TRANSFORM_3D
+					mm.use_colors = true
+					mm.mesh = first_patch.multimesh.mesh
+					batch_node.multimesh = mm
+					batch_node.material_override = first_patch.material_override
+					batch_node.cast_shadow = first_patch.cast_shadow
+					batch_node.visibility_range_end = first_patch.visibility_range_end
+					meadow.add_child(batch_node)
+				batch_node.multimesh.instance_count = combined_count
+				batch_node.multimesh.buffer = combined_buffer
+				batch_node.multimesh.custom_aabb = combined_bounds
+				batch_node.visible = true
+			elif batch_node != null:
+				batch_node.visible = false
 
 	static func read_pine(path: String = PINE_FILE) -> Dictionary:
 		if not FileAccess.file_exists(path):
@@ -1249,6 +1294,14 @@ class ProductionEnvironment:
 			[Vector2(0.92, 0.85), 0.67, 0.38],
 			[Vector2(-1.08, 0.65), 0.76, 1.08],
 			[Vector2(0.05, -0.88), 0.71, -0.94]]
+		var batch_stones: bool = state.get("placed_components", {}).size() >= 12
+		var stone_vertices := PackedVector3Array()
+		var stone_normals := PackedVector3Array()
+		var stone_tangents := PackedFloat32Array()
+		var stone_uv := PackedVector2Array()
+		var stone_uv2 := PackedVector2Array()
+		var stone_colors := PackedColorArray()
+		var stone_indices := PackedInt32Array()
 		for region: Dictionary in regions:
 			if int(region.get("remaining", 0)) <= 0:
 				continue
@@ -1285,7 +1338,49 @@ class ProductionEnvironment:
 					var size: float = float(rock[1])
 					scan.scale = Vector3(size, size * 0.74, size)
 					scan.material_override = stone_finish
+					if batch_stones and scan.mesh != null:
+						scan.visible = false
+						var pose: Transform3D = patch.transform * scan.transform
+						var normal_basis: Basis = pose.basis.inverse().transposed()
+						var arrays := scan.mesh.surface_get_arrays(0)
+						var pts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+						var nrms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+						var tgts: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+						var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+						var idxs: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+						var start := stone_vertices.size()
+						for i in pts.size():
+							var pt := pts[i]
+							stone_vertices.append(pose * pt)
+							stone_normals.append((normal_basis * nrms[i]).normalized())
+							var t_dir := (pose.basis * Vector3(tgts[i * 4], tgts[i * 4 + 1], tgts[i * 4 + 2])).normalized()
+							stone_tangents.append(t_dir.x)
+							stone_tangents.append(t_dir.y)
+							stone_tangents.append(t_dir.z)
+							stone_tangents.append(tgts[i * 4 + 3])
+							stone_uv.append(uvs[i])
+							stone_uv2.append(Vector2(pt.y, 0.0))
+							stone_colors.append(Color(1.0, 1.0, 1.0, 0.0))
+						for idx in idxs:
+							stone_indices.append(start + idx)
 				root.add_child(patch)
+		if batch_stones and not stone_vertices.is_empty():
+			var stone_arrays := []
+			stone_arrays.resize(Mesh.ARRAY_MAX)
+			stone_arrays[Mesh.ARRAY_VERTEX] = stone_vertices
+			stone_arrays[Mesh.ARRAY_NORMAL] = stone_normals
+			stone_arrays[Mesh.ARRAY_TANGENT] = stone_tangents
+			stone_arrays[Mesh.ARRAY_TEX_UV] = stone_uv
+			stone_arrays[Mesh.ARRAY_TEX_UV2] = stone_uv2
+			stone_arrays[Mesh.ARRAY_COLOR] = stone_colors
+			stone_arrays[Mesh.ARRAY_INDEX] = stone_indices
+			var stone_batch_mesh := ArrayMesh.new()
+			stone_batch_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, stone_arrays)
+			var stone_batch_node := MeshInstance3D.new()
+			stone_batch_node.name = "OreFieldStonesBatch"
+			stone_batch_node.mesh = stone_batch_mesh
+			stone_batch_node.material_override = stone_finish
+			root.add_child(stone_batch_node)
 		return root
 
 	static func build(parent: Node3D) -> Node3D:

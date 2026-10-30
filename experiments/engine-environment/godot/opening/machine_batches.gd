@@ -23,6 +23,10 @@ var machine_batch_rotor_meshes: Dictionary = {}
 var machine_batch_composite_meshes: Dictionary = {}
 var machine_static_spatial_tiles: int = 4 if OS.has_feature("windows") else 0
 var machine_batch_static_machine_count := 0
+static var _varied_planar_shader: Shader
+static var _varied_triplanar_shader: Shader
+static var _varied_plain_shader: Shader
+static var _consolidated_materials: Dictionary = {}
 
 static func cutter_pose(anchor: Node3D, angle: float) -> Transform3D:
 	var pivot := Vector3(-0.22, 1.1, -0.19)
@@ -116,6 +120,7 @@ func _wheel_rotor_batch_mesh(rotor: Node3D, hidden_core: Array[MeshInstance3D]) 
 			surface.append_from(part.mesh, part.surface, part.pose)
 		surface.set_material(group.finish)
 		combined = surface.commit(combined)
+	combined = finish_mesh(combined, true)
 	machine_batch_rotor_meshes[key] = combined
 	return combined
 
@@ -153,20 +158,53 @@ func _collect_machine_composite_parts(node: Node3D, pose: Transform3D,
 		_collect_machine_composite_parts(child, child_pose, moving, parts)
 
 func _machine_finish_mesh(source: ArrayMesh) -> ArrayMesh:
+	return finish_mesh(source, false)
+
+static func finish_mesh(source: ArrayMesh, allow_extended: bool = false) -> ArrayMesh:
+	if source == null or source.get_surface_count() <= 1:
+		return source
 	# Opaque parts can share a surface when their finish differs only by values
-	# carried on vertices. Keep the source mesh if an attribute is unsupported.
+	# carried on vertices. Keep unsupported surfaces intact when allow_extended is set.
 	var groups := {}
+	var passthrough: Array[int] = []
 	for surface_index in source.get_surface_count():
 		var finish := source.surface_get_material(surface_index) as StandardMaterial3D
 		if finish == null or finish.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED \
 				or finish.albedo_texture != null \
 				or source.surface_get_primitive_type(surface_index) != Mesh.PRIMITIVE_TRIANGLES:
+			if allow_extended:
+				passthrough.append(surface_index)
+				continue
 			return source
-		var varied := not finish.uv1_triplanar and finish.normal_enabled \
+		var arrays := source.surface_get_arrays(surface_index)
+		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var tangents = arrays[Mesh.ARRAY_TANGENT]
+		var uv = arrays[Mesh.ARRAY_TEX_UV]
+		var colors = arrays[Mesh.ARRAY_COLOR]
+		var indices = arrays[Mesh.ARRAY_INDEX]
+		var varied_plain: bool = allow_extended and not finish.normal_enabled \
+			and finish.roughness_texture == null and finish.metallic_texture == null \
+			and not finish.ao_enabled
+		var has_tangents_uv: bool = normals.size() == points.size() and tangents is PackedFloat32Array \
+			and tangents.size() == points.size() * 4 and uv is PackedVector2Array \
+			and uv.size() == points.size()
+		if not has_tangents_uv and not (varied_plain and normals.size() == points.size()):
+			if allow_extended:
+				passthrough.append(surface_index)
+				continue
+			return source
+		var varied_planar := not finish.uv1_triplanar and finish.normal_enabled \
 			and finish.normal_texture != null and finish.roughness_texture != null \
 			and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
 			and finish.metallic_texture == null
-		var key := [varied]
+		var varied_triplanar := allow_extended and finish.uv1_triplanar and not finish.uv1_world_triplanar \
+			and finish.normal_enabled and finish.normal_texture != null and finish.roughness_texture != null \
+			and finish.roughness_texture_channel == BaseMaterial3D.TEXTURE_CHANNEL_RED \
+			and finish.metallic_texture == null
+		var varied := varied_planar or varied_triplanar or varied_plain
+		var mode := 1 if varied_planar else (2 if varied_triplanar else (3 if varied_plain else 0))
+		var key := [varied, mode]
 		for property in finish.get_property_list():
 			if (int(property.usage) & PROPERTY_USAGE_STORAGE) == 0 or property.name in [
 					"resource_name", "resource_path", "resource_local_to_scene",
@@ -176,27 +214,25 @@ func _machine_finish_mesh(source: ArrayMesh) -> ArrayMesh:
 				continue
 			key.append([property.name, finish.get(property.name)])
 		if not groups.has(key):
-			groups[key] = {"finish": finish, "varied": varied, "vertices": [],
+			groups[key] = {"finish": finish, "varied": varied, "mode": mode, "key": key, "vertices": [],
 				"normals": [], "tangents": [], "uv": [], "uv2": [], "colors": [], "indices": []}
 		var group: Dictionary = groups[key]
-		var arrays := source.surface_get_arrays(surface_index)
-		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-		var tangents = arrays[Mesh.ARRAY_TANGENT]
-		var uv = arrays[Mesh.ARRAY_TEX_UV]
-		var colors = arrays[Mesh.ARRAY_COLOR]
-		var indices = arrays[Mesh.ARRAY_INDEX]
-		if normals.size() != points.size() or not tangents is PackedFloat32Array \
-				or tangents.size() != points.size() * 4 or not uv is PackedVector2Array \
-				or uv.size() != points.size():
-			return source
 		var start: int = group.vertices.size()
 		for point_index in points.size():
 			group.vertices.append(points[point_index])
 			group.normals.append(normals[point_index])
-			group.uv.append(uv[point_index])
-			for lane in 4:
-				group.tangents.append(tangents[point_index * 4 + lane])
+			if uv is PackedVector2Array and uv.size() == points.size():
+				group.uv.append(uv[point_index])
+			else:
+				group.uv.append(Vector2.ZERO)
+			if tangents is PackedFloat32Array and tangents.size() == points.size() * 4:
+				for lane in 4:
+					group.tangents.append(tangents[point_index * 4 + lane])
+			else:
+				group.tangents.append(1.0)
+				group.tangents.append(0.0)
+				group.tangents.append(0.0)
+				group.tangents.append(1.0)
 			var color := finish.albedo_color
 			if finish.vertex_color_use_as_albedo and colors is PackedColorArray \
 					and colors.size() == points.size():
@@ -211,7 +247,7 @@ func _machine_finish_mesh(source: ArrayMesh) -> ArrayMesh:
 		else:
 			for point_index in indices:
 				group.indices.append(start + point_index)
-	if groups.size() >= source.get_surface_count():
+	if groups.size() + passthrough.size() >= source.get_surface_count():
 		return source
 	var result := ArrayMesh.new()
 	for group in groups.values():
@@ -226,34 +262,85 @@ func _machine_finish_mesh(source: ArrayMesh) -> ArrayMesh:
 		arrays[Mesh.ARRAY_COLOR] = PackedColorArray(group.colors)
 		arrays[Mesh.ARRAY_INDEX] = PackedInt32Array(group.indices)
 		result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		var material: Material
-		if group.varied:
-			var shader := Shader.new()
-			shader.code = "shader_type spatial;\n" + \
-				"uniform sampler2D finish_rough : filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
-				"uniform sampler2D finish_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
-				"uniform vec2 finish_uv_scale;\n" + \
-				"uniform vec2 finish_uv_offset;\n" + \
-				"uniform float finish_normal_scale;\n" + \
-				"void fragment() { vec2 at = UV * finish_uv_scale + finish_uv_offset; " + \
-				"ALBEDO = COLOR.rgb; METALLIC = COLOR.a; " + \
-				"ROUGHNESS = UV2.x * texture(finish_rough, at).r; " + \
-				"NORMAL_MAP = texture(finish_normal, at).rgb; " + \
-				"NORMAL_MAP_DEPTH = finish_normal_scale; }"
-			var custom_finish := ShaderMaterial.new()
-			custom_finish.shader = shader
-			custom_finish.set_shader_parameter("finish_rough", group.finish.roughness_texture)
-			custom_finish.set_shader_parameter("finish_normal", group.finish.normal_texture)
-			custom_finish.set_shader_parameter("finish_uv_scale", Vector2(group.finish.uv1_scale.x, group.finish.uv1_scale.y))
-			custom_finish.set_shader_parameter("finish_uv_offset", Vector2(group.finish.uv1_offset.x, group.finish.uv1_offset.y))
-			custom_finish.set_shader_parameter("finish_normal_scale", group.finish.normal_scale)
-			material = custom_finish
-		else:
-			var standard := group.finish.duplicate() as StandardMaterial3D
-			standard.albedo_color = Color.WHITE
-			standard.vertex_color_use_as_albedo = true
-			material = standard
+		var material: Material = _consolidated_materials.get(group.key)
+		if material == null:
+			if group.mode == 1:
+				if _varied_planar_shader == null:
+					_varied_planar_shader = Shader.new()
+					_varied_planar_shader.code = "shader_type spatial;\n" + \
+						"uniform sampler2D finish_rough : filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
+						"uniform sampler2D finish_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
+						"uniform vec2 finish_uv_scale;\n" + \
+						"uniform vec2 finish_uv_offset;\n" + \
+						"uniform float finish_normal_scale;\n" + \
+						"void fragment() { vec2 at = UV * finish_uv_scale + finish_uv_offset; " + \
+						"ALBEDO = COLOR.rgb; METALLIC = COLOR.a; " + \
+						"ROUGHNESS = UV2.x * texture(finish_rough, at).r; " + \
+						"NORMAL_MAP = texture(finish_normal, at).rgb; " + \
+						"NORMAL_MAP_DEPTH = finish_normal_scale; }"
+				var custom_finish := ShaderMaterial.new()
+				custom_finish.shader = _varied_planar_shader
+				custom_finish.set_shader_parameter("finish_rough", group.finish.roughness_texture)
+				custom_finish.set_shader_parameter("finish_normal", group.finish.normal_texture)
+				custom_finish.set_shader_parameter("finish_uv_scale", Vector2(group.finish.uv1_scale.x, group.finish.uv1_scale.y))
+				custom_finish.set_shader_parameter("finish_uv_offset", Vector2(group.finish.uv1_offset.x, group.finish.uv1_offset.y))
+				custom_finish.set_shader_parameter("finish_normal_scale", group.finish.normal_scale)
+				material = custom_finish
+			elif group.mode == 2:
+				if _varied_triplanar_shader == null:
+					_varied_triplanar_shader = Shader.new()
+					_varied_triplanar_shader.code = "shader_type spatial;\n" + \
+						"uniform sampler2D finish_rough : filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
+						"uniform sampler2D finish_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;\n" + \
+						"uniform vec3 finish_uv_scale;\n" + \
+						"uniform vec3 finish_uv_offset;\n" + \
+						"uniform float finish_triplanar_sharpness;\n" + \
+						"uniform float finish_normal_scale;\n" + \
+						"varying vec3 triplanar_pos;\n" + \
+						"varying vec3 triplanar_power_normal;\n" + \
+						"void vertex() {\n" + \
+						"\ttriplanar_power_normal = pow(abs(NORMAL), vec3(finish_triplanar_sharpness));\n" + \
+						"\ttriplanar_power_normal /= max(dot(triplanar_power_normal, vec3(1.0)), 0.00001);\n" + \
+						"\ttriplanar_pos = (VERTEX * finish_uv_scale + finish_uv_offset) * vec3(1.0, -1.0, 1.0);\n" + \
+						"}\n" + \
+						"vec4 triplanar_tex(sampler2D s, vec3 w, vec3 p) {\n" + \
+						"\treturn texture(s, p.xy) * w.z + texture(s, p.xz) * w.y + texture(s, p.zy * vec2(-1.0, 1.0)) * w.x;\n" + \
+						"}\n" + \
+						"void fragment() {\n" + \
+						"\tALBEDO = COLOR.rgb; METALLIC = COLOR.a;\n" + \
+						"\tROUGHNESS = UV2.x * triplanar_tex(finish_rough, triplanar_power_normal, triplanar_pos).r;\n" + \
+						"\tNORMAL_MAP = triplanar_tex(finish_normal, triplanar_power_normal, triplanar_pos).rgb;\n" + \
+						"\tNORMAL_MAP_DEPTH = finish_normal_scale;\n" + \
+						"}"
+				var tri_finish := ShaderMaterial.new()
+				tri_finish.shader = _varied_triplanar_shader
+				tri_finish.set_shader_parameter("finish_rough", group.finish.roughness_texture)
+				tri_finish.set_shader_parameter("finish_normal", group.finish.normal_texture)
+				tri_finish.set_shader_parameter("finish_uv_scale", group.finish.uv1_scale)
+				tri_finish.set_shader_parameter("finish_uv_offset", group.finish.uv1_offset)
+				tri_finish.set_shader_parameter("finish_triplanar_sharpness", group.finish.uv1_triplanar_sharpness)
+				tri_finish.set_shader_parameter("finish_normal_scale", group.finish.normal_scale)
+				material = tri_finish
+			elif group.mode == 3:
+				if _varied_plain_shader == null:
+					_varied_plain_shader = Shader.new()
+					_varied_plain_shader.code = "shader_type spatial;\n" + \
+						"void fragment() { ALBEDO = COLOR.rgb; METALLIC = COLOR.a; ROUGHNESS = UV2.x; }"
+				var plain_finish := ShaderMaterial.new()
+				plain_finish.shader = _varied_plain_shader
+				material = plain_finish
+			else:
+				var standard := group.finish.duplicate() as StandardMaterial3D
+				standard.albedo_color = Color.WHITE
+				standard.vertex_color_use_as_albedo = true
+				material = standard
+			_consolidated_materials[group.key] = material
 		result.surface_set_material(result.get_surface_count() - 1, material)
+	for surface_index in passthrough:
+		result.add_surface_from_arrays(source.surface_get_primitive_type(surface_index),
+			source.surface_get_arrays(surface_index))
+		result.surface_set_material(result.get_surface_count() - 1,
+			source.surface_get_material(surface_index))
 	return result
 
 func _machine_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
@@ -454,6 +541,53 @@ func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bool,
 		force_live: bool = false) -> void:
 	var batch_index := batches.get_child_count()
+	if not dynamic and force_live:
+		var merged_by_layer := {}
+		for group in groups.values():
+			if group.parts.is_empty():
+				continue
+			var layer_key := [group.shadow, group.layers]
+			if not merged_by_layer.has(layer_key):
+				merged_by_layer[layer_key] = {"shadow": group.shadow, "layers": group.layers, "finishes": {}}
+			var finishes: Dictionary = merged_by_layer[layer_key].finishes
+			var mesh: Mesh = group.mesh
+			for part in group.parts:
+				if part.has("hide_nodes"):
+					for source in part.hide_nodes:
+						source.visible = false
+				else:
+					part.node.visible = false
+				for s in mesh.get_surface_count():
+					var finish: Material = group.material if group.material != null else mesh.surface_get_material(s)
+					var finish_id := finish.get_instance_id() if finish != null else 0
+					if not finishes.has(finish_id):
+						var st := SurfaceTool.new()
+						st.begin(Mesh.PRIMITIVE_TRIANGLES)
+						st.set_material(finish)
+						finishes[finish_id] = st
+					(finishes[finish_id] as SurfaceTool).append_from(mesh, s, part.pose)
+		for layer_group in merged_by_layer.values():
+			var merged_mesh: ArrayMesh
+			for st: SurfaceTool in layer_group.finishes.values():
+				merged_mesh = st.commit(merged_mesh)
+			if merged_mesh == null:
+				continue
+			merged_mesh = finish_mesh(merged_mesh, true)
+			var multi := MultiMesh.new()
+			multi.transform_format = MultiMesh.TRANSFORM_3D
+			multi.mesh = merged_mesh
+			multi.instance_count = 1
+			multi.set_instance_transform(0, Transform3D.IDENTITY)
+			multi.custom_aabb = merged_mesh.get_aabb()
+			var instance := MultiMeshInstance3D.new()
+			instance.name = "MachineBatch%d" % batch_index
+			instance.multimesh = multi
+			instance.cast_shadow = layer_group.shadow
+			instance.layers = layer_group.layers
+			instance.set_meta("spatial_composite", true)
+			batches.add_child(instance)
+			batch_index += 1
+		return
 	for group in groups.values():
 		if group.parts.size() < (1 if force_live else 2):
 			continue

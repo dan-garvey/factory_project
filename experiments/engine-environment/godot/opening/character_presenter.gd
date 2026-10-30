@@ -3,6 +3,7 @@ extends Node3D
 ## every physical pose; these meshes never grant construction permission.
 const Geometry = preload("res://opening/site_geometry.gd")
 const Surface = preload("res://opening/site_surface.gd")
+const MachineBatcher = preload("res://opening/machine_batches.gd")
 const MULTITOOL = preload("res://opening/assets/multitool/multitool.tscn")
 const FIRST_PERSON_TOOL_HAND = preload("res://opening/assets/worker/first_person_tool_hand.glb")
 const FIRST_PERSON_TOOL_SLEEVE = preload("res://opening/assets/worker/first_person_tool_sleeve.glb")
@@ -139,6 +140,32 @@ func _attach_multitool(body: Node3D) -> BoneAttachment3D:
 	skeleton.add_child(attachment)
 	var tool := MULTITOOL.instantiate() as Node3D
 	tool.transform = _multitool_frame(body)
+	if not mesh_cache.has("multitool_batch"):
+		var finishes := {}
+		for child in tool.get_children():
+			if child is MeshInstance3D and child.mesh != null:
+				var mi := child as MeshInstance3D
+				var mat: Material = mi.material_override if mi.material_override != null else mi.mesh.surface_get_material(0)
+				var mat_id := mat.get_instance_id() if mat != null else 0
+				if not finishes.has(mat_id):
+					var st := SurfaceTool.new()
+					st.begin(Mesh.PRIMITIVE_TRIANGLES)
+					st.set_material(mat)
+					finishes[mat_id] = st
+				(finishes[mat_id] as SurfaceTool).append_from(mi.mesh, 0, mi.transform)
+		var batch_mesh: ArrayMesh
+		for st: SurfaceTool in finishes.values():
+			batch_mesh = st.commit(batch_mesh)
+		if batch_mesh != null:
+			batch_mesh = MachineBatcher.finish_mesh(batch_mesh, true)
+		mesh_cache["multitool_batch"] = batch_mesh
+	for child in tool.get_children():
+		if child is MeshInstance3D:
+			(child as MeshInstance3D).visible = false
+	var batch_instance := MeshInstance3D.new()
+	batch_instance.name = "MultitoolBatch"
+	batch_instance.mesh = mesh_cache["multitool_batch"]
+	tool.add_child(batch_instance)
 	attachment.add_child(tool)
 	body.set_meta("multitool_attachment", body.get_path_to(attachment))
 	return attachment
