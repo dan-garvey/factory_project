@@ -304,7 +304,31 @@ const char* supplied_space_refusal(const Site& site, const world::State& state) 
     return nullptr;
 }
 
-bool harvest_path_clear(const Site& site, const world::State& state,
+namespace {
+
+std::vector<std::pair<authority::Point, authority::Point>> build_solid_boxes(
+        const Site& site, const world::State& state) {
+    std::vector<std::pair<authority::Point, authority::Point>> boxes;
+    boxes.reserve(state.placed_components.size() + state.topology.parts.size());
+    const auto append_bounds = [&](const Bounds& bounds) {
+        authority::Point low{}, high{};
+        for (std::size_t axis = 0; axis < 3; ++axis) {
+            low[axis] = bounds.center[axis] - bounds.half[axis];
+            high[axis] = bounds.center[axis] + bounds.half[axis];
+        }
+        boxes.emplace_back(low, high);
+    };
+    for (const auto& [id, part] : state.placed_components) {
+        (void)id;
+        append_bounds(component_bounds(site.profile, part.kind, part.center));
+    }
+    for (const auto& part : state.topology.parts)
+        append_bounds(part_bounds(site.profile, part));
+    return boxes;
+}
+
+bool harvest_path_clear_boxes(const Site& site, const world::State& state,
+        const std::vector<std::pair<authority::Point, authority::Point>>& solid_boxes,
         const std::string& source, const authority::Point& actor,
         const authority::Point& contact) {
     // The held tool just above the actor center is the origin; the selected source's own obstacle
@@ -338,20 +362,8 @@ bool harvest_path_clear(const Site& site, const world::State& state,
         const auto& [low, high] = site.terrain.obstacles[index];
         if (intersects(low, high)) return false;
     }
-    const auto blocked_volume = [&](const Bounds& bounds) {
-        authority::Point low{}, high{};
-        for (std::size_t axis = 0; axis < 3; ++axis) {
-            low[axis] = bounds.center[axis] - bounds.half[axis];
-            high[axis] = bounds.center[axis] + bounds.half[axis];
-        }
-        return intersects(low, high);
-    };
-    for (const auto& [id, part] : state.placed_components) {
-        (void)id;
-        if (blocked_volume(component_bounds(site.profile, part.kind, part.center))) return false;
-    }
-    for (const auto& part : state.topology.parts)
-        if (blocked_volume(part_bounds(site.profile, part))) return false;
+    for (const auto& [low, high] : solid_boxes)
+        if (intersects(low, high)) return false;
     const double span = std::hypot(delta[0], delta[2]);
     const int steps = std::max(1, static_cast<int>(std::ceil(span / 0.15)));
     for (int step = 1; step < steps; ++step) {
@@ -363,12 +375,21 @@ bool harvest_path_clear(const Site& site, const world::State& state,
     return true;
 }
 
+}  // namespace
+
+bool harvest_path_clear(const Site& site, const world::State& state,
+        const std::string& source, const authority::Point& actor,
+        const authority::Point& contact) {
+    return harvest_path_clear_boxes(site, state, build_solid_boxes(site, state), source, actor, contact);
+}
+
 std::map<std::string, bool> harvest_clearances(const Site& site,
         const world::State& state, const authority::Point& actor) {
+    const auto solid_boxes = build_solid_boxes(site, state);
     std::map<std::string, bool> clear;
     const auto examine = [&](const std::string& id, const materials::DropPoint& center, bool ore) {
         const auto contact = world::manual_cut_target(site.profile, center, actor, ore);
-        clear.emplace(id, harvest_path_clear(site, state, id, actor, contact));
+        clear.emplace(id, harvest_path_clear_boxes(site, state, solid_boxes, id, actor, contact));
     };
     if (site.profile.material.manual_ore)
         examine(site.profile.material.manual_ore->id, site.profile.material.manual_ore->center, true);
@@ -377,7 +398,7 @@ std::map<std::string, bool> harvest_clearances(const Site& site,
                 region < mineral_site::field_region_count; ++region) {
             const auto id = world::ore_region_id(site.profile, region);
             const auto contact = world::ore_region_cut_target(site.profile, region, actor);
-            clear.emplace(id, harvest_path_clear(site, state, id, actor, contact));
+            clear.emplace(id, harvest_path_clear_boxes(site, state, solid_boxes, id, actor, contact));
         }
     for (const auto& [id, timber] : site.profile.material.timber_sites)
         examine(id, timber.center, false);

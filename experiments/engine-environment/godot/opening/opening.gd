@@ -83,6 +83,7 @@ const FIRST_PERSON_BLEND_DISTANCE := 4.0
 var hover_cell := Vector2i(99, 99)
 var visual_revision := -1
 var geometry_key := ""
+var item_visual_key: Array = []
 var ui_refresh_key: Array = []
 var hand_tree_nodes: Dictionary = {}
 var ore_field_visual: Node3D
@@ -135,6 +136,7 @@ var status_footer: Control
 var status_refused := false
 var footer_snapshot_ready := false
 var footer_fit_pending := false
+var pointed_summary_cache_key: Array = []
 var stock_label: Label
 var parts_label: Label
 var goal_text := ""
@@ -729,6 +731,7 @@ func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
 		pending_link = ""
 		geometry_key = ""
 		visual_revision = -1
+		item_visual_key = []
 		elapsed = 0.0
 		request_sequence = 0
 		request_namespace = "opening-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
@@ -1003,6 +1006,21 @@ func _process(delta: float) -> void:
 			advanced = model._advance_borrowed() if model is NativeWorldModel else model.advance()
 		if advanced.has("context") and advanced.has("revision") and advanced.has("entities"):
 			_refresh_from_projection(advanced)
+		elif model is NativeWorldModel and not state.is_empty():
+			var borrowed := (model as NativeWorldModel)._view_projection_borrowed()
+			if borrowed.get("revision") != state.get("revision") \
+					or borrowed.get("order") != state.get("order") \
+					or borrowed.get("context") != state.get("context"):
+				_refresh_from_projection(borrowed)
+			elif borrowed.get("actors", {}).get(client) != state.get("actors", {}).get(client):
+				var prev_actor: Dictionary = state.get("actors", {}).get(client, {})
+				var next_actor: Dictionary = borrowed.get("actors", {}).get(client, {})
+				state = borrowed
+				if character_presenter != null and (next_actor.get("position") != prev_actor.get("position") \
+						or next_actor.get("ready") != prev_actor.get("ready")):
+					character_presenter.refresh()
+				if next_actor.get("ready") != prev_actor.get("ready"):
+					_refresh_ui()
 		else:
 			_refresh()
 	_refresh_machine_preview()
@@ -4517,7 +4535,8 @@ func _rebuild_machines() -> void:
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
 	_index_machine_rotors()
-	machine_batches.rebuild(machine_root, machine_motion_anchors, _native_transmission())
+	machine_batches.rebuild(machine_root, machine_motion_anchors, _native_transmission(),
+		model is NativeWorldModel and state.get("placed_components", {}).size() >= 12)
 
 func _redraw_items() -> void:
 	# The asset helper uses this script's shared surfaces, so load it after
@@ -4560,18 +4579,28 @@ func _refresh_from_projection(known_projection: Dictionary) -> void:
 	if next_key != geometry_key:
 		geometry_key = next_key
 		if actor_world != null:
-			actor_world.sync_topology()
+			actor_world.sync_topology(state)
 		_rebuild_machines()
 	if int(state.revision) != visual_revision:
 		visual_revision = int(state.revision)
-		_redraw_items()
+		var next_item_key := [state.get("context"), state.get("order"), state.get("stock"),
+			state.get("hand_sources", {}).get(str(state.get("source_deposit", {}).get("id", "")) + "-region-4", {}).get("remaining")]
+		if not model is NativeWorldModel or next_item_key != item_visual_key:
+			item_visual_key = next_item_key
+			_redraw_items()
+		if _native_transmission() and transmission_presenter != null:
+			transmission_presenter.refresh()
 	if character_presenter != null:
 		character_presenter.refresh()
 	if not model is NativeWorldModel or _native_ui_key() != ui_refresh_key:
 		_refresh_ui()
 
 func _native_ui_key() -> Array:
-	return [model.get_instance_id(), state.get("context"), state.get("revision"),
+	return [model.get_instance_id(), state.get("context"), state.get("order"),
+		state.get("stock"), state.get("remaining"), state.get("line_belt_raw"),
+		state.get("inventories"), state.get("cargo", {}).get(client),
+		state.get("manual_cuts", {}).get(client), state.get("dropped_material"),
+		state.get("belt_spans"), state.get("opening_engineering"),
 		state.get("actors", {}).get(client, {}).get("ready", false),
 		selected, mode, explanation_open, startup_save_pending, save_slot_ready, save_slot_owned,
 		building_rotation, foundation_level, wheel_level, wheel_tiles,
@@ -5912,6 +5941,12 @@ func _refresh_pointed_summary() -> void:
 	if distance > 0.0 and get_viewport().gui_get_hovered_control() != null:
 		pointed_summary.visible = false
 		return
+	var cache_key := [screen, camera.global_transform, mode, state.get("revision"),
+		state.get("order"), transmission_controls.active_tool if transmission_controls != null else "",
+		transmission_controls._belt_start if transmission_controls != null else {}]
+	if model is NativeWorldModel and cache_key == pointed_summary_cache_key:
+		return
+	pointed_summary_cache_key = cache_key
 	var summary := _pointed_summary_data(screen)
 	pointed_summary.visible = not summary.is_empty()
 	if summary.is_empty():

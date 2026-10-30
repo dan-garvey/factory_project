@@ -241,7 +241,7 @@ Value Host::configure_terrain(const Object& input) {
     if (!parsed.binding) return result(false, parsed.refusal);
     auto& binding = *parsed.binding;
     if (binding.replace_world) {
-        const auto snapshot = owned_->world->snapshot();
+        const auto& snapshot = owned_->world->snapshot_ref();
         if (snapshot.revision != 0 || snapshot.history.order != 0) return result(false, "terrain_already_bound");
         auto replacement = world::World::create(snapshot.history.context, binding.profile, snapshot.state);
         if (!replacement) return result(false, "invalid_water");
@@ -249,6 +249,10 @@ Value Host::configure_terrain(const Object& input) {
         profile_ = std::move(binding.profile);
     }
     terrain_ = std::move(binding.surface);
+    for (auto& [actor, sample] : owned_->actors) {
+        (void)actor;
+        sample.cached_harvest_order.reset();
+    }
     return result(true, "terrain_bound");
 }
 
@@ -330,7 +334,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     if (!owned_) return result(false, "not_initialized");
     const auto bound = command_admission::bind_actor(profile_.actors, bound_actor, wire);
     if (!bound) return result(false, "wrong_actor");
-    const auto snapshot = owned_->world->snapshot();
+    const auto& snapshot = owned_->world->snapshot_ref();
     auto admitted = command_admission::examine(*bound, snapshot.history, wire);
     if (const auto* refusal = std::get_if<command_admission::Refusal>(&admitted))
         return result(false, refusal->reason);
@@ -340,7 +344,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (delivered.completed() && field<bool>(*delivered.result, "accepted") &&
             *field<bool>(*delivered.result, "accepted")) {
             const auto* revision = field<Integer>(*delivered.result, "revision");
-            const auto current = owned_->world->snapshot();
+            const auto& current = owned_->world->snapshot_ref();
             const auto& records = current.history.records;
             const auto* last_action = records.empty() ? nullptr :
                 field<std::string>(records.back().intent, "action");
@@ -359,18 +363,18 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     !settle_manual_cuts()) return result(false, "native_step_failed");
             }
         }
-        return Value(outward(delivered, owned_->world->snapshot()));
+        return Value(outward(delivered, owned_->world->snapshot_ref()));
     };
     if (const auto* replay = std::get_if<command_admission::Replay>(&admitted)) {
         auto delivered = owned_->world->command({bound_actor, *client}, replay->intent, observe());
         if (field<std::string>(replay->intent, "action") &&
             *field<std::string>(replay->intent, "action") == "operate_hand_crank")
             return complete_crank_pulse(std::move(delivered));
-        return Value(outward(delivered, snapshot));
+        return Value(outward(delivered, owned_->world->snapshot_ref()));
     }
     Object normalized = std::move(std::get<command_admission::Fresh>(admitted).normalized);
     const auto refuse = [&](const char* reason) {
-        return Value(outward(owned_->world->refuse({bound_actor, *client}, normalized, reason), owned_->world->snapshot()));
+        return Value(outward(owned_->world->refuse({bound_actor, *client}, normalized, reason), owned_->world->snapshot_ref()));
     };
     const auto* action = field<std::string>(wire, "action");
     if (!action) return refuse("invalid_action");
@@ -1155,13 +1159,13 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     auto delivered = owned_->world->command({bound_actor, *client}, normalized, observe());
     if (support_edit && delivered.result && field<bool>(*delivered.result, "accepted") &&
             *field<bool>(*delivered.result, "accepted")) {
-        const auto layout = transmission_supports(owned_->world->snapshot().state, &owned_->support_routes);
+        const auto layout = transmission_supports(owned_->world->snapshot_ref().state, &owned_->support_routes);
         std::map<std::string, std::size_t> routes;
         for (const auto& [id, support] : layout) routes.emplace(id, support.route);
         owned_->support_routes = std::move(routes);
     }
     if (edit == "operate_hand_crank") return complete_crank_pulse(std::move(delivered));
-    return Value(outward(delivered, owned_->world->snapshot()));
+    return Value(outward(delivered, owned_->world->snapshot_ref()));
 }
 
 Value Host::publish_actor(const std::string& actor, const Array& position, Integer epoch) {
@@ -1173,7 +1177,9 @@ Value Host::publish_actor(const std::string& actor, const Array& position, Integ
         return result(false, "invalid_actor_sample");
     }
     if (epoch <= current.epoch) return result(false, "stale_actor_sample");
-    current = {*at, epoch, true};
+    current.position = *at;
+    current.epoch = epoch;
+    current.ready = true;
     owned_->native_started = true;
     if (!settle_manual_cuts(actor)) return result(false, "native_step_failed");
     return result(true, "actor_published");
@@ -1184,10 +1190,20 @@ Value Host::actor_projection(const std::string& actor) const {
     const auto found = owned_->actors.find(actor);
     if (found == owned_->actors.end()) return result(false, "unknown_actor");
     const auto& current = found->second;
+    const auto& snapshot = owned_->world->snapshot_ref();
+    if (!current.cached_harvest_order ||
+        *current.cached_harvest_order != snapshot.history.order ||
+        current.cached_harvest_ready != current.ready ||
+        current.cached_harvest_position != current.position) {
+        current.cached_harvest_clear = complete_projection::harvest_clearances(
+            profile_, terrain_, snapshot.state, current.position, current.ready);
+        current.cached_harvest_order = snapshot.history.order;
+        current.cached_harvest_ready = current.ready;
+        current.cached_harvest_position = current.position;
+    }
     return Value(Object{{"accepted", Value(true)}, {"ready", Value(current.ready)},
         {"position", point_value(current.position)}, {"native_epoch", Value(current.epoch)},
-        {"harvest_clear", Value(complete_projection::harvest_clearances(profile_, terrain_,
-            owned_->world->snapshot().state, current.position, current.ready))}});
+        {"harvest_clear", Value(current.cached_harvest_clear)}});
 }
 
 Value Host::invalidate_actor(const std::string& actor) {
@@ -1211,7 +1227,7 @@ Value Host::advance_tick_fields() {
     const auto tick = owned_->world->tick(observe());
     if (tick.error != world::TransactionError::none) return result(false, "native_step_failed");
     if (!settle_manual_cuts()) return result(false, "native_step_failed");
-    return Value(tick_fields(profile_, owned_->world->snapshot()));
+    return Value(tick_fields(profile_, owned_->world->snapshot_ref()));
 }
 
 bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) {
@@ -1277,7 +1293,7 @@ Value Host::projection() const {
     for (const auto& [id, sample] : owned_->actors)
         actors.emplace(id, complete_projection::ActorObservation{
             sample.position, sample.epoch, sample.ready});
-    auto projected = complete_projection::build(profile_, owned_->world->snapshot(),
+    auto projected = complete_projection::build(profile_, owned_->world->snapshot_ref(),
         terrain_, owned_->support_routes, actors);
     return projected ? std::move(*projected) : result(false, "incomplete_projection");
 }
@@ -1287,7 +1303,7 @@ Value Host::checkpoint() const {
     std::map<std::string, authority::Point> actor_positions;
     for (const auto& [actor, sample] : owned_->actors)
         actor_positions.emplace(actor, sample.position);
-    auto encoded = checkpoint_envelope::encode(profile_, owned_->world->snapshot(),
+    auto encoded = checkpoint_envelope::encode(profile_, owned_->world->snapshot_ref(),
         actor_positions, owned_->support_routes);
     return encoded ? std::move(*encoded) : result(false, "native_checkpoint_refused");
 }
@@ -1372,13 +1388,17 @@ Value Host::validate_checkpoint(const Value& input) const {
 
 Value Host::restore_checkpoint(const Value& input) {
     if (!owned_) return result(false, "not_initialized");
-    const auto current = owned_->world->snapshot();
+    const auto& current = owned_->world->snapshot_ref();
     if (owned_->native_started || current.history.order != 0 || current.revision != 0)
         return result(false, "restore_requires_fresh_host");
     auto decoded = decode(input);
     if (!decoded.candidate) return result(false, decoded.refusal);
     owned_.swap(decoded.candidate);
     return result(true, "restored");
+}
+
+authority::Integer Host::order() const noexcept {
+    return owned_ && owned_->world ? owned_->world->order() : -1;
 }
 
 }  // namespace factory::godot_world

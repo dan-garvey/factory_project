@@ -23,6 +23,7 @@ std::atomic<int> live_instances{};
 struct Instance {
     factory::godot_world::Host host;
     std::optional<Value> last_view;
+    bool actors_changed{};
     Instance() { ++live_instances; }
     ~Instance() { --live_instances; }
 };
@@ -144,8 +145,11 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
     // is allowed to do the same: the next tick simply delivers a full view.
     if (method == Method::initialize || method == Method::initialize_arrival ||
         method == Method::initialize_arrival_advanced_fixture ||
-        method == Method::terrain || method == Method::command || method == Method::publish ||
-        method == Method::invalidate || method == Method::restore) instance.last_view.reset();
+        method == Method::terrain || method == Method::command ||
+        method == Method::invalidate || method == Method::restore) {
+        instance.last_view.reset();
+        instance.actors_changed = false;
+    }
     switch (method) {
         case Method::terrain: return host.configure_terrain(typed<Object>(args, 0));
         case Method::initialize:
@@ -164,7 +168,52 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
             return host.initialize(typed<std::string>(args, 0), actors);
         }
         case Method::command: return host.command(typed<std::string>(args, 0), typed<Object>(args, 1));
-        case Method::publish: return host.publish_actor(typed<std::string>(args, 0), typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));
+        case Method::publish: {
+            const auto& actor = typed<std::string>(args, 0);
+            const auto order_before = host.order();
+            Value outcome = host.publish_actor(actor, typed<Value::Array>(args, 1), typed<Value::Integer>(args, 2));
+            const auto* obj = std::get_if<Object>(&outcome.storage());
+            const auto accepted = obj ? obj->find("accepted") : Object::const_iterator{};
+            const bool is_accepted = obj && accepted != obj->end() &&
+                std::holds_alternative<bool>(accepted->second.storage()) &&
+                std::get<bool>(accepted->second.storage());
+            if (!is_accepted || host.order() != order_before) {
+                instance.last_view.reset();
+                instance.actors_changed = false;
+            } else if (instance.last_view) {
+                Value projected = host.actor_projection(actor);
+                const auto* proj_obj = std::get_if<Object>(&projected.storage());
+                if (proj_obj && proj_obj->contains("accepted")) {
+                    Object entry = std::move(projected).take_object();
+                    entry.erase("accepted");
+                    Object root = std::move(*instance.last_view).take_object();
+                    const auto actors_it = root.find("actors");
+                    if (actors_it != root.end() && std::holds_alternative<Object>(actors_it->second.storage())) {
+                        Object actors = std::move(actors_it->second).take_object();
+                        const auto actor_it = actors.find(actor);
+                        if (actor_it != actors.end() && std::holds_alternative<Object>(actor_it->second.storage())) {
+                            Object current_actor = std::move(actor_it->second).take_object();
+                            for (auto& [k, v] : entry)
+                                current_actor.insert_or_assign(k, std::move(v));
+                            actors.insert_or_assign(actor, Value(std::move(current_actor)));
+                            root.insert_or_assign("actors", Value(std::move(actors)));
+                            instance.last_view = Value(std::move(root));
+                            instance.actors_changed = true;
+                        } else {
+                            instance.last_view.reset();
+                            instance.actors_changed = false;
+                        }
+                    } else {
+                        instance.last_view.reset();
+                        instance.actors_changed = false;
+                    }
+                } else {
+                    instance.last_view.reset();
+                    instance.actors_changed = false;
+                }
+            }
+            return outcome;
+        }
         case Method::actor_projection: return host.actor_projection(typed<std::string>(args, 0));
         case Method::projection_fields: return factory::godot_world::projection_contract::fields(true);
         case Method::projection_record_fields: return factory::godot_world::projection_contract::record_fields();
@@ -172,15 +221,16 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
         case Method::advance:
         case Method::projection: {
             Value view = with_opening_engineering(method == Method::advance ? host.advance() : host.projection());
+            instance.actors_changed = false;
             if (factory::godot_world::projection_contract::complete(view, true))
                 instance.last_view = view;
             else instance.last_view.reset();
             return view;
         }
         case Method::advance_delta: {
-            if (!instance.last_view ||
-                !factory::godot_world::projection_contract::complete(*instance.last_view, true)) {
+            if (!instance.last_view) {
                 Value view = with_opening_engineering(host.advance());
+                instance.actors_changed = false;
                 if (factory::godot_world::projection_contract::complete(view, true))
                     instance.last_view = view;
                 else instance.last_view.reset();
@@ -190,11 +240,16 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
             const auto* fields = std::get_if<Object>(&tick.storage());
             if (!fields || !fields->contains("revision")) {
                 instance.last_view.reset();
+                instance.actors_changed = false;
                 return tick;
             }
             Object next = std::move(*instance.last_view).take_object();
             Object tick_changes = std::move(tick).take_object();
             Object changes;
+            if (instance.actors_changed && next.contains("actors")) {
+                changes.emplace("actors", next.at("actors"));
+            }
+            instance.actors_changed = false;
             for (auto& [key, value] : tick_changes) {
                 const auto found = next.find(key);
                 if (found == next.end() || factory::values::typed_difference(found->second, value)) {

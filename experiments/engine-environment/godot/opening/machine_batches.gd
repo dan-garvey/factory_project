@@ -283,14 +283,15 @@ func _machine_composite_mesh(parts: Array[Dictionary], key: Array) -> ArrayMesh:
 	machine_batch_composite_meshes[key] = combined
 	return combined
 
-func _batch_machine_composites(moving: Dictionary, static_groups: Dictionary) -> Dictionary:
+func _batch_machine_composites(moving: Dictionary, static_groups: Dictionary,
+		force_live: bool = false) -> Dictionary:
 	var candidates := {}
 	var skip_sources := {}
 	for anchor in machine_root.get_children():
 		# Wheel rotors already use a composite moving mesh; their supports did
 		# not improve the rendered frame-time comparison.
 		if not anchor is Node3D or not anchor.has_meta("machine_kind") \
-				or anchor.get_meta("machine_kind") == "wheel":
+				or (not force_live and anchor.get_meta("machine_kind") == "wheel"):
 			continue
 		var parts: Array[Dictionary] = []
 		_collect_machine_composite_parts(anchor, Transform3D.IDENTITY, moving, parts)
@@ -315,7 +316,7 @@ func _batch_machine_composites(moving: Dictionary, static_groups: Dictionary) ->
 		candidates[key].instances.append({"anchor": anchor, "parts": parts})
 	for key in candidates:
 		var candidate: Dictionary = candidates[key]
-		if candidate.instances.size() < 2:
+		if candidate.instances.size() < (1 if force_live else 2):
 			continue
 		var mesh := _machine_composite_mesh(candidate.parts, key)
 		var shadow: int = candidate.parts[0].shadow
@@ -450,10 +451,11 @@ func _batch_machine_visuals_walk(node: Node3D, pose: Transform3D,
 			_batch_machine_visuals_walk(child, next_pose, moving, static_groups, dynamic_groups,
 				in_rotor, skip_sources)
 
-func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bool) -> void:
+func _emit_machine_mesh_batches(groups: Dictionary, batches: Node3D, dynamic: bool,
+		force_live: bool = false) -> void:
 	var batch_index := batches.get_child_count()
 	for group in groups.values():
-		if group.parts.size() < 2:
+		if group.parts.size() < (1 if force_live else 2):
 			continue
 		var partitions: Array = [group.parts]
 		# Smaller fields submit more cell batches than culling saves. Count only
@@ -588,7 +590,8 @@ func _batch_conveyor_loops(batches: Node3D) -> void:
 	for index in loops.size():
 		machine_conveyor_batch_slots[loops[index].get_instance_id()] = {"mesh": multi, "index": index}
 
-func rebuild(root: Node3D, motion_anchors: Array[Node3D], enabled: bool) -> void:
+func rebuild(root: Node3D, motion_anchors: Array[Node3D], enabled: bool,
+		force_live: bool = false) -> void:
 	machine_root = root
 	machine_motion_anchors = motion_anchors
 	machine_dynamic_batches.clear()
@@ -600,7 +603,7 @@ func rebuild(root: Node3D, motion_anchors: Array[Node3D], enabled: bool) -> void
 	machine_cutter_batch_slots.clear()
 	wheel_batch_poses.clear()
 	wheel_updated_rotors.clear()
-	if not enabled or machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD:
+	if not enabled or (not force_live and machine_root.get_child_count() < MACHINE_BATCH_THRESHOLD):
 		return
 	var moving := {}
 	for anchor in machine_root.get_children():
@@ -610,7 +613,7 @@ func rebuild(root: Node3D, motion_anchors: Array[Node3D], enabled: bool) -> void
 			moving[row.node.get_instance_id()] = true
 	var static_groups := {}
 	var dynamic_groups := {}
-	var skip_sources := _batch_machine_composites(moving, static_groups)
+	var skip_sources := _batch_machine_composites(moving, static_groups, force_live)
 	_batch_collector_cutters(dynamic_groups, skip_sources)
 	for anchor in machine_root.get_children():
 		if anchor is Node3D:
@@ -619,6 +622,6 @@ func rebuild(root: Node3D, motion_anchors: Array[Node3D], enabled: bool) -> void
 	var batches := Node3D.new()
 	batches.name = "MachineVisualBatches"
 	machine_root.add_child(batches)
-	_emit_machine_mesh_batches(static_groups, batches, false)
-	_emit_machine_mesh_batches(dynamic_groups, batches, true)
+	_emit_machine_mesh_batches(static_groups, batches, false, force_live)
+	_emit_machine_mesh_batches(dynamic_groups, batches, true, force_live)
 	_batch_conveyor_loops(batches)

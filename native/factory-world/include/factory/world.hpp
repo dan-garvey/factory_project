@@ -354,6 +354,8 @@ public:
         const std::string& expected_context, Profile profile, const Snapshot& saved);
 
     [[nodiscard]] Snapshot snapshot() const { return owner_->snapshot(); }
+    [[nodiscard]] const Snapshot& snapshot_ref() const noexcept { return owner_->snapshot_ref(); }
+    [[nodiscard]] authority::Integer order() const noexcept { return owner_->snapshot_ref().history.order; }
     [[nodiscard]] bool has_manual_cuts() const noexcept {
         return !owner_->snapshot_ref().state.manual_cuts.empty();
     }

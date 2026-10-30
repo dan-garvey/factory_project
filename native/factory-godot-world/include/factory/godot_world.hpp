@@ -46,6 +46,7 @@ public:
     [[nodiscard]] values::Value checkpoint() const;
     [[nodiscard]] values::Value validate_checkpoint(const values::Value&) const;
     [[nodiscard]] values::Value restore_checkpoint(const values::Value&);
+    [[nodiscard]] authority::Integer order() const noexcept;
 
 private:
     [[nodiscard]] bool settle_manual_cuts(const std::optional<std::string>& observed_actor = std::nullopt);
@@ -56,6 +57,10 @@ private:
         authority::Point position{};
         authority::Integer epoch{};
         bool ready{};
+        mutable std::optional<authority::Integer> cached_harvest_order{};
+        mutable authority::Point cached_harvest_position{};
+        mutable bool cached_harvest_ready{};
+        mutable values::Value::Object cached_harvest_clear{};
     };
     struct Owned {
         std::unique_ptr<world::World> world;
