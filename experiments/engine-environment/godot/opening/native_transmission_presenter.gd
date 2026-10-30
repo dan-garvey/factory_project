@@ -222,7 +222,13 @@ func _apply_angles(update_gears := true) -> void:
 			continue
 		var id: String = str(child.get_meta("entity", ""))
 		var angle := visual_angle(id)
+		if child.has_meta("last_visual_angle") and is_equal_approx(float(child.get_meta("last_visual_angle")), angle):
+			continue
+		child.set_meta("last_visual_angle", angle)
 		child.basis = axis_basis(int(child.get_meta("axis"))) * Basis(Vector3.UP, angle)
+		if child.has_meta("batch_multimesh"):
+			(child.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
+				int(child.get_meta("batch_index")), child.transform)
 		var arrow := child.get_node_or_null("ConfirmedDirection")
 		if arrow != null:
 			# Keep the signed-rate annotation fixed while its rotor turns.
@@ -1120,6 +1126,18 @@ func _refresh_belt_cargo(spans: Variant) -> void:
 				visual = null
 			if visual == null:
 				visual = Items.stamped_plate(anchor, position) if product else Items.workpiece_billet(anchor, position)
+				if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD:
+					var cargo_parts: Array[Dictionary] = []
+					var cargo_key_arr: Array = ["belt_cargo", kind]
+					_collect_rigid_mesh_parts(visual, Transform3D.IDENTITY, {}, cargo_parts, cargo_key_arr)
+					if not cargo_parts.is_empty():
+						var cargo_mesh := _rigid_composite_mesh(cargo_parts, cargo_key_arr)
+						for part in cargo_parts:
+							(part.source as MeshInstance3D).visible = false
+						var batch_child := MeshInstance3D.new()
+						batch_child.name = "CargoBatchMesh"
+						batch_child.mesh = cargo_mesh
+						visual.add_child(batch_child)
 			else:
 				visual.position = position
 			visual.set_meta("belt_slot", index)
@@ -2575,10 +2593,54 @@ func _rebuild_placed_component_batches() -> void:
 	var dynamic_boxes := {}
 	var dynamic_cylinders := {}
 	for child in get_children():
-		if not child is Node3D or not (child.has_meta("component_entity") or child.has_meta("receiver_entity")
-				or child.has_meta("press_anvil") or child.has_meta("anvil")):
+		if not child is Node3D:
 			continue
 		var anchor := child as Node3D
+		if child.get_meta("kind", "") == "shaft":
+			var shaft_parts: Array[Dictionary] = []
+			var shaft_key: Array = ["part_shaft"]
+			_collect_rigid_mesh_parts(anchor, Transform3D.IDENTITY, {"ConfirmedDirection": true}, shaft_parts, shaft_key)
+			if not shaft_parts.is_empty():
+				var mesh := _rigid_composite_mesh(shaft_parts, shaft_key)
+				var mesh_id := mesh.get_instance_id()
+				if not dynamic_composites.has(mesh_id):
+					dynamic_composites[mesh_id] = {"mesh": mesh, "entries": []}
+				dynamic_composites[mesh_id].entries.append({"node": anchor, "pose": anchor.transform})
+				for part in shaft_parts:
+					(part.source as MeshInstance3D).visible = false
+			continue
+		if child.get_meta("kind", "") == "belt_span":
+			var loop := anchor.get_node_or_null("BeltLoop") as Node3D
+			if loop != null:
+				var belt_parts: Array[Dictionary] = []
+				var belt_key: Array = ["belt_frame"]
+				_collect_rigid_mesh_parts(loop, Transform3D.IDENTITY, {}, belt_parts, belt_key)
+				if not belt_parts.is_empty():
+					var mesh := _rigid_composite_mesh(belt_parts, belt_key)
+					var mesh_id := mesh.get_instance_id()
+					if not static_composites.has(mesh_id):
+						static_composites[mesh_id] = {"mesh": mesh, "poses": []}
+					static_composites[mesh_id].poses.append(anchor.transform * loop.transform)
+					for part in belt_parts:
+						(part.source as MeshInstance3D).visible = false
+			continue
+		if child is MeshInstance3D and child.name.begins_with("ConfirmedEngagement"):
+			var mark := child as MeshInstance3D
+			if mark.mesh != null:
+				var mark_parts: Array[Dictionary] = [{"source": mark, "mesh": mark.mesh, "surface": 0,
+					"finish": mark.material_override, "pose": Transform3D.IDENTITY}]
+				var mark_key: Array = ["engagement_mark", mark.material_override.get_instance_id() if mark.material_override != null else 0]
+				var mesh := _rigid_composite_mesh(mark_parts, mark_key)
+				var mesh_id := mesh.get_instance_id()
+				if not static_composites.has(mesh_id):
+					static_composites[mesh_id] = {"mesh": mesh, "poses": []}
+				static_composites[mesh_id].poses.append(mark.transform)
+				mark.visible = false
+			continue
+		if not (child.has_meta("component_entity") or child.has_meta("receiver_entity")
+				or child.has_meta("press_anvil") or child.has_meta("anvil")
+				or child.has_meta("supported_entity")):
+			continue
 		var static_parts: Array[Dictionary] = []
 		var static_key: Array = ["static"]
 		_collect_rigid_mesh_parts(anchor, Transform3D.IDENTITY, skip_names, static_parts, static_key)
@@ -2634,12 +2696,31 @@ func _rebuild_placed_component_batches() -> void:
 				"pose": anchor.transform * Transform3D(Basis.IDENTITY.scaled(scale_vec), cyl_node.position)})
 			cyl_node.visible = false
 	var batch_idx := 0
-	for group in static_composites.values():
-		var poses: Array[Transform3D] = []
-		poses.assign(group.poses)
-		_add_batch(group.mesh, poses, "PlacedStaticBatch%d" % batch_idx)
-		_component_batch_nodes.append(get_child(get_child_count() - 1) as Node3D)
-		batch_idx += 1
+	if not static_composites.is_empty():
+		var merged_finishes := {}
+		for group in static_composites.values():
+			var comp_mesh: ArrayMesh = group.mesh
+			var poses: Array = group.poses
+			for s in comp_mesh.get_surface_count():
+				var finish: Material = comp_mesh.surface_get_material(s)
+				var finish_id := finish.get_instance_id() if finish != null else 0
+				if not merged_finishes.has(finish_id):
+					var st := SurfaceTool.new()
+					st.begin(Mesh.PRIMITIVE_TRIANGLES)
+					st.set_material(finish)
+					merged_finishes[finish_id] = st
+				var st: SurfaceTool = merged_finishes[finish_id]
+				for pose: Transform3D in poses:
+					st.append_from(comp_mesh, s, pose)
+		var merged_mesh: ArrayMesh
+		for st: SurfaceTool in merged_finishes.values():
+			merged_mesh = st.commit(merged_mesh)
+		if merged_mesh != null:
+			var merged_node := MeshInstance3D.new()
+			merged_node.name = "PlacedStaticMerged"
+			merged_node.mesh = merged_mesh
+			add_child(merged_node)
+			_component_batch_nodes.append(merged_node)
 	for group in dynamic_composites.values():
 		var entries: Array = group.entries
 		var poses: Array[Transform3D] = []
@@ -2817,7 +2898,50 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 			label.pixel_size = 0.00075
 			label.outline_size = 6
 			label.no_depth_test = true
-			visual.add_child(label)
+			if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD:
+				label.position += visual.position
+				add_child(label)
+				_drop_visuals.append(label)
+			else:
+				visual.add_child(label)
+	if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD and not _drop_visuals.is_empty():
+		var drop_finishes := {}
+		for node in _drop_visuals:
+			if not is_instance_valid(node) or node is Label3D:
+				continue
+			var drop_parts: Array[Dictionary] = []
+			var drop_key: Array = []
+			if node is MeshInstance3D:
+				var source := node as MeshInstance3D
+				if source.mesh != null:
+					for surface in source.mesh.get_surface_count():
+						var finish: Material = source.material_override
+						if finish == null:
+							finish = source.get_surface_override_material(surface)
+						if finish == null:
+							finish = source.mesh.surface_get_material(surface)
+						drop_parts.append({"source": source, "mesh": source.mesh, "surface": surface,
+							"finish": finish, "pose": source.transform})
+			_collect_rigid_mesh_parts(node, node.transform, {}, drop_parts, drop_key)
+			for part in drop_parts:
+				var finish: Material = part.finish
+				var finish_id := finish.get_instance_id() if finish != null else 0
+				if not drop_finishes.has(finish_id):
+					var st := SurfaceTool.new()
+					st.begin(Mesh.PRIMITIVE_TRIANGLES)
+					st.set_material(finish)
+					drop_finishes[finish_id] = st
+				(drop_finishes[finish_id] as SurfaceTool).append_from(part.mesh, part.surface, part.pose)
+				(part.source as MeshInstance3D).visible = false
+		var drop_mesh: ArrayMesh
+		for st: SurfaceTool in drop_finishes.values():
+			drop_mesh = st.commit(drop_mesh)
+		if drop_mesh != null:
+			var merged_drops := MeshInstance3D.new()
+			merged_drops.name = "DroppedMaterialMerged"
+			merged_drops.mesh = drop_mesh
+			add_child(merged_drops)
+			_drop_visuals.append(merged_drops)
 
 func refresh() -> void:
 	if _host == null or not is_instance_valid(_host.get_ref()):
@@ -2925,7 +3049,6 @@ func refresh() -> void:
 	_render_receiver_chutes(snapshot)
 	_render_press_belt_connectors(snapshot)
 	_render_broad_belt_docks(snapshot, component_result.boxes)
-	_rebuild_placed_component_batches()
 	_render_dropped_material(snapshot, component_result.boxes)
 	var rendered: Dictionary = {}
 	var gear_anchors: Dictionary = {}
@@ -3051,6 +3174,7 @@ func refresh() -> void:
 			mark.basis = axis_basis(a.axis)
 			mark.set_meta("from", edge.a)
 			mark.set_meta("to", edge.b)
+	_rebuild_placed_component_batches()
 	# Topology changes rebuild this list. A dense cog batch has pick anchors
 	# but no individual animated scene nodes to scan each render frame.
 	for child in get_children():

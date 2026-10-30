@@ -228,6 +228,8 @@ var component_nudge_active := false
 var component_nudge_center: Array = []
 var landing_pod_visual: Node3D
 var landing_hub_visual: Node3D
+var landing_pod_batch_visual: MeshInstance3D
+var landing_hub_batch_visual: MeshInstance3D
 var landing_hub_pick: StaticBody3D
 var arrival_reveal_probe := false
 var arrival_reveal_active := false
@@ -3346,6 +3348,37 @@ func _pose_pod_canopy(amount: float) -> void:
 		strut.basis = Basis.looking_at((end - start).normalized(), Vector3.RIGHT) * Basis(Vector3.RIGHT, PI / 2.0)
 		strut.scale = Vector3(1.0, start.distance_to(end), 1.0)
 
+func _collect_static_descendant_parts(node: Node3D, pose: Transform3D, finishes: Dictionary) -> void:
+	for child in node.get_children():
+		if not child is Node3D:
+			continue
+		var child_3d := child as Node3D
+		var child_pose: Transform3D = pose * child_3d.transform
+		if child_3d is MeshInstance3D:
+			var source := child_3d as MeshInstance3D
+			if source.mesh != null:
+				for surface in source.mesh.get_surface_count():
+					var finish: Material = source.material_override
+					if finish == null:
+						finish = source.get_surface_override_material(surface)
+					if finish == null:
+						finish = source.mesh.surface_get_material(surface)
+					var finish_id := finish.get_instance_id() if finish != null else 0
+					if not finishes.has(finish_id):
+						var st := SurfaceTool.new()
+						st.begin(Mesh.PRIMITIVE_TRIANGLES)
+						st.set_material(finish)
+						finishes[finish_id] = st
+					(finishes[finish_id] as SurfaceTool).append_from(source.mesh, surface, child_pose)
+		_collect_static_descendant_parts(child_3d, child_pose, finishes)
+
+func _set_descendant_meshes_visible(node: Node3D, show_meshes: bool) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			(child as MeshInstance3D).visible = show_meshes
+		if child is Node3D:
+			_set_descendant_meshes_visible(child as Node3D, show_meshes)
+
 func _sync_landing_pod_visual() -> void:
 	if not state.has("landing_pod") or not state.has("fabrication_hub"):
 		if landing_pod_visual != null:
@@ -3354,6 +3387,12 @@ func _sync_landing_pod_visual() -> void:
 			landing_pod_visual = null
 			landing_hub_visual = null
 			landing_hub_pick = null
+		if landing_pod_batch_visual != null:
+			landing_pod_batch_visual.free()
+			landing_pod_batch_visual = null
+		if landing_hub_batch_visual != null:
+			landing_hub_batch_visual.free()
+			landing_hub_batch_visual = null
 		return
 	var pod: Dictionary = state.landing_pod
 	var hub: Dictionary = state.fabrication_hub
@@ -3374,6 +3413,41 @@ func _sync_landing_pod_visual() -> void:
 		# Host positions use the shared spindle anchor; the bench art sits on its floor.
 		landing_hub_visual.position = Vector3(float(position[0]), float(position[1]), float(position[2])) \
 			- Vector3.UP * Geometry.ANCHOR_HEIGHT
+	var batch_pod: bool = not arrival_reveal_active and state.get("placed_components", {}).size() >= 12
+	if batch_pod:
+		if landing_pod_batch_visual == null:
+			var pod_finishes := {}
+			_collect_static_descendant_parts(landing_pod_visual, Transform3D.IDENTITY, pod_finishes)
+			var pod_mesh: ArrayMesh
+			for st: SurfaceTool in pod_finishes.values():
+				pod_mesh = st.commit(pod_mesh)
+			landing_pod_batch_visual = MeshInstance3D.new()
+			landing_pod_batch_visual.name = "DeployedLandingPodBatch"
+			landing_pod_batch_visual.mesh = pod_mesh
+			add_child(landing_pod_batch_visual)
+		if landing_hub_batch_visual == null:
+			var hub_finishes := {}
+			_collect_static_descendant_parts(landing_hub_visual, Transform3D.IDENTITY, hub_finishes)
+			var hub_mesh: ArrayMesh
+			for st: SurfaceTool in hub_finishes.values():
+				hub_mesh = st.commit(hub_mesh)
+			landing_hub_batch_visual = MeshInstance3D.new()
+			landing_hub_batch_visual.name = "PodFabricationHubBatch"
+			landing_hub_batch_visual.mesh = hub_mesh
+			add_child(landing_hub_batch_visual)
+		_set_descendant_meshes_visible(landing_pod_visual, false)
+		_set_descendant_meshes_visible(landing_hub_visual, false)
+		landing_pod_batch_visual.transform = landing_pod_visual.transform
+		landing_pod_batch_visual.visible = landing_pod_visual.visible
+		landing_hub_batch_visual.transform = landing_hub_visual.transform
+		landing_hub_batch_visual.visible = landing_hub_visual.visible
+	else:
+		if landing_pod_batch_visual != null:
+			landing_pod_batch_visual.visible = false
+		if landing_hub_batch_visual != null:
+			landing_hub_batch_visual.visible = false
+		_set_descendant_meshes_visible(landing_pod_visual, true)
+		_set_descendant_meshes_visible(landing_hub_visual, true)
 
 func _maybe_start_arrival_reveal() -> void:
 	var deadline := Time.get_ticks_msec() + 30000
@@ -3387,6 +3461,7 @@ func _maybe_start_arrival_reveal() -> void:
 	arrival_reveal_elapsed = 0.0
 	_release_character_controls()
 	arrival_reveal_active = true
+	_sync_landing_pod_visual()
 	if character_presenter != null:
 		character_presenter.visible = false
 	if arrival_gameplay_canvas != null:
@@ -3465,6 +3540,7 @@ func _finish_arrival_reveal(skipped: bool = true) -> void:
 	arrival_reveal_elapsed = ARRIVAL_REVEAL_SECONDS
 	_pose_arrival_reveal()
 	arrival_reveal_active = false
+	_sync_landing_pod_visual()
 	if character_presenter != null:
 		character_presenter.visible = true
 	if arrival_gameplay_canvas != null:
