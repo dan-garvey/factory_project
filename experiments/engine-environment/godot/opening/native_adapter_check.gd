@@ -4897,7 +4897,7 @@ func _arrival_run() -> void:
 		var bind_key := InputEventKey.new()
 		bind_key.keycode = KEY_2
 		bind_key.pressed = true
-		opening.building_hotbar._input(bind_key)
+		opening.building_hotbar._catalog_input(bind_key)
 		opening.building_hotbar._close_catalog()
 		opening.building_hotbar.select_slot(1)
 		if not _expect(opening.building_hotbar.slots[1] == "foundation"
