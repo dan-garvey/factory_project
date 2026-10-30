@@ -187,26 +187,34 @@ std::optional<std::pair<double, double>> Surface::range(double x, double z,
     double low = std::numeric_limits<double>::infinity(), high = -low;
     for (auto gz = cell(near); gz <= cell(far); ++gz) for (auto gx = cell(left); gx <= cell(right); ++gx) {
         const auto a = vertex(gx, gz), b = vertex(gx + 1, gz), c = vertex(gx + 1, gz + 1), d = vertex(gx, gz + 1);
-        for (auto polygon : {std::vector<authority::Point>{a, b, c}, std::vector<authority::Point>{a, c, d}}) {
+        for (const auto& tri : {std::array<authority::Point, 3>{a, b, c}, std::array<authority::Point, 3>{a, c, d}}) {
+            std::array<authority::Point, 8> polygon{tri[0], tri[1], tri[2]};
+            std::size_t polygon_size = 3;
             // A linear triangle's extreme height is at a clipped polygon vertex.
             for (const auto& [coordinate, boundary, sign] : {std::tuple{0, left, 1.0}, {0, right, -1.0},
                     {2, near, 1.0}, {2, far, -1.0}}) {
-                std::vector<authority::Point> clipped;
-                for (std::size_t index = 0; index < polygon.size(); ++index) {
+                std::array<authority::Point, 8> clipped{};
+                std::size_t clipped_size = 0;
+                for (std::size_t index = 0; index < polygon_size; ++index) {
                     const auto& p = polygon[index];
-                    const auto& q = polygon[(index + 1) % polygon.size()];
+                    const auto& q = polygon[(index + 1) % polygon_size];
                     const bool inside = (p[coordinate] - boundary) * sign >= 0;
                     const bool next = (q[coordinate] - boundary) * sign >= 0;
-                    if (inside) clipped.push_back(p);
+                    if (inside) clipped[clipped_size++] = p;
                     if (inside != next) {
                         const auto t = (boundary - p[coordinate]) / (q[coordinate] - p[coordinate]);
-                        clipped.push_back({p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]),
-                            p[2] + t * (q[2] - p[2])});
+                        clipped[clipped_size++] = {p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]),
+                            p[2] + t * (q[2] - p[2])};
                     }
                 }
-                polygon = std::move(clipped);
+                polygon = clipped;
+                polygon_size = clipped_size;
+                if (polygon_size == 0) break;
             }
-            for (const auto& p : polygon) { low = std::min(low, p[1]); high = std::max(high, p[1]); }
+            for (std::size_t index = 0; index < polygon_size; ++index) {
+                low = std::min(low, polygon[index][1]);
+                high = std::max(high, polygon[index][1]);
+            }
         }
     }
     return std::pair{low, high};
