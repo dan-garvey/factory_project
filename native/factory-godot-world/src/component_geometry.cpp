@@ -113,12 +113,9 @@ Bounds component_bounds(const world::Profile& profile,
         case materials::Component::copper_slide: {
             // This selected body keeps the same dimensions alone and fitted.
             // In a press its four feet meet the workbed side rails. The
-            // fitted spindle rises internally to a full-U external X
-            // node; a free slide already on a U level needs no rise.
+            // integral shaft stays at the selected slide's own H layer.
             const double low = center[1] * height_step - 2 * height_step + anvil_work_height;
-            const auto port = assembly::small_slide_external_node(center, 1);
-            const double lift = port ? ((*port)[1] - center[1]) * height_step : 0;
-            const double high = at[1] + lift + height_step * 0.25;
+            const double high = at[1] + 0.08 * press_scale;
             return {{at[0], (low + high) * 0.5, at[2]},
                 {pitch * 0.5, (high - low) * 0.5, pitch * 0.5}};
         }

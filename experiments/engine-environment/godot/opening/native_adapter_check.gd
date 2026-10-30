@@ -2852,7 +2852,7 @@ func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictio
 	if not _expect(not crank_id.is_empty(), "The worker carries the finite raised-press crank"):
 		return false
 	if _construct({"action": "attach_hand_crank", "entity": fitted.wooden_slide,
-			"crank": crank_id, "port": [28, 8, 32], "face": [-1, 0, 0]}).is_empty():
+			"crank": crank_id, "port": [28, 6, 32], "face": [-1, 0, 0]}).is_empty():
 		return false
 	for plate_index in range(2):
 		var route: Dictionary = opening.model.projection().sliding_press_assemblies[0].auto_feed
@@ -3303,11 +3303,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		return
 	if not _select_inventory_item("component:hand_crank"):
 		return
-	var west_port := [press_x - 4, rise + 4, press_z]
-	var east_port := [press_x + 4, rise + 4, press_z]
+	var west_port := [press_x - 4, rise + 2, press_z]
+	var east_port := [press_x + 4, rise + 2, press_z]
 	if not _expect(assembled.placed_components[fitted.wooden_slide].get("input_ports", [])
 			== [west_port, east_port],
-			"The fitted slide exposes two native full-U external crank ports"):
+			"The fitted slide exposes two native same-height external crank ports"):
 		return
 	opening.component_nudge_active = true
 	opening.component_nudge_center = east_port.duplicate()

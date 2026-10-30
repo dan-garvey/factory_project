@@ -31,11 +31,14 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
         throw std::runtime_error("The productive scale count is outside the bounded fixture.");
     w::Profile profile;
     profile.material = {1, 2, cycle_ticks};
+    profile.material.raw_mass = 4;
+    profile.material.plate_mass = 3;
+    profile.material.sheet_mass = 12;
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
     const g::Integer timber_units = std::max<g::Integer>(40, line_count * 17);
     profile.material.timber_sites = {{"tree", {{12, 0, 12}, timber_units}}};
-    profile.material.hand_carry_capacity = std::max<g::Integer>(100, line_count * 20 + 10);
-    profile.initial_units = std::max<g::Integer>(100, line_count * 32);
+    profile.material.hand_carry_capacity = std::max<g::Integer>(400, line_count * 180 + 10);
+    profile.initial_units = std::max<g::Integer>(100, line_count * 45);
     profile.actors = {"P"};
     profile.foundation_parts = 9;
     profile.starting_foundation_kits = {{"P", 0}};
@@ -63,21 +66,23 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
     for (int line = 0; line < line_count; ++line) {
         const g::Integer base = 800 + line * 40;
         profile.collector_faces.push_back({{base, 0, 0}, {-1, 0, 0}});
-        for (const auto& [suffix, height, z] : {
-                std::tuple{"collector-wheel", g::Integer{0}, g::Integer{0}},
-                std::tuple{"press-wheel", g::Integer{4}, g::Integer{16}}}) {
+        for (const auto& [suffix, height, z, x_offset] : {
+                std::tuple{"collector-wheel", g::Integer{0}, g::Integer{0}, g::Integer{4}},
+                std::tuple{"press-wheel", g::Integer{4}, g::Integer{16}, g::Integer{8}}}) {
             const auto id = std::to_string(base) + suffix;
             const factory::waterwheel::Sample sample{0, -1000, 0, -600};
-            profile.water.emplace(std::array<g::Integer, 2>{base + 4, z}, sample);
+            profile.water.emplace(std::array<g::Integer, 2>{base + x_offset, z}, sample);
             const auto rate = factory::waterwheel::rate(height * 100 + 121, 600,
                 g::Axis::x, sample);
             if (!rate || rate->numerator == 0)
                 throw std::runtime_error("A modular source wheel did not turn.");
-            seed.topology.parts.push_back({{id, g::Kind::hub, {base + 4, height, z},
+            seed.topology.parts.push_back({{id, g::Kind::hub, {base + x_offset, height, z},
                 g::Axis::x, 0, 0}, 1, s::Role::waterwheel});
             seed.topology.sources.push_back({id, *rate});
             seed.issued_entities.emplace(id, 1);
         }
+        // The autonomous scale fixture uses a full-U broad slide. The small
+        // slide's separate H-layer input is covered by focused press tests.
     }
     auto world = w::World::create("mixed-scale", profile, seed);
     if (!world) throw std::runtime_error("The many-source modular startup was rejected.");
@@ -113,11 +118,16 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
     };
     for (int index = 0; index < line_count * 17; ++index)
         issue("harvest_source", {{"target", V("tree")}});
-    for (int index = 0; index < line_count * 5; ++index)
+    for (int index = 0; index < line_count * 35; ++index)
         issue("harvest_source", {{"target", V("ore")}});
     const auto place = [&](const char* component, g::Point center) -> V::Object {
-        issue("craft_component", {{"target", V("pod-fabrication-hub")},
-            {"generation", V(g::Integer{1})}, {"component", V(component)}});
+        const std::string kind(component);
+        const char* crafted = kind == "broad_anvil" ? "anvil" :
+            kind == "broad_flat_head" ? "flat_head" :
+            kind == "broad_copper_slide" ? "copper_slide" : component;
+        for (int part = 0; part < (kind.starts_with("broad_") ? 4 : 1); ++part)
+            issue("craft_component", {{"target", V("pod-fabrication-hub")},
+                {"generation", V(g::Integer{1})}, {"component", V(crafted)}});
         return issue("place_component", {{"component", V(component)},
             {"center", V(V::Array{V(center[0]), V(center[1]), V(center[2])})}});
     };
@@ -132,11 +142,11 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
         place("receiver_tray", {base, 0, 1});
         driven_shafts.push_back(std::get<std::string>(
             place("wooden_shaft", {base + 1, 0, 0}).at("entity").storage()));
-        const auto bed = place("anvil", {base, 0, 16});
+        const auto bed = place("broad_anvil", {base, 0, 16});
         presses.emplace_back(std::get<std::string>(bed.at("entity").storage()),
             std::get<g::Integer>(bed.at("generation").storage()));
-        place("flat_head", {base, 1, 16});
-        const auto slide = place("wooden_slide", {base, 2, 16});
+        place("broad_flat_head", {base, 1, 16});
+        const auto slide = place("broad_copper_slide", {base, 4, 16});
         press_slides.emplace_back(std::get<std::string>(slide.at("entity").storage()),
             std::get<g::Integer>(slide.at("generation").storage()));
         driven_shafts.push_back(press_slides.back().first);
@@ -163,15 +173,15 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
             // first feed; the second feed must inspect the new exact prefix.
             issue("reclaim_component", {{"target", V(press_slides[index].first)},
                 {"generation", V(press_slides[index].second)}});
-            issue("place_component", {{"component", V("wooden_slide")},
-                {"center", V(V::Array{V(base), V(g::Integer{2}), V(g::Integer{16})})}});
+            issue("place_component", {{"component", V("broad_copper_slide")},
+                {"center", V(V::Array{V(base), V(g::Integer{4}), V(g::Integer{16})})}});
         }
         issue("pickup_material", {{"center", V(V::Array{V(base), V(g::Integer{0}), V(g::Integer{1})})},
             {"expected", V(V::Object{{"raw", V(g::Integer{1})}, {"products", V(g::Integer{0})},
+                {"offcuts", V(g::Integer{0})}, {"sheets", V(g::Integer{0})},
                 {"work_lots", V(V::Array{})}})}});
-        issue("feed_press", {{"target", V(presses[index].first)},
-            {"generation", V(presses[index].second)},
-            {"entry", V(V::Array{V(base + 1), V(g::Integer{0}), V(g::Integer{16})})}});
+        issue("feed_broad_press", {{"target", V(presses[index].first)},
+            {"generation", V(presses[index].second)}});
     }
     const auto constructed = world->snapshot();
     if (line_count == 10) {
@@ -378,7 +388,7 @@ void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = fal
         if (std::all_of(completed_bases.begin(), completed_bases.end(),
                 [&](g::Integer base) {
                     const auto found = drops.find({base, 0, 16});
-                    return found != drops.end() && found->second.products == 1;
+                    return found != drops.end() && found->second.sheets.size() == 1;
                 })) break;
     }
     const auto finished = world->snapshot();
@@ -388,14 +398,11 @@ void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = fal
     if (!sustained) {
         for (const auto base : {g::Integer{800}, g::Integer{840}}) {
             const g::Point work{base, 0, 16};
-            const g::Point exit{base - 1, 0, 16};
             const auto product = finished.state.material.dropped_material.find(work);
-            const auto witness = finished.state.press_output_on_work.find(work);
             if (product == finished.state.material.dropped_material.end() ||
-                product->second.products != 1 || witness == finished.state.press_output_on_work.end() ||
-                witness->second.selected_exit != exit ||
-                !produced_ids.insert(witness->second.id).second)
-                throw std::runtime_error("One modular workbed failed to retain its finished plate.");
+                product->second.sheets.size() != 1 ||
+                !produced_ids.insert(product->second.sheets.front().id).second)
+                throw std::runtime_error("One modular broad workbed failed to retain its finished sheet.");
         }
     }
     std::cout << "WORLD_COG_SCALE_CHECK rotating=" << cog_count
@@ -503,8 +510,8 @@ void productive_line_scale(int line_count, bool audit_commands = false) {
         for (const auto& face : site.profile.collector_faces)
             collectors += inspected_layout.inspect_collector(face).collector.has_value();
         for (const auto& part : inspected_parts)
-            if (part.kind == m::Component::anvil)
-                presses += inspected_layout.inspect_sliding_press(part.center).press.has_value();
+            if (part.kind == m::Component::broad_anvil)
+                presses += inspected_layout.inspect_broad_sliding_press(part.center).press.has_value();
         if (collectors != static_cast<std::size_t>(line_count) ||
             presses != static_cast<std::size_t>(line_count))
             throw std::runtime_error("Measured assembly inspections lost a productive machine.");
@@ -617,8 +624,8 @@ int main(int argc, char** argv) {
         throw std::runtime_error("The World refused a trusted site with 200 independent collector faces.");
     const auto derived = w::drive_power(profile, state);
     if (!derived.mechanical.accepted() ||
-        derived.mechanical.motion.size() != collectors * 3 + presses * 4)
-        throw std::runtime_error("The mixed modular graph did not preserve each distinct drive part.");
+        derived.mechanical.motion.size() != collectors * 3 + presses)
+        throw std::runtime_error("The mixed graph lost a direct press slide shaft or added an implicit coupler.");
 
     if (argc > 1 && std::string(argv[1]) == "--benchmark") {
         std::vector<double> samples;

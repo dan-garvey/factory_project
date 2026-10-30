@@ -344,11 +344,11 @@ void flat_head_host_custody() {
     const auto cranks = get<O>(restored.projection(), "crank_items");
     check(cranks.size() == 1 && get<bool>(resumed("fit-press-crank", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(cranks.begin()->first)},
-               {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}}), "accepted"),
+               {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}}), "accepted"),
           "The pressed slide uses an attached crank at its actual exterior input.");
     const auto loaded_turn = resumed("loaded-slide-turn", "turn_slide_crank",
         {{"entity", V(slide_id)},
-         {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}});
+         {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}});
     if (!get<bool>(loaded_turn, "accepted"))
         throw std::runtime_error("Loaded slide turn refused: " +
             get<std::string>(loaded_turn, "reason"));
@@ -578,7 +578,7 @@ void flat_head_host_custody() {
           get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
           "Picking up the source-formed plate preserves the exact claim and saved route history.");
     const auto first_contact = resumed("first-slide-contact", "turn_slide_crank",
-        {{"entity", V(slide_id)}, {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}});
+        {{"entity", V(slide_id)}, {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}});
     if (!get<bool>(first_contact, "accepted"))
         throw std::runtime_error("First slide contact refused: " +
             get<std::string>(first_contact, "reason"));
@@ -675,7 +675,7 @@ void flat_head_host_custody() {
             {"context", V("flat-head-site")}, {"client", V("P")},
             {"request", V("shared-resume-" + std::to_string(index))},
             {"action", V("turn_slide_crank")}, {"entity", V(slide_id)},
-            {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}});
+            {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}});
         check(get<bool>(shared_stroke, "accepted") &&
               get<bool>(shared_stroke, "contact") == (index == 3),
               "The shared partial lot advances only on the next actual lower crossing.");
@@ -743,7 +743,7 @@ void flat_head_host_custody() {
           "A blocked direct stroke retains the partial WorkId and exact saved phase.");
     const auto turn = [&](const std::string& request) {
         return resumed(request.c_str(), "turn_slide_crank",
-            {{"entity", V(slide_id)}, {"port", V(A{V(I{16}), V(I{4}), V(I{8})})}});
+            {{"entity", V(slide_id)}, {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}});
     };
     for (int index = 0; index < 3; ++index) {
         const auto idle_turn = turn("blocked-approach-" + std::to_string(index));

@@ -1641,33 +1641,15 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 					Vector3(0.07, 0.075, 1.54), finish, true)
 			_support_box(anchor, "SlideCrown", Vector3(0, half_height - 0.048, 0),
 				Vector3(0.44, 0.075, 0.44), finish, true)
-			# The embodied X shaft reaches the external U-centered input plane.
+			# The single embodied X shaft crosses the slide at its own height.
 			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.035,
-				PRESS_REFERENCE_PITCH * 2.0, dark)
+				PRESS_REFERENCE_PITCH, dark)
 			shaft.position = Vector3(0, half_height - 0.08, 0)
 			shaft.rotation.z = PI * 0.5
 			for x in [-0.72, 0.72]:
 				var bearing := _support_cylinder(anchor, "InputBearing", 0.052, 0.03, worked)
 				bearing.position = Vector3(x, half_height - 0.08, 0)
 				bearing.rotation.z = PI * 0.5
-			if occupied_size.y > PRESS_REFERENCE_PITCH * 0.8:
-				# The fitted slide's visible upper U shaft drives its embodied
-				# lower spindle through the same two internal couplers as World.
-				var lower_y: float = half_height - 0.08 - PRESS_REFERENCE_PITCH * 0.5
-				var lower_shaft := _support_cylinder(anchor, "FittedLowerSpindle", 0.035,
-					PRESS_REFERENCE_PITCH * 0.50, dark)
-				lower_shaft.position.y = lower_y
-				lower_shaft.rotation.z = PI * 0.5
-				for plane in [lower_y, half_height - 0.08]:
-					var coupler := Node3D.new()
-					coupler.name = "FittedSlideCoupler"
-					coupler.position.y = plane
-					coupler.rotation.z = PI * 0.5
-					anchor.add_child(coupler)
-					# Keep the embodied change of level legible without making two
-					# exposed wheels the silhouette of the entire small press.
-					var radius := 0.18 if plane == lower_y else 0.24
-					Assets.gear(coupler, radius, 1, Color("b68149"))
 			# The shaft turns inside a fixed crown cylinder. Its piston always
 			# overlaps the moving carriage, including at the bottom of the native
 			# stroke, so the head reads as driven rather than suspended below it.

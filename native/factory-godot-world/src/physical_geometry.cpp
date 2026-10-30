@@ -237,8 +237,8 @@ bool shaft_meets_component_cog(std::optional<materials::Component> kind,
 
 bool shaft_meets_slide_input(std::optional<materials::Component> kind,
         const mechanics::Point& component, const mechanics::Point& shaft, mechanics::Axis axis) {
-    // The one-cell slide's fitted spindle is internal. Its upper embodied
-    // shaft reaches the two neighboring U-centered X-axis shaft nodes.
+    // The one-cell slide's direct shaft reaches the neighboring X-axis
+    // nodes on the same height layer as the selected slide.
     return kind && (*kind == materials::Component::wooden_slide ||
                     *kind == materials::Component::copper_slide) &&
         axis == mechanics::Axis::x &&

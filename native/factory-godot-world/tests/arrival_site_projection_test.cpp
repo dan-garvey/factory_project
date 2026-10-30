@@ -2,6 +2,7 @@
 #include "native/factory-godot-world/src/arrival_site_projection.hpp"
 #include "native/factory-godot-world/src/component_geometry.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -123,6 +124,18 @@ void native_arrival_readout() {
               Value(site::fields(arrival->profile, state, power))) &&
           native->snapshot().state == initial.state && native->snapshot().revision == initial.revision,
           "Repeated readout cannot change the original World or maintain a second worksite state.");
+
+    auto fitted_state = original;
+    fitted_state.placed_components.at("slide-2").center[1] = 2;
+    const auto fitted = site::fields(arrival->profile, fitted_state, power);
+    const auto& fitted_slide = entry(field<Object>(fitted, "placed_components"), "slide-2");
+    const auto fitted_bounds = geometry::component_bounds(arrival->profile,
+        materials::Component::wooden_slide, {4, 2, 0});
+    check(!factory::values::typed_difference(Value(field<Array>(fitted_slide, "input_ports")),
+              Value(Array{Value(Array{Value(Integer{0}), Value(Integer{2}), Value(Integer{0})}),
+                          Value(Array{Value(Integer{8}), Value(Integer{2}), Value(Integer{0})})})) &&
+          std::abs(fitted_bounds.half[1] * 2 - 0.38125) < 1e-9,
+          "A fitted one-cell slide keeps its original half-scale height and direct H-layer input.");
 }
 }  // namespace
 

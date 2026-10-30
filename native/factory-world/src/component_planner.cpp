@@ -52,9 +52,9 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
         kind == materials::Component::broad_copper_slide;
     if (kind == materials::Component::hand_crank)
         return refused("crank_requires_port");
-    // The independent one-cell workbed owns a U-centered footprint. Fitted
-    // heads and slides retain their older quarter-offset contact contract
-    // until the registered external slide port is migrated to the U lattice.
+    // The independent one-cell workbed owns a U-centered footprint. Its head
+    // and slide retain their quarter-offset fit; the slide's external X input
+    // stays on the selected H layer at a neighboring U center.
     if (placing && kind == materials::Component::anvil &&
         (center[0] % 4 != 0 || center[2] % 4 != 0))
         return refused("invalid_area_target");

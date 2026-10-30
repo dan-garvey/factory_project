@@ -386,7 +386,8 @@ func _component_placement_check() -> void:
 			(Geometry.ANCHOR_HEIGHT + Geometry.HEIGHT_STEP * 1.30)) < 0.0001
 		and absf(slide_box.center.y - slide_box.half.y - Geometry.PRESS_WORK_HEIGHT) < 0.0001
 		and absf(slide_box.center.y + slide_box.half.y -
-			(Geometry.ANCHOR_HEIGHT + Geometry.HEIGHT_STEP * 4.25)) < 0.0001
+			(Geometry.ANCHOR_HEIGHT + Geometry.HEIGHT_STEP * 2.0 + 0.08 * press_scale)) < 0.0001
+		and absf(slide_box.size.y - 0.7625 * press_scale) < 0.0001
 		and absf(workbed_box.size.x - Geometry.PITCH) < 0.0001
 		and absf(workbed_box.size.z - Geometry.PITCH) < 0.0001
 		and absf(head_box.size.x - Geometry.PITCH) < 0.0001
@@ -433,8 +434,10 @@ func _component_placement_check() -> void:
 	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace")
 		and head_sample.has_node("FlatHeadMovingDie/FlatHeadStem")
 		and slide_sample.has_node("SlideCarriage/CarriageDieRod")
-		and slide_sample.has_node("SlideCylinder") and slide_sample.has_node("SlidePiston"),
-		"The fitted die joins a piston running from the slide crown to its carriage.")
+		and slide_sample.has_node("SlideCylinder") and slide_sample.has_node("SlidePiston")
+		and not slide_sample.has_node("FittedSlideCoupler")
+		and not slide_sample.has_node("FittedLowerSpindle"),
+		"The compact slide has one integral shaft and piston, without fitted coupler cogs.")
 	var stroke_phase := {"subticks": 2048, "remainder": 0, "denominator": 1,
 		"cycle_subticks": 4096}
 	var stroked_head := Node3D.new()
@@ -484,7 +487,8 @@ func _component_placement_check() -> void:
 		and absf(slide_foot.position.z - mount_rail.position.z) < 0.0001
 		and 2.0 * (absf(slide_post.position.z) - 0.025 * press_scale) > 2.0 * Geometry.BELT_HALF_WIDTH
 		and absf(slide_sample.position.y + input_shaft.position.y -
-			(Geometry.ANCHOR_HEIGHT + 4.0 * Geometry.HEIGHT_STEP)) < 0.03 * press_scale,
+			(Geometry.ANCHOR_HEIGHT + 2.0 * Geometry.HEIGHT_STEP)) < 0.03 * press_scale
+		and absf((input_shaft.mesh as CylinderMesh).height * input_shaft.scale.y - Geometry.PITCH) < 0.0001,
 		"Separate slide feet seat on the workbed rails with belt-width clearance and the native drive axis.")
 	var resting_face_bottom: float = head_sample.position.y \
 		+ head_sample.get_node("FlatHeadMovingDie").position.y - 0.05 * press_scale
@@ -1162,26 +1166,26 @@ func _component_placement_check() -> void:
 		"occupied": {"center": [input_slide_box.center.x, input_slide_box.center.y,
 			input_slide_box.center.z], "half": [input_slide_box.half.x,
 			input_slide_box.half.y, input_slide_box.half.z]},
-		"input_ports": [[-4, 4, 0], [4, 4, 0]]}
+		"input_ports": [[-4, 2, 0], [4, 2, 0]]}
 	view.aimed = "input-slide"
 	body.set_meta("component_entity", "input-slide")
 	view.aim_normal = Vector3.RIGHT
 	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [4, 4, 0]
+	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [4, 2, 0]
 		and view.component_preview.visible and view.component_preview_snap == "Slide input shaft",
-		"Pointing at the fitted slide exposes its U-centered raised external shaft node.")
+		"Pointing at the fitted slide exposes its same-height external shaft node.")
 	view._world_click(Vector2i.ZERO, "input-slide")
-	verify(view.issued.back().center == [4, 4, 0],
-		"The shaft click uses the same full-U port shown by the preview.")
+	verify(view.issued.back().center == [4, 2, 0],
+		"The shaft click uses the same H-layer port shown by the preview.")
 	view.aim_normal = Vector3.LEFT
-	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [-4, 4, 0]
+	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [-4, 2, 0]
 		and view._sliding_press_part_snap("hand_crank", "wooden_slide", [0, 2, 0],
-			Vector3.LEFT).center == [-4, 4, 0],
+			Vector3.LEFT).center == [-4, 2, 0],
 		"The opposite slide face exposes the mirrored U-centered crank input.")
 	view.aim_normal = Vector3.RIGHT
 	view._input(_component_key(KEY_ALT, true, true))
 	view._input(_component_key(KEY_PAGEUP, true, true))
-	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [4, 5, 0],
+	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [4, 3, 0],
 		"Manual nudge still overrides the suggested slide input socket.")
 	view._input(_component_key(KEY_ALT, false))
 	view.state.placed_components.erase("input-slide")
