@@ -312,31 +312,6 @@ struct DrivePower {
     std::map<std::string, mechanics::Axis> crank_axes{};
 };
 
-enum class BroadPressDriveStatus {
-    ready, invalid_power, invalid_geometry, unpowered, stopped, stalled,
-    incompatible_axis, mismatched_rate, disconnected,
-};
-
-struct BroadPressDriveInspection {
-    BroadPressDriveStatus status{BroadPressDriveStatus::invalid_power};
-    std::optional<mechanics::Rate> stroke_rate;
-    std::array<int, 4> pad_winding{};
-};
-
-// One index over a confirmed mechanical cut serves every four-cell candidate.
-// Equal rates on separate networks are insufficient: the four cams must share
-// one mechanically constrained component. The mirrored pad winding derives
-// from its broad work-face row or column and is projected for visible art.
-class BroadPressDriveIndex {
-public:
-    explicit BroadPressDriveIndex(const DrivePower& power);
-    [[nodiscard]] BroadPressDriveInspection inspect(const assembly::BroadPress& press) const;
-    [[nodiscard]] BroadPressDriveInspection inspect(const assembly::BroadShear& shear) const;
-private:
-    const DrivePower& power_;
-    std::map<std::string, std::size_t> component_by_part_;
-};
-
 [[nodiscard]] DrivePower drive_power(const stationary::Topology&);
 [[nodiscard]] DrivePower drive_power(const Profile&, const State&);
 // The placed crank engages one connected input while held. A manual turn
@@ -396,11 +371,8 @@ private:
         std::vector<assembly::Part> placed;
         assembly::Layout layout;
         std::map<mechanics::Point, std::optional<assembly::Collector>> collectors_by_receiver;
-        std::vector<std::pair<mechanics::Point, assembly::PressInspection>> presses_by_frame;
-        std::vector<std::pair<mechanics::Point, assembly::GuidedPressInspection>> presses_by_anvil;
         std::vector<std::pair<mechanics::Point, assembly::SlidingPressInspection>> slides_by_anvil;
         std::vector<assembly::BroadSlidingPress> broad_slides;
-        std::vector<assembly::BroadPress> broad_presses;
         TickLayout(std::vector<assembly::Part> parts, const std::vector<assembly::OreFace>& faces)
             : placed(std::move(parts)), layout(placed) {
             // These inspections depend only on placed geometry. A material-only
@@ -413,13 +385,8 @@ private:
                 if (!inserted) entry->second.reset();
             }
             for (const auto& part : placed)
-                if (part.kind == materials::Component::wooden_frame)
-                    presses_by_frame.emplace_back(part.center, layout.inspect_press(part.center));
-                else if (part.kind == materials::Component::anvil) {
-                    presses_by_anvil.emplace_back(part.center, layout.inspect_guided_press(part.center));
+                if (part.kind == materials::Component::anvil) {
                     slides_by_anvil.emplace_back(part.center, layout.inspect_sliding_press(part.center));
-                    const auto broad = layout.inspect_broad_press(part.center);
-                    if (broad.press) broad_presses.push_back(*broad.press);
                 } else if (part.kind == materials::Component::broad_anvil) {
                     const auto broad = layout.inspect_broad_sliding_press(part.center);
                     if (broad.press) broad_slides.push_back(*broad.press);

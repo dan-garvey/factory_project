@@ -215,11 +215,7 @@ inline constexpr std::array collector_assembly_fields{
     Field{"center", Type::integer3}, Field{"toward_ore", Type::integer3},
     Field{"status", Type::string},
 };
-inline constexpr std::array press_assembly_fields{
-    Field{"frame", Type::string}, Field{"center", Type::integer3},
-    Field{"status", Type::string},
-};
-inline constexpr std::array guided_press_assembly_fields{
+inline constexpr std::array sliding_press_assembly_fields{
     Field{"anvil", Type::string}, Field{"center", Type::integer3},
     Field{"status", Type::string},
 };
@@ -344,15 +340,9 @@ inline constexpr std::array records{
         "options.arrival"},
     Record{"collector_assemblies", Container::array_elements, collector_assembly_fields,
         "options.arrival"},
-    Record{"press_assemblies", Container::array_elements, press_assembly_fields,
-        "options.arrival"},
-    Record{"guided_press_assemblies", Container::array_elements,
-        guided_press_assembly_fields, "options.arrival"},
     Record{"sliding_press_assemblies", Container::array_elements,
-        guided_press_assembly_fields, "options.arrival"},
+        sliding_press_assembly_fields, "options.arrival"},
     Record{"broad_press_assemblies", Container::array_elements, broad_assembly_fields,
-        "options.arrival"},
-    Record{"broad_shear_assemblies", Container::array_elements, broad_assembly_fields,
         "options.arrival"},
     Record{"opening_engineering", Container::object_values, engineering_fields,
         {}, true, "inventories", "actor"},

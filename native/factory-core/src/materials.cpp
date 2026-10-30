@@ -221,10 +221,8 @@ const char* component_name(Component component) noexcept {
         case Component::wooden_cog: return "wooden_cog";
         case Component::receiver_tray: return "receiver_tray";
         case Component::tool_mount: return "tool_mount";
-        case Component::sliding_guide: return "sliding_guide";
         case Component::cutting_edge: return "cutting_edge";
         case Component::anvil: return "anvil";
-        case Component::ram_face: return "ram_face";
         case Component::copper_shaft: return "copper_shaft";
         case Component::copper_cog: return "copper_cog";
         case Component::wooden_workbench: return "wooden_workbench";
@@ -246,8 +244,8 @@ const char* component_name(Component component) noexcept {
 std::optional<Component> component_from_name(const std::string& name) noexcept {
     for (const auto component : {Component::wooden_frame, Component::wooden_shaft,
              Component::wooden_cog, Component::receiver_tray, Component::tool_mount,
-             Component::sliding_guide, Component::cutting_edge, Component::anvil,
-             Component::ram_face, Component::copper_shaft, Component::copper_cog,
+             Component::cutting_edge, Component::anvil,
+             Component::copper_shaft, Component::copper_cog,
              Component::wooden_workbench, Component::wooden_slide,
              Component::copper_slide, Component::flat_head, Component::broad_anvil,
              Component::broad_flat_head, Component::broad_copper_slide,
@@ -265,10 +263,8 @@ std::optional<ComponentCost> component_cost(Component component) noexcept {
         case Component::wooden_cog: return ComponentCost{2, 0};
         case Component::receiver_tray: return ComponentCost{2, 0};
         case Component::tool_mount: return ComponentCost{2, 0};
-        case Component::sliding_guide: return ComponentCost{1, 0};
         case Component::cutting_edge: return ComponentCost{0, 1};
         case Component::anvil: return ComponentCost{0, 2};
-        case Component::ram_face: return ComponentCost{0, 2};
         case Component::copper_shaft: return ComponentCost{0, 2};
         case Component::copper_cog: return ComponentCost{0, 2};
         case Component::wooden_workbench: return ComponentCost{4, 0};

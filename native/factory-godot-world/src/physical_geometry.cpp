@@ -151,21 +151,6 @@ bool slide_head_fitting(std::optional<materials::Component> first,
                first_center[1] == second_center[1] + 1);
 }
 
-bool guide_ram_fitting(std::optional<materials::Component> first,
-        const mechanics::Point& first_center, materials::Component second,
-        const mechanics::Point& second_center) {
-    if (!first || first_center[0] != second_center[0] ||
-        first_center[2] != second_center[2]) return false;
-    // The guide's narrow fixed side rails wrap the centered ram. Their
-    // conservative occupied boxes overlap in this one fitted stack.
-    return (*first == materials::Component::sliding_guide &&
-               second == materials::Component::ram_face &&
-               first_center[1] == second_center[1] + 1) ||
-        (*first == materials::Component::ram_face &&
-               second == materials::Component::sliding_guide &&
-               second_center[1] == first_center[1] + 1);
-}
-
 bool frame_anvil_fitting(std::optional<materials::Component> first,
         const mechanics::Point& first_center, materials::Component second,
         const mechanics::Point& second_center) {
@@ -195,20 +180,6 @@ bool workbed_tray_fitting(std::optional<materials::Component> first,
     const auto dz = std::abs(first_center[2] - second_center[2]);
     return paired && first_center[1] == second_center[1] &&
         ((dx == 1 && dz == 0) || (dx == 0 && dz == 1));
-}
-
-bool frame_ram_fitting(std::optional<materials::Component> first,
-        const mechanics::Point& first_center, materials::Component second,
-        const mechanics::Point& second_center) {
-    if (!first || first_center[0] != second_center[0] ||
-        first_center[2] != second_center[2]) return false;
-    // The frame's open upper bed surrounds the long central ram stroke.
-    return (*first == materials::Component::ram_face &&
-               second == materials::Component::wooden_frame &&
-               first_center[1] == second_center[1] + 2) ||
-        (*first == materials::Component::wooden_frame &&
-               second == materials::Component::ram_face &&
-               second_center[1] == first_center[1] + 2);
 }
 
 bool overlap(const Bounds& a, const Bounds& b) {

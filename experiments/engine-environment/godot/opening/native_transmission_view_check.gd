@@ -13,9 +13,7 @@ const Session = preload("res://opening-session/session.gd")
 const Opening = preload("res://opening/opening.gd")
 const DIRECT_MODES := [
 	"--supplied-hardware-only", "--component-boxes-only", "--workbench-geometry-only",
-	"--press-components-only",
 	"--press-connector-only", "--broad-belt-dock-only",
-	"--guided-press-components-only", "--broad-press-components-only", "--broad-press-raised-only",
 	"--channel-components-only", "--channel-z-only", "--channel-sheet-only",
 	"--physical-topology-cache-only", "--physical-actor-bridge-only", "--advance-projection-only",
 	"--native-actor-view-only", "--native-view-cache-only", "--support-frame-only",
@@ -28,11 +26,9 @@ const DIRECT_MODES := [
 const BENCHMARK_FLAGS := ["--supports", "--varied-supports", "--close", "--cycle-axes",
 	"--verify-only", "--whole-opening", "--stopped", "--refresh-every-frame", "--trusted-revision"]
 const VALUE_MODES := {
-	"--broad-capture=": ["--broad-press-components-only", "--broad-press-raised-only"],
 	"--channel-capture=": ["--channel-components-only", "--channel-z-only", "--channel-sheet-only"],
 	"--channel-after-capture=": ["--channel-components-only", "--channel-z-only", "--channel-sheet-only"],
-	"--capture=": ["--guided-press-components-only", "--scale-benchmark"],
-	"--crank-capture-prefix=": ["--guided-press-components-only"],
+	"--capture=": ["--scale-benchmark"],
 	"--slide-material-image=": ["--slide-material-only"],
 	"--loose-material-image=": ["--loose-material-only"],
 	"--count=": ["--scale-benchmark"],
@@ -115,7 +111,7 @@ class CountingNativeModel extends "res://opening/native_model.gd":
 			delivered.adapter_profile.collector_lift.flight_count = "five"
 		elif method == "projection" and inject_bad_assembly_full:
 			inject_bad_assembly_full = false
-			delivered.erase("press_assemblies")
+			delivered.erase("sliding_press_assemblies")
 		elif method == "projection" and inject_bad_catalog_full:
 			inject_bad_catalog_full = false
 			delivered.erase("component_recipes")
@@ -395,16 +391,6 @@ func _press_component_record(kind: String, cell: Vector3i) -> Dictionary:
 			center.y = (low + high) * 0.5
 			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
 				Geometry.PITCH * 0.5)
-		"ram_face":
-			var low: float = floor_y - step + Geometry.PRESS_WORK_HEIGHT
-			var high: float = at.y + step * 0.5
-			center.y = (low + high) * 0.5
-			half = Vector3(0.14 * scale, (high - low) * 0.5, 0.14 * scale)
-		"sliding_guide":
-			var low: float = at.y - step * 1.5
-			var high: float = at.y + step - 0.08 * scale
-			center.y = (low + high) * 0.5
-			half = Vector3(0.14 * scale, (high - low) * 0.5, 0.14 * scale)
 		"tool_mount":
 			center.y += 0.10 * scale
 			half = Vector3(step - 0.205 * scale, 0.18 * scale,
@@ -1054,258 +1040,6 @@ func _component_mesh_shapes(anchor: Node3D) -> Array:
 		shapes.append({"transform": mesh.transform, "bounds": mesh.mesh.get_aabb()})
 	return shapes
 
-func _press_component_view() -> void:
-	# Native Host owns these seven occupied records. This fixture inspects only
-	# the existing renderer and actor collision consumer at its projected faces.
-	var state := {"context": "press-component-view", "revision": 1,
-		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
-		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
-		"collector_assemblies": [], "placed_components": {
-			"frame": _press_component_record("wooden_frame", Vector3i(0, 0, 0)),
-			"anvil": _press_component_record("anvil", Vector3i(0, 1, 0)),
-			"ram": _press_component_record("ram_face", Vector3i(0, 2, 0)),
-			"guide": _press_component_record("sliding_guide", Vector3i(0, 3, 0)),
-			"mount": _press_component_record("tool_mount", Vector3i(0, 4, 0)),
-			"shaft": _press_component_record("wooden_shaft", Vector3i(1, 4, 0)),
-			"cog": _press_component_record("wooden_cog", Vector3i(2, 4, 0))},
-		"press_assemblies": [{"status": "ready", "parts": {"frame": "frame", "anvil": "anvil",
-			"ram": "ram", "guide": "guide", "mount": "mount", "shaft": "shaft", "drive_cog": "cog"}}]}
-	var parsed: Dictionary = Geometry.component_boxes(state)
-	verify(parsed.get("accepted", false) and parsed.boxes.size() == 7,
-		"The complete press retains seven separate native occupied boxes.")
-	var facts := PhysicalProjection.new()
-	facts.state = state
-	var physical := ActorWorld.new()
-	root.add_child(physical)
-	verify(physical.configure(facts).get("accepted", false) and physical.component_bodies.size() == 7,
-		"The actual actor world registers every confirmed press part separately.")
-	var host := HostStub.new()
-	host.state = state
-	var view := Presenter.new()
-	root.add_child(view)
-	view.configure(host)
-	var anchors := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			anchors[node.get_meta("component_entity")] = node
-	verify(anchors.size() == 7 and anchors.anvil.get_node_or_null("OpenAnvilSeat") != null
-		and anchors.ram.get_node_or_null("MovingDie") != null
-		and anchors.guide.get_node_or_null("GuideRail") != null
-		and anchors.mount.get_node_or_null("PressCrown") != null,
-		"The seven identities form a supported anvil, die, guide and press crown.")
-	var framed_foot := anchors.anvil.get_node("WorkbedBase") as MeshInstance3D
-	var framed_shelf := anchors.frame.get_node("AnvilShelf") as MeshInstance3D
-	var framed_leg := anchors.anvil.find_child("WorkbedLeg*", false, false) as MeshInstance3D
-	var foot_bounds: AABB = framed_foot.global_transform * framed_foot.mesh.get_aabb()
-	var shelf_bounds: AABB = framed_shelf.global_transform * framed_shelf.mesh.get_aabb()
-	var leg_bounds: AABB = framed_leg.global_transform * framed_leg.mesh.get_aabb()
-	verify(absf(foot_bounds.position.y - Geometry.HEIGHT_STEP) < 0.0002
-		and absf(shelf_bounds.end.y - foot_bounds.position.y) < 0.0002
-		and foot_bounds.size.x > Geometry.PITCH * 0.9,
-		"The full-cell anvil base meets the centered raised shelf without an unsupported gap.")
-	for rail_name in ["BedCrossRailFront", "BedCrossRailRear", "BedSideRailLeft", "BedSideRailRight"]:
-		var rail := anchors.frame.get_node(rail_name) as MeshInstance3D
-		verify(not (rail.global_transform * rail.mesh.get_aabb()).intersects(leg_bounds),
-			"The frame bed clears the outer anvil legs.")
-	var rotor: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
-	verify(rotor != null and rotor.find_children("CogTooth*", "MeshInstance3D", false, false).size() == 12
-		and anchors.shaft.get_node_or_null("LooseDriveShaft") != null,
-		"The projected shaft and cog are distinct supported drive parts.")
-	_verify_press_drive_contact(anchors, state)
-	for id: String in parsed.boxes:
-		var spec: Dictionary = parsed.boxes[id]
-		var body: StaticBody3D = physical.component_bodies[id]
-		var collider: CollisionShape3D = body.get_child(0)
-		verify(body.get_meta("component_entity") == id and body.position == spec.center
-			and collider.shape.size == spec.size and anchors[id].position == spec.center,
-			"Press visuals and actor collision share each projected native identity and occupied box.")
-		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
-			var mesh := found as MeshInstance3D
-			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
-			var native_box := AABB(-spec.size * 0.5, spec.size).grow(0.0002)
-			var art_box := relative * mesh.mesh.get_aabb()
-			verify(native_box.encloses(art_box),
-				"Each visible press member stays inside its own native collision volume: %s/%s %s in %s." % [id, mesh.name, art_box, native_box])
-	state.placed_components.shaft = _press_component_record("wooden_shaft", Vector3i(-1, 4, 0))
-	state.placed_components.cog = _press_component_record("wooden_cog", Vector3i(-2, 4, 0))
-	state.revision = 2
-	host.state = state
-	physical.sync_topology()
-	view.refresh()
-	var mirrored := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			mirrored[node.get_meta("component_entity")] = node
-	var mirrored_shaft: Node3D = mirrored.shaft.get_node_or_null("LooseDriveShaft")
-	verify(mirrored.size() == 7 and mirrored_shaft != null and mirrored_shaft.basis.y.normalized().x > 0.99
-		and physical.component_bodies.shaft.position.x < 0.0,
-		"An opposite-side confirmed drive still fits the same seven-part press.")
-	_verify_press_drive_contact(mirrored, state)
-	var retained_shaft_length: float = (mirrored_shaft.get_node("Shaft").mesh as CylinderMesh).height
-	for direction in [-1, 1]:
-		state.placed_components.shaft = _press_component_record("wooden_shaft", Vector3i(0, 4, direction))
-		state.placed_components.cog = _press_component_record("wooden_cog", Vector3i(0, 4, direction * 2))
-		state.revision += 1
-		host.state = state
-		physical.sync_topology()
-		view.refresh()
-		var transverse := {}
-		for node: Node in view.get_children():
-			if node.has_meta("component_entity"):
-				transverse[node.get_meta("component_entity")] = node
-		_verify_press_drive_contact(transverse, state)
-		verify(physical.component_bodies.shaft.position.z * float(direction) > Geometry.HEIGHT_STEP - 0.01,
-			"The transverse press keeps the shaft's native body on its confirmed grid axis.")
-	state.placed_components.erase("cog")
-	state.press_assemblies[0] = {"frame": "frame", "center": [0, 0, 0], "status": "missing_cog"}
-	state.revision += 1
-	host.state = state
-	physical.sync_topology()
-	view.refresh()
-	var partial := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			partial[node.get_meta("component_entity")] = node
-	var partial_shaft: Node3D = partial.shaft.get_node_or_null("LooseDriveShaft")
-	verify(not physical.component_bodies.has("cog") and partial.size() == 6
-		and partial.mount.get_node_or_null("PressCrown") != null
-		and partial_shaft != null and partial_shaft.basis.y.normalized().z < -0.99 \
-		and is_equal_approx((partial_shaft.get_node("Shaft").mesh as CylinderMesh).height, retained_shaft_length),
-		"Reclaiming the cog clears its body while the remaining crown and shaft keep their press fitting.")
-	view.free()
-	physical.free()
-	await process_frame
-
-func _broad_press_component_view() -> void:
-	# The twenty records use Host's fine-grid centers and occupied dimensions.
-	# The broad row order is native z row, then x column.
-	var state: Dictionary = {"context": "broad-press-component-view", "revision": 1,
-		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
-		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
-		"collector_assemblies": [], "press_assemblies": [], "guided_press_assemblies": [],
-		"placed_components": {}}
-	var parts := {"anvils": [], "rams": [], "guides": [], "shafts": [], "drive_cogs": []}
-	var raised: bool = "--broad-press-raised-only" in OS.get_cmdline_user_args()
-	var base_y: int = 4 if raised else 0
-	var cells := [Vector3i(0, base_y, 0), Vector3i(4, base_y, 0),
-		Vector3i(0, base_y, 4), Vector3i(4, base_y, 4)]
-	var sides := [Vector3i.LEFT, Vector3i.RIGHT, Vector3i.BACK, Vector3i.RIGHT]
-	var step: float = Geometry.HEIGHT_STEP
-	for pad in range(4):
-		var cell: Vector3i = cells[pad]
-		var side: Vector3i = sides[pad]
-		var entries := [
-			["anvils", "anvil", "anvil", cell],
-			["rams", "ram", "ram_face", cell + Vector3i(0, 1, 0)],
-			["guides", "guide", "sliding_guide", cell + Vector3i(0, 3, 0)],
-			["shafts", "shaft", "wooden_shaft", cell + Vector3i(0, 4, 0) + side],
-			["drive_cogs", "cog", "wooden_cog", cell + Vector3i(0, 4, 0) + side * 2]]
-		for entry in entries:
-			var id: String = "%s%d" % [entry[1], pad]
-			var point: Vector3i = entry[3]
-			state.placed_components[id] = _press_component_record(entry[2], point)
-			parts[entry[0]].append(id)
-	state.broad_press_assemblies = [{"origin": [0, base_y, 0], "geometry_status": "ready",
-		"status": "ready", "work_centers": [[0, base_y, 0], [4, base_y, 0],
-			[0, base_y, 4], [4, base_y, 4]],
-		"parts": parts}]
-	state.motion.shaft0 = {"state": "rotating", "numerator": 1, "denominator": 1}
-	state.motion.cog0 = {"state": "rotating", "numerator": 1, "denominator": 1}
-	state.motion.shaft1 = {"state": "stalled", "numerator": 0, "denominator": 1}
-	var parsed: Dictionary = Geometry.component_boxes(state)
-	verify(parsed.get("accepted", false) and parsed.boxes.size() == 20,
-		"Four native broad pads retain twenty individually occupied placed parts.")
-	var host := HostStub.new()
-	host.state = state
-	var view := Presenter.new()
-	root.add_child(view)
-	view.configure(host)
-	var anchors := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			anchors[node.get_meta("component_entity")] = node
-	verify(anchors.size() == 20, "The broad press does not collapse four native pads into one visual body.")
-	var broad_guide_shapes := _component_mesh_shapes(anchors.guide1)
-	var broad_guide_preview := Node3D.new()
-	root.add_child(broad_guide_preview)
-	view.preview_component(broad_guide_preview, "sliding_guide", parsed.boxes.guide1.size)
-	verify(broad_guide_shapes == _component_mesh_shapes(broad_guide_preview),
-		"A broad pad guide uses the same selected rails as its standalone placement preview.")
-	broad_guide_preview.free()
-	for pad in range(4):
-		var anvil: Node3D = anchors["anvil%d" % pad]
-		var ram: Node3D = anchors["ram%d" % pad]
-		var guide: Node3D = anchors["guide%d" % pad]
-		var shaft: Node3D = anchors["shaft%d" % pad].get_node_or_null("LooseDriveShaft")
-		var cog: Node3D = anchors["cog%d" % pad].get_node_or_null("PlacedDriveCog")
-		var toward: Vector3 = Vector3(-sides[pad].x, 0, -sides[pad].z)
-		verify(anvil.get_node_or_null("OpenAnvilSeat") != null
-			and ram.get_node_or_null("MovingDie") != null
-			and guide.get_node_or_null("GuideRail") != null
-			and anchors["shaft%d" % pad].get_node_or_null("GuidedBearingSeat") != null
-			and shaft != null and cog != null
-			and shaft.global_basis.y.normalized().dot(toward) > 0.99
-			and cog.global_basis.y.normalized().dot(toward) > 0.99,
-			"Each distinct broad pad fits its work face and exterior drive toward its own guide.")
-	for id: String in parsed.boxes:
-		var spec: Dictionary = parsed.boxes[id]
-		verify(anchors[id].position == spec.center,
-			"Broad pad visuals retain the exact native occupied center of each placed identity.")
-		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
-			var mesh := found as MeshInstance3D
-			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
-			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(relative * mesh.mesh.get_aabb()),
-				"Broad fittings stay inside their own native occupied boxes: %s/%s." % [id, mesh.name])
-	for argument: String in OS.get_cmdline_user_args():
-		if argument.begins_with("--broad-capture=") and DisplayServer.get_name() != "headless":
-			root.size = Vector2i(1280, 800)
-			var environment := Environment.new()
-			environment.background_mode = Environment.BG_COLOR
-			environment.background_color = Color("49535d")
-			environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-			environment.ambient_light_color = Color.WHITE
-			environment.ambient_light_energy = 1.4
-			var world_environment := WorldEnvironment.new()
-			world_environment.environment = environment
-			root.add_child(world_environment)
-			var light := DirectionalLight3D.new()
-			light.rotation_degrees = Vector3(-48, -35, 0)
-			light.light_energy = 2.0
-			root.add_child(light)
-			var camera := Camera3D.new()
-			camera.position = Vector3(4.2, 3.7 + float(base_y) * step, 5.0)
-			root.add_child(camera)
-			camera.look_at(Vector3(0.825, 1.45 + float(base_y) * step, 0.825))
-			camera.fov = 45.0
-			camera.current = true
-			for frame in range(3):
-				await process_frame
-				await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(argument.trim_prefix("--broad-capture=")) == OK,
-				"A passive broad-pad image retains the four distinct native work faces.")
-			camera.free()
-			light.free()
-			world_environment.free()
-	var partial: Dictionary = state.duplicate(true)
-	partial.placed_components.erase("ram1")
-	partial.broad_press_assemblies = [{"origin": [0, base_y, 0], "geometry_status": "missing_ram",
-		"status": "missing_ram"}]
-	partial.revision = 2
-	host.state = partial
-	view.refresh()
-	var remaining := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			remaining[node.get_meta("component_entity")] = node
-	verify(remaining.size() == 19 and not remaining.has("ram1")
-		and remaining["ram0"].get_node_or_null("MovingDie") != null
-		and remaining["shaft2"].get_node_or_null("GuidedBearingSeat") != null,
-		"Losing one pad part leaves the other native identities and fittings in view.")
-	verify(_component_mesh_shapes(remaining.guide1) == broad_guide_shapes,
-		"Removing a broad pad ram does not resize its unchanged guide.")
-	view.free()
-	await process_frame
-
 func _capture_channel_pose(path: String, along_z: bool) -> void:
 	root.size = Vector2i(1280, 800)
 	var environment := Environment.new()
@@ -1361,7 +1095,7 @@ func _channel_component_view() -> void:
 	var state: Dictionary = {"context": "channel-component-view", "revision": 1,
 		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
 		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {},
-		"collector_assemblies": [], "press_assemblies": [],
+		"collector_assemblies": [], "sliding_press_assemblies": [],
 		"placed_components": {
 			"broad0": _component_record(broad_kind, [0, 0, 0], broad_center, broad_half),
 			"broad1": _component_record(broad_kind, second_cell, second_center, broad_half),
@@ -1459,315 +1193,6 @@ func _channel_component_view() -> void:
 				await _capture_channel_pose(argument.trim_prefix("--channel-after-capture="), along_z)
 	view.free()
 	physical.free()
-	await process_frame
-
-func _capture_guided_component_view(path: String, crank_detail := false) -> void:
-	root.size = Vector2i(1280, 800)
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color("49535d")
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color.WHITE
-	environment.ambient_light_energy = 1.4
-	var world_environment := WorldEnvironment.new()
-	world_environment.environment = environment
-	root.add_child(world_environment)
-	var light := DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-48, -35, 0)
-	light.light_energy = 2.0
-	root.add_child(light)
-	var camera := Camera3D.new()
-	camera.position = Vector3(1.2, 2.8, 2.2) if crank_detail else Vector3(3.0, 2.8, 4.2)
-	root.add_child(camera)
-	camera.look_at(Vector3(0.45, 2.35, 0.0) if crank_detail else Vector3(0.0, 1.2, 0.0))
-	camera.fov = 45.0
-	camera.current = true
-	await process_frame
-	await RenderingServer.frame_post_draw
-	verify(root.get_texture().get_image().save_png(path) == OK,
-		"Retain the same camera and lighting for the guide assembly state.")
-	camera.free()
-	light.free()
-	world_environment.free()
-
-func _guided_press_component_view() -> void:
-	var state := {"context": "guided-press-component-view", "revision": 1,
-		"options": {"native": true, "physical": true}, "actors": {}, "entities": {},
-		"foundations": {}, "transmission_parts": {}, "belt_spans": {}, "motion": {
-			"shaft": {"state": "rotating", "numerator": 1, "denominator": 1},
-			"cog": {"state": "rotating", "numerator": 1, "denominator": 1}},
-		"collector_assemblies": [], "press_assemblies": [], "placed_components": {
-			"anvil": _press_component_record("anvil", Vector3i(0, 0, 0)),
-			"ram": _press_component_record("ram_face", Vector3i(0, 1, 0)),
-			"guide": _press_component_record("sliding_guide", Vector3i(0, 3, 0)),
-			"shaft": _press_component_record("wooden_shaft", Vector3i(1, 4, 0)),
-			"cog": _press_component_record("wooden_cog", Vector3i(2, 4, 0))},
-		"guided_press_assemblies": [{"anvil": "anvil", "center": [0, 0, 0], "status": "ready",
-			"work_center": [0, 0, 0],
-			"parts": {"anvil": "anvil", "ram": "ram", "guide": "guide",
-				"shaft": "shaft", "drive_cog": "cog"}}]}
-	var initial_state: Dictionary = state.duplicate(true)
-	var parsed: Dictionary = Geometry.component_boxes(state)
-	verify(parsed.get("accepted", false) and parsed.boxes.size() == 5,
-		"The frame-free guided press keeps five independent native occupied boxes.")
-	var host := HostStub.new()
-	host.state = state
-	var view := Presenter.new()
-	root.add_child(view)
-	view.configure(host)
-	var anchors := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			anchors[node.get_meta("component_entity")] = node
-	var shaft: Node3D = anchors.shaft.get_node_or_null("LooseDriveShaft")
-	var cog: Node3D = anchors.cog.get_node_or_null("PlacedDriveCog")
-	verify(anchors.size() == 5 and anchors.anvil.get_node_or_null("OpenAnvilSeat") != null
-		and anchors.anvil.get_node_or_null("WorkbedBase") != null
-		and anchors.anvil.get_node_or_null("ReplaceableDiePlate") != null
-		and anchors.anvil.get_node_or_null("TaperedAnvilHorn") == null
-		and anchors.anvil.get_node_or_null("AnvilHeel") == null
-		and anchors.ram.get_node_or_null("MovingDie") != null
-		and anchors.guide.get_node_or_null("GuideRail") != null
-		and anchors.shaft.get_node_or_null("GuidedBearingSeat") != null
-		and anchors.anvil.get_node_or_null("PressCrown") == null,
-		"The confirmed industrial workbed, ram and guide render without a blacksmith horn or frame crown.")
-	var anvil_base := anchors.anvil.get_node("WorkbedBase") as MeshInstance3D
-	var anvil_base_bounds: AABB = anvil_base.global_transform * anvil_base.mesh.get_aabb()
-	verify(absf(anvil_base_bounds.position.y) < 0.0002
-		and absf(parsed.boxes.anvil.center.y - parsed.boxes.anvil.size.y * 0.5) < 0.0002,
-		"The frame-free anvil mesh and native occupied body both meet the ground datum.")
-	var native_anvil_size: Vector3 = parsed.boxes.anvil.size
-	var native_anvil_local := AABB(-native_anvil_size * 0.5, native_anvil_size).grow(0.0005)
-	var anvil_art_inside_body := true
-	for child: Node in anchors.anvil.get_children():
-		if child is MeshInstance3D:
-			var mesh_part := child as MeshInstance3D
-			anvil_art_inside_body = anvil_art_inside_body and native_anvil_local.encloses(
-				mesh_part.transform * mesh_part.mesh.get_aabb())
-	verify(anvil_art_inside_body,
-		"Every visible anvil casting stays inside the native occupied body and below its work plane.")
-	var anvil_preview := Node3D.new()
-	root.add_child(anvil_preview)
-	view.preview_component(anvil_preview, "anvil", parsed.boxes.anvil.size)
-	verify(_component_mesh_shapes(anchors.anvil) == _component_mesh_shapes(anvil_preview),
-		"The anvil preview uses the same floor-seated casting as its committed mesh.")
-	anvil_preview.free()
-	verify(shaft != null and cog != null and shaft.basis.y.normalized().x < -0.99 and cog.basis.y.normalized().x < -0.99,
-		"The guided shaft and cog point toward the confirmed anvil work column.")
-	var ready_guide_shapes := _component_mesh_shapes(anchors.guide)
-	var guide_preview := Node3D.new()
-	root.add_child(guide_preview)
-	view.preview_component(guide_preview, "sliding_guide", parsed.boxes.guide.size)
-	verify(ready_guide_shapes.size() == 3
-		and ready_guide_shapes == _component_mesh_shapes(guide_preview),
-		"The recognized guide has the same rails, crown and dimensions as its placement preview.")
-	guide_preview.free()
-	var preview_anchor := Node3D.new()
-	root.add_child(preview_anchor)
-	view.preview_component(preview_anchor, "wooden_shaft", parsed.boxes.shaft.size)
-	view.preview_component(preview_anchor, "wooden_cog", parsed.boxes.cog.size)
-	var preview_shaft: Node3D = preview_anchor.get_node_or_null("LooseDriveShaft")
-	var preview_cog: Node3D = preview_anchor.get_node_or_null("PlacedDriveCog")
-	verify(preview_shaft != null and preview_cog != null
-		and not preview_shaft.has_meta("component_rotor_base")
-		and not preview_cog.has_meta("component_rotor_base"),
-		"Unplaced shaft and cog previews have no confirmed motion identity.")
-	preview_anchor.free()
-	for id: String in parsed.boxes:
-		var spec: Dictionary = parsed.boxes[id]
-		verify(anchors[id].position == spec.center,
-			"Each guided press visual uses its own native occupied center.")
-		for found: Node in anchors[id].find_children("*", "MeshInstance3D", true, false):
-			var mesh := found as MeshInstance3D
-			var relative: Transform3D = anchors[id].global_transform.affine_inverse() * mesh.global_transform
-			var native_box := AABB(-spec.size * 0.5, spec.size).grow(0.0002)
-			var art_box := relative * mesh.mesh.get_aabb()
-			verify(native_box.encloses(art_box),
-				"Each frame-free fitting stays inside its own native occupied volume: %s/%s %s in %s." % [id, mesh.name, art_box, native_box])
-	var shaft_mark: MeshInstance3D = shaft.get_node("ShaftIndexMark")
-	var cog_mark: MeshInstance3D = cog.get_node("CogIndexMark")
-	var shaft_before: Vector3 = shaft_mark.global_position - shaft.global_position
-	var cog_before: Vector3 = cog_mark.global_position - cog.global_position
-	view.advance_visual_motion(0.02)
-	var shaft_after: Vector3 = shaft_mark.global_position - shaft.global_position
-	var cog_after: Vector3 = cog_mark.global_position - cog.global_position
-	var east_winding: float = shaft_before.cross(shaft_after).dot(Vector3.RIGHT)
-	var minimum_winding: float = 0.0001 * pow(Geometry.PITCH / 1.65, 2.0)
-	verify(absf(east_winding) > minimum_winding and absf(cog_before.cross(cog_after).dot(Vector3.RIGHT)) > minimum_winding
-		and anchors.shaft.position == parsed.boxes.shaft.center
-		and anchors.cog.position == parsed.boxes.cog.center,
-		"Confirmed signed motion turns both placed rotors while their pick anchors stay fixed: shaft %s, cog %s, positions %s/%s." % [east_winding, cog_before.cross(cog_after).dot(Vector3.RIGHT), anchors.shaft.position, anchors.cog.position])
-	state.motion.shaft = {"state": "stalled", "numerator": 0, "denominator": 1}
-	state.motion.cog = {"state": "stalled", "numerator": 0, "denominator": 1}
-	state.revision = 2
-	host.state = state
-	view.refresh()
-	var stopped := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			stopped[node.get_meta("component_entity")] = node
-	var held_shaft: Node3D = stopped.shaft.get_node("LooseDriveShaft")
-	var held_mark: MeshInstance3D = held_shaft.get_node("ShaftIndexMark")
-	var held_position: Vector3 = held_mark.global_position
-	view.advance_visual_motion(0.02)
-	verify(held_mark.global_position.distance_to(held_position) < 0.00001,
-		"A stalled native rate freezes the placed shaft at its last confirmed phase.")
-	state.motion.shaft = {"state": "rotating", "numerator": 1, "denominator": 1}
-	state.motion.cog = {"state": "rotating", "numerator": 1, "denominator": 1}
-	state.revision = 3
-	host.state = state
-	view.refresh()
-	var resumed := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			resumed[node.get_meta("component_entity")] = node
-	var resumed_shaft: Node3D = resumed.shaft.get_node("LooseDriveShaft")
-	var resumed_mark: MeshInstance3D = resumed_shaft.get_node("ShaftIndexMark")
-	verify(resumed_mark.global_position.distance_to(held_position) < 0.00001,
-		"A resumed native rate starts at the retained visual phase.")
-	view.advance_visual_motion(0.02)
-	verify(resumed_mark.global_position.distance_to(held_position) > 0.0001,
-		"The reconnected placed shaft moves only after native motion resumes.")
-	state.placed_components.shaft = _press_component_record("wooden_shaft", Vector3i(-1, 4, 0))
-	state.placed_components.cog = _press_component_record("wooden_cog", Vector3i(-2, 4, 0))
-	state.revision = 4
-	host.state = state
-	view.refresh()
-	var mirrored := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			mirrored[node.get_meta("component_entity")] = node
-	var west_shaft: Node3D = mirrored.shaft.get_node("LooseDriveShaft")
-	var west_mark: MeshInstance3D = west_shaft.get_node("ShaftIndexMark")
-	var west_before: Vector3 = west_mark.global_position - west_shaft.global_position
-	view.advance_visual_motion(0.02)
-	var west_after: Vector3 = west_mark.global_position - west_shaft.global_position
-	verify(east_winding * west_before.cross(west_after).dot(Vector3.RIGHT) > 0.0,
-		"Mirrored fittings preserve the signed native world-axis winding.")
-	var capture_path := ""
-	for argument: String in OS.get_cmdline_user_args():
-		if argument.begins_with("--capture="):
-			capture_path = argument.trim_prefix("--capture=")
-	if not capture_path.is_empty():
-		await _capture_guided_component_view(capture_path)
-	state.guided_press_assemblies[0] = {"anvil": "anvil", "center": [0, 0, 0], "status": "missing_cog"}
-	state.placed_components.erase("cog")
-	state.motion.clear()
-	state.revision = 5
-	host.state = state
-	view.refresh()
-	var partial := {}
-	for node: Node in view.get_children():
-		if node.has_meta("component_entity"):
-			partial[node.get_meta("component_entity")] = node
-	var loose_shaft: Node3D = partial.shaft.get_node_or_null("LooseDriveShaft")
-	verify(partial.size() == 4 and loose_shaft != null
-		and partial.shaft.get_node_or_null("GuidedBearingSeat") == null
-		and loose_shaft.basis.y.normalized().y > 0.99,
-		"A partial native assembly loses its drive fitting without inventing a ready press.")
-	verify(_component_mesh_shapes(partial.guide) == ready_guide_shapes,
-		"Removing a neighboring drive part does not resize or reposition the guide rails.")
-	if not capture_path.is_empty():
-		await _capture_guided_component_view(capture_path.get_basename() + "-partial.png")
-	var standalone: Dictionary = initial_state.duplicate(true)
-	standalone.placed_components = {"guide": initial_state.placed_components.guide}
-	standalone.guided_press_assemblies = []
-	standalone.motion = {}
-	standalone.revision = 6
-	host.state = standalone
-	view.refresh()
-	var standalone_guide: Node3D
-	for node: Node in view.get_children():
-		if node.get_meta("component_entity", "") == "guide":
-			standalone_guide = node
-	verify(standalone_guide != null and _component_mesh_shapes(standalone_guide) == ready_guide_shapes,
-		"A guide alone keeps its selected rails and crown before any neighboring assembly exists.")
-	if not capture_path.is_empty():
-		await _capture_guided_component_view(capture_path.get_basename() + "-standalone.png")
-	state = initial_state
-	state.revision = 7
-	host.state = state
-	view.refresh()
-	var rest_ram: Node3D
-	for node: Node in view.get_children():
-		if node.get_meta("component_entity", "") == "ram":
-			rest_ram = node
-	var rest_y: float = (rest_ram.get_node("MovingDie") as MeshInstance3D).position.y
-	state.dropped_material = [{"center": [0, 0, 0], "raw": 0, "products": 0,
-		"work_lots": [{"id": 1, "cycle_ticks": 3, "remaining": 1}]}]
-	state.revision = 8
-	host.state = state
-	view.refresh()
-	var forming_ram: Node3D
-	for node: Node in view.get_children():
-		if node.get_meta("component_entity", "") == "ram":
-			forming_ram = node
-	var forming_die: MeshInstance3D = forming_ram.get_node("MovingDie")
-	var forming_slide: MeshInstance3D = forming_ram.get_node("RamSlideNear")
-	var held_billet: Node3D
-	for node: Node in view.get_children():
-		if node.name == "WorkpieceBillet":
-			held_billet = node
-	verify(held_billet != null and held_billet.get_node_or_null("Label3D") == null,
-		"The retained guided billet stays visible without a hovering work count.")
-	var half: float = state.placed_components.ram.occupied.half[1]
-	var die_box: AABB = forming_die.global_transform * forming_die.mesh.get_aabb()
-	var boss: MeshInstance3D = held_billet.get_node("CenterBoss")
-	var boss_box: AABB = boss.global_transform * boss.mesh.get_aabb()
-	verify(absf(rest_y - forming_die.position.y -
-			(Presenter.GUIDED_RAM_REST_LIFT - Presenter.GUIDED_RAM_CONTACT_LIFT)) < 0.001
-		and absf(die_box.position.y - boss_box.end.y) < 0.001
-		and forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * forming_die.scale.y * 0.5 >= -half - 0.00001
-		and forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * forming_slide.scale.y * 0.5 <= half + 0.00001,
-			"Confirmed work brings the die to the retained copper crown inside the swept ram box: lifts %s/%s, contact %s/%s, die %s, slide %s, half %s." % [rest_y, forming_die.position.y, die_box.position.y, boss_box.end.y, forming_die.position.y - (forming_die.mesh as BoxMesh).size.y * forming_die.scale.y * 0.5, forming_slide.position.y + (forming_slide.mesh as BoxMesh).size.y * forming_slide.scale.y * 0.5, half])
-	state.dropped_material = []
-	state.revision = 9
-	host.state = state
-	view.refresh()
-	var finished_ram: Node3D
-	for node: Node in view.get_children():
-		if node.get_meta("component_entity", "") == "ram":
-			finished_ram = node
-	verify(absf((finished_ram.get_node("MovingDie") as MeshInstance3D).position.y - rest_y) < 0.001,
-		"Removing the confirmed workpiece returns the guided tool to its raised rest pose.")
-	var crank_capture_prefix := ""
-	for argument: String in OS.get_cmdline_user_args():
-		if argument.begins_with("--crank-capture-prefix="):
-			crank_capture_prefix = argument.trim_prefix("--crank-capture-prefix=")
-	state = initial_state.duplicate(true)
-	state.crank_items = {"fitted-crank": {"attached_to": "shaft", "port": [1, 4, 0],
-		"face": [1, 0, 0]}}
-	state.revision = 10
-	host.state = state
-	view.refresh()
-	var crank_east := view.get_node_or_null("AttachedHandCrank") as Node3D
-	verify(crank_east != null and crank_east.position.x > Geometry.HEIGHT_STEP
-		and absf(crank_east.rotation.y) < 0.001,
-		"The fitted crank seats outward on the confirmed positive X spindle face.")
-	if not crank_capture_prefix.is_empty():
-		await _capture_guided_component_view(crank_capture_prefix + "-east.png", true)
-	state.crank_items["fitted-crank"].face = [-1, 0, 0]
-	state.revision = 11
-	host.state = state
-	view.refresh()
-	var crank_west := view.get_node_or_null("AttachedHandCrank") as Node3D
-	verify(crank_west != null and crank_west.position.x < Geometry.HEIGHT_STEP
-		and absf(absf(crank_west.rotation.y) - PI) < 0.001,
-		"Mirroring the fitted face moves and turns the visible grip with its shaft.")
-	if not crank_capture_prefix.is_empty():
-		await _capture_guided_component_view(crank_capture_prefix + "-west.png", true)
-	state.placed_components.erase("shaft")
-	state.crank_items["fitted-crank"].attached_to = ""
-	state.revision = 12
-	host.state = state
-	view.refresh()
-	var disconnected := view.get_node_or_null("AttachedHandCrank") as Node3D
-	verify(disconnected != null and disconnected.get_meta("crank_entity", "") == "fitted-crank"
-		and disconnected.get_node_or_null("AttachedCrankPick") != null,
-		"Reclaiming the shaft leaves the separate crank visible and directly selectable.")
-	if not crank_capture_prefix.is_empty():
-		await _capture_guided_component_view(crank_capture_prefix + "-disconnected.png", true)
-	view.free()
 	await process_frame
 
 func _fixture_arguments_valid() -> bool:
@@ -3039,8 +2464,7 @@ func _broad_belt_dock_view() -> void:
 func _slide_material_seat() -> void:
 	var state := {"context": "slide-material-seat", "revision": 1,
 		"options": {"native": true}, "transmission_parts": {}, "belt_spans": {},
-		"motion": {}, "collector_assemblies": [], "press_assemblies": [],
-		"guided_press_assemblies": []}
+		"motion": {}, "collector_assemblies": []}
 	state.placed_components = {
 		"anvil": _press_component_record("anvil", Vector3i(0, 0, 0)),
 		"head": _press_component_record("flat_head", Vector3i(0, 1, 0)),
@@ -4129,8 +3553,8 @@ func _native_view_cache_regression() -> void:
 		and not trusted._complete_projection(wrong_lift),
 		"Collector lift dimensions and flight count follow the native nested record contract.")
 	var assembly_shapes_valid := true
-	for name in ["collector_assemblies", "press_assemblies", "guided_press_assemblies",
-			"sliding_press_assemblies", "broad_press_assemblies", "broad_shear_assemblies"]:
+	for name in ["collector_assemblies", "sliding_press_assemblies",
+			"broad_press_assemblies"]:
 		var record: Dictionary = trusted._projection_records.get(name, {})
 		var missing_assembly := complete.duplicate(true)
 		missing_assembly.erase(name)
@@ -4494,18 +3918,10 @@ func _run() -> void:
 		await _component_view()
 	elif "--workbench-geometry-only" in OS.get_cmdline_user_args():
 		_workbench_geometry_view()
-	elif "--press-components-only" in OS.get_cmdline_user_args():
-		await _press_component_view()
 	elif "--press-connector-only" in OS.get_cmdline_user_args():
 		_press_belt_connector_view()
 	elif "--broad-belt-dock-only" in OS.get_cmdline_user_args():
 		_broad_belt_dock_view()
-	elif "--guided-press-components-only" in OS.get_cmdline_user_args():
-		await _guided_press_component_view()
-	elif "--broad-press-components-only" in OS.get_cmdline_user_args():
-		await _broad_press_component_view()
-	elif "--broad-press-raised-only" in OS.get_cmdline_user_args():
-		await _broad_press_component_view()
 	elif "--channel-components-only" in OS.get_cmdline_user_args() \
 			or "--channel-z-only" in OS.get_cmdline_user_args() \
 			or "--channel-sheet-only" in OS.get_cmdline_user_args():

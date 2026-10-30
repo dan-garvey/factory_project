@@ -20,10 +20,6 @@ Bounds component_bounds(const world::Profile& profile,
         std::optional<materials::Component> kind, const mechanics::Point& center) {
     const authority::Point at{center[0] * height_step,
         center[1] * height_step + anchor_height, center[2] * height_step};
-    const auto vertical = [&](double low, double high) -> Bounds {
-        return {{at[0], (low + high) / 2, at[2]},
-            {0.14 * press_scale, (high - low) / 2, 0.14 * press_scale}};
-    };
     if (!kind) return {at, {0.14, 0.14, 0.14}};
     if (const auto channel = materials::channel_spec(*kind)) {
         const double low = center[1] * height_step;
@@ -89,9 +85,6 @@ Bounds component_bounds(const world::Profile& profile,
                      at[2] + pitch * 0.5},
                     {pitch, anvil_work_height * 0.5, pitch}};
         }
-        case materials::Component::ram_face:
-            return vertical(center[1] * height_step - height_step + anvil_work_height,
-                at[1] + height_step * 0.5);
         case materials::Component::flat_head: {
             // Reserve the entire carriage-driven die sweep. The named slide
             // may occupy its coaxial upper portion as an intentional fitting.
@@ -116,12 +109,6 @@ Bounds component_bounds(const world::Profile& profile,
                      at[2] + pitch * 0.5},
                     {pitch, (high - low) * 0.5, pitch}};
         }
-        case materials::Component::sliding_guide:
-            // Its full selected rails reach the ram below, whether or not a
-            // press is recognized. The admitted box includes that entire
-            // span and meets the unchanged tool-mount box above.
-            return vertical(at[1] - height_step * 1.5,
-                at[1] + height_step - 0.08 * press_scale);
         case materials::Component::wooden_slide:
         case materials::Component::copper_slide: {
             // This selected body keeps the same dimensions alone and fitted.

@@ -321,9 +321,8 @@ void run() {
                   field<std::string>(recipe_record, "required_with") == "options.arrival" &&
                   field<std::string>(recipe_fields, "copper") == "integer",
               "The extension exposes native kit, recipe and first-workshop types to Godot.");
-        for (const char* name : {"collector_assemblies", "press_assemblies",
-                 "guided_press_assemblies", "sliding_press_assemblies",
-                 "broad_press_assemblies", "broad_shear_assemblies"}) {
+        for (const char* name : {"collector_assemblies", "sliding_press_assemblies",
+                 "broad_press_assemblies"}) {
             const auto record = Value(field<Object>(records, name));
             const auto fields = Value(field<Object>(record, "fields"));
             check(field<std::string>(record, "container") == "array_elements" &&

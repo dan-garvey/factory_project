@@ -379,7 +379,6 @@ func check_slide_manager_cue() -> void:
 	snapshot.hand_sources = {}
 	snapshot.cargo = {"P": {"raw": 0, "products": 0, "components": {}}}
 	snapshot.workshop_completed_actors = []
-	snapshot.guided_press_assemblies = []
 	snapshot.sliding_press_assemblies = [{"status": "unpowered", "parts": {"slide": "slide"}}]
 	var view := FooterView.new()
 	view.client = "P"

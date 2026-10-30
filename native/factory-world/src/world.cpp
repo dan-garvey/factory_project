@@ -397,7 +397,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         (action == "remove_belt_span" ? points->size() != 1 && points->size() != 2 :
          action == "push_channel_sheet" ? points->size() != 8 :
          action == "push_channel_small" ? points->size() != 2 :
-         (broad_pickup || action == "place_sheet" || action == "stroke_broad_shear" ||
+         (broad_pickup || action == "place_sheet" ||
              action == "feed_broad_press" ||
              action == "refeed_broad_press_work") ? points->size() != 4 :
          points->size() != (((two_endpoints(action) && action != "place_selected_belt_span") ||
@@ -585,24 +585,6 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             !channel_swept_cells(*from, *to, {1, 1}, 0, true) ||
             result.size() != 19) return false;
         return targets == std::vector<authority::Point>{anchor(profile, *from), anchor(profile, *to)};
-    }
-    if (action == "stroke_broad_shear") {
-        const auto* target = field<std::string>(record.intent, "target");
-        const auto* requested_generation = field<Integer>(record.intent, "generation");
-        const auto* requested_sheet = field<Integer>(record.intent, "sheet_id");
-        const auto* entity = field<std::string>(result, "entity");
-        const auto* generation = field<Integer>(result, "generation");
-        const auto* sheet = field<Integer>(result, "sheet_id");
-        const auto* strokes = field<Integer>(result, "shear_strokes");
-        const auto* products = field<Integer>(result, "formed_products");
-        const auto* work = field<Value::Array>(result, "work_center");
-        const auto origin = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
-        return target && entity && *target == *entity && requested_generation && generation &&
-            *requested_generation == *generation && *generation > 0 &&
-            requested_sheet && sheet && *requested_sheet == *sheet && *sheet > 0 &&
-            strokes && *strokes >= 1 && *strokes <= 4 && products &&
-            *products == (*strokes == 4 ? 4 : 0) && origin &&
-            targets == broad_reach_targets(profile, *origin) && result.size() == 20;
     }
     if (worksite == worksite_commands::Action::harvest ||
         worksite == worksite_commands::Action::fast_harvest ||
@@ -1448,55 +1430,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             hand_crank_power(profile, manual_state, pulse->second.input,
                 pulse->second.port, pulse->second.face)).first->second;
     };
-    std::vector<std::pair<materials::WorkId, const PressOffcutDelivery*>> deliveries;
-    deliveries.reserve(snapshot.state.press_offcut_deliveries.size());
-    for (const auto& [id, delivery] : snapshot.state.press_offcut_deliveries) {
-        if (offcut_per_plate <= 0 || id <= 0 || id >= snapshot.state.material.next_work_id ||
-            delivery.revision <= 0 || delivery.revision > snapshot.revision ||
-            command_revisions.contains(delivery.revision) ||
-            delivery.work == delivery.exit || delivery.work == delivery.receiver ||
-            delivery.exit == delivery.receiver) return false;
-        deliveries.emplace_back(id, &delivery);
-    }
-    std::sort(deliveries.begin(), deliveries.end(), [](const auto& left, const auto& right) {
-        return left.second->revision < right.second->revision;
-    });
-    std::size_t next_delivery = 0;
-    const auto apply_deliveries = [&](Integer limit, bool inclusive) {
-        while (next_delivery < deliveries.size() &&
-               (inclusive ? deliveries[next_delivery].second->revision <= limit :
-                            deliveries[next_delivery].second->revision < limit)) {
-            const auto& delivery = *deliveries[next_delivery].second;
-            const auto* layout_state = layout_at(delivery.revision);
-            const auto* power = power_at(delivery.revision);
-            if (!layout_state || !power) return false;
-            const auto placed = assembly_parts(*layout_state);
-            const assembly::Layout layout(placed);
-            int claims = 0;
-            for (const auto& part : placed) {
-                if (part.kind != materials::Component::anvil) continue;
-                const auto inspected = layout.inspect_guided_press(part.center);
-                if (!inspected.press || inspected.press->work_center != delivery.work ||
-                    inspected.press->offcut_receiver != delivery.receiver) continue;
-                const auto& press = *inspected.press;
-                auto exit = press.work_center;
-                exit[0] -= press.shaft_center[0] - part.center[0];
-                exit[2] -= press.shaft_center[2] - part.center[2];
-                const auto motion = power->mechanical.motion.find(press.shaft);
-                if (exit != delivery.exit || motion == power->mechanical.motion.end() ||
-                    motion->second.state != mechanics::MotionState::rotating) continue;
-                ++claims;
-            }
-            if (claims != 1) return false;
-            auto& amount = expected_offcuts[delivery.receiver];
-            if (!add(amount, offcut_per_plate) ||
-                amount > materials::press_offcut_receiver_capacity) return false;
-            if (!delivered_product_locations.emplace(deliveries[next_delivery].first,
-                    delivery.exit).second) return false;
-            ++next_delivery;
-        }
-        return true;
-    };
+    if (!snapshot.state.press_offcut_deliveries.empty()) return false;
     struct BeltOffcutClaim {
         mechanics::Point work{};
         mechanics::Point exit{};
@@ -1666,49 +1600,17 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         const auto historical = assembly_parts(*at_revision);
         const assembly::Layout layout(historical);
         auto broad_slide_phases = historical_slide_phases;
-        struct BroadRate { Integer subticks{}, remainder{}, denominator{1}; };
-        const auto rates_for = [&](const DrivePower& power)
-                -> std::optional<std::map<mechanics::Point, BroadRate>> {
-            std::map<mechanics::Point, BroadRate> rates;
-            const BroadPressDriveIndex drives(power);
-            for (const auto& [point, cargo] : broad_work) {
-                if (cargo.work_lots.empty()) continue;
-                const auto geometry = layout.inspect_broad_press(point);
-                if (!geometry.press) continue;
-                const auto inspection = drives.inspect(*geometry.press);
-                if (inspection.status != BroadPressDriveStatus::ready ||
-                    !inspection.stroke_rate || inspection.stroke_rate->numerator <= 0) continue;
-                __extension__ using Wide = __int128;
-                const Wide scaled = static_cast<Wide>(inspection.stroke_rate->numerator) *
-                    materials::work_subticks_per_tick;
-                const auto denominator = inspection.stroke_rate->denominator;
-                if (denominator <= 0 || scaled / denominator > std::numeric_limits<Integer>::max())
-                    return std::nullopt;
-                rates.emplace(point, BroadRate{static_cast<Integer>(scaled / denominator),
-                    static_cast<Integer>(scaled % denominator), denominator});
-            }
-            return rates;
-        };
-        const auto normal_rates = normal_enabled ? rates_for(*normal_power) :
-            std::optional<std::map<mechanics::Point, BroadRate>>{
-                std::map<mechanics::Point, BroadRate>{}};
-        if (!normal_rates) return false;
         const bool sized_work = std::any_of(broad_work.begin(), broad_work.end(),
             [&](const auto& entry) {
                 return !entry.second.work_lots.empty() &&
                     layout.inspect_broad_sliding_press(entry.first).press.has_value();
             });
-        if (normal_rates->empty() && !sized_work && !has_pulse) return true;
+        if (!sized_work && !has_pulse) return true;
         for (Integer revision = first; revision <= last; ++revision) {
-            std::optional<std::map<mechanics::Point, BroadRate>> manual_rates;
-            const auto* rates = &*normal_rates;
             const DrivePower* revision_power = normal_power;
             if (crank_pulses.contains(revision)) {
                 const auto* power = power_at(revision);
                 if (!power || !power->mechanical.accepted()) return false;
-                manual_rates = rates_for(*power);
-                if (!manual_rates) return false;
-                rates = &*manual_rates;
                 revision_power = power;
             } else if (!normal_enabled) continue;
             for (auto& [point, cargo] : broad_work) {
@@ -1740,21 +1642,6 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                         cargo.sheets.push_back({id, 0});
                     }
                     continue;
-                }
-                const auto rate = rates->find(point);
-                if (rate == rates->end()) continue;
-                auto& lot = cargo.work_lots.front();
-                const auto before = lot.remaining_ticks;
-                const auto id = lot.id;
-                materials::advance_work_lot(lot, rate->second.subticks,
-                    rate->second.remainder, rate->second.denominator);
-                if (lot.remaining_ticks < before) {
-                    broad_reductions[id] += before - lot.remaining_ticks;
-                    broad_transitions[id].push_back({revision, point, before, lot.remaining_ticks});
-                }
-                if (lot.remaining_ticks == 0) {
-                    cargo.work_lots.clear();
-                    cargo.sheets.push_back({id, 0});
                 }
             }
             if (std::none_of(broad_work.begin(), broad_work.end(),
@@ -1830,7 +1717,6 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         // that a pending press lot received automatic work.
         ticks_seen += revision_gap - (*accepted_value ? 1 : 0);
         history_revision = *result_revision;
-        if (!apply_deliveries(*result_revision, false)) return false;
         if (record.intent.contains("wire")) {
             const auto* wire = field<Object>(record.intent, "wire");
             if (!wire) return false;
@@ -2273,8 +2159,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto* center = field<Value::Array>(record.result, "work_center");
             const auto work = center ? grid_point(Object{{"center", Value(*center)}}) : std::nullopt;
             if (placed == placed_components.end() ||
-                (placed->second.first != materials::Component::anvil &&
-                 placed->second.first != materials::Component::broad_anvil) || !work ||
+                placed->second.first != materials::Component::broad_anvil || !work ||
                 placed->second.second != *work) return false;
             if (!historical_layout) {
                 historical_parts.clear();
@@ -2285,12 +2170,9 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 }
                 historical_layout.emplace(historical_parts);
             }
-            const auto geometry = historical_layout->inspect_broad_press(*work);
             const auto sized = historical_layout->inspect_broad_sliding_press(*work);
-            if ((!geometry.press || geometry.press->anvils.front() != *entity) &&
-                (!sized.press || sized.press->anvil != *entity)) return false;
-            const auto& work_centers = sized.press ? sized.press->work_centers :
-                geometry.press->work_centers;
+            if (!sized.press || sized.press->anvil != *entity) return false;
+            const auto& work_centers = sized.press->work_centers;
             for (const auto& cell : work_centers)
                 if (broad_work.contains(cell) || press_work.contains(cell) ||
                     press_products.contains(cell) || expected_offcuts.contains(cell)) return false;
@@ -3130,55 +3012,6 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 if (!expected_offcuts.insert(std::move(moved)).inserted) return false;
             }
         }
-        if (*action == "stroke_broad_shear") {
-            const auto* sheet_id = field<Integer>(record.intent, "sheet_id");
-            const auto* strokes = field<Integer>(record.result, "shear_strokes");
-            const auto* work = field<Value::Array>(record.result, "work_center");
-            const auto origin = work ? grid_point(Object{{"center", Value(*work)}}) : std::nullopt;
-            const auto target = placed_components.find(*entity);
-            if (!sheet_id || !strokes || !origin || target == placed_components.end() ||
-                target->second.first != materials::Component::anvil ||
-                target->second.second != *origin) return false;
-            if (!historical_layout) {
-                historical_parts.clear();
-                for (const auto& [part_id, component] : placed_components) {
-                    const auto issued = snapshot.state.issued_entities.find(part_id);
-                    if (issued == snapshot.state.issued_entities.end()) return false;
-                    historical_parts.push_back({part_id, component.first, component.second,
-                        issued->second});
-                }
-                historical_layout.emplace(historical_parts);
-            }
-            const auto geometry = historical_layout->inspect_broad_shear(*origin);
-            if (!geometry.shear || geometry.shear->anvils.front() != *entity) return false;
-            const auto later_drive = drive_commands.upper_bound(*result_revision);
-            const auto earlier_drive = later_drive == drive_commands.begin() ?
-                drive_commands.end() : std::prev(later_drive);
-            if ((earlier_drive != drive_commands.end() && !earlier_drive->second) ||
-                (drive_commands.empty() && !snapshot.state.topology.drive_enabled)) return false;
-            const auto* power = enabled_power_at(*result_revision);
-            if (!power) return false;
-            const auto driven = BroadPressDriveIndex(*power).inspect(*geometry.shear);
-            if (driven.status != BroadPressDriveStatus::ready || !driven.stroke_rate ||
-                driven.stroke_rate->numerator <= 0) return false;
-            const auto staged = broad_work.find(*origin);
-            if (staged == broad_work.end() || staged->second.sheets.size() != 1 ||
-                staged->second.sheets.front().id != *sheet_id ||
-                !broad_ids.contains(*sheet_id)) return false;
-            auto& progress = shear_progress[*sheet_id];
-            if (progress.strokes != 0 && progress.origin != *origin) return false;
-            progress.origin = *origin;
-            if (*strokes != progress.strokes + 1 || *strokes > 4) return false;
-            progress.strokes = *strokes;
-            if (*strokes == 4) {
-                for (const auto& cell : geometry.shear->work_centers)
-                    if (shear_products.contains(cell) || press_products.contains(cell))
-                        return false;
-                for (const auto& cell : geometry.shear->work_centers)
-                    shear_products.emplace(cell, 1);
-                broad_work.erase(staged);
-            }
-        }
         if (*action == "pickup_material" || *action == "recover" ||
             *action == "recover_belt_slot") {
             const auto* moved_work = field<Value::Array>(record.result, "moved_work");
@@ -3422,8 +3255,6 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         route = historical_slide_routes.lower_bound(work);
     }
     if (historical_slide_routes != snapshot.state.slide_press_routes) return false;
-    if (!apply_deliveries(snapshot.revision, true) ||
-        next_delivery != deliveries.size()) return false;
     for (const auto& [id, site] : profile.material.timber_sites) {
         const auto remaining = snapshot.state.material.timber_remaining.find(id);
         if (remaining == snapshot.state.material.timber_remaining.end() ||
@@ -4088,69 +3919,6 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
             ratings.emplace(routed.id, material_rating(routed.kind));
         }
     }
-    for (const auto& item : placed) {
-        if (item.kind != materials::Component::wooden_frame) continue;
-        const auto inspected = layout.inspect_press(item.center);
-        if (!inspected.press) continue;
-        const auto& found = *inspected.press;
-        const auto axis = horizontal_axis(found.shaft_center, found.cog_center);
-        const mechanics::Point hub{found.frame_center[0], found.shaft_center[1], found.frame_center[2]};
-        std::string hub_id = found.frame;
-        if (projected_hub_ids.contains(hub_id)) {
-            // A single placed frame can carry a collector and a press at
-            // different heights. Their graph hubs need distinct identities.
-            std::size_t index = 0;
-            do {
-                hub_id = "projected-press-hub-" + std::to_string(index++);
-            } while (reserved_ids.contains(hub_id));
-            reserved_ids.insert(hub_id);
-        }
-        append({hub_id, mechanics::Kind::hub, hub, axis, 0, 0});
-        projected_hub_ids.insert(hub_id);
-        append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
-        append({found.drive_cog, mechanics::Kind::gear, found.cog_center, axis, 2, 0});
-        ratings.emplace(found.shaft, material_rating(found.shaft_material));
-        ratings.emplace(found.drive_cog, material_rating(found.cog_material));
-        impacts.emplace(hub_id, 8);
-    }
-    for (const auto& item : placed) {
-        if (item.kind != materials::Component::anvil) continue;
-        const auto inspected = layout.inspect_guided_press(item.center);
-        if (!inspected.press) continue;
-        const auto& found = *inspected.press;
-        const auto axis = horizontal_axis(found.shaft_center, found.cog_center);
-        const mechanics::Point hub{found.work_center[0], found.shaft_center[1], found.work_center[2]};
-        append({found.anvil, mechanics::Kind::hub, hub, axis, 0, 0});
-        append({found.shaft, mechanics::Kind::shaft, found.shaft_center, axis, 0, 1});
-        append({found.drive_cog, mechanics::Kind::gear, found.cog_center, axis, 2, 0});
-        ratings.emplace(found.shaft, material_rating(found.shaft_material));
-        ratings.emplace(found.drive_cog, material_rating(found.cog_material));
-        impacts.emplace(found.anvil, 8);
-    }
-    // A cutting edge is a different contact from a forming ram. Project its
-    // four real anvil/shaft/cog stacks into the same native drive graph.
-    for (const auto& item : placed) {
-        if (item.kind != materials::Component::anvil) continue;
-        const auto inspected = layout.inspect_broad_shear(item.center);
-        if (!inspected.shear) continue;
-        const auto& shear = *inspected.shear;
-        for (std::size_t index = 0; index < shear.anvils.size(); ++index) {
-            const auto axis = horizontal_axis(shear.shaft_centers[index],
-                shear.cog_centers[index]);
-            const mechanics::Point hub{shear.work_centers[index][0],
-                shear.shaft_centers[index][1], shear.work_centers[index][2]};
-            append({shear.anvils[index], mechanics::Kind::hub, hub, axis, 0, 0});
-            append({shear.shafts[index], mechanics::Kind::shaft,
-                shear.shaft_centers[index], axis, 0, 1});
-            append({shear.drive_cogs[index], mechanics::Kind::gear,
-                shear.cog_centers[index], axis, 2, 0});
-            ratings.emplace(shear.shafts[index],
-                material_rating(shear.shaft_materials[index]));
-            ratings.emplace(shear.drive_cogs[index],
-                material_rating(shear.cog_materials[index]));
-            impacts.emplace(shear.anvils[index], 8);
-        }
-    }
     std::map<std::string, mechanics::Axis> crank_axes;
     for (const auto& item : placed) {
         if (slide_component(item.kind)) {
@@ -4259,82 +4027,6 @@ DrivePower hand_crank_power(const Profile& profile, const State& state,
     const assembly::Layout layout(placed);
     return drive_power_with_layout(profile, state, placed, layout,
         ManualCrankInput{input, port, face});
-}
-
-BroadPressDriveIndex::BroadPressDriveIndex(const DrivePower& power) : power_(power) {
-    for (std::size_t index = 0; index < power.mechanical.components.size(); ++index)
-        for (const auto& id : power.mechanical.components[index].parts)
-            component_by_part_.emplace(id, index);
-}
-
-BroadPressDriveInspection BroadPressDriveIndex::inspect(const assembly::BroadPress& press) const {
-    if (!power_.mechanical.accepted()) return {BroadPressDriveStatus::invalid_power, std::nullopt, {}};
-    std::set<std::string> distinct;
-    std::optional<mechanics::Axis> common_axis;
-    std::array<int, 4> pad_winding{};
-    for (std::size_t index = 0; index < press.shafts.size(); ++index) {
-        const auto& id = press.shafts[index];
-        if (id.empty() || !distinct.insert(id).second)
-            return {BroadPressDriveStatus::invalid_geometry, std::nullopt, {}};
-        const auto& shaft = press.shaft_centers[index];
-        const auto& cog = press.cog_centers[index];
-        __extension__ using Wide = __int128;
-        const Wide dx = static_cast<Wide>(cog[0]) - shaft[0];
-        const Wide dz = static_cast<Wide>(cog[2]) - shaft[2];
-        if (shaft[1] != cog[1] ||
-            !(((dx == 1 || dx == -1) && dz == 0) ||
-              ((dz == 1 || dz == -1) && dx == 0)))
-            return {BroadPressDriveStatus::invalid_geometry, std::nullopt, {}};
-        const auto axis = dx != 0 ? mechanics::Axis::x : mechanics::Axis::z;
-        if (common_axis && *common_axis != axis)
-            return {BroadPressDriveStatus::incompatible_axis, std::nullopt, {}};
-        common_axis = axis;
-        // Adjacent exterior starter cogs mesh and reverse their shaft rates.
-        // A broad head has mirrored keyed cams across those rows or columns,
-        // so compare the resulting vertical stroke rather than raw rotation.
-        pad_winding[index] = (axis == mechanics::Axis::x ? index / 2 : index % 2) == 0 ? 1 : -1;
-    }
-    std::optional<mechanics::Rate> common_rate;
-    std::optional<std::size_t> common_component;
-    for (std::size_t index = 0; index < press.shafts.size(); ++index) {
-        const auto& id = press.shafts[index];
-        const auto motion = power_.mechanical.motion.find(id);
-        if (motion == power_.mechanical.motion.end() ||
-            motion->second.state == mechanics::MotionState::unpowered)
-            return {BroadPressDriveStatus::unpowered, std::nullopt, pad_winding};
-        if (motion->second.state == mechanics::MotionState::stalled ||
-            (power_.load.contains(id) && power_.load.at(id).overloaded))
-            return {BroadPressDriveStatus::stalled, std::nullopt, pad_winding};
-        if (motion->second.state != mechanics::MotionState::rotating ||
-            motion->second.rate.numerator == 0)
-            return {BroadPressDriveStatus::stopped, std::nullopt, pad_winding};
-        const auto rate = motion->second.rate;
-        __extension__ using Wide = __int128;
-        const Wide numerator = static_cast<Wide>(rate.numerator) * pad_winding[index];
-        if (rate.denominator <= 0 || numerator > std::numeric_limits<Integer>::max() ||
-            numerator < std::numeric_limits<Integer>::min())
-            return {BroadPressDriveStatus::invalid_power, std::nullopt, pad_winding};
-        const mechanics::Rate stroke{static_cast<Integer>(numerator), rate.denominator};
-        if (common_rate) {
-            if (static_cast<Wide>(stroke.numerator) * common_rate->denominator !=
-                static_cast<Wide>(common_rate->numerator) * stroke.denominator)
-                return {BroadPressDriveStatus::mismatched_rate, std::nullopt, pad_winding};
-        }
-        common_rate = stroke;
-        const auto component = component_by_part_.find(id);
-        if (component == component_by_part_.end() ||
-            (common_component && *common_component != component->second))
-            return {BroadPressDriveStatus::disconnected, std::nullopt, pad_winding};
-        common_component = component->second;
-    }
-    return {BroadPressDriveStatus::ready, common_rate, pad_winding};
-}
-
-BroadPressDriveInspection BroadPressDriveIndex::inspect(const assembly::BroadShear& shear) const {
-    return inspect(assembly::BroadPress{shear.origin, shear.work_centers,
-        shear.anvils, shear.blades, shear.guides, shear.shafts, shear.drive_cogs,
-        shear.shaft_centers, shear.cog_centers, shear.shaft_materials,
-        shear.cog_materials});
 }
 
 materials::MachinePower machine_power(const stationary::Topology& topology) {
@@ -5086,56 +4778,6 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
             --candidate.material.stock.source;
             candidate.material.dropped_material.emplace(receiver, materials::Cargo{1, 0, {}});
         }
-        // A broad batch owns all four adjacent work cells, even while its
-        // twelve-mass output waits for physical removal. The drive index
-        // establishes one connected, signed and non-overloaded stroke.
-        std::optional<BroadPressDriveIndex> broad_drives;
-        for (const auto& press : tick_layout.broad_presses) {
-            const auto found = candidate.material.dropped_material.find(press.origin);
-            if (found == candidate.material.dropped_material.end()) continue;
-            const auto& item = found->second;
-            if (!(item.raw_units == 0 && item.products == 0 && item.offcuts == 0 &&
-                  item.timber == 0 && item.components.empty() && item.sheets.empty() &&
-                  item.work_lots.size() == 1 &&
-                  item.work_lots.front().recipe.output == materials::WorkOutput::sheet) &&
-                item.sheets.empty()) continue;
-            if (!item.sheets.empty() || std::any_of(press.work_centers.begin() + 1,
-                    press.work_centers.end(), [&](const auto& cell) {
-                        return candidate.material.dropped_material.contains(cell);
-                    })) continue;
-            if (!broad_drives) broad_drives.emplace(drive);
-            const auto inspected = broad_drives->inspect(press);
-            if (inspected.status != BroadPressDriveStatus::ready || !inspected.stroke_rate ||
-                inspected.stroke_rate->numerator <= 0) continue;
-            const auto before_id = item.work_lots.size() == 1 ? item.work_lots.front().id : materials::WorkId{0};
-            const auto before_remaining = before_id > 0 ? item.work_lots.front().remaining_ticks : Integer{0};
-            __extension__ using Wide = __int128;
-            const Wide scaled = static_cast<Wide>(inspected.stroke_rate->numerator) *
-                materials::work_subticks_per_tick;
-            const Integer denominator = inspected.stroke_rate->denominator;
-            if (denominator <= 0 || scaled / denominator > std::numeric_limits<Integer>::max())
-                throw materials::Error::invalid_path;
-            const auto error = materials::turn_broad_press(candidate.material, profile_.material,
-                material_path(candidate.topology), press.origin, 0,
-                static_cast<Integer>(scaled / denominator),
-                static_cast<Integer>(scaled % denominator), denominator);
-            if (error != materials::Error::none) throw error;
-            const auto& after = candidate.material.dropped_material.at(press.origin);
-            if (before_id > 0) {
-                const auto remaining = after.work_lots.size() == 1 ?
-                    after.work_lots.front().remaining_ticks : Integer{0};
-                auto& witness = candidate.press_progress[before_id];
-                if (remaining > before_remaining ||
-                    !add(witness.automatic_remaining_ticks, before_remaining - remaining))
-                    throw materials::Error::invalid_state;
-                if (remaining < before_remaining) {
-                    if (snapshot.revision == std::numeric_limits<Integer>::max())
-                        throw materials::Error::invalid_state;
-                    witness.automatic_transitions.push_back({snapshot.revision + 1,
-                        press.origin, before_remaining, remaining});
-                }
-            }
-        }
         for (const auto& press : tick_layout.broad_slides) {
             const auto found = candidate.material.dropped_material.find(press.origin);
             if (found == candidate.material.dropped_material.end() ||
@@ -5172,147 +4814,11 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
                 witness.automatic_transitions.push_back({snapshot.revision + 1,
                     press.origin, remaining_before, remaining});
         }
-        // A placed press owns work at its anvil. Its provisional
-        // unattended exit is opposite its drive shaft, so adding an obstacle
-        // cannot silently redirect ready work to another open face.
-        // Resolve every claim before running one batched material step.
-        std::map<mechanics::Point, std::optional<materials::PressStep>> presses_by_work;
-        std::map<mechanics::Point, std::size_t> exit_claims;
-        std::map<mechanics::Point, std::size_t> receiver_claims;
-        const auto include_press = [&](const mechanics::Point& anchor_center,
-                const mechanics::Point& work_center, const mechanics::Point& shaft_center,
-                const std::string& shaft_id, const std::vector<assembly::PressFeed>& feeds,
-                const std::optional<mechanics::Point>& offcut_receiver) {
-            if (feeds.empty() || broad_occupied_cells.contains(work_center)) return;
-            const auto shaft = motion.motion.find(shaft_id);
-            if (shaft == motion.motion.end() || shaft->second.state != mechanics::MotionState::rotating)
-                return;
-            auto exit = work_center;
-            exit[0] -= shaft_center[0] - anchor_center[0];
-            exit[2] -= shaft_center[2] - anchor_center[2];
-            if (std::none_of(feeds.begin(), feeds.end(),
-                    [&](const assembly::PressFeed& feed) { return feed.exit == exit; })) return;
-            __extension__ using Wide = __int128;
-            Wide numerator = shaft->second.rate.numerator;
-            if (numerator < 0) numerator = -numerator;
-            const Wide scaled = numerator * materials::work_subticks_per_tick;
-            const auto denominator = shaft->second.rate.denominator;
-            const Wide whole = scaled / denominator;
-            materials::PressStep step{work_center, exit};
-            step.output_location = materials::PressOutputLocation::supported_work;
-            if (offcut_receiver && !broad_occupied_cells.contains(*offcut_receiver)) {
-                step.offcut_receiver = offcut_receiver;
-                ++receiver_claims[*offcut_receiver];
-            }
-            step.work_subticks = static_cast<Integer>(std::min<Wide>(whole, std::numeric_limits<Integer>::max()));
-            if (whole <= std::numeric_limits<Integer>::max()) {
-                step.work_remainder = static_cast<Integer>(scaled % denominator);
-                if (step.work_remainder != 0) step.work_remainder_denominator = denominator;
-            }
-            const auto [entry, inserted] = presses_by_work.emplace(step.work, step);
-            if (!inserted) entry->second.reset();
-            ++exit_claims[step.exit];
-        };
-        for (const auto& [frame_center, inspected] : tick_layout.presses_by_frame) {
-            if (!inspected.press) continue;
-            const auto& press = *inspected.press;
-            include_press(frame_center, press.work_center, press.shaft_center,
-                press.shaft, press.open_feeds, std::nullopt);
-        }
-        for (const auto& [anvil_center, inspected] : tick_layout.presses_by_anvil) {
-            if (!inspected.press) continue;
-            const auto& press = *inspected.press;
-            include_press(anvil_center, press.work_center, press.shaft_center,
-                press.shaft, press.open_feeds, press.offcut_receiver);
-        }
-        std::vector<materials::PressStep> press_steps;
-        press_steps.reserve(presses_by_work.size());
-        for (const auto& [work, step] : presses_by_work) {
-            (void)work;
-            if (step && exit_claims.at(step->exit) == 1 && !presses_by_work.contains(step->exit)) {
-                auto selected = *step;
-                if (selected.offcut_receiver &&
-                    (receiver_claims.at(*selected.offcut_receiver) != 1 ||
-                     presses_by_work.contains(*selected.offcut_receiver) ||
-                     exit_claims.contains(*selected.offcut_receiver) ||
-                     candidate.press_offcut_deliveries.size() >= maximum_issued_entities))
-                    selected.offcut_receiver.reset();
-                press_steps.push_back(std::move(selected));
-            }
-        }
-        if (!press_steps.empty()) {
-            std::map<mechanics::Point, std::pair<materials::WorkId, Integer>> prior_lots;
-            for (const auto& step : press_steps) {
-                const auto work = candidate.material.dropped_material.find(step.work);
-                if (work != candidate.material.dropped_material.end() && work->second.work_lots.size() == 1)
-                    prior_lots.emplace(step.work, std::make_pair(work->second.work_lots.front().id,
-                        work->second.work_lots.front().remaining_ticks));
-            }
-            const auto press_error = materials::step_presses(candidate.material, profile_.material,
-                material_path(candidate.topology), press_steps);
-            if (press_error != materials::Error::none) throw press_error;
-            for (const auto& step : press_steps) {
-                const auto prior = prior_lots.find(step.work);
-                const auto current = candidate.material.dropped_material.find(step.work);
-                const bool completed = prior != prior_lots.end() &&
-                    current != candidate.material.dropped_material.end() &&
-                    current->second.products == 1 && current->second.work_lots.empty();
-                if (prior != prior_lots.end()) {
-                    const auto remaining = current != candidate.material.dropped_material.end() &&
-                        current->second.work_lots.size() == 1 &&
-                        current->second.work_lots.front().id == prior->second.first ?
-                        current->second.work_lots.front().remaining_ticks : Integer{0};
-                    auto& witness = candidate.press_progress[prior->second.first];
-                    if (remaining > prior->second.second ||
-                        !add(witness.automatic_remaining_ticks,
-                             prior->second.second - remaining))
-                        throw materials::Error::invalid_state;
-                    if (remaining < prior->second.second) {
-                        if (snapshot.revision == std::numeric_limits<Integer>::max())
-                            throw materials::Error::invalid_state;
-                        witness.automatic_transitions.push_back({snapshot.revision + 1, step.work,
-                            prior->second.second, remaining});
-                    }
-                    if (completed &&
-                    !witness.manual_seen && !witness.refeed_seen &&
-                    !candidate.belt_press_work_ids.contains(prior->second.first))
-                        candidate.press_progress.erase(prior->second.first);
-                } else if (current != candidate.material.dropped_material.end() &&
-                           current->second.work_lots.size() == 1) {
-                    candidate.press_progress.try_emplace(current->second.work_lots.front().id);
-                }
-                if (completed) {
-                    if (!candidate.press_output_on_work.emplace(step.work,
-                            State::SupportedPressOutput{prior->second.first, step.exit}).second)
-                        throw materials::Error::invalid_state;
-                }
-                if (completed && step.offcut_receiver &&
-                    profile_.material.plate_mass > 0 &&
-                    profile_.material.raw_mass > profile_.material.plate_mass &&
-                    (snapshot.revision == std::numeric_limits<Integer>::max() ||
-                     !candidate.press_offcut_deliveries.emplace(prior->second.first,
-                         PressOffcutDelivery{snapshot.revision + 1, step.work,
-                             step.exit, *step.offcut_receiver}).second))
-                    throw materials::Error::invalid_state;
-                const auto belt_work = candidate.belt_press_work.find(step.work);
-                if (belt_work == candidate.belt_press_work.end()) continue;
-                if (current != candidate.material.dropped_material.end() &&
-                    current->second.work_lots.size() == 1) {
-                    belt_work->second = current->second.work_lots.front().id;
-                    candidate.belt_press_work_ids.insert(belt_work->second);
-                } else if (completed) {
-                    if (!candidate.belt_press_products[step.exit].insert(prior->second.first).second)
-                        throw materials::Error::invalid_state;
-                    candidate.belt_press_work.erase(belt_work);
-                }
-            }
-        }
         // A slide's reciprocal motion is only useful at the bottom of its
         // stroke. The selected feed route owns its exit; the crank, shaft or
         // wheel merely supplies the same signed mechanical motion.
         for (const auto& [anvil, inspected] : tick_layout.slides_by_anvil) {
-            if (!inspected.press || broad_occupied_cells.contains(anvil) ||
-                presses_by_work.contains(anvil)) continue;
+            if (!inspected.press || broad_occupied_cells.contains(anvil)) continue;
             const auto route = candidate.slide_press_routes.find(anvil);
             if (route == candidate.slide_press_routes.end() ||
                 std::none_of(inspected.press->open_feeds.begin(),
@@ -5476,17 +4982,10 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
                     if (!inserted) entry->second.reset();
                 }
             };
-            for (const auto& [frame_center, inspected] : tick_layout.presses_by_frame) {
-                const auto* press = inspected.press ? &*inspected.press : nullptr;
-                include_press(frame_center, press ? press->work_center : mechanics::Point{},
-                    press ? &press->open_feeds : nullptr,
-                    inspected.status == assembly::PressStatus::ambiguous);
-            }
-            for (const auto& [anvil_center, inspected] : tick_layout.presses_by_anvil) {
+            for (const auto& [anvil_center, inspected] : tick_layout.slides_by_anvil) {
                 const auto* press = inspected.press ? &*inspected.press : nullptr;
                 include_press(anvil_center, press ? press->work_center : mechanics::Point{},
-                    press ? &press->open_feeds : nullptr,
-                    inspected.status == assembly::PressStatus::ambiguous);
+                    press ? &press->open_feeds : nullptr, false);
             }
         }
         // Capture loose items before any lane moves. This gives a deterministic

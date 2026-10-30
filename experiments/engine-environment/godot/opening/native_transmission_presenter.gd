@@ -21,14 +21,11 @@ const INCLINED_SUBTICKS_PER_TICK := 2896.0 # Native lane advances one horizontal
 const GEAR_BATCH_THRESHOLD := 4
 const LIVE_GEAR_BATCH_THRESHOLD := 1
 const PRESS_REFERENCE_PITCH := 1.65
-const GUIDED_RAM_REST_LIFT := 0.08 * Geometry.PITCH / PRESS_REFERENCE_PITCH
-const GUIDED_RAM_CONTACT_LIFT := -0.0075 * Geometry.PITCH / PRESS_REFERENCE_PITCH
 const SLIDE_DIE_TRAVEL_MARGIN := 0.175
 const SLIDE_VISIBLE_STROKE := 0.20
 const BROAD_VISIBLE_STROKE := 0.24
 const PRESS_REFERENCE_WORK_HEIGHT := PRESS_REFERENCE_PITCH * 0.5 + 0.1425
-const PRESS_VISUAL_KINDS := ["wooden_frame", "ram_face", "sliding_guide",
-	"anvil", "broad_anvil", "flat_head", "broad_flat_head",
+const PRESS_VISUAL_KINDS := ["wooden_frame", "anvil", "broad_anvil", "flat_head", "broad_flat_head",
 	"wooden_slide", "copper_slide", "broad_copper_slide", "channel_narrow_x",
 	"channel_narrow_z", "channel_broad_x", "channel_broad_z", "receiver_tray"]
 
@@ -1238,11 +1235,10 @@ func _shaft_splice(first: Dictionary, second: Dictionary, parent: Node3D,
 		fitting.free()
 
 func preview_component(anchor: Node3D, kind: String, occupied_size: Vector3,
-		collector_angle: float = 0.0, collector_support_drop: float = 0.0,
-		press_role: String = "") -> void:
+		collector_angle: float = 0.0, collector_support_drop: float = 0.0) -> void:
 	# Use the same meshes and finishes as a confirmed placed component. The
 	# caller supplies a visual candidate box; only Host can admit placement.
-	_placed_component(anchor, kind, Vector3.ZERO, occupied_size, press_role,
+	_placed_component(anchor, kind, Vector3.ZERO, occupied_size,
 		collector_angle, collector_support_drop, Vector3.ZERO)
 
 static func slide_carriage_drop(phase: Variant, travel: float) -> float:
@@ -1260,19 +1256,18 @@ static func slide_carriage_drop(phase: Variant, travel: float) -> float:
 	return -travel * (1.0 - absf(2.0 * fraction - 1.0))
 
 func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
-		occupied_size: Vector3, press_role: String, collector_angle: float,
+		occupied_size: Vector3, collector_angle: float,
 		collector_support_drop: float, receiver_to_frame: Vector3,
 		slide_phase: Variant = null) -> void:
 	# These component meshes were shaped at the original U. Scale each complete
 	# assembly about the native occupied center while retaining direct child
 	# names for the same preview, pick and phase consumers.
 	var press_piece: bool = kind in PRESS_VISUAL_KINDS \
-		or (kind == "tool_mount" and press_role == "mount") \
 		or kind in ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]
 	var press_scale: float = Geometry.PITCH / PRESS_REFERENCE_PITCH if press_piece else 1.0
 	var first_child: int = anchor.get_child_count()
 	_placed_component_shape(anchor, kind, drive_direction, occupied_size / press_scale,
-		press_role, collector_angle, collector_support_drop, receiver_to_frame, slide_phase)
+		collector_angle, collector_support_drop, receiver_to_frame, slide_phase)
 	if press_piece:
 		for index in range(first_child, anchor.get_child_count()):
 			var child := anchor.get_child(index) as Node3D
@@ -1285,7 +1280,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					child.set_meta("component_rotor_base", child.basis)
 
 func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vector3,
-		occupied_size: Vector3, press_role: String, collector_angle: float,
+		occupied_size: Vector3, collector_angle: float,
 		collector_support_drop: float, receiver_to_frame: Vector3,
 		slide_phase: Variant = null) -> void:
 	var timber: Material = WheelArt.support_timber_finish()
@@ -1360,48 +1355,37 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 					var peg := _support_cylinder(anchor, "JoineryPeg%d" % anchor.get_child_count(), 0.011, 0.018, timber)
 					peg.position = Vector3(x, 0.384, z)
 		"tool_mount":
-			if press_role == "mount":
-				# This crown is a separate fitted part. Its sockets reach the guide
-				# face without inventing another pick body or covering the work face.
-				for x in [-0.145, 0.145]:
-					_support_box(anchor, "PressCrownSocket", Vector3(x, -0.035, 0),
-						Vector3(0.045, 0.27, 0.30), dark)
-				_support_box(anchor, "PressCrown", Vector3(0, 0.115, 0),
-					Vector3(0.37, 0.075, 0.34), worked)
-				_support_box(anchor, "PressCrownBearing", Vector3(0, -0.10, 0),
-					Vector3(occupied_size.x, 0.10, occupied_size.z), worked)
-			else:
-				if collector_support_drop > 0.0:
-					_collector_tool_support(anchor, "Mount", collector_angle,
-						collector_support_drop, -0.13, 0.21, dark, worked)
-				_cast_mount_foot(anchor, "SlidingFoot", Vector3(0, -0.11, 0),
-					Vector3(0.37, 0.06, 0.33), dark, worked)
-				var clamp := ClampBody.instantiate() as Node3D
-				clamp.name = "CastToolClamp"
-				# The selected source frame and fixed jaw are static. Their opening
-				# faces the confirmed cutter; the donor dial and handle are absent.
-				var jaw_seat := Vector3(-0.015, -0.08, 0)
-				# The native box is 2 cm narrower along Z. Seat the rigid source
-				# casting 7 mm back when it faces north or south; keep its scale.
-				if absf(sin(collector_angle)) > 0.5:
-					jaw_seat.x += 0.007
-				clamp.position = Basis(Vector3.UP, collector_angle) * jaw_seat
-				clamp.rotation.y = PI * 0.5 + collector_angle
-				anchor.add_child(clamp)
-				# The native drive belongs to this mount. Keep the keyed socket
-				# within its admitted occupied box, even before the receiver is fit.
-				var input_port := Node3D.new()
-				input_port.name = "IntegralRotaryInput"
-				input_port.rotation.y = collector_angle
-				anchor.add_child(input_port)
-				var spindle := _support_cylinder(input_port, "EmbodiedWoodenSpindle", 0.045, 0.12, timber)
-				spindle.position = Vector3(0.10, 0.12, 0)
-				spindle.rotation.z = PI * 0.5
-				var socket := _support_cylinder(input_port, "CrankSocket", 0.052, 0.015, dark)
-				socket.position = Vector3(0.17, 0.12, 0)
-				socket.rotation.z = PI * 0.5
-				_support_box(input_port, "SocketKey", Vector3(0.18, 0.12, 0),
-					Vector3(0.012, 0.014, 0.038), worked)
+			if collector_support_drop > 0.0:
+				_collector_tool_support(anchor, "Mount", collector_angle,
+					collector_support_drop, -0.13, 0.21, dark, worked)
+			_cast_mount_foot(anchor, "SlidingFoot", Vector3(0, -0.11, 0),
+				Vector3(0.37, 0.06, 0.33), dark, worked)
+			var clamp := ClampBody.instantiate() as Node3D
+			clamp.name = "CastToolClamp"
+			# The selected source frame and fixed jaw are static. Their opening
+			# faces the confirmed cutter; the donor dial and handle are absent.
+			var jaw_seat := Vector3(-0.015, -0.08, 0)
+			# The native box is 2 cm narrower along Z. Seat the rigid source
+			# casting 7 mm back when it faces north or south; keep its scale.
+			if absf(sin(collector_angle)) > 0.5:
+				jaw_seat.x += 0.007
+			clamp.position = Basis(Vector3.UP, collector_angle) * jaw_seat
+			clamp.rotation.y = PI * 0.5 + collector_angle
+			anchor.add_child(clamp)
+			# The native drive belongs to this mount. Keep the keyed socket
+			# within its admitted occupied box, even before the receiver is fit.
+			var input_port := Node3D.new()
+			input_port.name = "IntegralRotaryInput"
+			input_port.rotation.y = collector_angle
+			anchor.add_child(input_port)
+			var spindle := _support_cylinder(input_port, "EmbodiedWoodenSpindle", 0.045, 0.12, timber)
+			spindle.position = Vector3(0.10, 0.12, 0)
+			spindle.rotation.z = PI * 0.5
+			var socket := _support_cylinder(input_port, "CrankSocket", 0.052, 0.015, dark)
+			socket.position = Vector3(0.17, 0.12, 0)
+			socket.rotation.z = PI * 0.5
+			_support_box(input_port, "SocketKey", Vector3(0.18, 0.12, 0),
+				Vector3(0.012, 0.014, 0.038), worked)
 		"anvil":
 			var bottom := -occupied_size.y * 0.5
 			var top := occupied_size.y * 0.5
@@ -1452,16 +1436,6 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 					Vector3(3.02, 0.08, 0.10), worked)
 				_support_box(anchor, "JoinedWorkbedZ", Vector3(side * 1.47, bottom + 0.13, 0),
 					Vector3(0.10, 0.08, 3.02), worked)
-		"ram_face":
-			var bottom := -occupied_size.y * 0.5
-			_support_box(anchor, "MovingDie", Vector3(0, bottom + 0.045, 0),
-				Vector3(0.25, 0.075, 0.25), worked)
-			_support_box(anchor, "RamBody", Vector3(0, bottom + occupied_size.y * 0.5, 0),
-				Vector3(0.125, occupied_size.y - 0.10, 0.125), dark)
-			for z in [-0.105, 0.105]:
-				_support_box(anchor, "RamSlideNear" if z < 0.0 else "RamSlideFar",
-					Vector3(0, bottom + occupied_size.y * 0.55, z),
-					Vector3(0.20, occupied_size.y * 0.50, 0.028), worked)
 		"flat_head":
 			# The die follows the matching slide's native phase inside its own
 			# fixed swept envelope. It has no extra rails, input shaft or drive.
@@ -1596,14 +1570,6 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 			for x in [-occupied_size.x * 0.5 + 0.12, occupied_size.x * 0.5 - 0.12]:
 				_support_box(anchor, "ChannelCrossbrace", Vector3(x, -0.30, 0),
 					Vector3(0.065, 0.07, occupied_size.z - 0.16), timber, true)
-		"sliding_guide":
-			# Full-length rails are intrinsic to the selected part. Its native
-			# occupied box includes the reach toward the ram in every state.
-			for x in [-0.125, 0.125]:
-				_support_box(anchor, "GuideRail", Vector3(x, 0, 0),
-					Vector3(0.03, occupied_size.y - 0.012, 0.21), worked)
-			_support_box(anchor, "GuideCrown", Vector3(0, occupied_size.y * 0.5 - 0.035, 0),
-				Vector3(0.25, 0.055, 0.25), dark)
 		"wooden_slide", "copper_slide":
 			var finish: Material = timber if kind == "wooden_slide" else worked
 			var half_height := occupied_size.y * 0.5
@@ -1691,8 +1657,7 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 			anchor.add_child(rotor)
 			var finish: Material = timber if kind == "wooden_cog" else worked
 			_support_cylinder(rotor, "CogRim", 0.095 * U_SCALE, 0.05 * U_SCALE, finish)
-			var hub_length: float = occupied_size.dot(direction.abs()) if press_role == "drive_cog" else 0.105 * U_SCALE
-			_support_cylinder(rotor, "CogHub", 0.05 * U_SCALE, hub_length, dark)
+			_support_cylinder(rotor, "CogHub", 0.05 * U_SCALE, 0.105 * U_SCALE, dark)
 			_support_box(rotor, "CogIndexMark", Vector3(0.065, 0.028, 0) * U_SCALE,
 				Vector3(0.025, 0.008, 0.025) * U_SCALE, dark)
 			for index in range(12):
@@ -1767,8 +1732,7 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 					rivet.position = Vector3(x, 0.141, z)
 		"wooden_shaft", "copper_shaft":
 			var fitted := drive_direction.length_squared() > 0.5
-			var collector_fitting := fitted and press_role not in ["shaft", "guided_shaft"]
-			if collector_fitting:
+			if fitted:
 				var along_x := absf(drive_direction.x) > 0.5
 				var carriage_size := Vector3(occupied_size.x, 0.075, 0.19) if along_x \
 					else Vector3(0.19, 0.075, occupied_size.z)
@@ -1781,11 +1745,6 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 						else Vector3(0.028, 0.035, occupied_size.z)
 					_support_box(anchor, "CarriageRail%d" % anchor.get_child_count(),
 						runner_position, runner_size, dark, true)
-			elif press_role == "guided_shaft":
-				# The early guide and drive can float. A compact bearing stays
-				# inside this placed shaft's own occupied box, with no false frame.
-				_support_box(anchor, "GuidedBearingSeat", Vector3(0, -0.07 * U_SCALE, 0),
-					Vector3(0.25, 0.055, 0.25) * U_SCALE, dark)
 			else:
 				_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07 * U_SCALE, 0),
 					Vector3(0.35, 0.07, 0.35) * U_SCALE, dark, worked)
@@ -1809,14 +1768,13 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 			_support_box(rod, "ShaftIndexMark", Vector3(0.057 * U_SCALE, 0, 0),
 				Vector3(0.016, 0.035, 0.024) * U_SCALE, dark)
 			if fitted:
-				if collector_fitting:
-					# A collector shaft reaches the frame from its own native box.
-					# The five-millimetre box seam stays clear of another part's
-					# independently removable collision and construction identity.
-					var along_x := absf(direction.x) > 0.5
-					var join_size := (Vector3(0.05, 0.09, 0.14) if along_x else Vector3(0.14, 0.09, 0.05)) * U_SCALE
-					_support_box(anchor, "FrameJoinSocket", direction * (shaft_length * 0.5 - 0.025 * U_SCALE)
-						+ Vector3.DOWN * (0.015 * U_SCALE), join_size, dark, true)
+				# A collector shaft reaches the frame from its own native box.
+				# The five-millimetre box seam stays clear of another part's
+				# independently removable collision and construction identity.
+				var along_x := absf(direction.x) > 0.5
+				var join_size := (Vector3(0.05, 0.09, 0.14) if along_x else Vector3(0.14, 0.09, 0.05)) * U_SCALE
+				_support_box(anchor, "FrameJoinSocket", direction * (shaft_length * 0.5 - 0.025 * U_SCALE)
+					+ Vector3.DOWN * (0.015 * U_SCALE), join_size, dark, true)
 				# The two static journals belong to the confirmed frame-facing axis.
 				# Neither their geometry nor this rod becomes a second drive or collider.
 				for sign_value in [-1.0, 1.0]:
@@ -1871,29 +1829,8 @@ func _collector_tool_support(anchor: Node3D, label: String, angle: float,
 		top - 0.025, 0), Vector3(0.045, 0.05, 0.27), worked, true)
 	(anchor.get_node(label + "RearDock") as MeshInstance3D).rotation.y = angle
 
-func _guided_ram_lift(snapshot: Dictionary, press: Dictionary) -> float:
-	var work_center: Variant = press.get("work_center")
-	if not work_center is Array:
-		return GUIDED_RAM_REST_LIFT
-	for drop: Variant in snapshot.get("dropped_material", []):
-		if not drop is Dictionary or drop.get("center") != work_center:
-			continue
-		var lots: Variant = drop.get("work_lots")
-		if not lots is Array or lots.size() != 1 or not lots[0] is Dictionary:
-			continue
-		var lot: Dictionary = lots[0]
-		if lot.has("output_form") or typeof(lot.get("cycle_ticks")) != TYPE_INT \
-				or typeof(lot.get("remaining")) != TYPE_INT or int(lot.cycle_ticks) <= 0:
-			continue
-		var progress: float = 1.0 - clampf(float(lot.remaining) / float(lot.cycle_ticks), 0.0, 1.0)
-		return lerpf(GUIDED_RAM_REST_LIFT, GUIDED_RAM_CONTACT_LIFT,
-			clampf(progress * 2.0, 0.0, 1.0))
-	return GUIDED_RAM_REST_LIFT
-
 func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 	var drives: Dictionary = {}
-	var press_roles: Dictionary = {}
-	var ram_lifts: Dictionary = {}
 	var collector_facings: Dictionary = {}
 	var collector_floors: Dictionary = {}
 	var collector_receivers: Dictionary = {}
@@ -1958,144 +1895,6 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 								drives[shaft_ids[0]] = toward_frame.normalized()
 			if assembly.get("status") != "ready" or not assembly.get("parts") is Dictionary:
 				continue
-	var presses: Variant = snapshot.get("press_assemblies", [])
-	if presses is Array:
-		for press: Variant in presses:
-			if not press is Dictionary:
-				continue
-			# The frame's native cell and the placed cells keep partial fittings
-			# styled and oriented when a drive part is removed. Readiness still
-			# comes only from the native assembly projection.
-			var cell: Variant = press.get("center")
-			if cell is Array and cell.size() == 3:
-				var origin := Vector3i(cell[0], cell[1], cell[2])
-				var mount_id: Variant = by_cell.get(origin + Vector3i(0, 4, 0))
-				if boxes.has(mount_id) and boxes[mount_id].component == "tool_mount":
-					press_roles[mount_id] = "mount"
-				for direction in [Vector3i.RIGHT, Vector3i.LEFT, Vector3i.FORWARD, Vector3i.BACK]:
-					var shaft_id: Variant = by_cell.get(origin + Vector3i(0, 4, 0) + direction)
-					if not boxes.has(shaft_id) or not boxes[shaft_id].component.ends_with("_shaft"):
-						continue
-					drives[shaft_id] = Vector3(-direction.x, 0, -direction.z)
-					press_roles[shaft_id] = "shaft"
-					var cog_id: Variant = by_cell.get(origin + Vector3i(0, 4, 0) + direction * 2)
-					if boxes.has(cog_id) and boxes[cog_id].component.ends_with("_cog"):
-						drives[cog_id] = Vector3(-direction.x, 0, -direction.z)
-						press_roles[cog_id] = "drive_cog"
-			if press.get("status") != "ready" or not press.get("parts") is Dictionary:
-				continue
-			var fitted: Dictionary = press.parts
-			for role: String in fitted:
-				var id: Variant = fitted[role]
-				if boxes.has(id):
-					press_roles[id] = role
-			if boxes.has(fitted.get("mount")) and boxes.has(fitted.get("shaft")):
-				var shaft_id: String = str(fitted.shaft)
-				var toward_mount: Vector3 = boxes[fitted.mount].center - boxes[shaft_id].center
-				toward_mount.y = 0.0
-				if toward_mount.length_squared() > 0.01:
-					drives[shaft_id] = toward_mount.normalized()
-			if boxes.has(fitted.get("shaft")) and boxes.has(fitted.get("drive_cog")):
-				var cog_id: String = str(fitted.drive_cog)
-				var toward_shaft: Vector3 = boxes[fitted.shaft].center - boxes[cog_id].center
-				toward_shaft.y = 0.0
-				if toward_shaft.length_squared() > 0.01:
-					drives[cog_id] = toward_shaft.normalized()
-	var guided: Variant = snapshot.get("guided_press_assemblies", [])
-	if guided is Array:
-		for press: Variant in guided:
-			if not press is Dictionary or not press.get("center") is Array or press.center.size() != 3:
-				continue
-			var cell := Vector3i(press.center[0], press.center[1], press.center[2])
-			for member in [[cell, "anvil", "anvil"],
-					[cell + Vector3i(0, 1, 0), "ram_face", "ram"]]:
-				var id: Variant = by_cell.get(member[0])
-				if boxes.has(id) and boxes[id].component == member[1]:
-					press_roles[id] = member[2]
-			if press.get("status") != "ready" or not press.get("parts") is Dictionary:
-				continue
-			var fitted: Dictionary = press.parts
-			if boxes.has(fitted.get("ram")) and boxes[fitted.ram].component == "ram_face":
-				ram_lifts[str(fitted.ram)] = _guided_ram_lift(snapshot, press)
-			var shaft_id: Variant = fitted.get("shaft")
-			var cog_id: Variant = fitted.get("drive_cog")
-			var guide_id: Variant = fitted.get("guide")
-			if boxes.has(shaft_id) and boxes.has(guide_id) \
-					and boxes[shaft_id].component.ends_with("_shaft") \
-					and boxes[guide_id].component == "sliding_guide":
-				var toward_guide: Vector3 = boxes[guide_id].center - boxes[shaft_id].center
-				toward_guide.y = 0.0
-				if toward_guide.length_squared() > 0.01:
-					drives[shaft_id] = toward_guide.normalized()
-					press_roles[shaft_id] = "guided_shaft"
-			if boxes.has(cog_id) and boxes.has(shaft_id) \
-					and boxes[cog_id].component.ends_with("_cog"):
-				var toward_shaft: Vector3 = boxes[shaft_id].center - boxes[cog_id].center
-				toward_shaft.y = 0.0
-				if toward_shaft.length_squared() > 0.01:
-					drives[cog_id] = toward_shaft.normalized()
-					press_roles[cog_id] = "drive_cog"
-	var broad: Variant = snapshot.get("broad_press_assemblies", [])
-	if broad is Array:
-		for press: Variant in broad:
-			if not press is Dictionary or not press.get("origin") is Array \
-					or press.origin.size() != 3:
-				continue
-			var origin := Vector3i(press.origin[0], press.origin[1], press.origin[2])
-			var fitted: Variant = press.get("parts")
-			for pad in range(4):
-				var cell: Vector3i = origin + [Vector3i.ZERO, Vector3i(4, 0, 0),
-					Vector3i(0, 0, 4), Vector3i(4, 0, 4)][pad]
-				for member in [[cell, "anvils", "anvil", "anvil"],
-						[cell + Vector3i(0, 1, 0), "rams", "ram_face", "ram"],
-						[cell + Vector3i(0, 3, 0), "guides", "sliding_guide", "guide"]]:
-					var id: Variant = by_cell.get(member[0])
-					if fitted is Dictionary and fitted.get(member[1]) is Array \
-							and fitted[member[1]].size() == 4:
-						id = fitted[member[1]][pad]
-					if boxes.has(id) and boxes[id].component == member[2]:
-						press_roles[id] = member[3]
-				var guide_id: Variant = by_cell.get(cell + Vector3i(0, 3, 0))
-				var shaft_id: Variant
-				var cog_id: Variant
-				if fitted is Dictionary and fitted.get("shafts") is Array \
-						and fitted.shafts.size() == 4 and fitted.get("drive_cogs") is Array \
-						and fitted.drive_cogs.size() == 4:
-					shaft_id = fitted.shafts[pad]
-					cog_id = fitted.drive_cogs[pad]
-				else:
-					# Native Host reports the four-anvil candidate even if a pad is
-					# incomplete. Keep its other placed fittings independent; an
-					# ambiguous pair receives no apparent mechanical connection.
-					var candidates: Array = []
-					var exterior := [Vector3i.LEFT if pad % 2 == 0 else Vector3i.RIGHT,
-						Vector3i.FORWARD if pad < 2 else Vector3i.BACK]
-					for direction: Vector3i in exterior:
-						var side_shaft: Variant = by_cell.get(cell + Vector3i(0, 4, 0) + direction)
-						var side_cog: Variant = by_cell.get(cell + Vector3i(0, 4, 0) + direction * 2)
-						if boxes.has(side_shaft) and boxes.has(side_cog) \
-								and boxes[side_shaft].component.ends_with("_shaft") \
-								and boxes[side_cog].component.ends_with("_cog"):
-							candidates.append([side_shaft, side_cog])
-					if candidates.size() == 1:
-						shaft_id = candidates[0][0]
-						cog_id = candidates[0][1]
-				if boxes.has(guide_id) and boxes.has(shaft_id) \
-						and boxes[guide_id].component == "sliding_guide" \
-						and boxes[shaft_id].component.ends_with("_shaft"):
-					var toward_guide: Vector3 = boxes[guide_id].center - boxes[shaft_id].center
-					toward_guide.y = 0.0
-					if toward_guide.length_squared() > 0.01:
-						drives[shaft_id] = toward_guide.normalized()
-						press_roles[shaft_id] = "guided_shaft"
-				if boxes.has(shaft_id) and boxes.has(cog_id) \
-						and boxes[shaft_id].component.ends_with("_shaft") \
-						and boxes[cog_id].component.ends_with("_cog"):
-					var toward_shaft: Vector3 = boxes[shaft_id].center - boxes[cog_id].center
-					toward_shaft.y = 0.0
-					if toward_shaft.length_squared() > 0.01:
-						drives[cog_id] = toward_shaft.normalized()
-						press_roles[cog_id] = "drive_cog"
 	for id: String in boxes:
 		# Supplied hardware shares the collision table, but its ordinary scene
 		# already owns the pod and workshop artwork.
@@ -2106,8 +1905,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		anchor.name = "PlacedComponent"
 		anchor.position = spec.center
 		var support_drop := 0.0
-		if collector_floors.has(id) and spec.component in ["tool_mount", "cutting_edge"] \
-				and press_roles.get(id, "") != "mount":
+		if collector_floors.has(id) and spec.component in ["tool_mount", "cutting_edge"]:
 			var cell: Array = placed[id].center
 			var head_y := float(cell[1]) * UNIT + 0.825 \
 				+ (0.10 if spec.component == "tool_mount" else -0.015)
@@ -2140,12 +1938,8 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 					phase = snapshot.get("slide_phases", {}).get(mate_id)
 					break
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
-			spec.size, press_roles.get(id, ""), float(collector_facings.get(id, 0.0)),
+			spec.size, float(collector_facings.get(id, 0.0)),
 			support_drop, collector_receivers.get(id, Vector3.ZERO), phase)
-		if ram_lifts.has(id):
-			for child: Node in anchor.get_children():
-				if child is Node3D and (child.name == "MovingDie" or child.name.begins_with("RamSlide")):
-					(child as Node3D).position.y += float(ram_lifts[id])
 	for id: String in snapshot.get("crank_items", {}):
 		var item: Dictionary = snapshot.crank_items[id]
 		var input_id: String = str(item.get("attached_to", ""))
@@ -2168,7 +1962,7 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		crank.set_meta("crank_entity", id)
 		add_child(crank)
 		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.25, 0.38, 0.22) * U_SCALE,
-			"", 0.0, 0.0, Vector3.ZERO)
+			0.0, 0.0, Vector3.ZERO)
 		var rotor := crank.get_node("CrankRotor") as Node3D
 		_crank_rotors[id] = rotor
 		var pose: Dictionary = _crank_turns.get(id, {})
@@ -2477,7 +2271,6 @@ func refresh() -> void:
 	var next_key := [snapshot.get("context"), parts, motions, fixed_spans,
 		snapshot.get("engagements", []), snapshot.get("dropped_material", []),
 		component_result.boxes, snapshot.get("collector_assemblies", []),
-		snapshot.get("press_assemblies", []), snapshot.get("guided_press_assemblies", []),
 		snapshot.get("sliding_press_assemblies", []),
 		snapshot.get("broad_press_assemblies", []), snapshot.get("slide_phases", {}),
 		snapshot.get("crank_items", {})]
@@ -2521,13 +2314,6 @@ func refresh() -> void:
 	_render_receiver_chutes(snapshot)
 	_render_press_belt_connectors(snapshot)
 	_render_broad_belt_docks(snapshot, component_result.boxes)
-	var guided_work_surfaces := {}
-	for press: Variant in snapshot.get("guided_press_assemblies", []):
-		if press is Dictionary and press.get("status") == "ready" \
-				and press.get("work_center") is Array and press.get("parts") is Dictionary:
-			var anvil: Variant = component_result.boxes.get(press.parts.get("anvil"))
-			if anvil is Dictionary and anvil.get("component") == "anvil":
-				guided_work_surfaces[press.work_center] = anvil.center.y + anvil.size.y * 0.5
 	var broad_work_surfaces := {}
 	for id: String in snapshot.get("placed_components", {}):
 		var placed: Dictionary = snapshot.placed_components[id]
@@ -2565,9 +2351,6 @@ func refresh() -> void:
 			elif broad_work_surfaces.has(drop.center):
 				location.y = float(broad_work_surfaces[drop.center]) + \
 					(0.09 if not drop.work_lots.is_empty() else 0.04) * press_scale
-			elif guided_work_surfaces.has(drop.center):
-				location.y = float(guided_work_surfaces[drop.center]) + \
-					(0.03 if drop.products > 0 else (0.04 if drop.raw > 0 else -0.082)) * press_scale
 			var visual: Node3D
 			if drop.raw > 0:
 				visual = _cylinder(self, "LooseBlank", (0.11 if supported_slide else 0.15) * press_scale,
@@ -2626,10 +2409,6 @@ func refresh() -> void:
 			else:
 				visual = Items.workpiece_billet(self, location)
 			_add_loose_pickers(visual, drop, str(snapshot.get("context", "")))
-			if drop.raw == 0 and drop.products == 0 and int(drop.get("offcuts", 0)) == 0 \
-					and int(drop.get("sheets", 0)) == 0 and drop.work_lots.size() == 1 \
-				and guided_work_surfaces.has(drop.center):
-				continue
 			var label := Label3D.new()
 			if drop.raw > 0:
 				label.text = "%d blank" % drop.raw
@@ -2644,7 +2423,7 @@ func refresh() -> void:
 			else:
 				label.text = "%d held workpiece" % drop.work_lots.size()
 			label.position = Vector3(-0.38, 0.12, 0) if drop.products > 0 and \
-				(supported_slide or guided_work_surfaces.has(drop.center)) else \
+				supported_slide else \
 				Vector3(0.29, 0.07, 0) if supported_slide else \
 				Vector3(0, 1.2 if int(drop.get("offcuts", 0)) > 0 else 0.3, 0)
 			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED

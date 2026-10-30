@@ -28,16 +28,10 @@ using TerrainRange = std::function<std::optional<std::pair<double, double>>(
 [[nodiscard]] bool slide_head_fitting(std::optional<materials::Component> first,
     const mechanics::Point& first_center, materials::Component second,
     const mechanics::Point& second_center);
-[[nodiscard]] bool guide_ram_fitting(std::optional<materials::Component> first,
-    const mechanics::Point& first_center, materials::Component second,
-    const mechanics::Point& second_center);
 [[nodiscard]] bool frame_anvil_fitting(std::optional<materials::Component> first,
     const mechanics::Point& first_center, materials::Component second,
     const mechanics::Point& second_center);
 [[nodiscard]] bool workbed_tray_fitting(std::optional<materials::Component> first,
-    const mechanics::Point& first_center, materials::Component second,
-    const mechanics::Point& second_center);
-[[nodiscard]] bool frame_ram_fitting(std::optional<materials::Component> first,
     const mechanics::Point& first_center, materials::Component second,
     const mechanics::Point& second_center);
 

@@ -12,14 +12,9 @@ using command_contract::Object;
 using command_contract::Schema;
 using command_contract::Type;
 
-enum class Action { none, stroke_shear, feed, feed_broad, refeed_broad, compact, refeed, turn };
+enum class Action { none, feed, feed_broad, refeed_broad, compact, refeed, turn };
 
 inline Schema schema(Action action) {
-    static constexpr std::array stroke_shear{
-        Field{"entity", "target", Type::string},
-        Field{"", "generation", Type::integer},
-        Field{"sheet_id", "sheet_id", Type::integer},
-    };
     static constexpr std::array feed{
         Field{"entity", "target", Type::string},
         Field{"", "generation", Type::integer},
@@ -53,7 +48,6 @@ inline Schema schema(Action action) {
         Field{"exit", "exit", Type::array},
     };
     switch (action) {
-        case Action::stroke_shear: return {"stroke_broad_shear", stroke_shear};
         case Action::feed: return {"feed_press", feed};
         case Action::feed_broad: return {"feed_broad_press", feed_broad};
         case Action::refeed_broad: return {"refeed_broad_press_work", refeed_broad};
@@ -66,7 +60,7 @@ inline Schema schema(Action action) {
 }
 
 inline Action parse(std::string_view name) {
-    for (const auto action : {Action::stroke_shear, Action::feed, Action::feed_broad,
+    for (const auto action : {Action::feed, Action::feed_broad,
                               Action::refeed_broad, Action::compact, Action::refeed,
                               Action::turn})
         if (schema(action).name == name) return action;

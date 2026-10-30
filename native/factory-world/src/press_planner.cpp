@@ -19,7 +19,6 @@ std::optional<PressCommand> press_command(
     command.action = parsed;
     if (const auto* value = field<std::string>(intent, "target")) command.target = *value;
     if (const auto* value = field<Integer>(intent, "generation")) command.generation = *value;
-    if (const auto* value = field<Integer>(intent, "sheet_id")) command.sheet_id = *value;
     if (const auto* value = field<Integer>(intent, "work_id")) command.work_id = *value;
     if (const auto* value = field<std::string>(intent, "drive")) command.drive = *value;
     if (const auto* value = field<Value::Array>(intent, "entry")) command.entry = *value;
@@ -31,75 +30,6 @@ Owner::Decision plan_press(const Profile& profile, const Binding& binding,
         const Snapshot& snapshot, const PressCommand& command,
         const ObserveActor& observe) {
     const auto& state = snapshot.state;
-    if (command.action == Action::stroke_shear) {
-        if (!profile.landing_pod_center || !copper_profile(profile.material) ||
-            profile.material.plate_mass <= 0 || profile.material.sheet_mass <= 0 ||
-            profile.material.sheet_mass % 4 != 0 ||
-            profile.material.sheet_mass / 4 != profile.material.plate_mass)
-            return refused("unavailable_recipe");
-        const auto* id = (command.target ? &*command.target : nullptr);
-        const auto* generation = (command.generation ? &*command.generation : nullptr);
-        const auto* sheet_id = (command.sheet_id ? &*command.sheet_id : nullptr);
-        if (!id || !generation || !sheet_id || *sheet_id <= 0)
-            return refused("invalid_target");
-        const auto found = state.placed_components.find(*id);
-        if (found == state.placed_components.end()) return refused("unknown_target", *id);
-        if (found->second.generation != *generation)
-            return refused("stale_generation", *id);
-        if (found->second.kind != materials::Component::anvil)
-            return refused("not_shear_anvil", *id);
-        const auto parts = assembly_parts(state);
-        const auto geometry = assembly::Layout(parts).inspect_broad_shear(found->second.center);
-        if (!geometry.shear || geometry.shear->anvils.front() != *id)
-            return refused("incomplete_shear", *id);
-        const auto& shear = *geometry.shear;
-        const auto staged = state.material.dropped_material.find(shear.origin);
-        if (staged == state.material.dropped_material.end() ||
-            staged->second.raw_units != 0 || staged->second.products != 0 ||
-            staged->second.offcuts != 0 || staged->second.timber != 0 ||
-            !staged->second.components.empty() || !staged->second.work_lots.empty() ||
-            staged->second.sheets.size() != 1 ||
-            staged->second.sheets.front().id != *sheet_id)
-            return refused("unavailable_input", *id);
-        const auto previous = state.shear_progress.find(*sheet_id);
-        if (previous != state.shear_progress.end() &&
-            (previous->second.origin != shear.origin || previous->second.strokes >= 4))
-            return refused("incompatible_sheet", *id);
-        const auto cut = observe ? observe(binding.actor) : std::nullopt;
-        if (!cut) return refused("actor_unready", *id);
-        auto checked_cut = *cut;
-        checked_cut.build_reach = profile.build_reach;
-        const auto checked = authority::check_reach(binding.actor, checked_cut,
-            broad_reach_targets(profile, shear.origin));
-        auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
-        if (checked.error != authority::Error::none)
-            return refused(authority::error_name(checked.error), *id, std::move(facts));
-        const auto driven = BroadPressDriveIndex(drive_power(profile, state)).inspect(shear);
-        if (driven.status != BroadPressDriveStatus::ready || !driven.stroke_rate ||
-            driven.stroke_rate->numerator <= 0)
-            return refused("shear_unpowered", *id, std::move(facts));
-        if (std::any_of(shear.work_centers.begin() + 1, shear.work_centers.end(),
-                [&](const auto& cell) {
-                    return state.material.dropped_material.contains(cell);
-                })) return refused("output_full", *id, std::move(facts));
-        auto candidate = state;
-        auto& progress = candidate.shear_progress[*sheet_id];
-        progress.origin = shear.origin;
-        ++progress.strokes;
-        if (progress.strokes == 4) {
-            const auto error = materials::shear_sheet(candidate.material, profile.material,
-                material_path(candidate.topology), *sheet_id, shear.origin);
-            if (error != materials::Error::none)
-                return refused(materials::error_name(error), *id, std::move(facts));
-        }
-        facts.emplace("generation", Value(*generation));
-        facts.emplace("sheet_id", Value(*sheet_id));
-        facts.emplace("work_center", Value(Value::Array{Value(shear.origin[0]),
-            Value(shear.origin[1]), Value(shear.origin[2])}));
-        facts.emplace("shear_strokes", Value(progress.strokes));
-        facts.emplace("formed_products", Value(progress.strokes == 4 ? Integer{4} : Integer{0}));
-        return accepted(std::move(candidate), *id, std::move(facts));
-    }
     if (command.action == Action::feed_broad || command.action == Action::refeed_broad) {
         if (!profile.landing_pod_center || !copper_profile(profile.material) ||
             profile.material.sheet_mass != 3 * profile.material.raw_mass)
@@ -113,19 +43,15 @@ Owner::Decision plan_press(const Profile& profile, const Binding& binding,
         const auto found = state.placed_components.find(*id);
         if (found == state.placed_components.end()) return refused("unknown_target", *id);
         if (found->second.generation != *generation) return refused("stale_generation", *id);
-        if (found->second.kind != materials::Component::anvil &&
-            found->second.kind != materials::Component::broad_anvil)
+        if (found->second.kind != materials::Component::broad_anvil)
             return refused("not_press_anvil", *id);
         const auto parts = assembly_parts(state);
         const assembly::Layout layout(parts);
-        const auto geometry = layout.inspect_broad_press(found->second.center);
         const auto sized = layout.inspect_broad_sliding_press(found->second.center);
-        if ((!geometry.press || geometry.press->anvils.front() != *id) &&
-            (!sized.press || sized.press->anvil != *id))
+        if (!sized.press || sized.press->anvil != *id)
             return refused("incomplete_assembly", *id);
         const auto& origin = found->second.center;
-        const auto& work_centers = sized.press ? sized.press->work_centers :
-            geometry.press->work_centers;
+        const auto& work_centers = sized.press->work_centers;
         for (const auto& center : work_centers)
             if (state.material.dropped_material.contains(center))
                 return refused("input_full", *id);
@@ -191,14 +117,11 @@ Owner::Decision plan_press(const Profile& profile, const Binding& binding,
         const auto frame = state.placed_components.find(*id);
         if (frame == state.placed_components.end()) return refused("unknown_target", *id);
         if (frame->second.generation != *generation) return refused("stale_generation", *id);
-        if (frame->second.kind != materials::Component::wooden_frame &&
-            frame->second.kind != materials::Component::anvil)
+        if (frame->second.kind != materials::Component::anvil)
             return refused("not_press_frame", *id);
         const auto parts = assembly_parts(state);
         const auto inspected = inspect_working_press(assembly::Layout(parts),
             frame->second.kind, frame->second.center);
-        if (inspected.status == assembly::PressStatus::ambiguous)
-            return refused("ambiguous_assembly", *id);
         if (inspected.status == assembly::PressStatus::blocked_feed)
             return refused("blocked_feed", *id);
         if (!inspected.press || inspected.press->anchor != *id)
@@ -302,14 +225,11 @@ Owner::Decision plan_press(const Profile& profile, const Binding& binding,
         const auto frame = state.placed_components.find(*id);
         if (frame == state.placed_components.end()) return refused("unknown_target", *id);
         if (frame->second.generation != *generation) return refused("stale_generation", *id);
-        if (frame->second.kind != materials::Component::wooden_frame &&
-            frame->second.kind != materials::Component::anvil)
+        if (frame->second.kind != materials::Component::anvil)
             return refused("not_press_frame", *id);
         const auto parts = assembly_parts(state);
         const auto inspected = inspect_working_press(assembly::Layout(parts),
             frame->second.kind, frame->second.center);
-        if (inspected.status == assembly::PressStatus::ambiguous)
-            return refused("ambiguous_assembly", *id);
         if (!inspected.press || inspected.press->anchor != *id)
             return refused("incomplete_assembly", *id);
         if (inspected.press->sliding)

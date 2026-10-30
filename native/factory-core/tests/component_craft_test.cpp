@@ -40,9 +40,9 @@ void exact_bill_and_refusals() {
     auto state = seed();
     constexpr std::array wood{m::Component::wooden_frame, m::Component::wooden_shaft,
         m::Component::wooden_cog, m::Component::receiver_tray, m::Component::tool_mount,
-        m::Component::sliding_guide, m::Component::wooden_workbench};
+        m::Component::wooden_workbench, m::Component::wooden_slide};
     constexpr std::array metal{m::Component::cutting_edge, m::Component::anvil,
-        m::Component::ram_face, m::Component::copper_shaft, m::Component::copper_cog,
+        m::Component::copper_shaft, m::Component::copper_cog,
         m::Component::flat_head};
     m::Quantity timber_bill = 0, ore_bill = 0;
     for (const auto component : wood) {
@@ -57,7 +57,7 @@ void exact_bill_and_refusals() {
               "A copper recipe consumes only finite ore, never another component.");
         ore_bill += cost->ore;
     }
-    check(timber_bill == 15 && ore_bill == 10 &&
+    check(timber_bill == 17 && ore_bill == 8 &&
           m::component_from_name("flat_head") == m::Component::flat_head,
           "The separate pressing head has one finite copper bill and a stable component identity.");
     for (int cut = 0; cut < 8; ++cut)
@@ -66,9 +66,12 @@ void exact_bill_and_refusals() {
     for (int cut = 0; cut < 7; ++cut)
         check(m::harvest_source(state, facts, path, "P", "tree-b") == m::Error::none,
               "P harvests six more units from the next finite tree.");
-    for (int cut = 0; cut < 10; ++cut)
+    for (int cut = 0; cut < 2; ++cut)
+        check(m::harvest_source(state, facts, path, "P", "tree-c") == m::Error::none,
+              "P harvests the timber for one separate slide.");
+    for (int cut = 0; cut < 8; ++cut)
         check(m::harvest_source(state, facts, path, "Q", "ore") == m::Error::none,
-              "Q hand mines ten units from the collector's source.");
+              "Q hand mines eight units from the collector's source.");
     const auto without_input = state;
     check(m::craft_component(state, facts, path, "Q", m::Component::wooden_frame) == m::Error::unavailable_input &&
           state == without_input, "Q cannot spend P's carried timber.");
@@ -88,7 +91,8 @@ void exact_bill_and_refusals() {
               "Each metal component costs its own carried ore.");
     check(state.cargo.at("P").timber == 0 && state.cargo.at("Q").raw_units == 0 &&
           state.timber_remaining.at("tree-a") == 0 && state.timber_remaining.at("tree-b") == 1 &&
-          state.stock.source == 6 && m::validate(state, facts, path) == m::Error::none,
+          state.timber_remaining.at("tree-c") == 6 && state.stock.source == 8 &&
+          m::validate(state, facts, path) == m::Error::none,
           "The shaped stock and uncut reserves account for all twenty-four timber and sixteen ore units.");
 
     const auto encoded = m::encode_material_state(state, facts, path, {"P", "Q"});

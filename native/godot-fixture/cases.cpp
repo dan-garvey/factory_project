@@ -15,17 +15,8 @@ constexpr std::array raised_starter_fixed{
     std::string_view{"--native-check-mode=arrival-raised-starter-snap"},
     std::string_view{"--event-route-pointer"},
 };
-constexpr std::array raised_press_fixed{
-    std::string_view{"--native-check-mode=arrival-raised-press"},
-    std::string_view{"--event-route-pointer"},
-};
-constexpr std::array channel_small_fixed{
-    std::string_view{"--native-check-mode=arrival-channel-small"},
-    std::string_view{"--event-route-loose"},
-};
-constexpr std::array channel_resume_fixed{
-    std::string_view{"--native-check-mode=arrival-channel-small-resume"},
-    std::string_view{"--event-route-loose"},
+constexpr std::array joined_broad_fixed{
+    std::string_view{"--native-check-mode=arrival-joined-broad"},
 };
 constexpr std::array first_plate_values{std::string_view{"--native-check-output="}};
 constexpr std::array cog_repair_fixed{std::string_view{"--native-check-mode=arrival-cog-resume"}};
@@ -34,17 +25,6 @@ constexpr std::array cog_values{
     std::string_view{"--resume-input="},
     std::string_view{"--native-check-output="},
     std::string_view{"--save-slot="},
-};
-constexpr std::array channel_small_values{
-    std::string_view{"--resume-input="},
-    std::string_view{"--save-slot="},
-    std::string_view{"--native-check-output="},
-};
-constexpr std::array channel_resume_values{
-    std::string_view{"--resume-input="},
-    std::string_view{"--save-slot="},
-    std::string_view{"--native-check-prior="},
-    std::string_view{"--native-check-output="},
 };
 constexpr std::array incline_fixed{std::string_view{"--native-check-mode=arrival-nonhorizontal-incline"}};
 constexpr std::array vertical_fixed{std::string_view{"--native-check-mode=arrival-nonhorizontal-vertical-resume"}};
@@ -87,13 +67,9 @@ const std::array cases{
     Case{"arrival-raised-starter-snap", script,
          "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-starter-snap",
          180, raised_starter_fixed, first_plate_values},
-    Case{"arrival-raised-press", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-press",
-         180, raised_press_fixed, first_plate_values},
-    Case{"arrival-channel-small", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small",
-         300, channel_small_fixed, channel_small_values},
-    Case{"arrival-channel-small-resume", script,
-         "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume",
-         180, channel_resume_fixed, channel_resume_values},
+    Case{"arrival-joined-broad", script,
+         "CHAPTER 1 JOINED BROAD PRESS PASS",
+         300, joined_broad_fixed, first_plate_values},
     Case{"transmission-endpoint-default", endpoint_script,
          R"({"checks":314,"desktop_operations":0,"evidence":"isolated_shaft_tile_controls_and_pointer","failures":0,"models":0,"status":"pass"})",
          180, no_arguments, no_arguments},

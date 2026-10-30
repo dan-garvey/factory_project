@@ -1016,8 +1016,7 @@ void first_plate_gate_admits_only_starter_parts() {
     };
     I serial = 0;
     for (const auto* who : {"P", "Q"}) {
-        for (const auto* kind : {"wooden_cog", "receiver_tray", "sliding_guide",
-                                 "ram_face", "wooden_shaft", "wooden_frame", "copper_slide"}) {
+        for (const auto* kind : {"wooden_cog", "receiver_tray", "wooden_shaft", "wooden_frame", "copper_slide"}) {
             const O intent{{"request", V("early-component-" + std::to_string(++serial))},
                 {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
                 {"generation", V(I{1})}, {"component", V(kind)}};

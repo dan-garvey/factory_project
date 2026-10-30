@@ -22,10 +22,8 @@ using physical_geometry::collector_external_bounds;
 using physical_geometry::foundation_bounds;
 using physical_geometry::part_bounds;
 using physical_geometry::slide_head_fitting;
-using physical_geometry::guide_ram_fitting;
 using physical_geometry::frame_anvil_fitting;
 using physical_geometry::workbed_tray_fitting;
-using physical_geometry::frame_ram_fitting;
 using physical_geometry::overlap;
 using physical_geometry::overlaps_supports;
 using physical_geometry::gear_half_extents;
@@ -238,10 +236,8 @@ const char* component_space_refusal(const Site& site, const world::State& state,
     for (const auto& [id, other] : state.placed_components)
         if ((!current_id || id != *current_id) &&
             !slide_head_fitting(kind, center, other.kind, other.center) &&
-            !guide_ram_fitting(kind, center, other.kind, other.center) &&
             !frame_anvil_fitting(kind, center, other.kind, other.center) &&
             !workbed_tray_fitting(kind, center, other.kind, other.center) &&
-            !frame_ram_fitting(kind, center, other.kind, other.center) &&
             overlap(volume, component_bounds(site.profile, other.kind, other.center))) return "occupied";
     if (intersects_belt(state, volume)) return "occupied";
     for (const auto& part : state.topology.parts) {

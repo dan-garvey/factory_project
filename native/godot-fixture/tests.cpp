@@ -63,19 +63,24 @@ int main() {
         const auto* cog_repair = fixture::find_case("arrival-cog-repair");
         const auto* cog_reopen = fixture::find_case("arrival-cog-reopen");
         const auto* raised_starter = fixture::find_case("arrival-raised-starter-snap");
-        const auto* raised_press = fixture::find_case("arrival-raised-press");
-        const auto* small = fixture::find_case("arrival-channel-small");
-        const auto* resumed = fixture::find_case("arrival-channel-small-resume");
+        const auto* joined_broad = fixture::find_case("arrival-joined-broad");
         const auto* endpoint_default = fixture::find_case("transmission-endpoint-default");
         const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
         const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
         const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
-        check(fixture::registered_cases().size() == 16 && first && incline && vertical && sideways && power_reopen && actor_block && cog_repair && cog_reopen &&
-                  raised_starter && raised_press &&
-                  small && resumed && endpoint_default && endpoint_common && endpoint_inspection &&
-                  endpoint_terrain &&
+        check(fixture::registered_cases().size() == 14 && first && incline && vertical && sideways &&
+                  power_reopen && actor_block && cog_repair && cog_reopen && raised_starter &&
+                  joined_broad && endpoint_default && endpoint_common && endpoint_inspection && endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),
-              "Only the twelve scene routes and four endpoint modes are registered.");
+              "Only the current scene routes and four endpoint modes are registered.");
+        const std::vector<std::string> joined_args{
+            "--native-check-mode=arrival-joined-broad",
+            "--native-check-output=/tmp/joined-broad.result"};
+        check(joined_broad->seconds == 300 &&
+                  fixture::accepts_case_arguments(*joined_broad, joined_args) &&
+                  !fixture::accepts_case_arguments(*joined_broad,
+                      {joined_args.data(), joined_args.size() - 1}),
+              "The joined broad route requires a fresh native result and no old pad flags.");
         const std::vector<std::string> incline_args{
             "--native-check-mode=arrival-nonhorizontal-incline",
             "--resume-input=/tmp/first-plate.worksite", "--native-check-output=/tmp/incline.result",
@@ -166,13 +171,8 @@ int main() {
                   raised_starter->script == first->script &&
                   raised_starter->pass_line ==
                       "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-starter-snap" &&
-                  raised_press->script == first->script &&
-                  raised_press->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-raised-press" &&
-                  small->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small" &&
-                  resumed->pass_line == "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume" &&
-                  first->seconds == 180 && raised_starter->seconds == 180 &&
-                  raised_press->seconds == 180 && small->seconds == 300 && resumed->seconds == 180,
-              "Named cases own the script, exact completion marker and deadline.");
+                  first->seconds == 180 && raised_starter->seconds == 180,
+              "Current press cases own their script, exact completion marker and deadline.");
         check(endpoint_default->script == "res://opening/native_transmission_endpoint_check.gd" &&
                   endpoint_common->script == endpoint_default->script &&
                   endpoint_inspection->script == endpoint_default->script &&
@@ -214,41 +214,15 @@ int main() {
         const std::vector<std::string> raised_starter_args{
             "--event-route-pointer", "--native-check-output=/tmp/raised-starter.result",
             "--native-check-mode=arrival-raised-starter-snap"};
-        const std::vector<std::string> raised_press_args{
-            "--event-route-pointer", "--native-check-output=/tmp/raised-press.result",
-            "--native-check-mode=arrival-raised-press"};
-        const std::vector<std::string> small_args{
-            "--native-check-output=/tmp/small.result", "--save-slot=/tmp/small.worksite",
-            "--event-route-loose", "--resume-input=/tmp/broad.worksite",
-            "--native-check-mode=arrival-channel-small"};
-        const std::vector<std::string> resume_args{
-            "--native-check-mode=arrival-channel-small-resume", "--event-route-loose",
-            "--resume-input=/tmp/small.worksite", "--save-slot=/tmp/recovered.worksite",
-            "--native-check-prior=/tmp/small.result", "--native-check-output=/tmp/recovered.result"};
         check(fixture::accepts_case_arguments(*first, first_args) &&
-                  fixture::accepts_case_arguments(*raised_starter, raised_starter_args) &&
-                  fixture::accepts_case_arguments(*raised_press, raised_press_args) &&
-                  fixture::accepts_case_arguments(*small, small_args) &&
-                  fixture::accepts_case_arguments(*resumed, resume_args),
-              "Every registered route accepts its required arguments in any order.");
+                  fixture::accepts_case_arguments(*raised_starter, raised_starter_args),
+              "Both current press routes accept their required arguments in any order.");
         check(!fixture::accepts_case_arguments(*first, {first_args.data(), first_args.size() - 1}) &&
                   !fixture::accepts_case_arguments(*raised_starter,
-                      {raised_starter_args.data(), raised_starter_args.size() - 1}) &&
-                  !fixture::accepts_case_arguments(*raised_press,
-                      {raised_press_args.data(), raised_press_args.size() - 1}) &&
-                  !fixture::accepts_case_arguments(*small, {small_args.data(), small_args.size() - 1}) &&
-                  !fixture::accepts_case_arguments(*resumed, {resume_args.data(), resume_args.size() - 1}),
-              "Omitted required inputs refuse for every route.");
-        check(!fixture::accepts_case_arguments(*raised_starter, first_args) &&
-                  !fixture::accepts_case_arguments(*raised_press, raised_starter_args) &&
-                  !fixture::accepts_case_arguments(*raised_press,
-                      std::vector<std::string>{"--native-check-mode=arrival-raised-press",
-                          "--event-route-pointer", "--native-check-output="}) &&
-                  !fixture::accepts_case_arguments(*raised_press,
-                      std::vector<std::string>{"--native-check-mode=arrival-raised-press",
-                          "--event-route-pointer", "--native-check-output=/tmp/a",
-                          "--native-check-output=/tmp/b"}),
-              "Raised routes reject another mode, empty output and duplicate output.");
+                      {raised_starter_args.data(), raised_starter_args.size() - 1}),
+              "Omitted required inputs refuse for both current press routes.");
+        check(!fixture::accepts_case_arguments(*raised_starter, first_args),
+              "A raised starter refuses another fixture mode.");
         check(!fixture::accepts_case_arguments(*first,
                   std::vector<std::string>{"--native-check-mode=arrival-first-plate",
                                            "--event-route-pointer", "--native-check-output="}) &&
@@ -259,8 +233,7 @@ int main() {
               "Empty or duplicated output inputs refuse.");
         check(!fixture::accepts_case_arguments(*first,
                   std::vector<std::string>{"--native-check-mode=arrival-first-plate",
-                                           "--event-route-loose", "--native-check-output=/tmp/x"}) &&
-                  !fixture::accepts_case_arguments(*small, first_args) &&
+                                           "--unexpected-route", "--native-check-output=/tmp/x"}) &&
                   !fixture::accepts_case_arguments(*first,
                   std::vector<std::string>{"--native-check-mode=arrival-first-plate",
                                            "--event-route-pointer", "--unexpected=/tmp/x"}),
@@ -280,21 +253,21 @@ int main() {
         fs::create_directory(temporary.path / "real");
         fs::create_directory_symlink(temporary.path / "real", temporary.path / "alias");
         const auto named_args = [&](const fs::path& save, const fs::path& result) {
-            return std::vector<std::string>{"--native-check-mode=arrival-channel-small",
-                "--event-route-loose", "--resume-input=/tmp/previous.worksite",
+            return std::vector<std::string>{"--native-check-mode=arrival-nonhorizontal-incline",
+                "--resume-input=/tmp/previous.worksite",
                 "--save-slot=" + save.string(), "--native-check-output=" + result.string()};
         };
         const auto save = temporary.path / "real" / "channel.worksite";
         const auto equal = named_args(save, save);
-        check(fixture::accepts_case_arguments(*small, equal) &&
+        check(fixture::accepts_case_arguments(*incline, equal) &&
                   !fixture::distinct_case_output_paths(equal),
-              "A named channel cannot write its result over its own fresh worksite.");
+              "A named incline cannot write its result over its own fresh worksite.");
         const auto symlink_alias = named_args(save, temporary.path / "alias" / "channel.worksite");
-        check(fixture::accepts_case_arguments(*small, symlink_alias) &&
+        check(fixture::accepts_case_arguments(*incline, symlink_alias) &&
                   !fixture::distinct_case_output_paths(symlink_alias),
               "Distinct path spellings through a symlinked parent cannot share an output file.");
         const auto distinct = named_args(save, temporary.path / "alias" / "channel.result");
-        check(fixture::accepts_case_arguments(*small, distinct) &&
+        check(fixture::accepts_case_arguments(*incline, distinct) &&
                   fixture::distinct_case_output_paths(distinct),
               "Separate fresh worksite and result destinations remain selectable.");
         std::cout << "PASS " << checks << " native Godot fixture-log controls.\n";

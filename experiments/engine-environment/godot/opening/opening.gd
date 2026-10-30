@@ -773,7 +773,7 @@ func _reclaim_owned_drops(entity: String) -> Array[Dictionary]:
 				broad_member = true
 	if not broad_member and part.get("component", "") in ["anvil", "broad_anvil", "receiver_tray"]:
 		centers.append(part.get("center", []))
-	for key in ["sliding_press_assemblies", "guided_press_assemblies"]:
+	for key in ["sliding_press_assemblies"]:
 		for press: Dictionary in state.get(key, []):
 			if not press.get("parts", {}).values().has(entity):
 				continue
@@ -781,13 +781,8 @@ func _reclaim_owned_drops(entity: String) -> Array[Dictionary]:
 			if work.size() != 3:
 				continue
 			centers.append(work)
-			var exits: Array = []
-			if key == "sliding_press_assemblies":
-				exits = [[int(work[0]) - 1, work[1], work[2]],
-					[int(work[0]) + 1, work[1], work[2]]]
-			else:
-				for route: Dictionary in press.get("open_feeds", []):
-					exits.append(route.get("exit", []))
+			var exits: Array = [[int(work[0]) - 1, work[1], work[2]],
+				[int(work[0]) + 1, work[1], work[2]]]
 			for exit_center: Array in exits:
 				for drop: Dictionary in state.get("dropped_material", []):
 					if drop.get("center", []) == exit_center and int(drop.get("products", 0)) > 0:
@@ -928,13 +923,12 @@ func _harvest_result_text(outcome: Dictionary) -> String:
 	return "Collected %d copper %s." % [raw, "piece" if raw == 1 else "pieces"]
 
 func _press_contact_refusal(entity: String) -> String:
-	for assembly: Variant in state.get("guided_press_assemblies", []):
-		if not assembly is Dictionary or assembly.get("anvil", "") != entity:
-			continue
-		match assembly.get("status", ""):
-			"missing_ram": return "No working face contacts this support."
-			"missing_guide": return "The working face has no guided stroke."
-			"missing_shaft", "missing_cog": return "No rotary input reaches this working face."
+	for assembly: Variant in state.get("sliding_press_assemblies", []):
+		if assembly is Dictionary and assembly.get("anvil", "") == entity:
+			match assembly.get("status", ""):
+				"missing_flat_head": return "Fit a flat head above this workbed."
+				"missing_slide": return "Fit a slide above the flat head."
+				"blocked_feed": return "Clear a feed path beside this workbed."
 	return "No compatible working face acts on this support."
 
 func _material_refusal_message(outcome: Dictionary, fallback: String, action_name: String = "") -> String:
@@ -972,11 +966,6 @@ func _material_refusal_message(outcome: Dictionary, fallback: String, action_nam
 			"invalid_channel_target": "Push toward the next channel cell along X or Z at the item's current height." if small_item else "Push one whole tile along X or Z at the sheet's current height."}.get(outcome.get("reason", ""), "")
 		if not channel_advice.is_empty():
 			return channel_advice
-	if _native_transmission() and action_name == "stroke_broad_shear" and not outcome.get("uncertain", false):
-		var shear_advice: String = {"output_full": "Clear the other anvil squares before cutting the copper sheet.",
-			"shear_unpowered": "Drive the cutting head forward before cutting."}.get(outcome.get("reason", ""), "")
-		if not shear_advice.is_empty():
-			return shear_advice
 	if recovery_actions != null:
 		var text: String = recovery_actions.refusal_text(outcome)
 		if not text.is_empty():
@@ -1322,7 +1311,7 @@ func _input(event: InputEvent) -> void:
 					KEY_P: used = actions.inventory_shortcut(KEY_P) or _activate_button(actions.pickup_button)
 					KEY_F: used = actions.inventory_shortcut(KEY_F) or _activate_button(actions.feed_button)
 					KEY_N: used = _open_action_menu(actions.broad_refeed_button)
-					KEY_X: used = _activate_button(actions.shear_button) or _activate_button(actions.collector_cut_button)
+					KEY_X: used = _activate_button(actions.collector_cut_button)
 					KEY_R: used = actions.inventory_shortcut(KEY_R) or _activate_button(actions.refeed_work_button)
 					KEY_U: used = actions.inventory_shortcut(KEY_U) or _activate_button(actions.recover_work_button)
 					KEY_G: used = actions.cycle_feed_route()
@@ -2298,7 +2287,7 @@ func _open_object_menu_for(target: String) -> void:
 	object_menu_target = target
 	object_menu_title.text = _object_name(target)
 	object_menu_operations_label.text = "PART ACTIONS"
-	var active_press := _is_guided_press_part(target)
+	var active_press := _is_sliding_press_part(target)
 	if active_press:
 		object_menu_operations_label.text = "PRESS WORK"
 	for row: Variant in state.get("collector_assemblies", []):
@@ -2429,7 +2418,7 @@ func _crank_face_for_input(input_id: String, port: Array) -> Array:
 	face[axis] = -1 if float(position[axis]) < float(anchor_position[axis]) else 1
 	return face
 
-func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
+func _sliding_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		normal: Vector3) -> Dictionary:
 	# The press's working offsets are larger than a one-step face snap. Use the
 	# part the player can actually point at to expose its next fitted socket.
@@ -2456,19 +2445,6 @@ func _guided_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		var lift := 0 if int(center[1]) % 4 == 0 else 2
 		return {"center": [center[0] + 4 * side, center[1] + lift, center[2]],
 			"label": "Slide input shaft"}
-	if kind == "ram_face" and pointed_kind == "anvil":
-		return {"center": [center[0], center[1] + 1, center[2]], "label": "Ram over anvil"}
-	if kind == "sliding_guide" and pointed_kind in ["anvil", "ram_face"]:
-		var rise := 3 if pointed_kind == "anvil" else 2
-		return {"center": [center[0], center[1] + rise, center[2]],
-			"label": "Guide over %s" % ("ram" if pointed_kind == "ram_face" else "anvil")}
-	if kind in ["wooden_shaft", "copper_shaft"] and pointed_kind == "sliding_guide":
-		if absf(normal.x) > 0.5 and absf(normal.x) > absf(normal.z):
-			return {"center": [center[0] + (1 if normal.x > 0.0 else -1),
-				center[1] + 1, center[2]], "label": "Drive beside guide"}
-		if absf(normal.z) > 0.5:
-			return {"center": [center[0], center[1] + 1,
-				center[2] + (1 if normal.z > 0.0 else -1)], "label": "Drive beside guide"}
 	return {}
 
 func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true) -> Array:
@@ -2494,7 +2470,7 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 				return center
 			if kind == "flat_head" and str(placed[pointed].component) in ["wooden_slide", "copper_slide"]:
 				return [center[0], center[1] - 1, center[2]]
-			var press_snap := _guided_press_part_snap(kind, str(placed[pointed].component), center, normal)
+			var press_snap := _sliding_press_part_snap(kind, str(placed[pointed].component), center, normal)
 			if not press_snap.is_empty():
 				return press_snap.center
 			var axis := 0
@@ -2613,11 +2589,6 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
 				Geometry.PITCH * 0.5)
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
-		"ram_face":
-			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
-			var high := at.y + Geometry.HEIGHT_STEP * 0.5
-			occupied.y = (low + high) * 0.5
-			half = Vector3(0.14 * press_scale, (high - low) * 0.5, 0.14 * press_scale)
 		"flat_head":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + Geometry.HEIGHT_STEP * 0.30
@@ -2643,11 +2614,6 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied.y = (low + high) * 0.5
 			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
 				Geometry.PITCH * 0.5)
-		"sliding_guide":
-			var low := at.y - Geometry.HEIGHT_STEP * 1.5
-			var high := at.y + Geometry.HEIGHT_STEP - 0.08 * press_scale
-			occupied.y = (low + high) * 0.5
-			half = Vector3(0.14 * press_scale, (high - low) * 0.5, 0.14 * press_scale)
 		"tool_mount":
 			occupied.y += 0.10 * press_scale
 			half = Vector3(Geometry.HEIGHT_STEP - 0.205 * press_scale,
@@ -2708,18 +2674,10 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 					and part_center[1] == center[1] + 1) or \
 					(kind in ["wooden_slide", "copper_slide"] and part.component == "flat_head"
 					and part_center[1] == center[1] - 1) or \
-				(kind == "sliding_guide" and part.component == "ram_face"
-					and part_center[1] == center[1] - 1) or \
-				(kind == "ram_face" and part.component == "sliding_guide"
-					and part_center[1] == center[1] + 1) or \
 				(kind == "anvil" and part.component == "wooden_frame"
 					and part_center[1] == center[1] - 1) or \
 				(kind == "wooden_frame" and part.component == "anvil"
-					and part_center[1] == center[1] + 1) or \
-				(kind == "ram_face" and part.component == "wooden_frame"
-					and part_center[1] == center[1] - 2) or \
-				(kind == "wooden_frame" and part.component == "ram_face"
-					and part_center[1] == center[1] + 2):
+					and part_center[1] == center[1] + 1):
 				paired_ids[id] = true
 		for id: Variant in result.boxes:
 			if not paired_ids.has(id):
@@ -2826,7 +2784,7 @@ func _refresh_component_preview() -> void:
 	elif state.get("placed_components", {}).has(pointed):
 		var pointed_kind: String = str(state.placed_components[pointed].component)
 		var hit := _screen_pick(_pointed_screen_position())
-		var press_snap := _guided_press_part_snap(kind, pointed_kind,
+		var press_snap := _sliding_press_part_snap(kind, pointed_kind,
 			state.placed_components[pointed].center, hit.normal) if not hit.is_empty() else {}
 		component_preview_snap = str(press_snap.label) if not press_snap.is_empty() else \
 			("Above %s" % pointed_kind.replace("_", " ") if not hit.is_empty() and hit.normal.y > 0.5 \
@@ -2915,9 +2873,7 @@ func _component_placement_hint() -> String:
 		"Aim at a floor or built surface" if kind == "anvil" else \
 		"Aim at the anvil to place the head above" if kind == "flat_head" else \
 		"Aim at the anvil or flat head to place the slide above" if kind in ["wooden_slide", "copper_slide"] else \
-		"Aim at the anvil top" if kind == "ram_face" else \
-		"Aim at the anvil or ram top" if kind == "sliding_guide" else \
-		"Press drive: aim at anvil side or guide side" if kind in ["wooden_shaft", "copper_shaft"] else \
+		"Press drive: aim at a slide input" if kind in ["wooden_shaft", "copper_shaft"] else \
 		"Press drive: aim at anvil side or shaft end" if kind in ["wooden_cog", "copper_cog"] else \
 		"Point at a part face to snap"
 	return "%s\n%s · %s\nAlt + arrows / PgUp / PgDn nudges" % [location, action, stack_hint]
@@ -3108,7 +3064,7 @@ func _build_world() -> void:
 	selection_ring = _selection_outline()
 	selection_ring.visible = false
 	camera = Camera3D.new()
-	# Keep the full guided press in view while aiming from reachable actor distance.
+	# Keep the complete slide press in view while aiming from reachable actor distance.
 	camera.fov = 65
 	camera.near = 0.1
 	camera.far = 100
@@ -4918,8 +4874,6 @@ func _refresh_guided_tools(snapshot_ready: bool = true) -> void:
 		var ready_slide_has_crank := false
 		var sliding_feed_blocked := false
 		var collector_ready := false
-		for press: Dictionary in state.get("guided_press_assemblies", []):
-			press_ready = press_ready or press.get("status") == "ready"
 		for press: Dictionary in state.get("sliding_press_assemblies", []):
 			sliding_press_ready = sliding_press_ready or press.get("status") == "ready"
 			if press.get("status") == "ready":
@@ -5861,20 +5815,18 @@ func _object_supports_operations(target: String) -> bool:
 	for row: Variant in state.get("fabrication_benches", []):
 		if row is Dictionary and row.get("id", "") == target:
 			return true
-	return _is_guided_press_part(target) or _is_collector_frame(target)
+	return _is_sliding_press_part(target) or _is_collector_frame(target)
 
-func _is_guided_press_part(target: String) -> bool:
+func _is_sliding_press_part(target: String) -> bool:
 	if target.is_empty():
 		return false
-	for assemblies: Array in [state.get("sliding_press_assemblies", []),
-			state.get("guided_press_assemblies", [])]:
-		for row: Variant in assemblies:
-			if not row is Dictionary:
-				continue
-			var parts: Variant = row.get("parts", {})
-			if row.get("status") == "ready" and (row.get("anvil", "") == target \
-					or (parts is Dictionary and parts.values().has(target))):
-				return true
+	for row: Variant in state.get("sliding_press_assemblies", []):
+		if not row is Dictionary:
+			continue
+		var parts: Variant = row.get("parts", {})
+		if row.get("status") == "ready" and (row.get("anvil", "") == target \
+				or (parts is Dictionary and parts.values().has(target))):
+			return true
 	return false
 
 func _is_collector_frame(target: String) -> bool:

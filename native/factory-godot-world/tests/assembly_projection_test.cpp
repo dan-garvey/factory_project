@@ -30,15 +30,14 @@ void arrival_and_generic_views() {
     const auto before = world->snapshot();
     const auto power = factory::world::drive_power(arrival->profile, before.state);
     const auto fields = projection::fields(arrival->profile, before.state, power);
-    check(fields.size() == 6 &&
-          fields.contains("collector_assemblies") && fields.contains("press_assemblies") &&
-          fields.contains("guided_press_assemblies") && fields.contains("sliding_press_assemblies") &&
-          fields.contains("broad_press_assemblies") && fields.contains("broad_shear_assemblies"),
-          "The arrival view publishes all six collector and press readouts together.");
+    check(fields.size() == 3 &&
+          fields.contains("collector_assemblies") &&
+          fields.contains("sliding_press_assemblies") &&
+          fields.contains("broad_press_assemblies"),
+          "The arrival view publishes the collector and current press readouts together.");
     const auto& collectors = field<Array>(fields, "collector_assemblies");
     check(collectors.size() == arrival->profile.collector_faces.size() && !collectors.empty() &&
           field<std::string>(std::get<Object>(collectors.front().storage()), "status") == "missing_frame" &&
-          field<Array>(fields, "press_assemblies").empty() &&
           field<Array>(fields, "sliding_press_assemblies").empty() &&
           field<Array>(fields, "broad_press_assemblies").empty(),
           "A fresh finite site exposes missing collector construction without invented presses.");

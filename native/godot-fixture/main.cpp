@@ -135,8 +135,7 @@ void validate_case_paths(const std::vector<std::string>& arguments, const fs::pa
     for (const auto& argument : arguments) {
         const bool output = argument.starts_with("--native-check-output=") ||
                             argument.starts_with("--save-slot=");
-        if (!output && !argument.starts_with("--resume-input=") &&
-            !argument.starts_with("--native-check-prior=")) continue;
+        if (!output && !argument.starts_with("--resume-input=")) continue;
         const fs::path path(argument.substr(argument.find('=') + 1));
         require(path.is_absolute() && path.lexically_normal() == path,
                 "Registered fixture paths must be absolute and normalized.");

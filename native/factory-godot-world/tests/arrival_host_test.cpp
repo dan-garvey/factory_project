@@ -135,9 +135,8 @@ void arrival_projection_contract() {
                   {"subticks", V(I{0})}, {"remainder", V(I{0})},
                   {"denominator", V("one")}, {"cycle_subticks", V(I{1})}})}})),
               "Physical arrival records reject missing bounds, bad custody and mistyped phases.");
-        for (const char* name : {"collector_assemblies", "press_assemblies",
-                 "guided_press_assemblies", "sliding_press_assemblies",
-                 "broad_press_assemblies", "broad_shear_assemblies"}) {
+        for (const char* name : {"collector_assemblies", "sliding_press_assemblies",
+                 "broad_press_assemblies"}) {
             auto missing = complete;
             missing.erase(name);
             auto wrong_container = complete;
@@ -243,7 +242,7 @@ void arrival_projection_and_restore() {
           std::abs(std::get<double>(upstream[2].storage()) + 1.65) < 1e-8,
           "Finite east timber sites include a separate upstream tree for the constructed plate route.");
     const auto recipes = get<O>(view, "component_recipes");
-    check(recipes.size() == 20 && get<I>(view, "component_capacity") == 0 &&
+    check(recipes.size() == 18 && get<I>(view, "component_capacity") == 0 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
           get<I>(recipes.at("wooden_frame"), "copper") == 0 &&
           get<I>(recipes.at("wooden_workbench"), "timber") == 4 &&

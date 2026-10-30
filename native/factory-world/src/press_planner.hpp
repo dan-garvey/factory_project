@@ -12,7 +12,6 @@ struct PressCommand {
     press_commands::Action action{press_commands::Action::none};
     std::optional<std::string> target;
     std::optional<authority::Integer> generation;
-    std::optional<authority::Integer> sheet_id;
     std::optional<authority::Integer> work_id;
     std::optional<std::string> drive;
     std::optional<values::Value::Array> entry;

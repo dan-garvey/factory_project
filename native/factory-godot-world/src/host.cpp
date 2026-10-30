@@ -734,14 +734,6 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         normalized.emplace("to", wire.at("to"));
         if (sheet_move) normalized.emplace("sheet_id", wire.at("sheet_id"));
         else normalized.emplace("form", wire.at("form"));
-    } else if (press_action == press_commands::Action::stroke_shear) {
-        if (!press_commands::valid_wire(wire, press_action)) return refuse("invalid_command");
-        normalized.at("action") = Value("stroke_broad_shear");
-        normalized.emplace("target", wire.at("entity"));
-        normalized.emplace("sheet_id", wire.at("sheet_id"));
-        const auto found = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
-        normalized.emplace("generation", Value(found == snapshot.state.placed_components.end() ?
-            Integer{0} : found->second.generation));
     } else if (foundation_action == foundation_commands::Action::place_one ||
                foundation_action == foundation_commands::Action::place_area) {
         const bool area = foundation_action == foundation_commands::Action::place_area;

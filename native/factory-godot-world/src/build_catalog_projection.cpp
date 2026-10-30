@@ -82,9 +82,9 @@ Object fields(const world::Profile& profile, const world::Snapshot& snapshot) {
     Object recipes;
     for (const auto component : {materials::Component::wooden_frame, materials::Component::wooden_shaft,
             materials::Component::wooden_cog, materials::Component::receiver_tray,
-            materials::Component::tool_mount, materials::Component::sliding_guide,
+            materials::Component::tool_mount,
             materials::Component::cutting_edge, materials::Component::anvil,
-            materials::Component::ram_face, materials::Component::copper_shaft,
+            materials::Component::copper_shaft,
             materials::Component::copper_cog, materials::Component::wooden_workbench,
             materials::Component::wooden_slide, materials::Component::copper_slide,
             materials::Component::flat_head, materials::Component::hand_crank,

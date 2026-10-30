@@ -122,7 +122,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
             {"center", V(V::Array{V(center[0]), V(center[1]), V(center[2])})}});
     };
     std::vector<std::pair<std::string, g::Integer>> presses;
-    std::vector<std::pair<std::string, g::Integer>> press_mounts;
+    std::vector<std::pair<std::string, g::Integer>> press_slides;
     std::vector<std::string> driven_shafts;
     for (int line = 0; line < line_count; ++line) {
         const g::Integer base = 800 + line * 40;
@@ -132,18 +132,14 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
         place("receiver_tray", {base, 0, 1});
         driven_shafts.push_back(std::get<std::string>(
             place("wooden_shaft", {base + 1, 0, 0}).at("entity").storage()));
-        const auto frame = place("wooden_frame", {base, 0, 16});
-        presses.emplace_back(std::get<std::string>(frame.at("entity").storage()),
-            std::get<g::Integer>(frame.at("generation").storage()));
-        place("anvil", {base, 1, 16});
-        place("ram_face", {base, 2, 16});
-        place("sliding_guide", {base, 3, 16});
-        const auto mount = place("tool_mount", {base, 4, 16});
-        press_mounts.emplace_back(std::get<std::string>(mount.at("entity").storage()),
-            std::get<g::Integer>(mount.at("generation").storage()));
-        driven_shafts.push_back(std::get<std::string>(
-            place("wooden_shaft", {base + 1, 4, 16}).at("entity").storage()));
-        place("wooden_cog", {base + 2, 4, 16});
+        const auto bed = place("anvil", {base, 0, 16});
+        presses.emplace_back(std::get<std::string>(bed.at("entity").storage()),
+            std::get<g::Integer>(bed.at("generation").storage()));
+        place("flat_head", {base, 1, 16});
+        const auto slide = place("wooden_slide", {base, 2, 16});
+        press_slides.emplace_back(std::get<std::string>(slide.at("entity").storage()),
+            std::get<g::Integer>(slide.at("generation").storage()));
+        driven_shafts.push_back(press_slides.back().first);
     }
     const auto power = w::drive_power(profile, world->snapshot().state);
     if (!power.mechanical.accepted()) throw std::runtime_error("The modular startup graph was rejected.");
@@ -165,17 +161,17 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
         if (line_count == 10 && index == 1) {
             // A later build invalidates the historical press layout after the
             // first feed; the second feed must inspect the new exact prefix.
-            issue("reclaim_component", {{"target", V(press_mounts[index].first)},
-                {"generation", V(press_mounts[index].second)}});
-            issue("place_component", {{"component", V("tool_mount")},
-                {"center", V(V::Array{V(base), V(g::Integer{4}), V(g::Integer{16})})}});
+            issue("reclaim_component", {{"target", V(press_slides[index].first)},
+                {"generation", V(press_slides[index].second)}});
+            issue("place_component", {{"component", V("wooden_slide")},
+                {"center", V(V::Array{V(base), V(g::Integer{2}), V(g::Integer{16})})}});
         }
         issue("pickup_material", {{"center", V(V::Array{V(base), V(g::Integer{0}), V(g::Integer{1})})},
             {"expected", V(V::Object{{"raw", V(g::Integer{1})}, {"products", V(g::Integer{0})},
                 {"work_lots", V(V::Array{})}})}});
         issue("feed_press", {{"target", V(presses[index].first)},
             {"generation", V(presses[index].second)},
-            {"entry", V(V::Array{V(base + 1), V(g::Integer{1}), V(g::Integer{16})})}});
+            {"entry", V(V::Array{V(base + 1), V(g::Integer{0}), V(g::Integer{16})})}});
     }
     const auto constructed = world->snapshot();
     if (line_count == 10) {
@@ -249,7 +245,7 @@ void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = fal
         throw std::runtime_error("A mixed World tick lost finite custody.");
     const auto advanced = world->snapshot();
     for (const auto base : {g::Integer{800}, g::Integer{840}}) {
-        const auto work = advanced.state.material.dropped_material.find({base, 1, 16});
+        const auto work = advanced.state.material.dropped_material.find({base, 0, 16});
         if (work == advanced.state.material.dropped_material.end() ||
             work->second.work_lots.size() != 1)
             throw std::runtime_error("A modular press did not start its own real work lot.");
@@ -315,7 +311,7 @@ void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = fal
                 end.state.material.stock.source >= initial.state.material.stock.source)
                 throw std::runtime_error("Sustained productive cog work lost finite custody.");
             for (const auto base : {g::Integer{800}, g::Integer{840}}) {
-                const g::Point work{base, 1, 16};
+                const g::Point work{base, 0, 16};
                 const auto before = first.state.material.dropped_material.find(work);
                 const auto after = end.state.material.dropped_material.find(work);
                 if (before == first.state.material.dropped_material.end() ||
@@ -370,20 +366,29 @@ void powered_cog_world(bool benchmark, int cog_count = 400, bool sustained = fal
             g::MotionState::rotating)
         throw std::runtime_error("Reenabling the drive did not rotate a scale cog.");
     compare_next_tick();
-    for (int step = 0; step < 2; ++step)
+    constexpr std::array completed_bases{g::Integer{800}, g::Integer{840}};
+    for (int step = 0; step < 64; ++step) {
         if (world->tick().error != w::TransactionError::none ||
             restored->tick().error != w::TransactionError::none ||
             restored->snapshot().state != world->snapshot().state ||
             restored->snapshot().revision != world->snapshot().revision)
             throw std::runtime_error("Restored mixed press work diverged during production.");
+        const auto progressed = world->snapshot();
+        const auto& drops = progressed.state.material.dropped_material;
+        if (std::all_of(completed_bases.begin(), completed_bases.end(),
+                [&](g::Integer base) {
+                    const auto found = drops.find({base, 0, 16});
+                    return found != drops.end() && found->second.products == 1;
+                })) break;
+    }
     const auto finished = world->snapshot();
     if (!w::validate(profile, finished))
         throw std::runtime_error("Finished mixed work lost finite custody.");
     std::set<m::WorkId> produced_ids;
     if (!sustained) {
         for (const auto base : {g::Integer{800}, g::Integer{840}}) {
-            const g::Point work{base, 1, 16};
-            const g::Point exit{base - 1, 1, 16};
+            const g::Point work{base, 0, 16};
+            const g::Point exit{base - 1, 0, 16};
             const auto product = finished.state.material.dropped_material.find(work);
             const auto witness = finished.state.press_output_on_work.find(work);
             if (product == finished.state.material.dropped_material.end() ||
@@ -405,7 +410,7 @@ void productive_line_scale(int line_count, bool audit_commands = false) {
     std::vector<double> tail_commands(site.command_ms.end() - std::min<std::size_t>(100, site.command_ms.size()),
         site.command_ms.end());
     std::sort(tail_commands.begin(), tail_commands.end());
-    if (site.snapshot.state.placed_components.size() != static_cast<std::size_t>(line_count) * 12 ||
+    if (site.snapshot.state.placed_components.size() != static_cast<std::size_t>(line_count) * 8 ||
         site.snapshot.state.topology.parts.size() != static_cast<std::size_t>(line_count) * 2 ||
         site.profile.collector_faces.size() != static_cast<std::size_t>(line_count))
         throw std::runtime_error("A productive line lost a constructed component or source.");
@@ -436,7 +441,7 @@ void productive_line_scale(int line_count, bool audit_commands = false) {
     for (int line = 0; line < line_count; ++line) {
         const g::Integer base = 800 + line * 40;
         const auto receiver = state.material.dropped_material.find({base, 0, 1});
-        const auto work = state.material.dropped_material.find({base, 1, 16});
+        const auto work = state.material.dropped_material.find({base, 0, 16});
         if (receiver == state.material.dropped_material.end() || receiver->second.raw_units != 1 ||
             work == state.material.dropped_material.end() || work->second.work_lots.size() != 1 ||
             !work_ids.insert(work->second.work_lots.front().id).second)
@@ -498,8 +503,8 @@ void productive_line_scale(int line_count, bool audit_commands = false) {
         for (const auto& face : site.profile.collector_faces)
             collectors += inspected_layout.inspect_collector(face).collector.has_value();
         for (const auto& part : inspected_parts)
-            if (part.kind == m::Component::wooden_frame)
-                presses += inspected_layout.inspect_press(part.center).press.has_value();
+            if (part.kind == m::Component::anvil)
+                presses += inspected_layout.inspect_sliding_press(part.center).press.has_value();
         if (collectors != static_cast<std::size_t>(line_count) ||
             presses != static_cast<std::size_t>(line_count))
             throw std::runtime_error("Measured assembly inspections lost a productive machine.");
@@ -584,13 +589,9 @@ int main(int argc, char** argv) {
     for (int index = 0; index < presses; ++index) {
         const g::Integer x = index * 8;
         const auto name = "press-" + std::to_string(index);
-        add(name + "-frame", m::Component::wooden_frame, {x, 8, 16});
-        add(name + "-anvil", m::Component::anvil, {x, 9, 16});
-        add(name + "-ram", m::Component::ram_face, {x, 10, 16});
-        add(name + "-guide", m::Component::sliding_guide, {x, 11, 16});
-        add(name + "-mount", m::Component::tool_mount, {x, 12, 16});
-        add(name + "-shaft", m::Component::wooden_shaft, {x + 1, 12, 16});
-        add(name + "-cog", m::Component::wooden_cog, {x + 2, 12, 16});
+        add(name + "-anvil", m::Component::anvil, {x, 8, 16});
+        add(name + "-head", m::Component::flat_head, {x, 9, 16});
+        add(name + "-slide", m::Component::wooden_slide, {x, 10, 16});
     }
     profile.material = {1, 2, 2};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
@@ -616,7 +617,7 @@ int main(int argc, char** argv) {
         throw std::runtime_error("The World refused a trusted site with 200 independent collector faces.");
     const auto derived = w::drive_power(profile, state);
     if (!derived.mechanical.accepted() ||
-        derived.mechanical.motion.size() != collectors * 3 + presses * 3)
+        derived.mechanical.motion.size() != collectors * 3 + presses * 4)
         throw std::runtime_error("The mixed modular graph did not preserve each distinct drive part.");
 
     if (argc > 1 && std::string(argv[1]) == "--benchmark") {

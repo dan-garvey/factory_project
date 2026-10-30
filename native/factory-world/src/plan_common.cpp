@@ -185,21 +185,7 @@ WorkingPressInspection inspect_working_press(const assembly::Layout& layout,
                 press.slide_center, press.slide, press.open_feeds, std::nullopt,
                 std::nullopt, true}};
         }
-        if (sliding.status == assembly::PressStatus::blocked_feed)
-            return {sliding.status, std::nullopt};
-        const auto inspected = layout.inspect_guided_press(center);
-        if (!inspected.press) return {inspected.status, std::nullopt};
-        const auto& press = *inspected.press;
-        return {inspected.status, WorkingPress{press.anvil, center, press.work_center,
-            press.shaft_center, press.shaft, press.open_feeds, press.offcut_receiver,
-            press.plate_receiver}};
-    }
-    if (anchor_kind == materials::Component::wooden_frame) {
-        const auto inspected = layout.inspect_press(center);
-        if (!inspected.press) return {inspected.status, std::nullopt};
-        const auto& press = *inspected.press;
-        return {inspected.status, WorkingPress{press.frame, center, press.work_center,
-            press.shaft_center, press.shaft, press.open_feeds, std::nullopt, std::nullopt}};
+        return {sliding.status, std::nullopt};
     }
     return {};
 }

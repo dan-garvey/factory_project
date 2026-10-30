@@ -47,8 +47,8 @@ const RECIPE_CATEGORY_LABELS := {"machine": "Machine parts", "power": "Power",
 const POWER_COMPONENTS := ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]
 const LOGISTICS_COMPONENTS := ["channel_narrow_x", "channel_narrow_z",
 	"channel_broad_x", "channel_broad_z"]
-const MACHINE_COMPONENTS := ["wooden_frame", "receiver_tray", "tool_mount", "sliding_guide",
-	"cutting_edge", "anvil", "broad_anvil", "ram_face", "wooden_slide", "copper_slide",
+const MACHINE_COMPONENTS := ["wooden_frame", "receiver_tray", "tool_mount",
+	"cutting_edge", "anvil", "broad_anvil", "wooden_slide", "copper_slide",
 	"broad_copper_slide", "flat_head", "broad_flat_head", "hand_crank"]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
 const FOOTPRINT_ONE_ICON = preload("res://opening/assets/build-icons/footprint-one.svg")
@@ -61,10 +61,10 @@ const MATERIALS := {
 const COMPONENT_ICONS := {
 	"wooden_frame": "wooden_frame.svg", "wooden_shaft": "wooden_shaft.svg",
 	"wooden_cog": "wooden_cog.svg", "receiver_tray": "receiver_tray.svg",
-	"tool_mount": "tool_mount.svg", "sliding_guide": "sliding_guide.svg",
+	"tool_mount": "tool_mount.svg",
 	"cutting_edge": "cutting_edge.svg", "anvil": "anvil.svg",
 	"broad_anvil": "anvil.svg", "broad_flat_head": "flat_head.svg",
-	"ram_face": "ram_face.svg", "copper_shaft": "copper_shaft.svg",
+	"copper_shaft": "copper_shaft.svg",
 	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
 	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg",
 	"broad_copper_slide": "copper_slide.svg",

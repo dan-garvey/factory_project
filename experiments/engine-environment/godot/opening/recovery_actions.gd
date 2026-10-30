@@ -505,10 +505,10 @@ class ArrivalAssemblyControls:
 	const COMPONENTS := [
 		["wooden_frame", "Wooden frame"], ["wooden_shaft", "Wooden shaft"],
 		["wooden_cog", "Wooden cog"], ["receiver_tray", "Receiver tray"],
-		["tool_mount", "Tool mount"], ["sliding_guide", "Sliding guide"],
+		["tool_mount", "Tool mount"],
 		["cutting_edge", "Cutting edge"], ["anvil", "Anvil"],
 		["broad_anvil", "2×2 anvil workbed · four anvils"],
-		["ram_face", "Ram face"], ["copper_shaft", "Copper shaft"],
+		["copper_shaft", "Copper shaft"],
 		["copper_cog", "Copper cog"], ["wooden_workbench", "Wooden workbench"],
 		["wooden_slide", "Wooden slide"], ["copper_slide", "Copper slide"],
 		["broad_copper_slide", "2×2 slide housing · four copper slides"],
@@ -578,8 +578,6 @@ class ArrivalAssemblyControls:
 	var _sheet_menu_actor := ""
 	var _sheet_menu_selected := ""
 	var _sheet_menu_world := ""
-	var shear_button: Button
-	var _shear := {}
 	var collector_section: VBoxContainer
 	var press_section: VBoxContainer
 
@@ -629,8 +627,6 @@ class ArrivalAssemblyControls:
 		sheet_button.get_popup().about_to_popup.connect(_open_sheet_menu)
 		sheet_button.get_popup().id_pressed.connect(_choose_sheet)
 		broad_actions.add_child(sheet_button)
-		shear_button = Widgets.button(broad_actions, "", _stroke_sheet)
-		_style_workshop_icon(shear_button, "workshop-cut")
 		route_choice = OptionButton.new()
 		route_choice.name = "PressRoute"
 		route_choice.tooltip_text = "Choose the side for the next copper piece · G"
@@ -857,7 +853,7 @@ class ArrivalAssemblyControls:
 		if _anvil.is_empty() and selected_kind == "anvil":
 			_anvil = selected
 		_broad_press = _selected_broad_press(snapshot, selected)
-		_inventory_broad = not _broad_press.is_empty() and selected_kind in ["anvil", "broad_anvil"]
+		_inventory_broad = not _broad_press.is_empty() and selected_kind == "broad_anvil"
 		_broad_refeed_offers = _broad_work_offers(snapshot, actor, selected)
 		broad_refeed_button.visible = not _broad_refeed_offers.is_empty()
 		broad_refeed_button.disabled = not ready
@@ -867,13 +863,7 @@ class ArrivalAssemblyControls:
 		sheet_button.visible = not _sheet_offers.is_empty()
 		sheet_button.disabled = not ready
 		sheet_button.tooltip_text = "Stage a carried copper sheet on the selected workbed · S"
-		sheet_button.accessibility_name = "Stage carried copper sheet on four anvils, shortcut S"
-		_shear = _selected_shear(snapshot, selected)
-		shear_button.visible = not _shear.is_empty()
-		shear_button.disabled = not ready or _shear.get("status") != "ready"
-		shear_button.tooltip_text = ("Cut staged copper sheet (%d/4) · X" % int(_shear.get("strokes", 0)) if _shear.get("status") == "ready" \
-			else "Power the sheet-cutting head · X")
-		shear_button.accessibility_name = "Cut staged copper sheet, shortcut X"
+		sheet_button.accessibility_name = "Stage carried copper sheet on the joined workbed, shortcut S"
 		if _anvil != _last_anvil:
 			_route_index = 0
 			_last_anvil = _anvil
@@ -913,7 +903,7 @@ class ArrivalAssemblyControls:
 		flow_diagram.tooltip_text = auto_route_cue.tooltip_text
 		flow_diagram.accessibility_name = "Workbed material flow. " + auto_route_cue.accessibility_name
 		inventory_section.visible = _inventory_broad or (sliding and not _anvil.is_empty())
-		var work_face := "flat head" if sliding else "ram"
+		var work_face := "flat head"
 		var input_id: String = str(_press.get("parts", {}).get("slide" if sliding else "shaft", ""))
 		var rotary_input: Dictionary = snapshot.get("placed_components", {}).get(input_id, {})
 		var input_ports: Array = rotary_input.get("input_ports", [])
@@ -973,8 +963,6 @@ class ArrivalAssemblyControls:
 		else:
 			press_status.text = "No clear through-feed route. Close [Esc], press F, then click the blocking part." if status == "blocked_feed" else {
 				"anvil": "Anvil · work support",
-				"ram_face": "Ram face · contact tool",
-				"sliding_guide": "Guide · guided motion",
 			}.get(selected_kind, "Placed part")
 		if _inventory_broad:
 			var broad_work: Dictionary = _drop_at(_broad_press.get("origin", []))
@@ -1089,8 +1077,7 @@ class ArrivalAssemblyControls:
 
 	func _selected_press(snapshot: Dictionary, selected: String) -> Dictionary:
 		for ready_only in [true, false]:
-			for assemblies: Array in [snapshot.get("sliding_press_assemblies", []),
-					snapshot.get("guided_press_assemblies", [])]:
+			for assemblies: Array in [snapshot.get("sliding_press_assemblies", [])]:
 				for value in assemblies:
 					if not value is Dictionary or (ready_only and value.get("status") != "ready"):
 						continue
@@ -1174,29 +1161,6 @@ class ArrivalAssemblyControls:
 		if _broad_work_offers(current, _broad_refeed_actor, _broad_refeed_selected).has(chosen):
 			host.issue({"action": "refeed_broad_press_work", "entity": chosen.entity,
 				"work_id": chosen.work_id})
-
-	func _selected_shear(snapshot: Dictionary, selected: String) -> Dictionary:
-		for assembly: Variant in snapshot.get("broad_shear_assemblies", []):
-			if not assembly is Dictionary or int(assembly.get("sheet_id", 0)) <= 0:
-				continue
-			var anvils: Variant = assembly.get("parts", {}).get("anvils")
-			if anvils is Array and not anvils.is_empty() and anvils.has(selected):
-				return assembly
-		return {}
-
-	func _stroke_sheet() -> void:
-		var host = _host_view()
-		if host == null or shear_button.disabled:
-			return
-		var current: Variant = host.get("state")
-		if not current is Dictionary or host.get("selected") != _selected \
-				or host.get("client") != _actor:
-			return
-		var shear := _selected_shear(current, _selected)
-		if shear.get("status") != "ready":
-			return
-		host.issue({"action": "stroke_broad_shear", "entity": str(shear.parts.anvils[0]),
-			"sheet_id": int(shear.sheet_id)})
 
 	func _open_sheet_menu() -> void:
 		var popup := sheet_button.get_popup()

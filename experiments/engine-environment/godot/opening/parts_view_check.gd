@@ -326,7 +326,7 @@ func _component_placement_check() -> void:
 	var view := ComponentPlacementView.new()
 	view.mode = "component"
 	view.state = {"options": {"native": true}, "actors": {"P": {"ready": true}},
-		"cargo": {"P": {"components": {"anvil": 1, "ram_face": 1}}},
+		"cargo": {"P": {"components": {"anvil": 1, "flat_head": 1}}},
 		"placed_components": {"frame": {"component": "wooden_frame", "center": [0, 0, 0],
 			"generation": 1, "occupied": {"center": [0.0, 0.45 * Geometry.PITCH / 1.65, 0.0],
 			"half": [0.2025 * Geometry.PITCH / 1.65, 0.45 * Geometry.PITCH / 1.65,
@@ -441,12 +441,12 @@ func _component_placement_check() -> void:
 	stroked_head.position = head_box.center
 	view.add_child(stroked_head)
 	presenter._placed_component(stroked_head, "flat_head", Vector3.ZERO, head_box.size,
-		"", 0.0, 0.0, Vector3.ZERO, stroke_phase)
+		0.0, 0.0, Vector3.ZERO, stroke_phase)
 	var stroked_slide := Node3D.new()
 	stroked_slide.position = slide_box.center
 	view.add_child(stroked_slide)
 	presenter._placed_component(stroked_slide, "copper_slide", Vector3.ZERO, slide_box.size,
-		"", 0.0, 0.0, Vector3.ZERO, stroke_phase)
+		0.0, 0.0, Vector3.ZERO, stroke_phase)
 	var head_drop: float = stroked_head.get_node("FlatHeadMovingDie").position.y \
 		- head_sample.get_node("FlatHeadMovingDie").position.y
 	var carriage_drop: float = stroked_slide.get_node("SlideCarriage").position.y \
@@ -529,9 +529,9 @@ func _component_placement_check() -> void:
 	var broad_slide_box: Dictionary = view._component_candidate_box("broad_copper_slide", [20, 4, 8])
 	verify(absf(broad_bed_box.size.x - 2.0 * Geometry.PITCH) < 0.0001
 		and absf(broad_head_box.size.z - 2.0 * Geometry.PITCH) < 0.0001
-		and view._guided_press_part_snap("broad_flat_head", "broad_anvil", broad_origin,
+		and view._sliding_press_part_snap("broad_flat_head", "broad_anvil", broad_origin,
 			Vector3.RIGHT).center == [20, 1, 8]
-		and view._guided_press_part_snap("broad_copper_slide", "broad_flat_head", [20, 1, 8],
+		and view._sliding_press_part_snap("broad_copper_slide", "broad_flat_head", [20, 1, 8],
 			Vector3.RIGHT).center == [20, 4, 8]
 		and absf(broad_slide_box.size.x - 2.0 * Geometry.PITCH) < 0.0001,
 		"One broad support, face and housing occupy four contiguous foundation cells.")
@@ -636,12 +636,12 @@ func _component_placement_check() -> void:
 		contact_head.position = broad_head_box.center
 		view.add_child(contact_head)
 		presenter._placed_component(contact_head, "broad_flat_head", Vector3.ZERO,
-			broad_head_box.size, "", 0.0, 0.0, Vector3.ZERO, stroke_phase)
+			broad_head_box.size, 0.0, 0.0, Vector3.ZERO, stroke_phase)
 		var contact_slide := Node3D.new()
 		contact_slide.position = broad_slide_box.center
 		view.add_child(contact_slide)
 		presenter._placed_component(contact_slide, "broad_copper_slide", Vector3.ZERO,
-			broad_slide_box.size, "", 0.0, 0.0, Vector3.ZERO, stroke_phase)
+			broad_slide_box.size, 0.0, 0.0, Vector3.ZERO, stroke_phase)
 		contact_head.visible = false
 		contact_slide.visible = false
 		var face_drop: float = broad_head_sample.get_node("BroadHeadMovingDie").position.y \
@@ -882,9 +882,9 @@ func _component_placement_check() -> void:
 	view.aim_normal = Vector3.UP
 	verify(view._component_place_center(Vector2i.ZERO, "workbed") == [12, 1, 8],
 		"Top-face aiming retains the same fitted head socket.")
-	verify(view._guided_press_part_snap("ram_face", "anvil", [12, 0, 8], Vector3.RIGHT).center == [12, 1, 8]
-		and view._guided_press_part_snap("flat_head", "wooden_frame", [12, 0, 8], Vector3.RIGHT).is_empty(),
-		"A player can snap the guided ram from an anvil side without changing unrelated fittings.")
+	verify(view._sliding_press_part_snap("flat_head", "anvil", [12, 0, 8], Vector3.RIGHT).center == [12, 1, 8]
+		and view._sliding_press_part_snap("flat_head", "wooden_frame", [12, 0, 8], Vector3.RIGHT).is_empty(),
+		"A player can snap the flat head from an anvil side without changing unrelated fittings.")
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		view.aim_normal = Vector3.RIGHT
 		view._refresh_component_preview()
@@ -1102,69 +1102,6 @@ func _component_placement_check() -> void:
 		and view.component_preview.visible,
 		"An obstructed red ghost can be nudged directly to a clear amber point.")
 	view._input(_component_key(KEY_ALT, false))
-	choice.kind = "ram_face"
-	body.set_meta("component_entity", "anvil")
-	view.aimed = "anvil"
-	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [0, 2, 0]
-		and view.component_preview.has_node("MovingDie") and not view.component_preview_blocked,
-		"The ram face snaps above the anvil with its placed-part die visible.")
-	view.state.cargo.P.components.sliding_guide = 1
-	choice.kind = "sliding_guide"
-	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "anvil") == [0, 4, 0]
-		and view.component_preview.visible and not view.component_preview_blocked
-		and view.component_preview_snap == "Guide over anvil"
-		and view.component_preview.has_node("GuideCrown"),
-		"Pointing at the reachable anvil top shows the guide at the native raised socket.")
-	verify("Aim at the anvil or ram top" in view._component_placement_hint(),
-		"The guide hint names the part the player can point at.")
-	view._world_click(Vector2i.ZERO, "anvil")
-	verify(view.issued.back().center == [0, 4, 0],
-		"Click sends the same elevated guide center shown by the ghost.")
-	var ram_box := view._component_candidate_box("ram_face", [0, 2, 0])
-	view.state.placed_components["ram"] = {"component": "ram_face", "center": [0, 2, 0],
-		"generation": 1,
-		"occupied": {"center": [ram_box.center.x, ram_box.center.y, ram_box.center.z],
-			"half": [ram_box.half.x, ram_box.half.y, ram_box.half.z]}}
-	var ram_record: Dictionary = view.state.placed_components.ram
-	var placed_ram := Node3D.new()
-	placed_ram.position = ram_box.center
-	view.add_child(placed_ram)
-	presenter.preview_component(placed_ram, "ram_face", ram_box.size)
-	var fitted_guide_box := view._component_candidate_box("sliding_guide", [0, 3, 0])
-	verify(not view._component_candidate_blocked("sliding_guide", [0, 3, 0], fitted_guide_box)
-		and fitted_guide_box.center.y - fitted_guide_box.half.y < ram_box.center.y + ram_box.half.y,
-		"The full guide rails preview around the exact fitted ram without hiding their occupied span.")
-	view.state.placed_components["fitted_guide"] = {"component": "sliding_guide", "center": [0, 3, 0],
-		"generation": 1, "occupied": {"center": [fitted_guide_box.center.x,
-			fitted_guide_box.center.y, fitted_guide_box.center.z],
-			"half": [fitted_guide_box.half.x, fitted_guide_box.half.y, fitted_guide_box.half.z]}}
-	view.state.placed_components.erase("ram")
-	verify(not view._component_candidate_blocked("ram_face", [0, 2, 0], ram_box)
-		and view._component_candidate_blocked("wooden_shaft", [0, 2, 0],
-			view._component_candidate_box("wooden_shaft", [0, 2, 0])),
-		"A ram can fit into the guide in reverse order, while an unrelated shaft cannot enter the rails.")
-	view.state.placed_components.erase("fitted_guide")
-	view.state.placed_components["ram"] = ram_record
-	view.aimed = "ram"
-	body.set_meta("component_entity", "ram")
-	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "ram") == [0, 4, 0]
-		and view.component_preview_snap == "Guide over ram"
-		and not view.component_preview_blocked,
-		"Pointing at the fitted ram top finds the same clear guide socket across the stroke gap.")
-	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-		camera.position = Vector3(1.7, 3.4, 3.8)
-		camera.look_at(Vector3(0, 2.0, 0))
-		await process_frame
-		await RenderingServer.frame_post_draw
-		verify(root.get_texture().get_image().save_png(prefix + "-guide.png") == OK,
-			"Retain the anvil-targeted raised guide ghost in a passive view.")
-		camera.position = Vector3(1.15, 2.05, 2.4)
-		camera.look_at(Vector3(0, 1.15, 0))
-	view.state.placed_components.erase("ram")
-	placed_ram.free()
 	view.aimed = "anvil"
 	body.set_meta("component_entity", "anvil")
 	view.state.cargo.P.components.wooden_shaft = 1
@@ -1173,7 +1110,7 @@ func _component_placement_check() -> void:
 	view._refresh_component_preview()
 	verify(view._component_place_center(Vector2i.ZERO, "anvil").is_empty()
 		and not view.component_preview.visible
-		and view._guided_press_part_snap("wooden_shaft", "anvil", [0, 4, 0],
+		and view._sliding_press_part_snap("wooden_shaft", "anvil", [0, 4, 0],
 			Vector3.RIGHT).is_empty(),
 		"The old fractional anvil-side shaft target is absent from the preview and click route.")
 	var input_slide_box := view._component_candidate_box("wooden_slide", [0, 2, 0])
@@ -1195,7 +1132,7 @@ func _component_placement_check() -> void:
 		"The shaft click uses the same full-U port shown by the preview.")
 	view.aim_normal = Vector3.LEFT
 	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [-4, 4, 0]
-		and view._guided_press_part_snap("hand_crank", "wooden_slide", [0, 2, 0],
+		and view._sliding_press_part_snap("hand_crank", "wooden_slide", [0, 2, 0],
 			Vector3.LEFT).center == [-4, 4, 0],
 		"The opposite slide face exposes the mirrored U-centered crank input.")
 	view.aim_normal = Vector3.RIGHT
@@ -1208,23 +1145,7 @@ func _component_placement_check() -> void:
 	view.aimed = "anvil"
 	body.set_meta("component_entity", "anvil")
 	view.aim_normal = Vector3.UP
-	choice.kind = "sliding_guide"
-	var guide_box := view._component_candidate_box("sliding_guide", [0, 4, 0])
-	view.state.placed_components["occupied_guide"] = {"component": "sliding_guide",
-		"center": [0, 4, 0], "generation": 1,
-		"occupied": {"center": [guide_box.center.x, guide_box.center.y, guide_box.center.z],
-			"half": [guide_box.half.x, guide_box.half.y, guide_box.half.z]}}
-	view._refresh_component_preview()
-	verify(view.component_preview.visible and view.component_preview_blocked,
-		"The snapped upper socket remains visibly blocked when another part occupies it.")
-	view.state.placed_components.erase("occupied_guide")
-	choice.kind = "ram_face"
-	view._refresh_component_preview()
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-		await process_frame
-		await RenderingServer.frame_post_draw
-		verify(root.get_texture().get_image().save_png(prefix + "-ram.png") == OK,
-			"Retain the isolated ram-face ghost over an anvil and wooden frame.")
 		choice.kind = "anvil"
 		body.set_meta("component_entity", "frame")
 		view.aimed = "frame"
@@ -2653,7 +2574,6 @@ func _arrival_hotbar() -> void:
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
 		"flat_head": {"timber": 0, "copper": 1},
-		"ram_face": {"timber": 0, "copper": 2},
 		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
 		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
 		"hand_crank": {"timber": 2, "copper": 0},
@@ -2695,9 +2615,9 @@ func _arrival_hotbar() -> void:
 	verify(not bar.catalog_buttons.collector.visible and not bar.catalog_buttons.processor.visible
 		and bar.recipe_side.visible and bar.component_buttons.size() == view.arrival_assembly_controls.COMPONENTS.size(),
 		"The arrival inventory hides historical machines and has icons for every fabricated component.")
-	verify(bar.component_buttons.has("anvil") and bar.component_buttons.has("ram_face")
-		and bar.component_buttons.anvil.disabled and bar.component_buttons.ram_face.disabled,
-		"The catalog names anvil and ram face directly and disables parts absent from carried cargo.")
+	verify(bar.component_buttons.has("anvil") and bar.component_buttons.has("flat_head")
+		and bar.component_buttons.anvil.disabled and bar.component_buttons.flat_head.disabled,
+		"The catalog names anvil and flat head directly and disables parts absent from carried cargo.")
 	verify(not bar.buttons[0].disabled and bar.slot_counts[0].text == "+"
 		and not bar.component_buttons.wooden_frame.visible,
 		"An empty slot remains assignable while an unowned part stays absent from the catalog.")
@@ -2726,9 +2646,9 @@ func _arrival_hotbar() -> void:
 	bar.catalog.hide()
 	var initial: Dictionary = view.state.duplicate(true)
 	view.state.cargo.P.components = {"wooden_frame": 2, "copper_cog": 1,
-		"anvil": 1, "ram_face": 1, "hand_crank": 1}
+		"anvil": 1, "flat_head": 1, "hand_crank": 1}
 	view._refresh_ui()
-	verify(not bar.component_buttons.anvil.disabled and not bar.component_buttons.ram_face.disabled
+	verify(not bar.component_buttons.anvil.disabled and not bar.component_buttons.flat_head.disabled
 		and bar.component_counts.anvil.text == "1"
 		and "Anvil" in bar.component_buttons.anvil.tooltip_text,
 		"The component icon shows its authoritative count and accessible name.")
@@ -3017,14 +2937,16 @@ func _arrival_hotbar() -> void:
 			and bar.slot_icons[7].texture == bar.component_buttons.copper_cog.icon
 			and view.issued.is_empty(),
 			"Focused-item number binding selects the exact component through ordinary placement.")
+	view.state.cargo.P.components.flat_head = 1
+	view._refresh_ui()
 	bar.open_catalog()
-	var ram_drag: Dictionary = bar._drag_payload("component:ram_face")
-	bar.buttons[6]._drop_data(Vector2.ZERO, ram_drag)
+	var head_drag: Dictionary = bar._drag_payload("component:flat_head")
+	bar.buttons[6]._drop_data(Vector2.ZERO, head_drag)
 	bar._close_catalog()
 	bar.select_slot(6)
-	verify(bar.slots[6] == "component:ram_face" and view.mode == "component"
-		and view.arrival_assembly_controls.selected_name() == "ram_face" and view.issued.is_empty(),
-		"Dragging a carried ram face binds and then selects its placement tool.")
+	verify(bar.slots[6] == "component:flat_head" and view.mode == "component"
+		and view.arrival_assembly_controls.selected_name() == "flat_head" and view.issued.is_empty(),
+		"Dragging a carried flat head binds and then selects its placement tool.")
 	root.size = Vector2i(640, 480)
 	await settle_widgets()
 	bar.open_catalog()
@@ -3590,9 +3512,9 @@ func _shared_component_results() -> void:
 		"A width explanation never turns uncertain delivery or another action into a belt refusal.")
 	width_view.free()
 	for sample: Dictionary in [
-		{"status": "missing_ram", "text": "No working face contacts this support."},
-		{"status": "missing_guide", "text": "The working face has no guided stroke."},
-		{"status": "missing_cog", "text": "No rotary input reaches this working face."},
+		{"status": "missing_flat_head", "text": "Fit a flat head above this workbed."},
+		{"status": "missing_slide", "text": "Fit a slide above the flat head."},
+		{"status": "blocked_feed", "text": "Clear a feed path beside this workbed."},
 		{"status": "", "text": "No compatible working face acts on this support."},
 	]:
 		var press_view := SharedSettlementView.new()
@@ -3603,7 +3525,7 @@ func _shared_component_results() -> void:
 		press_view.state.revision = 4
 		press_view.state.order = 9
 		press_view.state.options = {"native": true, "physical": true}
-		press_view.state.guided_press_assemblies = [] if sample.status.is_empty() else [
+		press_view.state.sliding_press_assemblies = [] if sample.status.is_empty() else [
 			{"anvil": "press-anvil", "status": sample.status}]
 		var before_press: Dictionary = press_view.state.duplicate(true)
 		press_view.pending_actions = {"P-press": {"action": {"action": "feed_press", "entity": "press-anvil"},
@@ -3694,19 +3616,18 @@ func _workshop_pages() -> void:
 		view.state.fabrication_benches = [{"id": "field-bench", "center": [4, 0, 4]}]
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
 			"press-anvil": {"component": "anvil", "center": [8, 0, 8]},
-			"press-ram": {"component": "ram_face", "center": [8, 1, 8]},
-			"press-shaft": {"component": "wooden_shaft", "center": [9, 4, 8],
-				"input_ports": [[9, 4, 8]]},
+			"press-head": {"component": "flat_head", "center": [8, 1, 8]},
+			"press-slide": {"component": "wooden_slide", "center": [8, 2, 8], "input_ports": [[9, 2, 8]]},
 			"collector-mount": {"component": "tool_mount", "center": [-1, 0, 0],
 				"input_ports": [[-1, 0, 0]]},
 			"collector-frame": {"component": "wooden_frame", "center": [0, 0, 0]}}
-		view.state.guided_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
-			"work_center": [8, 0, 8], "status": "ready", "parts": {"ram": "press-ram", "shaft": "press-shaft"},
+		view.state.sliding_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
+			"work_center": [8, 0, 8], "status": "ready", "parts": {"head": "press-head", "slide": "press-slide"},
 			"open_feeds": [{"entry": [9, 0, 8], "exit": [7, 0, 8]}]}]
 		view.state.collector_assemblies = [{"status": "ready", "center": [0, 0, 0],
 			"parts": {"frame": "collector-frame", "mount": "collector-mount", "shaft": "collector-shaft"}}]
-		view.state.crank_items = {"crank": {"holder": "", "attached_to": "press-shaft",
-			"port": [9, 4, 8]}}
+		view.state.crank_items = {"crank": {"holder": "", "attached_to": "press-slide",
+			"port": [9, 2, 8]}}
 		var before: Dictionary = view.state.duplicate(true)
 		view.camera = Camera3D.new()
 		view.add_child(view.camera)
@@ -3718,7 +3639,7 @@ func _workshop_pages() -> void:
 		var panel = view.arrival_assembly_controls
 		var inventory = view.building_hotbar
 		verify(inventory.carried_label.text == "CARRIED"
-			and view._crank_turn_refusal("press").contains("Fit a crafted hand crank"),
+			and view._crank_turn_refusal("press").contains("Place a crafted hand crank"),
 			"The workshop points to a crafted fitted crank without presenting pod custody.")
 		await process_frame
 		await process_frame
@@ -3796,7 +3717,7 @@ func _workshop_pages() -> void:
 			and not view.object_menu.visible and inventory.recipe_buttons["component:wooden_frame"].visible
 			and not view.save_button.is_visible_in_tree() and not view.load_button.is_visible_in_tree(),
 			"Ordinary E shows pod crafting directly in the shared inventory.")
-		verify(inventory.recipe_buttons["foundation"].visible
+		verify(inventory.recipe_buttons.has("foundation")
 			and "2 timber + 0 copper" in inventory.recipe_buttons["foundation"].tooltip_text,
 			"The foundation recipe keeps its native name and cost beside the icon.")
 		verify("Horizontal gearbox" in inventory.recipe_buttons["part:0"].tooltip_text
@@ -3846,410 +3767,57 @@ func _workshop_pages() -> void:
 		await process_frame
 		view.pointed = "press-anvil"
 		view._open_pointed_machine()
-		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree() and not panel.collector_section.visible
-			and panel.feed_button.is_visible_in_tree() and not panel.feed_button.disabled,
-			"Ordinary E on a confirmed press exposes its existing feed controls.")
-		var press_icons := [panel.feed_button, panel.refeed_work_button,
-			panel.compact_button, panel.pickup_button, panel.recover_work_button]
-		var icons_described := true
-		for button: Button in press_icons:
-			icons_described = icons_described and button.text.is_empty() and button.icon != null \
-				and not button.tooltip_text.is_empty() and not button.accessibility_name.is_empty() \
-				and button.focus_mode == Control.FOCUS_ALL
-		verify(icons_described, "Press actions use focusable icons with an action description and shortcut.")
-		verify(panel.feed_button.tooltip_text.contains("F")
-			and panel.pickup_button.tooltip_text.contains("P")
-			and panel.recover_work_button.tooltip_text.contains("U"),
-			"Press action tooltips retain their keyboard routes.")
-		view.state.crank_items.crank = {"holder": "", "attached_to": "press-shaft", "port": [9, 4, 8]}
-		panel.refresh(view.state, view.client, view.selected, true)
-		panel.feed_button.pressed.emit()
-		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
-			"The pointer feed icon sends the selected anvil and route to the native adapter.")
-		view.issued.clear()
-		for offset in [[4, 0, 0], [0, 0, 4], [4, 0, 4]]:
-			var center := [8 + offset[0], offset[1], 8 + offset[2]]
-			view.state.placed_components["broad-anvil-%s" % str(offset)] = {
-				"component": "anvil", "center": center}
-		view.state.broad_press_assemblies = [{"origin": [8, 0, 8], "geometry_status": "ready",
-			"parts": {"anvils": ["press-anvil", "broad-anvil-a", "broad-anvil-b", "broad-anvil-c"]}}]
-		view.state.cargo[view.client].raw = 3
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.inventory_section.is_visible_in_tree() and panel._inventory_broad
-			and not panel.feed_button.visible and panel.inventory_counts.player_raw.text == "3"
-			and panel.inventory_workbed_heading.text.contains("2×2 WORKBED")
-			and not panel.inventory_slots.has("workbed_target")
-			and not panel.inventory_slots.has("player_target")
-			and panel.inventory_player_region.destination == "player"
-			and panel.inventory_workbed_region.destination == "workbed"
-			and panel.inventory_slots.player_raw.tooltip_text.contains("three"),
-			"A complete four-anvil press offers actual carried stock and whole-row drop regions without target glyphs.")
-		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-workbed.png") == OK,
-				"Retain the four-anvil inventory transfer in the selected anvil panel.")
-			root.size = Vector2i(900, 600)
-			await process_frame
-			await process_frame
-			verify(Rect2(Vector2.ZERO, Vector2(root.size)).encloses(Rect2(
-				Vector2(view.object_menu.position), Vector2(view.object_menu.size)))
-				and panel.inventory_section.is_visible_in_tree(),
-				"The broad workbed transfer remains inside a narrow ordinary window.")
-			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-workbed-narrow.png") == OK,
-				"Retain the broad workbed grid in a narrow ordinary window.")
-			root.size = Vector2i(1280, 800)
-			await process_frame
-		var broad_blanks: Dictionary = panel.inventory_drag("player_raw")
-		verify(broad_blanks.get("wire", {}) == {"action": "feed_broad_press", "entity": "press-anvil"}
-			and broad_blanks.get("actor") == view.client
-			and panel.inventory_can_drop("workbed", broad_blanks),
-			"Three carried blanks target the native broad workbed through the same inventory drag contract.")
-		if shared:
-			view.client = "P"
-			panel.refresh(view.state, view.client, view.selected, true)
-			verify(not panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_blanks)
-				and view.state.cargo.P.raw == 1 and view.state.cargo.Q.raw == 3,
-				"A second actor cannot complete the first actor's carried-material drag.")
-			view.client = "Q"
-			panel.refresh(view.state, view.client, view.selected, true)
-			view.pending_actions = {"waiting": {}}
-			verify(not panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_blanks),
-				"A pending shared action blocks a repeated material transfer.")
-			view.pending_actions.clear()
-			panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_blanks),
-			"The original ready actor can resume its exact material transfer.")
-		view.state.context = "different-saved-worksite"
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(not panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_blanks),
-			"A drag from another saved worksite context cannot transfer material.")
-		view.state.context = "workshop-pages"
-		panel.refresh(view.state, view.client, view.selected, true)
-		panel.inventory_drop("workbed", broad_blanks)
-		verify(view.issued == [broad_blanks.wire],
-			"Dragging three blanks submits one native broad feed without changing local cargo.")
-		view.issued.clear()
-		var broad_feed_key := InputEventKey.new()
-		broad_feed_key.keycode = KEY_F
-		broad_feed_key.pressed = true
-		view._input(broad_feed_key)
-		verify(view.issued == [broad_blanks.wire],
-			"F transfers the same three blanks through the ordinary selected-anvil keyboard route.")
-		view.issued.clear()
-		view.state.cargo[view.client].raw = 2
-		panel.refresh(view.state, view.client, view.selected, true)
-		view._input(broad_feed_key)
-		verify(view.issued.is_empty() and panel.inventory_drag("player_raw").is_empty()
-			and panel.inventory_slots.player_raw.disabled,
-			"Fewer than three carried blanks disable the workbed transfer without issuing a native command.")
-		view.state.cargo[view.client].raw = 3
-		view.state.dropped_material = [{"center": [8, 0, 8], "raw": 0, "products": 0,
-			"offcuts": 0, "sheets": 0, "sheet_items": [], "work_lots": [
-				{"id": 81, "recipe_input": 3, "output_form": "sheet", "remaining": 2}]}]
-		panel.refresh(view.state, view.client, view.selected, true)
-		var broad_work: Dictionary = panel.inventory_drag("workbed_work")
-		verify(panel.inventory_counts.workbed_work.text == "1"
-			and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/sheet.svg")
-			and panel.inventory_slots.workbed_work.tooltip_text.contains("sheet work")
-			and broad_work.get("wire", {}).get("action") == "pickup_material"
-			and broad_work.wire.center == [8, 0, 8]
-			and panel.inventory_drag("player_raw").is_empty(),
-			"A retained broad lot occupies the four-anvil workbed and blocks another feed.")
-		view.state.dropped_material = [{"center": [8, 0, 8], "raw": 0, "products": 0,
-			"offcuts": 0, "sheets": 1, "sheet_items": [{"id": 82, "rotation": 0}], "work_lots": []}]
-		panel.refresh(view.state, view.client, view.selected, true)
-		var broad_sheet: Dictionary = panel.inventory_drag("workbed_output")
-		verify(panel.inventory_counts.workbed_output.text == "1"
-			and panel.inventory_slots.workbed_output.icon.resource_path.ends_with("/sheet.svg")
-			and panel.inventory_slots.workbed_work.icon == null
-			and panel.inventory_counts.workbed_work.text.is_empty()
-			and broad_sheet.get("wire", {}).get("action") == "pickup_material"
-			and broad_sheet.wire.center == [8, 0, 8]
-			and panel.inventory_drag("workbed_work").is_empty()
-			and panel.inventory_player_region._can_drop_data(Vector2.ZERO, broad_sheet),
-			"The formed sheet has a literal output tile and can drop onto the whole carried region.")
-		var sheet_preview := TextureRect.new()
-		sheet_preview.texture = panel.inventory_slots.workbed_output.icon
-		panel.inventory_slots.workbed_output.force_drag(broad_sheet, sheet_preview)
-		await process_frame
-		verify(root.gui_is_dragging() and panel.inventory_player_region.highlighted
-			and not panel.inventory_workbed_region.highlighted
-			and sheet_preview.texture.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.sheets[1]),
-			"Dragging a supported output highlights the entire carried-inventory region.")
-		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-output-drag.png") == OK,
-				"Retain the highlighted carried region during a broad output drag.")
-		var drag_escape := InputEventKey.new()
-		drag_escape.keycode = KEY_ESCAPE
-		drag_escape.pressed = true
-		Input.parse_input_event(drag_escape)
-		await process_frame
-		verify(not root.gui_is_dragging() and not view.pause_menu.visible and view.issued.is_empty(),
-			"One ordinary Escape ends the focused output drag without opening pause or issuing a command.")
-		drag_escape.pressed = false
-		Input.parse_input_event(drag_escape)
-		await process_frame
-		verify(not view.object_menu.visible and not root.gui_is_dragging()
-			and not view.pause_menu.visible and view.issued.is_empty(),
-			"The focused popup closes on drag Escape release without opening pause or changing custody.")
-		if root.gui_is_dragging():
-			root.gui_cancel_drag()
-		await process_frame
-		verify(not panel.inventory_player_region.highlighted,
-			"The carried-inventory highlight clears when the drag ends.")
-		view._open_object_menu_for("press-anvil")
-		await process_frame
-		verify(view.object_menu.visible and panel.inventory_section.is_visible_in_tree(),
-			"The same workbed reopens after the focused drag is canceled.")
-		panel.inventory_player_region._drop_data(Vector2(250, 50), broad_sheet)
-		verify(view.issued == [broad_sheet.wire],
-			"Dropping a sheet on ordinary empty space in the carried region sends one native pickup.")
-		view.issued.clear()
-		view.state.order += 1
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(not panel.inventory_player_region._can_drop_data(Vector2.ZERO, broad_sheet),
-			"A stale output drag cannot transfer after the native order changes.")
-		view.state.order -= 1
-		panel.refresh(view.state, view.client, view.selected, true)
-		var broad_pickup_key := InputEventKey.new()
-		broad_pickup_key.keycode = KEY_P
-		broad_pickup_key.pressed = true
-		view._input(broad_pickup_key)
-		verify(view.issued == [broad_sheet.wire],
-			"P picks up the confirmed broad sheet through the same workbed inventory path.")
-		view.issued.clear()
-		view.state.dropped_material.clear()
-		view.state.cargo[view.client].work_lots = [
-			{"id": 7, "recipe_input": 1, "remaining": 1},
-			{"id": 41, "recipe_input": 3, "output_form": "sheet", "remaining": 2}]
-		panel.refresh(view.state, view.client, view.selected, true)
-		var broad_work_input: Dictionary = panel.inventory_drag("player_broad_work:41")
-		verify(panel.broad_refeed_button.is_visible_in_tree() and not panel.broad_refeed_button.disabled
-			and panel.broad_refeed_button.text.is_empty() and panel.broad_refeed_button.icon != null
-			and panel.broad_refeed_button.icon.resource_path.ends_with("/broad-refeed.svg")
-			and panel.broad_refeed_button.tooltip_text.contains("N")
-			and not panel.broad_refeed_button.accessibility_name.is_empty()
-			and panel._held_work_ids == [7]
-			and panel.inventory_slots.has("player_broad_work:41")
-			and not panel.inventory_slots.has("player_work")
-			and broad_work_input.get("wire", {}) == {"action": "refeed_broad_press_work",
-				"entity": "press-anvil", "work_id": 41}
-			and panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_work_input),
-			"The broad workbed lists only its supported carried lot with exact identity and transfer.")
-		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-broad-refeed.png") == OK,
-				"Retain the distinct broad-work refeed icon in the selected anvil panel.")
-		var broad_refeed_key := InputEventKey.new()
-		broad_refeed_key.keycode = KEY_N
-		broad_refeed_key.pressed = true
-		view._input(broad_refeed_key)
-		verify(panel.broad_refeed_button.get_popup().item_count == 1,
-			"N lists only identity-bearing carried sheet work.")
-		panel.broad_refeed_button.get_popup().id_pressed.emit(0)
-		panel.broad_refeed_button.get_popup().hide()
-		verify(view.issued == [{"action": "refeed_broad_press_work", "entity": "press-anvil", "work_id": 41}],
-			"The selected broad lot reenters native authority with its exact ID and first anvil.")
-		view.issued.clear()
-		view.state.cargo[view.client].work_lots.remove_at(1)
-		panel.broad_refeed_button.get_popup().id_pressed.emit(0)
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(view.issued.is_empty() and not panel.broad_refeed_button.visible,
-			"A stale broad-work choice cannot reinsert a lot the actor no longer carries.")
-		verify(not panel.inventory_slots.has("player_broad_work:41")
-			and not panel.inventory_workbed_region._can_drop_data(Vector2.ZERO, broad_work_input),
-			"The carried broad-work tile vanishes when custody changes, and stale drags are refused.")
-		view.state.cargo[view.client].work_lots.clear()
-		view.state.cargo[view.client].raw = 1
-		view.state.broad_press_assemblies = [{"origin": [8, 0, 8], "geometry_status": "missing_ram"}]
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(not panel.inventory_section.visible,
-			"The four-anvil workbed transfer disappears when the native broad press is incomplete.")
-		view.state.cargo[view.client].sheets = 1
-		view.state.cargo[view.client].sheet_items = [{"id": 37, "rotation": 0}]
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.sheet_button.is_visible_in_tree() and not panel.sheet_button.disabled
-			and panel.sheet_button.text.is_empty() and panel.sheet_button.icon != null
-			and panel.sheet_button.tooltip_text.contains("S")
-			and not panel.sheet_button.accessibility_name.is_empty(),
-			"A carried broad sheet exposes one described staging icon on its selected anvil.")
-		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-sheet-stage.png") == OK,
-				"Retain the selected anvil panel with its sheet staging icon.")
-		var sheet_key := InputEventKey.new()
-		sheet_key.keycode = KEY_S
-		sheet_key.pressed = true
-		view._input(sheet_key)
-		verify(panel.sheet_button.get_popup().item_count == 1,
-			"The S shortcut opens the exact projected sheet and four-anvil origin.")
-		panel.sheet_button.get_popup().id_pressed.emit(0)
-		panel.sheet_button.get_popup().hide()
-		verify(view.issued == [{"action": "place_sheet", "center": [8, 0, 8], "sheet_id": 37}],
-			"Staging submits the native sheet identity and full-area origin without changing local cargo.")
-		view.issued.clear()
-		view.state.cargo[view.client].sheet_items.clear()
-		panel.sheet_button.get_popup().id_pressed.emit(0)
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(view.issued.is_empty() and not panel.sheet_button.visible,
-			"A stale staging choice cannot submit a sheet the actor no longer carries.")
-		view.state.broad_shear_assemblies = [{"origin": [8, 0, 8], "status": "ready",
-			"parts": {"anvils": ["press-anvil", "broad-anvil-a", "broad-anvil-b", "broad-anvil-c"]},
-			"sheet_id": 37, "strokes": 0}]
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.shear_button.is_visible_in_tree() and not panel.shear_button.disabled
-			and panel.shear_button.text.is_empty() and panel.shear_button.icon != null
-			and panel.shear_button.tooltip_text.contains("X")
-			and not panel.shear_button.accessibility_name.is_empty(),
-			"A staged native sheet exposes one focused cutting icon on its selected anvil.")
-		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
-			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-sheet-shear.png") == OK,
-				"Retain the selected anvil panel with a staged sheet-cutting icon.")
-		var shear_key := InputEventKey.new()
-		shear_key.keycode = KEY_X
-		shear_key.pressed = true
-		view._input(shear_key)
-		verify(view.issued == [{"action": "stroke_broad_shear", "entity": "press-anvil", "sheet_id": 37}],
-			"X sends the first native shear anvil and staged sheet identity.")
-		verify(view._material_refusal_message({"reason": "output_full"}, "unavailable", "stroke_broad_shear")
-			.contains("Clear the other anvil squares")
-			and view._material_refusal_message({"reason": "shear_unpowered"}, "unavailable", "stroke_broad_shear")
-			.contains("Drive the cutting head forward"),
-			"Native blocked-output and wrong-drive refusals point to the physical correction.")
-		view.issued.clear()
-		view.state.broad_shear_assemblies[0].status = "unpowered"
-		panel.refresh(view.state, view.client, view.selected, true)
-		view._input(shear_key)
-		verify(view.issued.is_empty() and panel.shear_button.disabled,
-			"An unpowered cutting head exposes its state without issuing a stroke.")
-		view.state.erase("broad_shear_assemblies")
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(not panel.shear_button.visible,
-			"Cutting controls disappear after the staged sheet leaves native projection.")
-		view.state.placed_components["sized-bed"] = {"component": "broad_anvil", "center": [16, 0, 8]}
-		view.state.broad_press_assemblies = [{"origin": [16, 0, 8], "geometry_status": "ready",
-			"status": "unpowered", "parts": {"anvils": ["sized-bed"],
-				"heads": ["sized-head"], "slide": "sized-slide"}}]
-		view.state.cargo[view.client].raw = 3
-		view.selected = "sized-bed"
-		panel.refresh(view.state, view.client, view.selected, true)
-		verify(panel.press_anvil_for("sized-bed") == "sized-bed"
-			and panel.press_anvil_for("sized-head") == "sized-bed"
-			and panel.press_anvil_for("sized-slide") == "sized-bed",
-			"A fitted broad head or slide keeps the support selected for its material controls.")
-		panel.open_context()
-		verify(panel.press_section.visible and panel._inventory_broad
-			and panel.inventory_workbed_heading.text.contains("2×2 WORKBED")
-			and panel.inventory_drag("player_raw").get("wire", {}) == {
-				"action": "feed_broad_press", "entity": "sized-bed"},
-			"The selected sized workbed offers one ordinary three-stock transfer on its own native ID.")
-		view.selected = "press-anvil"
-		view.state.placed_components.erase("sized-bed")
-		view.state.erase("broad_press_assemblies")
-		view.state.cargo[view.client].erase("sheet_items")
-		view.state.cargo[view.client].erase("sheets")
-		panel.refresh(view.state, view.client, view.selected, true)
-		panel.open_context()
-		var action_key := InputEventKey.new()
-		action_key.pressed = true
-		action_key.keycode = KEY_F
-		view._input(action_key)
-		verify(view.issued == [{"action": "feed_press", "entity": "press-anvil", "entry": [9, 0, 8]}],
-			"F in the press panel uses its visible feed button and existing request payload.")
-		view.issued.clear()
-		var turn_key := InputEventKey.new()
-		turn_key.keycode = KEY_T
-		turn_key.pressed = true
-		view._input(turn_key)
-		verify(view.issued.is_empty() and panel.feed_actions.get_child_count() == 3
-			and not panel.has_method("_turn"),
-			"The inspector has no Turn shortcut or control; power is operated at its fitted world crank.")
-		panel.refresh(view.state, view.client, view.selected, false)
-		verify(panel.press_section.is_visible_in_tree() and panel.feed_button.disabled
-			and panel.feed_button.tooltip_text.contains("Wait for the character")
-			and panel.reclaim_button.disabled
-			and panel.reclaim_button.tooltip_text.contains("Wait for the character"),
-			"An unready actor cannot feed the press even while its panel is open.")
-		view.issued.clear()
-		var unready_delete := InputEventKey.new()
-		unready_delete.keycode = KEY_DELETE
-		unready_delete.pressed = true
-		view._input(unready_delete)
-		verify(view.issued.is_empty(),
-			"Delete cannot reclaim a selected placed part while its icon is disabled.")
-		panel.refresh(view.state, view.client, view.selected, true)
+		verify(view.object_menu.visible and panel.press_section.is_visible_in_tree()
+			and panel.inventory_section.is_visible_in_tree() and not panel._inventory_broad
+			and panel.press_status.text.contains("Slide press ready")
+			and not panel.feed_button.visible,
+			"Ordinary E opens the current slide workbed and its material inventory.")
 		view.object_menu.hide()
 		await process_frame
-		verify(view.selected.is_empty() and not view.object_menu.visible,
-			"Leaving the press panel releases its selected target for another interaction.")
-		view.pointed = "press-ram"
+		view.pointed = "press-head"
 		view._open_pointed_machine()
-		verify(view.object_menu.visible and view.object_menu_target == "press-ram"
-			and view.object_menu_operations.is_visible_in_tree()
+		verify(view.object_menu.visible and view.object_menu_target == "press-head"
 			and view.object_menu_operations_label.text == "PRESS WORK"
-			and panel.press_section.is_visible_in_tree() and panel.feed_button.is_visible_in_tree(),
-			"Ordinary E on a guided ram exposes the same press actions as its anvil.")
-		verify(panel.reclaim_button.is_visible_in_tree() and not view.remove_button.visible
-			and "Delete" in panel.reclaim_button.tooltip_text
-			and "shortcut Delete" in panel.reclaim_button.accessibility_name
-			and panel.reclaim_row.get_parent() == view.inspector.get_parent()
-			and not view.inspector.text.contains("Reclaim with Delete"),
-			"The guided ram keeps one described reclaim icon in its detail column without standing shortcut text.")
-		await process_frame
-		var detail_bounds: Rect2 = view.object_menu_detail_panel.get_global_rect()
-		var reclaim_bounds: Rect2 = panel.reclaim_button.get_global_rect()
-		verify(reclaim_bounds.position.x >= detail_bounds.position.x
-			and reclaim_bounds.end.x <= detail_bounds.end.x
-			and reclaim_bounds.end.y <= detail_bounds.end.y
-			and reclaim_bounds.end.y >= detail_bounds.end.y - 28.0,
-			"The reclaim icon sits at the bottom left of the ordinary component details.")
+			and panel.reclaim_button.is_visible_in_tree(),
+			"The fitted flat head exposes its workbed context and a reclaim action.")
 		var reclaim_key := InputEventKey.new()
 		reclaim_key.keycode = KEY_DELETE
 		reclaim_key.pressed = true
 		view._input(reclaim_key)
-		verify(view.issued == [{"action": "reclaim_component", "entity": "press-ram"}],
-			"Delete reaches the same native reclaim payload when the old Remove button is hidden.")
+		verify(view.issued == [{"action": "reclaim_component", "entity": "press-head"}],
+			"Delete reclaims the selected flat head by its exact native identity.")
 		view.issued.clear()
-		panel.reclaim_button.pressed.emit()
-		verify(view.issued == [{"action": "reclaim_component", "entity": "press-ram"}],
-			"Pressing the relocated icon uses the same native reclaim payload as Delete.")
-		view.issued.clear()
-		root.size = Vector2i(640, 480)
-		view._fit_object_menu(Vector2i(640, 480))
-		await process_frame
-		var narrow_actions: Rect2 = view.object_menu_operations.get_global_rect()
-		var narrow_details: Rect2 = view.object_menu_detail_panel.get_global_rect()
-		var narrow_reclaim: Rect2 = panel.reclaim_button.get_global_rect()
-		verify(panel.feed_button.get_global_rect().position.x >= narrow_actions.position.x
-			and panel.compact_button.get_global_rect().end.x <= narrow_actions.end.x,
-			"Both grouped press action rows fit inside the narrow object panel.")
-		verify(narrow_reclaim.position.x >= narrow_details.position.x
-			and narrow_reclaim.end.x <= narrow_details.end.x
-			and narrow_reclaim.end.y <= narrow_details.end.y
-			and narrow_reclaim.end.y >= narrow_details.end.y - 28.0,
-			"The reclaim icon remains at the bottom left of the narrow component panel.")
-		if not image_prefix.is_empty() and not shared and DisplayServer.get_name() != "headless":
-			await RenderingServer.frame_post_draw
-			var narrow_frame: Image = root.get_texture().get_image().get_region(Rect2i(0, 0, 640, 480))
-			verify(narrow_frame.get_size() == Vector2i(640, 480)
-				and narrow_frame.save_png(image_prefix + "-guided-ram-menu-narrow.png") == OK,
-				"Retain the press panel fitted to a 640 by 480 view as a passive frame crop.")
-		root.size = Vector2i(1280, 800)
-		view._fit_object_menu(Vector2i(1280, 800))
-		await process_frame
-		if not image_prefix.is_empty() and not shared and DisplayServer.get_name() != "headless":
-			await RenderingServer.frame_post_draw
-			verify(root.get_texture().get_image().save_png(image_prefix + "-guided-ram-menu.png") == OK,
-				"Retain the passive guided ram action panel.")
 		view.object_menu.hide()
 		await process_frame
-		if not shared:
-			view.issued.clear()
-		verify(not panel.press_section.is_visible_in_tree(),
-			"Closing a press panel removes its actions from the game view.")
+		view.state.placed_components["sized-bed"] = {"component": "broad_anvil", "center": [16, 0, 8]}
+		view.state.placed_components["sized-head"] = {"component": "broad_flat_head", "center": [16, 1, 8]}
+		view.state.placed_components["sized-slide"] = {"component": "broad_copper_slide", "center": [16, 4, 8]}
+		view.state.broad_press_assemblies = [{"origin": [16, 0, 8], "geometry_status": "ready",
+			"status": "unpowered", "parts": {"anvils": ["sized-bed"],
+				"heads": ["sized-head"], "slide": "sized-slide"}}]
+		view.state.cargo[view.client].raw = 3
+		view.pointed = "sized-bed"
+		view._open_pointed_machine()
+		var broad_blanks: Dictionary = panel.inventory_drag("player_raw")
+		verify(view.object_menu.visible and panel._inventory_broad
+			and panel.inventory_workbed_heading.text.contains("2×2 WORKBED")
+			and panel.press_anvil_for("sized-head") == "sized-bed"
+			and panel.press_anvil_for("sized-slide") == "sized-bed"
+			and broad_blanks.get("wire", {}) == {"action": "feed_broad_press", "entity": "sized-bed"},
+			"One joined broad support, face and slide expose the exact three-stock transfer.")
+		if not shared and not image_prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
+			await RenderingServer.frame_post_draw
+			verify(root.get_texture().get_image().save_png(image_prefix + "-joined-broad-workbed.png") == OK,
+				"Retain the selected joined broad workbed in its ordinary menu.")
+		view.object_menu.hide()
+		await process_frame
+		view.state.placed_components.erase("sized-bed")
+		view.state.placed_components.erase("sized-head")
+		view.state.placed_components.erase("sized-slide")
+		view.state.erase("broad_press_assemblies")
+		view.pointed = "collector-frame"
+		var action_key := InputEventKey.new()
+		action_key.pressed = true
 		view.state.crank_items.crank = {"holder": "", "attached_to": "collector-mount", "port": [-1, 0, 0]}
 		view.pointed = "collector-frame"
 		view._open_pointed_machine()
@@ -4284,9 +3852,9 @@ func _workshop_pages() -> void:
 		view.issued.clear()
 		view.object_menu.hide()
 		await process_frame
-		view.state.guided_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
-			"status": "missing_ram", "parts": {}, "open_feeds": []}]
-		view.state.placed_components.erase("press-ram")
+		view.state.sliding_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
+			"status": "missing_flat_head", "parts": {}, "open_feeds": []}]
+		view.state.placed_components.erase("press-head")
 		view._refresh_ui()
 		view.pointed = "press-anvil"
 		view._open_pointed_machine()
@@ -4305,7 +3873,7 @@ func _workshop_pages() -> void:
 		view._input(action_key)
 		verify(view.issued.is_empty(),
 			"Hidden press actions do not send feed or turn commands from keyboard shortcuts.")
-		view.state.guided_press_assemblies.clear()
+		view.state.sliding_press_assemblies.clear()
 		view._refresh_ui()
 		verify(panel.press_section.is_visible_in_tree()
 			and panel.press_status.text == "Anvil · work support"
@@ -4701,7 +4269,7 @@ func _object_menu_snapshot() -> Dictionary:
 		"component_recipes": {"wooden_frame": {"timber": 3, "copper": 0},
 			"wooden_shaft": {"timber": 2, "copper": 0}},
 		"component_capacity": 20, "part_recipes": [], "part_specifications": {"P": []},
-		"guided_press_assemblies": [], "collector_assemblies": [], "dropped_material": [],
+		"sliding_press_assemblies": [], "collector_assemblies": [], "dropped_material": [],
 		"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
 		"remaining": 0, "powered": false, "power_enabled": false, "motion": {},
 		"links": [], "drive_links": [], "opening_engineering": {}}
@@ -5018,13 +4586,10 @@ func _slide_controls_check() -> void:
 		"Broad head reclaim submits exact native sheet pickup before part removal.")
 	broad_reclaim.free()
 	snapshot.sliding_press_assemblies[0] = {"anvil": "anvil", "center": [12, 0, 8],
-		"status": "missing_head"}
-	snapshot.guided_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
-		"status": "ready", "parts": {"anvil": "anvil", "shaft": "old-shaft"},
-		"open_feeds": [{"entry": [13, 0, 8], "exit": [11, 0, 8]}]}]
+		"status": "missing_flat_head"}
 	panel.refresh(snapshot, "P", "anvil", true)
-	verify(panel._press.get("parts", {}).has("shaft") and not panel.has_method("_turn"),
-		"An incomplete slide candidate cannot hide a ready guided press on the same anvil.")
+	verify(panel._press.get("status", "") == "missing_flat_head" and not panel.has_method("_turn"),
+		"An incomplete slide candidate remains visibly incomplete at the anvil.")
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "scope": "invented projection and ordinary E-menu command mapping"}))
 	quit(0 if failures == 0 else 1)
@@ -5262,6 +4827,7 @@ func _object_menu_check() -> void:
 	view._open_pointed_machine()
 	await process_frame
 	var inventory = view.building_hotbar
+	inventory._set_recipe_category("machine")
 	verify(inventory.catalog.visible and inventory.context_bench == "bench"
 		and not view.object_menu.visible and inventory.recipe_buttons["component:wooden_frame"].visible,
 		"E opens the built bench recipes in the shared inventory window.")
@@ -5292,8 +4858,9 @@ func _object_menu_check() -> void:
 	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_frame"}],
 		"The focused bench recipe submits its exact native component command.")
 	view.issued.clear()
+	inventory._set_recipe_category("power")
 	verify(inventory.recipe_buttons["component:wooden_shaft"].visible,
-		"The second component remains discoverable without a selection dropdown.")
+		"The second component remains discoverable on the power tab.")
 	inventory.recipe_buttons["component:wooden_shaft"].pressed.emit()
 	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_shaft"}],
 		"The second recipe crafts at the same selected bench.")
@@ -5373,16 +4940,19 @@ func _object_menu_check() -> void:
 	shared._refresh_ui()
 	shared._open_pointed_machine()
 	await process_frame
+	shared.building_hotbar._set_recipe_category("machine")
 	verify(shared.building_hotbar.catalog.visible
 		and not shared.building_hotbar.recipe_buttons["component:wooden_frame"].disabled,
 		"A connected shared worker can use the selected workbench while movement is held.")
+	shared.building_hotbar._set_recipe_category("power")
 	verify(shared.building_hotbar.recipe_buttons["component:wooden_shaft"].visible,
-		"The shared worker sees another valid recipe without a dropdown.")
+		"The shared worker sees another valid recipe on the power tab.")
 	shared.pending_actions = {"waiting": {}}
 	shared._refresh_ui()
+	shared.building_hotbar._set_recipe_category("machine")
 	verify(shared.building_hotbar.recipe_buttons["component:wooden_frame"].disabled,
 		"An unresolved shared action disables the inventory recipe.")
-	shared.building_hotbar.catalog.hide()
+	shared.building_hotbar._close_catalog()
 	await process_frame
 	verify(shared._can_control_character(),
 		"An unresolved shared action does not stop ordinary character movement after closing the panel.")
@@ -5427,7 +4997,7 @@ func _slide_view_check() -> void:
 			presenter.preview_component(anchor, sample.kind, Vector3(Geometry.PITCH, 0.825, Geometry.PITCH))
 		else:
 			presenter._placed_component(anchor, sample.kind, Vector3.ZERO,
-				Vector3(Geometry.PITCH, 0.825, Geometry.PITCH), "", 0.0, 0.0, Vector3.ZERO, sample.phase)
+				Vector3(Geometry.PITCH, 0.825, Geometry.PITCH), 0.0, 0.0, Vector3.ZERO, sample.phase)
 		verify(anchor.has_node("SlideRail") and anchor.has_node("SlideCrown")
 			and anchor.has_node("IntegralInputShaft") and anchor.has_node("SlideCarriage"),
 			"Each slide has fixed rails, an exposed input and a separate carriage.")
