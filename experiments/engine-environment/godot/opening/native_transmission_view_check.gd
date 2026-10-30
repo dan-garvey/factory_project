@@ -386,8 +386,7 @@ func _press_component_record(kind: String, cell: Vector3i) -> Dictionary:
 				Geometry.PITCH * 0.5)
 		"wooden_slide", "copper_slide":
 			var low: float = floor_y - 2.0 * step + Geometry.PRESS_WORK_HEIGHT
-			var lift: float = 2.0 * step if absi(cell.y % 4) == 2 else 0.0
-			var high: float = at.y + lift + step * 0.25
+			var high: float = at.y + 0.08 * scale
 			center.y = (low + high) * 0.5
 			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
 				Geometry.PITCH * 0.5)
