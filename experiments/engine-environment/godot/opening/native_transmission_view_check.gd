@@ -2479,9 +2479,23 @@ func _slide_material_seat() -> void:
 	root.add_child(presenter)
 	presenter.configure(host)
 	var anvil: Node3D
+	var slide: Node3D
 	for child: Node in presenter.get_children():
 		if child.has_meta("component_entity") and child.get_meta("component_entity") == "anvil":
 			anvil = child
+		if child.has_meta("component_entity") and child.get_meta("component_entity") == "slide":
+			slide = child
+	var input_shaft: MeshInstance3D = slide.get_node_or_null("IntegralInputShaft") if slide != null else null
+	if input_shaft != null:
+		var half_shaft: float = (input_shaft.mesh as CylinderMesh).height * 0.5
+		var west_end: Vector3 = input_shaft.to_global(Vector3(0, half_shaft, 0))
+		var east_end: Vector3 = input_shaft.to_global(Vector3(0, -half_shaft, 0))
+		verify(is_equal_approx(absf(west_end.x), Geometry.PITCH)
+			and is_equal_approx(absf(east_end.x), Geometry.PITCH)
+			and west_end.x * east_end.x < 0.0,
+			"The small slide's embodied shaft reaches both native full-U crank ports.")
+	else:
+		verify(false, "The small slide retains its embodied input shaft.")
 	var seat: MeshInstance3D = anvil.get_node_or_null("OpenAnvilSeat") if anvil != null else null
 	var die_plate: MeshInstance3D = anvil.get_node_or_null("ReplaceableDiePlate") if anvil != null else null
 	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")

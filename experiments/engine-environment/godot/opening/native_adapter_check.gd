@@ -347,7 +347,7 @@ func _capture_anvil_side(path: String, target: Vector3, support_y: float) -> boo
 	close.queue_free()
 	return captured
 
-func _capture_press_context_side(path: String, target: Vector3) -> bool:
+func _capture_press_context_side(path: String, target: Vector3, opposite := false) -> bool:
 	var context := SubViewport.new()
 	context.size = Vector2i(1280, 800)
 	context.world_3d = root.world_3d
@@ -356,7 +356,7 @@ func _capture_press_context_side(path: String, target: Vector3) -> bool:
 	var camera := Camera3D.new()
 	context.add_child(camera)
 	camera.fov = 52.0
-	camera.position = target + Vector3(2.1, 0.55, 2.25)
+	camera.position = target + Vector3(-2.1 if opposite else 2.1, 0.55, 2.25)
 	camera.look_at(target)
 	camera.make_current()
 	for frame in range(3):
@@ -587,7 +587,7 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 	var workface := Vector3(3.0 * OpeningGeometry.PITCH, 0.48, 0.5 * OpeningGeometry.PITCH)
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
-		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-rest-side.png", workface)
+		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-rest-side.png", workface, true)
 				and await _capture_actor_area(capture_prefix + "-joined-rest-actor.png", workface),
 				"Retain the actual three-piece broad press in its surrounding worksite at rest"):
 			return
@@ -605,7 +605,7 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
-		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-fed-side.png", workface),
+		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-fed-side.png", workface, true),
 				"Retain the broad workpiece and fitted external crank in context"):
 			return
 	var rest_phase: int = int(opening.model.projection().slide_phases[slide_id].subticks)
@@ -619,7 +619,7 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 					"The actual broad slide advances from its native rest phase"):
 				return
 			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-				if not _expect(await _capture_press_context_side(capture_prefix + "-joined-stroke-side.png", workface),
+				if not _expect(await _capture_press_context_side(capture_prefix + "-joined-stroke-side.png", workface, true),
 						"Retain the broad slide during its native stroke in context"):
 					return
 	var formed: Dictionary = opening.model.projection()
@@ -629,7 +629,7 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 			"The powered joined press forms one native sheet without replacing its installed parts"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-sheet-side.png", workface),
+		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-sheet-side.png", workface, true),
 				"Retain the formed sheet and the same joined press in context"):
 			return
 	_record("pass")

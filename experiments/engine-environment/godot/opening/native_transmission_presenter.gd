@@ -1594,7 +1594,7 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 				Vector3(0.44, 0.075, 0.44), finish, true)
 			# The embodied X shaft reaches the external U-centered input plane.
 			var shaft := _support_cylinder(anchor, "IntegralInputShaft", 0.035,
-				PRESS_REFERENCE_PITCH, dark)
+				PRESS_REFERENCE_PITCH * 2.0, dark)
 			shaft.position = Vector3(0, half_height - 0.08, 0)
 			shaft.rotation.z = PI * 0.5
 			for x in [-0.72, 0.72]:
