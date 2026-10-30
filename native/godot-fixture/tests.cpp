@@ -55,6 +55,7 @@ int main() {
                   == fixture::Verdict::malformed_log,
               "Binary controls cannot hide a diagnostic or forge a marker.");
         const auto* first = fixture::find_case("arrival-first-plate");
+        const auto* first_press = fixture::find_case("arrival-first-plate-press");
         const auto* incline = fixture::find_case("arrival-nonhorizontal-incline");
         const auto* vertical = fixture::find_case("arrival-nonhorizontal-vertical-resume");
         const auto* sideways = fixture::find_case("arrival-nonhorizontal-sideways-resume");
@@ -68,11 +69,19 @@ int main() {
         const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
         const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
         const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
-        check(fixture::registered_cases().size() == 14 && first && incline && vertical && sideways &&
+        check(fixture::registered_cases().size() == 15 && first && first_press && incline && vertical && sideways &&
                   power_reopen && actor_block && cog_repair && cog_reopen && raised_starter &&
                   joined_broad && endpoint_default && endpoint_common && endpoint_inspection && endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),
               "Only the current scene routes and four endpoint modes are registered.");
+        check(first_press->script == first->script && first_press->seconds == first->seconds &&
+                  fixture::accepts_case_arguments(*first_press,
+                      std::vector<std::string>{"--native-check-mode=arrival-first-plate-press",
+                          "--event-route-pointer", "--native-check-output=/tmp/press.result"}) &&
+                  !fixture::accepts_case_arguments(*first_press,
+                      std::vector<std::string>{"--native-check-mode=arrival-first-plate-press",
+                          "--native-check-output=/tmp/press.result"}),
+              "The focused first-plate press route retains pointer placement and a fresh native result.");
         const std::vector<std::string> joined_args{
             "--native-check-mode=arrival-joined-broad",
             "--native-check-output=/tmp/joined-broad.result"};

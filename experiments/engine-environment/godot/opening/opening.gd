@@ -2211,9 +2211,11 @@ func _screen_loose_material(screen: Vector2) -> Dictionary:
 	if not _native_transmission() or camera == null or not camera.is_inside_tree():
 		return {}
 	var eye := camera.project_ray_origin(screen)
+	# A press slide's actor-blocking swept box covers its workbed. Select the
+	# visible material mesh there, then let native World authorize the pickup.
 	var query := PhysicsRayQueryParameters3D.create(eye,
 		eye + camera.project_ray_normal(screen) * 80.0,
-		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER)
+		Geometry.GROUND_LAYER | Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER)
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty() or hit.collider.get_meta("material_context", "") != state.get("context", ""):
 		return {}

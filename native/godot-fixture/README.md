@@ -306,6 +306,7 @@ fixture rejects a selected route if its required actions were skipped.
 | `--case` selection | Godot arguments | Exact completion line | Maximum time |
 | --- | --- | --- | --- |
 | `arrival-first-plate` (placement and focus guard) | `--native-check-mode=arrival-first-plate --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate` | 180 seconds |
+| `arrival-first-plate-press` (native sliding press through plate pickup and save) | `--native-check-mode=arrival-first-plate-press --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate-press` | 180 seconds |
 | `arrival-raised-starter-snap` (raised press starter placement) | `--native-check-mode=arrival-raised-starter-snap --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-raised-starter-snap` | 180 seconds |
 | `arrival-joined-broad` (native broad workbed, face, slide and sheet) | `--native-check-mode=arrival-joined-broad --native-check-output=FRESH_RESULT` | `CHAPTER 1 JOINED BROAD PRESS PASS` | 300 seconds |
 

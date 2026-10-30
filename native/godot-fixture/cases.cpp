@@ -11,6 +11,10 @@ constexpr std::array first_plate_fixed{
     std::string_view{"--native-check-mode=arrival-first-plate"},
     std::string_view{"--event-route-pointer"},
 };
+constexpr std::array first_plate_press_fixed{
+    std::string_view{"--native-check-mode=arrival-first-plate-press"},
+    std::string_view{"--event-route-pointer"},
+};
 constexpr std::array raised_starter_fixed{
     std::string_view{"--native-check-mode=arrival-raised-starter-snap"},
     std::string_view{"--event-route-pointer"},
@@ -46,6 +50,9 @@ constexpr std::string_view endpoint_script = "res://opening/native_transmission_
 const std::array cases{
     Case{"arrival-first-plate", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate",
          180, first_plate_fixed, first_plate_values},
+    Case{"arrival-first-plate-press", script,
+         "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate-press",
+         180, first_plate_press_fixed, first_plate_values},
     Case{"arrival-nonhorizontal-incline", script, "CHAPTER 1 PLAYER-BUILT INCLINE PASS",
          300, incline_fixed, incline_values},
     Case{"arrival-nonhorizontal-vertical-resume", script,
