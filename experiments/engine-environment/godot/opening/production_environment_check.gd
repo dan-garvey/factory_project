@@ -19,14 +19,14 @@ const CASES := ["environment", "botanical-species", "collector-carrier", "pod-de
 	"bank-firs", "fir-resource", "pine-reflectance", "pine-roots", "pine-understory",
 	"stone-material", "sourced-sky", "meadow-patches", "foliage-mipmaps",
 	"sourced-foliage", "ground-material", "ground-render", "site-render",
-	"river-drive-native", "river-drive-render", "ore-field-render",
+	"river-drive-native", "river-drive-render", "river-drive-h-native", "river-drive-h-render", "ore-field-render",
 	"water-flow", "water-pattern", "water-render", "bank-ferns",
 	"rock-collision-shape", "surface-composition", "foreground-bank", "foliage"]
 const ARTIFACT_CASES := ["bank-firs", "fir-resource", "pine-reflectance",
 	"pine-understory", "stone-material", "sourced-sky", "sourced-foliage",
-	"ground-material", "ground-render", "site-render", "river-drive-render",
+	"ground-material", "ground-render", "site-render", "river-drive-render", "river-drive-h-render",
 	"ore-field-render", "water-render", "bank-ferns"]
-const RENDER_CASES := ["ground-render", "site-render", "river-drive-render", "ore-field-render", "water-render"]
+const RENDER_CASES := ["ground-render", "site-render", "river-drive-render", "river-drive-h-render", "ore-field-render", "water-render"]
 
 class FixtureView:
 	extends "res://opening/opening.gd"
@@ -248,6 +248,8 @@ func finish() -> void:
 			"site-render": "passive worksite, default-orbit and bank-side terrain views",
 			"river-drive-native": "native actual-river wheel, connected cog train and bank-belt motion",
 			"river-drive-render": "source-matched native river wheel and bank-belt in contextual views",
+			"river-drive-h-native": "native shaft, cog and belt route beside the river at 9H",
+			"river-drive-h-render": "native river route beside a second shaft, cog and belt chain at 9H",
 			"ore-field-render": "source-matched native ore field in contextual views",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"water-pattern": "straight-band normal energy and actual water-surface geometry",
@@ -256,7 +258,7 @@ func finish() -> void:
 			"foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
 		"rendered_quality": "not_assessed", "desktop": "not_used",
-		"authority_started": mode in ["river-drive-native", "river-drive-render", "ore-field-render"]}))
+		"authority_started": mode in ["river-drive-native", "river-drive-render", "river-drive-h-native", "river-drive-h-render", "ore-field-render"]}))
 	quit(1 if failed else 0)
 
 func check_surface_composition() -> void:
@@ -1101,7 +1103,7 @@ func check_site_render() -> void:
 		"input": "not_used", "gameplay": "not_run"}))
 	viewport.free()
 
-func check_river_drive(render: bool) -> void:
+func check_river_drive(render: bool, each_h := false) -> void:
 	if not verify(is_equal_approx(Geometry.PITCH, 0.825),
 		"The river-drive fixture is pinned to the approved half-U grid."):
 		return
@@ -1154,18 +1156,69 @@ func check_river_drive(render: bool) -> void:
 	if not verify(belt.get("accepted", false),
 		"A real belt spans the two placed shafts: " + str(belt.get("reason", ""))):
 		return
+	var raised_first := {}
+	var raised_second := {}
+	var raised_belt := {}
+	if each_h:
+		if not verify(model.publish_actor("P", [2.8, 2.0, 1.65], 5).get("accepted", false),
+			"The builder reaches the adjacent 9H route from clear bank ground."):
+			return
+		raised_first = model.command({"context": "half-u-river-drive", "client": "P",
+			"request": "9h-first-shaft", "action": "place_shaft", "center": [8, 9, 8],
+			"axis": "x", "half_span": 2})
+		if not verify(raised_first.get("accepted", false),
+			"A shaft occupies the bank's 9H level: " + str(raised_first.get("reason", ""))):
+			return
+		if not verify(model.publish_actor("P", [4.8, 2.0, 1.65], 6).get("accepted", false),
+			"The builder steps away from the 9H cog's physical cell."):
+			return
+		var raised_cog: Dictionary = model.command({"context": "half-u-river-drive", "client": "P",
+			"request": "9h-bank-cog", "action": "place_gear", "center": [12, 9, 8],
+			"axis": "x", "teeth": 2})
+		if not verify(raised_cog.get("accepted", false),
+			"A cog joins the 9H shaft's axle: " + str(raised_cog.get("reason", ""))):
+			return
+		if not verify(model.publish_actor("P", [2.8, 2.0, 4.95], 7).get("accepted", false),
+			"The builder reaches the far 9H endpoint from clear bank ground."):
+			return
+		raised_second = model.command({"context": "half-u-river-drive", "client": "P",
+			"request": "9h-second-shaft", "action": "place_shaft", "center": [8, 9, 16],
+			"axis": "x", "half_span": 2})
+		if not verify(raised_second.get("accepted", false),
+			"A second shaft occupies the same 9H level: " + str(raised_second.get("reason", ""))):
+			return
+		if not verify(model.publish_actor("P", [3.0, 2.0, 3.3], 8).get("accepted", false),
+			"The builder can connect the 9H endpoints without remote placement."):
+			return
+		raised_belt = model.command({"context": "half-u-river-drive", "client": "P",
+			"request": "9h-bank-belt", "action": "place_belt_span",
+			"from": raised_first.entity, "to": raised_second.entity})
+		if not verify(raised_belt.get("accepted", false),
+			"One native belt connects the two 9H shafts: " + str(raised_belt.get("reason", ""))):
+			return
 	var snapshot: Dictionary = model.projection()
 	for entity_id in [wheel_id, str(first.entity), str(second.entity)]:
 		var motion: Dictionary = snapshot.motion.get(entity_id, {})
 		verify(motion.get("state", "") == "rotating" and int(motion.get("numerator", 0)) < 0,
 			"The river current turns each disclosed drive endpoint in the same signed direction.")
 	if not verify(snapshot.entities.has(wheel_id) and snapshot.belt_spans.has(belt.entity)
-		and snapshot.transmission_parts.size() == 6 and snapshot.belt_spans.size() == 1,
-		"The visual candidate contains one native wheel, four cogs, two shafts and one belt."):
+		and snapshot.transmission_parts.size() == (9 if each_h else 6)
+		and snapshot.belt_spans.size() == (2 if each_h else 1),
+		"The visual candidate contains the native wheel and its stated bank transmission routes."):
 		return
-	print(JSON.stringify({"phase": "river-drive-native", "revision": snapshot.revision,
-		"wheel": wheel_id, "belt": belt.entity, "checks": checks,
-		"scope": "actual river powers a bank drive belt; no collector or material transfer"}))
+	if each_h:
+		verify(snapshot.transmission_parts.has(raised_first.entity)
+			and snapshot.transmission_parts.has(raised_second.entity)
+			and snapshot.belt_spans.has(raised_belt.entity),
+			"The distinct 9H shaft pair and belt survive native projection.")
+		verify(snapshot.transmission_parts[raised_first.entity].center == [8, 9, 8]
+			and snapshot.transmission_parts[raised_second.entity].center == [8, 9, 16],
+			"Both projected belt endpoints occupy 9H, between the full-U build levels.")
+	print(JSON.stringify({"phase": "river-drive-h-native" if each_h else "river-drive-native",
+		"revision": snapshot.revision, "wheel": wheel_id, "belt": belt.entity,
+		"9h_belt": raised_belt.get("entity", ""), "checks": checks,
+		"scope": "river-powered bank belt beside a second 9H route" if each_h
+			else "actual river powers a bank drive belt; no collector or material transfer"}))
 	var viewport := SubViewport.new()
 	viewport.size = Vector2i(1600, 900)
 	viewport.own_world_3d = true
@@ -1191,6 +1244,9 @@ func check_river_drive(render: bool) -> void:
 		["river-drive-bank-side.png", Vector3(4.7, 5.3, 8.4), Vector3(-1.1, 1.3, 2.0)],
 		["river-drive-wheel-side.png", Vector3(-6.6, 4.0, 6.1), Vector3(-0.8, 1.4, 2.2)],
 	]
+	if each_h:
+		views = [["river-drive-9h-bank-side.png", Vector3(4.7, 5.3, 8.4), Vector3(-1.1, 1.3, 2.0)],
+			["river-drive-9h-detail.png", Vector3(3.5, 3.3, 4.6), Vector3(1.5, 2.1, 2.5)]]
 	for entry in views:
 		view.camera.position = entry[1]
 		view.camera.look_at(entry[2])
@@ -1202,7 +1258,8 @@ func check_river_drive(render: bool) -> void:
 		verify(image != null and image.get_size() == viewport.size
 			and not FileAccess.file_exists(path) and image.save_png(path) == OK,
 			"Retain an actual-renderer wheel, river, bank cog train and drive-belt context.")
-	print(JSON.stringify({"phase": "river-drive-render", "views": [views[0][0], views[1][0]],
+	print(JSON.stringify({"phase": "river-drive-h-render" if each_h else "river-drive-render",
+		"views": [views[0][0], views[1][0]],
 		"source_revision": snapshot.revision, "display": DisplayServer.get_name(),
 		"input": "not_used", "human_play": "not_run"}))
 	viewport.free()
@@ -2318,8 +2375,9 @@ func run() -> void:
 		await check_site_render()
 		finish()
 		return
-	if mode == "river-drive-native" or mode == "river-drive-render":
-		await check_river_drive(mode == "river-drive-render")
+	if mode in ["river-drive-native", "river-drive-render", "river-drive-h-native", "river-drive-h-render"]:
+		await check_river_drive(mode in ["river-drive-render", "river-drive-h-render"],
+			mode in ["river-drive-h-native", "river-drive-h-render"])
 		finish()
 		return
 	if mode == "ore-field-render":
