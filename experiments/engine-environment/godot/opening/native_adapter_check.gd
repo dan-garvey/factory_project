@@ -760,15 +760,15 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 				"tooltip": inventory.recipe_buttons.foundation.tooltip_text})):
 		return
 	inventory.catalog.hide()
-	if not await _approach(Vector2(9.0, 6.0)):
+	if not await _approach(Vector2(3.3, 4.95)):
 		return
-	var placed: Dictionary = _construct({"action": "place_foundation", "cell": [5, 2], "level": 4})
+	var placed: Dictionary = _construct({"action": "place_foundation", "cell": [2, 1], "level": 4})
 	if placed.is_empty():
 		return
 	var built: Dictionary = opening.model.projection()
 	var floor_id := ""
 	for id: String in built.foundations:
-		if built.foundations[id].cell == [5, 2] and built.foundations[id].level == 4:
+		if built.foundations[id].cell == [2, 1] and built.foundations[id].level == 4:
 			floor_id = id
 	if not _expect(not floor_id.is_empty() and built.part_kits.P.foundation == before.part_kits.P.foundation,
 			"The crafted floor can enter the ordinary native construction inventory"):
@@ -776,9 +776,29 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
 		if not _expect(await _capture_actor_area(capture_prefix + "-one-foundation-built.png",
-				Vector3(5.0 * OpeningGeometry.FOUNDATION_PITCH,
-					4.0 * OpeningGeometry.HEIGHT_STEP, 2.0 * OpeningGeometry.FOUNDATION_PITCH)),
-				"Retain the actor-eye one-slab footprint beside the unchanged worker and worksite"):
+				Vector3(2.0 * OpeningGeometry.FOUNDATION_PITCH,
+					4.0 * OpeningGeometry.HEIGHT_STEP, OpeningGeometry.FOUNDATION_PITCH)),
+				"Retain the actor-eye one-slab footprint beside the unchanged worksite"):
+			return
+		var context := SubViewport.new()
+		context.size = Vector2i(1280, 800)
+		context.world_3d = root.world_3d
+		context.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		root.add_child(context)
+		var camera := Camera3D.new()
+		context.add_child(camera)
+		camera.fov = 60.0
+		camera.position = Vector3(7.5, 4.1, 9.2)
+		camera.look_at(Vector3(3.3, 0.7, 4.6))
+		camera.make_current()
+		for frame in range(3):
+			await process_frame
+			await RenderingServer.frame_post_draw
+		var context_captured: bool = context.get_texture().get_image().save_png(
+			capture_prefix + "-foundation-pod-worker-context.png") == OK
+		context.queue_free()
+		if not _expect(context_captured,
+				"Retain the single new slab beside the unchanged pod and worker"):
 			return
 	if _construct({"action": "remove", "entity": floor_id}).is_empty():
 		return
