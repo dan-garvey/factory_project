@@ -5176,9 +5176,9 @@ func _arrival_run() -> void:
 		var kind: String = part_list[index]
 		if not _select_inventory_item("component:" + kind):
 			return
-		var requested_center := [(32 if raised else 3 * OpeningGeometry.HEIGHT_DENOMINATOR) + maxi(index - 2, 0),
+		var requested_center := [(32 if raised else 6 * OpeningGeometry.HEIGHT_DENOMINATOR) + maxi(index - 2, 0),
 			[0, 1, 3, 4, 4][index] + (OpeningGeometry.HEIGHT_DENOMINATOR if raised else 0),
-			32 if raised else 4 * OpeningGeometry.HEIGHT_DENOMINATOR]
+			32 if raised else 8 * OpeningGeometry.HEIGHT_DENOMINATOR]
 		var before: int = opening.model.projection().order
 		var before_parts: Dictionary = opening.model.projection().placed_components
 		if mode in ["arrival-press", "arrival-guide-geometry", "arrival-raised-press"]:
@@ -5217,7 +5217,7 @@ func _arrival_run() -> void:
 			var pointed: String = opening._screen_entity(screen)
 			var tile: Vector2i = opening._screen_cell(screen)
 			if not _expect(not opening.component_nudge_active
-					and (not target_id.is_empty() or tile == (Vector2i(8, 8) if raised else Vector2i(3, 4)))
+					and (not target_id.is_empty() or tile == (Vector2i(8, 8) if raised else Vector2i(6, 8)))
 					and (target_id.is_empty() or (pointed == target_id
 					and not hit.is_empty() and hit.normal.dot(expected_face) > 0.8)),
 					"The physical actor can point at the fitted %s face for %s: %s" % [
@@ -5258,9 +5258,10 @@ func _arrival_run() -> void:
 							"A viewport click while paused cannot place the raised guide"):
 						return
 					event_route_pointer_suppressed += 1
+				if opening.pause_menu.visible:
 					await _ordinary_key(KEY_ESCAPE)
-					if not _expect(not opening.pause_menu.visible,
-							"Escape closes pause before the raised guide is fitted"):
+				if not _expect(not opening.pause_menu.visible and opening.mode == "component",
+						"The paused viewport click cannot cancel the selected raised guide"):
 						return
 				await _ordinary_left_click(screen)
 				event_route_pointer_placements += 1
@@ -5269,7 +5270,7 @@ func _arrival_run() -> void:
 		else:
 			opening.component_nudge_active = true
 			opening.component_nudge_center = requested_center.duplicate()
-			opening._world_click(Vector2i(3, 4))
+			opening._world_click(Vector2i(6, 8))
 			opening.component_nudge_active = false
 			opening.component_nudge_center.clear()
 		var projection: Dictionary = opening.model.projection()
@@ -5486,7 +5487,7 @@ func _arrival_run() -> void:
 	if not _expect(opening.component_preview.visible and not opening.component_preview_blocked,
 			"The crafted crank has a clear ordinary preview on the guided press shaft input"):
 		return
-	opening._world_click(Vector2i(8, 8) if raised else Vector2i(3, 4), str(ready.parts.shaft))
+	opening._world_click(Vector2i(8, 8) if raised else Vector2i(6, 8), str(ready.parts.shaft))
 	opening.component_nudge_active = false
 	opening.component_nudge_center.clear()
 	var fitted_crank := ""
