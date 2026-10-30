@@ -83,6 +83,7 @@ const FIRST_PERSON_BLEND_DISTANCE := 4.0
 var hover_cell := Vector2i(99, 99)
 var visual_revision := -1
 var geometry_key := ""
+var item_visual_key: Array = []
 var ui_refresh_key: Array = []
 var hand_tree_nodes: Dictionary = {}
 var ore_field_visual: Node3D
@@ -135,6 +136,7 @@ var status_footer: Control
 var status_refused := false
 var footer_snapshot_ready := false
 var footer_fit_pending := false
+var pointed_summary_cache_key: Array = []
 var stock_label: Label
 var parts_label: Label
 var goal_text := ""
@@ -224,6 +226,8 @@ var component_nudge_active := false
 var component_nudge_center: Array = []
 var landing_pod_visual: Node3D
 var landing_hub_visual: Node3D
+var landing_pod_batch_visual: MeshInstance3D
+var landing_hub_batch_visual: MeshInstance3D
 var landing_hub_pick: StaticBody3D
 var arrival_reveal_probe := false
 var arrival_reveal_active := false
@@ -729,6 +733,7 @@ func _load_worksite(path: String = "", startup_resume := false) -> Dictionary:
 		pending_link = ""
 		geometry_key = ""
 		visual_revision = -1
+		item_visual_key = []
 		elapsed = 0.0
 		request_sequence = 0
 		request_namespace = "opening-" + Crypto.new().generate_random_bytes(16).hex_encode() + "-"
@@ -1003,6 +1008,21 @@ func _process(delta: float) -> void:
 			advanced = model._advance_borrowed() if model is NativeWorldModel else model.advance()
 		if advanced.has("context") and advanced.has("revision") and advanced.has("entities"):
 			_refresh_from_projection(advanced)
+		elif model is NativeWorldModel and not state.is_empty():
+			var borrowed := (model as NativeWorldModel)._view_projection_borrowed()
+			if borrowed.get("revision") != state.get("revision") \
+					or borrowed.get("order") != state.get("order") \
+					or borrowed.get("context") != state.get("context"):
+				_refresh_from_projection(borrowed)
+			elif borrowed.get("actors", {}).get(client) != state.get("actors", {}).get(client):
+				var prev_actor: Dictionary = state.get("actors", {}).get(client, {})
+				var next_actor: Dictionary = borrowed.get("actors", {}).get(client, {})
+				state = borrowed
+				if character_presenter != null and (next_actor.get("position") != prev_actor.get("position") \
+						or next_actor.get("ready") != prev_actor.get("ready")):
+					character_presenter.refresh()
+				if next_actor.get("ready") != prev_actor.get("ready"):
+					_refresh_ui()
 		else:
 			_refresh()
 	_refresh_machine_preview()
@@ -3341,6 +3361,37 @@ func _pose_pod_canopy(amount: float) -> void:
 		strut.basis = Basis.looking_at((end - start).normalized(), Vector3.RIGHT) * Basis(Vector3.RIGHT, PI / 2.0)
 		strut.scale = Vector3(1.0, start.distance_to(end), 1.0)
 
+func _collect_static_descendant_parts(node: Node3D, pose: Transform3D, finishes: Dictionary) -> void:
+	for child in node.get_children():
+		if not child is Node3D:
+			continue
+		var child_3d := child as Node3D
+		var child_pose: Transform3D = pose * child_3d.transform
+		if child_3d is MeshInstance3D:
+			var source := child_3d as MeshInstance3D
+			if source.mesh != null:
+				for surface in source.mesh.get_surface_count():
+					var finish: Material = source.material_override
+					if finish == null:
+						finish = source.get_surface_override_material(surface)
+					if finish == null:
+						finish = source.mesh.surface_get_material(surface)
+					var finish_id := finish.get_instance_id() if finish != null else 0
+					if not finishes.has(finish_id):
+						var st := SurfaceTool.new()
+						st.begin(Mesh.PRIMITIVE_TRIANGLES)
+						st.set_material(finish)
+						finishes[finish_id] = st
+					(finishes[finish_id] as SurfaceTool).append_from(source.mesh, surface, child_pose)
+		_collect_static_descendant_parts(child_3d, child_pose, finishes)
+
+func _set_descendant_meshes_visible(node: Node3D, show_meshes: bool) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			(child as MeshInstance3D).visible = show_meshes
+		if child is Node3D:
+			_set_descendant_meshes_visible(child as Node3D, show_meshes)
+
 func _sync_landing_pod_visual() -> void:
 	if not state.has("landing_pod") or not state.has("fabrication_hub"):
 		if landing_pod_visual != null:
@@ -3349,6 +3400,12 @@ func _sync_landing_pod_visual() -> void:
 			landing_pod_visual = null
 			landing_hub_visual = null
 			landing_hub_pick = null
+		if landing_pod_batch_visual != null:
+			landing_pod_batch_visual.free()
+			landing_pod_batch_visual = null
+		if landing_hub_batch_visual != null:
+			landing_hub_batch_visual.free()
+			landing_hub_batch_visual = null
 		return
 	var pod: Dictionary = state.landing_pod
 	var hub: Dictionary = state.fabrication_hub
@@ -3369,6 +3426,41 @@ func _sync_landing_pod_visual() -> void:
 		# Host positions use the shared spindle anchor; the bench art sits on its floor.
 		landing_hub_visual.position = Vector3(float(position[0]), float(position[1]), float(position[2])) \
 			- Vector3.UP * Geometry.ANCHOR_HEIGHT
+	var batch_pod: bool = not arrival_reveal_active and state.get("placed_components", {}).size() >= 12
+	if batch_pod:
+		if landing_pod_batch_visual == null:
+			var pod_finishes := {}
+			_collect_static_descendant_parts(landing_pod_visual, Transform3D.IDENTITY, pod_finishes)
+			var pod_mesh: ArrayMesh
+			for st: SurfaceTool in pod_finishes.values():
+				pod_mesh = st.commit(pod_mesh)
+			landing_pod_batch_visual = MeshInstance3D.new()
+			landing_pod_batch_visual.name = "DeployedLandingPodBatch"
+			landing_pod_batch_visual.mesh = pod_mesh
+			add_child(landing_pod_batch_visual)
+		if landing_hub_batch_visual == null:
+			var hub_finishes := {}
+			_collect_static_descendant_parts(landing_hub_visual, Transform3D.IDENTITY, hub_finishes)
+			var hub_mesh: ArrayMesh
+			for st: SurfaceTool in hub_finishes.values():
+				hub_mesh = st.commit(hub_mesh)
+			landing_hub_batch_visual = MeshInstance3D.new()
+			landing_hub_batch_visual.name = "PodFabricationHubBatch"
+			landing_hub_batch_visual.mesh = hub_mesh
+			add_child(landing_hub_batch_visual)
+		_set_descendant_meshes_visible(landing_pod_visual, false)
+		_set_descendant_meshes_visible(landing_hub_visual, false)
+		landing_pod_batch_visual.transform = landing_pod_visual.transform
+		landing_pod_batch_visual.visible = landing_pod_visual.visible
+		landing_hub_batch_visual.transform = landing_hub_visual.transform
+		landing_hub_batch_visual.visible = landing_hub_visual.visible
+	else:
+		if landing_pod_batch_visual != null:
+			landing_pod_batch_visual.visible = false
+		if landing_hub_batch_visual != null:
+			landing_hub_batch_visual.visible = false
+		_set_descendant_meshes_visible(landing_pod_visual, true)
+		_set_descendant_meshes_visible(landing_hub_visual, true)
 
 func _maybe_start_arrival_reveal() -> void:
 	var deadline := Time.get_ticks_msec() + 30000
@@ -3382,6 +3474,7 @@ func _maybe_start_arrival_reveal() -> void:
 	arrival_reveal_elapsed = 0.0
 	_release_character_controls()
 	arrival_reveal_active = true
+	_sync_landing_pod_visual()
 	if character_presenter != null:
 		character_presenter.visible = false
 	if arrival_gameplay_canvas != null:
@@ -3460,6 +3553,7 @@ func _finish_arrival_reveal(skipped: bool = true) -> void:
 	arrival_reveal_elapsed = ARRIVAL_REVEAL_SECONDS
 	_pose_arrival_reveal()
 	arrival_reveal_active = false
+	_sync_landing_pod_visual()
 	if character_presenter != null:
 		character_presenter.visible = true
 	if arrival_gameplay_canvas != null:
@@ -4554,7 +4648,8 @@ func _rebuild_machines() -> void:
 			_bar(machine_root, _cell_position(state.entities[pair[0]].cell) + Vector3(0, 0.35, 0.55),
 				_cell_position(state.entities[pair[1]].cell) + Vector3(0, 0.35, 0.55), 0.09, Color("d1b56e"))
 	_index_machine_rotors()
-	machine_batches.rebuild(machine_root, machine_motion_anchors, _native_transmission())
+	machine_batches.rebuild(machine_root, machine_motion_anchors, _native_transmission(),
+		model is NativeWorldModel and state.get("placed_components", {}).size() >= 12)
 
 func _redraw_items() -> void:
 	# The asset helper uses this script's shared surfaces, so load it after
@@ -4597,18 +4692,28 @@ func _refresh_from_projection(known_projection: Dictionary) -> void:
 	if next_key != geometry_key:
 		geometry_key = next_key
 		if actor_world != null:
-			actor_world.sync_topology()
+			actor_world.sync_topology(state)
 		_rebuild_machines()
 	if int(state.revision) != visual_revision:
 		visual_revision = int(state.revision)
-		_redraw_items()
+		var next_item_key := [state.get("context"), state.get("order"), state.get("stock"),
+			state.get("hand_sources", {}).get(str(state.get("source_deposit", {}).get("id", "")) + "-region-4", {}).get("remaining")]
+		if not model is NativeWorldModel or next_item_key != item_visual_key:
+			item_visual_key = next_item_key
+			_redraw_items()
+		if _native_transmission() and transmission_presenter != null:
+			transmission_presenter.refresh()
 	if character_presenter != null:
 		character_presenter.refresh()
 	if not model is NativeWorldModel or _native_ui_key() != ui_refresh_key:
 		_refresh_ui()
 
 func _native_ui_key() -> Array:
-	return [model.get_instance_id(), state.get("context"), state.get("revision"),
+	return [model.get_instance_id(), state.get("context"), state.get("order"),
+		state.get("stock"), state.get("remaining"), state.get("line_belt_raw"),
+		state.get("inventories"), state.get("cargo", {}).get(client),
+		state.get("manual_cuts", {}).get(client), state.get("dropped_material"),
+		state.get("belt_spans"), state.get("opening_engineering"),
 		state.get("actors", {}).get(client, {}).get("ready", false),
 		selected, mode, explanation_open, startup_save_pending, save_slot_ready, save_slot_owned,
 		building_rotation, foundation_level, wheel_level, wheel_tiles,
@@ -5952,6 +6057,12 @@ func _refresh_pointed_summary() -> void:
 	if distance > 0.0 and get_viewport().gui_get_hovered_control() != null:
 		pointed_summary.visible = false
 		return
+	var cache_key := [screen, camera.global_transform, mode, state.get("revision"),
+		state.get("order"), transmission_controls.active_tool if transmission_controls != null else "",
+		transmission_controls._belt_start if transmission_controls != null else {}]
+	if model is NativeWorldModel and cache_key == pointed_summary_cache_key:
+		return
+	pointed_summary_cache_key = cache_key
 	var summary := _pointed_summary_data(screen)
 	pointed_summary.visible = not summary.is_empty()
 	if summary.is_empty():

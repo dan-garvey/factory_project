@@ -308,8 +308,6 @@ func _refresh_multitools(delta: float) -> void:
 			return
 		var attachment: BoneAttachment3D = body.get_node(body.get_meta("multitool_attachment"))
 		attachment.visible = equipped
-		if equipped:
-			_hold_multitool(body)
 		var cut: Dictionary = host.state.get("manual_cuts", {}).get(actor, {})
 		var source: Dictionary = host.state.get("hand_sources", {}).get(cut.get("target", ""), {})
 		var active: bool = equipped and not cut.is_empty() and \
@@ -317,6 +315,7 @@ func _refresh_multitools(delta: float) -> void:
 			Geometry.valid_position(source.position) and body.get_meta("sourced_character", false)
 		var motion_state: Dictionary = cut_motion.get(actor, {"blend": 0.0, "elapsed": 0.0,
 			"remaining": -1, "target": "", "kind": "tree", "reach": 0.75})
+		var prev_blend := float(motion_state.get("blend", 0.0))
 		if active:
 			var remaining: int = int(cut.get("remaining_ticks", -1))
 			if motion_state.target != cut.target or motion_state.remaining != remaining:
@@ -334,11 +333,21 @@ func _refresh_multitools(delta: float) -> void:
 		motion_state.blend = move_toward(float(motion_state.blend), 1.0 if active else 0.0,
 			maxf(delta, 0.0) * (8.0 if active else 6.0))
 		if float(motion_state.blend) > 0.0:
+			if motion.has(actor):
+				motion[actor]["in_rest_pose"] = false
 			var stroke := sin(TAU * float(motion_state.elapsed) / CUT_TICK_SECONDS) if active else 0.0
 			_pose_cut_arm(body, str(motion_state.kind), float(motion_state.reach), stroke,
 				float(motion_state.blend))
 		elif body.get_meta("sourced_character", false):
+			if prev_blend > 0.0:
+				if motion.has(actor):
+					motion[actor]["in_rest_pose"] = false
+				_set_gait(body, float(motion.get(actor, {}).get("phase", 0.0)),
+					float(motion.get(actor, {}).get("weight", 0.0)))
 			body.get_node("AdultHuman").position.y = float(body.get_meta("adult_fit_y"))
+		if equipped and not body.get_meta("multitool_grip_applied", false):
+			_hold_multitool(body)
+			body.set_meta("multitool_grip_applied", true)
 		cut_motion[actor] = motion_state
 	var local_ready: bool = host.state.get("actors", {}).get(host.client, {}).get("ready", false)
 	var show_eye: bool = equipped and local_ready and host.distance <= 1.0 and views.has(host.client)
@@ -1325,6 +1334,7 @@ func _set_gait(body: Node3D, phase: float, weight: float,
 		landing_toe_anchor: Variant = null) -> void:
 	if body.get_meta("appearance_unavailable", false):
 		return
+	body.set_meta("multitool_grip_applied", false)
 	if body.get_meta("sourced_character", false):
 		_set_adult_air_and_landing(body, air, vertical_speed, impact,
 			landing_progress, landing_stride, landing_approach)
@@ -1548,10 +1558,22 @@ func _animate_actor(actor: String, view: Node3D, at: Vector3, delta: float,
 			var index: int = body.get_meta("rig")[key].index
 			saved_arms[key] = skeleton.get_bone_pose_rotation(index)
 		previous.landing_arm_start = saved_arms
-	_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
-		float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
-		presentation_stride, landing_approach,
-		previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
+	var is_idle_grounded: bool = previous.mode == "grounded" \
+		and float(previous.weight) == 0.0 \
+		and float(previous.air) == 0.0 \
+		and float(previous.run_mix) == 0.0 \
+		and float(previous.horizontal_speed) == 0.0 \
+		and float(previous.gait_speed) == 0.0 \
+		and impact == 0.0 \
+		and not new_landing \
+		and not previous.get("stop_pending", false) \
+		and not previous.has("stop_toe_anchor")
+	if not (is_idle_grounded and previous.get("in_rest_pose", false)):
+		_set_gait(body, float(previous.phase), float(previous.weight), float(previous.air),
+			float(previous.vertical_speed), impact, float(previous.run_mix), landing_progress,
+			presentation_stride, landing_approach,
+			previous.get("landing_toe_anchor") if previous.mode == "landing" else null)
+		previous.in_rest_pose = is_idle_grounded
 	if previous.mode == "landing" and previous.has("landing_arm_start"):
 		var skeleton: Skeleton3D = body.get_node(body.get_meta("skeleton_path"))
 		var arm_blend := smoothstep(0.0, 0.55, landing_progress)

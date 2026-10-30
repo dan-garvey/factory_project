@@ -112,13 +112,18 @@ func _view_projection_borrowed() -> Dictionary:
 		_view_cache = observed
 	return _view_cache
 
-func _complete_projection(value: Dictionary) -> bool:
+func _complete_projection(value: Dictionary, changed_roots: Dictionary = {}) -> bool:
 	if _projection_fields.is_empty() or _projection_records.is_empty():
 		return false
-	for name in _projection_fields:
+	var selective := not changed_roots.is_empty() and not changed_roots.has("options")
+	if selective:
+		for changed_key in changed_roots:
+			if not changed_key is String or not _projection_fields.has(changed_key):
+				return false
+	for name in (changed_roots if selective else _projection_fields):
 		if not name is String:
 			return false
-		var expected: Variant = _projection_fields[name]
+		var expected: Variant = _projection_fields.get(name)
 		var required_with := ""
 		if expected is Dictionary:
 			if not expected.get("type") is String or not expected.get("required_with") is String:
@@ -149,6 +154,14 @@ func _complete_projection(value: Dictionary) -> bool:
 			or not entry_keys_with is String or not entry_keys_when is String \
 			or typeof(record.get("engine_view_only", false)) != TYPE_BOOL:
 			return false
+		if selective:
+			var root_segment: String = name.split(".")[0]
+			var keys_root: String = keys_with.split(".")[0] if not keys_with.is_empty() else ""
+			var entry_keys_root: String = entry_keys_with.split(".")[0] if not entry_keys_with.is_empty() else ""
+			if not changed_roots.has(root_segment) \
+				and (keys_root.is_empty() or not changed_roots.has(keys_root)) \
+				and (entry_keys_root.is_empty() or not changed_roots.has(entry_keys_root)):
+				continue
 		var nested: Variant = value
 		var missing := false
 		for segment in name.split("."):
@@ -366,19 +379,24 @@ func _advance_borrowed() -> Dictionary:
 		return complete
 	var delta: Dictionary = _invoke("advance_delta", [])
 	var observed: Dictionary = {}
+	var changed_roots: Dictionary = {}
 	if delta.get("full") is Dictionary:
 		observed = delta.full
 	elif delta.get("changes") is Dictionary and delta.get("removed") is Array:
+		if delta.removed.is_empty() and delta.changes.is_empty():
+			return _view_cache
 		observed = _view_cache.duplicate()
 		for key in delta.removed:
 			observed.erase(key)
 		for key in delta.changes:
 			observed[key] = delta.changes[key]
+		if delta.removed.is_empty() and not delta.changes.is_empty():
+			changed_roots = delta.changes
 	else:
 		# A boundary refusal is not a confirmed tick or a reusable view.
 		_view_cache = {}
 		return delta if delta.get("accepted") == false else _projection_unavailable()
-	if not _complete_projection(observed):
+	if not _complete_projection(observed, changed_roots):
 		_view_cache = {}
 		return _projection_unavailable()
 	_view_cache = observed
