@@ -1365,13 +1365,11 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 					Vector3(x, 0.071, 0), Vector3(0.012, 0.003, 0.51), dark)
 			_support_box(anchor, "WorkbenchEdgeBand", Vector3(0, 0.035, -0.275),
 				Vector3(0.62, 0.045, 0.025), worked)
-			var bench_scale: float = Geometry.PITCH / 1.65
 			for index in range(first_child, anchor.get_child_count()):
 				var piece := anchor.get_child(index) as Node3D
-				# The issued box is centered 0.45 m above its floor. Seat the
-				# lowest leg face there before scaling the complete joinery.
-				piece.position = (piece.position + Vector3.UP * 0.33) * bench_scale
-				piece.scale *= bench_scale
+				# The issued box keeps its original 0.9 m height. Seat the lowest
+				# leg face on the floor without shrinking the joinery with U.
+				piece.position += Vector3.UP * 0.33
 		"wooden_frame":
 			for x in [-0.155, 0.155]:
 				for z in [-0.155, 0.155]:
@@ -1504,14 +1502,20 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 			die.position.y = occupied_size.y * 0.5 - 0.10 \
 				+ slide_carriage_drop(slide_phase, BROAD_VISIBLE_STROKE)
 			anchor.add_child(die)
-			_support_box(die, "JoinedFlatFace", Vector3.ZERO,
-				Vector3(occupied_size.x - 0.24, 0.16, occupied_size.z - 0.24), worked, true)
+			# The lower face keeps the native sheet contact height; the cast body
+			# above it gives the moving tool a readable side and a visible load path.
+			var head_cast := Visuals.material(Color("536769"), 0.68, 0.42)
+			var head_face := Visuals.material(Color("a6b3ad"), 0.76, 0.34)
+			_support_box(die, "JoinedFlatFace", Vector3(0, -0.03, 0),
+				Vector3(occupied_size.x - 0.24, 0.10, occupied_size.z - 0.24), head_face, true)
+			_support_box(die, "BroadHeadCastBody", Vector3(0, 0.02, 0),
+				Vector3(occupied_size.x - 0.34, 0.12, occupied_size.z - 0.34), head_cast, true)
 			for side in [-1.0, 1.0]:
-				_support_box(die, "BroadHeadCrossbar", Vector3(0, 0.125, side * 0.77),
-					Vector3(2.75, 0.10, 0.11), dark)
-				_support_box(die, "BroadHeadBeam", Vector3(side * 0.77, 0.125, 0),
-					Vector3(0.11, 0.10, 2.75), dark)
-			_support_box(die, "SlideKey", Vector3(0, 0.19, 0), Vector3(0.35, 0.12, 0.35), dark)
+				_support_box(die, "BroadHeadCrossbar", Vector3(0, 0.085, side * 0.70),
+					Vector3(2.75, 0.02, 0.08), dark)
+				_support_box(die, "BroadHeadBeam", Vector3(side * 0.70, 0.085, 0),
+					Vector3(0.08, 0.02, 2.75), dark)
+			_support_box(die, "SlideKey", Vector3(0, 0.06, 0), Vector3(0.35, 0.06, 0.35), dark)
 		"broad_copper_slide":
 			var bottom := -occupied_size.y * 0.5
 			var top := occupied_size.y * 0.5
@@ -1554,7 +1558,7 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 				Vector3(0.48, 0.17, 0.48), frame, true)
 			var rest_reach := PRESS_REFERENCE_PITCH / 4.0 * 1.5 + PRESS_REFERENCE_PITCH * 0.5 \
 				- PRESS_REFERENCE_WORK_HEIGHT - SLIDE_DIE_TRAVEL_MARGIN
-			var piston_bottom: float = bottom + rest_reach + SLIDE_DIE_TRAVEL_MARGIN + 0.09 \
+			var piston_bottom: float = bottom + rest_reach + SLIDE_DIE_TRAVEL_MARGIN - 0.07 \
 				+ slide_carriage_drop(slide_phase, BROAD_VISIBLE_STROKE)
 			var piston_top: float = top - 0.16
 			var piston_length := piston_top - piston_bottom + 0.06
@@ -1660,8 +1664,10 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 					coupler.position.y = plane
 					coupler.rotation.z = PI * 0.5
 					anchor.add_child(coupler)
-					Assets.gear(coupler, PRESS_REFERENCE_PITCH * 0.25, 1,
-						Color("a6b4af"))
+					# Keep the embodied change of level legible without making two
+					# exposed wheels the silhouette of the entire small press.
+					var radius := 0.18 if plane == lower_y else 0.24
+					Assets.gear(coupler, radius, 1, Color("b68149"))
 			# The shaft turns inside a fixed crown cylinder. Its piston always
 			# overlaps the moving carriage, including at the bottom of the native
 			# stroke, so the head reads as driven rather than suspended below it.
@@ -2331,7 +2337,7 @@ func _update_component_phases_and_lifts(snapshot: Dictionary) -> void:
 				var top := size_y * 0.5
 				var rest_reach := Geometry.HEIGHT_STEP * 1.5 + Geometry.ANCHOR_HEIGHT \
 					- Geometry.PRESS_WORK_HEIGHT - SLIDE_DIE_TRAVEL_MARGIN
-				var piston_bottom: float = bottom + rest_reach + SLIDE_DIE_TRAVEL_MARGIN + 0.09 \
+				var piston_bottom: float = bottom + rest_reach + SLIDE_DIE_TRAVEL_MARGIN - 0.07 \
 					+ slide_carriage_drop(phase, BROAD_VISIBLE_STROKE)
 				var piston_top: float = top - 0.16
 				var piston_height := maxf(0.08, piston_top - piston_bottom + 0.06)

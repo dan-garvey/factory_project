@@ -40,15 +40,12 @@ void floor_and_custody_geometry() {
     const auto top = original.at("pod-fabrication-hub/worktop").bounds;
     check(std::abs(top.center[0] - 3.3) < 1e-12 && std::abs(top.center[1] - 0.74) < 1e-12,
           "The workshop top follows its separate east-deck floor anchor.");
-    const auto smaller = godot_world::arrival_geometry::supplied(state, step / 2);
-    const auto& small_top = smaller.at("pod-fabrication-hub/worktop").bounds;
-    check(smaller.at("landing-pod/lower-hull").bounds.half ==
+    const auto finer_grid = godot_world::arrival_geometry::supplied(state, step / 2);
+    const auto& finer_top = finer_grid.at("pod-fabrication-hub/worktop").bounds;
+    check(finer_grid.at("landing-pod/lower-hull").bounds.half ==
               original.at("landing-pod/lower-hull").bounds.half &&
-              small_top.half[0] == top.half[0] / 2 &&
-              small_top.half[1] == top.half[1] / 2 &&
-              small_top.half[2] == top.half[2] / 2 &&
-              small_top.center[1] == top.center[1] / 2,
-          "A half-U workshop scales around its own floor while the pod shell keeps its meter size.");
+              finer_top.half == top.half && finer_top.center[1] == top.center[1],
+          "The workshop and pod retain their meter dimensions when the construction grid changes.");
     const auto west_jaw = original.at("pod-fabrication-hub/clamp-west").bounds;
     const auto east_jaw = original.at("pod-fabrication-hub/clamp-east").bounds;
     const auto cutting_rail = original.at("pod-fabrication-hub/tool-rail").bounds;
@@ -97,7 +94,7 @@ void authored_pod_and_workshop_clearance() {
             for (std::size_t axis = 0; axis < 3; ++axis)
                 intersects &= std::abs(pod.bounds.center[axis] - bench.bounds.center[axis]) <
                     pod.bounds.half[axis] + bench.bounds.half[axis];
-            check(!intersects, "The scaled workshop cannot intersect the unchanged pod shell.");
+            check(!intersects, "The full-size workshop cannot intersect the unchanged pod shell.");
         }
     }
 }

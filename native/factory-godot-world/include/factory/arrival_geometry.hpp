@@ -23,7 +23,6 @@ struct Solid {
 // Geometry is derived from World, never saved or independently mutable.
 inline std::map<std::string, Solid> supplied(const world::State& state, double height_step) {
     std::map<std::string, Solid> result;
-    const double bench_scale = height_step * 4 / 1.65;
     const auto append = [&](const std::string& entity, authority::Integer generation,
             const mechanics::Point& grid, const char* name,
             authority::Point offset, authority::Point half) {
@@ -49,10 +48,6 @@ inline std::map<std::string, Solid> supplied(const world::State& state, double h
     if (state.fabrication_hub && !state.fabrication_hub->holder) {
         const auto& hub = *state.fabrication_hub;
         const auto add = [&](const char* name, authority::Point at, authority::Point half) {
-            for (std::size_t axis = 0; axis < 3; ++axis) {
-                at[axis] *= bench_scale;
-                half[axis] *= bench_scale;
-            }
             append(hub.id, hub.generation, hub.center, name, at, half);
         };
         add("leg-west-front", {-0.40, 0.34, -0.27}, {0.0425, 0.34, 0.0425});

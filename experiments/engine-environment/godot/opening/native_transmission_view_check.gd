@@ -538,8 +538,7 @@ func _supplied_hardware_view() -> void:
 	opening.free()
 
 func _workbench_geometry_view() -> void:
-	var scale_factor: float = Geometry.PITCH / 1.65
-	var occupied_size := Vector3(0.68, 0.90, 0.60) * scale_factor
+	var occupied_size := Vector3(0.68, 0.90, 0.60)
 	var presenter := Presenter.new()
 	root.add_child(presenter)
 	var anchor := Node3D.new()
@@ -554,7 +553,7 @@ func _workbench_geometry_view() -> void:
 		var mesh := node as MeshInstance3D
 		var local := anchor.global_transform.affine_inverse() * mesh.global_transform
 		var box: AABB = local * mesh.get_aabb()
-		verify(occupied.encloses(box), "Every scaled workshop piece stays inside its native occupied box.")
+		verify(occupied.encloses(box), "Every workshop piece stays inside its native occupied box.")
 		if mesh.name.begins_with("WorkbenchLeg"):
 			foot = minf(foot, box.position.y)
 	verify(is_equal_approx(foot, -occupied_size.y * 0.5),

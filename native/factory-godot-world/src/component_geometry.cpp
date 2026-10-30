@@ -66,9 +66,9 @@ Bounds component_bounds(const world::Profile& profile,
                 {0.2025 * press_scale, 0.45 * press_scale, 0.2025 * press_scale}};
         case materials::Component::wooden_workbench:
             // A floor-seated table is usable on ground or an ordinary joined deck.
-            // Keep the issued box and visible joinery at the same U-relative size.
-            return {{at[0], center[1] * height_step + 0.45 * pitch / 1.65, at[2]},
-                {0.34 * pitch / 1.65, 0.45 * pitch / 1.65, 0.30 * pitch / 1.65}};
+            // Its physical size remains useful beside the smaller machinery.
+            return {{at[0], center[1] * height_step + 0.45, at[2]},
+                {0.34, 0.45, 0.30}};
         case materials::Component::tool_mount:
             return {{at[0], at[1] + 0.10 * press_scale, at[2]},
                     {height_step - press_shaft_half,
