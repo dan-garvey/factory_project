@@ -2940,7 +2940,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"The starter route places a raised foundation through its ordinary build tool: "
 			+ opening.status_label.text):
 			return
-	if not await _approach(Vector2(5.6, 5.6) if raised_snap else Vector2(4.95, 4.95)):
+	if not await _approach(Vector2(5.6, 5.6) if raised_snap else Vector2(3.3, 3.3)):
 		return
 	var fitted: Dictionary = {}
 	var rise := OpeningGeometry.HEIGHT_DENOMINATOR if raised_snap else 0
@@ -3071,7 +3071,10 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		var after: Dictionary = opening.model.projection().placed_components
 		if not _expect(after.size() == prior.size() + 1 and after.values().any(
 				func(placed: Variant) -> bool: return placed.component == part.kind and placed.center == part.center),
-				"The physical worker places the %s on its shared-grid socket" % part.kind):
+			"The physical worker places the %s on its shared-grid socket: %s" %
+			[part.kind, str({"status": opening.status_label.text,
+				"actor": opening.model.projection().actors.P.position,
+				"center": part.center, "placed": after})]):
 			return
 		for id: String in after:
 			if not prior.has(id):
