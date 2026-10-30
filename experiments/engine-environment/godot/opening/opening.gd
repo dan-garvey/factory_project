@@ -2480,13 +2480,11 @@ func _sliding_press_part_snap(kind: String, pointed_kind: String, center: Array,
 			"label": "2×2 housing over broad head"}
 	if kind == "hand_crank" and pointed_kind in ["wooden_slide", "copper_slide"]:
 		var side := 1 if normal.x >= 0.0 else -1
-		var lift := 0 if int(center[1]) % 4 == 0 else 2
-		return {"center": [center[0] + 4 * side, center[1] + lift, center[2]],
+		return {"center": [center[0] + 4 * side, center[1], center[2]],
 			"label": "Slide input"}
 	if kind in ["wooden_shaft", "copper_shaft"] and pointed_kind in ["wooden_slide", "copper_slide"]:
 		var side := 1 if normal.x >= 0.0 else -1
-		var lift := 0 if int(center[1]) % 4 == 0 else 2
-		return {"center": [center[0] + 4 * side, center[1] + lift, center[2]],
+		return {"center": [center[0] + 4 * side, center[1], center[2]],
 			"label": "Slide input shaft"}
 	return {}
 
@@ -2606,8 +2604,8 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45 * press_scale
 			half = Vector3(0.2025, 0.45, 0.2025) * press_scale
 		"wooden_workbench":
-			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45 * press_scale
-			half = Vector3(0.34, 0.45, 0.30) * press_scale
+			occupied.y = center[1] * Geometry.HEIGHT_STEP + 0.45
+			half = Vector3(0.34, 0.45, 0.30)
 		"channel_narrow_x", "channel_narrow_z", "channel_broad_x", "channel_broad_z":
 			var pitch := Geometry.HEIGHT_STEP * 4.0
 			var wide := kind.begins_with("channel_broad")
@@ -2652,8 +2650,7 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
 		"wooden_slide", "copper_slide":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - 2.0 * Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
-			var lift := 0.0 if int(center[1]) % 4 == 0 else 2.0 * Geometry.HEIGHT_STEP
-			var high := at.y + lift + Geometry.HEIGHT_STEP * 0.25
+			var high := at.y + 0.08 * press_scale
 			occupied.y = (low + high) * 0.5
 			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
 				Geometry.PITCH * 0.5)

@@ -380,7 +380,11 @@ func _component_placement_check() -> void:
 	var head_box: Dictionary = view._component_candidate_box("flat_head", [12, 1, 8])
 	var slide_box: Dictionary = view._component_candidate_box("copper_slide", [12, 2, 8])
 	var workbed_box: Dictionary = view._component_candidate_box("anvil", [12, 0, 8])
+	var bench_box: Dictionary = view._component_candidate_box("wooden_workbench", [0, 0, 0])
 	var press_scale: float = Geometry.PITCH / 1.65
+	verify(absf(bench_box.center.y - 0.45) < 0.0001
+		and bench_box.size.is_equal_approx(Vector3(0.68, 0.90, 0.60)),
+		"The full-size workbench retains its native placement volume beside the half-U press.")
 	verify(absf(head_box.center.y - head_box.half.y - Geometry.PRESS_WORK_HEIGHT) < 0.0001
 		and absf(head_box.center.y + head_box.half.y -
 			(Geometry.ANCHOR_HEIGHT + Geometry.HEIGHT_STEP * 1.30)) < 0.0001
