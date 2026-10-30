@@ -956,7 +956,8 @@ func belt_visual_frame(first: Variant, last: Variant) -> Dictionary:
 	var step := Vector3i.ZERO
 	var changed := 0
 	for axis in 3:
-		if first_point[axis] % 4 != 0 or last_point[axis] % 4 != 0:
+		# X/Z use U centers; Y may start at any H while each route step still spans U.
+		if axis != 1 and (first_point[axis] % 4 != 0 or last_point[axis] % 4 != 0):
 			return {}
 		if delta[axis] != 0:
 			if absi(delta[axis]) != steps * 4:

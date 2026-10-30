@@ -1237,6 +1237,18 @@ func check_river_drive(render: bool, each_h := false) -> void:
 	verify(view.wheel_rotor != null and view.machine_root.get_child_count() == 1
 		and view.transmission_presenter.get_child_count() > 0,
 		"The ordinary builders present the one native wheel and its connected transmission.")
+	var rendered_belts := {}
+	for child in view.transmission_presenter.get_children():
+		if child.get_meta("kind", "") == "belt_span":
+			rendered_belts[str(child.get_meta("entity", ""))] = child
+	verify(rendered_belts.size() == (2 if each_h else 1)
+		and rendered_belts.has(belt.entity)
+		and (not each_h or rendered_belts.has(raised_belt.entity)),
+		"Every native belt route gets its own visible presentation anchor.")
+	if each_h:
+		var raised_loop: Variant = rendered_belts.get(raised_belt.entity)
+		verify(raised_loop is Node3D and raised_loop.get_node_or_null("BeltLoop") is MeshInstance3D,
+			"The 9H route has a rendered belt loop between its native endpoints.")
 	if not render or failed:
 		viewport.free()
 		return
