@@ -178,6 +178,8 @@ func _record(status: String, reason: String = "") -> void:
 		print("CHAPTER 1 FOUNDATION CRAFT PASS")
 	if status == "pass" and mode == "arrival-joined-broad":
 		print("CHAPTER 1 JOINED BROAD PRESS PASS")
+	if status == "pass" and mode == "arrival-joined-broad-slab":
+		print("CHAPTER 1 JOINED BROAD PRESS SLAB PASS")
 	if status == "pass" and event_route_pointer:
 		print("CHAPTER 1 SCENE EVENTS PASS: " + mode)
 	quit(0 if status == "pass" else 1)
@@ -527,12 +529,17 @@ func _approach_points(points: Array[Vector2], actor: String = "P") -> bool:
 			return false
 	return true
 
-func _arrival_joined_broad_run(capture_prefix: String) -> void:
+func _arrival_joined_broad_run(capture_prefix: String, on_slab := false) -> void:
 	deadline = Time.get_ticks_msec() + 240000
-	facts.evidence = "native_joined_broad_press_scripted_actor_route"
+	facts.evidence = "native_joined_broad_press_slab_scripted_actor_route" if on_slab \
+		else "native_joined_broad_press_scripted_actor_route"
 	var start: Dictionary = opening.model.projection()
 	if not _expect(start.placed_components.is_empty() and start.broad_press_assemblies.is_empty(),
 			"The joined broad proof begins without installed press parts"):
+		return
+	if on_slab and not _expect(start.foundations.values().any(func(floor: Variant) -> bool:
+		return floor is Dictionary and floor.cell == [2, 2] and floor.level == 0),
+			"The joined broad slab proof starts with one real pod-deck foundation at cell (2, 2)"):
 		return
 	if not await _approach_points([Vector2(6.0, 3.45)]):
 		return
@@ -563,13 +570,17 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 			and not carried_crank.is_empty() and crafted.placed_components.is_empty(),
 			"Finite ore and timber leave twelve carried press parts, one crank and three feed blanks"):
 		return
-	if not await _approach_points([Vector2(4.95, 4.95), Vector2(3.3, 3.3),
-			Vector2(3.3, 1.65)]):
+	var installation_path: Array[Vector2] = [Vector2(4.95, 4.95), Vector2(3.3, 3.3),
+		Vector2(3.3, 1.65)]
+	if on_slab:
+		installation_path = [Vector2(3.3, 4.95)]
+	if not await _approach_points(installation_path):
 		return
 	var installed: Dictionary = {}
-	for part in [{"kind": "broad_anvil", "center": [12, 0, 0]},
-			{"kind": "broad_flat_head", "center": [12, 1, 0]},
-			{"kind": "broad_copper_slide", "center": [12, 4, 0]}]:
+	var origin: Array = [24, 0, 24] if on_slab else [12, 0, 0]
+	for part in [{"kind": "broad_anvil", "center": origin},
+			{"kind": "broad_flat_head", "center": [origin[0], origin[1] + 1, origin[2]]},
+			{"kind": "broad_copper_slide", "center": [origin[0], origin[1] + 4, origin[2]]}]:
 		installed[part.kind] = _construct({"action": "place_component",
 			"component": part.kind, "center": part.center})
 		if installed[part.kind].is_empty():
@@ -583,11 +594,17 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 			and assembled.broad_press_assemblies[0].work_centers.size() == 4,
 			"One native broad anvil, matching face and slide cover exactly four workcells"):
 		return
+	if on_slab and not _expect(assembled.broad_press_assemblies[0].work_centers == [
+			[24, 0, 24], [28, 0, 24], [24, 0, 28], [28, 0, 28]],
+			"All four native broad workcells fit inside the same 3U-square pod-deck slab"):
+		return
 	facts.broad_assembly = assembled.broad_press_assemblies[0]
-	var workface := Vector3(3.0 * OpeningGeometry.PITCH, 0.48, 0.5 * OpeningGeometry.PITCH)
+	var workface := Vector3(26.0 * OpeningGeometry.HEIGHT_STEP, 0.48,
+		26.0 * OpeningGeometry.HEIGHT_STEP) if on_slab else Vector3(
+		3.0 * OpeningGeometry.PITCH, 0.48, 0.5 * OpeningGeometry.PITCH)
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
-		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-rest-side.png", workface, true)
+		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-rest-side.png", workface, not on_slab)
 				and await _capture_actor_area(capture_prefix + "-joined-rest-actor.png", workface),
 				"Retain the actual three-piece broad press in its surrounding worksite at rest"):
 			return
@@ -600,12 +617,14 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 		return drop is Dictionary and not drop.get("work_lots", []).is_empty()),
 		"Three finite blanks enter one retained broad work lot"):
 		return
+	var crank_port: Array = [22, 4, 24] if on_slab else [18, 4, 0]
+	var crank_face: Array = [-1, 0, 0] if on_slab else [1, 0, 0]
 	if _construct({"action": "attach_hand_crank", "entity": slide_id,
-			"crank": carried_crank, "port": [18, 4, 0], "face": [1, 0, 0]}).is_empty():
+			"crank": carried_crank, "port": crank_port, "face": crank_face}).is_empty():
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening._select_tool("inspect")
-		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-fed-side.png", workface, true),
+		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-fed-side.png", workface, not on_slab),
 				"Retain the broad workpiece and fitted external crank in context"):
 			return
 	var rest_phase: int = int(opening.model.projection().slide_phases[slide_id].subticks)
@@ -619,7 +638,7 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 					"The actual broad slide advances from its native rest phase"):
 				return
 			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-				if not _expect(await _capture_press_context_side(capture_prefix + "-joined-stroke-side.png", workface, true),
+				if not _expect(await _capture_press_context_side(capture_prefix + "-joined-stroke-side.png", workface, not on_slab),
 						"Retain the broad slide during its native stroke in context"):
 					return
 	var formed: Dictionary = opening.model.projection()
@@ -629,7 +648,7 @@ func _arrival_joined_broad_run(capture_prefix: String) -> void:
 			"The powered joined press forms one native sheet without replacing its installed parts"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-sheet-side.png", workface, true),
+		if not _expect(await _capture_press_context_side(capture_prefix + "-joined-sheet-side.png", workface, not on_slab),
 				"Retain the formed sheet and the same joined press in context"):
 			return
 	_record("pass")
@@ -1193,7 +1212,7 @@ func _run() -> void:
 	if mode == "arrival-nonhorizontal-incline":
 		await _arrival_run()
 		return
-	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-joined-broad-slab", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -3527,6 +3546,28 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				"actor": opening.model.projection().actors.P.position,
 				"menu": opening.object_menu.visible})):
 			return
+		var pick_screen: Vector2 = opening._pointed_screen_position()
+		var unrelated_machine := StaticBody3D.new()
+		unrelated_machine.collision_layer = OpeningGeometry.MACHINE_LAYER
+		unrelated_machine.collision_mask = 0
+		var pick_blocker := CollisionShape3D.new()
+		var blocker_box := BoxShape3D.new()
+		blocker_box.size = Vector3.ONE * 0.25
+		pick_blocker.shape = blocker_box
+		unrelated_machine.add_child(pick_blocker)
+		unrelated_machine.position = opening.camera.project_ray_origin(pick_screen) \
+			+ opening.camera.project_ray_normal(pick_screen) * 0.6
+		opening.add_child(unrelated_machine)
+		await physics_frame
+		if not _expect(opening._screen_loose_material(pick_screen).is_empty(),
+			"An unrelated opaque machine still blocks pickup through the fitted press"):
+			unrelated_machine.free()
+			return
+		unrelated_machine.free()
+		await physics_frame
+		if not _expect(opening._screen_loose_material(pick_screen) == formed,
+			"Removing that unrelated blocker restores the visible workbed pickup"):
+			return
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			if not _expect(root.get_texture().get_image().save_png(
@@ -4237,7 +4278,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "supplied-hardware", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-joined-broad-slab", "supplied-hardware", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -4336,8 +4377,8 @@ func _arrival_run() -> void:
 	if mode == "arrival-slide":
 		await _arrival_slide_run(panel, capture_prefix)
 		return
-	if mode == "arrival-joined-broad":
-		await _arrival_joined_broad_run(capture_prefix)
+	if mode in ["arrival-joined-broad", "arrival-joined-broad-slab"]:
+		await _arrival_joined_broad_run(capture_prefix, mode == "arrival-joined-broad-slab")
 		return
 	if mode == "arrival-foundation-craft-resume":
 		await _arrival_foundation_craft_resume_run(panel)

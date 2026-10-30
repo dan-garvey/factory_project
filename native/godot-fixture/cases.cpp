@@ -22,6 +22,9 @@ constexpr std::array raised_starter_fixed{
 constexpr std::array joined_broad_fixed{
     std::string_view{"--native-check-mode=arrival-joined-broad"},
 };
+constexpr std::array joined_broad_slab_fixed{
+    std::string_view{"--native-check-mode=arrival-joined-broad-slab"},
+};
 constexpr std::array first_plate_values{std::string_view{"--native-check-output="}};
 constexpr std::array cog_repair_fixed{std::string_view{"--native-check-mode=arrival-cog-resume"}};
 constexpr std::array cog_reopen_fixed{std::string_view{"--native-check-mode=arrival-cog-finish-resume"}};
@@ -77,6 +80,9 @@ const std::array cases{
     Case{"arrival-joined-broad", script,
          "CHAPTER 1 JOINED BROAD PRESS PASS",
          300, joined_broad_fixed, first_plate_values},
+    Case{"arrival-joined-broad-slab", script,
+         "CHAPTER 1 JOINED BROAD PRESS SLAB PASS",
+         300, joined_broad_slab_fixed, first_plate_values},
     Case{"transmission-endpoint-default", endpoint_script,
          R"({"checks":314,"desktop_operations":0,"evidence":"isolated_shaft_tile_controls_and_pointer","failures":0,"models":0,"status":"pass"})",
          180, no_arguments, no_arguments},

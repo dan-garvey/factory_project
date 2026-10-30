@@ -2211,15 +2211,36 @@ func _screen_loose_material(screen: Vector2) -> Dictionary:
 	if not _native_transmission() or camera == null or not camera.is_inside_tree():
 		return {}
 	var eye := camera.project_ray_origin(screen)
-	# A press slide's actor-blocking swept box covers its workbed. Select the
-	# visible material mesh there, then let native World authorize the pickup.
 	var query := PhysicsRayQueryParameters3D.create(eye,
 		eye + camera.project_ray_normal(screen) * 80.0,
-		Geometry.GROUND_LAYER | Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER)
+		Geometry.GROUND_LAYER | Geometry.MACHINE_LAYER | Geometry.PICK_LAYER | TRANSMISSION_TERRAIN_PICK_LAYER)
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var press_work_center: Array = []
+	if not hit.is_empty() and actor_world != null:
+		var part_id := str(hit.collider.get_meta("component_entity", ""))
+		for press: Variant in state.get("sliding_press_assemblies", []):
+			if not press is Dictionary or not press.get("parts") is Dictionary \
+					or not press.get("work_center") is Array or press.work_center.size() != 3:
+				continue
+			var parts: Dictionary = press.parts
+			if part_id not in [str(parts.get("slide", "")), str(parts.get("head", ""))]:
+				continue
+			# The fitted press's actor boxes cover its visible output. Ignore only
+			# those three native parts; unrelated machines still occlude the ray.
+			var excluded: Array[RID] = []
+			for id: Variant in parts.values():
+				var body: Variant = actor_world.component_bodies.get(str(id))
+				if body is StaticBody3D:
+					excluded.append(body.get_rid())
+			query.exclude = excluded
+			press_work_center = press.work_center
+			hit = get_world_3d().direct_space_state.intersect_ray(query)
+			break
 	if hit.is_empty() or hit.collider.get_meta("material_context", "") != state.get("context", ""):
 		return {}
 	var drop: Dictionary = hit.collider.get_meta("loose_material", {})
+	if not press_work_center.is_empty() and press_work_center != drop.get("center", []):
+		return {}
 	# A stale visible body must never collect a replacement at the same location.
 	return drop if not drop.is_empty() and state.get("dropped_material", []).has(drop) else {}
 

@@ -65,13 +65,14 @@ int main() {
         const auto* cog_reopen = fixture::find_case("arrival-cog-reopen");
         const auto* raised_starter = fixture::find_case("arrival-raised-starter-snap");
         const auto* joined_broad = fixture::find_case("arrival-joined-broad");
+        const auto* joined_broad_slab = fixture::find_case("arrival-joined-broad-slab");
         const auto* endpoint_default = fixture::find_case("transmission-endpoint-default");
         const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
         const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
         const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
-        check(fixture::registered_cases().size() == 15 && first && first_press && incline && vertical && sideways &&
+        check(fixture::registered_cases().size() == 16 && first && first_press && incline && vertical && sideways &&
                   power_reopen && actor_block && cog_repair && cog_reopen && raised_starter &&
-                  joined_broad && endpoint_default && endpoint_common && endpoint_inspection && endpoint_terrain &&
+                  joined_broad && joined_broad_slab && endpoint_default && endpoint_common && endpoint_inspection && endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),
               "Only the current scene routes and four endpoint modes are registered.");
         check(first_press->script == first->script && first_press->seconds == first->seconds &&
@@ -90,6 +91,12 @@ int main() {
                   !fixture::accepts_case_arguments(*joined_broad,
                       {joined_args.data(), joined_args.size() - 1}),
               "The joined broad route requires a fresh native result and no old pad flags.");
+        check(joined_broad_slab->script == joined_broad->script && joined_broad_slab->seconds == 300 &&
+                  joined_broad_slab->pass_line == "CHAPTER 1 JOINED BROAD PRESS SLAB PASS" &&
+                  fixture::accepts_case_arguments(*joined_broad_slab,
+                      std::vector<std::string>{"--native-check-mode=arrival-joined-broad-slab",
+                          "--native-check-output=/tmp/joined-broad-slab.result"}),
+              "The joined broad slab case retains a distinct native result and pass marker.");
         const std::vector<std::string> incline_args{
             "--native-check-mode=arrival-nonhorizontal-incline",
             "--resume-input=/tmp/first-plate.worksite", "--native-check-output=/tmp/incline.result",

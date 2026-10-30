@@ -252,9 +252,11 @@ Select the complete revision-matched PASS line for a positive generic run.
 `native_adapter_check.gd` requires exactly one nonempty `--native-check-mode`
 and `--native-check-output`. It refuses unknown, repeated or empty arguments
 before constructing the scene. Its optional event routes are checked against
-the selected mode before the scene starts. `--arrival-reveal-probe` belongs only
-to `arrival-resume`. `--resume-input` is required for `resume` and modes ending
-in `-resume`.
+the selected mode before the scene starts. At most one anvil stage may accompany
+an arrival press mode. `--native-check-prior` belongs only to `arrival-channel-small-resume`;
+`--arrival-reveal-probe` belongs only to `arrival-resume`. `--resume-input`
+is required for `resume`, modes ending in `-resume`, `arrival-broad-drive`,
+`arrival-broad-form`, `arrival-channel-broad` and `arrival-channel-small`.
 Fresh modes refuse it before scene startup. The existing `--save-slot`,
 `--arrival-capture-prefix` and `--test-purpose` options remain available
 where their selected consumer uses them.
@@ -292,7 +294,9 @@ to 128 MiB. It never accepts or prints the log contents as a PASS receipt.
 ## Chapter 1 scene event selection
 
 The following named `native_adapter_check.gd` selections exercise Godot event
-routing through the arrival scene and assert native outcomes. Run each
+routing through the arrival scene and assert native outcomes. Channel cases
+explicitly enable developer material tools; their push/popup routes are diagnostic
+coverage, not the ordinary player interaction contract. Run each
 with `factory-godot-fixture` above, replacing `--script` and `--pass-line` with
 the listed `--case` and passing its arguments after `--`. The runner supplies
 the exact line and deadline shown, and rejects omitted, duplicate or unexpected
@@ -306,16 +310,21 @@ fixture rejects a selected route if its required actions were skipped.
 | `--case` selection | Godot arguments | Exact completion line | Maximum time |
 | --- | --- | --- | --- |
 | `arrival-first-plate` (placement and focus guard) | `--native-check-mode=arrival-first-plate --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate` | 180 seconds |
-| `arrival-first-plate-press` (native sliding press through plate pickup and save) | `--native-check-mode=arrival-first-plate-press --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate-press` | 180 seconds |
 | `arrival-raised-starter-snap` (raised press starter placement) | `--native-check-mode=arrival-raised-starter-snap --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-raised-starter-snap` | 180 seconds |
-| `arrival-joined-broad` (native broad workbed, face, slide and sheet) | `--native-check-mode=arrival-joined-broad --native-check-output=FRESH_RESULT` | `CHAPTER 1 JOINED BROAD PRESS PASS` | 300 seconds |
+| `arrival-raised-press` (raised press assembly and plate) | `--native-check-mode=arrival-raised-press --event-route-pointer --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-raised-press` | 180 seconds |
+| `arrival-channel-small` (custody and blocked gap) | `--native-check-mode=arrival-channel-small --event-route-loose --resume-input=BROAD_CUT_WORKSITE --save-slot=FRESH_WORKSITE --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small` | 300 seconds |
+| `arrival-channel-small-resume` (fresh-process recovery) | `--native-check-mode=arrival-channel-small-resume --event-route-loose --resume-input=PREVIOUS_WORKSITE --save-slot=FRESH_WORKSITE --native-check-prior=PREVIOUS_RESULT --native-check-output=FRESH_RESULT` | `CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume` | 180 seconds |
 
-The first two cases use pointer events for fitted placement and check that a
-click while the Escape menu is open cannot place a part. The raised starter
-checks three placements. The joined broad case walks a scripted actor, harvests
-finite stock, places the three sized parts through native commands, then feeds
-and cranks one sheet. It verifies the actual scene projection and can retain
-contextual screenshots with `--arrival-capture-prefix` in a graphical run.
-Ordinary players point at material and press E.
+`BROAD_CUT_WORKSITE` is the retained passing output of
+`arrival-broad-cut-resume` from the same native revision. Feed the narrow
+channel result and save into the fresh-process recovery case; it checks exact
+placed parts, dropped items, carried cargo and conserved mass before keyboard
+pickup. The first three cases use pointer events for fitted placement and check
+that a click while the Escape menu is open cannot place a part. The raised
+starter checks three placements; the raised press checks five and forms a plate.
+The channel case uses Ctrl+L, popup focus, arrow keys and Enter for three
+custody attempts, including refusal across a missing rail. Its resume case
+uses the same keyboard path to pick up the restored plate. Ordinary players point at material and press
+E; the old material menu is available only with `--debug-material-tools`.
 Scene tests still substitute scripted
 actor movement and choices; they do not establish human play or desktop input.
