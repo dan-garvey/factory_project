@@ -1984,8 +1984,9 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		var port: Array = item.get("port", [])
 		if port.size() != 3:
 			continue
-		var input_cell: Array = placed[input_id].get("center", []) if placed is Dictionary \
-			and placed.has(input_id) else []
+		var input_record: Dictionary = placed[input_id] if placed is Dictionary \
+			and placed.has(input_id) and placed[input_id] is Dictionary else {}
+		var input_cell: Array = input_record.get("center", [])
 		var face: Array = item.get("face", [])
 		if face.size() != 3:
 			face = [-1, 0, 0] if input_cell.size() == 3 and port[0] < input_cell[0] \
@@ -2001,6 +2002,12 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		add_child(crank)
 		_placed_component(crank, "hand_crank", Vector3.ZERO, Vector3(0.25, 0.38, 0.22) * U_SCALE,
 			0.0, 0.0, Vector3.ZERO)
+		if input_record.get("component", "") in ["wooden_slide", "copper_slide"]:
+			# The free-floating crank sits at the next U center. Its keyed
+			# spindle reaches the small slide's own shaft at the shared H layer.
+			var spindle := crank.get_node("CrankSpindle") as MeshInstance3D
+			(spindle.mesh as CylinderMesh).height += Geometry.PITCH * 0.5
+			spindle.position.x = -Geometry.PITCH * 0.25
 		var rotor := crank.get_node("CrankRotor") as Node3D
 		_crank_rotors[id] = rotor
 		var pose: Dictionary = _crank_turns.get(id, {})

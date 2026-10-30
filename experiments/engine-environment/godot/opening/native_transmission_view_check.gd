@@ -2468,6 +2468,8 @@ func _slide_material_seat() -> void:
 		"anvil": _press_component_record("anvil", Vector3i(0, 0, 0)),
 		"head": _press_component_record("flat_head", Vector3i(0, 1, 0)),
 		"slide": _press_component_record("wooden_slide", Vector3i(0, 2, 0))}
+	state.crank_items = {"crank": {"id": "crank", "generation": 1,
+		"attached_to": "slide", "port": [4, 2, 0], "face": [1, 0, 0]}}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
 		"status": "ready", "work_center": [0, 0, 0],
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"}}]
@@ -2485,16 +2487,27 @@ func _slide_material_seat() -> void:
 		if child.has_meta("component_entity") and child.get_meta("component_entity") == "slide":
 			slide = child
 	var input_shaft: MeshInstance3D = slide.get_node_or_null("IntegralInputShaft") if slide != null else null
+	var east_end := Vector3.ZERO
 	if input_shaft != null:
 		var half_shaft: float = (input_shaft.mesh as CylinderMesh).height * 0.5
 		var west_end: Vector3 = input_shaft.to_global(Vector3(0, half_shaft, 0))
-		var east_end: Vector3 = input_shaft.to_global(Vector3(0, -half_shaft, 0))
+		east_end = input_shaft.to_global(Vector3(0, -half_shaft, 0))
 		verify(is_equal_approx(absf(west_end.x), Geometry.PITCH * 0.5)
 			and is_equal_approx(absf(east_end.x), Geometry.PITCH * 0.5)
 			and west_end.x * east_end.x < 0.0,
 			"The small slide's one embodied shaft reaches both cell faces at its own H layer.")
 	else:
 		verify(false, "The small slide retains its embodied input shaft.")
+	var crank_spindle := presenter.get_node_or_null("AttachedHandCrank/CrankSpindle") as MeshInstance3D
+	if crank_spindle != null and input_shaft != null:
+		var half_crank: float = (crank_spindle.mesh as CylinderMesh).height * 0.5
+		var crank_inner: Vector3 = crank_spindle.to_global(Vector3(0, half_crank, 0))
+		verify(absf(crank_inner.x - east_end.x) < 0.01
+			and absf(crank_inner.y - east_end.y) < 0.01
+			and absf(crank_inner.z - east_end.z) < 0.01,
+			"The placed crank spindle meets the small slide shaft at its H-layer cell face.")
+	else:
+		verify(false, "The placed small-slide crank retains its visible spindle.")
 	var seat: MeshInstance3D = anvil.get_node_or_null("OpenAnvilSeat") if anvil != null else null
 	var die_plate: MeshInstance3D = anvil.get_node_or_null("ReplaceableDiePlate") if anvil != null else null
 	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")
