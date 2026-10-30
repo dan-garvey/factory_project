@@ -4987,8 +4987,7 @@ func _arrival_run() -> void:
 	var raised: bool = mode == "arrival-raised-press"
 	opening._open_object_menu_for(str(pod_state.fabrication_hub.id))
 	var inventory = opening.building_hotbar
-	if raised:
-		inventory.recipe_tabs.machine.pressed.emit()
+	inventory.recipe_tabs.machine.pressed.emit()
 	if not _expect(inventory.catalog.visible and inventory.context_bench == pod_state.fabrication_hub.id
 			and inventory.recipe_buttons.has("component:wooden_frame")
 			and inventory.recipe_buttons["component:wooden_frame"].visible
