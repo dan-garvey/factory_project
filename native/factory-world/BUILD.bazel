@@ -157,6 +157,7 @@ cc_library(
         "//native/factory-core:materials",
         "//native/factory-core:recovery",
         "//native/factory-stationary:stationary",
+        "//native/mineral-site:mineral_site",
         "//native/waterwheel:waterwheel",
     ],
     visibility = ["//native/repair-scenarios:__pkg__"],

@@ -19,14 +19,14 @@ const CASES := ["environment", "botanical-species", "collector-carrier", "pod-de
 	"bank-firs", "fir-resource", "pine-reflectance", "pine-roots", "pine-understory",
 	"stone-material", "sourced-sky", "meadow-patches", "foliage-mipmaps",
 	"sourced-foliage", "ground-material", "ground-render", "site-render",
-	"river-drive-native", "river-drive-render",
+	"river-drive-native", "river-drive-render", "ore-field-render",
 	"water-flow", "water-pattern", "water-render", "bank-ferns",
 	"rock-collision-shape", "surface-composition", "foreground-bank", "foliage"]
 const ARTIFACT_CASES := ["bank-firs", "fir-resource", "pine-reflectance",
 	"pine-understory", "stone-material", "sourced-sky", "sourced-foliage",
 	"ground-material", "ground-render", "site-render", "river-drive-render",
-	"water-render", "bank-ferns"]
-const RENDER_CASES := ["ground-render", "site-render", "river-drive-render", "water-render"]
+	"ore-field-render", "water-render", "bank-ferns"]
+const RENDER_CASES := ["ground-render", "site-render", "river-drive-render", "ore-field-render", "water-render"]
 
 class FixtureView:
 	extends "res://opening/opening.gd"
@@ -248,6 +248,7 @@ func finish() -> void:
 			"site-render": "passive worksite, default-orbit and bank-side terrain views",
 			"river-drive-native": "native actual-river wheel, connected cog train and bank-belt motion",
 			"river-drive-render": "source-matched native river wheel and bank-belt in contextual views",
+			"ore-field-render": "source-matched native ore field in contextual views",
 			"water-flow": "layered translucent river resources and ordinary frame consumer",
 			"water-pattern": "straight-band normal energy and actual water-surface geometry",
 			"water-render": "isolated actual terrain and water with a fixed camera and presentation phases",
@@ -255,7 +256,7 @@ func finish() -> void:
 			"foliage": "changed foliage bulk upload",
 			"environment": "3D valley terrain, millrace, architecture and foundation"}.get(mode, "unknown"),
 		"rendered_quality": "not_assessed", "desktop": "not_used",
-		"authority_started": mode in ["river-drive-native", "river-drive-render"]}))
+		"authority_started": mode in ["river-drive-native", "river-drive-render", "ore-field-render"]}))
 	quit(1 if failed else 0)
 
 func check_surface_composition() -> void:
@@ -1204,6 +1205,91 @@ func check_river_drive(render: bool) -> void:
 	print(JSON.stringify({"phase": "river-drive-render", "views": [views[0][0], views[1][0]],
 		"source_revision": snapshot.revision, "display": DisplayServer.get_name(),
 		"input": "not_used", "human_play": "not_run"}))
+	viewport.free()
+
+func check_ore_field_render() -> void:
+	if not verify(DisplayServer.get_name().to_lower() != "headless" and fixture_directory.is_absolute_path(),
+		"The field image needs a real renderer and an owned artifact directory."):
+		return
+	var native := NativeModel.new("ore-field-render", ["P"], true, true)
+	if not verify(native.boot_result.get("accepted", false),
+		"The field image needs the actual terrain-bound native opening projection."):
+		return
+	var state: Dictionary = native.projection()
+	var deposit: Dictionary = state.get("source_deposit", {})
+	verify(deposit.get("cells", []).size() == 100 and deposit.get("cell_regions", []).size() == 100,
+		"The scene receives all one hundred ore cells and their native region addresses.")
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(1600, 900)
+	viewport.own_world_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(viewport)
+	var view := FixtureView.new()
+	viewport.add_child(view)
+	view._build_world()
+	view.state = state
+	view._refresh_ore_field()
+	var field := view.get_node_or_null("ProductionScenery/OreField")
+	if not verify(field != null, "The projected ore field appears in the ordinary scenery."):
+		viewport.free()
+		return
+	inspect_visual(field)
+	verify(field.get_node_or_null("CopperBearingGround") != null and
+		field.get_node_or_null("StoneAndGravelRegion0/Mesh") != null and
+		field.get_node_or_null("StoneAndGravelRegion0/Stone6") != null and
+		field.get_node_or_null("StoneAndGravelRegion5/Mesh") != null and
+		field.get_node_or_null("StoneAndGravelRegion5/Stone6") != null and
+		field.get_node_or_null("StoneFragmentRegion0_0") == null and
+		field.get_node_or_null("StoneFragmentRegion5_2") == null and
+		field.get_node_or_null("StoneAndGravelRegion4") == null,
+		"The rendered field carries broad mineral soil and separate copper-bearing stones without coal-like fragments.")
+	for shot in [
+		["ore-field-bank-side.png", Vector3(-3.0, 3.2, 10.0), Vector3(1.0, 0.0, 3.0)],
+		["ore-field-aerial.png", Vector3(14.0, 20.0, 12.0), Vector3(5.0, 0.0, -5.5)],
+		["ore-field-land-eye.png", Vector3(9.0, 1.7, 3.6), Vector3(5.0, 0.0, -7.0)]]:
+		view.camera.position = shot[1]
+		view.camera.look_at(shot[2])
+		await process_frame
+		await RenderingServer.frame_post_draw
+		await process_frame
+		await RenderingServer.frame_post_draw
+		var image := viewport.get_texture().get_image()
+		var destination: String = fixture_directory.path_join(shot[0])
+		verify(image.get_size() == viewport.size and not FileAccess.file_exists(destination)
+			and image.save_png(destination) == OK,
+			"Retain each complete worksite view without replacing prior evidence.")
+	# Exercise only the presenter with a representative empty local balance.
+	# Native debit, conservation and saved stock are checked by ore_field_test.
+	var preview: Dictionary = state.duplicate(true)
+	var preview_sources: Dictionary = preview.get("hand_sources", {})
+	var depleted_id: String = str(deposit.get("id", "")) + "-region-5"
+	var depleted_source: Dictionary = preview_sources.get(depleted_id, {})
+	if verify(not depleted_source.is_empty() and int(depleted_source.get("remaining", 0)) > 0,
+		"The depletion preview starts from a populated native region projection."):
+		depleted_source["remaining"] = 0
+		preview_sources[depleted_id] = depleted_source
+		view.state = preview
+		view._refresh_ore_field()
+		var depleted_field: Node3D = view.ore_field_visual
+		verify(depleted_field != null and
+			depleted_field.get_node_or_null("StoneAndGravelRegion5") == null and
+			depleted_field.get_node_or_null("StoneAndGravelRegion0/Mesh") != null,
+			"An empty local region loses its own rock patch while another region remains exposed.")
+		view.camera.position = Vector3(14.0, 20.0, 12.0)
+		view.camera.look_at(Vector3(5.0, 0.0, -5.5))
+		await process_frame
+		await RenderingServer.frame_post_draw
+		await process_frame
+		await RenderingServer.frame_post_draw
+		var depleted_image := viewport.get_texture().get_image()
+		var depleted_path: String = fixture_directory.path_join("ore-field-depleted-preview.png")
+		verify(depleted_image.get_size() == viewport.size and not FileAccess.file_exists(depleted_path)
+			and depleted_image.save_png(depleted_path) == OK,
+			"Retain the local-depletion presentation preview beside the full field view.")
+	print(JSON.stringify({"phase": "ore-field-render", "source": "native terrain-bound opening",
+		"cells": deposit.get("cells", []).size(), "views": 4, "viewport": [1600, 900],
+		"depletion_preview": "fixture balance override, visual only", "input": "not_used",
+		"human_quality": "not_assessed"}))
 	viewport.free()
 
 func check_rock_shapes(rocks: MultiMesh) -> void:
@@ -2234,6 +2320,10 @@ func run() -> void:
 		return
 	if mode == "river-drive-native" or mode == "river-drive-render":
 		await check_river_drive(mode == "river-drive-render")
+		finish()
+		return
+	if mode == "ore-field-render":
+		await check_ore_field_render()
 		finish()
 		return
 	if mode == "water-flow":

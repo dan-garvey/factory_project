@@ -12,8 +12,8 @@ using values::Value;
 using Integer = Value::Integer;
 // The authored landscape uses the original 1.65 m fine-grid coordinates.
 // Remap them only where they identify fixed physical site positions.
-constexpr Integer site_grid_scale = static_cast<Integer>(1.65 / site_geometry::pitch);
-static_assert(site_grid_scale * site_geometry::pitch == 1.65);
+constexpr Integer site_grid_scale = static_cast<Integer>(mineral_site::field_pitch_meters / site_geometry::pitch);
+static_assert(site_grid_scale * site_geometry::pitch == mineral_site::field_pitch_meters);
 }  // namespace
 
 std::optional<ArrivalConfiguration> make_arrival_configuration(
@@ -43,12 +43,17 @@ std::optional<ArrivalConfiguration> make_arrival_configuration(
         profile.landing_pod_center = mechanics::Point{4 * site_grid_scale, 0, 16 * site_grid_scale};
         profile.first_plate_unlock = !advanced_fixture;
         profile.material.manual_ore = materials::OreSite{"opening-copper", {-3 * site_grid_scale, 0, 0}};
+        profile.ore_field = true;
         profile.material.raw_mass = 4;
         profile.material.plate_mass = 3;
         profile.material.sheet_mass = 12;
-        for (const auto& cell : mineral_site::opening_cells)
+        for (Integer x = mineral_site::field_min.x; x <= mineral_site::field_max.x; ++x)
+        for (Integer z = mineral_site::field_min.z; z <= mineral_site::field_max.z; ++z) {
+            const mineral_site::Cell cell{x, z};
             for (Integer level = 0; level <= mineral_site::extraction_depth_steps * site_grid_scale; level += 4)
-                profile.collector_faces.push_back({{4 * cell.x, level, 4 * cell.z}, {-site_grid_scale, 0, 0}});
+                profile.collector_faces.push_back({{4 * site_grid_scale * cell.x, level,
+                    4 * site_grid_scale * cell.z}, {-site_grid_scale, 0, 0}});
+        }
         profile.material.timber_sites = {
             {"tree-east-south", {{16 * site_grid_scale, 0, 8 * site_grid_scale}, 8}},
             {"tree-east-north", {{16 * site_grid_scale, 0, 28 * site_grid_scale}, 8}},
@@ -85,6 +90,7 @@ std::optional<ArrivalConfiguration> make_arrival_configuration(
     seed.topology.drive_enabled = true;
     seed.material.initial_units = profile.initial_units;
     seed.material.stock.source = profile.initial_units;
+    if (profile.ore_field) seed.ore_field = mineral_site::allocate_field(profile.initial_units);
     for (const auto& [id, site] : profile.material.timber_sites)
         seed.material.timber_remaining.emplace(id, site.initial);
     if (arrival) {

@@ -4884,7 +4884,41 @@ func _slide_controls_check() -> void:
 		and panel.inventory_drag("player_raw").is_empty()
 		and panel.inventory_drag("workbed_work").get("wire", {}).get("expected", {}).get("offcuts") == 1,
 		"A retained offcut occupies the work face and must be recovered before another blank.")
-	snapshot.dropped_material.pop_back()
+	snapshot.dropped_material = [{"center": [12, 0, 8], "raw": 0, "products": 1,
+		"offcuts": 1, "sheets": 0, "work_lots": []}]
+	panel.refresh(snapshot, "P", "anvil", true)
+	var paired_plate: Dictionary = panel.inventory_drag("workbed_output")
+	var paired_offcut: Dictionary = panel.inventory_drag("workbed_work")
+	verify(panel.inventory_counts.workbed_work.text == "1"
+		and panel.inventory_counts.workbed_output.text == "1"
+		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/offcut.svg")
+		and panel.inventory_slots.workbed_output.icon.resource_path.ends_with("/plate.svg")
+		and panel.inventory_slots.workbed_work.tooltip_text.contains("together")
+		and panel.inventory_slots.workbed_output.tooltip_text.contains("together"),
+		"A formed plate and offcut sharing the supported work cell remain separate visible items with truthful pickup help.")
+	var paired_wire := {"action": "pickup_material", "center": [12, 0, 8],
+		"expected": {"raw": 0, "products": 1, "offcuts": 1, "sheets": 0, "work_lots": []}}
+	verify(paired_plate.get("wire", {}) == paired_wire
+		and paired_offcut.get("wire", {}) == paired_wire
+		and panel.inventory_can_drop("player", paired_plate),
+		"Either visible item requests the exact native whole-drop pickup for both retained outputs.")
+	view.issued.clear()
+	verify(panel.inventory_shortcut(KEY_P) and view.issued == [paired_wire],
+		"The plate keyboard route submits the same paired pickup as dragging into Carried.")
+	view.issued.clear()
+	snapshot.dropped_material[0].offcuts = 2
+	verify(not panel.inventory_can_drop("player", paired_plate) and view.issued.is_empty(),
+		"A stale paired drag cannot collect changed material from the shared work cell.")
+	snapshot.dropped_material[0].offcuts = 0
+	panel.refresh(snapshot, "P", "anvil", true)
+	verify(panel.inventory_counts.workbed_output.text == "1"
+		and panel.inventory_slots.workbed_work.icon == null
+		and panel.inventory_drag("workbed_work").is_empty()
+		and not panel.inventory_shortcut(KEY_U)
+		and panel.inventory_drag("workbed_output").get("wire", {}).get("expected", {}).get("products") == 1,
+		"A plate alone on the workbed leaves no hidden offcut pickup route.")
+	snapshot.dropped_material = [{"center": [13, 0, 8], "raw": 0, "products": 1,
+		"offcuts": 0, "work_lots": []}]
 	panel.refresh(snapshot, "P", "anvil", true)
 	panel.refresh(snapshot, "P", "anvil", false)
 	verify(panel.inventory_drag("workbed_output").is_empty()
@@ -5061,25 +5095,19 @@ func _slide_inventory_render_check() -> void:
 	projected_press.open_feeds.pop_back()
 	view._refresh_ui()
 	var output_drag: Dictionary = panel.inventory_drag("workbed_output")
-	var output_preview := TextureRect.new()
-	output_preview.texture = panel.inventory_slots.workbed_output.icon
-	panel.inventory_slots.workbed_output.force_drag(output_drag, output_preview)
-	await process_frame
-	verify(scene_root.gui_is_dragging() and panel.inventory_player_region.highlighted
-		and output_preview.texture.resource_path.ends_with("/" + BuildingHotbar.MATERIALS.products[1]),
-		"A copper plate drag keeps its literal item art and highlights the carried drop region.")
-	if not destination.is_empty():
-		await RenderingServer.frame_post_draw
-		verify(scene_root.get_texture().get_image().save_png(destination + "-plate-drag.png") == OK,
-			"Retain the plate drag and carried drop region at 1280 by 800.")
-	scene_root.gui_cancel_drag()
-	await process_frame
+	verify(output_drag.get("wire", {}).get("action") == "pickup_material"
+		and panel.inventory_player_region._can_drop_data(Vector2.ZERO, output_drag)
+		and panel.inventory_slots.workbed_output.icon.resource_path.ends_with(
+			"/" + BuildingHotbar.MATERIALS.products[1]),
+		"The plate tile keeps literal art and targets the carried drop region.")
 	view.state.cargo.P.raw = 0
 	view.state.cargo.P.work_lots.clear()
 	view._refresh_ui()
+	await process_frame
 	verify(not panel.inventory_cells.has("player_raw") and not panel.inventory_cells.has("player_work")
 		and not panel.inventory_slots.has("player_offcut")
-		and panel.inventory_player_region.visible and panel.inventory_slots.workbed_output.icon != null,
+		and panel.inventory_player_region.visible and panel.inventory_slots.workbed_output.icon != null
+		and panel.inventory_slots.workbed_work.size == panel.inventory_slots.workbed_output.size,
 		"A finished plate remains recoverable onto a visible carried region with no feed input tiles.")
 	if not destination.is_empty():
 		await RenderingServer.frame_post_draw
@@ -5098,18 +5126,60 @@ func _slide_inventory_render_check() -> void:
 		verify(scene_root.get_texture().get_image().save_png(destination + "-empty.png") == OK,
 			"Retain the empty workbed and carried pickup region.")
 	view.state.dropped_material = [{"center": [12, 0, 8], "raw": 0, "products": 0,
-		"offcuts": 1, "work_lots": []}]
+		"offcuts": 1, "sheets": 0, "work_lots": []}]
 	view._refresh_ui()
+	await process_frame
 	verify(panel.inventory_slots.workbed_work.icon != null
 		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/offcut.svg")
 		and panel.inventory_slots.workbed_output.icon == null
+		and panel.inventory_slots.workbed_work.size == panel.inventory_slots.workbed_output.size
 		and panel.inventory_player_region._can_drop_data(Vector2.ZERO,
 			panel.inventory_drag("workbed_work")),
-		"A retained offcut remains visible and recoverable, with no unusable carried offcut input.")
+		"A retained offcut and its empty neighboring slot keep equal tile bounds and a usable pickup.")
 	if not destination.is_empty():
 		await RenderingServer.frame_post_draw
 		verify(scene_root.get_texture().get_image().save_png(destination + "-offcut.png") == OK,
 			"Retain the recoverable offcut at the work face.")
+	view.state.dropped_material[0].products = 1
+	view._refresh_ui()
+	await process_frame
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().save_png(destination + "-paired-normal.png") == OK,
+			"Retain both press outputs in the 1280 by 800 E inventory.")
+	verify(panel.inventory_counts.workbed_work.text == "1"
+		and panel.inventory_counts.workbed_output.text == "1"
+		and panel.inventory_slots.workbed_work.icon.resource_path.ends_with("/offcut.svg")
+		and panel.inventory_slots.workbed_output.icon.resource_path.ends_with("/plate.svg"),
+		"The normal E inventory shows both output icons from one supported native cell.")
+	scene_root.size = Vector2i(900, 600)
+	view._fit_object_menu(Vector2i(900, 600))
+	await process_frame
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().get_region(Rect2i(0, 0, 900, 600))
+			.save_png(destination + "-paired-narrow.png") == OK,
+			"Retain both press outputs in the 900 by 600 E inventory.")
+	verify(panel.inventory_counts.workbed_work.text == "1"
+		and panel.inventory_counts.workbed_output.text == "1"
+		and panel.inventory_slots.workbed_work.size == panel.inventory_slots.workbed_output.size
+		and view.object_menu_operations.get_global_rect().encloses(
+			panel.inventory_workbed_row.get_global_rect()),
+		"Both output tiles fit inside the narrow ordinary E panel.")
+	view.state.dropped_material[0].products = 0
+	view._refresh_ui()
+	await process_frame
+	verify(panel.inventory_slots.workbed_work.size == panel.inventory_slots.workbed_output.size,
+		"The filled offcut tile and empty plate tile keep equal bounds at 900 by 600.")
+	if not destination.is_empty():
+		await RenderingServer.frame_post_draw
+		verify(scene_root.get_texture().get_image().get_region(Rect2i(0, 0, 900, 600))
+			.save_png(destination + "-offcut-narrow.png") == OK,
+			"Retain the equal-sized filled and empty workbed slots at 900 by 600.")
+	scene_root.size = Vector2i(1280, 800)
+	view._fit_object_menu(Vector2i(1280, 800))
+	view._refresh_ui()
+	await process_frame
 	scene_root.size = Vector2i(640, 480)
 	view._fit_object_menu(Vector2i(640, 480))
 	await process_frame

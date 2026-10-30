@@ -145,6 +145,8 @@ inline constexpr std::array cut_fields{
 };
 inline constexpr std::array deposit_fields{
     Field{"id", Type::string}, Field{"cells", Type::integer_pairs},
+    Field{"cell_regions", Type::string_array},
+    Field{"cell_pitch", Type::floating},
     Field{"initial_units", Type::integer}, Field{"collector_capacity", Type::integer},
     Field{"maximum_depth", Type::floating},
 };

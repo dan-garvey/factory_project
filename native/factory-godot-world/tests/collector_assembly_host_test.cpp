@@ -52,7 +52,12 @@ V ground_inspection(const Host& host) {
     const auto cells = get<A>(V(get<O>(view, "source_deposit")), "cells");
     check(entries.size() == cells.size() * (1 + 2 * grid_scale),
           "Every ore workcell is inspected through the conserved physical drill depth.");
-    return entries.front();
+    for (const auto& entry : entries) {
+        const auto& center = get<A>(entry, "center");
+        if (!factory::values::typed_difference(V(center),
+                V(A{V(I{0}), V(I{0}), V(I{0})}))) return entry;
+    }
+    throw std::runtime_error("The original workcell remains available within the larger field.");
 }
 
 std::string place(Host& host, const char* kind, I x, I y, I z, const char* id) {
