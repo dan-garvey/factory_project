@@ -271,9 +271,10 @@ std::optional<BeltPath> belt_path(const Part& first, const Part& last) {
     Integer distance = 0;
     std::size_t changed = 0;
     for (std::size_t i = 0; i < 3; ++i) {
-        if (first.center[i] % cell != 0 || last.center[i] % cell != 0) return std::nullopt;
+        if (i != 1 && (first.center[i] % cell != 0 || last.center[i] % cell != 0)) return std::nullopt;
         delta[i] = last.center[i] - first.center[i];
         const auto magnitude = delta[i] < 0 ? -delta[i] : delta[i];
+        if (magnitude % cell != 0) return std::nullopt;
         if (magnitude != 0) {
             if (distance != 0 && magnitude != distance) return std::nullopt;
             distance = magnitude;

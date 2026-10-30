@@ -1586,7 +1586,7 @@ void one_tile_placement() {
     check(accepted(host.initialize("cog-api", {"P"})) &&
               accepted(host.configure_terrain(factory::godot_world::tests::flat_site())), "The one-tile host starts on a known site.");
     observe(host, 0, 0, 1);
-    for (const auto& position : std::array<std::array<I, 3>, 3>{{{5, 4, 4}, {4, 5, 4}, {4, 4, 5}}}) {
+    for (const auto& position : std::array<std::array<I, 3>, 2>{{{5, 4, 4}, {4, 4, 5}}}) {
         auto off = gear(position[0], position[1], position[2],
                         ("off-" + std::to_string(checks)).c_str(), "x");
         const auto refused = host.command("P", off);
@@ -1610,7 +1610,7 @@ void one_tile_placement() {
 }
 
 void restored_transmission_geometry() {
-    for (const bool cog : {false, true}) for (int defect = 0; defect < (cog ? 3 : 4); ++defect) {
+    for (const bool cog : {false, true}) for (int defect = 0; defect < (cog ? 2 : 3); ++defect) {
         Host host;
         check(accepted(host.initialize("cog-api", {"P"})) &&
                   accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
@@ -1624,10 +1624,11 @@ void restored_transmission_geometry() {
         auto topology = std::get<O>(state.at("topology").storage());
         auto parts = std::get<A>(topology.at("parts").storage());
         auto part = std::get<O>(parts.front().storage());
-        if (defect == 3) part.at("half_span") = V(I{4});
+        if (defect == 2) part.at("half_span") = V(I{4});
         else {
             auto center = std::get<A>(part.at("center").storage());
-            center[defect] = V(std::get<I>(center[defect].storage()) + 1);
+            const auto axis = defect == 0 ? 0 : 2;
+            center[axis] = V(std::get<I>(center[axis].storage()) + 1);
             part.at("center") = V(std::move(center));
         }
         parts.front() = V(std::move(part)); topology.at("parts") = V(std::move(parts));
@@ -1666,6 +1667,41 @@ void transmission_tile_center() {
         check(accepted(placed), "A full-tile transmission part fits immediately above its supporting foundation; reason=" +
               field<std::string>(placed, "reason") + ".");
         check(accepted(host.validate_checkpoint(host.checkpoint())), "The supported transmission part survives checkpoint validation.");
+    }
+}
+
+void transmission_each_h_height() {
+    for (const I height : {I{1}, I{2}, I{3}}) {
+        Host host;
+        check(accepted(host.initialize("cog-api", {"P"})) &&
+              accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The H-height fixture binds the ordinary native flat site.");
+        observe(host, 0.825, -2.0, 1);
+        const auto first = create(host, shaft(0, height, 0, "h-first", "z"));
+        const auto last = create(host, shaft(8, height, 0, "h-last", "z"));
+        auto wire_span = wire("place_belt_span", "h-span");
+        wire_span.emplace("from", V(first));
+        wire_span.emplace("to", V(last));
+        const auto span = create(host, wire_span);
+        const auto belts = field<O>(host.projection(), "belt_spans");
+        check(belts.contains(span) && field<A>(belts.at(span), "slots").size() == 3,
+              "An H-height pair carries one native three-node belt chain.");
+        const auto saved = host.checkpoint();
+        Host restored;
+        check(accepted(restored.initialize("fresh", {"P"})) &&
+              accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
+              accepted(restored.restore_checkpoint(saved)) &&
+              !factory::values::typed_difference(saved, restored.checkpoint()),
+              "The H-height belt and its supports restore without changing identity.");
+
+        Host cog;
+        check(accepted(cog.initialize("cog-api", {"P"})) &&
+              accepted(cog.configure_terrain(factory::godot_world::tests::flat_site())),
+              "The independent H-height cog binds the same site.");
+        observe(cog, 2.5, 0.0, 1);
+        create(cog, gear(0, height, 0, "h-cog", "y"));
+        check(accepted(cog.validate_checkpoint(cog.checkpoint())),
+              "A cog at each H height retains native checkpoint validity.");
     }
 }
 
@@ -1807,7 +1843,7 @@ int main(int argc, char** argv) {
             std::cout << "{\"status\":\"pass\",\"evidence\":\"native_building_rotation\",\"checks\":" << checks << "}\n";
             return 0;
         }
-        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); transmission_above_supporting_foundation(); half_tile_shaft_bridge(); return 0; }
+        if (argc == 2 && std::string(argv[1]) == "--tile-center-only") { transmission_tile_center(); transmission_each_h_height(); transmission_above_supporting_foundation(); half_tile_shaft_bridge(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--foundation-only") { transmission_foundation_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--terrain-only") { transmission_terrain_clearance(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--raised-route-only") { raised_collector_route_refusal(); return 0; }
@@ -1826,7 +1862,7 @@ int main(int argc, char** argv) {
             transmission_request_shapes();
             building_rotation();
             finite_oriented_train_and_restore(); adjacent_axle_faces(); refusals_and_legacy_shape(); cog_axle_actor_clearance(); cog_at_belt_face(); transmission_site_clearance(); transmission_terrain_clearance(); transmission_foundation_clearance(); one_tile_placement(); restored_transmission_geometry();
-            transmission_tile_center(); transmission_above_supporting_foundation(); half_tile_shaft_bridge(); global_grid(); finite_large_cog(); finite_relays_and_restore(); stacked_vertical_relay_support(); relay_shell_terrain(); powered_relay_route(); ground_collector_output_gap(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); raised_collector_route_refusal(); rotated_span_build_orders(); individual_shafts(); raised_forward_collector_refusal();
+            transmission_tile_center(); transmission_each_h_height(); transmission_above_supporting_foundation(); half_tile_shaft_bridge(); global_grid(); finite_large_cog(); finite_relays_and_restore(); stacked_vertical_relay_support(); relay_shell_terrain(); powered_relay_route(); ground_collector_output_gap(); retired_belt_machine(); typed_loose_host(); select_belt_shaft_host(); long_selected_belt_host(); belt_span_host_commands(); nonhorizontal_span_host(); raised_collector_route_refusal(); rotated_span_build_orders(); individual_shafts(); raised_forward_collector_refusal();
         } else if (argc != 2 || std::string(argv[1]) != "--placement-alias-only") {
             throw std::runtime_error("Expected no arguments or --placement-alias-only.");
         }

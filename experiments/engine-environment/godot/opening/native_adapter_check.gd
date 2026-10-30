@@ -202,6 +202,8 @@ func _record(status: String, reason: String = "") -> void:
 		print("CHAPTER 1 POWER BELT REOPEN PASS")
 	if status == "pass" and mode == "arrival-nonhorizontal-actor-block-resume":
 		print("CHAPTER 1 BELT ACTOR OBSTRUCTION PASS")
+	if status == "pass" and mode == "arrival-foundation-craft":
+		print("CHAPTER 1 FOUNDATION CRAFT PASS")
 	if status == "pass" and (event_route_loose or event_route_pointer):
 		print("CHAPTER 1 SCENE EVENTS PASS: " + mode)
 	quit(0 if status == "pass" else 1)
@@ -739,13 +741,23 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-foundation-craft.png") == OK,
 				"The ordinary workshop floor control is retained in a rendered frame"):
 			return
+	inventory.recipe_tabs.other.pressed.emit()
+	if not _expect(inventory.recipe_buttons.foundation.visible,
+			"The Other tab exposes the foundation recipe before it is pressed"):
+		return
 	inventory.recipe_buttons.foundation.pressed.emit()
 	var crafted: Dictionary = opening.model.projection()
 	if not _expect(crafted.order == before.order + 1 and crafted.cargo.P.timber == 0
 			and crafted.part_kits.P.foundation == before.part_kits.P.foundation + 1
 			and crafted.hand_sources["tree-east-south"].remaining == 6
 			and "Carry the ingredients" in inventory.recipe_buttons.foundation.tooltip_text,
-			"The recipe icon converts two finite timber into one native foundation and updates availability"):
+			"The recipe icon converts two finite timber into one native foundation and updates availability: "
+			+ str({"order": crafted.order, "before": before.order,
+				"timber": crafted.cargo.P.timber,
+				"foundations": crafted.part_kits.P.foundation,
+				"before_foundations": before.part_kits.P.foundation,
+				"source_remaining": crafted.hand_sources["tree-east-south"].remaining,
+				"tooltip": inventory.recipe_buttons.foundation.tooltip_text})):
 		return
 	inventory.catalog.hide()
 	if not await _approach(Vector2(9.0, 6.0)):
@@ -761,6 +773,13 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 	if not _expect(not floor_id.is_empty() and built.part_kits.P.foundation == before.part_kits.P.foundation,
 			"The crafted floor can enter the ordinary native construction inventory"):
 		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening._select_tool("inspect")
+		if not _expect(await _capture_actor_area(capture_prefix + "-one-foundation-built.png",
+				Vector3(5.0 * OpeningGeometry.FOUNDATION_PITCH,
+					4.0 * OpeningGeometry.HEIGHT_STEP, 2.0 * OpeningGeometry.FOUNDATION_PITCH)),
+				"Retain the actor-eye one-slab footprint beside the unchanged worker and worksite"):
+			return
 	if _construct({"action": "remove", "entity": floor_id}).is_empty():
 		return
 	var reclaimed: Dictionary = opening.model.projection()
@@ -769,6 +788,7 @@ func _arrival_foundation_craft_run(panel, capture_prefix: String) -> void:
 			and reclaimed.foundations.size() == crafted.foundations.size(),
 			"Reclaiming restores exactly the crafted floor without refunding its timber"):
 		return
+	opening.configure_save_slot(destination + ".worksite")
 	var saved: Dictionary = opening._save_worksite()
 	facts["save_result"] = saved
 	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false)

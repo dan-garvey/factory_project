@@ -476,6 +476,24 @@ void belt_path_geometry() {
         check(!mechanical::belt_path(a, b), "More than twenty tiles are refused.");
         b.center[travel] = 5;
         check(!mechanical::belt_path(a, b), "Off-grid endpoints are refused.");
+        for (const auto height : {1, 2, 3}) {
+            a.center[1] = height;
+            b.center = a.center;
+            b.center[travel] = 8;
+            const auto level_path = mechanical::belt_path(a, b);
+            check(level_path && level_path->kind == BeltPathKind::horizontal &&
+                  level_path->tiles.size() == 3 && level_path->tiles[1][1] == height,
+                  "A belt can run across U nodes on each intermediate H level.");
+            b.center[1] += 8;
+            const auto incline = mechanical::belt_path(a, b);
+            check(incline && incline->kind == BeltPathKind::inclined &&
+                  incline->tiles[1][1] == height + 4,
+                  "An inclined belt retains its H offset at every route node.");
+            b.center[1] = height + 1;
+            check(!mechanical::belt_path(a, b),
+                  "An H offset alone cannot invent a partial U belt segment.");
+        }
+        a.center[1] = 0;
         b.center = a.center;
         check(!mechanical::belt_path(a, b), "Coincident endpoints are refused.");
     }

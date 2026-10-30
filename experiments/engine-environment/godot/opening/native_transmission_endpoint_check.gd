@@ -69,11 +69,13 @@ func check_direct_shaft_entry(shared: bool) -> void:
 		"The ordinary Shaft entry selects individual tile placement.")
 	view._transmission_click([0, 0, 4], "")
 	view._transmission_click([4, 0, 4], "")
+	view._transmission_click([0, 1, 4], "")
 	verify(view.requests == [{"action": "place_shaft", "center": [0, 0, 4], "axis": "x", "half_span": 2},
-		{"action": "place_shaft", "center": [4, 0, 4], "axis": "x", "half_span": 2}],
-		"Two clicks submit two individual shaft tiles.")
+		{"action": "place_shaft", "center": [4, 0, 4], "axis": "x", "half_span": 2},
+		{"action": "place_shaft", "center": [0, 1, 4], "axis": "x", "half_span": 2}],
+		"Clicks submit individual shaft tiles, including one H above the full-U level.")
 	var count: int = view.requests.size()
-	for invalid in [[1, 0, 4], [0, 1, 4], [0, 0, 5]]:
+	for invalid in [[1, 0, 4], [0, 0, 5]]:
 		verify(view._transmission_click(invalid, "") and view.requests.size() == count,
 			"An off-grid coordinate is consumed without a request.")
 	verify(view.state == before and view.model == null,
@@ -187,7 +189,7 @@ func check_terrain_pointer(shared: bool) -> void:
 		var x: float = cell.x * Geometry.PITCH
 		var z: float = cell.y * Geometry.PITCH
 		var ground: float = surface.height_at(x, z)
-		var level := ceili(ground / Geometry.PITCH) * Geometry.HEIGHT_DENOMINATOR
+		var level := ceili(ground / Geometry.HEIGHT_STEP)
 		if cell == Vector2i(20, 20):
 			verify(level != 0, "The elevated terrain control differs from the old zero-height fallback.")
 		view.camera.position = Vector3(x, ground + 20.0, z)
@@ -197,11 +199,11 @@ func check_terrain_pointer(shared: bool) -> void:
 		for tool in ["place_shaft", "gear"]:
 			view.transmission_controls.choose_tool(tool)
 			var target: Array = view._transmission_center(screen)
-			verify(target[0] == cell.x * 4 and target[2] == cell.y * 4 and target[1] >= level and target[1] % 4 == 0, "Bare terrain chooses a global tile at or above its actual surface.")
+			verify(target[0] == cell.x * 4 and target[2] == cell.y * 4 and target[1] >= level, "Bare terrain chooses an H height at or above its actual surface.")
 			pointed_level = target[1]
 			verify(view.transmission_controls.snapped_height == pointed_level, "The height control starts from the pointed terrain tile.")
 		view.transmission_controls._height_selected(1)
-		verify(view._transmission_center(screen) == [cell.x * 4, pointed_level + 4, cell.y * 4], "Explicit height overrides terrain following by one global tile.")
+		verify(view._transmission_center(screen) == [cell.x * 4, pointed_level + 1, cell.y * 4], "Explicit height rises one H above the pointed terrain.")
 		view.transmission_controls._height_selected(2)
 	# Point at the low edge of a sloped tile whose opposite edge rises across
 	# a grid-height boundary. A vertical cog must clear its whole footprint.
@@ -249,14 +251,15 @@ func check_terrain_pointer(shared: bool) -> void:
 							for iz in range(5):
 								var h: float = surface.height_at(tile_x + half.x * (ix / 2.0 - 1.0), tile_z + half.z * (iz / 2.0 - 1.0))
 								clears = clears and h <= Geometry.ANCHOR_HEIGHT + target[1] * Geometry.HEIGHT_STEP - half.y + 0.00001
-					verify(clears and target[1] % 4 == 0, "The oriented transmission footprint clears sampled terrain on the global grid.")
+					verify(clears and target[0] % 4 == 0 and target[2] % 4 == 0,
+						"The oriented transmission footprint clears sampled terrain at a U-centered X/Z position.")
 			found_slope = true
 			break
 	verify(found_slope, "The site supplies a sloped tile crossing a height boundary.")
 	var x: float = 20 * Geometry.PITCH
 	var z: float = 20 * Geometry.PITCH
 	var ground: float = surface.height_at(x, z)
-	var level := ceili(ground / Geometry.PITCH) * Geometry.HEIGHT_DENOMINATOR
+	var level := ceili(ground / Geometry.HEIGHT_STEP)
 	view.camera.position = Vector3(x, ground + 20.0, z)
 	view.camera.look_at(Vector3(x, ground, z), Vector3.FORWARD)
 	var screen: Vector2 = view.camera.unproject_position(Vector3(x, ground, z))
@@ -266,7 +269,10 @@ func check_terrain_pointer(shared: bool) -> void:
 	await physics_frame
 	view.transmission_controls.choose_tool("place_shaft")
 	verify(view._screen_entity(screen).is_empty(), "Terrain occludes the more distant transmission picker.")
-	verify(view._transmission_center(screen) == [80, level, 80], "A terrain hit selects its global tile instead of a hidden shaft face.")
+	var terrain_target: Array = view._transmission_center(screen)
+	verify(terrain_target.size() == 3 and terrain_target[0] == 80 and terrain_target[2] == 80
+		and terrain_target[1] >= level and terrain_target[1] != level - 8,
+		"A terrain hit selects a clear H height on its U center instead of the hidden shaft face.")
 	pick_body(view, "visible", Vector3(x, ground + 2.0, z), Vector3.ONE * 0.3, Vector3.ZERO)
 	await physics_frame
 	await physics_frame
@@ -305,9 +311,13 @@ func check_raised_pointer() -> void:
 	view._transmission_click(floor_target, "")
 	verify(view.requests == [{"action": "place_shaft", "center": [0, 4, 0], "axis": "x", "half_span": 2}],
 		"The shaft click submits the raised tile shown by the pointer.")
-	view.transmission_controls._height_selected(1)
-	verify(not view.transmission_controls.auto_height and view.transmission_controls.gear_height == 8
-		and view._transmission_center(floor_screen) == [0, 8, 0], "An explicit height starts above the pointed floor.")
+	var each_h_selected := true
+	for expected_height in [5, 6, 7]:
+		view.transmission_controls._height_selected(1)
+		each_h_selected = each_h_selected and not view.transmission_controls.auto_height \
+			and view.transmission_controls.gear_height == expected_height \
+			and view._transmission_center(floor_screen) == [0, expected_height, 0]
+	verify(each_h_selected, "The explicit control can select each H above the pointed floor.")
 	view.transmission_controls._height_selected(2)
 	verify(view.transmission_controls.auto_height and view._transmission_center(floor_screen) == [0, 4, 0],
 		"The height menu restores surface following.")
@@ -329,7 +339,7 @@ func check_raised_pointer() -> void:
 	verify(view._transmission_snap_target("edge-floor", Vector3.UP, Vector3.ZERO, Vector3(edge_x, 0, 0)) == [-8, -4, 0],
 		"A lower full-U slab retains its own machine floor level.")
 	view.transmission_controls._height_selected(1)
-	verify(view._transmission_snap_target("edge-floor", Vector3.UP, Vector3.ZERO, Vector3(edge_x, 0, 0)) == [-8, 0, 0],
+	verify(view._transmission_snap_target("edge-floor", Vector3.UP, Vector3.ZERO, Vector3(edge_x, 0, 0)) == [-8, -3, 0],
 		"An explicit height still overrides the slab's surface following.")
 	view.transmission_controls._height_selected(2)
 	view.camera.position = Vector3(5, 3, 0)
@@ -395,7 +405,7 @@ func check_raised_pointer() -> void:
 		"A sideways belt identifies its middle global tile.")
 	view._transmission_center(slope_screen)
 	view.transmission_controls._height_selected(1)
-	verify(view._transmission_center(slope_screen) == [32, 12, 0], "An explicit height overrides the belt's surface height.")
+	verify(view._transmission_center(slope_screen) == [32, 9, 0], "An explicit H height overrides the belt's surface height.")
 	view.transmission_controls._height_selected(2)
 	view.state.transmission_parts["raised-shaft"] = {"kind": "shaft", "axis": 1, "center": [64, 8, 0]}
 	view.state.transmission_parts["raised-cog"] = {"kind": "gear", "axis": 2, "center": [80, 8, 0]}
@@ -585,8 +595,8 @@ func check_terrain_host() -> void:
 			view.transmission_controls.choose_tool(spec.tool)
 			view.transmission_controls.selected_axis = axis
 			var center: Array = view._transmission_center(screen)
-			verify(center.size() == 3 and center[0] == tile.x * 4 and center[2] == tile.y * 4 and center[1] % 4 == 0,
-				"The pointer submits the selected global tile.")
+			verify(center.size() == 3 and center[0] == tile.x * 4 and center[2] == tile.y * 4,
+				"The pointer submits a U-centered X/Z location at an H height.")
 			var actor := [tile.x * Geometry.PITCH + Geometry.PITCH, Geometry.ANCHOR_HEIGHT + center[1] * Geometry.HEIGHT_STEP, tile.y * Geometry.PITCH - Geometry.PITCH]
 			verify(model.publish_actor("P", actor, 1).get("accepted", false), "The native Host accepts a synthetic nearby actor.")
 			var wire := {"context": context, "client": "P", "request": "place", "center": center, "axis": axis}

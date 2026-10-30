@@ -38,8 +38,8 @@ func _init() -> void:
 	_heights = PopupMenu.new()
 	_heights.name = "Height"
 	menu.add_child(_heights)
-	_heights.add_item("Lower one tile", 0)
-	_heights.add_item("Raise one tile", 1)
+	_heights.add_item("Lower by H", 0)
+	_heights.add_item("Raise by H", 1)
 	_heights.add_item("Follow pointed surface", 2)
 	_heights.id_pressed.connect(_height_selected)
 	menu.add_submenu_item("Placement height: Follow surface", "Height", 101)
@@ -151,8 +151,11 @@ func _height_selected(id: int) -> void:
 	if auto_height:
 		gear_height = snapped_height
 		auto_height = false
-	gear_height = clampi(gear_height + (-4 if id == 0 else 4), -Geometry.GRID_COORDINATE_LIMIT, Geometry.GRID_COORDINATE_LIMIT)
+	gear_height = clampi(gear_height + (-1 if id == 0 else 1), -Geometry.GRID_COORDINATE_LIMIT, Geometry.GRID_COORDINATE_LIMIT)
 	refresh()
+
+static func _height_label(height: int) -> String:
+	return "%dH (%.2f m)" % [height, height * Geometry.HEIGHT_STEP]
 
 func _size_selected(id: int) -> void:
 	if id in [0, 1]:
@@ -225,7 +228,7 @@ func refresh() -> void:
 		menu.set_item_checked(index, active_tool == entry[1])
 	menu.set_item_text(menu.get_item_index(100), "Axis [X]: " + selected_axis.to_upper())
 	menu.set_item_text(menu.get_item_index(103), "Chain direction [Shift+X]: " + selected_link_axis.to_upper())
-	menu.set_item_text(menu.get_item_index(101), "Height [Shift+PgUp/PgDn, Ctrl+Home]: %s" % ("Follow surface" if auto_height else "%d tiles" % (gear_height / 4)))
+	menu.set_item_text(menu.get_item_index(101), "Height [Shift+PgUp/PgDn, Ctrl+Home]: %s" % ("Follow surface" if auto_height else _height_label(gear_height)))
 	menu.set_item_text(menu.get_item_index(102), "Cog size [K]: " + ("Small" if gear_teeth == 2 else "Large"))
 	for index in range(2):
 		var teeth: int = [2, 4][index]
@@ -244,7 +247,7 @@ func refresh() -> void:
 	text = {"gear": "Place cogwheel", "place_shaft": "Place shaft segment", "belt_span": "Connect shafts with belt",
 		"gearbox": "Place horizontal gearbox", "vertical_gearbox": "Place vertical gearbox",
 		"chain_drive": "Place encased chain drive"}.get(active_tool, "Mechanical options") + "  [T]"
-	tooltip_text = "Axis %s · height %s. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), "follows surface" if auto_height else "%d tiles" % (gear_height / 4), gears, selected_shafts]
+	tooltip_text = "Axis %s · height %s. %d cogwheels and %d shafts carried." % [selected_axis.to_upper(), "follows surface" if auto_height else _height_label(gear_height), gears, selected_shafts]
 
 func _part(context: Dictionary, id: String) -> Dictionary:
 	var value: Variant = context.snapshot.transmission_parts.get(id, context.snapshot.entities.get(id))
@@ -274,8 +277,9 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 		return true
 	if active_tool in ["gear", "place_shaft", "gearbox", "vertical_gearbox", "chain_drive"]:
 		var valid := center.size() == 3 and selected_axis in ["x", "y", "z"]
-		for coordinate: Variant in center:
-			valid = valid and typeof(coordinate) == TYPE_INT and coordinate >= -Geometry.GRID_COORDINATE_LIMIT and coordinate <= Geometry.GRID_COORDINATE_LIMIT and coordinate % 4 == 0
+		for index in 3:
+			var coordinate: Variant = center[index]
+			valid = valid and typeof(coordinate) == TYPE_INT and coordinate >= -Geometry.GRID_COORDINATE_LIMIT and coordinate <= Geometry.GRID_COORDINATE_LIMIT and (index == 1 or coordinate % 4 == 0)
 		if valid and not auto_height:
 			valid = center[1] == gear_height
 		var available := 0
@@ -286,7 +290,7 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 		else:
 			available = _count(context, active_tool, 0, 0)
 		if not valid or available == 0:
-			_feedback("Choose an available part at a whole-tile grid point on the shown height.")
+			_feedback("Choose an available part at a U center on the shown H height.")
 			return true
 		var wire: Dictionary
 		if active_tool == "gear":

@@ -530,9 +530,9 @@ func _transmission_terrain_high(x: float, z: float, half_x: float, half_z: float
 	return high
 
 func _transmission_terrain_level(point: Vector3, x: float, z: float) -> int:
-	var level := ceili(point.y / PITCH)
+	var level := ceili(point.y / Geometry.HEIGHT_STEP)
 	if transmission_controls.active_tool not in ["place_shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
-		return level * Geometry.HEIGHT_DENOMINATOR
+		return level
 	var axis: String = transmission_controls.selected_axis
 	var axle := Vector3(0.1, 0.1, 0.1)
 	axle[["x", "y", "z"].find(axis)] = PITCH / 2.0
@@ -546,8 +546,8 @@ func _transmission_terrain_level(point: Vector3, x: float, z: float) -> int:
 	for half: Vector3 in footprints:
 		var high := _transmission_terrain_high(x, z, half.x, half.z)
 		if is_finite(high):
-			level = maxi(level, ceili((high - Geometry.ANCHOR_HEIGHT + half.y - 0.000000001) / PITCH))
-	return level * Geometry.HEIGHT_DENOMINATOR
+			level = maxi(level, ceili((high - Geometry.ANCHOR_HEIGHT + half.y - 0.000000001) / Geometry.HEIGHT_STEP))
+	return level
 
 func _transmission_center(screen: Vector2) -> Array:
 	if transmission_controls == null:
@@ -596,7 +596,8 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 	if not a is Array or not b is Array or a.size() != 3 or b.size() != 3:
 		return []
 	for axis in 3:
-		if typeof(a[axis]) != TYPE_INT or typeof(b[axis]) != TYPE_INT or a[axis] % 4 != 0 or b[axis] % 4 != 0:
+		if typeof(a[axis]) != TYPE_INT or typeof(b[axis]) != TYPE_INT \
+				or (axis != 1 and (a[axis] % 4 != 0 or b[axis] % 4 != 0)):
 			return []
 	var start := Vector3(a[0], a[1], a[2])
 	var difference := Vector3(b[0], b[1], b[2]) - start
@@ -622,8 +623,8 @@ func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3,
 			var center: Variant = part.get("center")
 			if not center is Array or center.size() != 3 or not normal.is_finite():
 				return []
-			for coordinate: Variant in center:
-				if typeof(coordinate) != TYPE_INT or coordinate % 4 != 0:
+			for index in 3:
+				if typeof(center[index]) != TYPE_INT or (index != 1 and center[index] % 4 != 0):
 					return []
 			var axis := 0
 			for candidate in [1, 2]:

@@ -84,8 +84,8 @@ void construction(bool corner) {
     const auto first = accepted(send(*world, first_command));
     auto invalid_history = world->snapshot();
     auto& placement = invalid_history.history.records.back();
-    placement.intent.at("center") = V(V::Array{V(I{0}), V(I{1}), V(I{0})});
-    placement.result.at("targets") = V(V::Array{V(V::Array{V(0.0), V(0.1), V(0.0)})});
+    placement.intent.at("center") = V(V::Array{V(I{1}), V(I{0}), V(I{0})});
+    placement.result.at("targets") = V(V::Array{V(V::Array{V(0.1), V(0.0), V(0.0)})});
     placement.result.at("distances_squared") = V(V::Array{V(0.1 * 0.1)});
     check(!w::World::restore("cog-world", profile, invalid_history),
           "Even a consistent historical receipt cannot restore an accepted off-grid cog placement.");

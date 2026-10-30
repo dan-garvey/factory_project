@@ -1017,8 +1017,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto first_point = first ? grid_point(Object{{"center", Value(*first)}}) : std::nullopt;
         const auto last_point = last ? grid_point(Object{{"center", Value(*last)}}) : std::nullopt;
         if (!first_point || !last_point || *first_point == *last_point ||
-            std::any_of(first_point->begin(), first_point->end(), [](Integer value) { return value % 4 != 0; }) ||
-            std::any_of(last_point->begin(), last_point->end(), [](Integer value) { return value % 4 != 0; }) ||
+            (*first_point)[0] % 4 != 0 || (*first_point)[2] % 4 != 0 ||
+            (*last_point)[0] % 4 != 0 || (*last_point)[2] % 4 != 0 ||
             targets.back() != anchor(profile, *last_point) ||
             (action == "place_belt_span" && targets.front() != anchor(profile, *first_point))) return false;
     }

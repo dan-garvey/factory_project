@@ -218,9 +218,7 @@ bool transmission_center(Role role, const mechanics::Point& center,
     (void)axis;
     (void)half_span;
     if (!transmission_role(role)) return true;
-    for (std::size_t index = 0; index < center.size(); ++index)
-        if (center[index] % 4 != 0) return false;
-    return true;
+    return center[0] % 4 == 0 && center[2] % 4 == 0;
 }
 
 std::optional<mechanics::Rate> wheel_rate(const Profile& profile, const stationary::PlacedPart& placed) {

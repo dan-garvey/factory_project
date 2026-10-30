@@ -158,7 +158,7 @@ static func _mechanical_point(value: Variant, _part: Dictionary = {}) -> bool:
 		var coordinate: Variant = value[index]
 		if typeof(coordinate) != TYPE_INT or coordinate < -1000000 or coordinate > 1000000:
 			return false
-		if coordinate % 4 != 0:
+		if index != 1 and coordinate % 4 != 0:
 			return false
 	return true
 

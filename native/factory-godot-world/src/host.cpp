@@ -961,7 +961,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!center) return refuse("invalid_center");
         if (!selected_axis) return refuse("invalid_axis");
         if (!span || *span != 2) return refuse("invalid_shaft");
-        if (std::any_of(center->begin(), center->end(), [](Integer coordinate) { return coordinate % 4 != 0; }))
+        if ((*center)[0] % 4 != 0 || (*center)[2] % 4 != 0)
             return refuse("invalid_cell");
         const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
         if (transmission_intersects_foundations(snapshot.state, *center, verified_axis, false)) return refuse("occupied");
@@ -995,7 +995,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (!center) return refuse("invalid_center");
         if (!selected_axis) return refuse("invalid_axis");
         if (!teeth || *teeth < 1 || *teeth > mechanics::maximum_dimension) return refuse("invalid_gear");
-        if (std::any_of(center->begin(), center->end(), [](Integer coordinate) { return coordinate % 4 != 0; }))
+        if ((*center)[0] % 4 != 0 || (*center)[2] % 4 != 0)
             return refuse("invalid_cell");
         const auto verified_axis = selected_axis.value_or(mechanics::Axis::x);
         if (transmission_intersects_foundations(snapshot.state, *center, verified_axis, true)) return refuse("occupied");
@@ -1033,7 +1033,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             (*name == "vertical_gearbox" && drive_axis == mechanics::Axis::y) ||
             (relay_name != nullptr) != (*name == "chain_drive") ||
             (relay_name && (!relay_axis || *relay_axis == drive_axis))) return refuse("invalid_axis");
-        if (std::any_of(center->begin(), center->end(), [](Integer value) { return value % 4 != 0; }))
+        if ((*center)[0] % 4 != 0 || (*center)[2] % 4 != 0)
             return refuse("invalid_cell");
         const authority::Point at{(*center)[0] * height_step,
             anchor_height + (*center)[1] * height_step, (*center)[2] * height_step};

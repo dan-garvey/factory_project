@@ -50,8 +50,7 @@ const char* geometry(const world::Profile& profile, const terrain_surface::Surfa
             if (part.geometry.teeth != 2 && part.geometry.teeth != 4) return "incompatible_geometry";
         } else if (part.role == Role::belt || center[0] % 4 != 0 || center[2] % 4 != 0)
             return "incompatible_geometry";
-        if (relay && (center[1] % 4 != 0 ||
-            (part.role == Role::gearbox && part.geometry.axis != mechanics::Axis::y) ||
+        if (relay && ((part.role == Role::gearbox && part.geometry.axis != mechanics::Axis::y) ||
             (part.role == Role::vertical_gearbox && part.geometry.axis == mechanics::Axis::y)))
             return "incompatible_geometry";
         if (part.role == Role::collector)

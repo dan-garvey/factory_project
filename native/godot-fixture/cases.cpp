@@ -95,7 +95,7 @@ const std::array cases{
          "CHAPTER 1 SCENE EVENTS PASS: arrival-channel-small-resume",
          180, channel_resume_fixed, channel_resume_values},
     Case{"transmission-endpoint-default", endpoint_script,
-         R"({"checks":316,"desktop_operations":0,"evidence":"isolated_shaft_tile_controls_and_pointer","failures":0,"models":0,"status":"pass"})",
+         R"({"checks":314,"desktop_operations":0,"evidence":"isolated_shaft_tile_controls_and_pointer","failures":0,"models":0,"status":"pass"})",
          180, no_arguments, no_arguments},
     Case{"transmission-endpoint-common-frame", endpoint_script,
          R"({"checks":3,"desktop_operations":0,"evidence":"isolated_shaft_tile_controls_and_pointer","failures":0,"models":0,"status":"pass"})",
