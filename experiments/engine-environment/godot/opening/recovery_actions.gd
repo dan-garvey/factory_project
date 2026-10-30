@@ -1026,7 +1026,8 @@ class ArrivalAssemblyControls:
 		pickup_button.accessibility_name = "Pick up formed plate from the selected exit, shortcut P"
 		recover_work_button.visible = not _anvil.is_empty() and not sliding
 		recover_work_button.disabled = not ready or _work_drop().is_empty()
-		var recover_action := "Pick up the copper offcut beneath the %s" % work_face if int(_work_drop().get("offcuts", 0)) > 0 else \
+		var recover_action := "Pick up the copper plate and offcut together" if int(_work_drop().get("products", 0)) > 0 and int(_work_drop().get("offcuts", 0)) > 0 else \
+			"Pick up the copper offcut beneath the %s" % work_face if int(_work_drop().get("offcuts", 0)) > 0 else \
 			"Recover material beneath the %s" % work_face if not _work_drop().is_empty() else "No material beneath the %s to recover" % work_face
 		recover_work_button.tooltip_text = "%s · U" % ("Wait for the character" if not ready else recover_action)
 		recover_work_button.accessibility_name = "%s, shortcut U" % recover_action

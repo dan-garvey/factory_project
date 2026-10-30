@@ -5548,14 +5548,11 @@ func _arrival_run() -> void:
 					"The native in-stroke guided press is retained in a close passive frame"):
 				return
 	var after: Dictionary = opening.model.projection()
-	if not _expect((after.dropped_material.size() == 1 if raised else after.dropped_material.size() == 2)
+	if not _expect(after.dropped_material.size() == 1
 			and after.dropped_material.any(func(drop: Variant) -> bool:
-				return drop.products == 1 and (drop.center == ready.work_center if raised
-					else ready.open_feeds.any(func(feed: Variant) -> bool: return drop.center == feed.exit)))
-			and after.dropped_material.any(func(drop: Variant) -> bool:
-				return drop.offcuts == 1 and drop.center == ready.work_center)
+				return drop.center == ready.work_center and drop.products == 1 and drop.offcuts == 1)
 			and after.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-			"Repeated hand turns form one plate and retain one copper offcut under the die: "
+			"Repeated manual turns retain one plate and its copper offcut together on the workbed: "
 			+ str({"drops": after.dropped_material, "feeds": ready.open_feeds,
 				"work": ready.work_center, "mass": after.material_mass.accounted_mass})):
 		return
@@ -5578,67 +5575,44 @@ func _arrival_run() -> void:
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening.object_menu.hide()
 		if not _expect(await _capture_actor_area(capture_prefix + "-plate-offcut.png", work_target),
-				"The separate formed plate and copper offcut are retained in an actor-eye press view"):
+				"The formed plate and copper offcut are retained together in an actor-eye press view"):
 			return
 		opening._open_object_menu_for(str(ready.anvil))
-	if not _expect(not panel.pickup_button.disabled, "The formed plate is offered for physical pickup"):
-		return
-	if not _expect(not panel.recover_work_button.disabled
-			and panel.recover_work_button.tooltip_text.contains("offcut")
+	if not _expect(panel.pickup_button.disabled and not panel.recover_work_button.disabled
+			and panel.recover_work_button.tooltip_text.contains("plate and offcut together")
 			and panel.feed_button.disabled,
-			"The next feed waits for the visible copper offcut to be recovered"):
+			"The ordinary panel offers the mixed workbed output and blocks another feed"):
 		return
 	panel.recover_work_button.pressed.emit()
-	if not _expect(opening.model.projection().cargo.P.offcuts == 1
-			and opening.model.projection().dropped_material.size() == 1,
-			"Ordinary press recovery moves only the copper offcut into actor custody"):
+	if not _expect(opening.model.projection().cargo.P.products == 1
+			and opening.model.projection().cargo.P.offcuts == 1
+			and opening.model.projection().dropped_material.is_empty()
+			and "FIRST WORKSHOP  /  COMPLETE" in opening.objective_title
+			and opening.manager_log_completion_entry.visible,
+			"Physical workbed pickup conserves both outputs and completes the workshop"):
 		return
 	panel.feed_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.raw == 0
-			and opening.model.projection().dropped_material.size() == 2,
-			"A second local blank can enter while the prior plate occupies the exit"):
+			and opening.model.projection().dropped_material.size() == 1,
+			"The next finite blank enters only after the workbed is cleared"):
 		return
 	for turn in range(3):
 		if not await _pulse_fitted_world_crank(fitted_crank):
 			return
 	opening._open_object_menu_for(str(ready.anvil))
-	var held: Dictionary = opening.model.projection()
-	if not _expect(held.dropped_material.size() == 2
-			and panel.press_status.text.contains("Exit holds a copper plate")
-			and not opening.manager_log_completion_entry.visible,
-		"A plate at the exit has not yet completed the inventory objective: %s" %
-		str({"drops": held.dropped_material, "press_status": panel.press_status.text,
-			"completion": opening.manager_log_completion_entry.visible})):
-		return
-	if not _expect(not panel.pickup_button.disabled and not panel.recover_work_button.disabled,
-			"The player can choose either exit pickup or retained work recovery"):
-		return
-	panel.pickup_button.pressed.emit()
-	if not _expect(opening.model.projection().cargo.P.products == 1
-			and opening.model.projection().dropped_material.size() == 1
-			and "FIRST WORKSHOP  /  COMPLETE" in opening.objective_title
-			and opening.manager_log_completion_entry.visible,
-		"Physical pickup completes the workshop while the second workpiece stays in place"):
-		return
-	if not await _pulse_fitted_world_crank(fitted_crank):
-		return
-	opening._open_object_menu_for(str(ready.anvil))
-	if not _expect(opening.model.projection().dropped_material.size() == 2
-			and opening.model.projection().dropped_material.any(func(drop: Variant) -> bool: return drop.products == 1)
-			and opening.model.projection().dropped_material.any(func(drop: Variant) -> bool: return drop.offcuts == 1),
-			"Clearing the exit lets the retained ready work form its second product"):
-		return
-	panel.pickup_button.pressed.emit()
-	if not _expect(not panel.recover_work_button.disabled
-			and opening.model.projection().dropped_material.size() == 1,
-			"The second plate pickup leaves its separate copper offcut beneath the ram"):
+	var second: Dictionary = opening.model.projection()
+	if not _expect(second.dropped_material.size() == 1
+			and second.dropped_material.any(func(drop: Variant) -> bool:
+				return drop.center == ready.work_center and drop.products == 1 and drop.offcuts == 1)
+			and second.material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
+			"A second identified plate and offcut remain together at the same work point"):
 		return
 	panel.recover_work_button.pressed.emit()
 	if not _expect(opening.model.projection().cargo.P.products == 2
 			and opening.model.projection().cargo.P.offcuts == 2
 			and opening.model.projection().dropped_material.is_empty()
 			and opening.model.projection().material_mass.accounted_mass == ARRIVAL_INITIAL_MASS,
-			"Both plates and both copper offcuts enter finite carried custody through ordinary controls"):
+			"Both plates and offcuts enter finite actor custody through ordinary workbed recovery"):
 		return
 	facts["press_anvil"] = ready.anvil
 	facts["final_parts"] = opening.model.projection().placed_components
