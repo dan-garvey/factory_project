@@ -180,6 +180,8 @@ func _record(status: String, reason: String = "") -> void:
 		print("CHAPTER 1 JOINED BROAD PRESS PASS")
 	if status == "pass" and mode == "arrival-joined-broad-slab":
 		print("CHAPTER 1 JOINED BROAD PRESS SLAB PASS")
+	if status == "pass" and mode == "arrival-raised-starter-belt":
+		print("CHAPTER 1 RAISED PRESS BELT PASS")
 	if status == "pass" and event_route_pointer:
 		print("CHAPTER 1 SCENE EVENTS PASS: " + mode)
 	quit(0 if status == "pass" else 1)
@@ -2819,14 +2821,50 @@ func _arrival_first_plate_resume_run(capture_prefix: String) -> void:
 	_record("pass")
 
 func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictionary) -> bool:
-	# Build a belt beside the actor-built workbed, using finite workshop stock.
-	# The two additional foundations keep its shaft supports at the same deck.
-	if not await _approach_points([Vector2(6.6, 4.95), Vector2(6.6, 9.9), Vector2(6.0, 10.05)]):
+	# Form the shaft plates on the raised workbed before building its belt.
+	# The adjacent foundation keeps the far shaft support on the raised deck.
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(5.5, 5.5)]):
+		return false
+	var press: Dictionary = opening.model.projection().sliding_press_assemblies[0]
+	var crank_id := ""
+	for id: String in opening.model.projection().crank_items:
+		if str(opening.model.projection().crank_items[id].get("attached_to", "")).is_empty():
+			crank_id = id
+	if not _expect(not crank_id.is_empty(), "The worker carries the finite raised-press crank"):
+		return false
+	if _construct({"action": "attach_hand_crank", "entity": fitted.wooden_slide,
+			"crank": crank_id, "port": [28, 8, 32], "face": [-1, 0, 0]}).is_empty():
+		return false
+	for plate_index in range(2):
+		var route: Dictionary = opening.model.projection().sliding_press_assemblies[0].auto_feed
+		if _construct({"action": "feed_press", "entity": fitted.anvil, "entry": route.entry}).is_empty():
+			return false
+		var formed: Dictionary = {}
+		for _turn in range(128):
+			if _construct({"action": "operate_hand_crank", "entity": crank_id}).is_empty():
+				return false
+			for drop: Dictionary in opening.model.projection().dropped_material:
+				if drop.center == press.work_center and int(drop.get("products", 0)) == 1:
+					formed = drop
+					break
+			if not formed.is_empty():
+				break
+		if not _expect(not formed.is_empty(), "The raised native press forms one finite plate before the next feed"):
+			return false
+		var expected := formed.duplicate(true)
+		expected.erase("center")
+		if _construct({"action": "pickup_material", "center": press.work_center,
+				"expected": expected}).is_empty():
+			return false
+		if not _expect(int(opening.model.projection().cargo.P.products) == plate_index + 1,
+				"The raised workbed returns each crafted shaft plate to the worker"):
+			return false
+	if not await _approach_points([Vector2(5.5, 4.95), Vector2(5.5, 9.9), Vector2(6.0, 10.05)]):
 		return false
 	for _cut in range(4):
 		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
 			return false
-	if not await _approach_points([Vector2(6.6, 4.95), Vector2(3.3, 4.95)]):
+	if not await _approach_points([Vector2(5.5, 9.9), Vector2(5.5, 4.95), Vector2(3.3, 4.95)]):
 		return false
 	var hub: String = str(opening.model.projection().fabrication_hub.id)
 	for kind in ["shaft", "shaft", "belt"]:
@@ -2835,16 +2873,19 @@ func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictio
 		for index in range(recipes.size()):
 			if recipes[index].kind == kind:
 				choice = index
-		if not _expect(choice >= 0 and _press_inventory_recipe("part:%d" % choice, hub),
+		if not _expect(choice >= 0, "The unlocked workshop offers the selected transmission kit"):
+			return false
+		var before: Dictionary = opening.model.projection()
+		if not _expect(_press_inventory_recipe("part:%d" % choice, hub)
+				and int(opening.model.projection().part_kits.P[kind]) == int(before.part_kits.P[kind]) + 1,
 				"The finite workshop crafts the selected belt and both shaft ends"):
 			return false
-	if not await _approach(Vector2(6.6, 4.95)):
+	if not await _approach_points([Vector2(5.5, 4.95), Vector2(9.9, 4.95), Vector2(9.9, 5.7)]):
 		return false
-	for cell in [[4, 4], [5, 4]]:
-		if _construct({"action": "place_foundation", "cell": cell, "level": 4}).is_empty():
-			return false
+	if _construct({"action": "place_foundation", "cell": [4, 3], "level": 4}).is_empty():
+		return false
 	var ends: Array[String] = []
-	for center in [[16, 4, 16], [20, 4, 16]]:
+	for center in [[36, 4, 32], [44, 4, 32]]:
 		var shaft: Dictionary = _construct({"action": "place_shaft", "center": center,
 			"axis": "z", "half_span": 2})
 		if shaft.is_empty():
@@ -2855,7 +2896,7 @@ func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictio
 		return false
 	opening._refresh()
 	var state: Dictionary = opening.model.projection()
-	var press: Dictionary = state.sliding_press_assemblies[0] if not state.sliding_press_assemblies.is_empty() else {}
+	press = state.sliding_press_assemblies[0] if not state.sliding_press_assemblies.is_empty() else {}
 	var connector: Node3D = opening.transmission_presenter.get_node_or_null("PressBeltConnector")
 	if not _expect(press.get("status") == "ready" and press.get("parts", {}).get("anvil") == fitted.anvil
 			and state.belt_spans.has(belt.entity) and connector != null
@@ -2952,7 +2993,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			return
 	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	for index in range(6 if mode == "arrival-blocked-feed-cue" else 4):
+	for index in range(6 if mode in ["arrival-blocked-feed-cue", "arrival-raised-starter-belt"] else 4):
 		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
 			return
 	if not await _approach(Vector2(3.3, 4.95)):
@@ -2963,7 +3004,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	if mode == "arrival-blocked-feed-cue" and not _press_inventory_recipe(
 			"component:anvil", str(start.fabrication_hub.id)):
 		return
-	if not _expect(opening.model.projection().cargo.P.raw == 1
+	if not _expect(opening.model.projection().cargo.P.raw == (3 if mode == "arrival-raised-starter-belt" else 1)
 			and opening.model.projection().cargo.P.timber == (2 if raised_snap else 0),
 			"Finite shaping spends two copper for the anvil, one for its head, and five timber for the slide and crank"):
 		return
