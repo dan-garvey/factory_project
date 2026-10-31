@@ -2696,6 +2696,59 @@ func _slide_batch_motion() -> void:
 			and piston_batch.get_instance_transform(piston_index).origin.y < piston_rest_y,
 			"The batched die and piston descend with the confirmed half-cycle phase.")
 	presenter.free()
+	var pitch: float = Geometry.PITCH
+	var step: float = Geometry.HEIGHT_STEP
+	var work_height: float = Geometry.PRESS_WORK_HEIGHT
+	var head_low: float = work_height
+	var head_high: float = step + Geometry.ANCHOR_HEIGHT + step * 0.5
+	var slide_low: float = work_height
+	var slide_high: float = 4.0 * step + 2.0 * Geometry.ANCHOR_HEIGHT
+	var broad := {"context": "broad-batch-motion", "revision": 1,
+		"options": {"native": true}, "transmission_parts": {}, "belt_spans": {},
+		"motion": {}, "collector_assemblies": [], "dropped_material": []}
+	broad.placed_components = {
+		"bed": _component_record("broad_anvil", [0, 0, 0],
+			[pitch * 0.5, work_height * 0.5, pitch * 0.5],
+			[pitch, work_height * 0.5, pitch]),
+		"head": _component_record("broad_flat_head", [0, 1, 0],
+			[pitch * 0.5, (head_low + head_high) * 0.5, pitch * 0.5],
+			[pitch, (head_high - head_low) * 0.5, pitch]),
+		"slide": _component_record("broad_copper_slide", [0, 4, 0],
+			[pitch * 0.5, (slide_low + slide_high) * 0.5, pitch * 0.5],
+			[pitch, (slide_high - slide_low) * 0.5, pitch])}
+	for i in 9:
+		broad.placed_components["frame-%d" % i] = _press_component_record(
+			"wooden_frame", Vector3i(8 + i, 0, 0))
+	broad.slide_phases = {"slide": {"subticks": 0, "remainder": 0,
+		"denominator": 1, "cycle_subticks": 4096}}
+	var broad_host := HostStub.new()
+	broad_host.state = broad
+	var broad_presenter := Presenter.new()
+	root.add_child(broad_presenter)
+	broad_presenter.configure(broad_host)
+	var broad_head: Node3D = broad_presenter._component_anchors.get("head")
+	var broad_slide: Node3D = broad_presenter._component_anchors.get("slide")
+	var broad_die: Node3D = broad_head.get_node_or_null("BroadHeadMovingDie") if broad_head != null else null
+	var broad_piston: MeshInstance3D = broad_slide.get_node_or_null("BroadCentralPiston") \
+		if broad_slide != null else null
+	verify(broad_presenter._component_batches_press_dynamic and broad_die != null
+		and broad_die.has_meta("batch_multimesh") and broad_piston != null
+		and broad_piston.has_meta("batch_multimesh"),
+		"A populated worksite batches the broad moving head and central piston.")
+	if broad_die != null and broad_piston != null and broad_die.has_meta("batch_multimesh") \
+			and broad_piston.has_meta("batch_multimesh"):
+		var broad_die_batch: MultiMesh = broad_die.get_meta("batch_multimesh")
+		var broad_piston_batch: MultiMesh = broad_piston.get_meta("batch_multimesh")
+		var broad_die_index: int = int(broad_die.get_meta("batch_index"))
+		var broad_piston_index: int = int(broad_piston.get_meta("batch_index"))
+		var broad_die_rest: float = broad_die_batch.get_instance_transform(broad_die_index).origin.y
+		var broad_piston_rest: float = broad_piston_batch.get_instance_transform(broad_piston_index).origin.y
+		broad.slide_phases.slide.subticks = 2048
+		broad_presenter.refresh()
+		verify(broad_die_batch.get_instance_transform(broad_die_index).origin.y < broad_die_rest
+			and broad_piston_batch.get_instance_transform(broad_piston_index).origin.y < broad_piston_rest,
+			"The batched broad head and piston descend with the confirmed half-cycle phase.")
+	broad_presenter.free()
 
 func _mechanical_collision_geometry() -> void:
 	var state := {"options": {"native": true}, "transmission_parts": {
