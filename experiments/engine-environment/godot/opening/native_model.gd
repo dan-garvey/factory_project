@@ -5,6 +5,7 @@ const Site = preload("res://opening/site_geometry.gd")
 var native: Object
 var boot_result: Dictionary = {"accepted": false, "reason": "native_library_missing"}
 var _view_cache: Dictionary = {}
+var _last_actor_projection: Dictionary = {}
 var _projection_fields: Dictionary = {}
 var _projection_records: Dictionary = {}
 var context: String:
@@ -79,6 +80,8 @@ func _init(world_context: String = "opening-native", actor_ids: Array = ["P"], a
 		boot_result = {"accepted": false, "reason": "native_scene_profile_mismatch"}
 
 func _invoke(method: String, arguments: Array) -> Dictionary:
+	if method != "actor_projection":
+		_last_actor_projection.clear()
 	if native == null:
 		return {"accepted": false, "reason": "native_library_missing"}
 	var value = native.callv(method, arguments)
@@ -431,9 +434,12 @@ func publish_actor(actor: String, position: Array, native_epoch: int) -> Diction
 			actors[actor] = current
 			updated.actors = actors
 			_view_cache = updated
+			_last_actor_projection[actor] = observed
 	return result
 
 func actor_projection(actor: String) -> Dictionary:
+	if _last_actor_projection.has(actor):
+		return _last_actor_projection[actor].duplicate(true)
 	return _invoke("actor_projection", [actor])
 
 func invalidate_actor(actor: String) -> void:

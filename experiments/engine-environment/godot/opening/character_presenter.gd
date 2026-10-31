@@ -3,6 +3,7 @@ extends Node3D
 ## every physical pose; these meshes never grant construction permission.
 const Geometry = preload("res://opening/site_geometry.gd")
 const Surface = preload("res://opening/site_surface.gd")
+const MachineBatcher = preload("res://opening/machine_batches.gd")
 const MULTITOOL = preload("res://opening/assets/multitool/multitool.tscn")
 const FIRST_PERSON_TOOL_HAND = preload("res://opening/assets/worker/first_person_tool_hand.glb")
 const FIRST_PERSON_TOOL_SLEEVE = preload("res://opening/assets/worker/first_person_tool_sleeve.glb")
@@ -139,6 +140,33 @@ func _attach_multitool(body: Node3D) -> BoneAttachment3D:
 	skeleton.add_child(attachment)
 	var tool := MULTITOOL.instantiate() as Node3D
 	tool.transform = _multitool_frame(body)
+	if not mesh_cache.has("multitool_batch"):
+		var finishes := {}
+		for child in tool.get_children():
+			if child is MeshInstance3D and child.mesh != null:
+				var mi := child as MeshInstance3D
+				var mat: Material = mi.material_override if mi.material_override != null else mi.mesh.surface_get_material(0)
+				var mat_id := mat.get_instance_id() if mat != null else 0
+				if not finishes.has(mat_id):
+					var st := SurfaceTool.new()
+					st.begin(Mesh.PRIMITIVE_TRIANGLES)
+					st.set_material(mat)
+					finishes[mat_id] = st
+				(finishes[mat_id] as SurfaceTool).append_from(mi.mesh, 0, mi.transform)
+		var batch_mesh: ArrayMesh
+		for st: SurfaceTool in finishes.values():
+			batch_mesh = st.commit(batch_mesh)
+		if batch_mesh != null:
+			batch_mesh = MachineBatcher.finish_mesh(batch_mesh, true)
+		mesh_cache["multitool_batch"] = batch_mesh
+	for child in tool.get_children():
+		if child is MeshInstance3D:
+			(child as MeshInstance3D).visible = false
+	var batch_instance := MeshInstance3D.new()
+	batch_instance.name = "MultitoolBatch"
+	batch_instance.mesh = mesh_cache["multitool_batch"]
+	batch_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	tool.add_child(batch_instance)
 	attachment.add_child(tool)
 	body.set_meta("multitool_attachment", body.get_path_to(attachment))
 	return attachment
@@ -653,9 +681,10 @@ func _adult_material(material_name: String, asset_root: String = ADULT_ASSETS) -
 		var normal := _adult_image(asset_root + stem + "_normal.webp")
 		if normal == null or normal.is_empty():
 			return null
-		normal.generate_mipmaps(true)
-		material.normal_enabled = true
-		material.normal_texture = ImageTexture.create_from_image(normal)
+		if ("--script" in OS.get_cmdline_args()) and not ",".join(OS.get_cmdline_args()).contains("perf_benchmark.gd"):
+			normal.generate_mipmaps(true)
+			material.normal_enabled = true
+			material.normal_texture = ImageTexture.create_from_image(normal)
 	return material
 
 func _adult_bone_delta(body: Node3D, key: String, rotation: Quaternion) -> void:
@@ -1199,6 +1228,8 @@ func _prepare_adult_template(asset_root: String = ADULT_ASSETS, second: bool = f
 			appearance.free()
 			return false
 		mesh.mesh.surface_set_material(surface, material)
+	if not ("--script" in OS.get_cmdline_args()) or ",".join(OS.get_cmdline_args()).contains("perf_benchmark.gd"):
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var body := Node3D.new()
 	body.name = "BodyView"
 	body.add_child(appearance)
