@@ -2467,6 +2467,11 @@ func _slide_material_seat() -> void:
 		"anvil": _press_component_record("anvil", Vector3i(0, 0, 0)),
 		"head": _press_component_record("flat_head", Vector3i(0, 1, 0)),
 		"slide": _press_component_record("wooden_slide", Vector3i(0, 2, 0))}
+	# Live worksites batch placed parts once twelve are present. Keep those
+	# extra frames beyond this camera while exercising the moving press batch.
+	for i in 9:
+		state.placed_components["distant-frame-%d" % i] = _press_component_record(
+			"wooden_frame", Vector3i(8 + i, 0, 0))
 	state.crank_items = {"crank": {"id": "crank", "generation": 1,
 		"attached_to": "slide", "port": [4, 2, 0], "face": [1, 0, 0]}}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
@@ -2486,6 +2491,18 @@ func _slide_material_seat() -> void:
 		if child.has_meta("component_entity") and child.get_meta("component_entity") == "slide":
 			slide = child
 	var input_shaft: MeshInstance3D = slide.get_node_or_null("IntegralInputShaft") if slide != null else null
+	var moving_die: Node3D = presenter._component_anchors["head"].get_node_or_null("FlatHeadMovingDie")
+	var slide_piston: MeshInstance3D = slide.get_node_or_null("SlidePiston") if slide != null else null
+	verify(presenter._component_batches_press_dynamic and moving_die != null
+		and moving_die.has_meta("batch_multimesh") and slide_piston != null
+		and slide_piston.has_meta("batch_multimesh"),
+		"A populated worksite batches the small press's moving die and piston.")
+	var die_batch: MultiMesh = moving_die.get_meta("batch_multimesh") if moving_die != null else null
+	var piston_batch: MultiMesh = slide_piston.get_meta("batch_multimesh") if slide_piston != null else null
+	var die_rest_y: float = die_batch.get_instance_transform(int(moving_die.get_meta("batch_index"))).origin.y \
+		if die_batch != null else 0.0
+	var piston_rest_y: float = piston_batch.get_instance_transform(int(slide_piston.get_meta("batch_index"))).origin.y \
+		if piston_batch != null else 0.0
 	var east_end := Vector3.ZERO
 	if input_shaft != null:
 		var half_shaft: float = (input_shaft.mesh as CylinderMesh).height * 0.5
@@ -2562,6 +2579,10 @@ func _slide_material_seat() -> void:
 	state.slide_phases = {"slide": {"subticks": 2048, "remainder": 0,
 		"denominator": 1, "cycle_subticks": 4096}}
 	presenter.refresh()
+	verify(die_batch != null and piston_batch != null
+		and die_batch.get_instance_transform(int(moving_die.get_meta("batch_index"))).origin.y < die_rest_y
+		and piston_batch.get_instance_transform(int(slide_piston.get_meta("batch_index"))).origin.y < piston_rest_y,
+		"The batched die and piston descend with the native half-cycle phase.")
 	var work: MeshInstance3D = presenter.get_node_or_null("PressedWorkpiece")
 	var head_face: MeshInstance3D = null
 	for child: Node in presenter.get_children():
