@@ -94,8 +94,7 @@ int main(int argc, char **argv) {
       std::cout
           << "factory-proof "
              "<submit|decide|deliver|discard|restore|status|gate|init|"
-             "reconcile|declare-"
-             "nonvisual> "
+             "reconcile|declare-nonvisual|compose-reviewed> "
              "--root REPO [options]\n"
              "submit --manifest FILE uses CODEX_THREAD_ID or "
              "ANTIGRAVITY_CONVERSATION_ID; end your turn after "
@@ -108,6 +107,8 @@ int main(int argc, char **argv) {
              "status --id ID reads once; do not poll from a waiting agent.\n"
              "gate --before COMMIT --after COMMIT checks final visual "
              "approvals.\n"
+             "compose-reviewed --manifest FILE records exact source coverage "
+             "from existing human case decisions.\n"
              "init --store ABSOLUTE_WINDOWS_MOUNT_PATH configures a private "
              "local store.\n"
              "reconcile --id ID reads the originating thread for a delivery "
@@ -222,6 +223,30 @@ int main(int argc, char **argv) {
                         repo);
       require(record.code == 0,
               "Nonvisual scope saved; Beads record failed: " + record.output);
+      std::cout << result.dump(2) << '\n';
+    } else if (command == "compose-reviewed") {
+      auto declaration = read_json(need(flags, "manifest"));
+      auto issue = beads_issue(br, repo, declaration.at("bead"));
+      require(issue.value("assignee", std::string()) == declaration.at("actor"),
+              "Composition actor must own the Bead");
+      require(issue.at("status") != "closed",
+              "Cannot compose review for closed work");
+      auto result = compose_reviewed_cases(store, repo, declaration);
+      auto record = run(
+          {br, "comments", "add", declaration.at("bead"), "--actor",
+           declaration.at("actor"), "--message",
+           "Reviewed case composition for " +
+               result.at("revision").get<std::string>() + ": " +
+               declaration.at("reason").get<std::string>() +
+               ". Original final: " +
+               declaration.at("base_final").get<std::string>() +
+               ". Approved replacement final: " +
+               declaration.at("replacement_final").get<std::string>() +
+               ". Case mapping: " + declaration.at("case_replacements").dump() +
+               ". Exact paths: " + declaration.at("paths").dump()},
+          repo);
+      require(record.code == 0,
+              "Composition saved; Beads record failed: " + record.output);
       std::cout << result.dump(2) << '\n';
     } else if (command == "discard" || command == "restore") {
       std::cout << set_discarded(store, need(flags, "id"),
