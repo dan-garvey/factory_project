@@ -25,6 +25,8 @@ void verify_media(const fs::path &bundle, const Json &manifest);
 bool visual_path(const std::string &path);
 Json declare_nonvisual(const fs::path &store, const fs::path &repo,
                        const Json &declaration);
+Json compose_reviewed_cases(const fs::path &store, const fs::path &repo,
+                            const Json &declaration);
 Json source_inputs(const fs::path &repo, const std::string &revision,
                    const Json &paths);
 Json submit(const fs::path &store, const fs::path &repo, Json manifest,

@@ -105,17 +105,24 @@ void require_latest(const fs::path &store, const std::string &id) {
   }
   require(revisions.current(id), "A newer active revision supersedes this proof");
 }
-Json approved(const fs::path &store, const std::string &id) {
+Json reviewed(const fs::path &store, const std::string &id, Json &decision) {
   require_latest(store, id);
   require(!fs::exists(store / id / "discarded.json"),
           "A discarded proof does not grant approval");
   auto m = load_bundle(store, id);
   verify_media(store / id, m);
-  auto d = read_json(store / id / "decision.json");
-  validate_decision(m, d);
-  require(d.at("verdict") == "approved", "Referenced proof is not approved");
-  require(d.at("manifest_sha256") == digest(store / id / "manifest.json"),
+  decision = read_json(store / id / "decision.json");
+  validate_decision(m, decision);
+  require(decision.at("manifest_sha256") ==
+              digest(store / id / "manifest.json"),
           "Approval refers to different evidence");
+  return m;
+}
+Json approved(const fs::path &store, const std::string &id) {
+  Json decision;
+  auto m = reviewed(store, id, decision);
+  require(decision.at("verdict") == "approved",
+          "Referenced proof is not approved");
   return m;
 }
 void save_state(const fs::path &dir, const std::string &status,
@@ -735,6 +742,94 @@ Json declare_nonvisual(const fs::path &store, const fs::path &repo,
              result);
   return result;
 }
+namespace {
+Json composed_inputs(const fs::path &store, const fs::path &repo,
+                     const std::string &after, const Json &declaration) {
+  require(declaration.is_object() && declaration.value("schema", 0) == 1,
+          "Unsupported review composition schema");
+  safe_id(str(declaration, "bead", 128));
+  str(declaration, "actor", 160);
+  str(declaration, "reason", 4000);
+  const auto base_id = str(declaration, "base_final", 128);
+  const auto replacement_id = str(declaration, "replacement_final", 128);
+  require(base_id != replacement_id, "Composition needs a later proof");
+  Json base_decision;
+  const auto base = reviewed(store, base_id, base_decision);
+  const auto replacement = approved(store, replacement_id);
+  require(base.at("stage") == "final" &&
+              base_decision.at("verdict") == "changes_requested" &&
+              replacement.at("stage") == "final",
+          "Compose a reviewed final with a later approved final");
+  require(run({"git", "-C", repo.string(), "merge-base", "--is-ancestor",
+               base.at("revision").get<std::string>(),
+               replacement.at("revision").get<std::string>()})
+                      .code == 0 &&
+              run({"git", "-C", repo.string(), "merge-base", "--is-ancestor",
+                   replacement.at("revision").get<std::string>(), after})
+                      .code == 0,
+          "Composition proofs must precede the candidate in Git history");
+  require(source_inputs(repo, after, replacement.at("paths")) ==
+              replacement.at("source_inputs"),
+          "Replacement approval has stale source inputs");
+  require(declaration.contains("case_replacements") &&
+              declaration.at("case_replacements").is_object(),
+          "Map every nonapproved original case to an approved replacement");
+  const auto &mapping = declaration.at("case_replacements");
+  std::set<std::string> replacement_cases;
+  for (const auto &c : replacement.at("cases"))
+    replacement_cases.insert(c.at("id").get<std::string>());
+  std::set<std::string> used_replacements;
+  size_t rejected = 0;
+  for (const auto &c : base.at("cases")) {
+    const auto id = c.at("id").get<std::string>();
+    const auto status =
+        base_decision.at("cases").at(id).at("status").get<std::string>();
+    if (status == "approved") {
+      require(!mapping.contains(id), "Do not replace an approved case");
+      continue;
+    }
+    require(status == "changes_requested" && mapping.contains(id) &&
+                mapping.at(id).is_string(),
+            "Every rejected case needs an explicit replacement");
+    const auto replacement_case = mapping.at(id).get<std::string>();
+    require(replacement_cases.count(replacement_case) != 0 &&
+                used_replacements.insert(replacement_case).second,
+            "Replacement case is missing or reused");
+    ++rejected;
+  }
+  require(rejected > 0 && mapping.size() == rejected,
+          "Composition mapping must cover exactly the rejected cases");
+  const auto &paths = declaration.at("paths");
+  require(paths.is_array() && !paths.empty(),
+          "Composition needs exact reviewed source paths");
+  std::set<std::string> names;
+  for (const auto &p : paths) {
+    require(p.is_string(), "Composition path must be text");
+    const auto name = p.get<std::string>();
+    safe_relative(name);
+    require(names.insert(name).second &&
+                base.at("source_inputs").contains(name),
+            "Composition path is duplicate or absent from original proof");
+  }
+  const auto inputs = source_inputs(repo, after, paths);
+  for (const auto &name : names)
+    require(inputs.at(name) == base.at("source_inputs").at(name),
+            "Composed source changed since the original review: " + name);
+  return inputs;
+}
+} // namespace
+Json compose_reviewed_cases(const fs::path &store, const fs::path &repo,
+                            const Json &declaration) {
+  Lock lock(store);
+  const auto revision = trimmed(git(repo, {"rev-parse", "HEAD"}));
+  const auto inputs = composed_inputs(store, repo, revision, declaration);
+  auto result = declaration;
+  result["revision"] = revision;
+  result["source_inputs"] = inputs;
+  write_json(store / ".compositions" / (digest_text(result.dump()) + ".json"),
+             result);
+  return result;
+}
 void check_gate(const fs::path &store, const fs::path &repo,
                 const std::string &before, const std::string &after) {
   auto changes = git(repo, {"diff", "--name-only", "-z", before, after});
@@ -786,6 +881,21 @@ void check_gate(const fs::path &store, const fs::path &repo,
                                           authorize publication. */
     }
   }
+  if (fs::is_directory(store / ".compositions"))
+    for (const auto &entry : fs::directory_iterator(store / ".compositions")) {
+      try {
+        auto scope = read_json(entry.path());
+        if (entry.path().stem().string() != digest_text(scope.dump()) ||
+            composed_inputs(store, repo, after, scope) !=
+                scope.at("source_inputs"))
+          continue;
+        for (auto it = scope.at("source_inputs").begin();
+             it != scope.at("source_inputs").end(); ++it)
+          needed.erase(it.key());
+      } catch (const std::exception &) { /* An invalid composition cannot
+                                          authorize publication. */
+      }
+    }
   std::string missing;
   for (const auto &path : needed)
     missing += "\n  " + path;
