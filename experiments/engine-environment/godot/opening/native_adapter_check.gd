@@ -4511,7 +4511,7 @@ func _surface_drill_view(path: String, target: Vector3, low := false) -> bool:
 	var camera := Camera3D.new()
 	view.add_child(camera)
 	camera.fov = 50.0
-	camera.position = target + (Vector3(1.8, 0.35, 1.9) if low else Vector3(3.5, 2.5, 3.8))
+	camera.position = target + (Vector3(-2.4, 0.65, 0.25) if low else Vector3(-3.8, 2.2, 0.6))
 	camera.look_at(target)
 	camera.make_current()
 	for frame in 4:
@@ -4594,6 +4594,8 @@ func _surface_drill_run(capture_prefix: String) -> void:
 		return
 	opening._refresh()
 	await physics_frame
+	if _construct({"action": "set_developer_conveniences", "enabled": false}).is_empty():
+		return
 	var before: Dictionary = opening.model.projection()
 	if not _expect(before.placed_components[head.entity].component == "drill_head" and before.placed_components[mount.entity].component == "stationary_mount", "Independent crafted support and reusable tool retain their identities"):
 		return
@@ -4624,33 +4626,51 @@ func _surface_drill_run(capture_prefix: String) -> void:
 	var saved: Dictionary = opening.model.checkpoint()
 	if not _expect(opening.model.validate_checkpoint(saved).accepted, "The excavated terrain, loose copper and partial work validate together"):
 		return
-	# Aim the real loose-item picker at one visible chunk. This is scripted
-	# camera selection and the normal interaction method, not desktop input.
+	# A passive scene fixture aims at actual mesh centres and invokes the same
+	# interaction handler as E. It neither injects desktop input nor substitutes
+	# a native inventory command for an unreachable world item.
+	if not await _approach(Vector2(px, pz + 2.1)):
+		return
 	opening._select_tool("inspect")
-	var drop: Dictionary = after.dropped_material[0]
-	var p: Array = drop.ground_position
-	var point := Vector3(p[0], p[1] + 0.045, p[2])
-	opening.distance = 0.0
-	opening._update_camera()
-	var direction: Vector3 = (point - opening.camera.global_position).normalized()
-	opening.orbit_yaw = atan2(-direction.x, -direction.z)
-	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
-	opening._update_camera()
-	await physics_frame
-	var picked: Dictionary = opening._screen_loose_material(root.size * 0.5)
-	facts["loose_item_pointed"] = not picked.is_empty()
-	# Native pickup is also checked for every remaining pile, with the observed
-	# actor still beside the same worksite; no material is granted by the fixture.
 	var raw_before: int = after.cargo.P.raw
 	for pile: Dictionary in after.dropped_material:
-		var expected := pile.duplicate(true)
-		expected.erase("center")
-		expected.erase("ground_position")
-		if _construct({"action": "pickup_material", "center": pile.center, "expected": expected}).is_empty():
+		var found := false
+		var picker_nodes: Array = opening.transmission_presenter._drop_pickers_by_center.get(pile.center, []).duplicate()
+		for picker: Node3D in picker_nodes:
+			if not is_instance_valid(picker):
+				continue
+			var point: Vector3 = picker.get_parent().global_position
+			opening.distance = 0.0
+			opening._update_camera()
+			var direction: Vector3 = (point - opening.camera.global_position).normalized()
+			opening.orbit_yaw = atan2(-direction.x, -direction.z)
+			opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+			opening._update_camera()
+			await physics_frame
+			var picked: Dictionary = opening._screen_loose_material(root.size * 0.5)
+			if picked.get("center", []) != pile.center:
+				continue
+			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+				await process_frame
+				await RenderingServer.frame_post_draw
+				root.get_texture().get_image().save_png(capture_prefix + "-pickup-cue.png")
+			opening._interact_pointed()
+			found = true
+			break
+		if not _expect(found, "A visible copper chunk can be selected and collected through the ordinary world interaction"):
 			return
-	if not _expect(opening.model.projection().cargo.P.raw == raw_before + produced and opening.model.projection().dropped_material.is_empty(), "Pickup moves all excavated copper into the same actor inventory exactly once"):
+	if not _expect(opening.model.projection().cargo.P.raw == raw_before + produced and opening.model.projection().dropped_material.is_empty(), "World pickup transfers every excavated copper chunk exactly once"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		if not _expect(await _surface_drill_view(capture_prefix + "-picked-up.png", target, true), "Capture the persistent divot after collecting its copper"):
+			return
+	if _construct({"action": "detach_hand_crank", "entity": crank}).is_empty():
+		return
+	if _construct({"action": "remove", "entity": gearbox.entity}).is_empty():
+		return
+	if _construct({"action": "reclaim_component", "entity": head.entity}).is_empty():
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _surface_drill_view(capture_prefix + "-exposed-divot.png", target), "The removable tool leaves its actual persistent cut between the same support feet"):
 			return
 	_record("pass")

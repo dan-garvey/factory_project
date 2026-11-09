@@ -570,9 +570,6 @@ func _transmission_center(screen: Vector2) -> Array:
 	var hit := _screen_pick(screen)
 	if not hit.is_empty():
 		var hit_id := _picked_target_id(hit)
-		if transmission_controls.active_tool == "vertical_gearbox" and state.get("placed_components", {}).get(hit_id, {}).get("component") == "drill_head":
-			var head: Array = state.placed_components[hit_id].center
-			return [head[0], head[1] + 4, head[2]]
 		if transmission_controls.active_tool == "place_shaft":
 			var pulley_target := _belt_pulley_target(hit_id, hit.position)
 			if not pulley_target.is_empty():
@@ -634,8 +631,9 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3, hit_position: Vector3 = Vector3.ZERO) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
 	# when following surfaces; the menu can still choose an absolute air level.
-	if transmission_controls.active_tool == "place_shaft" and state.get("rotary_ports", {}).has(entity_id):
-		var port := _rotary_snap(entity_id, "shaft", {"position": hit_position})
+	if transmission_controls.active_tool in ["place_shaft", "gearbox", "vertical_gearbox"] and state.get("rotary_ports", {}).has(entity_id):
+		var consumer := "shaft" if transmission_controls.active_tool == "place_shaft" else "gearbox"
+		var port := _rotary_snap(entity_id, consumer, {"position": hit_position})
 		if port.is_empty():
 			return []
 		for socket: Dictionary in state.rotary_ports[entity_id].ports:
@@ -643,7 +641,7 @@ func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3,
 				continue
 			var center := port.duplicate()
 			for axis in 3:
-				center[axis] += int(socket.outward[axis]) * transmission_controls.shaft_half_span
+				center[axis] += int(socket.outward[axis]) * (transmission_controls.shaft_half_span if consumer == "shaft" else 2)
 			transmission_controls.snapped_height = center[1]
 			if not transmission_controls.auto_height:
 				center[1] = transmission_controls.gear_height
@@ -2700,6 +2698,10 @@ func _rotary_snap(pointed: String, kind: String, hit: Dictionary) -> Array:
 		if kind == "shaft":
 			var axis := ["x", "y", "z"].find(transmission_controls.selected_axis)
 			if axis < 0 or int(socket.outward[axis]) == 0:
+				continue
+		if kind == "gearbox":
+			var normal_axis := 1 if transmission_controls.active_tool == "gearbox" else ["x", "y", "z"].find(transmission_controls.selected_axis)
+			if normal_axis < 0 or int(socket.outward[normal_axis]) != 0:
 				continue
 		var p: Array = socket.position
 		var position := Vector3(p[0], p[1], p[2]) * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT

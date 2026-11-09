@@ -2881,6 +2881,7 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 			var label := Label3D.new()
 			if drop.raw > 0:
 				label.text = "%d copper ore" % drop.raw
+				label.visible = not drop.has("ground_position")
 			elif drop.products > 0:
 				label.text = "%d plate" % drop.products
 				if int(drop.get("offcuts", 0)) > 0:
