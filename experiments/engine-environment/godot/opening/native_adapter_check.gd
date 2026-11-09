@@ -4616,10 +4616,10 @@ func _surface_drill_run(capture_prefix: String) -> void:
 	for tick in 64:
 		if _construct({"action": "operate_hand_crank", "entity": crank}).is_empty():
 			return
-		# Render while the accepted native pulse powers its connected spindle.
-		# Advancing the work tick consumes that pulse and correctly stops motion.
+		# Host has consumed the work pulse; render the finite animation of its
+		# native receipt, including the connected drill and gearbox spindle rates.
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-			if not _expect(await _surface_drill_view(capture_prefix + "-motion-%03d.png" % tick, target), "Capture actual powered rotation before its pulse is consumed"):
+			if not _expect(await _surface_drill_view(capture_prefix + "-motion-%03d.png" % tick, target), "Capture the native crank pulse and its connected spindle animation"):
 				return
 			if tick == 0:
 				var rotor: Node3D = opening.transmission_presenter._component_anchors[head.entity].get_node("DrillRotor")

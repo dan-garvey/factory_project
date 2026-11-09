@@ -1211,6 +1211,9 @@ void gearbox_crank_uses_shared_ports_and_keeps_custody() {
     const auto power = w::hand_crank_power(profile, world->snapshot().state, "box", {10, 0, 8});
     check(power.mechanical.motion.at("vertical").state == g::MotionState::rotating,
         "The same pulse reaches the actual vertical output shaft.");
+    const auto& pulse_motion = std::get<O>(pulse.result->at("pulse_motion").storage());
+    check(pulse_motion.contains("box") && pulse_motion.contains("vertical"),
+        "The native pulse receipt includes the gearbox and separate shaft for finite presentation.");
     check(world->tick(observe).error == w::TransactionError::none,
         "A source pulse is consumed by the native world tick.");
     const auto saved = w::encode_checkpoint(profile, world->snapshot());

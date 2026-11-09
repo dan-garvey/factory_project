@@ -92,7 +92,19 @@ int main() {
         check(get<I>(V(get<O>(f.host.projection(),"stock")),"source")==before,
             "An attached idle crank does not mine automatically.");
         for (int tick=0; tick<64; ++tick) {
-            f.accepted("operate_hand_crank", {{"entity",V(crank)}});
+            const auto pulse=f.accepted("operate_hand_crank", {{"entity",V(crank)}});
+            if (tick==0) {
+                const auto rates=get<O>(pulse,"pulse_motion");
+                check(rates.contains(tool_id) && rates.contains(gearbox) && rates.size()==2,
+                    "The consumed crank receipt identifies both connected native spindles.");
+                check(get<I>(rates.at(tool_id),"numerator")!=0 &&
+                    get<I>(rates.at(tool_id),"denominator")>0 &&
+                    get<I>(rates.at(tool_id),"generation")==get<I>(components.at(tool_id),"generation"),
+                    "The reusable head receives a signed native rate and exact identity.");
+                const auto idle=get<O>(f.host.projection(),"motion");
+                check(get<std::string>(idle.at(tool_id),"state")=="unpowered",
+                    "A consumed pulse does not leave a perpetual drive in the idle projection.");
+            }
             check(std::get<O>(f.host.advance().storage()).contains("revision"), "Crank tick settles without a second source.");
             if (tick==2) {
                 check(get<I>(V(get<O>(f.host.projection(),"stock")),"source")==before,

@@ -45,6 +45,7 @@ var _motion_context := ""
 var _motion_revision: Variant = null
 var _generations: Dictionary = {}
 var _visual_rates: Dictionary = {}
+var _pulse_turns: Dictionary = {}
 var _visual_angles: Dictionary = {}
 var _visual_rotations: Dictionary = {}
 var _native_phase_elapsed := 0.0
@@ -132,6 +133,7 @@ func _clear_motion() -> void:
 	_crank_turns.clear()
 	_generations.clear()
 	_visual_rates.clear()
+	_pulse_turns.clear()
 	_visual_angles.clear()
 	_visual_rotations.clear()
 	_native_phase_elapsed = 0.0
@@ -184,6 +186,9 @@ func _sync_motion(snapshot: Dictionary) -> void:
 			_visual_angles.erase(id)
 			_visual_rotations.erase(id)
 	_generations = current
+	for id: String in _pulse_turns.keys():
+		if _pulse_turns[id].generation != current.get(id):
+			_pulse_turns.erase(id)
 	# Native revisions freeze confirmed motion. Keep the active rates once per
 	# projection instead of parsing every part's motion each render frame.
 	_visual_rates.clear()
@@ -316,7 +321,7 @@ func advance_visual_motion(delta: float) -> void:
 		if not is_finite(next_elapsed):
 			return
 		_native_phase_elapsed = next_elapsed
-		_apply_angles(_moving_batched_gears)
+		_apply_angles(_moving_batched_gears or not _pulse_turns.is_empty())
 	else:
 		var changed_gears := false
 		for id: String in _generations:
@@ -336,7 +341,7 @@ func advance_visual_motion(delta: float) -> void:
 func confirmed_hand_crank_pulse(id: String, outcome: Dictionary) -> void:
 	# The accepted native pulse is the only trigger. This angle is visual only;
 	# native World has already advanced the connected consumers and material.
-	if not outcome.get("accepted", false) or typeof(outcome.get("rate_numerator")) != TYPE_INT \
+	if not outcome.get("accepted", false) or outcome.get("duplicate", false) or typeof(outcome.get("rate_numerator")) != TYPE_INT \
 			or typeof(outcome.get("rate_denominator")) != TYPE_INT \
 			or int(outcome.rate_denominator) <= 0 or int(outcome.rate_numerator) == 0 \
 			or _host == null or not is_instance_valid(_host.get_ref()):
@@ -351,8 +356,32 @@ func confirmed_hand_crank_pulse(id: String, outcome: Dictionary) -> void:
 	pose["remaining"] = float(pose.remaining) + CRANK_PULSE_SECONDS
 	pose["direction"] = 1.0 if int(outcome.rate_numerator) > 0 else -1.0
 	_crank_turns[id] = pose
+	# This is a finite animation of native work already performed. The receipt
+	# supplies all connected rates; presentation never discovers a power graph.
+	var rebuild := false
+	var pulse: Dictionary = outcome.get("pulse_motion", {})
+	for driven: String in pulse:
+		var rate: Dictionary = pulse[driven]
+		if rate.get("generation") != _generations.get(driven) or int(rate.get("denominator", 0)) <= 0:
+			continue
+		rebuild = rebuild or not _pulse_turns.has(driven)
+		_pulse_turns[driven] = {"generation": rate.generation,
+			"rate": float(rate.numerator) / float(rate.denominator),
+			"remaining": float(_pulse_turns.get(driven, {}).get("remaining", 0.0)) + CRANK_PULSE_SECONDS}
+	if rebuild:
+		_rebuild_placed_component_batches()
 
 func _advance_crank_visuals(delta: float, snapshot: Dictionary) -> void:
+	for id: String in _pulse_turns.keys():
+		var pulse: Dictionary = _pulse_turns[id]
+		if float(pulse.remaining) <= 0.0 or pulse.generation != _generations.get(id):
+			_pulse_turns.erase(id)
+			continue
+		var step: float = minf(delta, float(pulse.remaining))
+		var radians := TAU * step * float(pulse.rate) / CRANK_PULSE_SECONDS
+		_visual_rotations[id] = float(_visual_rotations.get(id, 0.0)) + radians
+		_visual_angles[id] = wrapf(float(_visual_angles.get(id, 0.0)) + radians, -PI, PI)
+		pulse.remaining = maxf(0.0, float(pulse.remaining) - step)
 	for id: String in _crank_turns.keys():
 		var item: Dictionary = snapshot.get("crank_items", {}).get(id, {})
 		var rotor: Variant = _crank_rotors.get(id)
@@ -2601,7 +2630,7 @@ func _rebuild_placed_component_batches(force_press_dynamic: bool = false) -> voi
 			_collect_rigid_mesh_parts(anchor, Transform3D.IDENTITY, {"ConfirmedDirection": true}, shaft_parts, shaft_key)
 			if not shaft_parts.is_empty():
 				var shaft_id := str(anchor.get_meta("entity", ""))
-				var shaft_rotating := _visual_rates.has(shaft_id)
+				var shaft_rotating := _visual_rates.has(shaft_id) or _pulse_turns.has(shaft_id)
 				var mesh := _rigid_composite_mesh(shaft_parts, shaft_key, shaft_rotating)
 				var mesh_id := mesh.get_instance_id()
 				if shaft_rotating:
@@ -2685,7 +2714,7 @@ func _rebuild_placed_component_batches(force_press_dynamic: bool = false) -> voi
 			if sub_parts.is_empty():
 				continue
 			var comp_id := str(anchor.get_meta("component_entity", ""))
-			var is_static_sub: bool = sub.has_meta("component_rotor_base") and not _visual_rates.has(comp_id)
+			var is_static_sub: bool = sub.has_meta("component_rotor_base") and not _visual_rates.has(comp_id) and not _pulse_turns.has(comp_id)
 			var mesh := _rigid_composite_mesh(sub_parts, sub_key, not is_static_sub)
 			var mesh_id := mesh.get_instance_id()
 			if is_static_sub:

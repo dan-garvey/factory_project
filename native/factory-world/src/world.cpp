@@ -847,7 +847,8 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             *crank_generation == *requested_crank_generation && port && reported &&
             *port == *reported && numerator && *numerator != 0 &&
             denominator && *denominator > 0 &&
-            targets.front() == anchor(profile, *port) && result.size() == 22;
+            targets.front() == anchor(profile, *port) &&
+            field<Object>(result, "pulse_motion") && result.size() == 23;
     }
     if (action == "feed_broad_press" || action == "refeed_broad_press_work") {
         const auto* target = field<std::string>(record.intent, "target");
@@ -1984,9 +1985,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto motion = powered.mechanical.motion.find(*input_id);
             const auto* numerator = field<Integer>(record.result, "rate_numerator");
             const auto* denominator = field<Integer>(record.result, "rate_denominator");
+            const auto* pulse_motion = field<Object>(record.result, "pulse_motion");
             if (!powered.mechanical.accepted() || motion == powered.mechanical.motion.end() ||
                 motion->second.state != mechanics::MotionState::rotating ||
-                !numerator || !denominator ||
+                !numerator || !denominator || !pulse_motion ||
+                values::typed_difference(Value(*pulse_motion),
+                    Value(crank_motion_receipt(snapshot.state, prior, powered))) ||
                 *numerator != motion->second.rate.numerator ||
                 *denominator != motion->second.rate.denominator) return false;
         }

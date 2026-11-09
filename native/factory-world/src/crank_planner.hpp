@@ -24,5 +24,7 @@ struct CrankCommand {
     const std::string& action, const authority::Object& intent);
 [[nodiscard]] Owner::Decision plan_crank(const Profile&, const Binding&,
     const Snapshot&, const CrankCommand&, const ObserveActor&);
+[[nodiscard]] authority::Object crank_motion_receipt(
+    const State&, const DrivePower& existing, const DrivePower& powered);
 
 } // namespace factory::world

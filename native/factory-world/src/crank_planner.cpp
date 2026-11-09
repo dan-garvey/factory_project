@@ -12,6 +12,23 @@ using Object = authority::Object;
 using Value = values::Value;
 } // namespace
 
+Object crank_motion_receipt(const State& state, const DrivePower& existing, const DrivePower& powered) {
+    Object pulse_motion;
+    for (const auto& [id, driven] : powered.mechanical.motion) {
+        const auto prior = existing.mechanical.motion.find(id);
+        const auto issued = state.issued_entities.find(id);
+        if (driven.state != mechanics::MotionState::rotating ||
+            issued == state.issued_entities.end() ||
+            (prior != existing.mechanical.motion.end() &&
+                prior->second.state == mechanics::MotionState::rotating)) continue;
+        pulse_motion.emplace(id, Value(Object{
+            {"generation", Value(issued->second)},
+            {"numerator", Value(driven.rate.numerator)},
+            {"denominator", Value(driven.rate.denominator)}}));
+    }
+    return pulse_motion;
+}
+
 std::optional<CrankCommand> crank_command(
         const std::string& action, const Object& intent) {
     const auto parsed = crank_commands::parse(action);
@@ -199,6 +216,10 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
             Value((*port)[0]), Value((*port)[1]), Value((*port)[2])}));
         facts.emplace("rate_numerator", Value(motion->second.rate.numerator));
         facts.emplace("rate_denominator", Value(motion->second.rate.denominator));
+        // Host consumes the work pulse before returning. Carry its native
+        // connected rates in the receipt so every driven spindle can show that
+        // finite turn without pretending that an idle crank is a live source.
+        facts.emplace("pulse_motion", Value(crank_motion_receipt(state, existing, powered)));
         return accepted(state, *crank_id, std::move(facts));
     }
     if (command.action == Action::turn) {
