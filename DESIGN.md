@@ -72,16 +72,21 @@ gantries, moving factories and trains remain intended-game requirements.
   wheel may be driven manually. Waterwheels in flowing water supply unattended
   rotation from local flow speed and direction; compatible wheels may share a
   route, and their axles align with elevated shafts on the common grid.
-- The first excavation setup uses a reusable drill head attached to a separate
-  beam/chassis and an exterior hand crank on the head's rotary input. The head
-  has no integral feet or inventory; it is the same item used on later moving
-  rigs, with structural attachment separate from rotary power. Do not introduce
-  a stationary-only mount or a special price penalty for this simple setup.
-- Support has a spatial cost: its actual ground contact and physical envelope
-  obstruct access to otherwise mineable ore, which remains stocked. Overhead
-  beams do not reserve all the ground below them; cantilevers and support from
-  outside the deposit are valid. Initially refuse cuts or removals that would
-  leave the assembly unsupported, rather than simulating structural collapse.
+- The first excavation setup uses a reusable 1U drill head at the center of a
+  separate stationary support. The support reserves a 3U by 3U build footprint,
+  including its centered head and attached power source; other buildings cannot
+  share that footprint. Its legs extend visibly beyond the head but need not
+  fill the entire reserved area. Ore under the support remains stocked.
+- The drill's rotary input is vertical, above and coaxial with its cutting axis.
+  Its structural attachment is centered around that axis, separate from power;
+  a shaft alone does not support a stationary head. The same head can attach to
+  a later moving rig without recrafting. General stationary beams, side-only
+  tool mounting and outside cantilevers are not the first support system.
+- The stationary support's spatial cost is intentional: repeating fixed drills
+  occupies more mineable land, while moving a head can serve more of the patch.
+  Its build reservation is not an invisible wall to player movement or pickup.
+  Initially refuse cuts or removals that leave the assembly unsupported rather
+  than simulating collapse. Support prices and detailed shape remain provisional.
 - Real rotary work cuts only contacted ore, forms a local divot and leaves
   conserved, recoverable loose copper on its floor. No receiver is required for
   this first loop. A fixed head stops when the floor leaves tooth reach; another
