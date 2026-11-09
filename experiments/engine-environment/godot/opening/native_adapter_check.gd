@@ -4659,12 +4659,24 @@ func _surface_drill_run(capture_prefix: String) -> void:
 
 func _surface_pickup_pile(pile: Dictionary, center: Vector2, capture_prefix: String) -> bool:
 	var occluders: Array = []
-	var previous := Vector2(0, 1)
-	for side in [Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), Vector2(-1, 0)]:
-		if not await _approach_points([center + previous * 2.1, center + (previous + side) * 2.1,
-				center + side * 2.1, center + side * 1.2]):
+	var ring: Array[Vector2] = [Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), Vector2(-1, 0)]
+	var nearest := Vector2(0, signf(float(pile.ground_position[2]) - center.y))
+	var initial := ring.find(nearest)
+	for attempt in 4:
+		var side: Vector2 = ring[(initial + attempt) % 4]
+		var actor: Vector3 = opening.actor_world.bodies.P.global_position
+		var offset := Vector2(actor.x, actor.z) - center
+		var previous := Vector2(signf(offset.x), 0) if absf(offset.x) > absf(offset.y) else Vector2(0, signf(offset.y))
+		var cursor := ring.find(previous)
+		if not await _approach(center + previous * 1.7):
 			return false
-		previous = side
+		while ring[cursor] != side:
+			var next: Vector2 = ring[(cursor + 1) % 4]
+			if not await _approach_points([center + (ring[cursor] + next) * 1.7, center + next * 1.7]):
+				return false
+			cursor = (cursor + 1) % 4
+		if not await _approach(center + side * 1.2):
+			return false
 		var picker_nodes: Array = opening.transmission_presenter._drop_pickers_by_center.get(pile.center, []).duplicate()
 		for picker: Node3D in picker_nodes:
 			if not is_instance_valid(picker):
@@ -4692,6 +4704,7 @@ func _surface_pickup_pile(pile: Dictionary, center: Vector2, capture_prefix: Str
 				await RenderingServer.frame_post_draw
 				root.get_texture().get_image().save_png(capture_prefix + "-pickup-cue.png")
 			opening._interact_pointed()
+			facts["world_pickup_piles"] = int(facts.get("world_pickup_piles", 0)) + 1
 			return _expect(not opening.model.projection().dropped_material.any(func(drop: Dictionary) -> bool:
 				return drop.center == pile.center), "The pointed pile leaves the ground through the ordinary E handler")
 	return _expect(false, "The visible copper pile must be reachable through an open side: " + str(occluders))
