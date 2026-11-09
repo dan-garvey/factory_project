@@ -2548,6 +2548,10 @@ func _rigid_composite_mesh(parts: Array[Dictionary], key: Array, apply_finish: b
 	return combined
 
 func _is_live_batching() -> bool:
+	# Native scene fixtures must exercise the same renderer as ordinary play.
+	# Small invented-observation view checks may still inspect individual meshes.
+	if _host != null and is_instance_valid(_host.get_ref()) and _host.get_ref().get("model") is NativeModel:
+		return true
 	if _component_anchors.size() >= COMPONENT_BATCH_THRESHOLD:
 		return true
 	var args := OS.get_cmdline_args()
@@ -2648,9 +2652,15 @@ func _rebuild_placed_component_batches(force_press_dynamic: bool = false) -> voi
 				or child.has_meta("press_anvil") or child.has_meta("anvil")
 				or child.has_meta("supported_entity")):
 			continue
+		var rotary_names: Array[String] = []
+		var anchor_skip := skip_names.duplicate()
+		for sub in anchor.get_children():
+			if sub is Node3D and sub.has_meta("component_rotor_base"):
+				rotary_names.append(str(sub.name))
+				anchor_skip[str(sub.name)] = true
 		var static_parts: Array[Dictionary] = []
 		var static_key: Array = ["static"]
-		_collect_rigid_mesh_parts(anchor, Transform3D.IDENTITY, skip_names, static_parts, static_key)
+		_collect_rigid_mesh_parts(anchor, Transform3D.IDENTITY, anchor_skip, static_parts, static_key)
 		if not static_parts.is_empty():
 			var mesh := _rigid_composite_mesh(static_parts, static_key, false)
 			var mesh_id := mesh.get_instance_id()
@@ -2661,9 +2671,9 @@ func _rebuild_placed_component_batches(force_press_dynamic: bool = false) -> voi
 				var mi := part.source as MeshInstance3D
 				mi.visible = false
 				_component_batch_hidden_meshes.append(mi)
-		var sub_list: Array = ["PlacedDriveCog", "LooseDriveShaft", "FlatHeadMovingDie",
-			"BroadHeadMovingDie", "SlideCarriage", "BroadSlideCarriage"] if active_press_motion \
-			else ["PlacedDriveCog", "LooseDriveShaft"]
+		var sub_list: Array = rotary_names.duplicate()
+		if active_press_motion:
+			sub_list.append_array(["FlatHeadMovingDie", "BroadHeadMovingDie", "SlideCarriage", "BroadSlideCarriage"])
 		for sub_name in sub_list:
 			var sub_str := str(sub_name)
 			var sub := anchor.get_node_or_null(sub_str) as Node3D
@@ -2675,7 +2685,7 @@ func _rebuild_placed_component_batches(force_press_dynamic: bool = false) -> voi
 			if sub_parts.is_empty():
 				continue
 			var comp_id := str(anchor.get_meta("component_entity", ""))
-			var is_static_sub: bool = (sub_str == "PlacedDriveCog" or sub_str == "LooseDriveShaft") and not _visual_rates.has(comp_id)
+			var is_static_sub: bool = sub.has_meta("component_rotor_base") and not _visual_rates.has(comp_id)
 			var mesh := _rigid_composite_mesh(sub_parts, sub_key, not is_static_sub)
 			var mesh_id := mesh.get_instance_id()
 			if is_static_sub:
