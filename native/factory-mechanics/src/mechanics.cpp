@@ -112,23 +112,15 @@ bool coaxial(const Part& a, const Part& b) noexcept {
 bool shaft_contact(const Part& a, const Part& b) noexcept {
     if (a.kind == Kind::gearbox || b.kind == Kind::gearbox) return false;
     if (!coaxial(a, b)) return false;
+    for (const auto& left : rotary_ports(a))
+        for (const auto& right : rotary_ports(b))
+            if (ports_meet(left, right)) return true;
     const auto axis = coordinate(a.axis);
-    if (a.kind != Kind::shaft && b.kind != Kind::shaft) {
-        // Hubs and cogs have opposing axle faces one construction cell apart.
-        // They touch only at the adjacent face, not through a longer gap.
-        constexpr Integer cell = 4;
-        const auto distance = b.center[axis] - a.center[axis];
-        return distance == cell || distance == -cell;
-    }
+    if (a.kind != Kind::shaft && b.kind != Kind::shaft) return false;
     const auto a_span = a.kind == Kind::shaft ? a.half_span : 0;
     const auto b_span = b.kind == Kind::shaft ? b.half_span : 0;
-    // A one-tile shaft and an adjacent hub or cog meet at their tile faces.
-    // Existing shaft-to-shaft contact remains based on their literal spans.
-    if ((a.kind == Kind::shaft) != (b.kind == Kind::shaft)) {
-        const auto shaft_span = a.kind == Kind::shaft ? a_span : b_span;
-        const auto distance = b.center[axis] - a.center[axis];
-        if (shaft_span == 2 && (distance == 4 || distance == -4)) return true;
-    }
+    // A shaft can also pass through a coaxial hub/cog. This is an internal
+    // engagement, distinct from two exterior ports meeting at their faces.
     return a.center[axis] - a_span <= b.center[axis] + b_span &&
            b.center[axis] - b_span <= a.center[axis] + a_span;
 }
@@ -153,22 +145,20 @@ std::optional<Integer> port_factor(const Part& part, std::size_t face_axis,
 }
 
 std::optional<Rate> relay_contact(const Part& a, const Part& b) noexcept {
+    if (a.kind == Kind::gearbox || b.kind == Kind::gearbox) {
+        for (const auto& left : rotary_ports(a))
+            for (const auto& right : rotary_ports(b))
+                if (ports_meet(left, right)) return Rate{left.factor * right.factor, 1};
+        return std::nullopt;
+    }
     std::size_t face_axis = 3;
-    Integer face_sign = 0;
     for (std::size_t i = 0; i < 3; ++i) {
         const auto delta = b.center[i] - a.center[i];
         if (delta == 0) continue;
         if (face_axis != 3 || (delta != 4 && delta != -4)) return std::nullopt;
         face_axis = i;
-        face_sign = delta > 0 ? 1 : -1;
     }
     if (face_axis == 3) return std::nullopt;
-    if (a.kind == Kind::gearbox || b.kind == Kind::gearbox) {
-        const auto from = port_factor(a, face_axis, face_sign);
-        const auto to = port_factor(b, face_axis, -face_sign);
-        if (!from || !to) return std::nullopt;
-        return Rate{*from * *to, 1};
-    }
     if (a.kind == Kind::chain_drive && b.kind == Kind::chain_drive &&
         a.axis == b.axis && a.relay_axis == b.relay_axis &&
         face_axis == coordinate(a.relay_axis)) return Rate{1, 1};
@@ -262,6 +252,49 @@ std::vector<std::pair<std::size_t, std::size_t>> contact_candidates(
 
 }  // namespace
 
+RotaryPorts rotary_ports(const Part& part) noexcept {
+    RotaryPorts result;
+    if (!valid(part)) return result;
+    const Integer extent = part.kind == Kind::shaft ? part.half_span : 2;
+    for (std::size_t axis = 0; axis < 3; ++axis)
+        for (const Integer sign : {-1, 1}) {
+            const auto factor = port_factor(part, axis, sign);
+            if (!factor) continue;
+            auto position = part.center;
+            position[axis] += sign * extent;
+            if (position[axis] < -maximum_coordinate || position[axis] > maximum_coordinate)
+                continue;
+            Point outward{};
+            outward[axis] = sign;
+            result.values[result.count++] = {position, outward, *factor};
+        }
+    return result;
+}
+
+std::optional<RotaryPort> rotary_port(const Part& part, const Point& position) noexcept {
+    for (const auto& port : rotary_ports(part))
+        if (port.position == position) return port;
+    return std::nullopt;
+}
+
+bool ports_meet(const RotaryPort& a, const RotaryPort& b) noexcept {
+    if (a.position != b.position) return false;
+    Integer norm = 0;
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        if (a.outward[axis] < -1 || a.outward[axis] > 1 ||
+            b.outward[axis] < -1 || b.outward[axis] > 1 ||
+            a.outward[axis] != -b.outward[axis]) return false;
+        norm += std::abs(a.outward[axis]);
+    }
+    return norm == 1;
+}
+
+bool accepts_hand_crank(const RotaryPort& port) noexcept {
+    return port.outward[1] == 0 &&
+        (((port.outward[0] == 1 || port.outward[0] == -1) && port.outward[2] == 0) ||
+         ((port.outward[2] == 1 || port.outward[2] == -1) && port.outward[0] == 0));
+}
+
 std::optional<BeltPath> belt_path(const Part& first, const Part& last) {
     constexpr Integer cell = 4;
     constexpr Integer max_tiles = 20;
@@ -353,10 +386,18 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
     for (const auto& source : sources) {
         if (!valid_identity(source.hub)) return failure(Error::invalid_drive);
         const auto found = indices.find(source.hub);
-        if (found == indices.end() || parts[found->second]->kind != Kind::hub ||
-            source.rate.denominator <= 0)
+        if (found == indices.end() || source.rate.denominator <= 0)
             return failure(Error::invalid_drive, source.hub);
-        if (!drives.emplace(found->second, normalized(source.rate)).second)
+        auto rate = source.rate;
+        if (source.port) {
+            const auto port = rotary_port(*parts[found->second], *source.port);
+            if (!port) return failure(Error::invalid_drive, source.hub);
+            if (!multiply(rate, {port->factor, 1}, rate))
+                return failure(Error::rate_overflow, source.hub);
+        } else if (parts[found->second]->kind != Kind::hub) {
+            return failure(Error::invalid_drive, source.hub);
+        }
+        if (!drives.emplace(found->second, normalized(rate)).second)
             return failure(Error::invalid_drive, source.hub);
     }
 

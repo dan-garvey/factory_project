@@ -165,7 +165,7 @@ void candidate_overflow() {
     const std::vector<g::Part> parts{
         {"source", g::Kind::hub, {0, 0, 8}, g::Axis::z},
         {"source-shaft", g::Kind::shaft, {0, 0, 8}, g::Axis::z, 0, 1},
-        {"coupler", g::Kind::shaft, {0, 0, 5}, g::Axis::z, 0, 3},
+        {"coupler", g::Kind::shaft, {0, 0, 6}, g::Axis::z, 0, 3},
         {"large-shaft", g::Kind::shaft, {0, 0, 0}, g::Axis::z, 0, 1},
         {"large", g::Kind::gear, {0, 0, 0}, g::Axis::z, 3},
         {"small", g::Kind::gear, {4, 0, 0}, g::Axis::z, 1},
@@ -174,7 +174,7 @@ void candidate_overflow() {
     check(g::evaluate(parts, sources).accepted(), "The disconnected original high-rate source is representable.");
     const s::Shift connect{"coupler", {0, 0, 4}};
     refused(s::prepare(parts, sources, {&connect, 1}), s::Error::invalid_candidate, g::Error::rate_overflow);
-    check(g::evaluate(parts, sources).accepted() && parts[2].center == g::Point{0, 0, 5},
+    check(g::evaluate(parts, sources).accepted() && parts[2].center == g::Point{0, 0, 6},
           "Refusing the newly connected threefold speed increase preserves the original disconnected source.");
 }
 struct Output { int code; std::string text; std::string errors; };

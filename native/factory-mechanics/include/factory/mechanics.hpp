@@ -42,11 +42,35 @@ struct Rate {
     bool operator==(const Rate&) const = default;
 };
 
-// Only the authority can supply a registered source hub and its drive rate.
+// One definition of exposed shaft connections, used by contact, input sources
+// and presentation. Positions are on the construction lattice; outward is a
+// signed unit axis. factor converts local shaft rate to the part's canonical
+// rate (gearbox faces may reverse it).
+struct RotaryPort {
+    Point position{};
+    Point outward{};
+    Integer factor{1};
+    bool operator==(const RotaryPort&) const = default;
+};
+struct RotaryPorts {
+    std::array<RotaryPort, 6> values{};
+    std::size_t count{};
+    auto begin() const { return values.begin(); }
+    auto end() const { return values.begin() + count; }
+};
+[[nodiscard]] RotaryPorts rotary_ports(const Part&) noexcept;
+[[nodiscard]] std::optional<RotaryPort> rotary_port(const Part&, const Point&) noexcept;
+[[nodiscard]] bool ports_meet(const RotaryPort&, const RotaryPort&) noexcept;
+[[nodiscard]] bool accepts_hand_crank(const RotaryPort&) noexcept;
+
+// Only the authority can supply a registered source and its drive rate.
 // This is not a client command, clock or mutable mechanical world.
 struct Drive {
     std::string hub;
     Rate rate;
+    // A manual source attaches to an exposed port on any rotary component.
+    // Without a port, only a source hub may prescribe its canonical rate.
+    std::optional<Point> port{};
     bool operator==(const Drive&) const = default;
 };
 

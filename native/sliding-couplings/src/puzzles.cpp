@@ -25,7 +25,7 @@ void branch(Puzzle& puzzle) {
     shaft(puzzle, "held-shaft", {4, 0, 8});
     shaft(puzzle, "lower", {4, 0, 4}, 3);
     puzzle.sources = {{"wheel", {1, 1}}, {"held", {0, 1}}};
-    puzzle.slots = {{"lower", {4, 0, 4}, {4, 0, 3}}};
+    puzzle.slots = {{"lower", {4, 0, 4}, {4, 0, 2}}};
     puzzle.goals = {{"useful", {g::MotionState::rotating, {-1, 1}}},
                    {"held", {g::MotionState::stopped, {0, 1}}}};
 }
@@ -47,7 +47,7 @@ std::optional<Puzzle> make(std::string_view id) {
             gear(puzzle, "upper-branch-gear", {4, 0, 16});
             shaft(puzzle, "upper-branch-shaft", {4, 0, 16});
             shaft(puzzle, "upper", {4, 0, 12}, 3);
-            puzzle.slots.push_back({"upper", {4, 0, 12}, {4, 0, 13}});
+            puzzle.slots.push_back({"upper", {4, 0, 12}, {4, 0, 14}});
         }
     } else if (id == "selector") {
         puzzle.title = "Choose a forward line-shaft source";
@@ -61,8 +61,8 @@ std::optional<Puzzle> make(std::string_view id) {
         shaft(puzzle, "front", {0, 0, 4}, 3);
         shaft(puzzle, "back", {0, 0, 12}, 3);
         puzzle.sources = {{"forward", {1, 1}}, {"reverse", {-1, 1}}};
-        puzzle.slots = {{"front", {0, 0, 4}, {0, 0, 3}},
-                        {"back", {0, 0, 12}, {0, 0, 13}}};
+        puzzle.slots = {{"front", {0, 0, 4}, {0, 0, 2}},
+                        {"back", {0, 0, 12}, {0, 0, 14}}};
         puzzle.goals = {{"output", {g::MotionState::rotating, {1, 1}}},
                        {"reverse", {g::MotionState::rotating, {-1, 1}}}};
     } else return std::nullopt;

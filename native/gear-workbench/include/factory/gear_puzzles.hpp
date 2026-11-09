@@ -40,7 +40,7 @@ struct Report {
 // Player choices move only their declared kit parts inside the inclusive site;
 // there is no source/rate/edge input, live World, actor or quantity authority.
 inline constexpr mechanics::Point site_minimum{-20, -60, -2};
-inline constexpr mechanics::Point site_maximum{120, 60, 4};
+inline constexpr mechanics::Point site_maximum{120, 60, 8};
 [[nodiscard]] std::span<const Challenge> catalogue();
 [[nodiscard]] const Challenge* find(std::string_view);
 [[nodiscard]] const char* error_name(Error) noexcept;

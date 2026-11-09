@@ -37,12 +37,12 @@ void literal_arrangements() {
         const p::Placements swapped{{bend[1], bend[0]}};
         check(p::inspect("bend", swapped).solved(), "Equal carried gears may exchange slots without creating a hidden ordering rule.");
     }
-    const p::Placements compound{{m::Point{60, 0, 1}, std::nullopt}};
+    const p::Placements compound{{m::Point{60, 0, 3}, std::nullopt}};
     const auto bridged = p::inspect("compound", compound);
     check(bridged.solved() && bridged.actual.rate == m::Rate{1, 2},
           "A real shaft joins the large and small gears across two planes at the correct compound ratio.");
-    for (m::Integer z = -2; z <= 4; ++z) {
-        check(p::inspect("compound", {m::Point{60, 0, z}, std::nullopt}).solved() == (z == 1),
+    for (m::Integer z = -2; z <= 8; ++z) {
+        check(p::inspect("compound", {m::Point{60, 0, z}, std::nullopt}).solved() == (z == 3),
               "Only the correct axial center reaches both compound gears with the finite shaft span.");
     }
 }
@@ -70,7 +70,7 @@ void refusals() {
     const auto extra = p::inspect("idler", {m::Point{40, 0, 0}, m::Point{0, 40, 0}});
     check(!extra.solved() && extra.error == p::Error::unavailable_part && extra.derivation.motion.empty(),
           "A player cannot submit a second part absent from the fixture kit.");
-    for (const auto point : {m::Point{121, 0, 0}, m::Point{40, -61, 0}, m::Point{40, 0, 5},
+    for (const auto point : {m::Point{121, 0, 0}, m::Point{40, -61, 0}, m::Point{40, 0, 9},
                              m::Point{std::numeric_limits<m::Integer>::max(), 0, 0}}) {
         const auto outside = p::inspect("idler", {point, std::nullopt});
         check(!outside.solved() && outside.error == p::Error::outside_site && outside.derivation.motion.empty(),
@@ -104,7 +104,7 @@ void command_cases() {
     cli({"idler", "--one", "40,0,0"}, 0, "Solved:");
     cli({"bend", "--one", "24,32,0", "--two", "64,32,0"}, 0, "actual rotating -1/1");
     cli({"bend", "--one", "24,-32,0", "--two", "64,-32,0"}, 0, "Solved:");
-    cli({"compound", "--one", "60,0,1"}, 0, "actual rotating 1/2");
+    cli({"compound", "--one", "60,0,3"}, 0, "actual rotating 1/2");
     cli({"compound", "--one", "none"}, 1, "actual unpowered");
     cli({"idler", "--one", "39,0,0"}, 1, "overlapping_gears");
     cli({"idler", "--one", "121,0,0"}, 1, "outside_site");

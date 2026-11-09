@@ -60,7 +60,9 @@ void motion(const Result& result, const std::string& id, MotionState state, Rate
     check(result.accepted(), "The geometric fixture is accepted.");
     const auto found = result.motion.find(id);
     check(found != result.motion.end(), "The literal part has a motion result.");
-    check(found->second.state == state, "The literal component state matches.");
+    check(found->second.state == state, "Motion state for " + id + " is " +
+        std::to_string(static_cast<int>(found->second.state)) + ", expected " +
+        std::to_string(static_cast<int>(state)) + ".");
     check(found->second.rate == rate, "The exact signed rational rate matches.");
 }
 
@@ -164,10 +166,12 @@ void shafts_and_sources() {
     motion(mechanical::evaluate(changed, source), "sink", MotionState::unpowered, {0, 1});
 
     changed = baseline();
-    part(changed, "drive").center[2] = -3;
+    // The source hub has exposed faces two H from its center. Keep a real
+    // gap to the input shaft, requiring this short intermediate spindle.
+    part(changed, "drive").center[2] = -5;
     changed.push_back(shaft("bridge", {0, 0, -2}));
     motion(mechanical::evaluate(changed, source), "sink", MotionState::rotating, {-1, 2});
-    part(changed, "bridge").center[2] = -3;
+    part(changed, "bridge").center[2] = -5;
     motion(mechanical::evaluate(changed, source), "sink", MotionState::unpowered, {0, 1});
 
     // A source hub next to otherwise meshed gears has no invisible connection.
@@ -446,6 +450,52 @@ void one_tile_relays() {
         }
 }
 
+void shared_rotary_ports() {
+    const Part box{"box", Kind::gearbox, {}, Axis::z};
+    const auto sockets = mechanical::rotary_ports(box);
+    check(sockets.count == 4, "A vertical gearbox declares two horizontal and two vertical ports.");
+    int crank_faces = 0;
+    for (const auto& socket : sockets) {
+        if (mechanical::accepts_hand_crank(socket)) ++crank_faces;
+        check(socket.position[2] == 0 && socket.outward[2] == 0,
+              "The closed gearbox axis never becomes an attachment port.");
+    }
+    check(crank_faces == 2, "Only the horizontal gearbox faces admit a hand crank.");
+    const Part vertical{"vertical", Kind::shaft, {0, 4, 0}, Axis::y, 0, 2};
+    const Part horizontal{"horizontal", Kind::shaft, {4, 0, 0}, Axis::x, 0, 2};
+    const auto upper = mechanical::rotary_port(box, {0, 2, 0});
+    const auto lower = mechanical::rotary_port(vertical, {0, 2, 0});
+    check(upper && lower && mechanical::ports_meet(*upper, *lower),
+          "The projected vertical sockets are the actual shaft contact.");
+    check(!mechanical::ports_meet(*upper, *upper), "Matching position alone cannot connect outward-facing ports.");
+    check(!mechanical::rotary_port(box, {0, 0, 2}), "The blocked axis cannot accept a source.");
+    const std::vector<Part> parts{box, vertical, horizontal};
+    const auto powered = mechanical::evaluate(parts, {{"box", {1, 1}, Point{2, 0, 0}}});
+    motion(powered, "box", MotionState::rotating, {1, 1});
+    motion(powered, "vertical", MotionState::rotating, {-1, 1});
+    motion(powered, "horizontal", MotionState::rotating, {1, 1});
+    motion(mechanical::evaluate(parts, {{"box", {-1, 1}, Point{-2, 0, 0}}}),
+           "vertical", MotionState::rotating, {-1, 1});
+    check(mechanical::evaluate(parts, {{"box", {1, 1}, Point{0, 0, 2}}}).error == Error::invalid_drive,
+          "A fabricated source at a closed face is refused.");
+    check(mechanical::evaluate(parts, {{"box", {1, 1}, Point{3, 0, 0}}}).error == Error::invalid_drive,
+          "Sources cannot drive across a gap to a nearby socket.");
+    check(mechanical::evaluate(parts, {{"box", {1, 1}}}).error == Error::invalid_drive,
+          "A gearbox cannot become an intrinsic source without a physical port.");
+    check(mechanical::evaluate(parts, {{"box", {std::numeric_limits<Integer>::min(), 1},
+              Point{-2, 0, 0}}}).error == Error::rate_overflow,
+          "A reversed port rate refuses arithmetic overflow.");
+    for (const auto& socket : mechanical::rotary_ports(vertical))
+        check(!mechanical::accepts_hand_crank(socket), "Vertical shaft ports remain shaft-connectable but reject cranks.");
+    auto shifted = vertical;
+    shifted.center[0] = 1;
+    motion(mechanical::evaluate({box, shifted}, {{"box", {1, 1}, Point{2, 0, 0}}}),
+           "vertical", MotionState::unpowered, {0, 1});
+    const Part shorter{"short", Kind::shaft, {0, 3, 0}, Axis::y, 0, 1};
+    motion(mechanical::evaluate({box, shorter}, {{"box", {1, 1}, Point{2, 0, 0}}}),
+           "short", MotionState::rotating, {-1, 1});
+}
+
 void belt_path_geometry() {
     using mechanical::BeltPathKind;
     for (const auto axle : {Axis::x, Axis::z}) {
@@ -630,6 +680,7 @@ int main() {
         one_tile_shaft_faces();
         one_tile_large_cogs();
         one_tile_relays();
+        shared_rotary_ports();
         belt_path_geometry();
         nonhorizontal_belt_power();
         belt_cargo_directions();

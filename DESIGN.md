@@ -65,7 +65,8 @@ gantries, moving factories and trains remain intended-game requirements.
   Shaft and Small cogwheel and two for the Large cogwheel are provisional
   recipe tuning. Reclaiming the part does not return its consumed plate.
 - A finite crafted crank is a separate, free-floating source placed at a rotary
-  input. It supplies rotation only while an actor turns it. Reclaiming a
+  input with a horizontal axis; vertical crank placements are forbidden.
+  It supplies rotation only while an actor turns it. Reclaiming a
   connected shaft or machine part leaves the crank in place for separate
   recovery, and a disconnected crank supplies no power. An engaged waterwheel
   precludes placing or operating a crank on the same shaft network; a stopped
@@ -78,6 +79,7 @@ gantries, moving factories and trains remain intended-game requirements.
   share that footprint. Its legs extend visibly beyond the head but need not
   fill the entire reserved area. Ore under the support remains stocked.
 - The drill's rotary input is vertical, above and coaxial with its cutting axis.
+  The starter uses a vertical gearbox to connect a horizontal hand crank to it.
   Its structural attachment is centered around that axis, separate from power;
   a shaft alone does not support a stationary head. The same head can attach to
   a later moving rig without recrafting. General stationary beams, side-only
@@ -87,6 +89,11 @@ gantries, moving factories and trains remain intended-game requirements.
   Its build reservation is not an invisible wall to player movement or pickup.
   Initially refuse cuts or removals that leave the assembly unsupported rather
   than simulating collapse. Support prices and detailed shape remain provisional.
+- Components expose their rotary connection positions and axes through one
+  native port interface. Shaft contact, connection previews and attachment
+  actions use those same ports; adding a compatible component must not require
+  separate connection rules for each consumer. Cranks apply their horizontal
+  attachment restriction to the shared ports.
 - Real rotary work cuts only contacted ore, forms a local divot and leaves
   conserved, recoverable loose copper on its floor. No receiver is required for
   this first loop. A fixed head stops when the floor leaves tooth reach; another

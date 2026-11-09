@@ -19,9 +19,9 @@ const std::array<Challenge, 3>& entries() {
     static const auto idler_fixed = endpoints(100, 40, 0);
     static const auto bend_fixed = endpoints(88, 20, 0);
     static const auto compound_fixed = [] {
-        auto parts = endpoints(100, 20, 2);
+        auto parts = endpoints(100, 20, 6);
         parts.push_back(gear("large", {60, 0, 0}, 40));
-        parts.push_back(gear("small", {60, 0, 2}, 20));
+        parts.push_back(gear("small", {60, 0, 6}, 20));
         return parts;
     }();
     static const std::array<Challenge, 3> challenges{{
