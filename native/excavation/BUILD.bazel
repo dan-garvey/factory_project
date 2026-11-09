@@ -1,0 +1,21 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:private"])
+
+cc_library(
+    name = "excavation",
+    srcs = ["src/excavation.cpp"],
+    hdrs = ["include/factory/excavation.hpp"],
+    strip_include_prefix = "include",
+    visibility = [
+        "//native/factory-world:__pkg__",
+        "//native/factory-godot-world:__pkg__",
+    ],
+)
+
+cc_test(
+    name = "excavation_test",
+    srcs = ["tests/excavation_test.cpp"],
+    deps = [":excavation"],
+    size = "small",
+)
