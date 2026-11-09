@@ -80,6 +80,7 @@ static var _relay_shells: Dictionary = {}
 static var _cutting_blade_meshes: Dictionary = {}
 static var _receiver_pan_mesh: ArrayMesh
 static var _component_composite_meshes: Dictionary = {}
+static var _indexed_component_meshes: Dictionary = {}
 static var _batch_cyl_meshes: Dictionary = {}
 static var _finish_materials: Dictionary = {}
 
@@ -2552,6 +2553,29 @@ func _collect_rigid_mesh_parts(node: Node3D, pose: Transform3D, skip_names: Dict
 					key.append_array([mesh_sig, surface, finish.get_instance_id() if finish != null else 0, child_pose])
 		_collect_rigid_mesh_parts(child_3d, child_pose, skip_names, parts, key)
 
+static func _indexed_component_mesh(source: Mesh) -> Mesh:
+	if not source is ArrayMesh:
+		return source
+	if _indexed_component_meshes.has(source):
+		return _indexed_component_meshes[source]
+	# SurfaceTool append does not add identity indices for an unindexed source.
+	# Mixing formed boxes with indexed cylinders otherwise leaves the boxes'
+	# vertices unused by the combined index buffer, hiding feet and tool teeth.
+	var indexed := ArrayMesh.new()
+	for surface in source.get_surface_count():
+		var arrays := source.surface_get_arrays(surface)
+		var indices: Variant = arrays[Mesh.ARRAY_INDEX]
+		if not indices is PackedInt32Array or indices.is_empty():
+			var identity := PackedInt32Array()
+			identity.resize((arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size())
+			for index in identity.size():
+				identity[index] = index
+			arrays[Mesh.ARRAY_INDEX] = identity
+		indexed.add_surface_from_arrays(source.surface_get_primitive_type(surface), arrays)
+		indexed.surface_set_material(surface, source.surface_get_material(surface))
+	_indexed_component_meshes[source] = indexed
+	return indexed
+
 func _rigid_composite_mesh(parts: Array[Dictionary], key: Array, apply_finish: bool = true) -> ArrayMesh:
 	var cache_key := key if apply_finish else ["raw", key]
 	if _component_composite_meshes.has(cache_key):
@@ -2568,7 +2592,7 @@ func _rigid_composite_mesh(parts: Array[Dictionary], key: Array, apply_finish: b
 		var surface := SurfaceTool.new()
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 		for part in group.parts:
-			surface.append_from(part.mesh, part.surface, part.pose)
+			surface.append_from(_indexed_component_mesh(part.mesh), part.surface, part.pose)
 		surface.set_material(group.material)
 		combined = surface.commit(combined)
 	if apply_finish:

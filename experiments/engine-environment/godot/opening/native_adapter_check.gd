@@ -4626,6 +4626,17 @@ func _surface_drill_run(capture_prefix: String) -> void:
 				if not _expect(rotor.has_meta("batch_multimesh") and absf(opening.transmission_presenter.visual_rotation(head.entity)) > 0.001,
 						"The ordinary batched drill rotor visibly advances under the native crank pulse"):
 					return
+				var rendered: Mesh = (rotor.get_meta("batch_multimesh") as MultiMesh).mesh
+				var lowest := INF
+				for surface in rendered.get_surface_count():
+					var arrays := rendered.surface_get_arrays(surface)
+					var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+					var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+					for index in indices:
+						lowest = minf(lowest, vertices[index].y)
+				if not _expect(lowest < -0.65 * OpeningGeometry.PITCH,
+						"Rendered indexed triangles include the long cutting teeth below the drum"):
+					return
 		opening.model.advance()
 		opening._refresh()
 		await physics_frame
