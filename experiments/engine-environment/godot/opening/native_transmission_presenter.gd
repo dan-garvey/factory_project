@@ -175,8 +175,7 @@ func _sync_motion(snapshot: Dictionary) -> void:
 		for id: Variant in placed:
 			var part: Variant = placed[id]
 			if typeof(id) != TYPE_STRING or not part is Dictionary or \
-					part.get("component") not in ["wooden_shaft", "copper_shaft",
-						"wooden_cog", "copper_cog"] or \
+					not snapshot.get("rotary_ports", {}).has(id) or \
 					typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
 				continue
 			current[id] = part.generation

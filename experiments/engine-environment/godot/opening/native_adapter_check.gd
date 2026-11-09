@@ -573,7 +573,7 @@ func _arrival_joined_broad_run(capture_prefix: String, on_slab := false) -> void
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for cut in range(31):
-		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+		if _construct({"action": "harvest_source", "target": _reachable_ore_column()}).is_empty():
 			return
 	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, 4.95)]):
 		return
@@ -998,7 +998,7 @@ func _arrival_portable_workbench_run(panel, capture_prefix: String) -> void:
 		return
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+	if _construct({"action": "harvest_source", "target": _reachable_ore_column()}).is_empty():
 		return
 	opening._open_object_menu_for(id)
 	var remote: Dictionary = opening.model.projection()
@@ -1176,7 +1176,7 @@ func _arrival_pod_workshop_run(panel, capture_prefix: String) -> void:
 	await process_frame
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+	if _construct({"action": "harvest_source", "target": _reachable_ore_column()}).is_empty():
 		return
 	if not await _approach(Vector2(5.4, 4.95)):
 		return
@@ -2035,7 +2035,7 @@ func _arrival_nonhorizontal_incline_run(capture_prefix: String) -> void:
 			Vector2(7.5, 3.3), Vector2(-0.5, 0.0)]):
 		return
 	for cut in 2:
-		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+		if _construct({"action": "harvest_source", "target": _reachable_ore_column()}).is_empty():
 			return
 	if not _expect(opening.model.projection().cargo.P.timber == 6
 			and opening.model.projection().cargo.P.raw == 2,
@@ -2708,7 +2708,7 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 			return
 	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+	if _construct({"action": "harvest_source", "target": _reachable_ore_column()}).is_empty():
 		return
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
 		return
@@ -3019,7 +3019,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	if not await _approach_points([Vector2(4.95, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
 	for index in range(6 if mode in ["arrival-blocked-feed-cue", "arrival-raised-starter-belt"] else 4):
-		if _construct({"action": "harvest_source", "target": "opening-copper"}).is_empty():
+		if _construct({"action": "harvest_source", "target": _reachable_ore_column()}).is_empty():
 			return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
@@ -4511,7 +4511,7 @@ func _surface_drill_view(path: String, target: Vector3, low := false) -> bool:
 	var camera := Camera3D.new()
 	view.add_child(camera)
 	camera.fov = 50.0
-	camera.position = target + (Vector3(-2.4, 0.65, 0.25) if low else Vector3(-3.8, 2.2, 0.6))
+	camera.position = target + (Vector3(2.4, 0.65, -0.7) if low else Vector3(3.8, 2.2, -1.5))
 	camera.look_at(target)
 	camera.make_current()
 	for frame in 4:
@@ -4520,6 +4520,22 @@ func _surface_drill_view(path: String, target: Vector3, low := false) -> bool:
 	var okay := view.get_texture().get_image().save_png(path) == OK
 	view.queue_free()
 	return okay
+
+func _reachable_ore_column() -> String:
+	var snapshot: Dictionary = opening.model.projection()
+	var selected := ""
+	var best := INF
+	var at: Vector3 = opening.actor_world.bodies.P.global_position
+	for id: String in snapshot.hand_sources:
+		var source: Dictionary = snapshot.hand_sources[id]
+		if not id.begins_with("ore-column:") or int(source.remaining) <= 0 or not snapshot.actors.P.harvest_clear.get(id, false):
+			continue
+		var p: Array = source.position
+		var distance := at.distance_to(Vector3(p[0], p[1], p[2]))
+		if distance < best:
+			best = distance
+			selected = id
+	return selected
 
 func _surface_drill_run(capture_prefix: String) -> void:
 	deadline = Time.get_ticks_msec() + 240000
@@ -4538,19 +4554,7 @@ func _surface_drill_run(capture_prefix: String) -> void:
 	if not await _approach_points([Vector2(6.0, 3.0), Vector2(0.0, 1.65), Vector2(-0.5, 0)]):
 		return
 	for index in 5:
-		var snapshot: Dictionary = opening.model.projection()
-		var selected := ""
-		var best := INF
-		var at: Vector3 = opening.actor_world.bodies.P.global_position
-		for id: String in snapshot.hand_sources:
-			var source: Dictionary = snapshot.hand_sources[id]
-			if not id.begins_with("ore-column:") or int(source.remaining) <= 0 or not snapshot.actors.P.harvest_clear.get(id, false):
-				continue
-			var p: Array = source.position
-			var distance := at.distance_to(Vector3(p[0], p[1], p[2]))
-			if distance < best:
-				best = distance
-				selected = id
+		var selected := _reachable_ore_column()
 		if not _expect(not selected.is_empty(), "A reachable finite surface column supplies crafting copper") or _construct({"action": "harvest_source", "target": selected}).is_empty():
 			return
 	if not await _approach(Vector2(3.3, 4.95)):
@@ -4605,13 +4609,15 @@ func _surface_drill_run(capture_prefix: String) -> void:
 	for tick in 64:
 		if _construct({"action": "operate_hand_crank", "entity": crank}).is_empty():
 			return
+		# Render while the accepted native pulse powers its connected spindle.
+		# Advancing the work tick consumes that pulse and correctly stops motion.
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			if not _expect(await _surface_drill_view(capture_prefix + "-motion-%03d.png" % tick, target), "Capture actual powered rotation before its pulse is consumed"):
+				return
 		opening.model.advance()
 		opening._refresh()
 		await physics_frame
 		await process_frame
-		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-			if not _expect(await _surface_drill_view(capture_prefix + "-motion-%03d.png" % tick, target), "Capture this actual crank-and-cut state for the motion proof"):
-				return
 		if tick in [3, 15, 31, 63] and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			if not _expect(await _surface_drill_view(capture_prefix + "-cut-%02d.png" % tick, target, true), "Capture actual progressive excavation and loose copper"):
 				return
@@ -4629,35 +4635,11 @@ func _surface_drill_run(capture_prefix: String) -> void:
 	# A passive scene fixture aims at actual mesh centres and invokes the same
 	# interaction handler as E. It neither injects desktop input nor substitutes
 	# a native inventory command for an unreachable world item.
-	if not await _approach(Vector2(px, pz + 2.1)):
-		return
+	deadline = Time.get_ticks_msec() + 120000
 	opening._select_tool("inspect")
 	var raw_before: int = after.cargo.P.raw
 	for pile: Dictionary in after.dropped_material:
-		var found := false
-		var picker_nodes: Array = opening.transmission_presenter._drop_pickers_by_center.get(pile.center, []).duplicate()
-		for picker: Node3D in picker_nodes:
-			if not is_instance_valid(picker):
-				continue
-			var point: Vector3 = picker.get_parent().global_position
-			opening.distance = 0.0
-			opening._update_camera()
-			var direction: Vector3 = (point - opening.camera.global_position).normalized()
-			opening.orbit_yaw = atan2(-direction.x, -direction.z)
-			opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
-			opening._update_camera()
-			await physics_frame
-			var picked: Dictionary = opening._screen_loose_material(root.size * 0.5)
-			if picked.get("center", []) != pile.center:
-				continue
-			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-				await process_frame
-				await RenderingServer.frame_post_draw
-				root.get_texture().get_image().save_png(capture_prefix + "-pickup-cue.png")
-			opening._interact_pointed()
-			found = true
-			break
-		if not _expect(found, "A visible copper chunk can be selected and collected through the ordinary world interaction"):
+		if not await _surface_pickup_pile(pile, Vector2(px, pz), capture_prefix):
 			return
 	if not _expect(opening.model.projection().cargo.P.raw == raw_before + produced and opening.model.projection().dropped_material.is_empty(), "World pickup transfers every excavated copper chunk exactly once"):
 		return
@@ -4674,3 +4656,42 @@ func _surface_drill_run(capture_prefix: String) -> void:
 		if not _expect(await _surface_drill_view(capture_prefix + "-exposed-divot.png", target), "The removable tool leaves its actual persistent cut between the same support feet"):
 			return
 	_record("pass")
+
+func _surface_pickup_pile(pile: Dictionary, center: Vector2, capture_prefix: String) -> bool:
+	var occluders: Array = []
+	var previous := Vector2(0, 1)
+	for side in [Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), Vector2(-1, 0)]:
+		if not await _approach_points([center + previous * 2.1, center + (previous + side) * 2.1,
+				center + side * 2.1, center + side * 1.2]):
+			return false
+		previous = side
+		var picker_nodes: Array = opening.transmission_presenter._drop_pickers_by_center.get(pile.center, []).duplicate()
+		for picker: Node3D in picker_nodes:
+			if not is_instance_valid(picker):
+				continue
+			var point: Vector3 = picker.get_parent().global_position
+			opening.distance = 0.0
+			opening._update_camera()
+			var direction: Vector3 = (point - opening.camera.global_position).normalized()
+			opening.orbit_yaw = atan2(-direction.x, -direction.z)
+			opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+			opening._update_camera()
+			await physics_frame
+			var picked: Dictionary = opening._screen_loose_material(root.size * 0.5)
+			if picked.get("center", []) != pile.center:
+				var eye: Vector3 = opening.camera.project_ray_origin(root.size * 0.5)
+				var ray := PhysicsRayQueryParameters3D.create(eye, point,
+					OpeningGeometry.GROUND_LAYER | OpeningGeometry.MACHINE_LAYER | OpeningGeometry.PICK_LAYER | opening.TRANSMISSION_TERRAIN_PICK_LAYER)
+				var hit: Dictionary = opening.get_world_3d().direct_space_state.intersect_ray(ray)
+				occluders.append({"pile": pile.center, "eye": eye, "point": point,
+					"hit": str(hit.get("collider")), "position": hit.get("position"),
+					"picked": picked.get("center", [])})
+				continue
+			if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+				await process_frame
+				await RenderingServer.frame_post_draw
+				root.get_texture().get_image().save_png(capture_prefix + "-pickup-cue.png")
+			opening._interact_pointed()
+			return _expect(not opening.model.projection().dropped_material.any(func(drop: Dictionary) -> bool:
+				return drop.center == pile.center), "The pointed pile leaves the ground through the ordinary E handler")
+	return _expect(false, "The visible copper pile must be reachable through an open side: " + str(occluders))
