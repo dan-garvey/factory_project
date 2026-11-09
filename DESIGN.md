@@ -72,10 +72,21 @@ gantries, moving factories and trains remain intended-game requirements.
   wheel may be driven manually. Waterwheels in flowing water supply unattended
   rotation from local flow speed and direction; compatible wheels may share a
   route, and their axles align with elevated shafts on the common grid.
-- The collector needs a supporting frame, cutting head/mount, exposed stock
-  contact, a receiver at the discharge and physical drive. Direction, support
-  and clearance determine operation. A full receiver pauses the next cut
-  without debiting more ore.
+- The first excavation setup uses a reusable drill head attached to a separate
+  beam/chassis and an exterior hand crank on the head's rotary input. The head
+  has no integral feet or inventory; it is the same item used on later moving
+  rigs, with structural attachment separate from rotary power. Do not introduce
+  a stationary-only mount or a special price penalty for this simple setup.
+- Support has a spatial cost: its actual ground contact and physical envelope
+  obstruct access to otherwise mineable ore, which remains stocked. Overhead
+  beams do not reserve all the ground below them; cantilevers and support from
+  outside the deposit are valid. Initially refuse cuts or removals that would
+  leave the assembly unsupported, rather than simulating structural collapse.
+- Real rotary work cuts only contacted ore, forms a local divot and leaves
+  conserved, recoverable loose copper on its floor. No receiver is required for
+  this first loop. A fixed head stops when the floor leaves tooth reach; another
+  bite needs repositioning. Yield and work per cut remain provisional. More
+  elaborate moving rigs and haulage build on this loop without replacing the head.
 - Demonstrate at least two meaningfully different arrangements for each machine.
   After the first product, offer a compactness, continuity or spatial challenge
   with several valid solutions. Suggested builds are examples, not hidden
@@ -98,7 +109,8 @@ gantries, moving factories and trains remain intended-game requirements.
 - An **anvil/workbed** is passive support for forming and cutting, with no rotary
   input or compulsory machine recipe. Early slides and heads may float above
   it: structural mounting is deferred, while workpiece support and collision
-  remain required. Collector framing is unchanged.
+  remain required. The excavation support rule above does not add a mounting
+  requirement to this first press.
 - An unloaded slide can cycle without a head, anvil or recognized recipe when
   its travel is clear. Processing requires compatible tool/material contact,
   support, sufficient force/work and available output custody.
