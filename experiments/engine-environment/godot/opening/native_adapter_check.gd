@@ -4503,6 +4503,11 @@ func _arrival_run() -> void:
 	quit(1)
 
 func _surface_drill_view(path: String, target: Vector3, low := false) -> bool:
+	# Context cameras show the complete worker, not the first-person hand mesh
+	# floating at the separate player's eye camera after a pickup.
+	var player_distance: float = opening.distance
+	opening.distance = maxf(player_distance, 3.0)
+	opening._update_camera()
 	var view := SubViewport.new()
 	view.size = Vector2i(1280, 800)
 	view.world_3d = root.world_3d
@@ -4519,6 +4524,8 @@ func _surface_drill_view(path: String, target: Vector3, low := false) -> bool:
 		await RenderingServer.frame_post_draw
 	var okay := view.get_texture().get_image().save_png(path) == OK
 	view.queue_free()
+	opening.distance = player_distance
+	opening._update_camera()
 	return okay
 
 func _reachable_ore_column() -> String:
@@ -4614,6 +4621,11 @@ func _surface_drill_run(capture_prefix: String) -> void:
 		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 			if not _expect(await _surface_drill_view(capture_prefix + "-motion-%03d.png" % tick, target), "Capture actual powered rotation before its pulse is consumed"):
 				return
+			if tick == 0:
+				var rotor: Node3D = opening.transmission_presenter._component_anchors[head.entity].get_node("DrillRotor")
+				if not _expect(rotor.has_meta("batch_multimesh") and absf(opening.transmission_presenter.visual_rotation(head.entity)) > 0.001,
+						"The ordinary batched drill rotor visibly advances under the native crank pulse"):
+					return
 		opening.model.advance()
 		opening._refresh()
 		await physics_frame
