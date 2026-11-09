@@ -75,10 +75,10 @@ cc_test(
 
 cc_library(
     name = "terrain_surface",
-    srcs = ["src/terrain_surface.cpp"],
+    srcs = ["src/terrain_surface.cpp", "src/arrival_excavation.cpp", "src/arrival_excavation.hpp", "src/excavated_terrain.cpp", "src/excavated_terrain.hpp"],
     hdrs = ["include/factory/terrain_surface.hpp"],
     strip_include_prefix = "include",
-    deps = [":arrival_geometry", ":physical_geometry", ":site_geometry_contract", "//native/factory-world:checkpoint", "//native/factory-value:value", "//native/waterflow:waterflow", "//native/waterwheel:waterwheel"],
+    deps = [":arrival_geometry", ":physical_geometry", ":site_geometry_contract", "//native/excavation:excavation", "//native/factory-world:ore_columns", "//native/factory-world:checkpoint", "//native/factory-value:value", "//native/waterflow:waterflow", "//native/waterwheel:waterwheel"],
 )
 
 cc_test(
@@ -427,5 +427,26 @@ cc_test(
     name = "waterwheel_host_test",
     srcs = ["tests/waterwheel_host_test.cpp"],
     deps = [":test_site"],
+    size = "small",
+)
+
+cc_test(
+    name = "arrival_excavation_test",
+    srcs = ["tests/arrival_excavation_test.cpp"],
+    deps = [":terrain_surface", ":site_geometry_contract"],
+    size = "small",
+)
+
+cc_test(
+    name = "excavated_terrain_test",
+    srcs = ["tests/excavated_terrain_test.cpp"],
+    deps = [":terrain_surface", ":site_geometry_contract"],
+    size = "small",
+)
+
+cc_test(
+    name = "surface_drill_host_test",
+    srcs = ["tests/surface_drill_host_test.cpp", "tests/site_fixture.hpp"],
+    deps = [":host", ":test_site"],
     size = "small",
 )

@@ -47,7 +47,7 @@ const RECIPE_CATEGORY_LABELS := {"machine": "Machine parts", "power": "Power",
 const POWER_COMPONENTS := ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]
 const LOGISTICS_COMPONENTS := ["channel_narrow_x", "channel_narrow_z",
 	"channel_broad_x", "channel_broad_z"]
-const MACHINE_COMPONENTS := ["wooden_frame", "receiver_tray", "tool_mount",
+const MACHINE_COMPONENTS := ["drill_head", "stationary_mount", "wooden_frame", "receiver_tray", "tool_mount",
 	"cutting_edge", "anvil", "broad_anvil", "wooden_slide", "copper_slide",
 	"broad_copper_slide", "flat_head", "broad_flat_head", "hand_crank"]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
@@ -66,6 +66,7 @@ const COMPONENT_ICONS := {
 	"broad_anvil": "anvil.svg", "broad_flat_head": "flat_head.svg",
 	"copper_shaft": "copper_shaft.svg",
 	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
+	"drill_head": "drill_head.svg", "stationary_mount": "stationary_mount.svg",
 	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg",
 	"broad_copper_slide": "copper_slide.svg",
 	"flat_head": "flat_head.svg", "hand_crank": "workshop-crank.svg",

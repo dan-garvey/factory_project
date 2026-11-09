@@ -1,3 +1,4 @@
+#include "factory/surface_drill.hpp"
 #include "factory/physical_support.hpp"
 #include "component_geometry.hpp"
 #include "physical_geometry.hpp"
@@ -57,6 +58,20 @@ std::map<std::string, TransmissionSupport> layout(
         const auto axis = part->geometry.axis;
         const authority::Point at{center[0] * height_step,
             anchor_height + center[1] * height_step, center[2] * height_step};
+        // A mounted tool can carry the gearbox immediately above its embodied
+        // vertical spindle. The external shaft alone still grants no support.
+        const auto mounted = std::find_if(state.placed_components.begin(), state.placed_components.end(),
+            [&](const auto& entry) {
+                return entry.second.kind == materials::Component::drill_head &&
+                    world::surface_drill::supported(state, entry.second.center) &&
+                    center == mechanics::Point{entry.second.center[0], entry.second.center[1]+4, entry.second.center[2]} &&
+                    part->role == Role::vertical_gearbox;
+            });
+        if (mounted != state.placed_components.end()) {
+            const authority::Point foot{at[0], at[1]-2*height_step, at[2]};
+            result.emplace(part->geometry.id, TransmissionSupport{foot, foot, {}, 100});
+            continue;
+        }
         // Fixed bearings stay coaxial. Move only the post, using a short arm
         // when another axle or a previously fitted stand occupies its column.
         // Try the other end of a horizontal axle if its first bearing face is

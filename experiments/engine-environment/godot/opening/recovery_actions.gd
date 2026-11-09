@@ -503,6 +503,7 @@ class ArrivalAssemblyControls:
 	## No stock, work timer, reach rule or assembly identity is owned here.
 
 	const COMPONENTS := [
+		["drill_head", "Drill head"], ["stationary_mount", "Stationary tool mount"],
 		["wooden_frame", "Wooden frame"], ["wooden_shaft", "Wooden shaft"],
 		["wooden_cog", "Wooden cog"], ["receiver_tray", "Receiver tray"],
 		["tool_mount", "Tool mount"],

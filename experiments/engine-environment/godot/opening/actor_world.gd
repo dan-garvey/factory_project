@@ -33,6 +33,8 @@ var site_specs: Dictionary = {}
 var site_shapes: Dictionary = {}
 var _site_shape_matches: Dictionary = {}
 var terrain_faces := PackedVector3Array()
+var excavation_remaining := -1
+var excavated_ground := PackedVector3Array()
 var active_woody_ids: Variant = null
 var floor_error := ""
 var observation_ordinal := 0
@@ -80,7 +82,7 @@ func _create_floor() -> bool:
 			floor_error = "native_site_geometry_invalid"
 			return false
 		active_woody_ids = _standing_woody_ids(model.projection())
-		terrain_faces = site_surface.faces()
+		terrain_faces = _ground_faces(model.projection())
 		terrain_faces.append_array(site_surface.mature_tree_collision_faces(active_woody_ids))
 	floor_body = StaticBody3D.new()
 	floor_body.name = "PhysicalGround"
@@ -100,6 +102,8 @@ func _create_floor() -> bool:
 	add_child(floor_body)
 	if native_site:
 		for spec in site_surface.support_boxes():
+			if spec.id == "source_outcrop" and not excavated_ground.is_empty():
+				continue
 			var body := StaticBody3D.new()
 			body.name = spec.id
 			body.collision_layer = Geometry.GROUND_LAYER
@@ -132,15 +136,25 @@ func _standing_woody_ids(snapshot: Dictionary) -> Variant:
 
 func _refresh_woody_floor(snapshot: Dictionary) -> void:
 	var standing: Variant = _standing_woody_ids(snapshot)
-	if standing == active_woody_ids:
+	var source_count: int = int(snapshot.get("stock", {}).get("source", -1))
+	if standing == active_woody_ids and source_count == excavation_remaining:
 		return
 	active_woody_ids = standing
-	terrain_faces = site_surface.faces()
+	terrain_faces = _ground_faces(snapshot)
 	terrain_faces.append_array(site_surface.mature_tree_collision_faces(standing))
 	var terrain := ConcavePolygonShape3D.new()
 	terrain.backface_collision = true
 	terrain.set_faces(terrain_faces)
 	(floor_body.get_child(0) as CollisionShape3D).shape = terrain
+
+func _ground_faces(snapshot: Dictionary) -> PackedVector3Array:
+	excavation_remaining = int(snapshot.get("stock", {}).get("source", -1))
+	if model.has_method("terrain_data"):
+		var supplied: Dictionary = model.terrain_data(snapshot)
+		if supplied.get("excavation", false):
+			excavated_ground = supplied.faces
+			return excavated_ground.duplicate()
+	return site_surface.faces()
 
 func _native_topology_stamp(snapshot: Dictionary) -> Array:
 	# Native command order changes for every construction decision, while
@@ -150,7 +164,7 @@ func _native_topology_stamp(snapshot: Dictionary) -> Array:
 			typeof(snapshot.get("context")) != TYPE_STRING or \
 			typeof(snapshot.get("order")) != TYPE_INT:
 		return []
-	return [model.get_instance_id(), snapshot.context, snapshot.order]
+	return [model.get_instance_id(), snapshot.context, snapshot.order, snapshot.get("stock", {}).get("source", -1)]
 
 func sync_topology(known_snapshot: Dictionary = {}) -> Dictionary:
 	if model == null or not is_inside_tree():
@@ -164,7 +178,7 @@ func sync_topology(known_snapshot: Dictionary = {}) -> Dictionary:
 	var derived: Dictionary = Geometry.mechanical_boxes(snapshot)
 	if not derived.get("accepted", false):
 		return {"accepted": false, "reason": "invalid_transmission_topology"}
-	var component_result: Dictionary = Geometry.component_boxes(snapshot)
+	var component_result: Dictionary = Geometry.component_collision_boxes(snapshot)
 	if not component_result.get("accepted", false):
 		return {"accepted": false, "reason": "invalid_component_topology"}
 	var components: Dictionary = component_result.boxes
@@ -411,7 +425,7 @@ func _geometry_registered() -> bool:
 	var derived: Dictionary = Geometry.mechanical_boxes(snapshot)
 	if not derived.get("accepted", false) or derived.boxes != mechanical_specs or mechanical_bodies.size() != mechanical_specs.size():
 		return false
-	var components: Dictionary = Geometry.component_boxes(snapshot)
+	var components: Dictionary = Geometry.component_collision_boxes(snapshot)
 	if not components.get("accepted", false) or components.boxes != component_specs \
 			or component_bodies.size() != component_specs.size():
 		return false
@@ -625,7 +639,7 @@ func _penetration(actor: String, other: RID, shape_index: int = 0) -> Dictionary
 	var shape = PhysicsServer3D.shape_get_data(PhysicsServer3D.body_get_shape(other, shape_index))
 	if other == floor_body.get_rid() and site_surface != null:
 		var measured: Dictionary = site_surface.capsule_overlap(at.origin, float(capsule.radius),
-			float(capsule.height), active_woody_ids)
+			float(capsule.height), active_woody_ids, excavated_ground)
 		measured.merge({"unsupported_overlap": measured.analytical_overlap_measure > Geometry.SAFE_MARGIN,
 			"contact_tolerance": Geometry.SAFE_MARGIN, "kind": "terrain", "actor_position": _array(at.origin)})
 		return measured

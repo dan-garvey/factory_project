@@ -29,6 +29,8 @@ public:
     // Trusted terrain producer, separate from the authenticated command wire.
     // Immutable emitted grid vertices are shared with rendered/native collision.
     [[nodiscard]] values::Value configure_terrain(const values::Value::Object&);
+    [[nodiscard]] values::Value terrain_projection(values::Value::Integer first_triangle) const;
+    [[nodiscard]] values::Value terrain_query(const values::Value::Array&) const;
     [[nodiscard]] values::Value command(const std::string& bound_actor,
                                        const values::Value::Object& wire);
     [[nodiscard]] values::Value publish_actor(const std::string& actor,
@@ -73,6 +75,7 @@ private:
     struct Decoded {
         std::unique_ptr<Owned> candidate;
         std::string refusal;
+        std::shared_ptr<const terrain_surface::Mesh> terrain_mesh{};
     };
     using TransmissionSupport = physical_support::TransmissionSupport;
 
@@ -82,7 +85,9 @@ private:
                                         const authority::Point& half_extents) const;
 
     world::Profile profile_;
-    terrain_surface::Surface terrain_;
+    mutable terrain_surface::Surface terrain_;
+    mutable std::optional<materials::Quantity> terrain_source_;
+    [[nodiscard]] bool refresh_terrain() const;
     [[nodiscard]] bool site_blocked(const authority::Point& low, const authority::Point& high,
         std::optional<std::size_t> ignored = std::nullopt) const;
     [[nodiscard]] std::optional<std::pair<double, double>> terrain_range(double x, double z,

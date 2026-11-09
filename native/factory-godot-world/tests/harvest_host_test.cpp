@@ -207,7 +207,7 @@ void flat_head_host_custody() {
         return host.command("P", wire);
     };
     check(get<bool>(command("fast", "set_developer_conveniences", {{"enabled", V(true)}}), "accepted") &&
-          get<bool>(command("cut", "harvest_source", {{"target", V("opening-copper")}}), "accepted") &&
+          get<bool>(command("cut", "harvest_source", {{"target", V("ore-column:0:0")}}), "accepted") &&
           get<I>(get<O>(host.projection(), "cargo").at("P"), "raw") == 1,
           "One real copper source unit enters native custody before fabrication.");
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 2), "accepted"),
@@ -303,9 +303,9 @@ void flat_head_host_custody() {
     };
     check(get<bool>(restored.publish_actor("P", {V(-1.2375), V(1.0), V(0.0)}, 7), "accepted") &&
           get<bool>(resumed("support-ore-1", "harvest_source",
-              {{"target", V("opening-copper")}}), "accepted") &&
+              {{"target", V(factory::godot_world::tests::reachable_ore(restored,"P"))}}), "accepted") &&
           get<bool>(resumed("support-ore-2", "harvest_source",
-              {{"target", V("opening-copper")}}), "accepted") &&
+              {{"target", V(factory::godot_world::tests::reachable_ore(restored,"P"))}}), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 8), "accepted") &&
           get<bool>(resumed("support-craft", "craft_component",
               {{"entity", V("pod-fabrication-hub")}, {"component", V("anvil")}}), "accepted") &&
@@ -365,7 +365,7 @@ void flat_head_host_custody() {
           "The actual finite head, slide and anvil retain their identities and manual phase through restore.");
     check(get<bool>(restored.publish_actor("P", {V(-1.2375), V(1.0), V(0.0)}, 12), "accepted") &&
           get<bool>(resumed("route-ore", "harvest_source",
-              {{"target", V("opening-copper")}}), "accepted") &&
+              {{"target", V(factory::godot_world::tests::reachable_ore(restored,"P"))}}), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 13), "accepted"),
           "A further finite copper unit reaches the fitted press as an actor-held blank.");
     const auto feed = resumed("feed-slide-west", "feed_press",
@@ -843,7 +843,7 @@ void flat_head_host_custody() {
     };
     check(get<bool>(tray_host.publish_actor("Q", {V(-1.2375), V(1.0), V(0.0)}, 2), "accepted"),
           "The plate holder reaches a real copper blank for the tray-backed press.");
-    tray_command("tray-route-ore", "harvest_source", {{"target", V("opening-copper")}});
+    tray_command("tray-route-ore", "harvest_source", {{"target", V(factory::godot_world::tests::reachable_ore(tray_host,"Q"))}});
     check(get<bool>(tray_host.publish_actor("Q", {V(5.8), V(1.0), V(-1.0)}, 3), "accepted"),
           "The same worker reaches finite timber for the receiver tray.");
     for (int index = 0; index < 2; ++index)
@@ -1049,7 +1049,7 @@ void flat_head_host_custody() {
     check(get<bool>(unlocked_restored.publish_actor("Q", {V(-1.2375), V(1.0), V(0.0)}, 2), "accepted"),
           "The worker with the plate can reach finite copper for a later, distant belt.");
     q_command("remote-belt-ore", "harvest_source",
-        {{"target", V("opening-copper")}});
+        {{"target", V(factory::godot_world::tests::reachable_ore(unlocked_restored,"Q"))}});
     check(get<bool>(unlocked_restored.publish_actor("Q", {V(0.0), V(1.0), V(11.55)}, 3), "accepted"),
           "The same worker can reach finite timber for the belt kit.");
     for (int index = 0; index < 4; ++index)
@@ -1131,9 +1131,9 @@ void shared_fast_setting_and_restore() {
     check(get<bool>(host.command("P", fast_site_cut("P", "fast-tree", "tree-east-south")), "duplicate") &&
           get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1,
           "An exact Host retry cannot duplicate fast timber.");
-    check(get<bool>(host.command("Q", fast_site_cut("Q", "fast-ore", "opening-copper")), "accepted") &&
+    check(get<bool>(host.command("Q", fast_site_cut("Q", "fast-ore", "ore-column:0:0")), "accepted") &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1 &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") ==
+          get<I>(V(get<O>(host.projection(), "stock")), "source") ==
               get<I>(V(get<O>(host.projection(), "source_deposit")), "initial_units") - 1,
           "Q's immediate ore cut spends the same finite native reserve.");
     const auto saved = host.checkpoint();
@@ -1339,70 +1339,56 @@ void placed_machine_blocks_an_actors_harvest_path() {
 
 void ore_outcrop_has_a_standing_cut_boundary() {
     Host host;
-    auto site = factory::godot_world::tests::flat_site();
-    site.insert_or_assign("obstacles", V(A{V(A{
-        V(A{V(-1.4), V(0.0), V(-1.2)}),
-        V(A{V(-0.9), V(1.2), V(1.2)})})}));
-    site.emplace("source_obstacle", V(I{0}));
-    check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
-          get<bool>(host.configure_terrain(site), "accepted") &&
-          get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(3.76)}, 1), "accepted"),
-          "The actor samples a standing point outside the opening ore reach.");
-    const auto projected = get<O>(host.projection(), "hand_sources").at("opening-copper");
-    check(!factory::values::typed_difference(V(get<A>(projected, "contact_bounds")),
-          V(A{V(A{V(-1.4), V(0.0), V(-1.2)}), V(A{V(-0.9), V(1.2), V(1.2)})})),
-          "The ore projection carries its trusted visible obstacle bounds to the pointed prompt.");
-    const auto far = host.command("P", cut("P", "ore-far", "opening-copper"));
-    check(!get<bool>(far, "accepted") && get<std::string>(far, "reason") == "out_of_reach" &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") == 4096,
-          "An out-of-range ore pick cannot consume finite source stock.");
-    check(get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(3.74)}, 2), "accepted") &&
-          get<bool>(host.command("P", cut("P", "ore-near", "opening-copper")), "accepted"),
-          "The same actor starts a timed cut 2.54 m beyond the visible ore hull end.");
-    check(get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(3.76)}, 3), "accepted") &&
-          get<O>(host.projection(), "manual_cuts").empty() &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") == 4096,
-          "Leaving the hull-relative cut range interrupts before any ore payout.");
-    check(get<bool>(host.publish_actor("P", {V(-1.2375), V(0.825), V(3.74)}, 4), "accepted") &&
-          get<bool>(complete_cut(host, "P", cut("P", "ore-standing", "opening-copper")), "accepted") &&
-          get<I>(get<O>(host.projection(), "cargo").at("P"), "raw") == 1 &&
-          get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
-          "A standing ore cut near the visible outcrop transfers one blank with valid history.");
+    const auto site=factory::godot_world::tests::flat_site();
+    check(get<bool>(host.initialize_arrival_advanced_fixture("harvest-site",{"P"}),"accepted")&&
+        get<bool>(host.configure_terrain(site),"accepted"),"The ordinary source binds exact natural terrain contacts.");
+    const auto world=get<O>(host.checkpoint(),"world");
+    const auto profile=get<O>(V(world),"profile");
+    const auto excavation=get<O>(V(profile),"excavation");
+    const auto contacts=get<A>(V(excavation),"contact_points");
+    A point;
+    for(const auto& contact:contacts) if(get<I>(contact,"x")==0&&get<I>(contact,"z")==0) point=get<A>(contact,"point");
+    check(point.size()==3,"The selected hand target retains a trusted natural surface point.");
+    const double x=std::get<double>(point[0].storage()), y=std::get<double>(point[1].storage()), z=std::get<double>(point[2].storage());
+    const auto pose=[&](double distance,I epoch){return get<bool>(host.publish_actor("P",{V(x),V(y+1),V(z+distance)},epoch),"accepted");};
+    check(pose(3,1),"The actor starts outside actual surface contact reach.");
+    const auto far=host.command("P",cut("P","ore-far","ore-column:0:0"));
+    check(!get<bool>(far,"accepted")&&get<std::string>(far,"reason")=="out_of_reach"&&
+        get<I>(V(get<O>(host.projection(),"stock")),"source")==4096,
+        "A distant local target cannot debit reserve through its underground bounds.");
+    check(pose(1,2)&&get<bool>(host.command("P",cut("P","ore-near","ore-column:0:0")),"accepted"),
+        "A standing actor begins work within reach of the actual exposed terrain.");
+    check(pose(3,3)&&get<O>(host.projection(),"manual_cuts").empty()&&
+        get<I>(V(get<O>(host.projection(),"stock")),"source")==4096,
+        "Leaving contact range interrupts before source debit.");
+    check(pose(1,4)&&get<bool>(complete_cut(host,"P",cut("P","ore-standing","ore-column:0:0")),"accepted")&&
+        get<I>(get<O>(host.projection(),"cargo").at("P"),"raw")==1&&
+        get<bool>(host.validate_checkpoint(host.checkpoint()),"accepted"),
+        "A completed physical local stroke transfers one copper unit with valid receipt geometry.");
     Host restored;
-    check(get<bool>(restored.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
-          get<bool>(restored.configure_terrain(site), "accepted") &&
-          get<bool>(restored.restore_checkpoint(host.checkpoint()), "accepted") &&
-          get<I>(get<O>(restored.projection(), "cargo").at("P"), "raw") == 1,
-          "A fresh Host restores the surface-relative harvest history and finite cargo.");
-    auto forged = get<O>(host.checkpoint(), "world");
-    auto profile = get<O>(V(forged), "profile");
-    auto bounds = get<A>(V(profile), "manual_ore_contact_bounds");
-    auto high = std::get<A>(bounds[1].storage());
-    high[2] = V(1.3);
-    bounds[1] = V(std::move(high));
-    profile.at("manual_ore_contact_bounds") = V(std::move(bounds));
-    forged.at("profile") = V(std::move(profile));
-    auto altered = std::get<O>(host.checkpoint().storage());
-    altered.at("world") = V(std::move(forged));
-    check(!get<bool>(host.validate_checkpoint(V(std::move(altered))), "accepted"),
-          "A saved ore contact surface cannot be enlarged without invalidating the native profile.");
-    auto walled = site;
-    auto obstacles = std::get<A>(walled.at("obstacles").storage());
-    obstacles.emplace_back(A{V(A{V(-1.4), V(0.0), V(2.0)}),
-        V(A{V(-0.9), V(2.0), V(2.2)})});
-    walled.at("obstacles") = V(std::move(obstacles));
+    check(get<bool>(restored.initialize_arrival_advanced_fixture("harvest-site",{"P"}),"accepted")&&
+        get<bool>(restored.configure_terrain(site),"accepted")&&
+        get<bool>(restored.restore_checkpoint(host.checkpoint()),"accepted"),
+        "Restore retains the actual surface contact, local depth and finite custody.");
+    auto altered=std::get<O>(host.checkpoint().storage());auto forged_world=get<O>(V(altered),"world");
+    auto forged_profile=get<O>(V(forged_world),"profile");auto forged_seed=get<O>(V(forged_profile),"excavation");
+    auto forged_contacts=get<A>(V(forged_seed),"contact_points");auto first=std::get<O>(forged_contacts.front().storage());
+    auto forged_point=get<A>(V(first),"point");forged_point[0]=V(std::get<double>(forged_point[0].storage())+.1);
+    first.at("point")=V(forged_point);forged_contacts.front()=V(first);forged_seed.at("contact_points")=V(forged_contacts);
+    forged_profile.at("excavation")=V(forged_seed);forged_world.at("profile")=V(forged_profile);altered.at("world")=V(forged_world);
+    check(!get<bool>(host.validate_checkpoint(V(altered)),"accepted"),"A saved natural contact cannot move independently of trusted terrain identity.");
+    auto walled=site;
+    walled.at("obstacles")=V(A{V(A{V(A{V(x-.3),V(y-.2),V(z+.4)}),V(A{V(x+.3),V(y+2),V(z+.6)})})});
     Host behind_wall;
-    check(get<bool>(behind_wall.initialize_arrival_advanced_fixture("harvest-site", {"P"}), "accepted") &&
-          get<bool>(behind_wall.configure_terrain(walled), "accepted") &&
-          get<bool>(behind_wall.publish_actor("P", {V(-1.2375), V(0.825), V(3.74)}, 1), "accepted"),
-          "The ore hull and a separate wall bind to the same native terrain producer.");
-    const auto occluded = behind_wall.command("P", cut("P", "ore-behind-wall", "opening-copper"));
-    check(!get<bool>(occluded, "accepted") &&
-          get<std::string>(occluded, "reason") == "source_occluded" &&
-          !get<bool>(V(get<O>(get<O>(behind_wall.projection(), "actors").at("P"),
-              "harvest_clear")), "opening-copper") &&
-          get<I>(get<O>(behind_wall.projection(), "cargo").at("P"), "raw") == 0,
-          "Ore contact ignores its own hull but refuses an intervening wall without paying raw stock.");
+    check(get<bool>(behind_wall.initialize_arrival_advanced_fixture("harvest-site",{"P"}),"accepted")&&
+        get<bool>(behind_wall.configure_terrain(walled),"accepted")&&
+        get<bool>(behind_wall.publish_actor("P",{V(x),V(y+1),V(z+1)},1),"accepted"),
+        "A separate physical wall sits between actor and exposed local contact.");
+    const auto blocked=behind_wall.command("P",cut("P","ore-behind-wall","ore-column:0:0"));
+    check(!get<bool>(blocked,"accepted")&&get<std::string>(blocked,"reason")=="source_occluded"&&
+        !get<bool>(V(get<O>(get<O>(behind_wall.projection(),"actors").at("P"),"harvest_clear")),"ore-column:0:0")&&
+        get<I>(get<O>(behind_wall.projection(),"cargo").at("P"),"raw")==0,
+        "The same native contact is rejected through an intervening wall without paying ore.");
 }
 
 void field_wood_uses_physical_actor_and_one_ledger() {
@@ -1492,12 +1478,13 @@ void shared_harvest() {
           "The trusted arrival site initializes one native source roster.");
     const auto initial = host.projection();
     const auto sources = get<O>(initial, "hand_sources");
-    check(sources.size() == 19 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
+    check(sources.size() == 1612 && get<I>(sources.at("tree-east-south"), "remaining") == 8 &&
           get<I>(sources.at("broadleaf_00"), "remaining") == 8 &&
           get<I>(sources.at("fir_05"), "remaining") == 8 &&
-          get<I>(sources.at("opening-copper"), "remaining") == 4096 &&
-          sources.contains("opening-copper-region-0") && sources.contains("opening-copper-region-5"),
-          "Four starter trees, eight mature trees, the ore total and six local exposures share native custody.");
+          get<I>(sources.at("ore-column:0:0"), "remaining") == get<I>(sources.at("ore-column:0:0"), "initial") &&
+          get<I>(V(get<O>(initial,"stock")),"source")==4096 &&
+          !sources.contains("opening-copper-region-0") && !sources.contains("opening-copper"),
+          "Four starter trees, eight mature trees and 1600 local ore columns share native custody.");
     check(get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "P walks to the clear east timber site while Q remains on the deployed deck.");
@@ -1536,8 +1523,8 @@ void shared_harvest() {
           "A second actor cannot cut a tree outside physical reach.");
     check(get<bool>(host.publish_actor("Q", {V(-0.5), V(1.0), V(0.0)}, 2), "accepted"),
           "Q can reach the ore side of the site with a new physical observation.");
-    check(get<bool>(complete_cut(host, "Q", cut("Q", "ore-first", "opening-copper")), "accepted") &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("opening-copper"), "remaining") == 4095 &&
+    check(get<bool>(complete_cut(host, "Q", cut("Q", "ore-first", "ore-column:0:0")), "accepted") &&
+          get<I>(V(get<O>(host.projection(), "stock")), "source") == 4095 &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1,
           "Manual ore mining debits the same source that feeds a future collector.");
     const auto bench = get<O>(host.projection(), "fabrication_hub");
@@ -1613,7 +1600,7 @@ void mature_bank_tree_stock_survives_shared_restore() {
           get<bool>(host.configure_terrain(factory::godot_world::tests::flat_site()), "accepted"),
           "The mature bank tree roster initializes inside the one native arrival profile.");
     const auto sources = get<O>(host.projection(), "hand_sources");
-    check(sources.size() == 19 && get<I>(sources.at("broadleaf_00"), "initial") == 8 &&
+    check(sources.size() == 1612 && get<I>(sources.at("broadleaf_00"), "initial") == 8 &&
           get<I>(sources.at("fir_00"), "initial") == 8,
           "Mature broadleaf and fir instances have separate finite source identities.");
     const auto wire = [](const char* actor, const std::string& request, const char* action, O extra) {
@@ -1715,7 +1702,7 @@ void placed_bench_preserves_two_actor_custody() {
           "The issued pod workshop moves into P's explicit custody without removing the placed bench.");
     const O mine{{"context", V("bench-site")}, {"client", V("Q")},
         {"request", V("bench-ore")}, {"action", V("harvest_source")},
-        {"target", V("opening-copper")}};
+        {"target", V("ore-column:0:0")}};
     check(get<bool>(complete_cut(host, "Q", mine), "accepted"),
           "Q mines one copper blank from the same finite source used by collectors.");
     const O craft_edge{{"context", V("bench-site")}, {"client", V("Q")},

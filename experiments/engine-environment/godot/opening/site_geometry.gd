@@ -223,6 +223,8 @@ static func component_boxes(snapshot: Dictionary) -> Dictionary:
 			cell[2] * HEIGHT_STEP)
 		var horizontal_limit: float = PITCH if part.component in ["channel_broad_x", "channel_broad_z",
 				"broad_anvil", "broad_flat_head", "broad_copper_slide"] else 1.0
+		if part.component == "stationary_mount":
+			horizontal_limit = PITCH * 1.5
 		if part.component in ["channel_narrow_x", "channel_narrow_z"]:
 			horizontal_limit = PITCH * 0.5
 		var vertical_limit := 1.2 if part.component == "broad_copper_slide" else 1.0
@@ -276,7 +278,7 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 			var support: Variant = part.support
 			if not support is Dictionary or not valid_position(support.get("foot")) \
 					or not valid_position(support.get("bearing")) or not support.get("boxes") is Array \
-					or support.boxes.size() != 4:
+					or support.boxes.size() not in [0, 4]:
 				return {"accepted": false}
 			var support_boxes: Array[Dictionary] = []
 			for box: Variant in support.boxes:
@@ -333,3 +335,25 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 			spec["basis"] = basis
 		result[id] = spec
 	return {"accepted": true, "boxes": result}
+
+static func component_collision_boxes(snapshot: Dictionary) -> Dictionary:
+	var result := component_boxes(snapshot)
+	if not result.get("accepted", false):
+		return result
+	for id: String in snapshot.get("placed_components", {}):
+		var part: Dictionary = snapshot.placed_components[id]
+		var solids: Variant = part.get("collision")
+		if not solids is Array or solids.is_empty() or solids.size() > 32:
+			return {"accepted": false}
+		result.boxes.erase(id)
+		for index in solids.size():
+			var solid: Variant = solids[index]
+			if not solid is Dictionary or not valid_position(solid.get("center")) or not valid_position(solid.get("half")):
+				return {"accepted": false}
+			var half := Vector3(solid.half[0], solid.half[1], solid.half[2])
+			if half.x <= 0 or half.y <= 0 or half.z <= 0 or half.length() > 4.0:
+				return {"accepted": false}
+			var key := id if solids.size() == 1 else id + "/solid" + str(index)
+			result.boxes[key] = {"center": Vector3(solid.center[0], solid.center[1], solid.center[2]),
+				"size": half * 2.0, "entity": id, "component": part.component, "generation": part.generation}
+	return result

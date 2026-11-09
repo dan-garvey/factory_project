@@ -60,6 +60,7 @@ Object fields(const world::Profile& profile, const world::State& state,
         parts.push_back({id, component.kind, component.center, component.generation});
     Array collectors;
     for (const auto& face : profile.collector_faces) {
+        if (profile.excavation) break;
         const auto inspection = assembly::inspect_collector(parts, face);
         Object entry{{"center", Value(Array{Value(face.machine_center[0]),
             Value(face.machine_center[1]), Value(face.machine_center[2])})},

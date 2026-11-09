@@ -282,6 +282,64 @@ class ProductionEnvironment:
 		terrain_surface_mesh = surface.commit()
 		return terrain_surface_mesh
 
+	static func excavated_terrain_mesh(faces: PackedVector3Array, state: Dictionary) -> ArrayMesh:
+		# Topology is supplied verbatim by native excavation. Colors/normals only
+		# present its rock and natural ground; they never choose height or stock.
+		var surface := SurfaceTool.new()
+		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var deposit: Dictionary = state.get("source_deposit", {})
+		var origin: Array = deposit.get("grid_origin", [0.0, 0.0, 0.0])
+		var pitch: float = float(deposit.get("grid_pitch", Geometry.PITCH * 0.5))
+		for first in range(0, faces.size(), 3):
+			var a := faces[first]
+			var b := faces[first + 1]
+			var c := faces[first + 2]
+			var center := (a + b + c) / 3.0
+			var cell := Vector2i(floori((center.x - float(origin[0])) / pitch),
+				floori((center.z - float(origin[2])) / pitch))
+			var source: Dictionary = state.get("hand_sources", {}).get("ore-column:%d:%d" % [cell.x, cell.y], {})
+			var cut: bool = not source.is_empty() and int(source.remaining) < int(source.initial)
+			var face_normal := (c - a).cross(b - a).normalized()
+			for point in [a, b, c]:
+				var n: Vector3 = face_normal if absf(face_normal.y) < 0.5 else terrain_normal(point.x, point.z)
+				var color := _terrain_vertex_color(point.x, point.y, point.z, n)
+				if cut:
+					color = color.lerp(Color("c77b41"), 0.65)
+				surface.set_normal(n)
+				surface.set_uv(Vector2((point.x + Surface.HALF) / Surface.SIZE, (point.z + Surface.HALF) / Surface.SIZE))
+				surface.set_color(color)
+				surface.add_vertex(point)
+		surface.generate_tangents()
+		return surface.commit()
+
+	static func clear_excavated_foliage(scenery: Node3D, state: Dictionary) -> void:
+		var deposit: Dictionary = state.get("source_deposit", {})
+		if not deposit.get("excavation", false):
+			return
+		var origin: Array = deposit.grid_origin
+		var pitch: float = float(deposit.grid_pitch)
+		# Cosmetic grass/ferns lose their soil when that column is excavated.
+		# Trees, rocks and player infrastructure retain their separate identity.
+		for group_name in ["GroundFoliage", "MeadowPatches", "ForegroundBank", "BankFerns"]:
+			var group := scenery.get_node_or_null(group_name)
+			if group == null:
+				continue
+			var batches: Array = [group] if group is MultiMeshInstance3D else \
+				group.find_children("*", "MultiMeshInstance3D", true, false)
+			for candidate in batches:
+				var batch := candidate as MultiMeshInstance3D
+				if batch == null or batch.multimesh == null:
+					continue
+				for index in range(batch.multimesh.instance_count):
+					var pose := batch.multimesh.get_instance_transform(index)
+					var point := batch.global_transform * pose.origin
+					var cell := Vector2i(floori((point.x - float(origin[0])) / pitch),
+						floori((point.z - float(origin[2])) / pitch))
+					var source: Dictionary = state.get("hand_sources", {}).get("ore-column:%d:%d" % [cell.x, cell.y], {})
+					if not source.is_empty() and int(source.remaining) < int(source.initial):
+						pose.basis = Basis.IDENTITY.scaled(Vector3.ZERO)
+						batch.multimesh.set_instance_transform(index, pose)
+
 	static func stream_surface_height(x_world: float, z_world: float) -> float:
 		return Surface.stream_surface_height(x_world, z_world)
 
@@ -1506,7 +1564,7 @@ class ProductionEnvironment:
 	static func ore_field(state: Dictionary) -> Node3D:
 		# This surface is read from the native deposit cells and region balances.
 		# It adds no body collision, stock, or admission rule to the renderer.
-		var deposit: Dictionary = state.get("source_deposit", {})
+		var deposit: Dictionary = state.get("ore_surface", state.get("source_deposit", {}))
 		var cells: Array = deposit.get("cells", [])
 		var cell_pitch: float = float(deposit.get("cell_pitch", 0.0))
 		if Surface == null or cells.size() < 100 or cell_pitch <= 0.0:
@@ -1527,6 +1585,9 @@ class ProductionEnvironment:
 		var front: float = (float(high.y) + 0.5) * cell_pitch
 		var regions: Array[Dictionary] = []
 		var balances := {}
+		for region: Dictionary in deposit.get("regions", []):
+			regions.append(region)
+			balances[str(region.id)] = clampf(float(region.remaining) / maxf(1.0, float(region.initial)), 0.0, 1.0)
 		for id: String in state.get("hand_sources", {}):
 			if id.begins_with(str(deposit.get("id", "")) + "-region-"):
 				var region: Dictionary = state.hand_sources[id].duplicate()
@@ -1535,6 +1596,17 @@ class ProductionEnvironment:
 				balances[id] = clampf(float(region.remaining) / maxf(1.0, float(region.initial)), 0.0, 1.0)
 		var root := Node3D.new()
 		root.name = "OreField"
+		var cut_origin_data: Array = deposit.get("cut_origin", [0.0, 0.0])
+		var cut_origin := Vector2(float(cut_origin_data[0]), float(cut_origin_data[1]))
+		var cut_pitch: float = float(deposit.get("cut_pitch", 1.0))
+		var cut_size: Array = deposit.get("cut_size", [1, 1])
+		var cut_mask := Image.create(int(cut_size[0]), int(cut_size[1]), false, Image.FORMAT_R8)
+		cut_mask.fill(Color.BLACK)
+		var cuts := {}
+		for cell: Array in deposit.get("cut_cells", []):
+			var at := Vector2i(int(cell[0]), int(cell[1]))
+			cuts[at] = true
+			cut_mask.set_pixel(at.x, at.y, Color.WHITE)
 		var surface := SurfaceTool.new()
 		surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 		for index in range(cells.size()):
@@ -1548,6 +1620,9 @@ class ProductionEnvironment:
 					var z0: float = cz - cell_pitch * 0.5 + float(z_step) * cell_pitch / 4.0
 					var x1: float = x0 + cell_pitch / 4.0
 					var z1: float = z0 + cell_pitch / 4.0
+					var cut_cell := Vector2i(((Vector2((x0 + x1) * 0.5, (z0 + z1) * 0.5) - cut_origin) / cut_pitch).floor())
+					if cuts.has(cut_cell):
+						continue
 					for point: Vector2 in [Vector2(x0, z0), Vector2(x1, z0), Vector2(x1, z1),
 							Vector2(x0, z0), Vector2(x1, z1), Vector2(x0, z1)]:
 						var edge: float = minf(minf(point.x - left, right - point.x),
@@ -1583,9 +1658,14 @@ class ProductionEnvironment:
 		soil.material_override = _ore_ground_material()
 		soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(soil)
-		var stone_finish := _ore_stone_material()
-		if stone_finish == null:
+		var source_finish := _ore_stone_material()
+		if source_finish == null:
 			return root
+		var stone_finish := source_finish.duplicate() as ShaderMaterial
+		stone_finish.set_shader_parameter("cut_mask", ImageTexture.create_from_image(cut_mask))
+		stone_finish.set_shader_parameter("cut_origin", cut_origin)
+		stone_finish.set_shader_parameter("cut_pitch", cut_pitch)
+		stone_finish.set_shader_parameter("cut_size", Vector2(float(cut_size[0]), float(cut_size[1])))
 		var principal_scales := [
 			Vector3(0.94, 0.82, 0.93), Vector3(0.78, 0.70, 0.82),
 			Vector3(0.91, 0.79, 0.90), Vector3(0.75, 0.69, 0.78),

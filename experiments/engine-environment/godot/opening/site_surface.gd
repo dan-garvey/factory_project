@@ -670,7 +670,7 @@ static func _segment_triangle_distance(p: Vector3, q: Vector3, a: Vector3, b: Ve
 	return sqrt(maxf(distance, 0.0))
 
 static func capsule_overlap(at: Vector3, radius: float, height: float,
-		active_tree_ids: Variant = null) -> Dictionary:
+		active_tree_ids: Variant = null, projected_faces: PackedVector3Array = PackedVector3Array()) -> Dictionary:
 	# A trimesh is hollow in Godot. In addition to measuring real nearby
 	# triangle contacts, explicitly reject a saved capsule buried below the
 	# represented ground even when a native surface query reports no hit.
@@ -682,7 +682,17 @@ static func capsule_overlap(at: Vector3, radius: float, height: float,
 	var q := at + Vector3.UP * half_segment
 	var distance := INF
 	var count := 0
-	if at.x + radius >= -HALF and at.x - radius <= HALF and at.z + radius >= -HALF and at.z - radius <= HALF:
+	if not projected_faces.is_empty():
+		for first in range(0, projected_faces.size(), 3):
+			var a := projected_faces[first]
+			var b := projected_faces[first + 1]
+			var c := projected_faces[first + 2]
+			if maxf(a.x, maxf(b.x, c.x)) < at.x - radius or minf(a.x, minf(b.x, c.x)) > at.x + radius \
+					or maxf(a.z, maxf(b.z, c.z)) < at.z - radius or minf(a.z, minf(b.z, c.z)) > at.z + radius:
+				continue
+			distance = minf(distance, _segment_triangle_distance(p, q, a, b, c))
+			count += 1
+	elif at.x + radius >= -HALF and at.x - radius <= HALF and at.z + radius >= -HALF and at.z - radius <= HALF:
 		var low := cell(at.x - radius, at.z - radius)
 		var high := cell(at.x + radius, at.z + radius)
 		for gz in range(low.y, high.y + 1):
@@ -693,6 +703,20 @@ static func capsule_overlap(at: Vector3, radius: float, height: float,
 						_faces[first + offset], _faces[first + offset + 1], _faces[first + offset + 2]))
 					count += 1
 	var surface := height_at(at.x, at.z)
+	if not projected_faces.is_empty():
+		surface = -INF
+		for first in range(0, projected_faces.size(), 3):
+			var a := projected_faces[first]
+			var b := projected_faces[first + 1]
+			var c := projected_faces[first + 2]
+			# Keep the segment near this triangle. Million-unit endpoints lose
+			# centimeter-scale floor heights in the engine's float intersection.
+			var top := maxf(a.y, maxf(b.y, c.y)) + 1.0
+			var bottom := minf(a.y, minf(b.y, c.y)) - 1.0
+			var hit: Variant = Geometry3D.segment_intersects_triangle(
+				Vector3(at.x, top, at.z), Vector3(at.x, bottom, at.z), a, b, c)
+			if hit is Vector3:
+				surface = maxf(surface, hit.y)
 	var buried := maxf(surface - (at.y - height / 2.0), 0.0) if is_finite(surface) else 0.0
 	var fir := _fir_capsule_distance(at, radius, height, active_tree_ids)
 	var broadleaf := _broadleaf_capsule_distance(at, radius, height, active_tree_ids)

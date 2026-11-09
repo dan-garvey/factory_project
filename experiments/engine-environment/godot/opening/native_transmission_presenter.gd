@@ -560,7 +560,7 @@ func _add_support_primitives(groups: Dictionary) -> void:
 		_add_batch(bucket.mesh, poses, "SupportPrimitive", bucket.finish)
 
 func _support_box(parent: Node3D, name_value: String, at: Vector3, size: Vector3,
-		material: Material, formed := false) -> void:
+		material: Material, formed := false) -> MeshInstance3D:
 	var mesh := MeshInstance3D.new()
 	mesh.name = name_value
 	var shape: Mesh = Visuals.box_mesh(size) if formed else BoxMesh.new()
@@ -570,6 +570,7 @@ func _support_box(parent: Node3D, name_value: String, at: Vector3, size: Vector3
 	mesh.position = at
 	mesh.material_override = material
 	parent.add_child(mesh)
+	return mesh
 
 func _cast_mount_foot(parent: Node3D, name_value: String, at: Vector3,
 		size: Vector3, casting: Material, fastener_finish: Material) -> void:
@@ -1379,6 +1380,36 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 	var worked := Finish.material("worked", Color("9aaba5"), 0.78, 0.36)
 	var dark := Finish.material("cast", Color("354442"), 0.72, 0.52)
 	match kind:
+		"stationary_mount":
+			var u := Geometry.PITCH
+			for x in [-1.0, 1.0]:
+				for z in [-1.0, 1.0]:
+					var foot := Vector3(x * u, -u * 0.605, z * u)
+					var crown := Vector3(x * u * 0.35, u * 0.45, z * u * 0.35)
+					_support_box(anchor, "MountFoot", foot, Vector3(0.3, 0.29, 0.3) * u, dark, true)
+					_support_beam(anchor, "SplayedLeg", foot, crown, u * 0.14, timber, true)
+			for z in [-0.35, 0.35]:
+				_support_box(anchor, "MountCrown", Vector3(0, u * 0.43, z * u), Vector3(0.85, 0.14, 0.14) * u, dark, true)
+			for x in [-0.35, 0.35]:
+				_support_box(anchor, "MountCrown", Vector3(x * u, u * 0.43, 0), Vector3(0.14, 0.14, 0.85) * u, dark, true)
+		"drill_head":
+			var u := Geometry.PITCH
+			var rotor := Node3D.new()
+			rotor.name = "DrillRotor"
+			anchor.add_child(rotor)
+			var hub := _support_cylinder(rotor, "Spindle", u * 0.10, u * 0.85, worked)
+			hub.position.y = u * 0.34
+			var drum := _support_cylinder(rotor, "ToolBody", u * 0.33, u * 0.36, dark)
+			drum.position.y = -u * 0.08
+			for index in 8:
+				var a := float(index) * TAU / 8.0
+				var tooth := _support_box(rotor, "CopperTooth", Vector3(cos(a) * u * 0.29, -u * 0.45, sin(a) * u * 0.29), Vector3(0.16, 0.60, 0.14) * u, worked, true)
+				tooth.rotation.y = -a
+			if anchor.has_meta("component_entity"):
+				rotor.set_meta("entity", anchor.get_meta("component_entity"))
+				rotor.set_meta("component_rotor_base", rotor.basis)
+				rotor.set_meta("component_axis_sign", 1.0)
+				_moving_anchors.append(rotor)
 		"hand_crank":
 			# The free-floating crank is large enough to read as a source beside
 			# the slide while its spindle still meets the native input.
@@ -2324,7 +2355,7 @@ func _drop_visual_signature(drops: Variant) -> Array:
 			continue
 		var lots: Variant = drop.get("work_lots", [])
 		sig.append([
-			drop.get("center"),
+			drop.get("center"), drop.get("ground_position"),
 			drop.get("raw", 0),
 			drop.get("products", 0),
 			drop.get("offcuts", 0),
@@ -2768,6 +2799,8 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 			if not drop is Dictionary or not drop.get("center") is Array or drop.center.size() != 3 or typeof(drop.get("raw")) != TYPE_INT or drop.raw < 0 or typeof(drop.get("products")) != TYPE_INT or drop.products < 0 or not drop.get("work_lots") is Array or (drop.raw == 0 and drop.products == 0 and drop.work_lots.is_empty() and int(drop.get("offcuts", 0)) == 0 and int(drop.get("sheets", 0)) == 0):
 				continue
 			var location := world_center(drop.center)
+			if Geometry.valid_position(drop.get("ground_position")):
+				location = Vector3(drop.ground_position[0], drop.ground_position[1], drop.ground_position[2])
 			var supported_slide: bool = sliding_work_surfaces.has(drop.center) \
 				and int(drop.get("sheets", 0)) == 0 \
 				and ((drop.products == 1 and drop.raw == 0 and drop.work_lots.is_empty()) \
@@ -2782,9 +2815,15 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 					(0.09 if not drop.work_lots.is_empty() else 0.04) * press_scale
 			var visual: Node3D
 			if drop.raw > 0:
-				visual = _cylinder(self, "LooseBlank", (0.11 if supported_slide else 0.15) * press_scale,
-					0.08 * press_scale, Color("b9a88c"))
+				visual = Node3D.new()
+				visual.name = "LooseCopper"
 				visual.position = location
+				add_child(visual)
+				var copper := Finish.material("worked", Color("c87942"), 0.72, 0.48)
+				for piece in mini(drop.raw, 5):
+					var a := float(piece) * 2.4
+					var chunk := _support_box(visual, "CopperChunk", Vector3(cos(a) * 0.06, 0.045 + piece * 0.009, sin(a) * 0.06), Vector3(0.10, 0.07, 0.09), copper, true)
+					chunk.rotation = Vector3(0.2, a, -0.15)
 			elif drop.products > 0:
 				visual = Node3D.new()
 				visual.name = "LoosePlateStack"
@@ -2841,7 +2880,7 @@ func _render_dropped_material(snapshot: Dictionary, boxes: Dictionary) -> void:
 			_add_loose_pickers(visual, drop, str(snapshot.get("context", "")))
 			var label := Label3D.new()
 			if drop.raw > 0:
-				label.text = "%d blank" % drop.raw
+				label.text = "%d copper ore" % drop.raw
 			elif drop.products > 0:
 				label.text = "%d plate" % drop.products
 				if int(drop.get("offcuts", 0)) > 0:

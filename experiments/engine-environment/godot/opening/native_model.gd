@@ -8,6 +8,7 @@ var _view_cache: Dictionary = {}
 var _last_actor_projection: Dictionary = {}
 var _projection_fields: Dictionary = {}
 var _projection_records: Dictionary = {}
+var _terrain_cache: Dictionary = {}
 var context: String:
 	get:
 		return str(projection().get("context", ""))
@@ -100,6 +101,39 @@ func projection() -> Dictionary:
 	# the next trusted tick delta.
 	_view_cache = {}
 	return _invoke("projection", [])
+
+func terrain_data(snapshot: Dictionary = {}) -> Dictionary:
+	var state: Dictionary = snapshot if not snapshot.is_empty() else _view_projection_borrowed()
+	var remaining: int = int(state.get("stock", {}).get("source", -1))
+	if _terrain_cache.get("remaining", -2) == remaining:
+		return _terrain_cache
+	var supplied: Dictionary = {}
+	var faces := PackedVector3Array()
+	var first := 0
+	var total := -1
+	# Native pages keep geometry inside the strict generic value boundary. This
+	# synchronous loop never yields to simulation between parts of one mesh.
+	while total < 0 or first < total:
+		var page := _invoke("terrain_projection", [first])
+		var count: int = int(page.get("total_triangles", -1))
+		var next: int = int(page.get("next_triangle", -1))
+		if not page.get("accepted", false) or page.get("first_triangle", -1) != first \
+				or count < 0 or count > 2000000 or (total >= 0 and count != total) \
+				or next != mini(first + 4096, count) or next < first \
+				or not page.get("faces") is Array or page.faces.size() != (next - first) * 3 \
+				or (not supplied.is_empty() and (page.get("remaining") != supplied.remaining \
+					or page.get("excavation") != supplied.excavation)):
+			return {}
+		for point: Array in page.faces:
+			faces.append(Vector3(float(point[0]), float(point[1]), float(point[2])))
+		supplied = page
+		total = count
+		first = next
+	supplied["faces"] = faces
+	supplied.erase("first_triangle")
+	supplied.erase("next_triangle")
+	_terrain_cache = supplied
+	return _terrain_cache
 
 func view_projection() -> Dictionary:
 	# External callers receive an isolated snapshot they may safely inspect or edit.
@@ -453,5 +487,13 @@ func validate_checkpoint(value: Dictionary) -> Dictionary:
 	return _invoke("validate_checkpoint", [value])
 
 func restore_checkpoint(value: Variant) -> Dictionary:
-	_view_cache = {}
-	return _invoke("restore_checkpoint", [value])
+	var restored := _invoke("restore_checkpoint", [value])
+	if restored.get("accepted", false):
+		_view_cache = {}
+		# Equal remaining stock does not identify which columns were excavated.
+		_terrain_cache = {}
+	return restored
+
+func terrain_high(x: float, z: float, half_x: float, half_z: float) -> float:
+	var measured := _invoke("terrain_query", [[x, z, half_x, half_z]])
+	return float(measured.high) if measured.get("accepted", false) else NAN

@@ -216,6 +216,8 @@ void advance_work_lot(WorkLot& lot, Quantity subticks, Quantity remainder,
 
 const char* component_name(Component component) noexcept {
     switch (component) {
+        case Component::drill_head: return "drill_head";
+        case Component::stationary_mount: return "stationary_mount";
         case Component::wooden_frame: return "wooden_frame";
         case Component::wooden_shaft: return "wooden_shaft";
         case Component::wooden_cog: return "wooden_cog";
@@ -242,7 +244,7 @@ const char* component_name(Component component) noexcept {
 }
 
 std::optional<Component> component_from_name(const std::string& name) noexcept {
-    for (const auto component : {Component::wooden_frame, Component::wooden_shaft,
+    for (const auto component : {Component::drill_head, Component::stationary_mount, Component::wooden_frame, Component::wooden_shaft,
              Component::wooden_cog, Component::receiver_tray, Component::tool_mount,
              Component::cutting_edge, Component::anvil,
              Component::copper_shaft, Component::copper_cog,
@@ -258,6 +260,8 @@ std::optional<Component> component_from_name(const std::string& name) noexcept {
 
 std::optional<ComponentCost> component_cost(Component component) noexcept {
     switch (component) {
+        case Component::drill_head: return ComponentCost{1, 3};
+        case Component::stationary_mount: return ComponentCost{6, 1};
         case Component::wooden_frame: return ComponentCost{3, 0};
         case Component::wooden_shaft: return ComponentCost{1, 0};
         case Component::wooden_cog: return ComponentCost{2, 0};

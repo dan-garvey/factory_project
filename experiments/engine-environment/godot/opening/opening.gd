@@ -88,6 +88,8 @@ var ui_refresh_key: Array = []
 var hand_tree_nodes: Dictionary = {}
 var ore_field_visual: Node3D
 var ore_field_visual_key := ""
+var terrain_visual_remaining := -1
+var _terrain_geometry_cache: Dictionary = {}
 var hand_tree_assets: Dictionary = {}
 var mature_tree_nodes: Dictionary = {}
 var mature_tree_collision_rows: Dictionary = {}
@@ -496,7 +498,11 @@ func _install_transmission_terrain_picker() -> void:
 	terrain.collision_mask = 0
 	var shape := ConcavePolygonShape3D.new()
 	shape.backface_collision = true
-	shape.set_faces(ProductionEnvironment.Surface.faces())
+	var ground: PackedVector3Array = ProductionEnvironment.Surface.faces()
+	var supplied := _terrain_data()
+	if supplied.get("excavation", false):
+		ground = supplied.faces
+	shape.set_faces(ground)
 	var collider := CollisionShape3D.new()
 	collider.shape = shape
 	terrain.add_child(collider)
@@ -505,6 +511,8 @@ func _install_transmission_terrain_picker() -> void:
 # Find the highest point of the emitted terrain triangles inside a footprint.
 # Clipping the triangles also catches peaks and diagonal edges between samples.
 func _transmission_terrain_high(x: float, z: float, half_x: float, half_z: float) -> float:
+	if model != null and state.has("ore_surface"):
+		return model.terrain_high(x, z, half_x, half_z)
 	var surface = ProductionEnvironment.Surface
 	if not surface.contains(x - half_x, z - half_z) or not surface.contains(x + half_x, z + half_z):
 		return NAN
@@ -562,6 +570,9 @@ func _transmission_center(screen: Vector2) -> Array:
 	var hit := _screen_pick(screen)
 	if not hit.is_empty():
 		var hit_id := _picked_target_id(hit)
+		if transmission_controls.active_tool == "vertical_gearbox" and state.get("placed_components", {}).get(hit_id, {}).get("component") == "drill_head":
+			var head: Array = state.placed_components[hit_id].center
+			return [head[0], head[1] + 4, head[2]]
 		if transmission_controls.active_tool == "place_shaft":
 			var pulley_target := _belt_pulley_target(hit_id, hit.position)
 			if not pulley_target.is_empty():
@@ -828,6 +839,7 @@ func issue(action: Dictionary) -> Dictionary:
 		for drop: Dictionary in _reclaim_owned_drops(str(action.get("entity", ""))):
 			var expected := drop.duplicate(true)
 			expected.erase("center")
+			expected.erase("ground_position")
 			var pickup := issue({"action": "pickup_material", "center": drop.center,
 				"expected": expected})
 			if not pickup.get("accepted", false):
@@ -1860,8 +1872,18 @@ func _hand_source_clear(id: String) -> bool:
 	var actor: Dictionary = state.get("actors", {}).get(client, {})
 	return actor.get("harvest_clear", {}).get(id, true) == true
 
-func _field_source_at(at: Vector3) -> String:
+func _field_source_at(at: Vector3, normal: Vector3 = Vector3.UP) -> String:
 	var deposit: Dictionary = state.get("source_deposit", {})
+	if deposit.get("excavation", false):
+		var origin: Array = deposit.grid_origin
+		var pitch: float = float(deposit.grid_pitch)
+		# Bias a wall hit into the solid face that was actually pointed at.
+		# This chooses an address only; native contact and reach admit the cut.
+		var inside := at - normal * 0.00001
+		var cell := Vector2i(floori((inside.x - float(origin[0])) / pitch),
+			floori((inside.z - float(origin[2])) / pitch))
+		var id := "ore-column:%d:%d" % [cell.x, cell.y]
+		return id if not _hand_source(id).is_empty() else ""
 	if deposit.get("cells", []).size() < 100:
 		return ""
 	var prefix := str(deposit.get("id", "")) + "-region-"
@@ -1880,12 +1902,50 @@ func _field_source_at(at: Vector3) -> String:
 func _is_live_batching() -> bool:
 	return ProductionEnvironment.is_live_play(state)
 
+func _terrain_data() -> Dictionary:
+	if model != null and model.has_method("terrain_data"):
+		return model.terrain_data(state)
+	# Shared snapshots carry geometry from the same native authority. A peer
+	# never reconstructs depth, source quantities or cutting from input events.
+	var supplied: Dictionary = state.get("terrain_data", {})
+	if not supplied.get("accepted", false) or not supplied.get("excavation", false) \
+			or supplied.get("remaining") != state.get("stock", {}).get("source"):
+		return {}
+	if _terrain_geometry_cache.get("context") == state.get("context") \
+			and _terrain_geometry_cache.get("remaining") == supplied.remaining:
+		return _terrain_geometry_cache
+	if not supplied.get("faces") is PackedVector3Array:
+		return {}
+	var faces: PackedVector3Array = supplied.faces
+	_terrain_geometry_cache = {"context": state.get("context"), "remaining": supplied.remaining,
+		"excavation": true, "faces": faces}
+	return _terrain_geometry_cache
+
 func _refresh_ore_field() -> void:
 	var deposit: Dictionary = state.get("source_deposit", {})
 	var scenery := get_node_or_null("ProductionScenery")
 	if scenery == null:
 		return
+	if deposit.get("excavation", false):
+		var supplied := _terrain_data()
+		if supplied.get("excavation", false) and int(supplied.remaining) != terrain_visual_remaining:
+			terrain_visual_remaining = int(supplied.remaining)
+			var ground := scenery.get_node_or_null("GroundSurface") as MeshInstance3D
+			if ground != null:
+				ground.mesh = ProductionEnvironment.excavated_terrain_mesh(supplied.faces, state)
+			ProductionEnvironment.clear_excavated_foliage(scenery, state)
+			var picker := get_node_or_null("TransmissionTerrainPicker") as StaticBody3D
+			if picker != null:
+				var shape := ConcavePolygonShape3D.new()
+				shape.backface_collision = true
+				shape.set_faces(supplied.faces)
+				(picker.get_child(0) as CollisionShape3D).shape = shape
+		var obsolete := get_node_or_null("SharedOreSourcePicker")
+		if obsolete != null:
+			remove_child(obsolete)
+			obsolete.queue_free()
 	var key := str(deposit.get("cells", []).size()) + (":b1" if _is_live_batching() else ":b0")
+	key += str(state.get("ore_surface", {}))
 	for id: String in state.get("hand_sources", {}):
 		if id.begins_with(str(deposit.get("id", "")) + "-region-"):
 			key += ":" + id + "=" + str(state.hand_sources[id].get("remaining", -1))
@@ -2374,8 +2434,9 @@ func _screen_hand_source(screen: Vector2) -> String:
 	# A resource presenter identifies the actual hit, rather than selecting a
 	# nearby source from camera distance. Host retains the actor-reach check.
 	var id: String = str(hit.collider.get_meta("hand_source", ""))
-	if id.is_empty() and actor_world != null and hit.collider == actor_world.floor_body:
-		id = _field_source_at(hit.position)
+	if id.is_empty() and ((actor_world != null and hit.collider == actor_world.floor_body) \
+			or hit.collider == get_node_or_null("TransmissionTerrainPicker")):
+		id = _field_source_at(hit.position, hit.normal)
 	if id.is_empty() and actor_world != null and hit.collider == actor_world.floor_body:
 		# Standing mature trunks use the same exact triangles in the actor floor
 		# and in a resource picker. Resolve the coincident hit by its pick ID,
@@ -2447,6 +2508,7 @@ func _interact_pointed() -> void:
 	if not drop.is_empty():
 		var expected: Dictionary = drop.duplicate(true)
 		expected.erase("center")
+		expected.erase("ground_position")
 		issue({"action": "pickup_material", "center": drop.center.duplicate(), "expected": expected})
 		return
 	var pointed_crank := _pointed_crank() if mode == "inspect" else ""
@@ -2651,6 +2713,8 @@ func _sliding_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		normal: Vector3) -> Dictionary:
 	# The press's working offsets are larger than a one-step face snap. Use the
 	# part the player can actually point at to expose its next fitted socket.
+	if kind == "drill_head" and pointed_kind == "stationary_mount":
+		return {"center": [center[0], center[1] + 1, center[2]], "label": "Centered tool socket"}
 	if kind == "flat_head" and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
 	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "anvil":
@@ -2768,6 +2832,10 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 		center[2] * Geometry.HEIGHT_STEP)
 	var occupied := at
 	var half := Vector3(0.14, 0.14, 0.14)
+	if kind == "stationary_mount":
+		return {"center": Vector3(at.x, center[1] * Geometry.HEIGHT_STEP + PITCH * 0.5, at.z), "half": Vector3(1.5, 0.5, 1.5) * PITCH}
+	if kind == "drill_head":
+		return {"center": at - Vector3.UP * Geometry.HEIGHT_STEP, "half": Vector3.ONE * PITCH * 0.5}
 	var collector_face := _component_collector_face(kind, center)
 	if not collector_face.is_empty():
 		var floor_y: float = collector_face.center[1] * Geometry.HEIGHT_STEP
@@ -2856,6 +2924,13 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) -> bool:
 	if center.size() != 3:
 		return true
+	if kind == "drill_head":
+		var found := false
+		for part: Dictionary in state.get("placed_components", {}).values():
+			if part.get("component") == "stationary_mount" and part.center == [center[0], center[1] - 1, center[2]]:
+				found = true
+		if not found:
+			return true
 	if kind == "broad_copper_slide":
 		var supported := false
 		for part: Dictionary in state.get("placed_components", {}).values():
@@ -2873,6 +2948,9 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 			var part: Dictionary = state.placed_components[id]
 			var part_center: Array = part.get("center", [])
 			if part_center.size() != 3 or center.size() != 3:
+				continue
+			if kind == "drill_head" and part.component == "stationary_mount" and part_center == [center[0], center[1] - 1, center[2]]:
+				paired_ids[id] = true
 				continue
 			if kind == "broad_flat_head" and part.component == "broad_copper_slide" \
 					and part_center == [center[0], center[1] + 3, center[2]]:
@@ -2929,7 +3007,7 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 	var source_contact := kind == "cutting_edge" and not _component_collector_face(kind, center).is_empty()
 	if ProductionEnvironment.Surface != null:
 		for solid: Dictionary in ProductionEnvironment.Surface.support_boxes():
-			if solid.get("id", "") == "source_outcrop" and source_contact:
+			if solid.get("id", "") == "source_outcrop" and (source_contact or state.has("ore_surface")):
 				continue
 			var obstacle: AABB = Transform3D(solid.basis, solid.center) * AABB(-solid.size * 0.5, solid.size)
 			occupied.append({"center": obstacle.get_center(), "size": obstacle.size})

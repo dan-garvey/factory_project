@@ -1,6 +1,7 @@
 #include "factory/terrain_surface.hpp"
 
 #include "physical_geometry.hpp"
+#include "arrival_excavation.hpp"
 #include "factory/site_geometry_contract.hpp"
 #include "factory/waterflow.hpp"
 #include "factory/waterwheel.hpp"
@@ -9,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -101,23 +103,12 @@ ParseResult parse(const Object& input, const world::Profile& profile) {
     if (source_obstacle && next_profile.material.manual_ore)
         next_profile.manual_ore_contact_bounds = surface.obstacles[*surface.source_obstacle];
     if (profile.ore_field) {
-        for (mineral_site::Integer region = 0;
-                region < mineral_site::field_region_count; ++region) {
-            const auto cell = mineral_site::field_exposure_cell(region);
-            if (!cell) return {{}, "invalid_terrain"};
-            if (region == mineral_site::field_region({0, 0}) && source_obstacle) {
-                next_profile.ore_exposures[static_cast<std::size_t>(region)] =
-                    surface.obstacles[*surface.source_obstacle];
-                continue;
-            }
-            const double x = cell->x * mineral_site::field_pitch_meters;
-            const double z = cell->z * mineral_site::field_pitch_meters;
-            const auto ground = surface.range(x, z, 0.45, 0.45);
-            if (!ground) return {{}, "invalid_terrain"};
-            next_profile.ore_exposures[static_cast<std::size_t>(region)] =
-                std::pair<authority::Point, authority::Point>{{x - 0.55, ground->second + 0.02, z - 0.55},
-                    {x + 0.55, ground->second + 0.22, z + 0.55}};
-        }
+        next_profile.excavation = arrival_excavation::seed(surface, profile.initial_units);
+        if (!next_profile.excavation) return {{}, "invalid_excavation_terrain"};
+        next_profile.ore_field = false;
+        next_profile.ore_exposures = {};
+        next_profile.manual_ore_contact_bounds.reset();
+        next_profile.collector_faces.clear();
     }
     if (flow_cells) {
         if (flow_cells->empty() || flow_cells->size() > 65536) return {{}, "invalid_water"};
@@ -159,7 +150,7 @@ ParseResult parse(const Object& input, const world::Profile& profile) {
 bool Surface::blocked(const authority::Point& low, const authority::Point& high,
         std::optional<std::size_t> ignored) const {
     for (std::size_t index = 0; index < obstacles.size(); ++index) {
-        if (ignored == index) continue;
+        if (ignored == index || (excavated && source_obstacle == index)) continue;
         const auto& obstacle = obstacles[index];
         bool overlaps = true;
         for (std::size_t coordinate = 0; coordinate < 3; ++coordinate)
@@ -170,54 +161,188 @@ bool Surface::blocked(const authority::Point& low, const authority::Point& high,
     return false;
 }
 
-std::optional<std::pair<double, double>> Surface::range(double x, double z,
-        double half_x, double half_z) const {
-    if (axis.empty()) return std::nullopt;
+namespace {
+bool covered(const std::vector<double>& axis, double x, double z, double half_x, double half_z) {
+    return axis.size() >= 2 && std::isfinite(x) && std::isfinite(z) &&
+        std::isfinite(half_x) && std::isfinite(half_z) && half_x >= 0 && half_z >= 0 &&
+        x - half_x >= axis.front() && x + half_x <= axis.back() &&
+        z - half_z >= axis.front() && z + half_z <= axis.back();
+}
+
+std::size_t axis_cell(const std::vector<double>& axis, double at, bool lower = false) {
+    const auto end = lower ? std::lower_bound(axis.begin(), axis.end(), at) :
+        std::upper_bound(axis.begin(), axis.end(), at);
+    return std::min(axis.size() - 2, static_cast<std::size_t>(
+        std::max<std::ptrdiff_t>(0, end - axis.begin() - 1)));
+}
+
+bool overlaps_query(const Triangle& tri,double left,double right,double near,double far) {
+    // Terrain bins can contain many small excavated faces. Keep boundary
+    // contacts, but avoid clipping and allocating for distant triangles.
+    // Enclose the point path's barycentric tolerance across both edge spans.
+    const double padding=256*std::numeric_limits<double>::epsilon()*std::max({1.,
+        std::abs(left),std::abs(right),std::abs(near),std::abs(far),
+        std::abs(tri[0][0]),std::abs(tri[0][2]),std::abs(tri[1][0]),
+        std::abs(tri[1][2]),std::abs(tri[2][0]),std::abs(tri[2][2])});
+    if(std::max({tri[0][0],tri[1][0],tri[2][0]})<left-padding||
+       std::min({tri[0][0],tri[1][0],tri[2][0]})>right+padding||
+       std::max({tri[0][2],tri[1][2],tri[2][2]})<near-padding||
+       std::min({tri[0][2],tri[1][2],tri[2][2]})>far+padding)return false;
+    return true;
+}
+
+struct Measurement {
+    double low = std::numeric_limits<double>::infinity();
+    authority::Point high{0, -std::numeric_limits<double>::infinity(), 0};
+    void sample(const authority::Point& p) {
+        low = std::min(low,p[1]);
+        if (p[1] > high[1] || (p[1] == high[1] &&
+                std::pair{p[0],p[2]} < std::pair{high[0],high[2]})) high = p;
+    }
+    void include(const Triangle& tri, double left, double right, double near, double far) {
+        if(!overlaps_query(tri,left,right,near,far))return;
+        if (left == right && near == far) {
+            // A vertical line query is a triangle intersection, not a
+            // zero-area polygon. Repeated clipping can lose shared diagonals.
+            const auto& a=tri[0];const auto& b=tri[1];const auto& c=tri[2];
+            const long double bx=b[0]-a[0],bz=b[2]-a[2],cx=c[0]-a[0],cz=c[2]-a[2];
+            const long double determinant=bx*cz-bz*cx;
+            constexpr long double epsilon=64*std::numeric_limits<double>::epsilon();
+            if (determinant != 0) {
+                const long double x=static_cast<long double>(left)-a[0],z=static_cast<long double>(near)-a[2];
+                const long double u=(x*cz-z*cx)/determinant,v=(bx*z-bz*x)/determinant;
+                if (u>=-epsilon && v>=-epsilon && u+v<=1+epsilon)
+                    sample({left,static_cast<double>(a[1]+u*(b[1]-a[1])+v*(c[1]-a[1])),near});
+                return;
+            }
+            // Vertical pit walls have no XZ area. Their edge intersections
+            // still supply the exact low/high obstruction interval.
+            for (std::size_t index=0;index<3;++index) {
+                const auto& p=tri[index];const auto& q=tri[(index+1)%3];
+                const long double dx=q[0]-p[0],dz=q[2]-p[2];
+                const long double extent=std::max({1.0,std::abs(left),std::abs(near),std::abs(p[0]),std::abs(p[2])});
+                if (dx==0 && dz==0) {
+                    if (std::abs(left-p[0])<=epsilon*extent && std::abs(near-p[2])<=epsilon*extent) {sample(p);sample(q);}
+                    continue;
+                }
+                const long double t=std::abs(dx)>=std::abs(dz)?(static_cast<long double>(left)-p[0])/dx:
+                    (static_cast<long double>(near)-p[2])/dz;
+                if (t>=-epsilon && t<=1+epsilon &&
+                        std::abs(p[0]+t*dx-left)<=epsilon*extent && std::abs(p[2]+t*dz-near)<=epsilon*extent)
+                    sample({left,static_cast<double>(p[1]+t*(q[1]-p[1])),near});
+            }
+            return;
+        }
+        std::vector<authority::Point> polygon{tri.begin(), tri.end()};
+        for (const auto& [coordinate, boundary, sign] : {std::tuple{0, left, 1.0}, {0, right, -1.0},
+                {2, near, 1.0}, {2, far, -1.0}}) {
+            std::vector<authority::Point> clipped;
+            for (std::size_t index = 0; index < polygon.size(); ++index) {
+                const auto& p = polygon[index];
+                const auto& q = polygon[(index + 1) % polygon.size()];
+                const bool inside = (p[coordinate] - boundary) * sign >= 0;
+                const bool next = (q[coordinate] - boundary) * sign >= 0;
+                if (inside) clipped.push_back(p);
+                if (inside != next) {
+                    const double t = (boundary - p[coordinate]) / (q[coordinate] - p[coordinate]);
+                    authority::Point hit{p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]),
+                        p[2] + t * (q[2] - p[2])};
+                    hit[coordinate] = boundary;
+                    clipped.push_back(hit);
+                }
+            }
+            polygon = std::move(clipped);
+        }
+        for (const auto& p : polygon) sample(p);
+    }
+    std::optional<std::pair<double, double>> range() const {
+        return std::isfinite(low) && std::isfinite(high[1]) ?
+            std::optional{std::pair{low, high[1]}} : std::nullopt;
+    }
+};
+
+std::optional<Measurement> measure_natural(const Surface& surface, double x, double z,
+        double half_x, double half_z) {
+    const auto& axis = surface.axis;
+    if (!covered(axis, x, z, half_x, half_z) || surface.heights.size() != axis.size() * axis.size())
+        return std::nullopt;
     const double left = x - half_x, right = x + half_x;
     const double near = z - half_z, far = z + half_z;
-    if (left < axis.front() || right > axis.back() || near < axis.front() || far > axis.back())
-        return std::nullopt;
-    const auto cell = [&](double at) {
-        return std::min(axis.size() - 2, static_cast<std::size_t>(
-            std::upper_bound(axis.begin(), axis.end(), at) - axis.begin() - 1));
-    };
     const auto vertex = [&](std::size_t gx, std::size_t gz) {
-        return authority::Point{axis[gx], heights[gz * axis.size() + gx], axis[gz]};
+        return authority::Point{axis[gx], surface.heights[gz * axis.size() + gx], axis[gz]};
     };
-    double low = std::numeric_limits<double>::infinity(), high = -low;
-    for (auto gz = cell(near); gz <= cell(far); ++gz) for (auto gx = cell(left); gx <= cell(right); ++gx) {
+    Measurement measured;
+    for (auto gz = axis_cell(axis, near); gz <= axis_cell(axis, far); ++gz)
+    for (auto gx = axis_cell(axis, left); gx <= axis_cell(axis, right); ++gx) {
         const auto a = vertex(gx, gz), b = vertex(gx + 1, gz), c = vertex(gx + 1, gz + 1), d = vertex(gx, gz + 1);
         for (const auto& tri : {std::array<authority::Point, 3>{a, b, c}, std::array<authority::Point, 3>{a, c, d}}) {
-            std::array<authority::Point, 8> polygon{tri[0], tri[1], tri[2]};
-            std::size_t polygon_size = 3;
-            // A linear triangle's extreme height is at a clipped polygon vertex.
-            for (const auto& [coordinate, boundary, sign] : {std::tuple{0, left, 1.0}, {0, right, -1.0},
-                    {2, near, 1.0}, {2, far, -1.0}}) {
-                std::array<authority::Point, 8> clipped{};
-                std::size_t clipped_size = 0;
-                for (std::size_t index = 0; index < polygon_size; ++index) {
-                    const auto& p = polygon[index];
-                    const auto& q = polygon[(index + 1) % polygon_size];
-                    const bool inside = (p[coordinate] - boundary) * sign >= 0;
-                    const bool next = (q[coordinate] - boundary) * sign >= 0;
-                    if (inside) clipped[clipped_size++] = p;
-                    if (inside != next) {
-                        const auto t = (boundary - p[coordinate]) / (q[coordinate] - p[coordinate]);
-                        clipped[clipped_size++] = {p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]),
-                            p[2] + t * (q[2] - p[2])};
-                    }
-                }
-                polygon = clipped;
-                polygon_size = clipped_size;
-                if (polygon_size == 0) break;
-            }
-            for (std::size_t index = 0; index < polygon_size; ++index) {
-                low = std::min(low, polygon[index][1]);
-                high = std::max(high, polygon[index][1]);
-            }
+            measured.include(tri, left, right, near, far);
         }
     }
-    return std::pair{low, high};
+    return measured;
+}
+} // namespace
+
+std::optional<std::pair<double, double>> Surface::natural_range(double x, double z,
+        double half_x, double half_z) const {
+    if (half_x == 0 && half_z == 0 && covered(axis, x, z, 0, 0) &&
+            heights.size() == axis.size() * axis.size()) {
+        // A point on a shared diagonal must not disappear through successive
+        // zero-area polygon clips. Evaluate the same a-c triangle directly.
+        const auto gx = axis_cell(axis, x), gz = axis_cell(axis, z);
+        const long double u = (static_cast<long double>(x) - axis[gx]) / (axis[gx+1] - axis[gx]);
+        const long double v = (static_cast<long double>(z) - axis[gz]) / (axis[gz+1] - axis[gz]);
+        const auto at = [&](std::size_t dx, std::size_t dz) { return heights[(gz+dz)*axis.size()+gx+dx]; };
+        const long double a = at(0,0), c = at(1,1);
+        const double h = static_cast<double>(u >= v ? a + u*(at(1,0)-a) + v*(c-at(1,0)) :
+            a + v*(at(0,1)-a) + u*(c-at(0,1)));
+        if (std::isfinite(h)) return std::pair{h,h};
+        return std::nullopt;
+    }
+    const auto measured = measure_natural(*this, x, z, half_x, half_z);
+    return measured ? measured->range() : std::nullopt;
+}
+
+std::optional<authority::Point> Surface::natural_highest(double x, double z,
+        double half_x, double half_z) const {
+    const auto measured = measure_natural(*this, x, z, half_x, half_z);
+    return measured && measured->range() ? std::optional{measured->high} : std::nullopt;
+}
+
+std::optional<std::pair<double, double>> Surface::range(double x, double z,
+        double half_x, double half_z) const {
+    return excavated ? excavated->range(x, z, half_x, half_z) : natural_range(x, z, half_x, half_z);
+}
+
+void Mesh::index(const std::vector<double>& terrain_axis) {
+    axis = terrain_axis;
+    bins.clear();
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        const auto& triangle = faces[i];
+        const double left = std::min({triangle[0][0], triangle[1][0], triangle[2][0]});
+        const double right = std::max({triangle[0][0], triangle[1][0], triangle[2][0]});
+        const double near = std::min({triangle[0][2], triangle[1][2], triangle[2][2]});
+        const double far = std::max({triangle[0][2], triangle[1][2], triangle[2][2]});
+        for (auto z = axis_cell(axis, near, true); z <= axis_cell(axis, far); ++z)
+        for (auto x = axis_cell(axis, left, true); x <= axis_cell(axis, right); ++x)
+            bins[z * axis.size() + x].push_back(i);
+    }
+}
+
+std::optional<std::pair<double, double>> Mesh::range(double x, double z,
+        double half_x, double half_z) const {
+    if (!covered(axis, x, z, half_x, half_z)) return std::nullopt;
+    Measurement measured;
+    std::set<std::size_t> visited;
+    for (auto gz = axis_cell(axis, z - half_z, true); gz <= axis_cell(axis, z + half_z); ++gz)
+    for (auto gx = axis_cell(axis, x - half_x, true); gx <= axis_cell(axis, x + half_x); ++gx) {
+        const auto found = bins.find(gz * axis.size() + gx);
+        if (found == bins.end()) continue;
+        for (const auto i : found->second)
+            if (overlaps_query(faces[i],x-half_x,x+half_x,z-half_z,z+half_z) && visited.insert(i).second)
+            measured.include(faces[i], x - half_x, x + half_x, z - half_z, z + half_z);
+    }
+    return measured.range();
 }
 
 }  // namespace factory::godot_world::terrain_surface

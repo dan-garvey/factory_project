@@ -1,4 +1,5 @@
 #include "complete_projection.hpp"
+#include "factory/ore_column_target.hpp"
 
 #include "arrival_site_projection.hpp"
 #include "assembly_projection.hpp"
@@ -76,7 +77,13 @@ std::optional<Value> build(const world::Profile& profile,
             sample.position, sample.ready))}}));
     Array mineral_cells;
     Array cell_regions;
-    if (profile.ore_field) {
+    if (profile.excavation) {
+        for (const auto& [cell,column]:profile.excavation->columns) {
+            if (column.initial_units==0) continue;
+            mineral_cells.emplace_back(Array{Value(cell.x),Value(cell.z)});
+            cell_regions.emplace_back(world::ore_columns::target_id(cell));
+        }
+    } else if (profile.ore_field) {
         for (Integer x = mineral_site::field_min.x; x <= mineral_site::field_max.x; ++x)
         for (Integer z = mineral_site::field_min.z; z <= mineral_site::field_max.z; ++z) {
             mineral_cells.emplace_back(Array{Value(x), Value(z)});
@@ -88,6 +95,26 @@ std::optional<Value> build(const world::Profile& profile,
             mineral_cells.emplace_back(Array{Value(cell.x), Value(cell.z)});
     }
     const auto local = world::machine_power(state.topology, power);
+    Object deposit{{"id",Value(profile.material.manual_ore ?
+            profile.material.manual_ore->id:std::string{})},
+        {"cells",Value(std::move(mineral_cells))},{"cell_regions",Value(std::move(cell_regions))},
+        {"initial_units",Value(profile.initial_units)},
+        {"collector_capacity",Value(profile.material.collector_capacity)},
+        {"cell_pitch",Value(profile.ore_field ? mineral_site::field_pitch_meters : profile.meters_per_grid_unit*4.0)},
+        {"excavation",Value(profile.excavation.has_value())}};
+    double maximum_depth=mineral_site::extraction_depth_steps*(mineral_site::field_pitch_meters/4.0);
+    if (profile.excavation) {
+        const auto& grid=profile.excavation->grid;
+        deposit.emplace("grid_origin",point_value(grid.origin));
+        deposit.emplace("grid_pitch",Value(grid.pitch));
+        deposit.emplace("height_step",Value(grid.height_step));
+        maximum_depth=0;
+        for (const auto& [cell,column]:profile.excavation->columns) {
+            (void)cell;
+            maximum_depth=std::max(maximum_depth,double(column.initial_units)*grid.height_step/grid.units_per_step);
+        }
+    }
+    deposit.emplace("maximum_depth",Value(maximum_depth));
     Object projection{{"context", Value(snapshot.history.context)},
         {"order", Value(snapshot.history.order)}, {"initial_feed", Value(profile.initial_units)},
         {"recipe_input", Value(profile.material.input_units_per_product)}, {"entities", Value(std::move(topology.entities))},
@@ -96,16 +123,7 @@ std::optional<Value> build(const world::Profile& profile,
         {"motion", Value(std::move(drive.motion))}, {"rotary_ports", Value(std::move(drive.rotary_ports))},
         {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(topology.foundations))},
-        {"source_deposit", Value(Object{{"id", Value(profile.material.manual_ore ?
-            profile.material.manual_ore->id : std::string{})},
-            {"cells", Value(std::move(mineral_cells))},
-            {"cell_regions", Value(std::move(cell_regions))},
-            {"cell_pitch", Value(profile.ore_field ? mineral_site::field_pitch_meters :
-                profile.meters_per_grid_unit * 4.0)},
-            {"initial_units", Value(profile.initial_units)},
-            {"collector_capacity", Value(profile.material.collector_capacity)},
-            {"maximum_depth", Value(mineral_site::extraction_depth_steps *
-                (mineral_site::field_pitch_meters / 4.0))}})},
+        {"source_deposit", Value(std::move(deposit))},
         {"powered", Value(local.collector || local.belt || local.processor)},
         {"power_enabled", Value(state.topology.drive_enabled)},
         {"options", Value(Object{{"opening", Value(true)}, {"physical", Value(true)}, {"native", Value(true)},

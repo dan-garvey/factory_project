@@ -1,6 +1,8 @@
 #include "factory/checkpoint.hpp"
 #include "factory/godot_world.hpp"
 #include "factory/mineral_site.hpp"
+#include "factory/ore_column_target.hpp"
+#include "native/factory-godot-world/src/arrival_excavation.hpp"
 #include "native/factory-godot-world/src/arrival_configuration.hpp"
 #include "native/factory-godot-world/tests/site_fixture.hpp"
 
@@ -11,174 +13,118 @@
 
 namespace {
 namespace a = factory::authority;
-namespace m = factory::mineral_site;
 namespace w = factory::world;
-using V = factory::values::Value;
-using I = V::Integer;
+using V=factory::values::Value;
+using O=V::Object;
+using A=V::Array;
+using I=V::Integer;
 int checks{};
-
-void check(bool value, const char* message) {
-    ++checks;
-    if (!value) throw std::runtime_error(message);
+void check(bool value,const char* message) {++checks;if(!value) throw std::runtime_error(message);}
+template<class T> const T& get(const V& v,const char* key) {
+    return std::get<T>(std::get<O>(v.storage()).at(key).storage());
 }
+bool accepted(const V& value) {return get<bool>(value,"accepted");}
 
-I source(const w::World& world) { return world.snapshot().state.material.stock.source; }
-
-w::ObserveActor standing(const w::Profile& profile, const std::string& target) {
-    a::Point point{};
-    if (const auto region = w::ore_region_index(profile, target)) {
-        const auto bounds = w::ore_region_contact_bounds(profile, *region);
-        point = {(bounds->first[0] + bounds->second[0]) / 2,
-            (bounds->first[1] + bounds->second[1]) / 2,
-            (bounds->first[2] + bounds->second[2]) / 2};
-    } else {
-        const auto& center = profile.material.manual_ore->center;
-        point = {center[0] * profile.meters_per_grid_unit + profile.anchor_offset[0],
-            profile.anchor_offset[1],
-            center[2] * profile.meters_per_grid_unit + profile.anchor_offset[2]};
-    }
-    return [point](const std::string& actor) -> std::optional<a::ActorCut> {
-        return a::ActorCut{actor, point, 1, true, 3.0};
+void cut(w::World& world,const w::Profile& profile,factory::excavation::Cell cell,const char* request) {
+    const auto& seed=*profile.excavation;
+    const auto& state=world.snapshot_ref().state;
+    auto point=seed.contact_points.at(cell);
+    point[1]=factory::excavation::surface(seed.grid,cell,state.excavation->at(cell))->floor+1;
+    const w::ObserveActor observe=[point](const std::string& actor)->std::optional<a::ActorCut> {
+        return a::ActorCut{actor,point,1,true,3.0};
     };
-}
-
-void cut(w::World& world, const w::Profile& profile, const std::string& target,
-        const std::string& request, const std::string& context) {
-    const a::Object wire{{"context", V(context)}, {"client", V("field-client")},
-        {"request", V(request)}, {"actor", V("P")},
-        {"action", V("harvest_source")}, {"target", V(target)}};
-    const auto observe = standing(profile, target);
-    const auto started = world.command({"P", "field-client"}, wire, observe);
-    check(started.completed() && started.result &&
-        std::get<bool>(started.result->at("accepted").storage()),
-        "The region cut starts at its native contact.");
-    for (I tick = 0; tick < w::manual_cut_ticks; ++tick)
-        check(world.tick(observe).error == w::TransactionError::none,
-            "The native clock advances a held region cut.");
-    auto finish = wire;
-    finish.erase("target");
-    finish.at("action") = V("finish_harvest");
-    finish.at("request") = V(request + "-finish");
-    const auto result = world.command({"P", "field-client"}, finish, observe);
-    check(result.completed() && result.result &&
-        std::get<bool>(result.result->at("accepted").storage()),
-        "A region cut finishes through the native timed hand-harvest path.");
+    a::Object wire{{"context",V("ore-field")},{"client",V("field-client")},{"actor",V("P")},
+        {"request",V(request)},{"action",V("harvest_source")},{"target",V(w::ore_columns::target_id(cell))}};
+    const auto start=world.command({"P","field-client"},wire,observe);
+    check(start.completed()&&start.result&&std::get<bool>(start.result->at("accepted").storage()),
+        "Timed work starts at the addressed native column.");
+    for(I tick=0;tick<w::manual_cut_ticks;++tick)
+        check(world.tick(observe).error==w::TransactionError::none,"The native clock advances the actual hand stroke.");
+    wire.erase("target");wire.at("action")=V("finish_harvest");wire.at("request")=V(std::string(request)+"-finish");
+    const auto finish=world.command({"P","field-client"},wire,observe);
+    check(finish.completed()&&finish.result&&std::get<bool>(finish.result->at("accepted").storage()),
+        "Completed work removes exactly one local bite.");
 }
 
 void field_cuts_and_checkpoint() {
-    auto content = factory::godot_world::make_arrival_configuration(true, false, {"P"});
-    check(content.has_value() && content->profile.ore_field && content->seed.ore_field,
-        "Arrival seeds one finite field in the native World.");
-    auto& profile = content->profile;
-    check(profile.collector_faces.size() == 500 &&
-        profile.collector_faces.front() == factory::assembly::OreFace{{-8, 0, -64}, {-2, 0, 0}} &&
-        profile.collector_faces.back() == factory::assembly::OreFace{{64, 16, 8}, {-2, 0, 0}},
-        "The unchanged 1.65 m field has one half-U contact at each full-U floor through 3.3 m depth.");
-    auto world = w::World::create("ore-field", profile, content->seed);
-    check(world != nullptr, "The ten by ten arrival field validates.");
-    const auto first = w::ore_region_id(profile, 0);
-    const auto other = w::ore_region_id(profile, 5);
-    const auto initial = *content->seed.ore_field;
-    cut(*world, profile, first, "first", "ore-field");
-    check(source(*world) == m::opening_reserve - 1 &&
-        world->snapshot().state.ore_field->remaining[0] == initial.remaining[0] - 1 &&
-        world->snapshot().state.ore_field->remaining[5] == initial.remaining[5],
-        "The first cut debits exactly its addressed region and the aggregate once.");
-    cut(*world, profile, other, "other", "ore-field");
-    check(source(*world) == m::opening_reserve - 2 &&
-        world->snapshot().state.ore_field->remaining[0] == initial.remaining[0] - 1 &&
-        world->snapshot().state.ore_field->remaining[5] == initial.remaining[5] - 1,
-        "A second cut at distant ground leaves the first region unchanged.");
-    const auto saved = w::encode_checkpoint(profile, world->snapshot());
-    check(std::holds_alternative<V>(saved), "Local ore stock encodes in a native checkpoint.");
-    const auto& checkpoint = std::get<V>(saved);
-    const auto& root = std::get<V::Object>(checkpoint.storage());
-    check(std::get<I>(root.at("schema").storage()) == 23,
-        "Field checkpoints carry the new stock schema.");
-    const auto decoded = w::decode_checkpoint(profile, "ore-field", checkpoint);
-    check(std::holds_alternative<w::Snapshot>(decoded) &&
-        std::get<w::Snapshot>(decoded).state.ore_field == world->snapshot().state.ore_field,
-        "Save and rejoin preserve each exact local balance.");
-    auto old_schema = root;
-    old_schema.at("schema") = V(I{22});
-    const auto refused = w::decode_checkpoint(profile, "ore-field", V(std::move(old_schema)));
-    check(std::holds_alternative<w::CheckpointRefusal>(refused) &&
-        std::get<w::CheckpointRefusal>(refused).reason == w::CheckpointReason::unsupported_schema &&
-        source(*world) == m::opening_reserve - 2,
-        "An incompatible old schema refuses without changing the live field stock.");
-    auto corrupt = root;
-    auto state = std::get<V::Object>(corrupt.at("state").storage());
-    auto regions = std::get<V::Array>(state.at("ore_regions").storage());
-    regions[0] = V(std::get<I>(regions[0].storage()) + 1);
-    state.at("ore_regions") = V(std::move(regions));
-    corrupt.at("state") = V(std::move(state));
-    check(std::holds_alternative<w::CheckpointRefusal>(
-        w::decode_checkpoint(profile, "ore-field", V(std::move(corrupt)))),
-        "A checkpoint cannot mint a unit by editing one region.");
+    auto content=factory::godot_world::make_arrival_configuration(true,false,{"P"});
+    auto binding=factory::godot_world::terrain_surface::parse(factory::godot_world::tests::flat_site(),content->profile);
+    check(binding.binding.has_value(),"Ordinary terrain binds the finite native column field.");
+    auto& profile=binding.binding->profile;
+    auto seed=content->seed;
+    profile.excavation=factory::godot_world::arrival_excavation::seed(binding.binding->surface,seed.material.stock.source);
+    profile.ore_field=false;
+    seed.ore_field.reset();seed.excavation=w::ore_columns::initialize(*profile.excavation,seed.material);
+    auto world=w::World::create("ore-field",profile,seed);
+    check(world!=nullptr,"The bound material and column seed validates together.");
+    const factory::excavation::Cell first{0,0},other{10,-10};
+    cut(*world,profile,first,"first");
+    check(world->snapshot_ref().state.material.stock.source==4095&&
+        world->snapshot_ref().state.excavation->at(first).remaining_units==seed.excavation->at(first).remaining_units-1&&
+        world->snapshot_ref().state.excavation->at(other)==seed.excavation->at(other),
+        "A local cut debits its column and aggregate once while leaving distant ore intact.");
+    cut(*world,profile,other,"other");
+    check(world->snapshot_ref().state.material.stock.source==4094&&
+        world->snapshot_ref().state.excavation->at(first).remaining_units==seed.excavation->at(first).remaining_units-1&&
+        world->snapshot_ref().state.excavation->at(other).remaining_units==seed.excavation->at(other).remaining_units-1,
+        "A second actual contact cannot drain its neighbouring reserve.");
+    const auto encoded=w::encode_checkpoint(profile,world->snapshot());
+    check(std::holds_alternative<V>(encoded),"Column depletion and hand receipts encode in the native checkpoint.");
+    const auto saved=std::get<V>(encoded);
+    const auto& saved_state=get<O>(saved,"state");
+    check(get<I>(saved,"schema")==23&&saved_state.contains("excavation"),
+        "The checkpoint records the addressed excavation field.");
+    auto missing=std::get<O>(saved.storage());auto missing_state=saved_state;
+    missing_state.erase("excavation");missing.at("state")=V(missing_state);
+    check(std::holds_alternative<w::CheckpointRefusal>(w::decode_checkpoint(profile,"ore-field",V(missing))),
+        "A save cannot silently replace its missing field with pristine ore.");
+    const auto decoded=w::decode_checkpoint(profile,"ore-field",saved);
+    check(std::holds_alternative<w::Snapshot>(decoded)&&
+        std::get<w::Snapshot>(decoded).state.excavation==world->snapshot_ref().state.excavation,
+        "Save and rejoin preserve every local remaining quantity and depth.");
+    auto corrupt=std::get<O>(saved.storage());auto state=get<O>(saved,"state");
+    auto columns=get<A>(V(state),"excavation");auto column=std::get<O>(columns.front().storage());
+    column.at("remaining")=V(get<I>(V(column),"remaining")+1);columns.front()=V(column);
+    state.at("excavation")=V(columns);corrupt.at("state")=V(state);
+    check(std::holds_alternative<w::CheckpointRefusal>(w::decode_checkpoint(profile,"ore-field",V(corrupt))),
+        "Editing a single column cannot mint material on restore.");
 }
 
-void host_region_route() {
+void host_column_route() {
     factory::godot_world::Host host;
-    const auto accepted = [](const V& value) {
-        return std::get<bool>(std::get<V::Object>(value.storage()).at("accepted").storage());
-    };
-    check(accepted(host.initialize_arrival("host-field", {"P"})) &&
-        accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),
-        "The field binds to the actual native Host terrain adapter.");
-    const auto region = std::string("opening-copper-region-0");
-    const auto before = std::get<V::Object>(host.projection().storage());
-    const auto& sources = std::get<V::Object>(before.at("hand_sources").storage());
-    const auto& source_view = std::get<V::Object>(sources.at(region).storage());
-    const auto& position = std::get<V::Array>(source_view.at("position").storage());
-    const auto& contact = std::get<V::Array>(source_view.at("contact_bounds").storage());
-    const auto& low = std::get<V::Array>(contact[0].storage());
-    const auto& high = std::get<V::Array>(contact[1].storage());
-    check(std::abs(std::get<double>(high[0].storage()) -
-            std::get<double>(low[0].storage()) - 1.10) < 1e-9 &&
-        std::abs(std::get<double>(high[1].storage()) -
-            std::get<double>(low[1].storage()) - 0.20) < 1e-9,
-        "The Host projects a compact terrain-bound exposure, not an entire region as hand contact.");
-    const auto& deposit = std::get<V::Object>(before.at("source_deposit").storage());
-    check(std::get<V::Array>(deposit.at("cells").storage()).size() == 100 &&
-        std::get<V::Array>(deposit.at("cell_regions").storage()).size() == 100 &&
-        std::abs(std::get<double>(deposit.at("cell_pitch").storage()) - m::field_pitch_meters) < 1e-9,
-        "Each field cell carries its native region address and unchanged 1.65 m scene pitch.");
-    check(accepted(host.publish_actor("P", {position[0], V(1.0), position[2]}, 1)),
-        "An actor can stand near a distant projected region.");
-    const V::Object wire{{"context", V("host-field")}, {"client", V("P")},
-        {"request", V("host-region-cut")}, {"action", V("harvest_source")},
-        {"target", V(region)}};
-    check(accepted(host.command("P", wire)),
-        "A Host hand cut selects the projected region through physical path admission.");
-    for (I tick = 0; tick < w::manual_cut_ticks; ++tick)
-        check(std::get<V::Object>(host.advance().storage()).contains("revision"),
-            "The Host settles a timed field cut on the native clock.");
-    const auto after = std::get<V::Object>(host.projection().storage());
-    const auto& after_sources = std::get<V::Object>(after.at("hand_sources").storage());
-    check(std::get<I>(std::get<V::Object>(after_sources.at(region).storage()).at("remaining").storage()) ==
-        std::get<I>(source_view.at("remaining").storage()) - 1 &&
-        std::get<I>(std::get<V::Object>(after.at("stock").storage()).at("source").storage()) ==
-            m::opening_reserve - 1,
-        "The Host projection reports one regional and aggregate unit removed.");
+    check(accepted(host.initialize_arrival("host-field",{"P"}))&&
+        accepted(host.configure_terrain(factory::godot_world::tests::flat_site())),"The Host binds ordinary finite terrain.");
+    const auto before=host.projection();const auto sources=get<O>(before,"hand_sources");
+    const std::string column="ore-column:10:-10";
+    const auto source=sources.at(column);const auto position=get<A>(source,"position");
+    const auto bounds=get<A>(source,"contact_bounds");const auto low=std::get<A>(bounds[0].storage());
+    const auto high=std::get<A>(bounds[1].storage());
+    check(std::abs(std::get<double>(high[0].storage())-std::get<double>(low[0].storage())-.4125)<1e-9,
+        "A projected hand target addresses one local cutting column.");
+    const auto deposit=get<O>(before,"source_deposit");
+    check(get<A>(V(deposit),"cells").size()==1600&&get<A>(V(deposit),"cell_regions").size()==1600&&
+        get<bool>(V(deposit),"excavation")&&!sources.contains("opening-copper"),
+        "Every visible ore cell carries its native address without a regional alias.");
+    check(accepted(host.publish_actor("P",{position[0],V(1.0),position[2]},1)),"A trusted actor reaches the distant column.");
+    const O wire{{"context",V("host-field")},{"client",V("P")},{"request",V("column-cut")},
+        {"action",V("harvest_source")},{"target",V(column)}};
+    check(accepted(factory::godot_world::tests::complete_manual_cut(host,"P",wire)),
+        "Ordinary Host input completes the timed physical cut.");
+    const auto after=host.projection();
+    check(get<I>(get<O>(after,"hand_sources").at(column),"remaining")==get<I>(source,"remaining")-1&&
+        get<I>(V(get<O>(after,"stock")),"source")==4095,
+        "Projection reports one local and aggregate unit removed.");
     factory::godot_world::Host restored;
-    check(accepted(restored.initialize_arrival("host-field", {"P"})) &&
-        accepted(restored.configure_terrain(factory::godot_world::tests::flat_site())) &&
-        accepted(restored.restore_checkpoint(host.checkpoint())),
-        "A fresh Host restores local depletion for a shared rejoin.");
-    const auto resumed = std::get<V::Object>(restored.projection().storage());
-    check(!factory::values::typed_difference(after.at("hand_sources"), resumed.at("hand_sources")) &&
-        !factory::values::typed_difference(after.at("stock"), resumed.at("stock")),
-        "The restored Host projects the same region balances and aggregate stock.");
+    check(accepted(restored.initialize_arrival("host-field",{"P"}))&&
+        accepted(restored.configure_terrain(factory::godot_world::tests::flat_site()))&&
+        accepted(restored.restore_checkpoint(host.checkpoint())),"A fresh Host restores the excavated worksite.");
+    const auto resumed=restored.projection();
+    check(!factory::values::typed_difference(V(get<O>(after,"hand_sources")),V(get<O>(resumed,"hand_sources")))&&
+        !factory::values::typed_difference(host.terrain_projection(0),restored.terrain_projection(0)),
+        "Restored local balances and emitted terrain geometry match exactly.");
 }
-}  // namespace
-
+}
 int main() {
-    try {
-        field_cuts_and_checkpoint();
-        host_region_route();
-        std::cout << "ORE_FIELD_PASS " << checks << '\n';
-    } catch (const std::exception& error) {
-        std::cerr << "ORE_FIELD_FAIL " << error.what() << '\n';
-        return 1;
-    }
+    try {field_cuts_and_checkpoint();host_column_route();std::cout<<"ORE_FIELD_PASS "<<checks<<'\n';}
+    catch(const std::exception& e) {std::cerr<<"ORE_FIELD_FAIL after "<<checks<<" checks: "<<e.what()<<'\n';return 1;}
 }

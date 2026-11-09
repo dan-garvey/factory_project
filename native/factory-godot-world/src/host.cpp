@@ -9,6 +9,7 @@
 #include "restore_site_validation.hpp"
 #include "factory/physical_site.hpp"
 #include "arrival_configuration.hpp"
+#include "excavated_terrain.hpp"
 #include "factory/belt_command_contract.hpp"
 #include "factory/component_command_contract.hpp"
 #include "factory/crank_command_contract.hpp"
@@ -243,17 +244,83 @@ Value Host::configure_terrain(const Object& input) {
     if (binding.replace_world) {
         const auto& snapshot = owned_->world->snapshot_ref();
         if (snapshot.revision != 0 || snapshot.history.order != 0) return result(false, "terrain_already_bound");
-        auto replacement = world::World::create(snapshot.history.context, binding.profile, snapshot.state);
+        auto state = snapshot.state;
+        if (binding.profile.excavation) {
+            state.excavation = world::ore_columns::initialize(*binding.profile.excavation, state.material);
+            if (!state.excavation) return result(false, "invalid_excavation_terrain");
+            state.ore_field.reset();
+            auto mesh = excavated_terrain::build(binding.surface, *binding.profile.excavation,
+                *state.excavation, state.material);
+            if (!mesh) return result(false, "invalid_excavation_terrain");
+            binding.surface.excavated = std::make_shared<terrain_surface::Mesh>(std::move(*mesh));
+        }
+        auto replacement = world::World::create(snapshot.history.context, binding.profile, state);
         if (!replacement) return result(false, "invalid_water");
         owned_->world = std::move(replacement);
         profile_ = std::move(binding.profile);
     }
     terrain_ = std::move(binding.surface);
+    terrain_source_ = profile_.excavation ? std::optional{owned_->world->snapshot_ref().state.material.stock.source} : std::nullopt;
     for (auto& [actor, sample] : owned_->actors) {
         (void)actor;
         sample.cached_harvest_order.reset();
     }
     return result(true, "terrain_bound");
+}
+
+bool Host::refresh_terrain() const {
+    if (!owned_ || !profile_.excavation) return true;
+    const auto& state = owned_->world->snapshot_ref().state;
+    if (terrain_source_ == state.material.stock.source) return true;
+    if (!state.excavation) return false;
+    auto mesh = excavated_terrain::build(terrain_, *profile_.excavation, *state.excavation, state.material);
+    if (!mesh) return false;
+    terrain_.excavated = std::make_shared<terrain_surface::Mesh>(std::move(*mesh));
+    terrain_source_ = state.material.stock.source;
+    for (auto& [unused, actor] : owned_->actors) {
+        (void)unused;
+        actor.cached_harvest_order.reset();
+    }
+    return true;
+}
+
+Value Host::terrain_projection(Integer first_triangle) const {
+    if (!owned_ || !terrain_.bound()) return result(false, "terrain_unavailable");
+    if (!refresh_terrain()) return result(false, "invalid_excavation_terrain");
+    const auto total = terrain_.excavated ? terrain_.excavated->faces.size() : 0;
+    if (first_triangle < 0 || static_cast<std::uint64_t>(first_triangle) > total)
+        return result(false, "invalid_terrain_page");
+    // Three point arrays and their nine scalars cost twelve value nodes per
+    // triangle. Keep every page below the unchanged generic 100,000-node cap.
+    const auto first = static_cast<std::size_t>(first_triangle);
+    const auto next = first + std::min<std::size_t>(4096, total - first);
+    Array faces;
+    if (terrain_.excavated) {
+        faces.reserve((next - first) * 3);
+        for (auto i = first; i < next; ++i)
+            for (const auto& vertex : terrain_.excavated->faces[i])
+                faces.push_back(point_value(vertex));
+    }
+    return Value(Object{{"accepted", Value(true)}, {"excavation", Value(bool(profile_.excavation))},
+        {"remaining", Value(owned_->world->snapshot_ref().state.material.stock.source)},
+        {"first_triangle", Value(first_triangle)}, {"next_triangle", Value(Integer(next))},
+        {"total_triangles", Value(Integer(total))},
+        {"faces", Value(std::move(faces))}});
+}
+
+
+Value Host::terrain_query(const Array& query) const {
+    if (query.size() != 4 || !refresh_terrain()) return result(false, "terrain_unavailable");
+    std::array<double, 4> args{};
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const auto* value = std::get_if<double>(&query[i].storage());
+        if (!value) return result(false, "invalid_terrain_query");
+        args[i] = *value;
+    }
+    const auto bounds = terrain_.range(args[0], args[1], args[2], args[3]);
+    if (!bounds) return result(false, "terrain_unavailable");
+    return Value(Object{{"accepted", Value(true)}, {"low", Value(bounds->first)},
+        {"high", Value(bounds->second)}});
 }
 
 bool Host::site_blocked(const authority::Point& low, const authority::Point& high,
@@ -332,6 +399,7 @@ bool Host::placement_blocked(const authority::Point& target, const authority::Po
 
 Value Host::command(const std::string& bound_actor, const Object& wire) {
     if (!owned_) return result(false, "not_initialized");
+    if (!refresh_terrain()) return result(false, "invalid_excavation_terrain");
     const auto bound = command_admission::bind_actor(profile_.actors, bound_actor, wire);
     if (!bound) return result(false, "wrong_actor");
     const auto& snapshot = owned_->world->snapshot_ref();
@@ -412,21 +480,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     } else if (worksite_action == worksite_commands::Action::harvest) {
         if (!worksite_commands::valid_wire(wire, worksite_action)) return refuse("invalid_command");
         const auto& id = *field<std::string>(wire, "target");
-        const auto region = world::ore_region_index(profile_, id);
-        const bool ore = profile_.material.manual_ore &&
-            (profile_.material.manual_ore->id == id || region);
-        const auto tree = profile_.material.timber_sites.find(id);
-        if (ore || tree != profile_.material.timber_sites.end()) {
-            const auto observed = observe()(bound_actor);
-            if (observed && observed->ready) {
-                const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
-                if (!physical_site::harvest_path_clear({profile_, terrain_}, snapshot.state,
-                    id, observed->position,
-                    region && id != profile_.material.manual_ore->id ?
-                        world::ore_region_cut_target(profile_, *region, observed->position) :
-                        world::manual_cut_target(profile_, center, observed->position, ore)))
-                    return refuse("source_occluded");
-            }
+        const auto observed = observe()(bound_actor);
+        if (observed && observed->ready) {
+            const auto contact = physical_site::harvest_contact({profile_, terrain_}, snapshot.state,
+                id, observed->position);
+            if (contact && !physical_site::harvest_path_clear({profile_, terrain_}, snapshot.state,
+                id, observed->position, *contact)) return refuse("source_occluded");
         }
         normalized.at("action") = Value(std::string(worksite_commands::schema(
             snapshot.state.developer_conveniences ? worksite_commands::Action::fast_harvest :
@@ -1197,6 +1256,7 @@ Value Host::publish_actor(const std::string& actor, const Array& position, Integ
 
 Value Host::actor_projection(const std::string& actor) const {
     if (!owned_) return result(false, "not_initialized");
+    if (!refresh_terrain()) return result(false, "invalid_excavation_terrain");
     const auto found = owned_->actors.find(actor);
     if (found == owned_->actors.end()) return result(false, "unknown_actor");
     const auto& current = found->second;
@@ -1245,23 +1305,15 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
     const auto snapshot = owned_->world->snapshot();
     for (const auto& [actor, cut] : snapshot.state.manual_cuts) {
         if (observed_actor && actor != *observed_actor) continue;
-        const auto region = world::ore_region_index(profile_, cut.target);
-        const bool ore = profile_.material.manual_ore &&
-            (profile_.material.manual_ore->id == cut.target || region);
-        const auto tree = profile_.material.timber_sites.find(cut.target);
-        if (!ore && tree == profile_.material.timber_sites.end()) return false;
-        const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
         const auto sampled = observe()(actor);
         auto actor_cut = sampled.value_or(authority::ActorCut{});
-        actor_cut.build_reach = profile_.manual_cut_reach > 0 ?
-            profile_.manual_cut_reach : profile_.build_reach;
-        const auto target = region && cut.target != profile_.material.manual_ore->id ?
-            world::ore_region_cut_target(profile_, *region, actor_cut.position) :
-            world::manual_cut_target(profile_, center, actor_cut.position, ore);
-        const bool lost_reach = !sampled || authority::check_reach(actor, actor_cut,
-            {target}).error != authority::Error::none ||
+        actor_cut.build_reach = profile_.manual_cut_reach > 0 ? profile_.manual_cut_reach : profile_.build_reach;
+        const auto contact = physical_site::harvest_contact({profile_, terrain_}, snapshot.state,
+            cut.target, actor_cut.position);
+        const bool lost_reach = !sampled || !contact || authority::check_reach(actor, actor_cut,
+            {*contact}).error != authority::Error::none ||
             !physical_site::harvest_path_clear({profile_, terrain_}, snapshot.state,
-                cut.target, actor_cut.position, target);
+                cut.target, actor_cut.position, *contact);
         const bool interrupted = cut.interrupted_revision != 0 || lost_reach;
         if (!interrupted && cut.remaining_ticks != 0) continue;
         const Object wire{{"context", Value(snapshot.history.context)},
@@ -1299,6 +1351,7 @@ bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) 
 
 Value Host::projection() const {
     if (!owned_) return result(false, "not_initialized");
+    if (!refresh_terrain()) return result(false, "invalid_excavation_terrain");
     complete_projection::Actors actors;
     for (const auto& [id, sample] : owned_->actors)
         actors.emplace(id, complete_projection::ActorObservation{
@@ -1328,7 +1381,16 @@ Host::Decoded Host::decode(const Value& input) const {
     if (!std::holds_alternative<world::Snapshot>(decoded)) return {nullptr, "native_checkpoint_refused"};
     auto snapshot = std::get<world::Snapshot>(decoded);
     if (!snapshot.state.topology.drive_enabled) return {nullptr, "native_checkpoint_refused"};
-    if (const auto* refusal = supplied_space_refusal(snapshot.state)) return {nullptr, refusal};
+    auto candidate_terrain = terrain_;
+    if (profile_.excavation) {
+        if (!snapshot.state.excavation) return {nullptr, "native_checkpoint_refused"};
+        auto mesh = excavated_terrain::build(candidate_terrain, *profile_.excavation,
+            *snapshot.state.excavation, snapshot.state.material);
+        if (!mesh) return {nullptr, "invalid_excavation_terrain"};
+        candidate_terrain.excavated = std::make_shared<terrain_surface::Mesh>(std::move(*mesh));
+    }
+    if (const auto* refusal = physical_site::supplied_space_refusal({profile_, candidate_terrain}, snapshot.state))
+        return {nullptr, refusal};
     if (snapshot.state.fabrication_hub && !snapshot.state.fabrication_hub->holder &&
         profile_.landing_pod_center && snapshot.state.fabrication_hub->center !=
             world::landing_hub_center(*profile_.landing_pod_center)) {
@@ -1363,7 +1425,7 @@ Host::Decoded Host::decode(const Value& input) const {
         const auto* client = field<std::string>(record.intent, "client");
         if (!actor || !client || *actor != *client) return {nullptr, "invalid_actor_binding"};
     }
-    if (const auto* refusal = restore_site_validation::geometry(profile_, terrain_,
+    if (const auto* refusal = restore_site_validation::geometry(profile_, candidate_terrain,
             snapshot.state, restored_supports, &saved_routes))
         return {nullptr, refusal};
     const auto& actors = *parsed.actors;
@@ -1388,7 +1450,7 @@ Host::Decoded Host::decode(const Value& input) const {
     if (!candidate->world) return {nullptr, "native_checkpoint_refused"};
     for (const auto& [id, support] : restored_supports)
         candidate->support_routes.emplace(id, support.route);
-    return {std::move(candidate), ""};
+    return {std::move(candidate), "", std::move(candidate_terrain.excavated)};
 }
 
 Value Host::validate_checkpoint(const Value& input) const {
@@ -1404,6 +1466,8 @@ Value Host::restore_checkpoint(const Value& input) {
     auto decoded = decode(input);
     if (!decoded.candidate) return result(false, decoded.refusal);
     owned_.swap(decoded.candidate);
+    terrain_.excavated = std::move(decoded.terrain_mesh);
+    terrain_source_ = profile_.excavation ? std::optional{owned_->world->snapshot_ref().state.material.stock.source} : std::nullopt;
     return result(true, "restored");
 }
 

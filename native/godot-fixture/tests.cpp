@@ -70,7 +70,7 @@ int main() {
         const auto* endpoint_common = fixture::find_case("transmission-endpoint-common-frame");
         const auto* endpoint_inspection = fixture::find_case("transmission-endpoint-inspection");
         const auto* endpoint_terrain = fixture::find_case("transmission-endpoint-terrain-host");
-        check(fixture::registered_cases().size() == 16 && first && first_press && incline && vertical && sideways &&
+        check(fixture::registered_cases().size() == 17 && first && first_press && incline && vertical && sideways &&
                   power_reopen && actor_block && cog_repair && cog_reopen && raised_starter &&
                   joined_broad && joined_broad_slab && endpoint_default && endpoint_common && endpoint_inspection && endpoint_terrain &&
                   !fixture::find_case("arrival-first-plste"),

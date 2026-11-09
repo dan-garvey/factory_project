@@ -39,7 +39,10 @@ void complete_native_readout() {
     auto parsed = factory::godot_world::terrain_surface::parse(terrain_input, arrival->profile);
     check(parsed.binding.has_value(), "The same trusted flat terrain can bind to a direct native readout.");
     const auto& binding = *parsed.binding;
-    auto native = world::World::create("complete-view", binding.profile, arrival->seed);
+    auto seed = arrival->seed;
+    seed.ore_field.reset();
+    seed.excavation = world::ore_columns::initialize(*binding.profile.excavation, seed.material);
+    auto native = world::World::create("complete-view", binding.profile, seed);
     check(native != nullptr, "The World accepts the authored arrival with that terrain profile.");
 
     factory::godot_world::Host host;

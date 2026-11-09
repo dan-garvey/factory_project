@@ -7,6 +7,10 @@ uniform float copper_cover = 0.57;
 uniform float copper_strength = 0.52;
 uniform float mineral_base_height = 0.30;
 uniform float mineral_top_height = 0.68;
+uniform sampler2D cut_mask : filter_nearest, repeat_disable;
+uniform vec2 cut_origin = vec2(0.0);
+uniform vec2 cut_size = vec2(1.0);
+uniform float cut_pitch = 1.0;
 
 varying vec3 scan_point;
 varying vec3 world_point;
@@ -34,6 +38,11 @@ void vertex() {
 }
 
 void fragment() {
+	vec2 cut_cell = floor((world_point.xz - cut_origin) / cut_pitch);
+	if (all(greaterThanEqual(cut_cell, vec2(0.0))) && all(lessThan(cut_cell, cut_size)) &&
+		texture(cut_mask, (cut_cell + vec2(0.5)) / cut_size).r > 0.5) {
+		discard;
+	}
 	vec3 stone = texture(albedo_map, UV).rgb;
 	float value = dot(stone, vec3(0.24, 0.67, 0.09));
 	vec3 host = mix(stone, vec3(value * 0.78, value * 0.83, value * 0.86), 0.58) * 0.86;

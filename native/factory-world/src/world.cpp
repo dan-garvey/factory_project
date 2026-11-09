@@ -1,3 +1,4 @@
+#include "factory/surface_drill.hpp"
 #include "factory/world.hpp"
 #include "factory/belt_command_contract.hpp"
 #include "factory/component_command_contract.hpp"
@@ -597,9 +598,17 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* raw = field<Integer>(result, "moved_raw");
         const auto* timber = field<Integer>(result, "moved_timber");
         if (!id || !entity || *entity != *id || !generation || *generation != 1 ||
-            !raw || !timber || result.size() != 18) return false;
+            !raw || !timber) return false;
         const bool starting = worksite == worksite_commands::Action::harvest;
-        if (profile.material.manual_ore &&
+        if (profile.excavation && ore_columns::target_cell(*id)) {
+            if (result.size()!=18+ore_columns::contact_fact_count) return false;
+            const auto contact=ore_columns::historical_contact(*profile.excavation,*id,
+                *actor_position,result);
+            return contact && *raw==(starting?0:1) && *timber==0 &&
+                targets.front()==contact->reach_point;
+        }
+        if (result.size()!=18) return false;
+        if (!profile.excavation && profile.material.manual_ore &&
                 (profile.ore_field ? ore_region_index(profile, *id).has_value() :
                     *id == profile.material.manual_ore->id))
             return *raw == (starting ? 0 : 1) && *timber == 0 &&
@@ -1093,6 +1102,10 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
 }
 
 bool history_domain(const Profile& profile, const Snapshot& snapshot, const stationary::Kit& totals) {
+    std::map<excavation::Cell, Integer> column_remaining_upper;
+    if (profile.excavation)
+        for (const auto& [cell, column] : profile.excavation->columns)
+            column_remaining_upper.emplace(cell, column.initial_units);
     std::set<std::pair<std::string, std::string>> used_belt_selections;
     std::map<std::pair<std::string, Integer>, mechanics::Point> placed_shafts;
     auto foundation_kits = profile.starting_foundation_kits;
@@ -1779,6 +1792,26 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                     layout_at(*result_revision) : nullptr)) {
             return false;
         }
+        if (profile.excavation && (worksite==worksite_commands::Action::harvest ||
+                worksite==worksite_commands::Action::fast_harvest ||
+                worksite==worksite_commands::Action::finish_harvest) &&
+                ore_columns::target_cell(*entity)) {
+            // historical_facts has already admitted this exact numeric point.
+            const auto& saved_position=*field<Value::Array>(record.result,"actor_position");
+            const authority::Point position{std::get<double>(saved_position[0].storage()),
+                std::get<double>(saved_position[1].storage()),std::get<double>(saved_position[2].storage())};
+            const auto contact=ore_columns::historical_contact(*profile.excavation,*entity,
+                position,record.result);
+            if (!contact) return false;
+            for (const auto& witness:contact->columns) {
+                const auto prior=column_remaining_upper.find(witness.cell);
+                if (prior==column_remaining_upper.end() || witness.remaining>prior->second)
+                    return false;
+                prior->second=witness.remaining;
+            }
+            if (worksite!=worksite_commands::Action::harvest)
+                --column_remaining_upper.at(contact->cutting.cell);
+        }
         if (profile.landing_pod_center &&
             (*action == "collect" || *action == "recover" ||
              *action == "recover_belt_slot" || *action == "pickup_material")) {
@@ -1841,9 +1874,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
         if (worksite == worksite_commands::Action::finish_harvest ||
             worksite == worksite_commands::Action::fast_harvest) {
             const auto& id = *entity;
-            if (profile.material.manual_ore &&
+            if ((profile.excavation && ore_columns::target_cell(id)) ||
+                (!profile.excavation && profile.material.manual_ore &&
                     (profile.ore_field ? ore_region_index(profile, id).has_value() :
-                        id == profile.material.manual_ore->id)) {
+                        id == profile.material.manual_ore->id))) {
                 if (!add(harvested_ore, 1) ||
                     (profile.landing_pod_center && !add(carried_raw[*actor], 1))) return false;
             } else if (!add(harvested_timber[id], 1) || !add(carried_timber[*actor], 1)) return false;
@@ -3611,6 +3645,12 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     if (harvested_ore > profile.initial_units - snapshot.state.material.stock.source ||
         cranked_ore > profile.initial_units - snapshot.state.material.stock.source - harvested_ore)
         return false;
+    if (snapshot.state.excavation)
+        for (const auto& [cell, column] : *snapshot.state.excavation) {
+            const auto observed = column_remaining_upper.find(cell);
+            if (observed == column_remaining_upper.end() || column.remaining_units > observed->second)
+                return false;
+        }
     if (workshop_completed_actors != snapshot.state.workshop_completed_actors) return false;
     if (historical_cranks != snapshot.state.crank_items) return false;
     if (placed_components.size() != snapshot.state.placed_components.size()) return false;
@@ -3862,6 +3902,12 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         return id;
     };
     for (const auto& item : placed) {
+        if (item.kind == materials::Component::drill_head) {
+            append({item.id, mechanics::Kind::shaft, item.center, mechanics::Axis::y, 0, 2});
+            ratings.emplace(item.id, material_rating(item.kind));
+            impacts.emplace(item.id, 4);
+            continue;
+        }
         if (item.kind == materials::Component::broad_copper_slide) {
             // Four tile-wide shafts meet at the two internal row seams. A
             // meshed pair at the center couples the rows to one piston. The
@@ -4171,6 +4217,10 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     for (const auto& actor : profile.actors) if (!identity(actor)) return false;
     for (const auto coordinate : profile.anchor_offset) if (!std::isfinite(coordinate)) return false;
     const auto& state = snapshot.state;
+    if (profile.excavation.has_value() != state.excavation.has_value() ||
+        (profile.excavation && (profile.ore_field || !profile.material.manual_ore ||
+            ore_columns::validate(*profile.excavation, *state.excavation, state.material) !=
+                ore_columns::Error::none))) return false;
     if (state.ore_field.has_value() != profile.ore_field) return false;
     if (state.ore_field && mineral_site::field_total(*state.ore_field) !=
             std::optional<Integer>{state.material.stock.source}) return false;
@@ -4184,9 +4234,11 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     std::set<std::string> occupied_sources;
     for (const auto& [actor, cut] : state.manual_cuts) {
         if (!profile.actors.contains(actor) ||
-            (!(profile.material.manual_ore && (profile.ore_field ?
+            (!((profile.excavation && ore_columns::target_cell(cut.target) &&
+                    profile.excavation->columns.contains(*ore_columns::target_cell(cut.target))) ||
+                (!profile.excavation && profile.material.manual_ore && (profile.ore_field ?
                 ore_region_index(profile, cut.target).has_value() :
-                profile.material.manual_ore->id == cut.target)) &&
+                profile.material.manual_ore->id == cut.target))) &&
                 !profile.material.timber_sites.contains(cut.target)) ||
             !occupied_sources.insert(cut.target).second ||
             cut.start_revision < 1 || cut.start_revision > snapshot.revision ||
@@ -4308,6 +4360,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         if (id <= 0 || id >= state.material.next_work_id || progress.strokes < 1 ||
             progress.strokes > 4 || progress.origin[0] % 4 != 0 ||
             progress.origin[2] % 4 != 0) return false;
+    if (!surface_drill::valid(state)) return false;
     if (state.placed_components.size() > maximum_issued_entities) return false;
     if (state.slide_phases.size() > state.placed_components.size()) return false;
     if (state.slide_press_routes.size() > materials::maximum_drop_points) return false;
@@ -4667,27 +4720,16 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
         const auto& placed = tick_layout.placed;
         for (auto& [actor, pending] : candidate.manual_cuts) {
             if (pending.interrupted_revision != 0) continue;
-            const auto region = ore_region_index(profile_, pending.target);
-            const bool ore = profile_.material.manual_ore &&
-                (region || profile_.material.manual_ore->id == pending.target);
-            const auto tree = profile_.material.timber_sites.find(pending.target);
-            if (!ore && tree == profile_.material.timber_sites.end())
-                throw materials::Error::invalid_state;
-            const bool depleted = region ? (!candidate.ore_field ||
-                    candidate.ore_field->remaining[static_cast<std::size_t>(*region)] == 0) :
-                ore ? candidate.material.stock.source == 0 :
-                candidate.material.timber_remaining.at(pending.target) == 0;
-            const auto& center = ore ? profile_.material.manual_ore->center : tree->second.center;
             const auto cut = observe ? observe(actor) : std::nullopt;
             auto checked_cut = cut.value_or(authority::ActorCut{});
             checked_cut.build_reach = profile_.manual_cut_reach > 0 ?
                 profile_.manual_cut_reach : profile_.build_reach;
-            const auto checked = cut ? authority::check_reach(actor, checked_cut,
-                {region && pending.target != profile_.material.manual_ore->id ?
-                    ore_region_cut_target(profile_, *region, checked_cut.position) :
-                    manual_cut_target(profile_, center, checked_cut.position, ore)}) :
+            const auto selected = resolve_harvest_target(profile_, candidate, pending.target,
+                checked_cut.position);
+            const auto checked = cut && selected.target ? authority::check_reach(actor, checked_cut,
+                {selected.target->reach_point}) :
                 authority::ReachResult{authority::Error::actor_unready, {}};
-            if (depleted || checked.error != authority::Error::none)
+            if (checked.error != authority::Error::none)
                 pending.interrupted_revision = snapshot.revision + 1;
             else if (pending.remaining_ticks > 0)
                 --pending.remaining_ticks;
@@ -4707,6 +4749,7 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
                     for (const auto& cell : broad_cells(point))
                         broad_occupied_cells.insert(cell);
         auto power = machine_power_from(candidate.topology, drive);
+        if (profile_.excavation) power.collector = false;
         if (power.reverse_drop && broad_occupied_cells.contains(*power.reverse_drop))
             power.belt = false;
         const auto prior_processing = candidate.material.processing;
@@ -4729,6 +4772,7 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
                     candidate.press_progress.erase(witness);
             }
         }
+        if (!surface_drill::advance(profile_, candidate, drive)) throw materials::Error::invalid_state;
         const auto& motion = drive.mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
         // Ready modular collectors draw from the same finite ore source as the
@@ -4737,6 +4781,7 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
         // site face cannot debit ore twice or select an arbitrary assembly.
         const auto& collectors_by_receiver = tick_layout.collectors_by_receiver;
         for (const auto& [receiver, collector] : collectors_by_receiver) {
+            if (profile_.excavation) continue;
             if (!collector || candidate.material.stock.source == 0 ||
                 candidate.material.dropped_material.contains(receiver) ||
                 broad_occupied_cells.contains(receiver) ||
@@ -5230,6 +5275,7 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
             }
         }
         if (candidate.material == snapshot.state.material &&
+            candidate.excavation == snapshot.state.excavation &&
             candidate.manual_cuts == snapshot.state.manual_cuts &&
             candidate.slide_phases == snapshot.state.slide_phases) return std::nullopt;
         return candidate;

@@ -33,6 +33,8 @@ struct Site {
 [[nodiscard]] bool harvest_path_clear(const Site& site, const world::State& state,
     const std::string& source, const authority::Point& actor,
     const authority::Point& contact);
+[[nodiscard]] std::optional<authority::Point> harvest_contact(const Site&, const world::State&,
+    const std::string& source, const authority::Point& actor);
 [[nodiscard]] std::map<std::string, bool> harvest_clearances(const Site& site,
     const world::State& state, const authority::Point& actor);
 

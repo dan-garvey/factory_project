@@ -1,3 +1,4 @@
+#include "factory/surface_drill.hpp"
 #include "stationary_planner.hpp"
 #include "factory/stationary_target_command_contract.hpp"
 
@@ -193,6 +194,12 @@ Owner::Decision plan_stationary(const Profile& profile, const Binding& binding,
         if (command.rotation) placed.rotation = *command.rotation;
         if (placed.role == Role::waterwheel && command.wheel_tiles)
             placed.wheel_tiles = *command.wheel_tiles;
+        for (const auto& [id, component] : state.placed_components) {
+            (void)id;
+            if (component.kind == materials::Component::stationary_mount &&
+                surface_drill::reserved(component.center, placed.geometry.center))
+                return refused("mount_area_reserved");
+        }
         stationary::PlacementSelection selection{placed, std::nullopt};
         if (placed.role == Role::waterwheel) {
             const auto rate = wheel_rate(profile, placed);

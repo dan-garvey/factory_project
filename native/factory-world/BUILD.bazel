@@ -137,8 +137,9 @@ cc_library(
         "src/stationary_planner.cpp",
         "src/stationary_planner.hpp",
         "src/world.cpp",
+        "src/surface_drill.cpp",
     ],
-    hdrs = ["include/factory/world.hpp"],
+    hdrs = ["include/factory/world.hpp", "include/factory/surface_drill.hpp"],
     strip_include_prefix = "include",
     deps = [
         ":belt_command_contract",
@@ -153,6 +154,8 @@ cc_library(
         ":transmission_placement_contract",
         ":worksite_command_contract",
         ":transactions",
+        ":ore_columns",
+        ":ore_column_target",
         "//native/factory-assembly:assembly",
         "//native/factory-core:materials",
         "//native/factory-core:recovery",
@@ -203,7 +206,7 @@ cc_library(
     srcs = ["src/checkpoint.cpp"],
     hdrs = ["include/factory/checkpoint.hpp"],
     strip_include_prefix = "include",
-    deps = [":world", "//native/factory-core:material_state_codec"],
+    deps = [":world", ":ore_columns_codec", "//native/factory-core:material_state_codec"],
     visibility = ["//native/factory-godot-world:__pkg__"],
 )
 
@@ -253,5 +256,46 @@ cc_test(
     name = "material_strength_test",
     srcs = ["tests/material_strength_test.cpp"],
     deps = [":world"],
+    size = "small",
+)
+
+cc_library(
+    name = "ore_columns",
+    srcs = ["src/ore_columns.cpp"],
+    hdrs = ["include/factory/ore_columns.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/excavation:excavation","//native/factory-core:materials"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
+)
+
+cc_library(
+    name = "ore_columns_codec",
+    srcs = ["src/ore_columns_codec.cpp"],
+    hdrs = ["include/factory/ore_columns_codec.hpp"],
+    strip_include_prefix = "include",
+    deps = [":ore_columns","//native/factory-value:value"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
+)
+
+cc_test(
+    name = "ore_columns_codec_test",
+    srcs = ["tests/ore_columns_codec_test.cpp"],
+    deps = [":ore_columns_codec"],
+    size = "small",
+)
+
+cc_library(
+    name = "ore_column_target",
+    srcs = ["src/ore_column_target.cpp"],
+    hdrs = ["include/factory/ore_column_target.hpp"],
+    strip_include_prefix = "include",
+    deps = [":ore_columns","//native/factory-authority:authority_boundary"],
+    visibility = ["//native/factory-godot-world:__pkg__"],
+)
+
+cc_test(
+    name = "ore_column_target_test",
+    srcs = ["tests/ore_column_target_test.cpp"],
+    deps = [":ore_column_target"],
     size = "small",
 )

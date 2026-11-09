@@ -182,6 +182,8 @@ func _record(status: String, reason: String = "") -> void:
 		print("CHAPTER 1 JOINED BROAD PRESS SLAB PASS")
 	if status == "pass" and mode == "arrival-raised-starter-belt":
 		print("CHAPTER 1 RAISED PRESS BELT PASS")
+	if status == "pass" and mode == "arrival-surface-drill":
+		print("SURFACE DRILL SCENE PASS")
 	if status == "pass" and event_route_pointer:
 		print("CHAPTER 1 SCENE EVENTS PASS: " + mode)
 	quit(0 if status == "pass" else 1)
@@ -1255,7 +1257,7 @@ func _run() -> void:
 	if mode == "arrival-nonhorizontal-incline":
 		await _arrival_run()
 		return
-	if mode in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-joined-broad-slab", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
+	if mode in ["arrival-surface-drill", "arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-joined-broad-slab", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"]:
 		await _arrival_run()
 		return
 	if destination.is_empty() or mode not in ["produce", "resume", "foundations"]:
@@ -4365,12 +4367,12 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-joined-broad-slab", "supplied-hardware", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-surface-drill", "arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-joined-broad-slab", "supplied-hardware", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
 	opening = load("res://opening/opening.tscn").instantiate()
-	var advanced_fixture := mode not in ["arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-reveal", "arrival-reveal-skip"]
+	var advanced_fixture := mode not in [ "arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-reveal", "arrival-reveal-skip"]
 	# Channel command fixtures deliberately exercise developer diagnostics.
 	# Ordinary players pick up pointed material with E and never issue pushes.
 	opening.developer_material_tools = false
@@ -4440,6 +4442,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode == "arrival-surface-drill":
+		await _surface_drill_run(capture_prefix)
+		return
 	if mode == "arrival-cancel-placement":
 		await _arrival_cancel_placement_run(capture_prefix)
 		return
@@ -4496,3 +4501,156 @@ func _arrival_run() -> void:
 		return
 	push_error("The selected arrival fixture is unavailable")
 	quit(1)
+
+func _surface_drill_view(path: String, target: Vector3, low := false) -> bool:
+	var view := SubViewport.new()
+	view.size = Vector2i(1280, 800)
+	view.world_3d = root.world_3d
+	view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(view)
+	var camera := Camera3D.new()
+	view.add_child(camera)
+	camera.fov = 50.0
+	camera.position = target + (Vector3(1.8, 0.35, 1.9) if low else Vector3(3.5, 2.5, 3.8))
+	camera.look_at(target)
+	camera.make_current()
+	for frame in 4:
+		await process_frame
+		await RenderingServer.frame_post_draw
+	var okay := view.get_texture().get_image().save_png(path) == OK
+	view.queue_free()
+	return okay
+
+func _surface_drill_run(capture_prefix: String) -> void:
+	deadline = Time.get_ticks_msec() + 240000
+	facts["evidence"] = "scripted_native_surface_drill_in_actual_terrain"
+	facts["limits"] = "Advanced catalog fixture; actual motor, terrain, crafting and Host commands. Passive captures do not establish human usability."
+	if not await _approach(Vector2(6.0, 3.45)):
+		return
+	for index in 8:
+		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+			return
+	if not await _approach(Vector2(6.0, 10.5)):
+		return
+	for index in 2:
+		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
+			return
+	if not await _approach_points([Vector2(6.0, 3.0), Vector2(0.0, 1.65), Vector2(-0.5, 0)]):
+		return
+	for index in 5:
+		var snapshot: Dictionary = opening.model.projection()
+		var selected := ""
+		var best := INF
+		var at: Vector3 = opening.actor_world.bodies.P.global_position
+		for id: String in snapshot.hand_sources:
+			var source: Dictionary = snapshot.hand_sources[id]
+			if not id.begins_with("ore-column:") or int(source.remaining) <= 0 or not snapshot.actors.P.harvest_clear.get(id, false):
+				continue
+			var p: Array = source.position
+			var distance := at.distance_to(Vector3(p[0], p[1], p[2]))
+			if distance < best:
+				best = distance
+				selected = id
+		if not _expect(not selected.is_empty(), "A reachable finite surface column supplies crafting copper") or _construct({"action": "harvest_source", "target": selected}).is_empty():
+			return
+	if not await _approach(Vector2(3.3, 4.95)):
+		return
+	for kind in ["stationary_mount", "drill_head", "hand_crank"]:
+		if not _press_inventory_recipe("component:" + kind, "pod-fabrication-hub"):
+			return
+	var recipes: Array = opening.model.projection().part_recipes
+	for index in recipes.size():
+		if recipes[index].kind == "vertical_gearbox":
+			if not _press_inventory_recipe("part:" + str(index), "pod-fabrication-hub"):
+				return
+			break
+	if not await _approach_points([Vector2(4.95, 2.2), Vector2(6.6, 0.0), Vector2(6.6, -3.0)]):
+		return
+	var x := 24
+	var z := -24
+	var px: float = x * OpeningGeometry.HEIGHT_STEP
+	var pz: float = z * OpeningGeometry.HEIGHT_STEP
+	var high := -INF
+	for dx in [-OpeningGeometry.PITCH, 0.0, OpeningGeometry.PITCH]:
+		for dz in [-OpeningGeometry.PITCH, 0.0, OpeningGeometry.PITCH]:
+			high = maxf(high, opening.model.terrain_high(px + dx, pz + dz, 0.10, 0.10))
+	var level := ceili(high / OpeningGeometry.HEIGHT_STEP)
+	var target := Vector3(px, level * OpeningGeometry.HEIGHT_STEP + 0.45, pz)
+	facts["rig_center"] = [x, level, z]
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _surface_drill_view(capture_prefix + "-pristine.png", target), "Capture the unchanged copper worksite before construction"):
+			return
+	var mount := _construct({"action": "place_component", "component": "stationary_mount", "center": [x, level, z]})
+	if mount.is_empty():
+		return
+	var head := _construct({"action": "place_component", "component": "drill_head", "center": [x, level + 1, z]})
+	if head.is_empty():
+		return
+	var gearbox := _construct({"action": "place_relay", "kind": "vertical_gearbox", "center": [x, level + 5, z], "axis": "z"})
+	if gearbox.is_empty():
+		return
+	var crank: String = opening.model.projection().crank_items.keys()[0]
+	if _construct({"action": "attach_hand_crank", "entity": gearbox.entity, "crank": crank, "port": [x + 2, level + 5, z], "face": [1, 0, 0]}).is_empty():
+		return
+	opening._refresh()
+	await physics_frame
+	var before: Dictionary = opening.model.projection()
+	if not _expect(before.placed_components[head.entity].component == "drill_head" and before.placed_components[mount.entity].component == "stationary_mount", "Independent crafted support and reusable tool retain their identities"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _surface_drill_view(capture_prefix + "-assembled.png", target), "Capture complete supported head, gearbox and horizontal crank in the worksite"):
+			return
+	for tick in 64:
+		if _construct({"action": "operate_hand_crank", "entity": crank}).is_empty():
+			return
+		opening.model.advance()
+		opening._refresh()
+		await physics_frame
+		await process_frame
+		if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			if not _expect(await _surface_drill_view(capture_prefix + "-motion-%03d.png" % tick, target), "Capture this actual crank-and-cut state for the motion proof"):
+				return
+		if tick in [3, 15, 31, 63] and not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+			if not _expect(await _surface_drill_view(capture_prefix + "-cut-%02d.png" % tick, target, true), "Capture actual progressive excavation and loose copper"):
+				return
+	var after: Dictionary = opening.model.projection()
+	var produced: int = before.stock.source - after.stock.source
+	var loose := 0
+	for drop: Dictionary in after.dropped_material:
+		loose += int(drop.raw)
+	if not _expect(produced > 0 and produced == loose, "Real cranking cuts the local terrain and conserves every copper chunk on its floor"):
+		return
+	facts["produced"] = produced
+	var saved: Dictionary = opening.model.checkpoint()
+	if not _expect(opening.model.validate_checkpoint(saved).accepted, "The excavated terrain, loose copper and partial work validate together"):
+		return
+	# Aim the real loose-item picker at one visible chunk. This is scripted
+	# camera selection and the normal interaction method, not desktop input.
+	opening._select_tool("inspect")
+	var drop: Dictionary = after.dropped_material[0]
+	var p: Array = drop.ground_position
+	var point := Vector3(p[0], p[1] + 0.045, p[2])
+	opening.distance = 0.0
+	opening._update_camera()
+	var direction: Vector3 = (point - opening.camera.global_position).normalized()
+	opening.orbit_yaw = atan2(-direction.x, -direction.z)
+	opening.orbit_pitch = asin(clampf(-direction.y, -1.0, 1.0))
+	opening._update_camera()
+	await physics_frame
+	var picked: Dictionary = opening._screen_loose_material(root.size * 0.5)
+	facts["loose_item_pointed"] = not picked.is_empty()
+	# Native pickup is also checked for every remaining pile, with the observed
+	# actor still beside the same worksite; no material is granted by the fixture.
+	var raw_before: int = after.cargo.P.raw
+	for pile: Dictionary in after.dropped_material:
+		var expected := pile.duplicate(true)
+		expected.erase("center")
+		expected.erase("ground_position")
+		if _construct({"action": "pickup_material", "center": pile.center, "expected": expected}).is_empty():
+			return
+	if not _expect(opening.model.projection().cargo.P.raw == raw_before + produced and opening.model.projection().dropped_material.is_empty(), "Pickup moves all excavated copper into the same actor inventory exactly once"):
+		return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _surface_drill_view(capture_prefix + "-picked-up.png", target, true), "Capture the persistent divot after collecting its copper"):
+			return
+	_record("pass")

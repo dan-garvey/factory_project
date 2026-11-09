@@ -63,6 +63,14 @@ void harvest(Host& host, const char* target, int count, const char* prefix) {
     }
 }
 
+void harvest_ore(Host& host, int count, const char* prefix) {
+    for (int index=0;index<count;++index) {
+        auto wire=request(std::string(prefix)+std::to_string(index),"harvest_source");
+        wire.emplace("target",V(factory::godot_world::tests::reachable_ore(host,"P")));
+        accepted(host,wire);
+    }
+}
+
 void craft(Host& host, const char* kind, int count) {
     for (int index = 0; index < count; ++index) {
         auto wire = request(std::string("broad-craft-") + kind + std::to_string(index), "craft_component");
@@ -92,7 +100,7 @@ void sized_workbed_custody() {
               "accepted"), "The broad-size fixture starts with finite native material.");
     I epoch = 0;
     pose(host, -0.5, 0.0, ++epoch);
-    harvest(host, "opening-copper", 31, "size-ore-");
+    harvest_ore(host, 31, "size-ore-");
     pose_at_pod(host, ++epoch);
     craft(host, "anvil", 4);
     craft(host, "flat_head", 4);

@@ -7,6 +7,7 @@
 
 namespace factory::godot_fixture {
 namespace {
+constexpr std::array surface_drill_fixed{std::string_view{"--native-check-mode=arrival-surface-drill"}};
 constexpr std::array first_plate_fixed{
     std::string_view{"--native-check-mode=arrival-first-plate"},
     std::string_view{"--event-route-pointer"},
@@ -51,6 +52,7 @@ constexpr std::string_view script = "res://opening/native_adapter_check.gd";
 constexpr std::string_view cog_script = "res://opening/native_cog_check.gd";
 constexpr std::string_view endpoint_script = "res://opening/native_transmission_endpoint_check.gd";
 const std::array cases{
+    Case{"arrival-surface-drill", script, "SURFACE DRILL SCENE PASS", 300, surface_drill_fixed, first_plate_values},
     Case{"arrival-first-plate", script, "CHAPTER 1 SCENE EVENTS PASS: arrival-first-plate",
          180, first_plate_fixed, first_plate_values},
     Case{"arrival-first-plate-press", script,

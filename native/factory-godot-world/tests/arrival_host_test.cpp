@@ -52,7 +52,7 @@ void arrival_projection_contract() {
                   get<bool>(V(options), "manual_sources") &&
                   get<I>(V(get<O>(V(complete), "material_mass")), "accounted_mass") ==
                       get<I>(V(get<O>(V(complete), "material_mass")), "initial_mass") &&
-                  get<O>(V(complete), "hand_sources").contains("opening-copper"),
+                  get<O>(V(complete), "hand_sources").contains("ore-column:0:0"),
               "The arrival profile identifies its finite hand sources and copper mass ledger.");
         for (const char* name : {"material_mass", "hand_sources"}) {
             auto missing = complete;
@@ -70,9 +70,9 @@ void arrival_projection_contract() {
         const auto invalid_source = [&](const char* field, V bad) {
             auto malformed = complete;
             auto sources = get<O>(V(malformed), "hand_sources");
-            auto ore = get<O>(V(sources), "opening-copper");
+            auto ore = get<O>(V(sources), "ore-column:0:0");
             ore[field] = std::move(bad);
-            sources.at("opening-copper") = V(std::move(ore));
+            sources.at("ore-column:0:0") = V(std::move(ore));
             malformed.at("hand_sources") = V(std::move(sources));
             return !factory::godot_world::projection_contract::complete(V(malformed));
         };
@@ -96,7 +96,7 @@ void arrival_projection_contract() {
         check(get<bool>(bounded_init, "accepted") &&
                   get<bool>(bounded.configure_terrain(bounded_site), "accepted") &&
                   factory::godot_world::projection_contract::complete(bounded.projection()) &&
-                  get<A>(get<O>(bounded.projection(), "hand_sources").at("opening-copper"),
+                  get<A>(get<O>(bounded.projection(), "hand_sources").at("ore-column:0:0"),
                       "contact_bounds").size() == 2,
               "A configured ore contact hull retains its floating world bounds in the complete view.");
         for (const char* name : {"supplied_hardware_boxes", "landing_pod",
@@ -187,9 +187,9 @@ void arrival_projection_contract() {
             auto malformed = ready_view;
             auto actors = get<O>(V(malformed), "actors");
             auto actor = get<O>(actors.at("P"), "harvest_clear");
-            if (std::string_view(mode) == "missing") actor.erase("opening-copper");
+            if (std::string_view(mode) == "missing") actor.erase("ore-column:0:0");
             if (std::string_view(mode) == "extra") actor.emplace("invented-source", V(true));
-            if (std::string_view(mode) == "mistyped") actor.at("opening-copper") = V("clear");
+            if (std::string_view(mode) == "mistyped") actor.at("ore-column:0:0") = V("clear");
             auto record = std::get<O>(actors.at("P").storage());
             record.at("harvest_clear") = V(std::move(actor));
             actors.at("P") = V(std::move(record));
@@ -225,12 +225,13 @@ void arrival_projection_and_restore() {
           !std::get<O>(view.storage()).contains("freight_beacon"),
           "Fresh arrival has no shipment entity or completed actor goal.");
     const auto trees = get<O>(view, "hand_sources");
-    const auto ore = trees.at("opening-copper");
+    const auto ore = trees.at("ore-column:0:0");
     const auto deposit = get<O>(view, "source_deposit");
     check(get<I>(view, "initial_feed") == 4096 && get<I>(V(deposit), "initial_units") == 4096 &&
           get<I>(V(get<O>(view, "stock")), "source") == 4096 &&
-          get<I>(ore, "initial") == 4096 && get<I>(ore, "remaining") == 4096,
-          "The ordinary fresh arrival exposes one finite 4096-unit source through every native projection.");
+          get<I>(ore, "initial") == get<I>(ore, "remaining") && get<I>(ore, "initial") > 0 &&
+          trees.size() == 1612 && !trees.contains("opening-copper"),
+          "The ordinary fresh arrival exposes local columns whose finite total is 4096 units.");
     const auto south = get<A>(trees.at("tree-east-south"), "position");
     const auto north = get<A>(trees.at("tree-east-north"), "position");
     const auto upstream = get<A>(trees.at("tree-east-upstream"), "position");
@@ -242,7 +243,7 @@ void arrival_projection_and_restore() {
           std::abs(std::get<double>(upstream[2].storage()) + 1.65) < 1e-8,
           "Finite east timber sites include a separate upstream tree for the constructed plate route.");
     const auto recipes = get<O>(view, "component_recipes");
-    check(recipes.size() == 18 && get<I>(view, "component_capacity") == 0 &&
+    check(recipes.size() == 20 && get<I>(view, "component_capacity") == 0 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
           get<I>(recipes.at("wooden_frame"), "copper") == 0 &&
           get<I>(recipes.at("wooden_workbench"), "timber") == 4 &&
@@ -681,7 +682,7 @@ void fabricated_transmission_stock_is_finite() {
     for (int index = 0; index < 3; ++index) {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
             {"request", V("ore-" + std::to_string(index))}, {"action", V("harvest_source")},
-            {"target", V("opening-copper")}};
+            {"target", V(factory::godot_world::tests::reachable_ore(host,"P"))}};
         check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut), "accepted"),
               "Each route clasp input comes from the finite native deposit.");
     }
@@ -785,7 +786,7 @@ void arrival_cog_sizes_require_finished_plates() {
     for (int index = 0; index < 2; ++index) {
         const O cut{{"context", V("arrival-site")}, {"client", V("P")},
             {"request", V("cog-copper-" + std::to_string(index))},
-            {"action", V("harvest_source")}, {"target", V("opening-copper")}};
+            {"action", V("harvest_source")}, {"target", V("ore-column:0:0")}};
         check(get<bool>(factory::godot_world::tests::complete_manual_cut(host, "P", cut), "accepted"),
               "The finite outcrop supplies raw copper only.");
     }

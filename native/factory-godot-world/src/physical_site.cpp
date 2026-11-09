@@ -1,4 +1,6 @@
+#include "factory/surface_drill.hpp"
 #include "factory/physical_site.hpp"
+#include "factory/ore_column_target.hpp"
 
 #include "component_geometry.hpp"
 #include "physical_geometry.hpp"
@@ -177,7 +179,20 @@ const char* component_refusal(const Site& site, const world::State& state,
     const auto& at = volume.center;
     const auto ground = site.terrain.range(at[0], at[2], volume.half[0], volume.half[2]);
     if (!ground) return "terrain_unavailable";
-    if (ground->second > at[1] - volume.half[1]) return "site_occupied";
+    if (ground->second > at[1] - volume.half[1] + 1e-9) return "site_occupied";
+    if (kind == materials::Component::drill_head && !world::surface_drill::supported(state, center))
+        return "support_required";
+    if (kind == materials::Component::stationary_mount) {
+        // Four small foot pads must reach actual ground within one H. The
+        // central excavation does not remove their support.
+        for (int dx : {-1, 1}) for (int dz : {-1, 1}) {
+            const auto pad = site.terrain.range(at[0] + dx*site_geometry::pitch, at[2] + dz*site_geometry::pitch,
+                height_step*0.5, height_step*0.5);
+            const double floor = center[1]*height_step;
+            if (!pad || pad->second > floor + 1e-9 || pad->first < floor-height_step-1e-9)
+                return "support_required";
+        }
+    }
     if (kind && materials::channel_spec(*kind) && center[1] == 0 &&
         ground->first < at[1] - volume.half[1] - 0.04)
         return "support_required";
@@ -234,6 +249,7 @@ const char* component_space_refusal(const Site& site, const world::State& state,
     }
     for (const auto& [id, other] : state.placed_components)
         if ((!current_id || id != *current_id) &&
+            !(kind && world::surface_drill::fitting(*kind, center, other.kind, other.center)) &&
             !slide_head_fitting(kind, center, other.kind, other.center) &&
             !frame_anvil_fitting(kind, center, other.kind, other.center) &&
             !workbed_tray_fitting(kind, center, other.kind, other.center) &&
@@ -335,7 +351,8 @@ std::vector<std::pair<authority::Point, authority::Point>> build_solid_boxes(
     };
     for (const auto& [id, part] : state.placed_components) {
         (void)id;
-        append_bounds(component_bounds(site.profile, part.kind, part.center));
+        for (const auto& solid : component_geometry::component_solids(site.profile, part.kind, part.center))
+            append_bounds(solid);
     }
     for (const auto& part : state.topology.parts)
         append_bounds(part_bounds(site.profile, part));
@@ -367,6 +384,7 @@ bool harvest_path_clear_boxes(const Site& site, const world::State& state,
         return entry <= exit && entry < 1.0 - 1e-6 && exit > 1e-6;
     };
     for (std::size_t index = 0; index < site.terrain.obstacles.size(); ++index) {
+        if (site.terrain.excavated && site.terrain.source_obstacle == index) continue;
         if (site.terrain.source_obstacle == index && site.profile.material.manual_ore &&
             (site.profile.material.manual_ore->id == source ||
                 world::ore_region_index(site.profile, source) ==
@@ -398,6 +416,24 @@ bool harvest_path_clear(const Site& site, const world::State& state,
     return harvest_path_clear_boxes(site, state, build_solid_boxes(site, state), source, actor, contact);
 }
 
+std::optional<authority::Point> harvest_contact(const Site& site,const world::State& state,
+        const std::string& source,const authority::Point& actor) {
+    const auto tree=site.profile.material.timber_sites.find(source);
+    if (tree!=site.profile.material.timber_sites.end())
+        return world::manual_cut_target(site.profile,tree->second.center,actor,false);
+    if (site.profile.excavation) {
+        if (!state.excavation) return std::nullopt;
+        const auto selected=world::ore_columns::resolve_target(*site.profile.excavation,
+            *state.excavation,state.material,source,actor);
+        return selected.target ? std::optional{selected.target->reach_point}:std::nullopt;
+    }
+    if (!site.profile.material.manual_ore) return std::nullopt;
+    const auto region=world::ore_region_index(site.profile,source);
+    if (source==site.profile.material.manual_ore->id)
+        return world::manual_cut_target(site.profile,site.profile.material.manual_ore->center,actor,true);
+    return region ? std::optional{world::ore_region_cut_target(site.profile,*region,actor)}:std::nullopt;
+}
+
 std::map<std::string, bool> harvest_clearances(const Site& site,
         const world::State& state, const authority::Point& actor) {
     const auto solid_boxes = build_solid_boxes(site, state);
@@ -406,7 +442,35 @@ std::map<std::string, bool> harvest_clearances(const Site& site,
         const auto contact = world::manual_cut_target(site.profile, center, actor, ore);
         clear.emplace(id, harvest_path_clear_boxes(site, state, solid_boxes, id, actor, contact));
     };
-    if (site.profile.material.manual_ore)
+    if (site.profile.excavation && state.excavation) {
+        const double reach=site.profile.manual_cut_reach>0 ? site.profile.manual_cut_reach:site.profile.build_reach;
+        const auto& seed=*site.profile.excavation;
+        std::vector<std::string> candidates;
+        for (const auto& [cell,column]:*state.excavation) {
+            if (column.initial_units==0) continue;
+            const auto id=world::ore_columns::target_id(cell);
+            const auto bounds=excavation::surface(seed.grid,cell,column);
+            if (!bounds || column.remaining_units==0) { clear.emplace(id,false); continue; }
+            const double depth=seed.grid.height_step/seed.grid.units_per_step;
+            const double dx=actor[0]-std::clamp(actor[0],bounds->min_x,bounds->max_x);
+            const double dy=actor[1]-std::clamp(actor[1],bounds->floor-depth,bounds->floor);
+            const double dz=actor[2]-std::clamp(actor[2],bounds->min_z,bounds->max_z);
+            // Broad phase only: any possibly reachable bite still goes through
+            // full native face, contact, retained-ground and solid occlusion.
+            if (std::hypot(dx,dy,dz)>reach) { clear.emplace(id,false); continue; }
+            candidates.push_back(id);
+        }
+        const auto contacts=world::ore_columns::resolve_targets(seed,*state.excavation,
+            state.material,candidates,actor);
+        for(std::size_t index=0;index<candidates.size();++index) {
+            const auto& id=candidates[index];
+            const auto& target=contacts[index].target;
+            const auto contact=target ? std::optional{target->reach_point}:std::nullopt;
+            const bool in_reach=contact && std::hypot((*contact)[0]-actor[0],
+                (*contact)[1]-actor[1],(*contact)[2]-actor[2])<=reach;
+            clear.emplace(id,in_reach && harvest_path_clear_boxes(site,state,solid_boxes,id,actor,*contact));
+        }
+    } else if (site.profile.material.manual_ore)
         examine(site.profile.material.manual_ore->id, site.profile.material.manual_ore->center, true);
     if (site.profile.ore_field && site.profile.material.manual_ore)
         for (mineral_site::Integer region = 0;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "factory/ore_columns.hpp"
+
 #include "factory/assembly.hpp"
 #include "factory/foundation_command_contract.hpp"
 #include "factory/mineral_site.hpp"
@@ -76,6 +78,7 @@ struct Profile {
     // Arrival uses one field reserve partitioned into local native regions.
     // Fixtures without a field retain their one-source material profile.
     bool ore_field{};
+    std::optional<ore_columns::Seed> excavation;
 };
 
 [[nodiscard]] authority::Point manual_cut_target(const Profile&, const materials::DropPoint& center,
@@ -193,6 +196,7 @@ inline constexpr authority::Integer slide_cycle_subticks =
         case materials::Component::wooden_cog:
         case materials::Component::tool_mount:
         case materials::Component::wooden_slide: return 8;
+        case materials::Component::drill_head:
         case materials::Component::copper_shaft:
         case materials::Component::copper_cog:
         case materials::Component::copper_slide:
@@ -204,6 +208,7 @@ inline constexpr authority::Integer slide_cycle_subticks =
 struct State {
     materials::State material;
     std::optional<mineral_site::FieldStock> ore_field;
+    std::optional<ore_columns::Field> excavation;
     stationary::Topology topology;
     std::map<std::string, stationary::Kit> kits;
     // Removed identities remain issued. Rebuilding allocates a new identity,

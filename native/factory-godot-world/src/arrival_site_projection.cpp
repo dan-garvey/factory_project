@@ -69,7 +69,12 @@ Object fields(const world::Profile& profile, const world::State& state) {
     Object placed;
     for (const auto& [id, component] : state.placed_components) {
         const auto occupied = component_geometry::component_bounds(profile, component.kind, component.center);
+        Array collision;
+        for (const auto& solid : component_geometry::component_solids(profile, component.kind, component.center))
+            collision.emplace_back(Object{{"center", point_value(solid.center)},
+                {"half", point_value(solid.half)}});
         Object part{{"component", Value(materials::component_name(component.kind))},
+            {"collision", Value(std::move(collision))},
             {"generation", Value(component.generation)},
             {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
                 Value(component.center[2])})},

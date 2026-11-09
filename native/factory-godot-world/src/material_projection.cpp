@@ -1,5 +1,9 @@
 #include "material_projection.hpp"
+#include "factory/ore_column_target.hpp"
+#include "factory/mineral_site.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -104,6 +108,51 @@ Object slide_phase_projection(const world::State& state) {
             {"cycle_subticks", Value(world::slide_cycle_subticks)}}));
     return phases;
 }
+
+// Cosmetic surface exposures retain their authored layout. Their balances and
+// cut mask are read from columns, never additional harvesting targets or stock.
+static Value ore_surface(const world::Profile& profile,const world::State& state) {
+    const auto& grid=profile.excavation->grid;
+    std::array<Integer,mineral_site::field_region_count> initial{},remaining{};
+    excavation::Cell low{},high{};
+    bool first=true;
+    for(const auto& [cell,column]:*state.excavation) {
+        if(column.initial_units==0)continue;
+        if(first){low=high=cell;first=false;}
+        low.x=std::min(low.x,cell.x);low.z=std::min(low.z,cell.z);
+        high.x=std::max(high.x,cell.x);high.z=std::max(high.z,cell.z);
+        const auto pitch=mineral_site::field_pitch_meters;
+        const mineral_site::Cell coarse{
+            static_cast<Integer>(std::floor((grid.origin[0]+(cell.x+.5)*grid.pitch)/pitch+.5)),
+            static_cast<Integer>(std::floor((grid.origin[2]+(cell.z+.5)*grid.pitch)/pitch+.5))};
+        if(const auto region=mineral_site::field_region(coarse)) {
+            initial[*region]+=column.initial_units;remaining[*region]+=column.remaining_units;
+        }
+    }
+    Array cells,regions_by_cell,regions,cut_cells;
+    const auto& id=profile.material.manual_ore->id;
+    for(Integer x=mineral_site::field_min.x;x<=mineral_site::field_max.x;++x)
+    for(Integer z=mineral_site::field_min.z;z<=mineral_site::field_max.z;++z) {
+        cells.emplace_back(Array{Value(x),Value(z)});
+        regions_by_cell.emplace_back(id+"-region-"+std::to_string(*mineral_site::field_region({x,z})));
+    }
+    for(Integer region=0;region<mineral_site::field_region_count;++region) {
+        const auto cell=*mineral_site::field_exposure_cell(region);
+        regions.emplace_back(Object{{"id",Value(id+"-region-"+std::to_string(region))},
+            {"position",point_value({cell.x*mineral_site::field_pitch_meters,0,cell.z*mineral_site::field_pitch_meters})},
+            {"initial",Value(initial[region])},{"remaining",Value(remaining[region])}});
+    }
+    for(const auto& [cell,column]:*state.excavation)
+        if(column.remaining_units<column.initial_units)
+            cut_cells.emplace_back(Array{Value(cell.x-low.x),Value(cell.z-low.z)});
+    return Value(Object{{"id",Value(id)},{"cells",Value(std::move(cells))},
+        {"cell_regions",Value(std::move(regions_by_cell))},{"regions",Value(std::move(regions))},
+        {"cell_pitch",Value(mineral_site::field_pitch_meters)},
+        {"cut_origin",Value(Array{Value(grid.origin[0]+low.x*grid.pitch),Value(grid.origin[2]+low.z*grid.pitch)})},
+        {"cut_pitch",Value(grid.pitch)},
+        {"cut_size",Value(Array{Value(high.x-low.x+1),Value(high.z-low.z+1)})},
+        {"cut_cells",Value(std::move(cut_cells))}});
+}
 Object tick_fields(const world::Profile& profile, const world::Snapshot& snapshot) {
     const auto& state = snapshot.state;
     const bool copper = copper_forms(profile.material);
@@ -120,6 +169,20 @@ Object tick_fields(const world::Profile& profile, const world::Snapshot& snapsho
     for (const auto& [point, contents] : state.material.dropped_material) {
         auto drop = std::get<Object>(cargo_value(contents, false, copper).storage());
         drop.emplace("center", Value(Array{Value(point[0]), Value(point[1]), Value(point[2])}));
+        if (contents.raw_units > 0 && profile.excavation && state.excavation) {
+            const auto& grid = profile.excavation->grid;
+            const double x = point[0] * profile.meters_per_grid_unit + profile.anchor_offset[0];
+            const double z = point[2] * profile.meters_per_grid_unit + profile.anchor_offset[2];
+            const excavation::Cell cell{Integer(std::floor((x-grid.origin[0])/grid.pitch)),
+                Integer(std::floor((z-grid.origin[2])/grid.pitch))};
+            const auto column = state.excavation->find(cell);
+            if (column != state.excavation->end() && column->second.remaining_units < column->second.initial_units) {
+                const auto face = excavation::surface(grid, cell, column->second);
+                const double y = point[1] * profile.meters_per_grid_unit + profile.anchor_offset[1];
+                if (face && std::abs(y - face->floor) <= profile.meters_per_grid_unit)
+                    drop.emplace("ground_position", point_value({x, face->floor, z}));
+            }
+        }
         dropped_material.emplace_back(std::move(drop));
     }
     Object belt_spans;
@@ -159,6 +222,8 @@ Object tick_fields(const world::Profile& profile, const world::Snapshot& snapsho
         {"dropped_material", Value(std::move(dropped_material))},
         {"stock", Value(std::move(stock_fields))},
         {"remaining", Value(state.material.processing ? state.material.processing->remaining_ticks : 0)}};
+    if(profile.excavation && state.excavation && profile.material.manual_ore)
+        fields.emplace("ore_surface",ore_surface(profile,state));
     if (state.landing_pod) fields.emplace("slide_phases", Value(slide_phase_projection(state)));
     if (copper) fields.emplace("material_mass", material_mass_value(state.material, profile.material));
     if (profile.material.manual_ore) {
@@ -173,6 +238,25 @@ Object tick_fields(const world::Profile& profile, const world::Snapshot& snapsho
             sources.emplace(id, Value(Object{{"kind", Value("tree")},
                 {"position", site_position(site.center)}, {"initial", Value(site.initial)},
                 {"remaining", Value(state.material.timber_remaining.at(id))}}));
+        if (profile.excavation && state.excavation) {
+            const bool valid=world::ore_columns::validate(*profile.excavation,
+                *state.excavation,state.material)==world::ore_columns::Error::none;
+            for (const auto& [cell,column]:*state.excavation) {
+                if (!valid) break;
+                const auto bounds=excavation::surface(profile.excavation->grid,cell,column);
+                if (!bounds || column.initial_units==0) continue;
+                const authority::Point center{(bounds->min_x+bounds->max_x)/2,
+                    bounds->floor,(bounds->min_z+bounds->max_z)/2};
+                const authority::Point low{bounds->min_x,bounds->base,bounds->min_z};
+                const authority::Point high{bounds->max_x,bounds->floor,bounds->max_z};
+                sources.emplace(world::ore_columns::target_id(cell),Value(Object{
+                    {"kind",Value("ore_deposit")},{"position",point_value(center)},
+                    {"cell",Value(Array{Value(cell.x),Value(cell.z)})},
+                    {"initial",Value(column.initial_units)},{"remaining",Value(column.remaining_units)},
+                    {"floor",Value(bounds->floor)},
+                    {"contact_bounds",Value(Array{point_value(low),point_value(high)})}}));
+            }
+        } else {
         const auto& ore = *profile.material.manual_ore;
         Object projected_ore{{"kind", Value("ore_deposit")},
             {"position", site_position(ore.center)}, {"initial", Value(profile.initial_units)},
@@ -203,6 +287,7 @@ Object tick_fields(const world::Profile& profile, const world::Snapshot& snapsho
                 sources.emplace(world::ore_region_id(profile, region),
                     Value(std::move(projected_region)));
             }
+        }
         }
         fields.emplace("hand_sources", Value(std::move(sources)));
     }

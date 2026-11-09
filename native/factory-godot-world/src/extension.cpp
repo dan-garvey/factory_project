@@ -97,7 +97,7 @@ struct EmptyText {
     void* get() { return storage.data(); }
 };
 
-enum class Method { initialize, initialize_arrival, initialize_arrival_advanced_fixture, terrain, command, publish, actor_projection, invalidate, advance, advance_delta, projection, projection_fields, projection_record_fields, checkpoint, restore, validate };
+enum class Method { initialize, initialize_arrival, initialize_arrival_advanced_fixture, terrain, terrain_projection, terrain_query, command, publish, actor_projection, invalidate, advance, advance_delta, projection, projection_fields, projection_record_fields, checkpoint, restore, validate };
 struct Description { const char* name; Method method; std::uint32_t arguments; };
 std::array methods{
     Description{"initialize", Method::initialize, 2},
@@ -105,6 +105,8 @@ std::array methods{
     Description{"initialize_arrival_advanced_fixture", Method::initialize_arrival_advanced_fixture, 2},
     Description{"command", Method::command, 2},
     Description{"configure_terrain", Method::terrain, 1},
+    Description{"terrain_projection", Method::terrain_projection, 1},
+    Description{"terrain_query", Method::terrain_query, 1},
     Description{"publish_actor", Method::publish, 3}, Description{"actor_projection", Method::actor_projection, 1},
     Description{"invalidate_actor", Method::invalidate, 1},
     Description{"advance", Method::advance, 0}, Description{"advance_delta", Method::advance_delta, 0},
@@ -152,6 +154,8 @@ Value invoke(Instance& instance, Method method, const std::vector<Value>& args) 
     }
     switch (method) {
         case Method::terrain: return host.configure_terrain(typed<Object>(args, 0));
+        case Method::terrain_query: return host.terrain_query(typed<Value::Array>(args, 0));
+        case Method::terrain_projection: return host.terrain_projection(typed<Value::Integer>(args, 0));
         case Method::initialize:
         case Method::initialize_arrival:
         case Method::initialize_arrival_advanced_fixture: {

@@ -1,6 +1,7 @@
 #include "component_geometry.hpp"
 
 #include "factory/site_geometry_contract.hpp"
+#include <cmath>
 
 namespace factory::godot_world::component_geometry {
 namespace {
@@ -60,6 +61,12 @@ Bounds component_bounds(const world::Profile& profile,
             }
     }
     switch (*kind) {
+        case materials::Component::stationary_mount:
+            return {{at[0], center[1] * height_step + pitch * 0.5, at[2]},
+                {pitch * 1.5, pitch * 0.5, pitch * 1.5}};
+        case materials::Component::drill_head:
+            return {{at[0], at[1] - height_step, at[2]},
+                {pitch * 0.5, pitch * 0.5, pitch * 0.5}};
         case materials::Component::wooden_frame:
             // Every issued frame keeps the same half-U body at any cell.
             return {{at[0], center[1] * height_step + 0.45 * press_scale, at[2]},
@@ -138,4 +145,43 @@ Bounds component_bounds(const world::Profile& profile,
     }
 }
 
+std::vector<Bounds> component_solids(const world::Profile& profile,
+        materials::Component kind, const mechanics::Point& center) {
+    if (kind == materials::Component::drill_head) {
+        const double x = center[0] * height_step, y = (center[1]-1)*height_step,
+            z = center[2] * height_step;
+        std::vector<Bounds> out{{{x, y + pitch*.42, z}, {pitch*.33, pitch*.18, pitch*.33}},
+            {{x, y + pitch*.84, z}, {pitch*.10, pitch*.425, pitch*.10}}};
+        // The cutter's downward reach is real geometry. Open sides below its
+        // drum expose the loose ore; the whole occupied cube is not a wall.
+        for (int i=0; i<8; ++i) {
+            const double a=i*std::acos(-1.0)/4;
+            out.push_back({{x+std::cos(a)*pitch*.29,y+pitch*.05,z+std::sin(a)*pitch*.29},
+                {pitch*.09,pitch*.30,pitch*.09}});
+        }
+        return out;
+    }
+    if (kind != materials::Component::stationary_mount)
+        return {component_bounds(profile, kind, center)};
+    const double x = center[0] * height_step, y = center[1] * height_step,
+        z = center[2] * height_step;
+    std::vector<Bounds> out;
+    for (int sx : {-1, 1}) for (int sz : {-1, 1})
+        out.push_back({{x+sx*pitch,y-pitch*.105,z+sz*pitch},
+            {pitch*.15,pitch*.145,pitch*.15}});
+    // Short stepped boxes approximate each splayed leg without filling the
+    // central pickup opening or the entire reserved three-unit footprint.
+    for (int sx : {-1, 1}) for (int sz : {-1, 1})
+        for (int step = 0; step < 4; ++step) {
+            const double t = (step + .5) / 4;
+            const double reach = pitch * (1.0 - .65 * t);
+            out.push_back({{x + sx * reach, y + pitch * t, z + sz * reach},
+                {pitch * .15, pitch * .125, pitch * .15}});
+        }
+    for (int side : {-1,1}) {
+        out.push_back({{x,y+pitch*.93,z+side*pitch*.35},{pitch*.425,pitch*.07,pitch*.07}});
+        out.push_back({{x+side*pitch*.35,y+pitch*.93,z},{pitch*.07,pitch*.07,pitch*.425}});
+    }
+    return out;
+}
 }  // namespace factory::godot_world::component_geometry

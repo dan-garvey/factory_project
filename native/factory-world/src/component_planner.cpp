@@ -1,3 +1,4 @@
+#include "factory/surface_drill.hpp"
 #include "component_planner.hpp"
 
 #include <algorithm>
@@ -45,6 +46,12 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
     if (!placing && found->second.generation != *generation) return refused("stale_generation", *target);
     const auto center = placing ? *location : found->second.center;
     const auto kind = placing ? *component : found->second.kind;
+    if (placing) {
+        if (const auto* reason = surface_drill::placement_refusal(state, kind, center)) return refused(reason);
+    } else if (kind == materials::Component::stationary_mount &&
+        std::any_of(state.placed_components.begin(), state.placed_components.end(), [&](const auto& entry) {
+            return surface_drill::fitting(kind, center, entry.second.kind, entry.second.center);
+        })) return refused("tool_on_mount");
     const auto channel = materials::channel_spec(kind);
     const auto area_cells = materials::component_workcells(kind, center);
     const bool broad = kind == materials::Component::broad_anvil ||

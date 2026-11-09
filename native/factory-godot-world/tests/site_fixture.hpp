@@ -35,6 +35,27 @@ inline values::Value::Object channel_site() {
                 water(-8, 0), water(-8, 4), water(-4, 0), water(-4, 4)})}};
 }
 
+// Setup acquires an actual reachable column each time; no legacy source alias
+// enters the wire and no actor position or native stock is fabricated.
+inline std::string reachable_ore(Host& host, const std::string& actor, const std::string& operation = {}) {
+    using V = values::Value;
+    const auto view = std::get<V::Object>(host.projection().storage());
+    const auto& sources = std::get<V::Object>(view.at("hand_sources").storage());
+    const auto observation = std::get<V::Object>(host.actor_projection(actor).storage());
+    const auto& clear = std::get<V::Object>(observation.at("harvest_clear").storage());
+    std::string selected;
+    V::Integer highest = -1;
+    for (const auto& [id, source] : sources) {
+        if (!id.starts_with("ore-column:") || !clear.contains(id) ||
+                !std::get<bool>(clear.at(id).storage())) continue;
+        const auto& fields = std::get<V::Object>(source.storage());
+        const auto remaining = std::get<V::Integer>(fields.at("remaining").storage());
+        if (remaining > highest) { selected = id; highest = remaining; }
+    }
+    if (selected.empty()) throw std::runtime_error(operation + ": no actual ore column is reachable for fixture setup.");
+    return selected;
+}
+
 // Setup consumers complete real native time before spending harvested stock.
 // Timing and interruption assertions live in harvest_host_test.cpp.
 inline values::Value complete_manual_cut(Host& host, const std::string& actor,

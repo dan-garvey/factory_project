@@ -1,4 +1,5 @@
 #include "factory/checkpoint.hpp"
+#include "factory/ore_columns_codec.hpp"
 #include "factory/material_state_codec.hpp"
 
 #include <algorithm>
@@ -118,6 +119,11 @@ Value profile_value(const Profile& profile) {
         {"meters_per_grid_unit", Value(profile.meters_per_grid_unit)},
         {"anchor_offset", Value(Array{Value(profile.anchor_offset[0]), Value(profile.anchor_offset[1]), Value(profile.anchor_offset[2])})},
         {"build_reach", Value(profile.build_reach)}};
+    if (profile.excavation) {
+        const auto seed = ore_columns::encode_seed(*profile.excavation);
+        if (!seed) refuse(CheckpointReason::profile_mismatch, "$.profile.excavation");
+        output.emplace("excavation", *seed);
+    }
     if (profile.ore_field) {
         output.emplace("ore_field", Value(true));
         Array exposures;
@@ -341,6 +347,16 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"next_entity_serial", Value(snapshot.state.next_entity_serial)},
                 {"manual_cuts", Value(std::move(manual_cuts))},
                 {"developer_conveniences", Value(snapshot.state.developer_conveniences)}})}});
+        if (profile.excavation) {
+            const auto encoded = snapshot.state.excavation ? ore_columns::encode_field(
+                *profile.excavation, *snapshot.state.excavation, snapshot.state.material) : std::nullopt;
+            if (!encoded) refuse(CheckpointReason::invalid_world, "$.state.excavation");
+            auto root = std::get<Object>(output.storage());
+            auto state = std::get<Object>(root.at("state").storage());
+            state.emplace("excavation", *encoded);
+            root.at("state") = Value(std::move(state));
+            output = Value(std::move(root));
+        }
         if (profile.ore_field) {
             Array regions;
             for (const auto remaining : snapshot.state.ore_field->remaining)
@@ -505,13 +521,19 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         if (!history.history) refuse(CheckpointReason::invalid_history, "$.history");
         candidate.history = std::move(*history.history);
         if (candidate.history.context != expected_context) refuse(CheckpointReason::wrong_context, "$.history.context");
-        const auto& state = profile.ore_field ? fields(root.at("state"), "$.state",
+        auto shaped_state = root.at("state");
+        if (profile.excavation) {
+            auto fields = object(shaped_state, "$.state");
+            if (fields.erase("excavation") != 1) refuse(CheckpointReason::invalid_world, "$.state.excavation");
+            shaped_state = Value(std::move(fields));
+        }
+        const auto& state = profile.ore_field ? fields(shaped_state, "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "ore_regions", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
-            profile.landing_pod_center ? fields(root.at("state"), "$.state",
+            profile.landing_pod_center ? fields(shaped_state, "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
-            profile.foundation_parts > 0 ? fields(root.at("state"), "$.state",
+            profile.foundation_parts > 0 ? fields(shaped_state, "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits"}) :
-            fields(root.at("state"), "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences"});
+            fields(shaped_state, "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences"});
         candidate.state.developer_conveniences = scalar<bool>(state.at("developer_conveniences"),
             "$.state.developer_conveniences");
         const auto& cut_records = object(state.at("manual_cuts"), "$.state.manual_cuts");
@@ -759,6 +781,13 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         if (!std::holds_alternative<materials::State>(material))
             refuse(CheckpointReason::invalid_material, "$.state.material");
         candidate.state.material = std::move(std::get<materials::State>(material));
+        if (profile.excavation) {
+            const auto& original = object(root.at("state"), "$.state");
+            const auto columns = ore_columns::decode_field(*profile.excavation,
+                original.at("excavation"), candidate.state.material);
+            if (!columns) refuse(CheckpointReason::invalid_world, "$.state.excavation");
+            candidate.state.excavation = *columns;
+        }
         if (profile.ore_field) {
             const auto& regions = array(state.at("ore_regions"), "$.state.ore_regions",
                 mineral_site::field_region_count);

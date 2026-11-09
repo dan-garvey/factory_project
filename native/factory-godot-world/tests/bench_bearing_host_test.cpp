@@ -137,11 +137,11 @@ void bench_requires_ground_bearing() {
     const auto validation = changed_site.validate_checkpoint(saved);
     const auto restoration = changed_site.restore_checkpoint(saved);
     check(!get<bool>(validation, "accepted") &&
-          get<std::string>(validation, "reason") == "support_required" &&
+          get<std::string>(validation, "reason") == "native_checkpoint_refused" &&
           !get<bool>(restoration, "accepted") &&
-          get<std::string>(restoration, "reason") == "support_required" &&
+          get<std::string>(restoration, "reason") == "native_checkpoint_refused" &&
           !factory::values::typed_difference(before, changed_site.checkpoint()),
-          "Import refuses a bench whose saved feet lost actual terrain support without mutating state.");
+          "Import refuses changed trusted excavation terrain before admitting saved bench support, without mutating state.");
 }
 }  // namespace
 
