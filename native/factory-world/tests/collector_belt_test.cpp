@@ -149,7 +149,7 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture, g::Integer x_shift = 
     attach.emplace("generation", V(g::Integer{2}));
     attach.emplace("crank", crank.at("crank_id"));
     attach.emplace("crank_generation", crank.at("crank_generation"));
-    attach.emplace("port", V(V::Array{V(g::Integer{-1} + x_shift), V(g::Integer{0}), V(g::Integer{0})}));
+    attach.emplace("port", V(V::Array{V(g::Integer{-2} + x_shift), V(g::Integer{0}), V(g::Integer{0})}));
     accepted(*world, attach);
     auto turn = request("cut-blank", "turn_hand_crank");
     turn.emplace("target", V(drive));
@@ -578,7 +578,7 @@ void hand_collector_cuts_only_its_field_region() {
     attach.emplace("generation", V(g::Integer{2}));
     attach.emplace("crank", V(crank.id));
     attach.emplace("crank_generation", V(crank.generation));
-    attach.emplace("port", V(V::Array{V(g::Integer{15}), V(g::Integer{0}), V(g::Integer{0})}));
+    attach.emplace("port", V(V::Array{V(g::Integer{14}), V(g::Integer{0}), V(g::Integer{0})}));
     accepted(*world, attach);
     const auto blocked_before = world->snapshot();
     auto turn = request("field-receiver-full", "turn_hand_crank");

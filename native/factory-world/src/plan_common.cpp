@@ -36,37 +36,12 @@ bool slide_component(materials::Component kind) {
            kind == materials::Component::broad_copper_slide;
 }
 
-bool crank_input_port(const PlacedComponent& component, const mechanics::Point& port) {
-    const auto& center = component.center;
-    if (component.kind == materials::Component::broad_copper_slide)
-        return port[1] == center[1] &&
-            (port[2] == center[2] || port[2] == center[2] + 4) &&
-            (port[0] == center[0] - 2 || port[0] == center[0] + 6);
-    if (slide_component(component.kind))
-        return assembly::small_slide_external_node(center, -1) == port ||
-            assembly::small_slide_external_node(center, 1) == port;
-    // Collector mounts and routed shafts expose their embodied spindle at
-    // their own grid anchor. The crank is visually cantilevered from it.
-    return (component.kind == materials::Component::tool_mount ||
-        component.kind == materials::Component::wooden_shaft ||
-        component.kind == materials::Component::copper_shaft) && port == center;
-}
-
 bool crank_face_on_axis(const mechanics::Point& face, mechanics::Axis axis) {
     const auto index = static_cast<std::size_t>(axis);
     if (std::abs(face[index]) != 1) return false;
     for (std::size_t other = 0; other < face.size(); ++other)
         if (other != index && face[other] != 0) return false;
     return true;
-}
-
-mechanics::Point crank_face_from_actor(const Profile& profile,
-        const authority::Point& actor, const mechanics::Point& port,
-        mechanics::Axis axis) {
-    mechanics::Point face{};
-    const auto index = static_cast<std::size_t>(axis);
-    face[index] = actor[index] < anchor(profile, port)[index] ? -1 : 1;
-    return face;
 }
 
 bool manual_input_available(const mechanics::Motion& motion) {
@@ -90,26 +65,6 @@ bool has_self_powered_source(const DrivePower& power,
             return std::find(connected->parts.begin(), connected->parts.end(), source.hub) !=
                 connected->parts.end();
         });
-}
-
-bool slide_input_port_clear(const State& state, const std::string& slide,
-        const mechanics::Point& port) {
-    for (const auto& [id, crank] : state.crank_items) {
-        (void)id;
-        if (crank.port == port && crank.attached_to != slide) return false;
-    }
-    for (const auto& [id, component] : state.placed_components)
-        if (id != slide && component.center == port) return false;
-    for (const auto& part : state.topology.parts) {
-        const auto& geometry = part.geometry;
-        if (geometry.center[1] == port[1] && geometry.center[2] == port[2] &&
-            (geometry.center == port ||
-             (geometry.kind == mechanics::Kind::shaft &&
-              geometry.axis == mechanics::Axis::x &&
-              std::abs(geometry.center[0] - port[0]) <= geometry.half_span)))
-            return false;
-    }
-    return true;
 }
 
 std::optional<bool> hand_slide_contact(const State::SlidePhase& before,
@@ -159,11 +114,10 @@ Value slide_phase_value(const State::SlidePhase& phase) {
         {"denominator", Value(phase.denominator)}});
 }
 
-bool has_attached_crank(const State& state, const std::string& input,
-        const mechanics::Point& port) {
+bool has_attached_crank(const State& state, const std::string& input) {
     return std::any_of(state.crank_items.begin(), state.crank_items.end(),
         [&](const auto& entry) {
-            return entry.second.attached_to == input && entry.second.port == port;
+            return entry.second.attached_to == input;
         });
 }
 

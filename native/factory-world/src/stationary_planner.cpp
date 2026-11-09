@@ -219,6 +219,10 @@ Owner::Decision plan_stationary(const Profile& profile, const Binding& binding,
             auto& ready = std::get<stationary::PreparedRemoval>(proposal);
             candidate.topology = std::move(ready.candidate);
             candidate.kits.at(binding.actor) = std::move(ready.candidate_kit);
+            for (auto& [id, crank] : candidate.crank_items) {
+                (void)id;
+                if (crank.attached_to == entity) crank.attached_to.reset();
+            }
         } else if (command.action == Action::set_drive) {
             if (selected->role != Role::waterwheel) return refused("unsupported_target", entity);
             candidate.topology.drive_enabled = *command.enabled;

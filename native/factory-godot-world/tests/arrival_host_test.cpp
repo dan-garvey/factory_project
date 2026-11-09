@@ -460,11 +460,10 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
          {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}});
     check(get<bool>(slide, "accepted"), "The slide body spends its own crafted item.");
     const auto slide_id = get<std::string>(slide, "entity");
-    const auto input_ports = get<A>(V(get<O>(restored.projection(), "placed_components").at(slide_id)),
-        "input_ports");
+    const auto input_ports = get<A>(get<O>(restored.projection(), "rotary_ports").at(slide_id), "ports");
     check(input_ports.size() == 2, "The installed slide exposes two native crank ends.");
-    const auto west_port = std::get<A>(input_ports.front().storage());
-    const auto east_port = std::get<A>(input_ports.back().storage());
+    const auto west_port = get<A>(input_ports.front(), "position");
+    const auto east_port = get<A>(input_ports.back(), "position");
     check(std::get<I>(west_port[0].storage()) < 12 &&
           std::get<I>(east_port[0].storage()) > 12,
           "The projected input ends flank the installed slide on its X axis.");
@@ -478,8 +477,7 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
         {"port", V(east_port)}};
     const auto fitted = resumed("attach-first", "attach_hand_crank", attach);
     check(get<bool>(fitted, "accepted") && get<std::string>(fitted, "entity") == first_id &&
-          get<I>(get<O>(restored.projection(), "placed_components").at(slide_id),
-              "crank_axis") == 0 &&
+          get<bool>(input_ports.back(), "hand_crank") &&
           get<std::string>(get<O>(restored.projection(), "crank_items").at(first_id),
               "attached_to") == slide_id &&
           !factory::values::typed_difference(

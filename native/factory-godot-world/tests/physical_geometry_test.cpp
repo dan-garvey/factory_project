@@ -107,16 +107,19 @@ void component_fit_and_belts() {
           !geometry::workbed_tray_fitting(Component::anvil, {0, 0, 0},
                                          Component::receiver_tray, {2, 0, 0}),
           "Only a named low receiver fits under either open workbed edge.");
-    check(geometry::shaft_meets_slide_input(Component::wooden_slide, {0, 2, 0},
-                                            {4, 2, 0}, Axis::x) &&
-          geometry::shaft_meets_slide_input(Component::wooden_slide, {0, 4, 0},
-                                            {-4, 4, 0}, Axis::x) &&
-          !geometry::shaft_meets_slide_input(Component::wooden_slide, {0, 2, 0},
-                                             {1, 2, 0}, Axis::x) &&
-          !geometry::shaft_meets_slide_input(Component::wooden_slide, {0, 2, 0},
-                                             {4, 2, 0}, Axis::z) &&
-          !geometry::shaft_meets_slide_input(Component::wooden_slide, {0, 2, 0},
-                                             {4, 4, 0}, Axis::x),
+    const auto slide_connection = [](factory::mechanics::Point slide,
+            factory::mechanics::Point shaft, Axis axis) {
+        factory::world::State state;
+        state.placed_components.emplace("slide", factory::world::PlacedComponent{
+            Component::wooden_slide, slide, 1});
+        return factory::world::rotary_connection(factory::world::drive_power({}, state), "slide",
+            {"shaft", factory::mechanics::Kind::shaft, shaft, axis, 0, 2});
+    };
+    check(slide_connection({0, 2, 0}, {4, 2, 0}, Axis::x) &&
+          slide_connection({0, 4, 0}, {-4, 4, 0}, Axis::x) &&
+          !slide_connection({0, 2, 0}, {1, 2, 0}, Axis::x) &&
+          !slide_connection({0, 2, 0}, {4, 2, 0}, Axis::z) &&
+          !slide_connection({0, 2, 0}, {4, 4, 0}, Axis::x),
           "Only the slide-height X input may share the full-cell housing.");
     check(geometry::shaft_meets_component_cog(Component::wooden_cog, {0, 0, 0},
                                              {2, 0, 0}, Axis::x),

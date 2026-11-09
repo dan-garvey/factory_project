@@ -18,8 +18,7 @@ using site_geometry::height_denominator;
 using site_geometry::height_step;
 }  // namespace
 
-Object fields(const world::Profile& profile, const world::State& state,
-        const world::DrivePower& power) {
+Object fields(const world::Profile& profile, const world::State& state) {
     Object projection;
     if (!state.landing_pod) return projection;
     const auto& pod = *state.landing_pod;
@@ -80,34 +79,6 @@ Object fields(const world::Profile& profile, const world::State& state,
                 Value(component.center[0] * profile.meters_per_grid_unit + profile.anchor_offset[0]),
                 Value(component.center[1] * profile.meters_per_grid_unit + profile.anchor_offset[1]),
                 Value(component.center[2] * profile.meters_per_grid_unit + profile.anchor_offset[2])})}};
-        if (component.kind == materials::Component::broad_copper_slide) {
-            Array ports;
-            for (const Integer row : {Integer{0}, Integer{4}})
-                for (const Integer x : {component.center[0] - 2, component.center[0] + 6})
-                    ports.emplace_back(Array{Value(x), Value(component.center[1]),
-                        Value(component.center[2] + row)});
-            part.emplace("input_ports", Value(std::move(ports)));
-        } else if (component.kind == materials::Component::wooden_slide ||
-            component.kind == materials::Component::copper_slide) {
-            Array ports;
-            for (const Integer direction : {-1, 1}) {
-                const auto port = assembly::small_slide_external_node(component.center, direction);
-                if (port) ports.emplace_back(Array{Value((*port)[0]),
-                    Value((*port)[1]), Value((*port)[2])});
-            }
-            part.emplace("input_ports", Value(std::move(ports)));
-        } else if (component.kind == materials::Component::tool_mount ||
-            component.kind == materials::Component::wooden_shaft ||
-            component.kind == materials::Component::copper_shaft) {
-            part.emplace("input_ports", Value(Array{Value(Array{
-                Value(component.center[0]), Value(component.center[1]),
-                Value(component.center[2])})}));
-        }
-        if (part.contains("input_ports"))
-            part.emplace("crank_source_available", Value(
-                !world::has_self_powered_source(power, state.topology, id)));
-        if (const auto axis = power.crank_axes.find(id); axis != power.crank_axes.end())
-            part.emplace("crank_axis", Value(static_cast<Integer>(axis->second)));
         placed.emplace(id, Value(std::move(part)));
     }
     projection.emplace("placed_components", Value(std::move(placed)));

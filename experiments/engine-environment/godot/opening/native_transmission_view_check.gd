@@ -2469,7 +2469,7 @@ func _slide_material_seat() -> void:
 		"head": _press_component_record("flat_head", Vector3i(0, 1, 0)),
 		"slide": _press_component_record("wooden_slide", Vector3i(0, 2, 0))}
 	state.crank_items = {"crank": {"id": "crank", "generation": 1,
-		"attached_to": "slide", "port": [4, 2, 0], "face": [1, 0, 0]}}
+		"attached_to": "slide", "port": [2, 2, 0], "face": [1, 0, 0]}}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
 		"status": "ready", "work_center": [0, 0, 0],
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"}}]
@@ -3760,10 +3760,8 @@ func _native_view_cache_regression() -> void:
 		"occupied": {"center": [0.0, 0.0, 0.0], "half": [1.0, 1.0]},
 		"position": [0.0, 0.0, 0.0]}}
 	var wrong_ports := complete.duplicate(true)
-	wrong_ports.placed_components.broken = {"component": "wooden_frame",
-		"generation": 1, "center": [0, 0, 0],
-		"occupied": {"center": [0.0, 0.0, 0.0], "half": [1.0, 1.0, 1.0]},
-		"position": [0.0, 0.0, 0.0], "input_ports": [[1, 2]]}
+	wrong_ports.rotary_ports = {"broken": {"generation": 1, "ports": true,
+		"crank_source_available": true}}
 	var wrong_phase := complete.duplicate(true)
 	wrong_phase.slide_phases = {"broken": {"subticks": 0, "remainder": 0,
 		"denominator": "one", "cycle_subticks": 1}}

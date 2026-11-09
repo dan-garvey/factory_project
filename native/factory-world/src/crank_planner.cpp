@@ -54,11 +54,15 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
             grid_point(Object{{"center", Value(*requested_face_value)}}, 1) : std::nullopt;
         if (requested_face_value && !requested_face) return refused("invalid_crank_face", *id);
         const auto input_id = attaching ? *id : crank->second.attached_to.value_or("");
-        const auto input = state.placed_components.find(input_id);
-        if (!port || (attaching && (input == state.placed_components.end() ||
-            !crank_input_port(input->second, *port))))
+        const auto existing = drive_power(profile, state);
+        const auto socket = port ? rotary_socket(existing, input_id, *port) : std::nullopt;
+        if (!port || (attaching && !socket))
             return refused("not_rotary_input", *id);
-        if (attaching && input->second.generation != *requested_generation)
+        if (attaching && !mechanics::accepts_hand_crank(socket->port))
+            return refused("horizontal_crank_required", *id);
+        const auto generation = state.issued_entities.find(input_id);
+        if (attaching && (generation == state.issued_entities.end() ||
+                generation->second != *requested_generation))
             return refused("stale_generation", *id);
         if (!attaching && crank->second.holder) return refused("crank_not_attached", *id);
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
@@ -80,32 +84,21 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         }
         if (attaching) {
             if (item.holder != binding.actor) return refused("not_holder", *id, std::move(facts));
-            if ((slide_component(input->second.kind) &&
-                    !slide_input_port_clear(state, input_id, *port)) ||
+            if (!rotary_socket_open(state, existing, input_id, *port) ||
                 std::any_of(state.crank_items.begin(), state.crank_items.end(),
                     [&](const auto& entry) { return entry.second.port == port; }))
                 return refused("input_port_occupied", *id, std::move(facts));
-            const auto existing = drive_power(profile, state);
             const auto motion = existing.mechanical.motion.find(input_id);
             if (!existing.mechanical.accepted())
                 return refused("input_already_driven", *id, std::move(facts));
             if (motion == existing.mechanical.motion.end())
                 return refused("not_rotary_input", *id, std::move(facts));
-            const auto axis = existing.crank_axes.find(input_id);
-            if (axis == existing.crank_axes.end())
-                return refused("not_rotary_input", *id, std::move(facts));
             if (has_self_powered_source(existing, state.topology, input_id))
                 return refused("input_already_driven", *id, std::move(facts));
             if (!manual_input_available(motion->second))
                 return refused("input_already_driven", *id, std::move(facts));
-            mechanics::Point face = requested_face.value_or(
-                crank_face_from_actor(profile, cut->position, *port, axis->second));
-            if (slide_component(input->second.kind) && !requested_face) {
-                face = {(*port)[0] > input->second.center[0] ? 1 : -1, 0, 0};
-            }
-            if (!crank_face_on_axis(face, axis->second) ||
-                (slide_component(input->second.kind) &&
-                    face[0] != ((*port)[0] > input->second.center[0] ? 1 : -1)))
+            const auto face = requested_face.value_or(socket->port.outward);
+            if (face != socket->port.outward)
                 return refused("invalid_crank_face", *id, std::move(facts));
             const auto owned = cargo.find(materials::Component::hand_crank);
             if (owned == cargo.end() || owned->second < 1)
@@ -152,26 +145,27 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         const auto* face_value = (command.face ? &*command.face : nullptr);
         const auto face = face_value ?
             grid_point(Object{{"center", Value(*face_value)}}, 1) : std::nullopt;
-        if (face_value && !face) return refused("invalid_crank_face", *crank_id);
         if (!crank_id || !crank_generation || !input_id || !input_generation || !port)
             return refused("invalid_target");
+        if (face_value && !face) return refused("invalid_crank_face", *crank_id);
         const auto crank = state.crank_items.find(*crank_id);
         if (crank == state.crank_items.end()) return refused("unknown_crank", *crank_id);
         if (crank->second.generation != *crank_generation)
             return refused("stale_generation", *crank_id);
         if (!crank->second.attached_to)
             return refused("crank_disconnected", *crank_id);
-        const auto input = state.placed_components.find(*input_id);
-        if (input == state.placed_components.end()) return refused("unknown_target", *input_id);
-        if (input->second.generation != *input_generation)
+        const auto existing = drive_power(profile, state);
+        const auto socket = rotary_socket(existing, *input_id, *port);
+        if (!socket) return refused("not_rotary_input", *input_id);
+        if (!mechanics::accepts_hand_crank(socket->port))
+            return refused("horizontal_crank_required", *input_id);
+        const auto generation = state.issued_entities.find(*input_id);
+        if (generation == state.issued_entities.end() || generation->second != *input_generation)
             return refused("stale_generation", *input_id);
         if (crank->second.attached_to != *input_id || crank->second.port != port ||
             crank->second.face != face)
             return refused("crank_not_attached", *crank_id);
-        if (!crank_input_port(input->second, *port))
-            return refused("not_rotary_input", *input_id);
-        if (slide_component(input->second.kind) &&
-            !slide_input_port_clear(state, *input_id, *port))
+        if (!rotary_socket_open(state, existing, *input_id, *port))
             return refused("input_port_occupied", *input_id);
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready", *crank_id);
@@ -182,7 +176,6 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *crank_id, std::move(facts));
-        const auto existing = drive_power(profile, state);
         if (!existing.mechanical.accepted())
             return refused("invalid_mechanics", *crank_id, std::move(facts));
         if (has_self_powered_source(existing, state.topology, *input_id))
@@ -219,7 +212,7 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         if (found->second.generation != *generation) return refused("stale_generation", *id);
         if (found->second.kind != materials::Component::tool_mount)
             return refused("not_collector_input", *id);
-        if (!has_attached_crank(state, *id, found->second.center))
+        if (!has_attached_crank(state, *id))
             return refused("crank_not_attached", *id);
         const auto source_power = drive_power(profile, state);
         if (has_self_powered_source(source_power, state.topology, *id))
@@ -277,9 +270,10 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
                     return entry.second.attached_to == *id && entry.second.port == port;
                 })) return refused("crank_not_attached", *id);
         const auto& center = found->second.center;
-        if (!crank_input_port(found->second, *port))
+        const auto existing = drive_power(profile, state);
+        if (!rotary_socket(existing, *id, *port))
             return refused("wrong_input_port", *id);
-        if (!slide_input_port_clear(state, *id, *port))
+        if (!rotary_socket_open(state, existing, *id, *port))
             return refused("input_port_occupied", *id);
         const auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready", *id);
@@ -290,7 +284,6 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
-        const auto existing = drive_power(profile, state);
         if (!existing.mechanical.accepted())
             return refused("invalid_mechanics", *id, std::move(facts));
         if (has_self_powered_source(existing, state.topology, *id))

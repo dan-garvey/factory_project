@@ -1151,6 +1151,82 @@ void sized_cog_recipes_keep_finite_actor_custody() {
           gated->snapshot().state == state,
           "Cogwheel fabrication stays locked until the player carries a first plate.");
 }
+void gearbox_crank_uses_shared_ports_and_keeps_custody() {
+    namespace g = factory::mechanics;
+    auto [profile, state] = seed();
+    profile.material.timber_sites = {{"tree", {{8, 0, 8}, 2}}};
+    state.material.timber_remaining = {{"tree", 2}};
+    state.topology.parts = {
+        {{"box", g::Kind::gearbox, {8, 0, 8}, g::Axis::z}, 1, s::Role::vertical_gearbox},
+        {{"vertical", g::Kind::shaft, {8, 4, 8}, g::Axis::y, 0, 2}, 1, s::Role::shaft}};
+    profile.finite_parts = {{{s::Role::vertical_gearbox, 0, 0}, 1}, {{s::Role::shaft, 0, 2}, 1}};
+    state.issued_entities.emplace("box", 1);
+    state.issued_entities.emplace("vertical", 1);
+    auto world = w::World::create("rotary-ports", profile, state);
+    check(world != nullptr, "The shared-port fixture has finite gearbox and vertical-shaft custody.");
+    const w::ObserveActor observe = [](const std::string& actor) -> std::optional<a::ActorCut> {
+        return a::ActorCut{actor, {8, 0, 8}, 1, true, 10};
+    };
+    int request = 0;
+    const auto send = [&](O command) {
+        command.emplace("request", V("ports-" + std::to_string(++request)));
+        command.emplace("context", V("rotary-ports"));
+        command.emplace("client", V("P-client"));
+        command.emplace("actor", V("P"));
+        return world->command({"P", "P-client"}, command, observe);
+    };
+    for (int cut = 0; cut < 2; ++cut) {
+        O command{{"request", V("wood-" + std::to_string(cut))},
+            {"action", V("harvest_source")}, {"target", V("tree")},
+            {"context", V("rotary-ports")}, {"client", V("P-client")}, {"actor", V("P")}};
+        const auto result = w::tests::complete_manual_cut(*world, {"P", "P-client"}, command, observe);
+        check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
+            "Finite timber is harvested to pay for the manual source.");
+    }
+    const auto craft = send({{"action", V("field_craft")}, {"component", V("hand_crank")}});
+    check(craft.completed() && std::get<bool>(craft.result->at("accepted").storage()),
+        "The crank is a separate paid item.");
+    const auto crank = craft.result->at("crank_id");
+    const auto serial = craft.result->at("crank_generation");
+    const auto point = [](I x, I y, I z) { return V(V::Array{V(x), V(y), V(z)}); };
+    const auto fit = [&](const char* owner, V port) {
+        return send({{"action", V("attach_hand_crank")}, {"target", V(owner)},
+            {"generation", V(I{1})}, {"crank", crank}, {"crank_generation", serial},
+            {"port", std::move(port)}});
+    };
+    for (const auto& result : {fit("box", point(8, -2, 8)),
+                              fit("vertical", point(8, 6, 8)),
+                              fit("box", point(8, 0, 10)),
+                              fit("box", point(12, 0, 8))})
+        check(result.completed() && !std::get<bool>(result.result->at("accepted").storage()),
+            "Vertical, closed and remote ports refuse without consuming the crank.");
+    const auto fitted = fit("box", point(10, 0, 8));
+    check(fitted.completed() && std::get<bool>(fitted.result->at("accepted").storage()),
+        "A gearbox horizontal face takes the same crank with no component-specific attachment rule.");
+    const auto pulse = send({{"action", V("operate_hand_crank")}, {"target", V("box")},
+        {"generation", V(I{1})}, {"crank", crank}, {"crank_generation", serial},
+        {"port", point(10, 0, 8)}, {"face", point(1, 0, 0)}});
+    check(pulse.completed() && std::get<bool>(pulse.result->at("accepted").storage()),
+        "The attached manual source accepts a finite input pulse through the gearbox.");
+    const auto power = w::hand_crank_power(profile, world->snapshot().state, "box", {10, 0, 8});
+    check(power.mechanical.motion.at("vertical").state == g::MotionState::rotating,
+        "The same pulse reaches the actual vertical output shaft.");
+    check(world->tick(observe).error == w::TransactionError::none,
+        "A source pulse is consumed by the native world tick.");
+    const auto saved = w::encode_checkpoint(profile, world->snapshot());
+    check(std::holds_alternative<V>(saved), "Attached gearbox crank custody is saveable.");
+    const auto decoded = w::decode_checkpoint(profile, "rotary-ports", std::get<V>(saved));
+    check(std::holds_alternative<w::Snapshot>(decoded) &&
+        w::World::restore("rotary-ports", profile, std::get<w::Snapshot>(decoded)) != nullptr,
+        "A fresh World replays the exact gearbox attachment and finite manual pulse.");
+    const auto removed = send({{"action", V("remove")}, {"target", V("box")}, {"generation", V(I{1})}});
+    check(removed.completed() && std::get<bool>(removed.result->at("accepted").storage()),
+        "Removing the gearbox disconnects its separately owned crank.");
+    const auto detached = send({{"action", V("detach_hand_crank")}, {"target", crank}, {"generation", serial}});
+    check(detached.completed() && std::get<bool>(detached.result->at("accepted").storage()) &&
+        std::holds_alternative<V>(w::encode_checkpoint(profile, world->snapshot())),
+        "The disconnected paid crank can be recovered and the removal history remains saveable.");
+}
 }  // namespace
 
 int main() {
@@ -1165,6 +1241,7 @@ int main() {
         placed_components_keep_custody_and_history();
         unbounded_component_reclaim_keeps_history();
         loose_shaft_cannot_hold_an_unusable_crank();
+        gearbox_crank_uses_shared_ports_and_keeps_custody();
         portable_bench_crafts_with_finite_shared_stock();
         powered_slide_ticks_and_restores();
         first_plate_gate_admits_only_starter_parts();

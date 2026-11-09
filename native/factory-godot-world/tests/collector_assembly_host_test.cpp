@@ -190,7 +190,7 @@ void collector_readiness_tracks_real_parts() {
     auto attach = request("fit-collector-crank", "attach_hand_crank");
     attach.emplace("entity", V(mount));
     attach.emplace("crank", V(crank_items.begin()->first));
-    attach.emplace("port", V(A{V(I{-1} * grid_scale), V(I{0}), V(I{0})}));
+    attach.emplace("port", V(A{V(-grid_scale - 1), V(I{0}), V(I{0})}));
     check(get<bool>(host.command("P", attach), "accepted"),
           "The crafted crank seats on the collector mount's spindle.");
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(6.6)}, 6), "accepted"),
@@ -274,7 +274,7 @@ void collector_readiness_tracks_real_parts() {
     auto refit = request("refit-remounted-crank", "attach_hand_crank");
     refit.emplace("entity", V(remount));
     refit.emplace("crank", V(crank_items.begin()->first));
-    refit.emplace("port", V(A{V(I{-1} * grid_scale), V(I{0}), V(I{0})}));
+    refit.emplace("port", V(A{V(-grid_scale - 1), V(I{0}), V(I{0})}));
     check(get<bool>(restored.command("P", refit), "accepted"),
           "The same paid crank fits the rebuilt collector input.");
     auto take_tray = request("take-tray", "reclaim_component");
@@ -424,7 +424,7 @@ void collector_readiness_tracks_real_parts() {
     auto upper_attach = request("attach-upper-crank", "attach_hand_crank");
     upper_attach.emplace("entity", V(upper_mount));
     upper_attach.emplace("crank", V(get<O>(upper_tools.projection(), "crank_items").begin()->first));
-    upper_attach.emplace("port", V(A{V(I{-1} * grid_scale), V(I{1}), V(I{0})}));
+    upper_attach.emplace("port", V(A{V(-grid_scale - 1), V(I{1}), V(I{0})}));
     check(get<bool>(upper_tools.command("P", upper_attach), "accepted"),
           "The real crank seats on the raised cutter input before either receiver is chosen.");
     check(get<bool>(upper_tools.publish_actor("P", {V(5.8), V(1.0), V(-1.65)}, 2), "accepted"),

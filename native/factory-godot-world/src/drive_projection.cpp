@@ -1,6 +1,7 @@
 #include "drive_projection.hpp"
 
 #include <cmath>
+#include <algorithm>
 #include <cstddef>
 #include <utility>
 
@@ -14,6 +15,25 @@ using Integer = Value::Integer;
 
 Fields fields(const world::State& state, const world::DrivePower& power) {
     Fields projected;
+    for (const auto& [id, sockets] : power.rotary_ports) {
+        const auto generation = state.issued_entities.find(id);
+        if (generation == state.issued_entities.end()) continue;
+        Array ports;
+        for (const auto& socket : sockets) {
+            const auto& port = socket.port;
+            ports.emplace_back(Object{
+                {"position", Value(Array{Value(port.position[0]), Value(port.position[1]), Value(port.position[2])})},
+                {"outward", Value(Array{Value(port.outward[0]), Value(port.outward[1]), Value(port.outward[2])})},
+                {"factor", Value(port.factor)},
+                {"hand_crank", Value(mechanics::accepts_hand_crank(port))},
+                {"open", Value(world::rotary_socket_open(state, power, id, port.position) &&
+                    std::none_of(state.crank_items.begin(), state.crank_items.end(),
+                        [&](const auto& entry) { return entry.second.port == port.position; }))}});
+        }
+        projected.rotary_ports.emplace(id, Value(Object{
+            {"generation", Value(generation->second)}, {"ports", Value(std::move(ports))},
+            {"crank_source_available", Value(!world::has_self_powered_source(power, state.topology, id))}}));
+    }
     for (const auto& link : state.topology.material_links)
         projected.links.emplace_back(Array{Value(link.from.id), Value(link.to.id)});
 

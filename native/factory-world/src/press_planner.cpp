@@ -133,7 +133,7 @@ Owner::Decision plan_press(const Profile& profile, const Binding& binding,
             return refused("unavailable_recipe", *id);
         if (compacting && inspected.press->shaft != *drive)
             return refused("wrong_drive_shaft", *id);
-        if (compacting && !has_attached_crank(state, *drive, inspected.press->shaft_center))
+        if (compacting && !has_attached_crank(state, *drive))
             return refused("crank_not_attached", *id);
         if (compacting && has_self_powered_source(drive_power(profile, state),
                 state.topology, *drive))
@@ -235,7 +235,7 @@ Owner::Decision plan_press(const Profile& profile, const Binding& binding,
         if (inspected.press->sliding)
             return refused("slide_requires_contact_stroke", *id);
         if (inspected.press->shaft != *drive) return refused("wrong_drive_shaft", *id);
-        if (!has_attached_crank(state, *drive, inspected.press->shaft_center))
+        if (!has_attached_crank(state, *drive))
             return refused("crank_not_attached", *id);
         if (has_self_powered_source(drive_power(profile, state), state.topology, *drive))
             return refused("input_already_driven", *id);

@@ -141,7 +141,7 @@ void sized_workbed_custody() {
     const auto placed = get<O>(host.projection(), "placed_components");
     const auto bed_box = get<O>(placed.at(bed_id), "occupied");
     const auto bed_half = get<A>(V(bed_box), "half");
-    const auto slide_ports = get<A>(placed.at(slide_id), "input_ports");
+    const auto slide_ports = get<A>(get<O>(host.projection(), "rotary_ports").at(slide_id), "ports");
     const auto sized = get<A>(host.projection(), "broad_press_assemblies");
     check(placed.size() == 3 && sized.size() == 1 &&
           get<std::string>(sized.front(), "geometry_status") == "ready" &&

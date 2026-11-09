@@ -73,13 +73,13 @@ void one_piece_slide_custody() {
     const auto placed = get<O>(host.projection(), "placed_components").at(slide_id);
     const auto occupied = get<O>(placed, "occupied");
     const auto half = get<A>(V(occupied), "half");
-    const auto input_ports = get<A>(V(placed), "input_ports");
+    const auto input_ports = get<A>(get<O>(host.projection(), "rotary_ports").at(slide_id), "ports");
     check(get<std::string>(placed, "component") == "wooden_slide" &&
           input_ports.size() == 2 &&
-          !factory::values::typed_difference(input_ports.front(),
-              V(A{V(I{20}), V(I{0}), V(I{16})})) &&
-          !factory::values::typed_difference(input_ports.back(),
-              V(A{V(I{28}), V(I{0}), V(I{16})})) &&
+          !factory::values::typed_difference(V(get<A>(input_ports.front(), "position")),
+              V(A{V(I{22}), V(I{0}), V(I{16})})) &&
+          !factory::values::typed_difference(V(get<A>(input_ports.back(), "position")),
+              V(A{V(I{26}), V(I{0}), V(I{16})})) &&
           std::abs(std::get<double>(half[0].storage()) - site_geometry::pitch * 0.5) < 1e-8 &&
           std::get<double>(half[1].storage()) > 0.0 &&
           std::abs(std::get<double>(half[2].storage()) - site_geometry::pitch * 0.5) < 1e-8 &&
@@ -135,7 +135,7 @@ void one_piece_slide_custody() {
         return restored.command("P", wire);
     };
     const O turn{{"entity", V(slide_id)},
-        {"port", V(A{V(I{28}), V(I{0}), V(I{16})})}};
+        {"port", V(A{V(I{26}), V(I{0}), V(I{16})})}};
     check(!get<bool>(resumed("no-crank", "turn_slide_crank", turn), "accepted"),
           "A worker without the issued crank cannot turn the slide's integral input.");
     check(get<bool>(restored.publish_actor("P", {V(6.15), V(1.0), V(3.3)}, 2), "accepted") &&
@@ -150,7 +150,7 @@ void one_piece_slide_custody() {
     const auto cranks = get<O>(restored.projection(), "crank_items");
     check(cranks.size() == 1 && get<bool>(resumed("fit-slide-crank", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(cranks.begin()->first)},
-               {"port", V(A{V(I{28}), V(I{0}), V(I{16})})}}), "accepted"),
+               {"port", V(A{V(I{26}), V(I{0}), V(I{16})})}}), "accepted"),
           "The crafted crank attaches to the actual exterior shaft before turning.");
     check(!get<bool>(resumed("wrong-port", "turn_slide_crank",
               {{"entity", V(slide_id)},
@@ -344,11 +344,11 @@ void flat_head_host_custody() {
     const auto cranks = get<O>(restored.projection(), "crank_items");
     check(cranks.size() == 1 && get<bool>(resumed("fit-press-crank", "attach_hand_crank",
               {{"entity", V(slide_id)}, {"crank", V(cranks.begin()->first)},
-               {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}}), "accepted"),
+               {"port", V(A{V(I{14}), V(I{2}), V(I{8})})}}), "accepted"),
           "The pressed slide uses an attached crank at its actual exterior input.");
     const auto loaded_turn = resumed("loaded-slide-turn", "turn_slide_crank",
         {{"entity", V(slide_id)},
-         {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}});
+         {"port", V(A{V(I{14}), V(I{2}), V(I{8})})}});
     if (!get<bool>(loaded_turn, "accepted"))
         throw std::runtime_error("Loaded slide turn refused: " +
             get<std::string>(loaded_turn, "reason"));
@@ -578,7 +578,7 @@ void flat_head_host_custody() {
           get<bool>(direct.validate_checkpoint(direct.checkpoint()), "accepted"),
           "Picking up the source-formed plate preserves the exact claim and saved route history.");
     const auto first_contact = resumed("first-slide-contact", "turn_slide_crank",
-        {{"entity", V(slide_id)}, {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}});
+        {{"entity", V(slide_id)}, {"port", V(A{V(I{14}), V(I{2}), V(I{8})})}});
     if (!get<bool>(first_contact, "accepted"))
         throw std::runtime_error("First slide contact refused: " +
             get<std::string>(first_contact, "reason"));
@@ -675,7 +675,7 @@ void flat_head_host_custody() {
             {"context", V("flat-head-site")}, {"client", V("P")},
             {"request", V("shared-resume-" + std::to_string(index))},
             {"action", V("turn_slide_crank")}, {"entity", V(slide_id)},
-            {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}});
+            {"port", V(A{V(I{14}), V(I{2}), V(I{8})})}});
         check(get<bool>(shared_stroke, "accepted") &&
               get<bool>(shared_stroke, "contact") == (index == 3),
               "The shared partial lot advances only on the next actual lower crossing.");
@@ -743,7 +743,7 @@ void flat_head_host_custody() {
           "A blocked direct stroke retains the partial WorkId and exact saved phase.");
     const auto turn = [&](const std::string& request) {
         return resumed(request.c_str(), "turn_slide_crank",
-            {{"entity", V(slide_id)}, {"port", V(A{V(I{16}), V(I{2}), V(I{8})})}});
+            {{"entity", V(slide_id)}, {"port", V(A{V(I{14}), V(I{2}), V(I{8})})}});
     };
     for (int index = 0; index < 3; ++index) {
         const auto idle_turn = turn("blocked-approach-" + std::to_string(index));

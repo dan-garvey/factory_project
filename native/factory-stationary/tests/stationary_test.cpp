@@ -238,6 +238,9 @@ void malformed_and_overflow() {
     f.topology.sources.front().hub = "collector-1";
     refusal(remove(f, "collector-1"), s::RemovalError::invalid_topology);
     f = fixture();
+    f.topology.sources.front().port = m::Point{0, 0, 2};
+    refusal(remove(f, "collector-1"), s::RemovalError::invalid_topology);
+    f = fixture();
     f.topology.sources.front().rate.denominator = 0;
     f.topology.drive_enabled = false;
     refusal(remove(f, "collector-1"), s::RemovalError::invalid_topology);

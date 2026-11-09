@@ -111,6 +111,9 @@ bool structure(const Topology& topology) {
 
     std::set<std::string> sources;
     for (const auto& source : topology.sources) {
+        // Port-attached manual drives are ephemeral World inputs, never a
+        // persisted self-powered source in a stationary topology.
+        if (source.port) return false;
         if (!identity(source.hub) || source.rate.denominator <= 0) return false;
         const auto part = parts_by_id.find(source.hub);
         if (part == parts_by_id.end() || part->second->role != Role::waterwheel ||

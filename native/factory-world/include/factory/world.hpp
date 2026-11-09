@@ -306,11 +306,24 @@ struct NetworkLoad {
     std::string limiting_part;
     bool operator==(const NetworkLoad&) const = default;
 };
+struct RotarySocket {
+    // A component may contain several native spindles (for example a broad
+    // slide). The public owner remains its one placed component identity.
+    std::string mechanical_part;
+    mechanics::RotaryPort port;
+};
 struct DrivePower {
     mechanics::Result mechanical;
     std::map<std::string, NetworkLoad> load;
-    std::map<std::string, mechanics::Axis> crank_axes{};
+    std::map<std::string, std::vector<RotarySocket>> rotary_ports{};
 };
+
+[[nodiscard]] std::optional<RotarySocket> rotary_socket(
+    const DrivePower&, const std::string& owner, const mechanics::Point& position);
+[[nodiscard]] bool rotary_socket_open(const State&, const DrivePower&,
+    const std::string& owner, const mechanics::Point& position);
+[[nodiscard]] bool rotary_connection(const DrivePower&, const std::string& owner,
+    const mechanics::Part& other);
 
 [[nodiscard]] DrivePower drive_power(const stationary::Topology&);
 [[nodiscard]] DrivePower drive_power(const Profile&, const State&);

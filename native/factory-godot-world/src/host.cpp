@@ -54,7 +54,6 @@ using physical_geometry::gear_half_extents;
 using physical_geometry::gear_axle_half_extents;
 using physical_geometry::transmission_intersects;
 using physical_geometry::shaft_meets_component_cog;
-using physical_geometry::shaft_meets_slide_input;
 using physical_geometry::collector_intake_intersects;
 using physical_geometry::transmission_intersects_foundations;
 using physical_geometry::find_part;
@@ -523,12 +522,12 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             (wire.contains("face") &&
                 !gear_center(*field<Array>(wire, "face"))))
             return refuse("invalid_command");
-        const auto slide = snapshot.state.placed_components.find(*field<std::string>(wire, "entity"));
+        const auto input = snapshot.state.issued_entities.find(*field<std::string>(wire, "entity"));
         const auto crank = snapshot.state.crank_items.find(*field<std::string>(wire, "crank"));
         normalized.at("action") = Value(*action);
         normalized.emplace("target", wire.at("entity"));
-        normalized.emplace("generation", Value(slide == snapshot.state.placed_components.end() ?
-            Integer{0} : slide->second.generation));
+        normalized.emplace("generation", Value(input == snapshot.state.issued_entities.end() ?
+            Integer{0} : input->second));
         normalized.emplace("crank", wire.at("crank"));
         normalized.emplace("crank_generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
@@ -549,7 +548,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto crank = snapshot.state.crank_items.find(crank_id);
         const auto input_id = crank == snapshot.state.crank_items.end() ?
             std::string{} : crank->second.attached_to.value_or("");
-        const auto input = snapshot.state.placed_components.find(input_id);
+        const auto input = snapshot.state.issued_entities.find(input_id);
         Array port;
         if (crank != snapshot.state.crank_items.end() && crank->second.port) {
             const auto& point = *crank->second.port;
@@ -557,8 +556,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         normalized.at("action") = Value(*action);
         normalized.emplace("target", Value(input_id));
-        normalized.emplace("generation", Value(input == snapshot.state.placed_components.end() ?
-            Integer{0} : input->second.generation));
+        normalized.emplace("generation", Value(input == snapshot.state.issued_entities.end() ?
+            Integer{0} : input->second));
         normalized.emplace("crank", wire.at("entity"));
         normalized.emplace("crank_generation", Value(crank == snapshot.state.crank_items.end() ?
             Integer{0} : crank->second.generation));
@@ -585,8 +584,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         // The registered input lies inside the slide's full-cell envelope.
         // Ignore only its own housing while checking the port for other solids.
         const std::string* fitted_body = slide != snapshot.state.placed_components.end() &&
-            shaft_meets_slide_input(slide->second.kind, slide->second.center,
-                                    *port, mechanics::Axis::x) ? &slide->first : nullptr;
+            world::rotary_socket(world::drive_power(profile_, snapshot.state), target_id,
+                                 *port) ? &slide->first : nullptr;
         if (const auto* refusal = component_site_refusal(snapshot.state, std::nullopt, *port))
             return refuse(refusal);
         if (const auto* refusal = component_space_refusal(snapshot.state, std::nullopt, *port,
@@ -969,14 +968,16 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         auto half = gear_axle_half_extents(verified_axis);
         half[static_cast<std::size_t>(verified_axis)] = *span * pitch / 4;
+        const auto sockets = world::drive_power(profile_, snapshot.state);
+        const mechanics::Part proposed_shaft{"placement", mechanics::Kind::shaft,
+            *center, verified_axis, 0, *span};
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
             if (transmission_intersects(component_bounds(profile_, component.kind, component.center),
                     *center, verified_axis, false) &&
                 !shaft_meets_component_cog(component.kind, component.center, *center,
                     verified_axis) &&
-                !shaft_meets_slide_input(component.kind, component.center, *center,
-                    verified_axis)) return refuse("occupied");
+                !world::rotary_connection(sockets, id, proposed_shaft)) return refuse("occupied");
         }
         if (placement_blocked(at, half)) return refuse("actor_occupied");
         transmission_placement::normalize(normalized, wire, transmission_placement::Action::shaft);

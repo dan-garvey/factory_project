@@ -334,7 +334,8 @@ void run() {
         const auto pod_fields = Value(field<Object>(pod_record, "fields"));
         const auto placed_record = Value(field<Object>(records, "placed_components"));
         const auto placed_fields = Value(field<Object>(placed_record, "fields"));
-        const auto input_ports = Value(field<Object>(placed_fields, "input_ports"));
+        const auto rotary_fields = Value(field<Object>(Value(field<Object>(records,
+            "rotary_ports")), "fields"));
         const auto hub_fields = Value(field<Object>(Value(field<Object>(records,
             "fabrication_hub")), "fields"));
         const auto crank_fields = Value(field<Object>(Value(field<Object>(records,
@@ -342,8 +343,7 @@ void run() {
         check(field<std::string>(pod_record, "required_with") == "options.arrival" &&
                   field<std::string>(pod_fields, "center") == "integer3" &&
                   field<std::string>(placed_fields, "occupied.half") == "floating3" &&
-                  field<std::string>(input_ports, "type") == "integer3_array" &&
-                  field<bool>(input_ports, "optional") &&
+                  field<std::string>(rotary_fields, "ports") == "array" &&
                   field<std::string>(hub_fields, "holder") == "nullable_string" &&
                   field<std::string>(crank_fields, "port") == "integer3_or_empty",
               "The extension exposes complete arrival worksite shapes and optional placement ports.");

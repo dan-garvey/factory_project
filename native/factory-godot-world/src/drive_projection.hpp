@@ -11,6 +11,7 @@ struct Fields {
     values::Value::Array drive_links;
     values::Value::Array engagements;
     values::Value::Object motion;
+    values::Value::Object rotary_ports;
 };
 
 [[nodiscard]] Fields fields(const world::State& state, const world::DrivePower& power);

@@ -38,8 +38,7 @@ void native_arrival_readout() {
     auto native = world::World::create("arrival-site-reader", arrival->profile, arrival->seed);
     check(native != nullptr, "World must admit the authored arrival before it is projected.");
     const auto initial = native->snapshot();
-    const auto initial_fields = site::fields(arrival->profile, initial.state,
-        world::drive_power(arrival->profile, initial.state));
+    const auto initial_fields = site::fields(arrival->profile, initial.state);
     check(initial_fields.size() == 6 &&
           field<Object>(initial_fields, "supplied_hardware_boxes").size() == 20 &&
           field<bool>(entry(initial_fields, "landing_pod"), "hub_ready") &&
@@ -50,7 +49,7 @@ void native_arrival_readout() {
           "One fresh native arrival yields the issued pod and installed hub without invented buildables.");
     const auto generic = factory::godot_world::make_arrival_configuration(false, false, {"P", "Q"});
     check(generic.has_value() &&
-          site::fields(generic->profile, generic->seed, {}).empty(),
+          site::fields(generic->profile, generic->seed).empty(),
           "A generic mechanics site does not acquire arrival-only fields.");
 
     auto state = initial.state;
@@ -63,9 +62,7 @@ void native_arrival_readout() {
     state.placed_components.emplace("shaft-3", world::PlacedComponent{
         materials::Component::wooden_shaft, {8, 4, 0}, 5});
     const auto original = state;
-    world::DrivePower power;
-    power.crank_axes.emplace("shaft-3", factory::mechanics::Axis::x);
-    const auto projected = site::fields(arrival->profile, state, power);
+    const auto projected = site::fields(arrival->profile, state);
     check(state == original && projected.size() == 6 &&
           field<Object>(projected, "supplied_hardware_boxes").size() == 10 &&
           !field<bool>(entry(projected, "landing_pod"), "hub_ready") &&
@@ -84,34 +81,7 @@ void native_arrival_readout() {
           "A carried crank remains the same native item without an invented fitting.");
     const auto& parts = field<Object>(projected, "placed_components");
     const auto& slide = entry(parts, "slide-2");
-    const auto& shaft = entry(parts, "shaft-3");
-    check(parts.size() == 3 && field<Array>(slide, "input_ports").size() == 2 &&
-          !factory::values::typed_difference(Value(field<Array>(slide, "input_ports")),
-              Value(Array{Value(Array{Value(Integer{0}), Value(Integer{4}), Value(Integer{0})}),
-                          Value(Array{Value(Integer{8}), Value(Integer{4}), Value(Integer{0})})})) &&
-          field<Array>(shaft, "input_ports").size() == 1 &&
-          field<bool>(slide, "crank_source_available") &&
-          field<bool>(shaft, "crank_source_available") &&
-          field<Integer>(shaft, "crank_axis") ==
-              static_cast<Integer>(factory::mechanics::Axis::x),
-          "Slide and shaft ports and the driven axis follow the native component and power facts.");
-    state.topology.sources.push_back({"wheel-1", {1, 1}});
-    state.topology.drive_enabled = true;
-    power.mechanical.components.push_back({{"wheel-1", "shaft-3"},
-        factory::mechanics::MotionState::rotating});
-    const auto sourced = site::fields(arrival->profile, state, power);
-    check(!field<bool>(entry(field<Object>(sourced, "placed_components"), "shaft-3"),
-              "crank_source_available") &&
-          field<bool>(entry(field<Object>(sourced, "placed_components"), "slide-2"),
-              "crank_source_available"),
-          "The projected crank cue blocks only the native network containing an engaged wheel.");
-    state.topology.drive_enabled = false;
-    const auto stopped = site::fields(arrival->profile, state, power);
-    check(field<bool>(entry(field<Object>(stopped, "placed_components"), "shaft-3"),
-              "crank_source_available"),
-          "A stopped wheel exposes its idle shaft route to manual power.");
-    state = original;
-    power.mechanical.components.clear();
+    check(parts.size() == 3, "The readout retains all three placed buildables.");
     const auto actual = geometry::component_bounds(arrival->profile,
         materials::Component::wooden_slide, {4, 4, 0});
     const auto& occupied = entry(slide, "occupied");
@@ -121,20 +91,17 @@ void native_arrival_readout() {
           !factory::values::typed_difference(Value(half), Value(field<Array>(occupied, "half"))),
           "The projected occupied volume is exactly the same geometry used for Host placement admission.");
     check(!factory::values::typed_difference(Value(projected),
-              Value(site::fields(arrival->profile, state, power))) &&
+              Value(site::fields(arrival->profile, state))) &&
           native->snapshot().state == initial.state && native->snapshot().revision == initial.revision,
           "Repeated readout cannot change the original World or maintain a second worksite state.");
 
     auto fitted_state = original;
     fitted_state.placed_components.at("slide-2").center[1] = 2;
-    const auto fitted = site::fields(arrival->profile, fitted_state, power);
-    const auto& fitted_slide = entry(field<Object>(fitted, "placed_components"), "slide-2");
+    const auto fitted = site::fields(arrival->profile, fitted_state);
+    check(field<Object>(fitted, "placed_components").contains("slide-2"), "The fitted slide remains present.");
     const auto fitted_bounds = geometry::component_bounds(arrival->profile,
         materials::Component::wooden_slide, {4, 2, 0});
-    check(!factory::values::typed_difference(Value(field<Array>(fitted_slide, "input_ports")),
-              Value(Array{Value(Array{Value(Integer{0}), Value(Integer{2}), Value(Integer{0})}),
-                          Value(Array{Value(Integer{8}), Value(Integer{2}), Value(Integer{0})})})) &&
-          std::abs(fitted_bounds.half[1] * 2 - 0.38125) < 1e-9,
+    check(std::abs(fitted_bounds.half[1] * 2 - 0.38125) < 1e-9,
           "A fitted one-cell slide keeps its original half-scale height and direct H-layer input.");
 }
 }  // namespace

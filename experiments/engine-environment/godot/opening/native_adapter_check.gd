@@ -1802,7 +1802,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 			"Removing the wheel leaves the physical belt linked for a manual collector cut"):
 		return
 	if _construct({"action": "attach_hand_crank", "entity": drive,
-			"crank": carried_crank, "port": [-1, 4, 4]}).is_empty():
+			"crank": carried_crank, "port": [-2, 4, 4]}).is_empty():
 		return
 	if _construct({"action": "turn_hand_crank", "entity": drive}).is_empty():
 		return
@@ -2852,7 +2852,7 @@ func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictio
 	if not _expect(not crank_id.is_empty(), "The worker carries the finite raised-press crank"):
 		return false
 	if _construct({"action": "attach_hand_crank", "entity": fitted.wooden_slide,
-			"crank": crank_id, "port": [28, 6, 32], "face": [-1, 0, 0]}).is_empty():
+			"crank": crank_id, "port": [30, 6, 32], "face": [-1, 0, 0]}).is_empty():
 		return false
 	for plate_index in range(2):
 		var route: Dictionary = opening.model.projection().sliding_press_assemblies[0].auto_feed
@@ -3303,10 +3303,11 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		return
 	if not _select_inventory_item("component:hand_crank"):
 		return
-	var west_port := [press_x - 4, rise + 2, press_z]
-	var east_port := [press_x + 4, rise + 2, press_z]
-	if not _expect(assembled.placed_components[fitted.wooden_slide].get("input_ports", [])
-			== [west_port, east_port],
+	var west_port := [press_x - 2, rise + 2, press_z]
+	var east_port := [press_x + 2, rise + 2, press_z]
+	var native_ports: Array = assembled.rotary_ports[fitted.wooden_slide].ports
+	if not _expect(native_ports.size() == 2 and native_ports[0].position == west_port
+			and native_ports[1].position == east_port,
 			"The fitted slide exposes two native same-height external crank ports"):
 		return
 	opening.component_nudge_active = true

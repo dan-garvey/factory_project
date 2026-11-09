@@ -905,11 +905,9 @@ class ArrivalAssemblyControls:
 		inventory_section.visible = _inventory_broad or (sliding and not _anvil.is_empty())
 		var work_face := "flat head"
 		var input_id: String = str(_press.get("parts", {}).get("slide" if sliding else "shaft", ""))
-		var rotary_input: Dictionary = snapshot.get("placed_components", {}).get(input_id, {})
-		var input_ports: Array = rotary_input.get("input_ports", [])
 		var fitted_crank: Dictionary = {}
 		for item: Dictionary in snapshot.get("crank_items", {}).values():
-			if item.get("attached_to", "") == input_id and input_ports.has(item.get("port", [])):
+			if item.get("attached_to", "") == input_id:
 				fitted_crank = item
 				break
 		var status := str(_press.get("status", ""))

@@ -98,11 +98,51 @@ void paired_links_and_loads() {
     check(!field<Object>(unknown.motion, "shaft").contains("limiting_kind"),
           "A missing material identity is never guessed from a load diagnostic.");
 }
+
+void shared_ports_describe_connections_and_crank_limits() {
+    world::State state;
+    state.topology.parts = {
+        {{"gearbox", mechanics::Kind::gearbox, {0, 0, 0}, mechanics::Axis::z},
+            1, stationary::Role::vertical_gearbox},
+        {{"vertical", mechanics::Kind::shaft, {0, 4, 0}, mechanics::Axis::y, 0, 2},
+            2, stationary::Role::shaft}};
+    state.issued_entities = {{"gearbox", 1}, {"vertical", 2}};
+    auto power = world::drive_power(state.topology);
+    const auto projected = drive::fields(state, power);
+    const auto& box = field<Object>(projected.rotary_ports, "gearbox");
+    check(field<Integer>(box, "generation") == 1 && field<Array>(box, "ports").size() == 4,
+        "One gearbox declaration exposes four real shaft faces under its issued identity.");
+    int horizontal = 0, occupied = 0;
+    for (const auto& value : field<Array>(box, "ports")) {
+        const auto& port = std::get<Object>(value.storage());
+        horizontal += field<bool>(port, "hand_crank");
+        occupied += !field<bool>(port, "open");
+    }
+    check(horizontal == 2 && occupied == 1,
+        "Horizontal faces accept cranks, while the connected vertical shaft occupies its real face.");
+    const auto& vertical = field<Object>(projected.rotary_ports, "vertical");
+    for (const auto& value : field<Array>(vertical, "ports"))
+        check(!field<bool>(std::get<Object>(value.storage()), "hand_crank"),
+            "A vertical shaft remains connectable without offering a vertical crank.");
+    state.topology.sources.push_back({"wheel", {1, 1}});
+    state.topology.parts.push_back({{"wheel", mechanics::Kind::hub, {-4, 0, 0}, mechanics::Axis::x},
+        1, stationary::Role::waterwheel});
+    state.topology.drive_enabled = true;
+    power = world::drive_power(state.topology);
+    check(!field<bool>(field<Object>(drive::fields(state, power).rotary_ports,
+            "gearbox"), "crank_source_available"),
+        "An engaged source blocks a manual source through the shared network.");
+    state.topology.drive_enabled = false;
+    check(field<bool>(field<Object>(drive::fields(state, power).rotary_ports,
+            "gearbox"), "crank_source_available"),
+        "Disabling the source makes the same physical ports available for manual power.");
+}
 }  // namespace
 
 int main() {
     try {
         paired_links_and_loads();
+        shared_ports_describe_connections_and_crank_limits();
         std::cout << "DRIVE_PROJECTION_PASS " << checks << '\n';
         return 0;
     } catch (const std::exception& error) {

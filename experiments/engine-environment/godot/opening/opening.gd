@@ -623,6 +623,20 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3, hit_position: Vector3 = Vector3.ZERO) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
 	# when following surfaces; the menu can still choose an absolute air level.
+	if transmission_controls.active_tool == "place_shaft" and state.get("rotary_ports", {}).has(entity_id):
+		var port := _rotary_snap(entity_id, "shaft", {"position": hit_position})
+		if port.is_empty():
+			return []
+		for socket: Dictionary in state.rotary_ports[entity_id].ports:
+			if socket.position != port:
+				continue
+			var center := port.duplicate()
+			for axis in 3:
+				center[axis] += int(socket.outward[axis]) * transmission_controls.shaft_half_span
+			transmission_controls.snapped_height = center[1]
+			if not transmission_controls.auto_height:
+				center[1] = transmission_controls.gear_height
+			return center
 	if transmission_controls.active_tool in ["place_shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
 		var part: Variant = state.get("transmission_parts", {}).get(entity_id)
 		if part is Dictionary and part.get("kind") in ["shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
@@ -2598,30 +2612,40 @@ func _component_pointed_center() -> Array:
 
 func _rotary_at_input_port(port: Array) -> String:
 	var found := ""
-	for id: String in state.get("placed_components", {}):
-		var placed: Dictionary = state.placed_components[id]
-		if placed.get("input_ports", []).has(port):
-			if not found.is_empty():
-				return ""
-			found = id
+	for id: String in state.get("rotary_ports", {}):
+		for socket: Dictionary in state.rotary_ports[id].get("ports", []):
+			if socket.get("position", []) == port and socket.get("hand_crank", false) \
+					and socket.get("open", false):
+				if not found.is_empty():
+					return ""
+				found = id
 	return found
 
 func _crank_face_for_input(input_id: String, port: Array) -> Array:
-	var input: Dictionary = state.get("placed_components", {}).get(input_id, {})
-	var center: Array = input.get("center", [])
-	if center.size() != 3 or port.size() != 3:
+	for socket: Dictionary in state.get("rotary_ports", {}).get(input_id, {}).get("ports", []):
+		if socket.get("position", []) == port and socket.get("hand_crank", false):
+			return socket.outward
+	return []
+
+func _rotary_snap(pointed: String, kind: String, hit: Dictionary) -> Array:
+	if hit.is_empty():
 		return []
-	if center != port:
-		return [1 if int(port[0]) > int(center[0]) else -1, 0, 0]
-	var axis := int(input.get("crank_axis", -1))
-	var actor: Dictionary = state.get("actors", {}).get(client, {})
-	var position: Array = actor.get("position", [])
-	var anchor_position: Array = input.get("position", [])
-	if axis not in [0, 2] or position.size() != 3 or anchor_position.size() != 3:
-		return []
-	var face := [0, 0, 0]
-	face[axis] = -1 if float(position[axis]) < float(anchor_position[axis]) else 1
-	return face
+	var best: Array = []
+	var score := INF
+	for socket: Dictionary in state.get("rotary_ports", {}).get(pointed, {}).get("ports", []):
+		if not socket.get("open", false) or (kind == "hand_crank" and not socket.get("hand_crank", false)):
+			continue
+		if kind == "shaft":
+			var axis := ["x", "y", "z"].find(transmission_controls.selected_axis)
+			if axis < 0 or int(socket.outward[axis]) == 0:
+				continue
+		var p: Array = socket.position
+		var position := Vector3(p[0], p[1], p[2]) * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT
+		var distance := position.distance_squared_to(hit.position)
+		if distance < score:
+			score = distance
+			best = p.duplicate()
+	return best
 
 func _sliding_press_part_snap(kind: String, pointed_kind: String, center: Array,
 		normal: Vector3) -> Dictionary:
@@ -2640,10 +2664,6 @@ func _sliding_press_part_snap(kind: String, pointed_kind: String, center: Array,
 	if kind == "broad_copper_slide" and pointed_kind == "broad_flat_head":
 		return {"center": [center[0], center[1] + 3, center[2]],
 			"label": "2×2 housing over broad head"}
-	if kind == "hand_crank" and pointed_kind in ["wooden_slide", "copper_slide"]:
-		var side := 1 if normal.x >= 0.0 else -1
-		return {"center": [center[0] + 4 * side, center[1], center[2]],
-			"label": "Slide input"}
 	if kind in ["wooden_shaft", "copper_shaft"] and pointed_kind in ["wooden_slide", "copper_slide"]:
 		var side := 1 if normal.x >= 0.0 else -1
 		return {"center": [center[0] + 4 * side, center[1], center[2]],
@@ -2655,6 +2675,8 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 	# lateral drive. Host still decides support, occupancy, custody and reach.
 	if use_nudge and component_nudge_active and component_nudge_center.size() == 3:
 		return component_nudge_center.duplicate()
+	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "hand_crank":
+		return _rotary_snap(pointed, "hand_crank", _screen_pick(_pointed_screen_position()))
 	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "wooden_workbench":
 		return [cell.x * Geometry.HEIGHT_DENOMINATOR, _construction_level(cell),
 			cell.y * Geometry.HEIGHT_DENOMINATOR]
@@ -2668,9 +2690,6 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 			if kind in ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"] \
 					and placed[pointed].get("component", "") == "anvil":
 				return []
-			if kind == "hand_crank" and placed[pointed].get("component", "") in \
-					["tool_mount", "wooden_shaft", "copper_shaft"]:
-				return center
 			if kind == "flat_head" and str(placed[pointed].component) in ["wooden_slide", "copper_slide"]:
 				return [center[0], center[1] - 1, center[2]]
 			var press_snap := _sliding_press_part_snap(kind, str(placed[pointed].component), center, normal)
@@ -2945,7 +2964,7 @@ func _refresh_component_preview() -> void:
 		return
 	if kind == "hand_crank":
 		var input_id := _rotary_at_input_port(center)
-		var input: Dictionary = state.get("placed_components", {}).get(input_id, {})
+		var input: Dictionary = state.get("rotary_ports", {}).get(input_id, {})
 		component_preview_blocked = input_id.is_empty() or \
 			not bool(input.get("crank_source_available", true))
 		for item: Dictionary in state.get("crank_items", {}).values():
@@ -2964,11 +2983,9 @@ func _refresh_component_preview() -> void:
 		component_preview.position = Vector3(float(center[0]) * Geometry.HEIGHT_STEP,
 			float(center[1]) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
 			float(center[2]) * Geometry.HEIGHT_STEP)
-		var input_cell: Array = input.get("center", [])
 		var face := _crank_face_for_input(input_id, center)
 		if face.size() != 3:
-			face = [-1, 0, 0] if input_cell.size() == 3 and center[0] < input_cell[0] \
-				else [1, 0, 0]
+			return
 		var outward := Vector3(float(face[0]), 0.0, float(face[2]))
 		component_preview.position += outward * 0.22 * Geometry.PITCH / 1.65
 		component_preview.rotation.y = -atan2(outward.z, outward.x)
@@ -3059,11 +3076,11 @@ func _component_placement_hint() -> String:
 		var crank_center := _component_place_center(_screen_cell(_pointed_screen_position()),
 			_screen_entity(_pointed_screen_position()))
 		var input_id := _rotary_at_input_port(crank_center)
-		if not input_id.is_empty() and not bool(state.get("placed_components", {}).get(
+		if not input_id.is_empty() and not bool(state.get("rotary_ports", {}).get(
 				input_id, {}).get("crank_source_available", true)):
 			return "A waterwheel already powers this shaft network"
-		return "Point at a slide input shaft end · click to place the carried crank" \
-			if not component_preview_blocked else "Point at a clear slide input shaft end"
+		return "Point at a horizontal rotary port · click to attach the crank" \
+			if not component_preview_blocked else "Point at a clear horizontal rotary port"
 	var center := _component_place_center(_screen_cell(_pointed_screen_position()),
 		_screen_entity(_pointed_screen_position()))
 	var location := "%s · X %d  Y %d  Z %d" % [component_preview_snap, center[0], center[1], center[2]]

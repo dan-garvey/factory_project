@@ -45,6 +45,7 @@ inline constexpr std::array host_fields{
     Field{"drive_links", Type::string_pairs},
     Field{"engagements", Type::array},
     Field{"motion", Type::object},
+    Field{"rotary_ports", Type::object},
     Field{"inventories", Type::integer_values},
     Field{"cargo", Type::object},
     Field{"part_kits", Type::object},
@@ -271,8 +272,10 @@ inline constexpr std::array placed_component_fields{
     Field{"occupied.center", Type::floating3},
     Field{"occupied.half", Type::floating3},
     Field{"position", Type::floating3},
-    Field{"input_ports", Type::integer3_array, true},
-    Field{"crank_axis", Type::integer, true},
+};
+inline constexpr std::array rotary_owner_fields{
+    Field{"generation", Type::integer}, Field{"ports", Type::array},
+    Field{"crank_source_available", Type::boolean},
 };
 inline constexpr std::array slide_phase_fields{
     Field{"subticks", Type::integer}, Field{"remainder", Type::integer},
@@ -311,6 +314,7 @@ inline constexpr std::array records{
     Record{"transmission_parts", Container::object_values, transmission_fields},
     Record{"belt_spans", Container::object_values, span_fields},
     Record{"motion", Container::object_values, motion_fields},
+    Record{"rotary_ports", Container::object_values, rotary_owner_fields},
     Record{"foundations", Container::object_values, foundation_fields},
     Record{"engagements", Container::array_elements, engagement_fields},
     Record{"adapter_profile", Container::object, adapter_profile_fields},

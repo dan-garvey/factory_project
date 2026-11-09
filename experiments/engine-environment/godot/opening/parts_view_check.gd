@@ -280,7 +280,12 @@ class ComponentPlacementView extends "res://opening/opening.gd":
 	func _screen_cell(_screen: Vector2) -> Vector2i:
 		return pointed_cell
 	func _screen_pick(_screen: Vector2) -> Dictionary:
-		return {"collider": hit_body, "normal": aim_normal} if not aimed.is_empty() else {}
+		var part: Dictionary = state.get("placed_components", {}).get(aimed,
+			state.get("transmission_parts", {}).get(aimed, {}))
+		var center: Array = part.get("center", [0, 0, 0])
+		var at := Vector3(center[0], center[1], center[2]) * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT
+		return {"collider": hit_body, "normal": aim_normal,
+			"position": at + aim_normal * Geometry.PITCH * 0.5} if not aimed.is_empty() else {}
 	func _screen_entity(_screen: Vector2) -> String:
 		return aimed
 	func _preview_pointer_clear() -> bool:
@@ -1169,8 +1174,7 @@ func _component_placement_check() -> void:
 		"center": [0, 2, 0], "generation": 1,
 		"occupied": {"center": [input_slide_box.center.x, input_slide_box.center.y,
 			input_slide_box.center.z], "half": [input_slide_box.half.x,
-			input_slide_box.half.y, input_slide_box.half.z]},
-		"input_ports": [[-4, 2, 0], [4, 2, 0]]}
+			input_slide_box.half.y, input_slide_box.half.z]}}
 	view.aimed = "input-slide"
 	body.set_meta("component_entity", "input-slide")
 	view.aim_normal = Vector3.RIGHT
@@ -1182,10 +1186,8 @@ func _component_placement_check() -> void:
 	verify(view.issued.back().center == [4, 2, 0],
 		"The shaft click uses the same H-layer port shown by the preview.")
 	view.aim_normal = Vector3.LEFT
-	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [-4, 2, 0]
-		and view._sliding_press_part_snap("hand_crank", "wooden_slide", [0, 2, 0],
-			Vector3.LEFT).center == [-4, 2, 0],
-		"The opposite slide face exposes the mirrored U-centered crank input.")
+	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [-4, 2, 0],
+		"The opposite slide face exposes the mirrored shaft placement.")
 	view.aim_normal = Vector3.RIGHT
 	view._input(_component_key(KEY_ALT, true, true))
 	view._input(_component_key(KEY_PAGEUP, true, true))
@@ -1263,8 +1265,10 @@ func _component_placement_check() -> void:
 	view.client = "P"
 	view.component_nudge_active = false
 	view.state.placed_components = {"shaft": {"component": "wooden_shaft",
-		"center": [0, 4, 0], "position": [0.0, 2.475, 0.0],
-		"input_ports": [[0, 4, 0]], "crank_axis": 0}}
+		"center": [0, 4, 0], "position": [0.0, 2.475, 0.0]}}
+	view.state.rotary_ports = {"shaft": {"generation": 1, "crank_source_available": true,
+		"ports": [{"position": [-2, 4, 0], "outward": [-1, 0, 0], "hand_crank": true, "open": true},
+			{"position": [2, 4, 0], "outward": [1, 0, 0], "hand_crank": true, "open": true}]}}
 	view.state.crank_items = {"crank-id": {"holder": "P"}}
 	view.state.cargo.P.components.hand_crank = 1
 	view.state.actors.P.position = [1.0, 1.0, 0.0]
@@ -1274,33 +1278,66 @@ func _component_placement_check() -> void:
 	body.set_meta("component_entity", "shaft")
 	view._refresh_component_preview()
 	verify(view.component_preview.visible and not view.component_preview_blocked
-		and absf(view.component_preview.position.x - 0.22 * Geometry.PITCH / 1.65) < 0.001
+		and absf(view.component_preview.position.x - Geometry.PITCH * 0.5 - 0.22 * Geometry.PITCH / 1.65) < 0.001
 		and absf(view.component_preview.rotation.y) < 0.001,
 		"The ordinary crank ghost follows the native positive X spindle face.")
 	view._world_click(Vector2i.ZERO, "shaft")
 	verify(view.issued.back().face == [1, 0, 0],
 		"Fitting from the positive X side sends the projected spindle face for native validation.")
 	view.state.actors.P.position = [-1.0, 1.0, 0.0]
+	view.aim_normal = Vector3.LEFT
 	view._refresh_component_preview()
-	verify(absf(view.component_preview.position.x + 0.22 * Geometry.PITCH / 1.65) < 0.001
+	verify(absf(view.component_preview.position.x + Geometry.PITCH * 0.5 + 0.22 * Geometry.PITCH / 1.65) < 0.001
 		and absf(absf(view.component_preview.rotation.y) - PI) < 0.001,
 		"Approaching the other side mirrors the visible crank preview.")
 	view._world_click(Vector2i.ZERO, "shaft")
 	verify(view.issued.back().face == [-1, 0, 0],
 		"The mirrored native attachment request matches the ordinary preview.")
-	view.state.placed_components.shaft.crank_axis = 2
+	view.state.rotary_ports.shaft.ports = [
+		{"position": [0, 4, -2], "outward": [0, 0, -1], "hand_crank": true, "open": true},
+		{"position": [0, 4, 2], "outward": [0, 0, 1], "hand_crank": true, "open": true}]
+	view.aim_normal = Vector3.BACK
 	view.state.actors.P.position = [0.0, 1.0, 1.0]
 	view._refresh_component_preview()
-	verify(absf(view.component_preview.position.z - 0.22 * Geometry.PITCH / 1.65) < 0.001
+	verify(absf(view.component_preview.position.z - Geometry.PITCH * 0.5 - 0.22 * Geometry.PITCH / 1.65) < 0.001
 		and absf(view.component_preview.rotation.y + PI * 0.5) < 0.001,
 		"A native Z spindle rotates the preview around the actual horizontal axis.")
 	view._world_click(Vector2i.ZERO, "shaft")
 	verify(view.issued.back().face == [0, 0, 1],
 		"The ordinary Z-facing fit sends the same signed face as its preview.")
 	view.state.actors.P.position = [0.0, 1.0, -1.0]
+	view.aim_normal = Vector3.FORWARD
 	view._world_click(Vector2i.ZERO, "shaft")
 	verify(view.issued.back().face == [0, 0, -1],
 		"Approaching the opposite Z face reverses the requested native winding.")
+	view.state.placed_components = {}
+	view.state.transmission_parts = {"gearbox": {"kind": "vertical_gearbox", "center": [0, 4, 0]}}
+	view.state.rotary_ports = {"gearbox": {"generation": 1, "crank_source_available": true,
+		"ports": [{"position": [2, 4, 0], "outward": [1, 0, 0], "hand_crank": true, "open": true},
+			{"position": [0, 6, 0], "outward": [0, 1, 0], "hand_crank": false, "open": true}]}}
+	view.aimed = "gearbox"
+	view.aim_normal = Vector3.RIGHT
+	view.state.actors.P.position = [1.0, 1.0, 0.0]
+	verify(view._component_pointed_center() == [2, 4, 0],
+		"A topology gearbox uses the same projected crank socket as an embodied spindle.")
+	view._world_click(Vector2i.ZERO, "gearbox")
+	verify(view.issued.back().entity == "gearbox" and view.issued.back().face == [1, 0, 0],
+		"The generic fit sends the gearbox identity and its horizontal exposed face.")
+	view.state.rotary_ports.gearbox.ports[0].open = false
+	verify(view._component_pointed_center().is_empty(),
+		"An occupied horizontal face does not fall back to a forbidden vertical crank.")
+	view.transmission_controls = preload("res://opening/native_transmission_controls.gd").new()
+	view.add_child(view.transmission_controls)
+	view.transmission_controls.active_tool = "place_shaft"
+	view.transmission_controls.selected_axis = "y"
+	view.transmission_controls.shaft_half_span = 2
+	view.transmission_controls.auto_height = true
+	var upper_face := Vector3(0, 6, 0) * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT
+	verify(view._transmission_snap_target("gearbox", Vector3.UP, Vector3.ZERO, upper_face) == [0, 8, 0],
+		"A vertical shaft snaps its end to the same gearbox port refused for a crank.")
+	view.transmission_controls.selected_axis = "z"
+	verify(view._transmission_snap_target("gearbox", Vector3.UP, Vector3.ZERO, upper_face).is_empty(),
+		"A shaft with an incompatible axis has no invented connection on the gearbox.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,
@@ -3668,9 +3705,8 @@ func _workshop_pages() -> void:
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
 			"press-anvil": {"component": "anvil", "center": [8, 0, 8]},
 			"press-head": {"component": "flat_head", "center": [8, 1, 8]},
-			"press-slide": {"component": "wooden_slide", "center": [8, 2, 8], "input_ports": [[9, 2, 8]]},
-			"collector-mount": {"component": "tool_mount", "center": [-1, 0, 0],
-				"input_ports": [[-1, 0, 0]]},
+			"press-slide": {"component": "wooden_slide", "center": [8, 2, 8]},
+			"collector-mount": {"component": "tool_mount", "center": [-1, 0, 0]},
 			"collector-frame": {"component": "wooden_frame", "center": [0, 0, 0]}}
 		view.state.sliding_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
 			"work_center": [8, 0, 8], "status": "ready", "parts": {"head": "press-head", "slide": "press-slide"},
@@ -4335,8 +4371,7 @@ func _slide_controls_check() -> void:
 	snapshot.placed_components = {
 		"anvil": {"component": "anvil", "center": [12, 0, 8]},
 		"head": {"component": "flat_head", "center": [12, 1, 8]},
-		"slide": {"component": "wooden_slide", "center": [12, 2, 8],
-			"input_ports": [[11, 2, 8], [13, 2, 8]]}}
+		"slide": {"component": "wooden_slide", "center": [12, 2, 8]}}
 	snapshot.sliding_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
 		"status": "ready", "work_center": [12, 0, 8], "selected_exit": [13, 0, 8],
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"},
@@ -4658,8 +4693,7 @@ func _slide_inventory_render_check() -> void:
 	view.state.placed_components = {
 		"anvil": {"component": "anvil", "center": [12, 0, 8]},
 		"head": {"component": "flat_head", "center": [12, 1, 8]},
-		"slide": {"component": "wooden_slide", "center": [12, 2, 8],
-			"input_ports": [[11, 2, 8], [13, 2, 8]]}}
+		"slide": {"component": "wooden_slide", "center": [12, 2, 8]}}
 	view.state.sliding_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
 		"status": "ready", "work_center": [12, 0, 8], "parts": {"anvil": "anvil",
 			"head": "head", "slide": "slide"},

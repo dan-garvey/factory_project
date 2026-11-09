@@ -93,7 +93,8 @@ std::optional<Value> build(const world::Profile& profile,
         {"recipe_input", Value(profile.material.input_units_per_product)}, {"entities", Value(std::move(topology.entities))},
         {"transmission_parts", Value(std::move(topology.transmission_parts))}, {"links", Value(std::move(drive.links))},
         {"drive_links", Value(std::move(drive.drive_links))}, {"engagements", Value(std::move(drive.engagements))},
-        {"motion", Value(std::move(drive.motion))}, {"actors", Value(std::move(actors))},
+        {"motion", Value(std::move(drive.motion))}, {"rotary_ports", Value(std::move(drive.rotary_ports))},
+        {"actors", Value(std::move(actors))},
         {"foundations", Value(std::move(topology.foundations))},
         {"source_deposit", Value(Object{{"id", Value(profile.material.manual_ore ?
             profile.material.manual_ore->id : std::string{})},
@@ -150,7 +151,7 @@ std::optional<Value> build(const world::Profile& profile,
                     Value(site_geometry::collector_lift.head_size_xy[1])})},
                 {"head_z_size", Value(Array{Value(site_geometry::collector_lift.head_z_size[0]),
                     Value(site_geometry::collector_lift.head_z_size[1])})}})}})}};
-    projection.merge(arrival_site_projection::fields(profile, state, power));
+    projection.merge(arrival_site_projection::fields(profile, state));
     projection.merge(assembly_projection::fields(profile, state, power));
     projection.merge(build_catalog_projection::fields(profile, snapshot));
     projection.merge(tick_fields(profile, snapshot));
