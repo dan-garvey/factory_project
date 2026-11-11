@@ -4701,7 +4701,7 @@ func _piston_run(capture_prefix: String) -> void:
 	var raw_before: int = after.cargo.P.raw
 	deadline = Time.get_ticks_msec() + 120000
 	for pile: Dictionary in after.dropped_material:
-		if not await _surface_pickup_pile(pile, Vector2(px, pz), capture_prefix): return
+		if not await _surface_pickup_pile(pile, Vector2(px, pz), capture_prefix, 0.8): return
 	if not _expect(opening.model.projection().cargo.P.raw == raw_before + 48, "Ordinary reachable pickup recovers all 48 loose copper after retracting"): return
 	facts["produced"] = 48
 	facts["travel_ticks"] = first_position
@@ -4714,8 +4714,10 @@ func _piston_continue(capture_prefix: String) -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--piston-source-result="): input = argument.trim_prefix("--piston-source-result=")
 	var prior: Variant = bytes_to_var(FileAccess.get_file_as_bytes(input))
-	if not _expect(prior is Dictionary and prior.get("status") == "pass" and prior.get("mode") == "arrival-piston",
-			"Continuation starts only from a completed real excavation scene"): return
+	if not _expect(prior is Dictionary and prior.get("mode") == "arrival-piston" and prior.has("final_checkpoint"),
+			"Continuation starts from a retained real excavation scene checkpoint"): return
+	facts["source_run_status"] = prior.get("status")
+	facts["source_run_reason"] = prior.get("reason")
 	var saved: Dictionary = prior.final_checkpoint
 	if not _expect(opening.model.restore_checkpoint(saved).accepted and _same(saved, opening.model.checkpoint()),
 			"A fresh scene restores the exact piston, loose-copper custody and native history"): return
@@ -4752,6 +4754,16 @@ func _piston_continue(capture_prefix: String) -> void:
 	for pulse in 4:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
 		if not await _piston_view(capture_prefix, "resume-retract-%02d" % pulse, target - Vector3.UP * 1.45, true): return
+	var after: Dictionary = opening.model.projection()
+	var loose := 0
+	for pile: Dictionary in after.dropped_material: loose += int(pile.raw)
+	if not _expect(loose == 48, "The retained three cuts conserve all 48 copper in loose ground custody"): return
+	for pile: Dictionary in after.dropped_material:
+		if not await _surface_pickup_pile(pile, Vector2(target.x, target.z), capture_prefix, 0.8): return
+	if not _expect(opening.model.projection().cargo.P.raw == after.cargo.P.raw + 48
+			and opening.model.projection().dropped_material.is_empty(),
+			"The closer ordinary world interaction recovers all copper without increasing reach or bypassing occlusion"): return
+	if not await _piston_view(capture_prefix, "retracted-picked-up", target - Vector3.UP * 1.45, true): return
 	if not await _approach(Vector2(6.3, -4.95)): return
 	var sections: Array[String] = []
 	for id: String in parts:
@@ -4960,7 +4972,7 @@ func _surface_drill_run(capture_prefix: String) -> void:
 			return
 	_record("pass")
 
-func _surface_pickup_pile(pile: Dictionary, center: Vector2, capture_prefix: String) -> bool:
+func _surface_pickup_pile(pile: Dictionary, center: Vector2, capture_prefix: String, approach_distance := 1.2) -> bool:
 	var occluders: Array = []
 	var ring: Array[Vector2] = [Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), Vector2(-1, 0)]
 	var nearest := Vector2(0, signf(float(pile.ground_position[2]) - center.y))
@@ -4978,7 +4990,8 @@ func _surface_pickup_pile(pile: Dictionary, center: Vector2, capture_prefix: Str
 			if not await _approach_points([center + (ring[cursor] + next) * 1.7, center + next * 1.7]):
 				return false
 			cursor = (cursor + 1) % 4
-		if not await _approach(center + side * 1.2):
+		var approached: bool = await _walk_to(center + side * approach_distance) if approach_distance < 1.2 else await _approach(center + side * approach_distance)
+		if not approached:
 			return false
 		var picker_nodes: Array = opening.transmission_presenter._drop_pickers_by_center.get(pile.center, []).duplicate()
 		for picker: Node3D in picker_nodes:
