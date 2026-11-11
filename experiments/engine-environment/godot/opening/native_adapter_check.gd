@@ -4552,8 +4552,40 @@ func _reachable_ore_column() -> String:
 			selected = id
 	return selected
 
+func _piston_place(kind: String, pointed: String) -> Dictionary:
+	var before: Dictionary = opening.model.projection().placed_components
+	if not _select_inventory_item("component:" + kind): return {}
+	opening.component_nudge_active = false
+	var offered: Dictionary = opening._piston_attachment(kind, pointed)
+	if not _expect(not offered.is_empty(), "The pointed structure exposes a native attachment for " + kind): return {}
+	opening._world_click(Vector2i.ZERO, pointed)
+	opening._select_tool("inspect")
+	for id: String in opening.model.projection().placed_components:
+		if not before.has(id):
+			var part: Dictionary = opening.model.projection().placed_components[id]
+			if not _expect(part.component == kind and part.center == offered.center and part.parent == offered.parent,
+					"Inventory selection and world placement consume the native attachment"): return {}
+			return {"entity": id}
+	_expect(false, "The ordinary snapped placement creates " + kind)
+	return {}
+
+func _piston_jump_to_reach() -> bool:
+	var processing: bool = opening.character_presenter.is_physics_processing()
+	opening.character_presenter.set_physics_process(false)
+	var initial: float = opening.actor_world.bodies.P.global_position.y
+	opening.actor_world.set_control("P", Vector2.ZERO, true)
+	for frame in 40:
+		await physics_frame
+		await process_frame
+		opening.actor_world.set_control("P", Vector2.ZERO, false)
+		if opening.actor_world.bodies.P.global_position.y > initial + 0.65:
+			opening.character_presenter.set_physics_process(processing)
+			return true
+	opening.character_presenter.set_physics_process(processing)
+	return _expect(false, "A real jump brings the last extension within ordinary build reach")
+
 func _piston_run(capture_prefix: String) -> void:
-	deadline = Time.get_ticks_msec() + 300000
+	deadline = Time.get_ticks_msec() + 600000
 	facts["evidence"] = "scripted_native_segmented_piston_in_actual_worksite"
 	facts["limits"] = "Actual crafting, native commands, actor motor and scene. Context cameras are passive fixtures, not human usability evidence."
 	for tree: Array in [[Vector2(6.0, 3.45), "tree-east-south", 8], [Vector2(6.0, 10.5), "tree-east-north", 8], [Vector2(6.6, -0.5), "tree-east-upstream", 4]]:
@@ -4575,6 +4607,14 @@ func _piston_run(capture_prefix: String) -> void:
 	for kind: String in kinds:
 		if not _press_inventory_recipe("component:" + kind, "pod-fabrication-hub"):
 			return
+	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
+		opening.building_hotbar.open_at_bench("pod-fabrication-hub")
+		opening.building_hotbar.recipe_tabs[opening.building_hotbar._recipe_category("component:segmented_piston", "")].pressed.emit()
+		for frame in 3:
+			await process_frame
+			await RenderingServer.frame_post_draw
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-crafting.png") == OK, "Capture the ordinary piston crafting and carried inventory"): return
+		opening.building_hotbar.catalog.hide()
 	if mode == "arrival-piston-horizontal":
 		var recipes: Array = opening.model.projection().part_recipes
 		for index in recipes.size():
@@ -4598,13 +4638,20 @@ func _piston_run(capture_prefix: String) -> void:
 	var target := Vector3(px, level * OpeningGeometry.HEIGHT_STEP + 1.9, pz)
 	var mount := _construct({"action": "place_component", "component": "stationary_mount", "center": [x, level, z]})
 	if mount.is_empty(): return
-	var body := _construct({"action": "place_component", "component": "segmented_piston", "center": [x, level + 5, z]})
+	var body := _piston_place("segmented_piston", mount.entity)
 	if body.is_empty(): return
-	var head := _construct({"action": "place_component", "component": "drill_head", "center": [x, level + 1, z], "parent": body.entity})
+	var head := _piston_place("drill_head", body.entity)
 	if head.is_empty(): return
+	if not await _approach(Vector2(6.3, -4.95)): return
 	for count in 4:
-		if _construct({"action": "place_component", "component": "piston_segment", "center": [x, level + 9 + count * 4, z], "parent": body.entity}).is_empty(): return
+		if count == 3 and not await _piston_jump_to_reach(): return
+		var segment := _piston_place("piston_segment", body.entity)
+		if segment.is_empty(): return
+		if count == 0:
+			if _construct({"action": "reclaim_component", "entity": segment.entity}).is_empty(): return
+			if _piston_place("piston_segment", body.entity).is_empty(): return
 		if count == 0 and not await _piston_view(capture_prefix, "one-segment", target): return
+	if not await _approach(Vector2(6.3, -4.95)): return
 	var cranks: Array = opening.model.projection().crank_items.keys()
 	var tool: String = cranks[0]
 	var feed: String = cranks[1]
@@ -4618,6 +4665,10 @@ func _piston_run(capture_prefix: String) -> void:
 		for pulse in 64:
 			if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
 			if pulse % 8 == 0 and not await _piston_view(capture_prefix, "cut-%02d-%02d" % [band, pulse], target - Vector3.UP * 1.45, true): return
+			if band == 0 and pulse == 0 and not _expect(absf(opening.transmission_presenter.visual_rotation(head.entity)) > 0.001
+					and absf(opening.transmission_presenter.visual_rotation(body.entity + "/tool")) > 0.001
+					and absf(opening.transmission_presenter.visual_rotation(body.entity + "/output")) > 0.001,
+					"Native tool work animates the drill and both independent through-drive rotors"): return
 			opening.model.advance()
 			opening._refresh()
 			await physics_frame
@@ -4641,6 +4692,7 @@ func _piston_run(capture_prefix: String) -> void:
 	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 0, "The same crank on the opposite feed face retracts the tool"): return
 	var after: Dictionary = opening.model.projection()
 	var raw_before: int = after.cargo.P.raw
+	deadline = Time.get_ticks_msec() + 120000
 	for pile: Dictionary in after.dropped_material:
 		if not await _surface_pickup_pile(pile, Vector2(px, pz), capture_prefix): return
 	if not _expect(opening.model.projection().cargo.P.raw == raw_before + 48, "Ordinary reachable pickup recovers all 48 loose copper after retracting"): return
@@ -4668,11 +4720,13 @@ func _horizontal_piston_run(capture_prefix: String) -> void:
 	if not _expect(orientation >= 0, "Native orientations include the horizontal feed arrangement"): return
 	var body := _construct({"action": "place_component", "component": "segmented_piston", "center": [48, 4, 36], "orientation": orientation})
 	if body.is_empty(): return
+	if not await _approach(Vector2(8.5, 5.7)): return
 	for count in 4:
-		if _construct({"action": "place_component", "component": "piston_segment", "center": [44 - count * 4, 4, 36], "parent": body.entity, "orientation": orientation}).is_empty(): return
-	var shaft := _construct({"action": "place_component", "component": "copper_shaft", "center": [52, 4, 36], "parent": body.entity})
+		if _piston_place("piston_segment", body.entity).is_empty(): return
+	if not await _approach(Vector2(9.9, 5.7)): return
+	var shaft := _piston_place("copper_shaft", body.entity)
 	if shaft.is_empty(): return
-	var cog := _construct({"action": "place_component", "component": "copper_cog", "center": [56, 4, 36], "parent": body.entity})
+	var cog := _piston_place("copper_cog", shaft.entity)
 	if cog.is_empty(): return
 	var gearbox := _construct({"action": "place_relay", "kind": "vertical_gearbox", "center": [48, 8, 36], "axis": "z"})
 	if gearbox.is_empty(): return
@@ -4686,6 +4740,9 @@ func _horizontal_piston_run(capture_prefix: String) -> void:
 	for pulse in 32:
 		if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
 		if not await _piston_view(capture_prefix, "turn-%02d" % pulse, target): return
+		if pulse == 0 and not _expect(absf(opening.transmission_presenter.visual_rotation(shaft.entity)) > 0.001
+				and absf(opening.transmission_presenter.visual_rotation(cog.entity)) > 0.001,
+				"The shared through-shaft animates the ordinary carried shaft and cog"): return
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
 		if not await _piston_view(capture_prefix, "travel-%02d" % pulse, target): return
 	var progress: Dictionary = opening.model.projection().placed_components[body.entity].piston
