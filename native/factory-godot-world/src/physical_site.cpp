@@ -253,7 +253,15 @@ const char* component_space_refusal(const Site& site, const world::State& state,
             !slide_head_fitting(kind, center, other.kind, other.center) &&
             !frame_anvil_fitting(kind, center, other.kind, other.center) &&
             !workbed_tray_fitting(kind, center, other.kind, other.center) &&
-            overlap(volume, component_bounds(site.profile, other.kind, other.center))) return "occupied";
+            overlap(volume, component_geometry::placed_bounds(site.profile, state, id, other))) {
+            // The mount reserves its 3x3 ground area, but its own centered
+            // piston and moving head use the open guide rather than that air.
+            const auto body=other.parent.empty() ? state.placed_components.find(id) : state.placed_components.find(other.parent);
+            const bool fitted=kind==materials::Component::stationary_mount && body!=state.placed_components.end() &&
+                body->second.kind==materials::Component::segmented_piston && body->second.orientation==0 &&
+                body->second.center==mechanics::Point{center[0],center[1]+5,center[2]};
+            if (!fitted) return "occupied";
+        }
     if (intersects_belt(state, volume)) return "occupied";
     std::optional<world::DrivePower> candidate_ports;
     std::string candidate_id = current_id ? *current_id : "placement";
@@ -306,9 +314,8 @@ const char* supplied_space_refusal(const Site& site, const world::State& state) 
             (void)unused;
             if (overlap(box, foundation_bounds(floor))) return "occupied";
         }
-        for (const auto& [unused, component] : state.placed_components) {
-            (void)unused;
-            if (overlap(box, component_bounds(site.profile, component.kind, component.center))) return "occupied";
+        for (const auto& [id, component] : state.placed_components) {
+            if (overlap(box, component_geometry::placed_bounds(site.profile, state, id, component))) return "occupied";
         }
         if (intersects_belt(state, box)) return "occupied";
         for (const auto& part : state.topology.parts) {
@@ -351,7 +358,7 @@ std::vector<std::pair<authority::Point, authority::Point>> build_solid_boxes(
     };
     for (const auto& [id, part] : state.placed_components) {
         (void)id;
-        for (const auto& solid : component_geometry::component_solids(site.profile, part.kind, part.center))
+        for (const auto& solid : component_geometry::placed_solids(site.profile, state, id, part))
             append_bounds(solid);
     }
     for (const auto& part : state.topology.parts)

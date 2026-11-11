@@ -14,6 +14,8 @@ struct ComponentCommand {
     std::optional<mechanics::Point> center;
     std::optional<std::string> target;
     std::optional<authority::Integer> generation;
+    authority::Integer orientation{};
+    std::string parent;
 };
 
 // World checks the wire shape and actor gates before this planner proposes a

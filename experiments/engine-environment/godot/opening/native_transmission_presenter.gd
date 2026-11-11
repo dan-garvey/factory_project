@@ -182,6 +182,9 @@ func _sync_motion(snapshot: Dictionary) -> void:
 					typeof(part.get("generation")) != TYPE_INT or part.generation < 1:
 				continue
 			current[id] = part.generation
+			if part.component == "segmented_piston":
+				current[id + "/tool"] = part.generation
+				current[id + "/output"] = part.generation
 	for id: Variant in _visual_angles.keys():
 		if not current.has(id) or current[id] != _generations.get(id):
 			_visual_angles.erase(id)
@@ -1375,6 +1378,71 @@ static func slide_carriage_drop(phase: Variant, travel: float) -> float:
 	var fraction := (float(phase.subticks) + float(phase.remainder) / float(denominator)) / float(cycle)
 	return -travel * (1.0 - absf(2.0 * fraction - 1.0))
 
+static func component_basis(value: Array) -> Basis:
+	if value.size() != 3:
+		return Basis.IDENTITY
+	return Basis(Vector3(value[0][0], value[0][1], value[0][2]),
+		Vector3(value[1][0], value[1][1], value[1][2]), Vector3(value[2][0], value[2][1], value[2][2]))
+
+func _piston_rotor(anchor: Node3D, entity: String, axis: Vector3, length: float, radius: float,
+		worked: Material, dark: Material) -> Node3D:
+	var rotor := Node3D.new()
+	anchor.add_child(rotor)
+	var across := Vector3.RIGHT if absf(axis.x) < 0.5 else Vector3.BACK
+	rotor.basis = Basis(across, axis, across.cross(axis))
+	_support_cylinder(rotor, "KeyedSpindle", radius, length, worked)
+	_support_box(rotor, "ShaftKey", Vector3(radius, 0, 0), Vector3(radius * 0.35, length * 0.92, radius * 0.6), dark)
+	if not entity.is_empty():
+		rotor.set_meta("entity", entity)
+		rotor.set_meta("component_rotor_base", rotor.basis)
+		var world_axis: Vector3 = anchor.global_basis * axis
+		rotor.set_meta("component_axis_sign", world_axis.x + world_axis.y + world_axis.z)
+		_moving_anchors.append(rotor)
+	return rotor
+
+func _carried_rotor(anchor: Node3D, kind: String) -> void:
+	var rotor := Node3D.new()
+	rotor.name = "CarriedRotor"
+	anchor.add_child(rotor)
+	rotor.basis = Basis(Vector3.BACK, Vector3.RIGHT, Vector3.UP)
+	var color := Color("b48b58") if kind.begins_with("wooden") else Color("a6b4af")
+	Assets.shaft(rotor, 4 * UNIT, color)
+	if kind.ends_with("cog"):
+		Assets.gear(rotor, 2 * UNIT, 2, color)
+	if not anchor.has_meta("component_entity"):
+		return
+	rotor.set_meta("entity", anchor.get_meta("component_entity"))
+	rotor.set_meta("component_rotor_base", rotor.basis)
+	var axis: Vector3 = anchor.basis.x
+	rotor.set_meta("component_axis_sign", axis.x + axis.y + axis.z)
+	_moving_anchors.append(rotor)
+
+func _piston_art(anchor: Node3D, kind: String, data: Dictionary, worked: Material, dark: Material) -> void:
+	var h := UNIT
+	var entity: String = str(anchor.get_meta("component_entity", ""))
+	var copper := Finish.material("worked", Color("aa7250"), 0.72, 0.4)
+	if kind == "piston_segment":
+		_support_box(anchor, "RigidSegment", Vector3.ZERO, Vector3(0.9, 4.0, 0.9) * h, dark, true)
+		_support_box(anchor, "JoinCollar", Vector3(0, 1.8, 0) * h, Vector3(1.0, 0.28, 1.0) * h, worked, true)
+		_support_box(anchor, "GuideStripe", Vector3(0.46, 0, 0) * h, Vector3(0.025, 3.55, 0.18) * h, copper)
+		return
+	for x in [-1.35, 1.35]:
+		for z in [-1.35, 1.35]:
+			_support_box(anchor, "GuidePost", Vector3(x, -2, z) * h, Vector3(0.5, 2, 0.5) * h, worked, true)
+	_support_box(anchor, "FeedHousing", Vector3.ZERO, Vector3(3.6, 2, 3.6) * h, dark, true)
+	for y in [-0.9, 0.9]:
+		_support_box(anchor, "HousingRim", Vector3(0, y, 0) * h, Vector3(4, 0.2, 4) * h, copper, true)
+	_piston_rotor(anchor, entity, Vector3.RIGHT, 4 * h, 0.26 * h, worked, dark)
+	_piston_rotor(anchor, entity + "/tool" if not entity.is_empty() else "", Vector3.BACK, 4 * h, 0.26 * h, worked, dark)
+	var arm := Node3D.new()
+	anchor.add_child(arm)
+	arm.position.y = -float(data.get("position_ticks", 0)) / 1024.0 * h
+	_support_box(arm, "RigidArm", Vector3.ZERO, Vector3(0.96, 4.0, 0.96) * h, worked, true)
+	for y in [-1.85, 1.85]:
+		_support_box(arm, "ArmCoupling", Vector3(0, y, 0) * h, Vector3(1, 0.3, 1) * h, copper, true)
+	var output := _piston_rotor(anchor, entity + "/output" if not entity.is_empty() else "", Vector3.UP, 4.1 * h, 0.22 * h, worked, dark)
+	output.position = arm.position
+
 func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 		occupied_size: Vector3, collector_angle: float,
 		collector_support_drop: float, receiver_to_frame: Vector3,
@@ -1409,6 +1477,8 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 	var worked := Finish.material("worked", Color("9aaba5"), 0.78, 0.36)
 	var dark := Finish.material("cast", Color("354442"), 0.72, 0.52)
 	match kind:
+		"segmented_piston", "piston_segment":
+			_piston_art(anchor, kind, anchor.get_meta("piston", {}), worked, dark)
 		"stationary_mount":
 			var u := Geometry.PITCH
 			for x in [-1.0, 1.0]:
@@ -2082,6 +2152,17 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 					phase = snapshot.get("slide_phases", {}).get(mate_id) \
 						if snapshot.get("slide_phases") is Dictionary else null
 		anchor.set_meta("phase_source_id", phase_source_id)
+		var articulated: bool = spec.component in ["segmented_piston", "piston_segment"] or not str(placed[id].get("parent", "")).is_empty()
+		if articulated:
+			anchor.basis = component_basis(placed[id].get("basis", []))
+			var at: Array = placed[id].position
+			anchor.position = Vector3(at[0], at[1], at[2])
+			if spec.component == "drill_head":
+				anchor.position -= anchor.basis.y * UNIT
+			anchor.set_meta("piston", placed[id].get("piston", {}))
+			if spec.component in ["copper_shaft", "wooden_shaft", "copper_cog", "wooden_cog"]:
+				_carried_rotor(anchor, spec.component)
+				continue
 		_placed_component(anchor, spec.component, drives.get(id, Vector3.ZERO),
 			spec.size, float(collector_facings.get(id, 0.0)),
 			support_drop, collector_receivers.get(id, Vector3.ZERO), phase)
@@ -2099,6 +2180,8 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 		crank.position = Vector3(float(port[0]) * UNIT,
 			float(port[1]) * UNIT + Geometry.ANCHOR_HEIGHT,
 			float(port[2]) * UNIT) + outward * (0.22 * U_SCALE)
+		if Geometry.valid_position(item.get("position")):
+			crank.position = Vector3(item.position[0], item.position[1], item.position[2]) + outward * (0.22 * U_SCALE)
 		crank.rotation.y = -atan2(outward.z, outward.x)
 		crank.set_meta("crank_entity", id)
 		add_child(crank)
@@ -2737,7 +2820,7 @@ func _rebuild_placed_component_batches(force_press_dynamic: bool = false) -> voi
 			_collect_rigid_mesh_parts(sub, Transform3D.IDENTITY, {}, sub_parts, sub_key)
 			if sub_parts.is_empty():
 				continue
-			var comp_id := str(anchor.get_meta("component_entity", ""))
+			var comp_id := str(sub.get_meta("entity", anchor.get_meta("component_entity", "")))
 			var is_static_sub: bool = sub.has_meta("component_rotor_base") and not _visual_rates.has(comp_id) and not _pulse_turns.has(comp_id)
 			var mesh := _rigid_composite_mesh(sub_parts, sub_key, not is_static_sub)
 			var mesh_id := mesh.get_instance_id()

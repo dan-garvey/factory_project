@@ -182,6 +182,8 @@ func _record(status: String, reason: String = "") -> void:
 		print("CHAPTER 1 JOINED BROAD PRESS SLAB PASS")
 	if status == "pass" and mode == "arrival-raised-starter-belt":
 		print("CHAPTER 1 RAISED PRESS BELT PASS")
+	if status == "pass" and mode in ["arrival-piston", "arrival-piston-horizontal"]:
+		print("SEGMENTED PISTON SCENE PASS: " + mode)
 	if status == "pass" and mode == "arrival-surface-drill":
 		print("SURFACE DRILL SCENE PASS")
 	if status == "pass" and event_route_pointer:
@@ -1246,6 +1248,9 @@ func _collector_route() -> Dictionary:
 
 func _run() -> void:
 	if not OpeningScene.apply_test_window_title(self):
+		return
+	if mode in ["arrival-piston", "arrival-piston-horizontal"]:
+		await _arrival_run()
 		return
 	if event_route_pointer and mode not in ["arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap"]:
 		push_error("The selected event route does not apply to this fixture mode")
@@ -4367,7 +4372,7 @@ func _arrival_run() -> void:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--arrival-capture-prefix="):
 			capture_prefix = argument.trim_prefix("--arrival-capture-prefix=")
-	if destination.is_empty() or mode not in ["arrival-surface-drill", "arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-joined-broad-slab", "supplied-hardware", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
+	if destination.is_empty() or mode not in ["arrival-piston", "arrival-piston-horizontal", "arrival-surface-drill", "arrival-mature-trees", "arrival-mature-trees-resume", "arrival-starter-assembly", "arrival-first-plate", "arrival-first-plate-press", "arrival-raised-starter-snap", "arrival-raised-starter-belt", "arrival-blocked-feed-cue", "arrival-first-plate-resume", "arrival-nonhorizontal-incline", "arrival-nonhorizontal-vertical-resume", "arrival-nonhorizontal-sideways-resume", "arrival-nonhorizontal-power-reopen-resume", "arrival-nonhorizontal-actor-block-resume", "arrival-slide", "arrival-joined-broad", "arrival-joined-broad-slab", "supplied-hardware", "arrival-craft-capacity", "arrival-craft-capacity-resume", "arrival-field-craft", "arrival-foundation-craft", "arrival-foundation-craft-resume", "arrival-portable-workbench", "arrival-pod-workshop", "arrival-pod-workshop-resume", "arrival-belt", "arrival-belt-controls", "arrival-belt-resume", "arrival-cancel-placement", "arrival-reveal", "arrival-reveal-skip"] or FileAccess.file_exists(destination):
 		push_error("Arrival press check requires an unused output and a declared mode")
 		quit(1)
 		return
@@ -4442,6 +4447,9 @@ func _arrival_run() -> void:
 				"The graphical preview warmup releases its cover before the arrival is sampled"):
 			return
 	var panel = opening.arrival_assembly_controls
+	if mode in ["arrival-piston", "arrival-piston-horizontal"]:
+		await _piston_run(capture_prefix)
+		return
 	if mode == "arrival-surface-drill":
 		await _surface_drill_run(capture_prefix)
 		return
@@ -4502,7 +4510,7 @@ func _arrival_run() -> void:
 	push_error("The selected arrival fixture is unavailable")
 	quit(1)
 
-func _surface_drill_view(path: String, target: Vector3, low := false) -> bool:
+func _surface_drill_view(path: String, target: Vector3, low := false, offset := Vector3.ZERO) -> bool:
 	# Context cameras show the complete worker, not the first-person hand mesh
 	# floating at the separate player's eye camera after a pickup.
 	var player_distance: float = opening.distance
@@ -4516,7 +4524,7 @@ func _surface_drill_view(path: String, target: Vector3, low := false) -> bool:
 	var camera := Camera3D.new()
 	view.add_child(camera)
 	camera.fov = 50.0
-	camera.position = target + (Vector3(2.4, 0.65, -0.7) if low else Vector3(3.8, 2.2, -1.5))
+	camera.position = target + (offset if offset != Vector3.ZERO else (Vector3(2.4, 0.65, -0.7) if low else Vector3(3.8, 2.2, -1.5)))
 	camera.look_at(target)
 	camera.make_current()
 	for frame in 4:
@@ -4543,6 +4551,152 @@ func _reachable_ore_column() -> String:
 			best = distance
 			selected = id
 	return selected
+
+func _piston_run(capture_prefix: String) -> void:
+	deadline = Time.get_ticks_msec() + 300000
+	facts["evidence"] = "scripted_native_segmented_piston_in_actual_worksite"
+	facts["limits"] = "Actual crafting, native commands, actor motor and scene. Context cameras are passive fixtures, not human usability evidence."
+	for tree: Array in [[Vector2(6.0, 3.45), "tree-east-south", 8], [Vector2(6.0, 10.5), "tree-east-north", 8], [Vector2(6.6, -0.5), "tree-east-upstream", 4]]:
+		if not await _approach(tree[0]):
+			return
+		for count in int(tree[2]):
+			if _construct({"action": "harvest_source", "target": tree[1]}).is_empty():
+				return
+	if not await _approach_points([Vector2(6.0, 3.0), Vector2(0.0, 1.65), Vector2(-0.5, 0)]):
+		return
+	for count in 24:
+		var ore := _reachable_ore_column()
+		if not _expect(not ore.is_empty(), "Finite reachable copper funds the piston") or _construct({"action": "harvest_source", "target": ore}).is_empty():
+			return
+	if not await _approach(Vector2(3.3, 4.95)):
+		return
+	var kinds := ["segmented_piston", "piston_segment", "piston_segment", "piston_segment", "piston_segment", "hand_crank", "hand_crank"]
+	kinds.append_array(["copper_shaft", "copper_cog"] if mode == "arrival-piston-horizontal" else ["stationary_mount", "drill_head"])
+	for kind: String in kinds:
+		if not _press_inventory_recipe("component:" + kind, "pod-fabrication-hub"):
+			return
+	if mode == "arrival-piston-horizontal":
+		var recipes: Array = opening.model.projection().part_recipes
+		for index in recipes.size():
+			if recipes[index].kind == "vertical_gearbox":
+				if not _press_inventory_recipe("part:" + str(index), "pod-fabrication-hub"):
+					return
+				break
+		await _horizontal_piston_run(capture_prefix)
+		return
+	if not await _approach_points([Vector2(4.95, 2.2), Vector2(6.6, 0.0), Vector2(6.6, -3.0)]):
+		return
+	var x := 24
+	var z := -24
+	var px: float = x * OpeningGeometry.HEIGHT_STEP
+	var pz: float = z * OpeningGeometry.HEIGHT_STEP
+	var high := -INF
+	for dx in [-OpeningGeometry.PITCH, 0.0, OpeningGeometry.PITCH]:
+		for dz in [-OpeningGeometry.PITCH, 0.0, OpeningGeometry.PITCH]:
+			high = maxf(high, opening.model.terrain_high(px + dx, pz + dz, 0.10, 0.10))
+	var level := ceili(high / OpeningGeometry.HEIGHT_STEP)
+	var target := Vector3(px, level * OpeningGeometry.HEIGHT_STEP + 1.9, pz)
+	var mount := _construct({"action": "place_component", "component": "stationary_mount", "center": [x, level, z]})
+	if mount.is_empty(): return
+	var body := _construct({"action": "place_component", "component": "segmented_piston", "center": [x, level + 5, z]})
+	if body.is_empty(): return
+	var head := _construct({"action": "place_component", "component": "drill_head", "center": [x, level + 1, z], "parent": body.entity})
+	if head.is_empty(): return
+	for count in 4:
+		if _construct({"action": "place_component", "component": "piston_segment", "center": [x, level + 9 + count * 4, z], "parent": body.entity}).is_empty(): return
+		if count == 0 and not await _piston_view(capture_prefix, "one-segment", target): return
+	var cranks: Array = opening.model.projection().crank_items.keys()
+	var tool: String = cranks[0]
+	var feed: String = cranks[1]
+	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": tool, "port": [x, level + 5, z + 2], "face": [0, 0, 1]}).is_empty(): return
+	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": feed, "port": [x + 2, level + 5, z], "face": [1, 0, 0]}).is_empty(): return
+	if _construct({"action": "set_developer_conveniences", "enabled": false}).is_empty(): return
+	if not await _piston_view(capture_prefix, "four-segments", target): return
+	var before: Dictionary = opening.model.projection()
+	var first_position := 0
+	for band in 3:
+		for pulse in 64:
+			if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
+			if pulse % 8 == 0 and not await _piston_view(capture_prefix, "cut-%02d-%02d" % [band, pulse], target - Vector3.UP * 1.45, true): return
+			opening.model.advance()
+			opening._refresh()
+			await physics_frame
+		if not _expect(int(before.stock.source) - int(opening.model.projection().stock.source) == 16 * (band + 1), "Each local band yields the provisional 16 copper"):
+			return
+		if not await _piston_view(capture_prefix, "band-%02d" % band, target - Vector3.UP * 1.45, true): return
+		for pulse in 8:
+			if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
+			if not await _piston_view(capture_prefix, "feed-%02d-%02d" % [band, pulse], target - Vector3.UP * 1.45, true): return
+		var progress: Dictionary = opening.model.projection().placed_components[body.entity].piston
+		if not _expect(progress.blocked and progress.position_ticks > first_position, "Cleared soil admits travel; intact soil stops it"):
+			return
+		first_position = int(progress.position_ticks)
+	if not _expect(opening.model.validate_checkpoint(opening.model.checkpoint()).accepted, "The actual excavated midstroke worksite remains saveable"): return
+	if not await _piston_view(capture_prefix, "deep-cut", target - Vector3.UP * 1.45, true): return
+	if _construct({"action": "detach_hand_crank", "entity": feed}).is_empty(): return
+	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": feed, "port": [x - 2, level + 5, z], "face": [-1, 0, 0]}).is_empty(): return
+	for pulse in 20:
+		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
+		if pulse % 2 == 0 and not await _piston_view(capture_prefix, "retract-%02d" % pulse, target - Vector3.UP * 1.45, true): return
+	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 0, "The same crank on the opposite feed face retracts the tool"): return
+	var after: Dictionary = opening.model.projection()
+	var raw_before: int = after.cargo.P.raw
+	for pile: Dictionary in after.dropped_material:
+		if not await _surface_pickup_pile(pile, Vector2(px, pz), capture_prefix): return
+	if not _expect(opening.model.projection().cargo.P.raw == raw_before + 48, "Ordinary reachable pickup recovers all 48 loose copper after retracting"): return
+	facts["produced"] = 48
+	facts["travel_ticks"] = first_position
+	if not await _piston_view(capture_prefix, "retracted-picked-up", target - Vector3.UP * 1.45, true): return
+	_record("pass")
+
+func _piston_view(prefix: String, suffix: String, target: Vector3, low := false) -> bool:
+	opening._refresh()
+	await physics_frame
+	if prefix.is_empty() or DisplayServer.get_name() == "headless": return true
+	return _expect(await _surface_drill_view(prefix + "-" + suffix + ".png", target, low,
+		Vector3.ZERO if low else Vector3(5.5, 2.5, -3.4)), "Capture actual piston worksite: " + suffix)
+
+func _horizontal_piston_run(capture_prefix: String) -> void:
+	# A real placed foundation supplies a level seat. Everything else uses the
+	# same body, extensions, carried components and crank commands as drilling.
+	if not await _approach_points([Vector2(5.5, 4.95), Vector2(9.9, 4.95), Vector2(9.9, 5.7)]): return
+	if _construct({"action": "place_foundation", "cell": [4, 3], "level": 4}).is_empty(): return
+	var orientation := -1
+	var rotations: Array = opening.model.projection().component_orientations
+	for index in rotations.size():
+		if rotations[index][0] == [0, 0, -1] and rotations[index][1] == [-1, 0, 0]: orientation = index
+	if not _expect(orientation >= 0, "Native orientations include the horizontal feed arrangement"): return
+	var body := _construct({"action": "place_component", "component": "segmented_piston", "center": [48, 4, 36], "orientation": orientation})
+	if body.is_empty(): return
+	for count in 4:
+		if _construct({"action": "place_component", "component": "piston_segment", "center": [44 - count * 4, 4, 36], "parent": body.entity, "orientation": orientation}).is_empty(): return
+	var shaft := _construct({"action": "place_component", "component": "copper_shaft", "center": [52, 4, 36], "parent": body.entity})
+	if shaft.is_empty(): return
+	var cog := _construct({"action": "place_component", "component": "copper_cog", "center": [56, 4, 36], "parent": body.entity})
+	if cog.is_empty(): return
+	var gearbox := _construct({"action": "place_relay", "kind": "vertical_gearbox", "center": [48, 8, 36], "axis": "z"})
+	if gearbox.is_empty(): return
+	var cranks: Array = opening.model.projection().crank_items.keys()
+	var tool: String = cranks[0]
+	var feed: String = cranks[1]
+	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": feed, "port": [48, 4, 34], "face": [0, 0, -1]}).is_empty(): return
+	if _construct({"action": "attach_hand_crank", "entity": gearbox.entity, "crank": tool, "port": [50, 8, 36], "face": [1, 0, 0]}).is_empty(): return
+	var target := Vector3(11.0, 1.4, 7.425)
+	if not await _piston_view(capture_prefix, "horizontal-retracted", target): return
+	for pulse in 32:
+		if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
+		if not await _piston_view(capture_prefix, "turn-%02d" % pulse, target): return
+		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
+		if not await _piston_view(capture_prefix, "travel-%02d" % pulse, target): return
+	var progress: Dictionary = opening.model.projection().placed_components[body.entity].piston
+	if not _expect(progress.position_ticks == 8192, "The same four-segment piston carries an ordinary shaft and cog two units"): return
+	for pulse in 4:
+		if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
+		if not await _piston_view(capture_prefix, "stopped-feed-%02d" % pulse, target): return
+	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 8192, "Through power continues while feed is stopped"): return
+	if not _expect(opening.model.validate_checkpoint(opening.model.checkpoint()).accepted, "Horizontal travel, parts and power save together"): return
+	facts["travel_ticks"] = 8192
+	_record("pass")
 
 func _surface_drill_run(capture_prefix: String) -> void:
 	deadline = Time.get_ticks_msec() + 240000

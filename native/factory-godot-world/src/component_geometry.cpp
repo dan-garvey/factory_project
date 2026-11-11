@@ -1,6 +1,8 @@
 #include "component_geometry.hpp"
 
 #include "factory/site_geometry_contract.hpp"
+#include "factory/piston_assembly.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace factory::godot_world::component_geometry {
@@ -183,5 +185,78 @@ std::vector<Bounds> component_solids(const world::Profile& profile,
         out.push_back({{x+side*pitch*.35,y+pitch*.93,z},{pitch*.07,pitch*.07,pitch*.425}});
     }
     return out;
+}
+
+Bounds piston_bounds(const world::Profile& profile, const piston::Bounds& box) {
+    Bounds result;
+    for (unsigned n=0;n<3;++n) {
+        result.center[n]=profile.anchor_offset[n]+profile.meters_per_grid_unit*
+            (box.minimum[n]+box.maximum[n])/(2.0*piston::ticks_per_level);
+        result.half[n]=profile.meters_per_grid_unit*(box.maximum[n]-box.minimum[n])/(2.0*piston::ticks_per_level);
+    }
+    return result;
+}
+
+std::vector<Bounds> placed_solids(const world::Profile& profile, const world::State& state,
+        const std::string& id, const world::PlacedComponent& part) {
+    using C=materials::Component;
+    if (part.parent.empty() && part.orientation==0 &&
+        part.kind!=C::segmented_piston && part.kind!=C::piston_segment)
+        return component_solids(profile,part.kind,part.center);
+    const auto axes=piston::basis(part.orientation);
+    if (!axes) throw materials::Error::invalid_state;
+    const auto at=world::piston_assembly::position(profile,state,part);
+    const double h=profile.meters_per_grid_unit;
+    const auto local=[&](authority::Point center,authority::Point half) {
+        Bounds result{at,{}};
+        for (unsigned n=0;n<3;++n) for (unsigned a=0;a<3;++a) {
+            result.center[n]+=(*axes)[a][n]*center[a]*h;
+            result.half[n]+=std::abs((*axes)[a][n])*half[a]*h;
+        }
+        return result;
+    };
+    if (part.kind==C::segmented_piston) {
+        const auto config=world::piston_assembly::configuration(state,id);
+        const auto progress=state.piston_progress.find(id);
+        if (!config || progress==state.piston_progress.end()) throw materials::Error::invalid_state;
+        const auto geometry=piston::geometry(*config,progress->second);
+        std::vector<Bounds> result{piston_bounds(profile,geometry.housing),piston_bounds(profile,geometry.arm)};
+        // Open collar posts seat on the existing mount crown. The center stays
+        // clear for the translating arm; these are fixed parts of the guide.
+        for (int x : {-1,1}) for (int z : {-1,1})
+            result.push_back(local({x*1.35,-2,z*1.35},{.25,1,.25}));
+        return result;
+    }
+    if (part.kind==C::piston_segment) return {local({0,0,0},{.5,2,.5})};
+    if (!part.parent.empty() && (part.kind==C::copper_shaft || part.kind==C::wooden_shaft))
+        return {local({0,0,0},{2,.25,.25})};
+    if (!part.parent.empty() && (part.kind==C::copper_cog || part.kind==C::wooden_cog))
+        return {local({0,0,0},{.5,2,2}),local({0,0,0},{2,.25,.25})};
+    auto result=component_solids(profile,part.kind,part.center);
+    const authority::Point reference{part.center[0]*h+profile.anchor_offset[0],
+        part.center[1]*h+profile.anchor_offset[1],part.center[2]*h+profile.anchor_offset[2]};
+    for (auto& box : result) {
+        const auto previous=box;
+        box={at,{}};
+        for (unsigned n=0;n<3;++n) for (unsigned a=0;a<3;++a) {
+            box.center[n]+=(*axes)[a][n]*(previous.center[a]-reference[a]);
+            box.half[n]+=std::abs((*axes)[a][n])*previous.half[a];
+        }
+    }
+    return result;
+}
+
+Bounds placed_bounds(const world::Profile& profile, const world::State& state,
+        const std::string& id, const world::PlacedComponent& part) {
+    if (part.parent.empty() && part.orientation==0 && part.kind!=materials::Component::segmented_piston)
+        return component_bounds(profile,part.kind,part.center);
+    const auto solids=placed_solids(profile,state,id,part);
+    auto result=solids.front();
+    for (const auto& box : solids) for (unsigned n=0;n<3;++n) {
+        const double low=std::min(result.center[n]-result.half[n],box.center[n]-box.half[n]);
+        const double high=std::max(result.center[n]+result.half[n],box.center[n]+box.half[n]);
+        result.center[n]=(low+high)/2; result.half[n]=(high-low)/2;
+    }
+    return result;
 }
 }  // namespace factory::godot_world::component_geometry

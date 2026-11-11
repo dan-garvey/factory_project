@@ -1,6 +1,7 @@
 #pragma once
 
 #include "factory/ore_columns.hpp"
+#include "factory/piston.hpp"
 
 #include "factory/assembly.hpp"
 #include "factory/foundation_command_contract.hpp"
@@ -21,6 +22,10 @@
 #include <vector>
 
 namespace factory::world {
+
+struct State;
+using ObservePiston = std::function<piston::Clearance(const State&, const std::string&,
+    const piston::Progress&, const piston::Progress&, const piston::Bounds&)>;
 
 inline constexpr authority::Integer landing_deck_parts = 9;
 inline constexpr authority::Integer foundation_timber_cost = 2;
@@ -152,6 +157,8 @@ struct PlacedComponent {
     materials::Component kind{};
     mechanics::Point center{}; // Absolute quarter-grid location, shared with other constructables.
     authority::Integer generation{};
+    authority::Integer orientation{};
+    std::string parent{}; // A piston moving attachment, or empty for the fixed world.
     bool operator==(const PlacedComponent&) const = default;
 };
 
@@ -225,6 +232,7 @@ struct State {
     // Each crafted crank keeps its issued identity across carrying and attachment.
     std::map<std::string, HandCrank> crank_items;
     std::map<std::string, PlacedComponent> placed_components;
+    std::map<std::string, piston::Progress> piston_progress;
     struct SlidePhase {
         // Four shaft turns make one reciprocal, unloaded carriage cycle.
         authority::Integer subticks{};
@@ -316,7 +324,11 @@ struct RotarySocket {
     // slide). The public owner remains its one placed component identity.
     std::string mechanical_part;
     mechanics::RotaryPort port;
+    mechanics::Point offset_ticks{};
+    bool moving_frame{};
 };
+[[nodiscard]] mechanics::Point rotary_position_ticks(const RotarySocket&);
+[[nodiscard]] authority::Point rotary_position(const Profile&, const RotarySocket&);
 struct DrivePower {
     mechanics::Result mechanical;
     std::map<std::string, NetworkLoad> load;
@@ -376,7 +388,7 @@ public:
 
     // Called only by the owning host's simulation loop. Local machine power is
     // derived from current geometry, with no client tick or arbitrary edge API.
-    [[nodiscard]] Advance tick(const ObserveActor& observe = {}) noexcept;
+    [[nodiscard]] Advance tick(const ObserveActor& observe = {}, const ObservePiston& piston_site = {}) noexcept;
 
 private:
     World(Profile profile, std::unique_ptr<Owner> owner)
@@ -414,7 +426,7 @@ private:
         }
     };
     [[nodiscard]] std::optional<State> step_with_drive(const Snapshot&,
-        const ObserveActor&, const DrivePower&, const TickLayout&) const;
+        const ObserveActor&, const DrivePower&, const TickLayout&, const ObservePiston&) const;
     // Tick changes material custody, not the power graph. Commands can change
     // either topology or the drive switch and invalidate these derived views.
     std::unique_ptr<TickLayout> tick_layout_;

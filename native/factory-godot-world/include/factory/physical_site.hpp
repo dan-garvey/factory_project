@@ -1,6 +1,7 @@
 #pragma once
 
 #include "factory/physical_support.hpp"
+#include "factory/arrival_geometry.hpp"
 #include "factory/terrain_surface.hpp"
 
 #include <map>
@@ -37,5 +38,11 @@ struct Site {
     const std::string& source, const authority::Point& actor);
 [[nodiscard]] std::map<std::string, bool> harvest_clearances(const Site& site,
     const world::State& state, const authority::Point& actor);
+
+[[nodiscard]] const char* piston_placement_refusal(const Site&, const world::State& proposed,
+    const std::string& entity, const std::vector<authority::Point>& actors);
+[[nodiscard]] piston::Clearance piston_sweep(const Site&, const world::State&,
+    const std::string&, const piston::Progress&, const piston::Progress&, const piston::Bounds&,
+    const std::vector<authority::Point>& actors, const std::vector<arrival_geometry::Bounds>& supports);
 
 }  // namespace factory::godot_world::physical_site

@@ -18,6 +18,8 @@ inline Schema schema(Action action) {
     static constexpr std::array place{
         Field{"component", "component", Type::string},
         Field{"center", "center", Type::array},
+        Field{"orientation", "orientation", Type::integer, true},
+        Field{"parent", "parent", Type::string, true},
     };
     static constexpr std::array reclaim{
         Field{"entity", "target", Type::string},

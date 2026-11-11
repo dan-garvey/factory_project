@@ -1,6 +1,9 @@
 #include "factory/godot_world.hpp"
+#include "factory/piston_assembly.hpp"
 #include "checkpoint_envelope.hpp"
 #include "complete_projection.hpp"
+#include "arrival_site_projection.hpp"
+#include "drive_projection.hpp"
 #include "component_geometry.hpp"
 #include "host_command_admission.hpp"
 #include "material_projection.hpp"
@@ -379,6 +382,29 @@ const char* Host::supplied_space_refusal(const world::State& state) const {
     return physical_site::supplied_space_refusal({profile_, terrain_}, state);
 }
 
+world::ObservePiston Host::observe_piston() const {
+    struct Cache { terrain_surface::Surface terrain; std::optional<materials::Quantity> source; };
+    auto cache=std::make_shared<Cache>(Cache{terrain_,terrain_source_});
+    return [this,cache](const world::State& state,const std::string& id,
+            const piston::Progress& from,const piston::Progress& to,const piston::Bounds& swept) {
+        if (profile_.excavation && cache->source!=state.material.stock.source) {
+            if (!state.excavation) return piston::Clearance::unavailable;
+            auto mesh=excavated_terrain::build(terrain_,*profile_.excavation,*state.excavation,state.material);
+            if (!mesh) return piston::Clearance::unavailable;
+            cache->terrain.excavated=std::make_shared<terrain_surface::Mesh>(std::move(*mesh));
+            cache->source=state.material.stock.source;
+        }
+        std::vector<authority::Point> actors;
+        for (const auto& [key,actor] : owned_->actors) { (void)key; if (actor.ready) actors.push_back(actor.position); }
+        std::vector<Bounds> supports;
+        for (const auto& [key,support] : transmission_supports(state,&owned_->support_routes)) {
+            (void)key;
+            for (const auto& [center,half] : support.boxes) supports.push_back({center,half});
+        }
+        return physical_site::piston_sweep({profile_,cache->terrain},state,id,from,to,swept,actors,supports);
+    };
+}
+
 world::ObserveActor Host::observe() const {
     return [this](const std::string& actor) -> std::optional<authority::ActorCut> {
         const auto found = owned_->actors.find(actor);
@@ -426,7 +452,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                 *last_action == "operate_hand_crank" && request && last_request &&
                 *last_request == *request && last_client && *last_client == *client &&
                 last_accepted && *last_accepted) {
-                const auto tick = owned_->world->tick(observe());
+                const auto tick = owned_->world->tick(observe(),observe_piston());
                 if (tick.error != world::TransactionError::none || !tick.changed ||
                     !settle_manual_cuts()) return result(false, "native_step_failed");
             }
@@ -470,7 +496,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
     const auto occupied_by_component = [&](const Bounds& volume) {
         return std::any_of(snapshot.state.placed_components.begin(), snapshot.state.placed_components.end(),
             [&](const auto& entry) {
-                return overlap(volume, component_bounds(profile_, entry.second.kind, entry.second.center));
+                return overlap(volume, component_geometry::placed_bounds(profile_, snapshot.state, entry.first, entry.second));
             });
     };
     if (worksite_action == worksite_commands::Action::developer_conveniences) {
@@ -729,16 +755,35 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         // The confirmed component shape, rather than only its grid anchor,
         // reserves actor, terrain and neighboring construction clearance.
         const auto kind = materials::component_from_name(*field<std::string>(wire, "component"));
-        const auto volume = component_bounds(profile_, kind, center);
-        if (const auto* refusal = component_site_refusal(snapshot.state, kind, center)) return refuse(refusal);
-        if (placement_blocked(volume.center, volume.half)) return refuse("actor_occupied");
-        if (const auto* refusal = component_space_refusal(snapshot.state, kind, center)) return refuse(refusal);
-        if (kind) {
-            auto proposed = snapshot.state;
-            proposed.placed_components.emplace("proposed-component", world::PlacedComponent{*kind, center, 0});
-            if (const auto* refusal = supplied_space_refusal(proposed)) return refuse(refusal);
-            if (const auto* refusal = support_change_refusal(snapshot.state, proposed)) return refuse(refusal);
+        const Integer orientation=field<Integer>(wire,"orientation") ? *field<Integer>(wire,"orientation") : 0;
+        const std::string parent=field<std::string>(wire,"parent") ? *field<std::string>(wire,"parent") : "";
+        const bool piston_part=kind && (*kind==materials::Component::segmented_piston ||
+            *kind==materials::Component::piston_segment || !parent.empty());
+        if (piston_part) {
+            const world::PlacedComponent candidate{*kind,center,0,orientation,parent};
+            if (const auto* refusal=world::piston_assembly::placement_refusal(snapshot.state,candidate)) return refuse(refusal);
+            auto proposed=snapshot.state;
+            std::string proposed_id="proposed-component";
+            while (proposed.placed_components.contains(proposed_id)) proposed_id+="-";
+            proposed.placed_components.emplace(proposed_id,candidate);
+            if (*kind==materials::Component::segmented_piston) proposed.piston_progress.emplace(proposed_id,piston::Progress{});
+            std::vector<authority::Point> actors;
+            for (const auto& [id,actor] : owned_->actors) { (void)id; if (actor.ready) actors.push_back(actor.position); }
+            if (const auto* refusal=physical_site::piston_placement_refusal({profile_,terrain_},proposed,proposed_id,actors)) return refuse(refusal);
+        } else {
+            const auto volume = component_bounds(profile_, kind, center);
+            if (const auto* refusal = component_site_refusal(snapshot.state, kind, center)) return refuse(refusal);
+            if (placement_blocked(volume.center, volume.half)) return refuse("actor_occupied");
+            if (const auto* refusal = component_space_refusal(snapshot.state, kind, center)) return refuse(refusal);
+            if (kind) {
+                auto proposed = snapshot.state;
+                proposed.placed_components.emplace("proposed-component", world::PlacedComponent{*kind, center, 0});
+                if (const auto* refusal = supplied_space_refusal(proposed)) return refuse(refusal);
+                if (const auto* refusal = support_change_refusal(snapshot.state, proposed)) return refuse(refusal);
+            }
         }
+        if (wire.contains("orientation")) normalized.emplace("orientation",wire.at("orientation"));
+        if (wire.contains("parent")) normalized.emplace("parent",wire.at("parent"));
         normalized.at("action") = Value("place_component");
         normalized.emplace("component", wire.at("component"));
         normalized.emplace("center", wire.at("center"));
@@ -867,7 +912,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
-            const auto occupied = component_bounds(profile_, component.kind, component.center);
+            const auto occupied = component_geometry::placed_bounds(profile_, snapshot.state, id, component);
             for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
                 for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
                     if (overlap(occupied, foundation_bounds({{
@@ -1032,7 +1077,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             *center, verified_axis, 0, *span};
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
-            if (transmission_intersects(component_bounds(profile_, component.kind, component.center),
+            if (transmission_intersects(component_geometry::placed_bounds(profile_, snapshot.state, id, component),
                     *center, verified_axis, false) &&
                 !shaft_meets_component_cog(component.kind, component.center, *center,
                     verified_axis) &&
@@ -1064,7 +1109,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto half = gear_half_extents(verified_axis, *teeth);
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
-            if (transmission_intersects(component_bounds(profile_, component.kind, component.center),
+            if (transmission_intersects(component_geometry::placed_bounds(profile_, snapshot.state, id, component),
                     *center, verified_axis, true)) return refuse("occupied");
         }
         if (intersects_belt(snapshot.state, {at, half})) return refuse("occupied");
@@ -1286,7 +1331,7 @@ Value Host::invalidate_actor(const std::string& actor) {
 
 Value Host::advance() {
     if (!owned_) return result(false, "not_initialized");
-    const auto tick = owned_->world->tick(observe());
+    const auto tick = owned_->world->tick(observe(),observe_piston());
     if (tick.error != world::TransactionError::none) return result(false, "native_step_failed");
     if (!settle_manual_cuts()) return result(false, "native_step_failed");
     return projection();
@@ -1294,10 +1339,18 @@ Value Host::advance() {
 
 Value Host::advance_tick_fields() {
     if (!owned_) return result(false, "not_initialized");
-    const auto tick = owned_->world->tick(observe());
+    const auto tick = owned_->world->tick(observe(),observe_piston());
     if (tick.error != world::TransactionError::none) return result(false, "native_step_failed");
     if (!settle_manual_cuts()) return result(false, "native_step_failed");
-    return Value(tick_fields(profile_, owned_->world->snapshot_ref()));
+    const auto& state=owned_->world->snapshot_ref().state;
+    auto fields=tick_fields(profile_, owned_->world->snapshot_ref());
+    if (!state.piston_progress.empty()) {
+        auto arrival=arrival_site_projection::fields(profile_,state);
+        for (const auto* key : {"placed_components","crank_items"}) fields.emplace(key,arrival.at(key));
+        auto drive=drive_projection::fields(state,world::drive_power(profile_,state));
+        fields.emplace("rotary_ports",Value(std::move(drive.rotary_ports)));
+    }
+    return Value(std::move(fields));
 }
 
 bool Host::settle_manual_cuts(const std::optional<std::string>& observed_actor) {
@@ -1402,6 +1455,12 @@ Host::Decoded Host::decode(const Value& input) const {
                 materials::Component::wooden_workbench, center)) return {nullptr, refusal};
     }
     for (const auto& [id, component] : snapshot.state.placed_components) {
+        if (component.kind == materials::Component::segmented_piston ||
+            component.kind == materials::Component::piston_segment || !component.parent.empty()) {
+            if (const auto* refusal = physical_site::piston_placement_refusal(
+                    {profile_, candidate_terrain}, snapshot.state, id, {})) return {nullptr, refusal};
+            continue;
+        }
         if (const auto* refusal = component_site_refusal(snapshot.state, component.kind, component.center))
             return {nullptr, refusal};
         if (const auto* refusal = component_space_refusal(snapshot.state, component.kind,

@@ -16,7 +16,12 @@ Object crank_motion_receipt(const State& state, const DrivePower& existing, cons
     Object pulse_motion;
     for (const auto& [id, driven] : powered.mechanical.motion) {
         const auto prior = existing.mechanical.motion.find(id);
-        const auto issued = state.issued_entities.find(id);
+        auto issued = state.issued_entities.find(id);
+        if (issued==state.issued_entities.end()) {
+            const auto slash=id.rfind('/');
+            if (slash!=std::string::npos && state.piston_progress.contains(id.substr(0,slash)))
+                issued=state.issued_entities.find(id.substr(0,slash));
+        }
         if (driven.state != mechanics::MotionState::rotating ||
             issued == state.issued_entities.end() ||
             (prior != existing.mechanical.motion.end() &&
@@ -87,7 +92,7 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         auto checked_cut = *cut;
         checked_cut.build_reach = profile.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile, *port)});
+            {socket ? rotary_position(profile,*socket) : anchor(profile,*port)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *id, std::move(facts));
@@ -105,12 +110,12 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
                 std::any_of(state.crank_items.begin(), state.crank_items.end(),
                     [&](const auto& entry) { return entry.second.port == port; }))
                 return refused("input_port_occupied", *id, std::move(facts));
-            const auto motion = existing.mechanical.motion.find(input_id);
+            const auto motion = existing.mechanical.motion.find(socket->mechanical_part);
             if (!existing.mechanical.accepted())
                 return refused("input_already_driven", *id, std::move(facts));
             if (motion == existing.mechanical.motion.end())
                 return refused("not_rotary_input", *id, std::move(facts));
-            if (has_self_powered_source(existing, state.topology, input_id))
+            if (has_self_powered_source(existing, state.topology, socket->mechanical_part))
                 return refused("input_already_driven", *id, std::move(facts));
             if (!manual_input_available(motion->second))
                 return refused("input_already_driven", *id, std::move(facts));
@@ -189,22 +194,22 @@ Owner::Decision plan_crank(const Profile& profile, const Binding& binding,
         auto checked_cut = *cut;
         checked_cut.build_reach = profile.build_reach;
         const auto checked = authority::check_reach(binding.actor, checked_cut,
-            {anchor(profile, *port)});
+            {rotary_position(profile,*socket)});
         auto facts = checked.receipt ? reach_facts(binding, *checked.receipt) : Object{};
         if (checked.error != authority::Error::none)
             return refused(authority::error_name(checked.error), *crank_id, std::move(facts));
         if (!existing.mechanical.accepted())
             return refused("invalid_mechanics", *crank_id, std::move(facts));
-        if (has_self_powered_source(existing, state.topology, *input_id))
+        if (has_self_powered_source(existing, state.topology, socket->mechanical_part))
             return refused("input_already_driven", *crank_id, std::move(facts));
-        const auto prior_motion = existing.mechanical.motion.find(*input_id);
+        const auto prior_motion = existing.mechanical.motion.find(socket->mechanical_part);
         if (prior_motion != existing.mechanical.motion.end() &&
             !manual_input_available(prior_motion->second))
             return refused("input_already_driven", *crank_id, std::move(facts));
         const auto powered = hand_crank_power(profile, state, *input_id, *port, face);
         if (!powered.mechanical.accepted())
             return refused("invalid_mechanics", *crank_id, std::move(facts));
-        const auto motion = powered.mechanical.motion.find(*input_id);
+        const auto motion = powered.mechanical.motion.find(socket->mechanical_part);
         if (motion == powered.mechanical.motion.end() ||
             motion->second.state != mechanics::MotionState::rotating)
             return refused("insufficient_drive", *crank_id, std::move(facts));

@@ -162,7 +162,8 @@ std::map<std::string, TransmissionSupport> layout(
                 }
                 for (const auto& [id, component] : state.placed_components) {
                     (void)id;
-                    if (overlap(box, component_bounds(site.profile, component.kind, component.center))) clear = false;
+                    for (const auto& solid : component_geometry::placed_solids(site.profile, state, id, component))
+                        if (overlap(box, solid)) clear = false;
                 }
                 for (const auto* other : parts) {
                     if (other == part) continue;

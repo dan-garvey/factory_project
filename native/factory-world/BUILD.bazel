@@ -138,8 +138,9 @@ cc_library(
         "src/stationary_planner.hpp",
         "src/world.cpp",
         "src/surface_drill.cpp",
+        "src/piston_assembly.cpp",
     ],
-    hdrs = ["include/factory/world.hpp", "include/factory/surface_drill.hpp"],
+    hdrs = ["include/factory/world.hpp", "include/factory/surface_drill.hpp", "include/factory/piston_assembly.hpp"],
     strip_include_prefix = "include",
     deps = [
         ":belt_command_contract",
@@ -157,6 +158,7 @@ cc_library(
         ":ore_columns",
         ":ore_column_target",
         "//native/factory-assembly:assembly",
+        "//native/factory-piston:piston",
         "//native/factory-core:materials",
         "//native/factory-core:recovery",
         "//native/factory-stationary:stationary",
@@ -164,6 +166,13 @@ cc_library(
         "//native/waterwheel:waterwheel",
     ],
     visibility = ["//native/repair-scenarios:__pkg__"],
+)
+
+cc_test(
+    name = "piston_world_test",
+    srcs = ["tests/piston_world_test.cpp"],
+    deps = [":world"],
+    size = "small",
 )
 
 cc_test(

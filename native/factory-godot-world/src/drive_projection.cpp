@@ -21,8 +21,15 @@ Fields fields(const world::State& state, const world::DrivePower& power) {
         Array ports;
         for (const auto& socket : sockets) {
             const auto& port = socket.port;
+            const bool piston = state.piston_progress.contains(id);
+            const std::string channel = !piston ? "" : socket.mechanical_part == id ? "feed" :
+                socket.mechanical_part == id + "/tool" ? "tool" : "output";
             ports.emplace_back(Object{
+                {"channel",Value(channel)},
                 {"position", Value(Array{Value(port.position[0]), Value(port.position[1]), Value(port.position[2])})},
+                {"offset_ticks", Value(Array{Value(socket.offset_ticks[0]),Value(socket.offset_ticks[1]),Value(socket.offset_ticks[2])})},
+                {"moving_frame",Value(socket.moving_frame)},
+                {"crank_source_available",Value(!world::has_self_powered_source(power,state.topology,socket.mechanical_part))},
                 {"outward", Value(Array{Value(port.outward[0]), Value(port.outward[1]), Value(port.outward[2])})},
                 {"factor", Value(port.factor)},
                 {"hand_crank", Value(mechanics::accepts_hand_crank(port))},

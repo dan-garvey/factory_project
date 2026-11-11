@@ -1,3 +1,4 @@
+#include "factory/piston_assembly.hpp"
 #include "factory/surface_drill.hpp"
 #include "factory/world.hpp"
 #include "factory/belt_command_contract.hpp"
@@ -759,7 +760,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             holder && *holder == (attaching ? "installed" : actor) &&
             count && *count >= 0 && (profile.material.component_capacity == 0 ||
                 *count <= profile.material.component_capacity) &&
-            targets.front() == anchor(profile, *port) &&
+            rotary_layout && piston_assembly::socket_reach_target(profile,*rotary_layout,*input_id,*port,targets.front()) &&
             result.size() == (face ? 21u : 20u);
     }
     if (action == "stow_fabrication_hub" || action == "deploy_fabrication_hub") {
@@ -847,7 +848,7 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             *crank_generation == *requested_crank_generation && port && reported &&
             *port == *reported && numerator && *numerator != 0 &&
             denominator && *denominator > 0 &&
-            targets.front() == anchor(profile, *port) &&
+            rotary_layout && piston_assembly::socket_reach_target(profile,*rotary_layout,*input,*port,targets.front()) &&
             field<Object>(result, "pulse_motion") && result.size() == 23;
     }
     if (action == "feed_broad_press" || action == "refeed_broad_press_work") {
@@ -961,11 +962,14 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
             !count || *count < 0 || (profile.material.component_capacity > 0 &&
                 *count > profile.material.component_capacity) ||
             !entity || !generation || *generation <= 0 || !location ||
-            targets.front() != anchor(profile, *location) || result.size() != 19) return false;
+            targets.front() != anchor(profile, *location) || result.size() != 21 ||
+            !field<Integer>(result,"orientation") || !field<std::string>(result,"parent")) return false;
         if (action == "place_component") {
             const auto* requested = field<std::string>(record.intent, "component");
             return requested && *requested == *name &&
-                grid_point(record.intent) == location && entity->starts_with(allocated_prefix);
+                grid_point(record.intent) == location && entity->starts_with(allocated_prefix) &&
+                *field<Integer>(result,"orientation") == (field<Integer>(record.intent,"orientation") ? *field<Integer>(record.intent,"orientation") : 0) &&
+                *field<std::string>(result,"parent") == (field<std::string>(record.intent,"parent") ? *field<std::string>(record.intent,"parent") : "");
         }
         const auto* target = field<std::string>(record.intent, "target");
         const auto* requested_generation = field<Integer>(record.intent, "generation");
@@ -1136,6 +1140,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     std::map<std::string, stationary::Kit> fabricated_balances;
     std::map<std::string, stationary::PartSpec> installed_fabrication;
     PlacedHistory placed_components;
+    std::map<std::string,std::pair<Integer,std::string>> placed_mounts;
     // Recorded component changes are replayed in order. Several press commands
     // can inspect the same historical layout; rebuild its index only when a
     // placement or reclaim changes that prefix.
@@ -1342,6 +1347,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 State enabled;
                 enabled.topology = snapshot.state.topology;
                 enabled.placed_components = snapshot.state.placed_components;
+                enabled.piston_progress = snapshot.state.piston_progress;
                 enabled.topology.drive_enabled = true;
                 enabled_layout_power.emplace(drive_power(profile, enabled));
             }
@@ -1407,9 +1413,14 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 const auto component = kind ? materials::component_from_name(*kind) : std::nullopt;
                 if (!entity || !generation || !center || !component ||
                     !prior.placed_components.emplace(*entity,
-                        PlacedComponent{*component, *center, *generation}).second) return nullptr;
+                        PlacedComponent{*component, *center, *generation,
+                            *field<Integer>(record->result,"orientation"), *field<std::string>(record->result,"parent")}).second) return nullptr;
             } else if (*action == "shaft_between" || *action == "remove_shaft_between") return nullptr;
         }
+        // Historical graph epochs use retracted frame references. Native tick
+        // travel is not a layout mutation; sampled reach remains in receipts.
+        for (const auto& [id,part] : prior.placed_components)
+            if (part.kind==materials::Component::segmented_piston) prior.piston_progress.emplace(id,piston::Progress{});
         const auto power = drive_power(profile, prior);
         historical_layout_states.emplace(epoch, std::move(prior));
         return &historical_layout_power.emplace(epoch, std::move(power)).first->second;
@@ -1789,7 +1800,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 destination == snapshot.state.issued_entities.end() || destination->second != *to_generation) return false;
         }
         if (!historical_facts(profile, record, *actor, *action, placed_components, historical_hub,
-                (*action == "attach_hand_crank" || *action == "detach_hand_crank") ?
+                (*action == "attach_hand_crank" || *action == "detach_hand_crank" ||
+                    *action == "operate_hand_crank") ?
                     layout_at(*result_revision) : nullptr)) {
             return false;
         }
@@ -1921,7 +1933,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                 const auto power = drive_power(profile, at_command);
                 const auto socket = rotary_socket(power, *input_id, *port);
                 if (!power.mechanical.accepted() || !socket ||
-                    has_self_powered_source(power, at_command.topology, *input_id) ||
+                    has_self_powered_source(power, at_command.topology, socket->mechanical_part) ||
                     !mechanics::accepts_hand_crank(socket->port) ||
                     *face != socket->port.outward)
                     return false;
@@ -1976,13 +1988,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto socket = rotary_socket(prior, *input_id, *port);
             if (!socket || !mechanics::accepts_hand_crank(socket->port) ||
                 (face && *face != socket->port.outward)) return false;
-            const auto prior_motion = prior.mechanical.motion.find(*input_id);
+            const auto prior_motion = prior.mechanical.motion.find(socket->mechanical_part);
             if (!prior.mechanical.accepted() ||
-                has_self_powered_source(prior, at_command.topology, *input_id) ||
+                has_self_powered_source(prior, at_command.topology, socket->mechanical_part) ||
                 (prior_motion != prior.mechanical.motion.end() &&
                     !manual_input_available(prior_motion->second))) return false;
             const auto powered = hand_crank_power(profile, at_command, *input_id, *port, face);
-            const auto motion = powered.mechanical.motion.find(*input_id);
+            const auto motion = powered.mechanical.motion.find(socket->mechanical_part);
             const auto* numerator = field<Integer>(record.result, "rate_numerator");
             const auto* denominator = field<Integer>(record.result, "rate_denominator");
             const auto* pulse_motion = field<Object>(record.result, "pulse_motion");
@@ -3106,6 +3118,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (*action == "place_component") {
                 if (carried < parts || !placed_components.emplace(*entity, std::make_pair(*component, *center)).second)
                     return false;
+                placed_mounts.emplace(*entity,std::pair{*field<Integer>(record.result,"orientation"),*field<std::string>(record.result,"parent")});
                 if (slide_component(*component) &&
                     !historical_slide_phases.emplace(*entity, State::SlidePhase{}).second) return false;
                 carried -= parts;
@@ -3122,6 +3135,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
                             const auto cells = broad_cells(entry.first);
                             return std::find(cells.begin(), cells.end(), *center) != cells.end();
                         })) return false;
+                if (placed_mounts.at(*entity)!=std::pair{*field<Integer>(record.result,"orientation"),*field<std::string>(record.result,"parent")}) return false;
+                placed_mounts.erase(*entity);
                 placed_components.erase(found);
                 for (auto& [crank_id, crank] : historical_cranks) {
                     (void)crank_id;
@@ -3661,7 +3676,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     if (historical_hub != snapshot.state.fabrication_hub) return false;
     for (const auto& [id, placed] : snapshot.state.placed_components) {
         const auto found = placed_components.find(id);
-        if (found == placed_components.end() || found->second != std::make_pair(placed.kind, placed.center)) return false;
+        if (found == placed_components.end() || found->second != std::make_pair(placed.kind, placed.center) ||
+            !placed_mounts.contains(id) || placed_mounts.at(id)!=std::pair{placed.orientation,placed.parent}) return false;
     }
     for (const auto& [actor, cargo] : snapshot.state.material.cargo)
         for (const auto& [component, count] : cargo.components)
@@ -3834,6 +3850,16 @@ DrivePower drive_power(const stationary::Topology& topology) {
     return result;
 }
 
+mechanics::Point rotary_position_ticks(const RotarySocket& socket) {
+    mechanics::Point point=socket.offset_ticks;
+    for (unsigned n=0;n<3;++n) point[n]+=socket.port.position[n]*piston::ticks_per_level;
+    return point;
+}
+authority::Point rotary_position(const Profile& profile,const RotarySocket& socket) {
+    auto result=anchor(profile,socket.port.position);
+    for (unsigned n=0;n<3;++n) result[n]+=profile.meters_per_grid_unit*socket.offset_ticks[n]/piston::ticks_per_level;
+    return result;
+}
 std::optional<RotarySocket> rotary_socket(const DrivePower& power,
         const std::string& owner, const mechanics::Point& position) {
     const auto found = power.rotary_ports.find(owner);
@@ -3845,14 +3871,20 @@ std::optional<RotarySocket> rotary_socket(const DrivePower& power,
 
 bool rotary_socket_open(const State& state, const DrivePower& power,
         const std::string& owner, const mechanics::Point& position) {
+    const auto selected=rotary_socket(power,owner,position);
+    if (!selected) return false;
+    const auto actual=rotary_position_ticks(*selected);
     for (const auto& [id, ports] : power.rotary_ports) {
         if (id == owner) continue;
         for (const auto& socket : ports)
-            if (socket.port.position == position) return false;
+            if (rotary_position_ticks(socket) == actual) return false;
     }
     for (const auto& [id, crank] : state.crank_items) {
         (void)id;
-        if (crank.port == position && crank.attached_to != owner) return false;
+        if (crank.port && crank.attached_to && crank.attached_to!=owner) {
+            const auto socket=rotary_socket(power,*crank.attached_to,*crank.port);
+            if (socket && rotary_position_ticks(*socket)==actual) return false;
+        }
     }
     return true;
 }
@@ -3863,7 +3895,16 @@ bool rotary_connection(const DrivePower& power, const std::string& owner,
     if (found == power.rotary_ports.end()) return false;
     for (const auto& socket : found->second)
         for (const auto& port : mechanics::rotary_ports(other))
-            if (mechanics::ports_meet(socket.port, port)) return true;
+            {
+                if (socket.moving_frame) continue;
+                auto actual=socket.port;
+                bool aligned=true;
+                for (unsigned n=0;n<3;++n) {
+                    if (socket.offset_ticks[n]%piston::ticks_per_level) aligned=false;
+                    actual.position[n]+=socket.offset_ticks[n]/piston::ticks_per_level;
+                }
+                if (aligned && mechanics::ports_meet(actual,port)) return true;
+            }
     return false;
 }
 
@@ -3906,6 +3947,25 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         return id;
     };
     for (const auto& item : placed) {
+        if (item.kind == materials::Component::segmented_piston) {
+            const auto config=piston_assembly::configuration(state,item.id);
+            if (!config) return {mechanics::Result{mechanics::Error::invalid_part,"",{},{},{}},{},{}};
+            for (auto rotor : piston::spindles(*config,item.id)) {
+                ratings.emplace(rotor.id,24);
+                append(std::move(rotor),item.id);
+            }
+            impacts.emplace(item.id,2);
+            continue;
+        }
+        const auto component=state.placed_components.find(item.id);
+        if (component!=state.placed_components.end() && !component->second.parent.empty()) {
+            if (auto rotor=piston_assembly::spindle(item.id,component->second)) {
+                append(*rotor,item.id);
+                ratings.emplace(item.id,24);
+                if (item.kind==materials::Component::drill_head) impacts.emplace(item.id,4);
+            }
+            continue;
+        }
         if (item.kind == materials::Component::drill_head) {
             append({item.id, mechanics::Kind::shaft, item.center, mechanics::Axis::y, 0, 2});
             ratings.emplace(item.id, material_rating(item.kind));
@@ -4004,7 +4064,25 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         const auto owner = port_owners.find(mechanical.id);
         if (owner == port_owners.end()) continue;
         for (const auto& port : mechanics::rotary_ports(mechanical))
-            sockets.rotary_ports[owner->second].push_back({mechanical.id, port});
+            sockets.rotary_ports[owner->second].push_back({mechanical.id, port,
+                state.placed_components.contains(owner->second) ? piston_assembly::displacement(state,
+                    state.placed_components.at(owner->second).parent) : mechanics::Point{},
+                state.placed_components.contains(owner->second) && !state.placed_components.at(owner->second).parent.empty()});
+    }
+    // A piston exposes two fixed input pairs and its forward moving socket.
+    // The hidden back end belongs to the internal sliding shaft.
+    for (const auto& [id,progress] : state.piston_progress) {
+        const auto config=piston_assembly::configuration(state,id);
+        if (!config) continue;
+        auto& ports=sockets.rotary_ports[id];
+        ports.clear();
+        const auto nodes=piston::spindles(*config,id);
+        for (const auto& port : piston::ports(*config,progress))
+            {
+                auto offset=port.position;
+                for (unsigned n=0;n<3;++n) offset[n]-=port.reference.position[n]*piston::ticks_per_level;
+                ports.push_back({nodes[static_cast<unsigned>(port.channel)].id,port.reference,offset,port.moving});
+            }
     }
     // Hide coupling faces inside a composite component from all consumers.
     for (auto& [owner, ports] : sockets.rotary_ports) {
@@ -4045,7 +4123,7 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     spans.reserve(state.topology.belt_spans.size());
     for (const auto& span : state.topology.belt_spans) spans.push_back(span.geometry);
     auto powered = apply_load(state.topology,
-        mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower),
+        piston_assembly::power(state, parts, sources, spans, port_owners),
         ratings, impacts, manual_sources);
     powered.rotary_ports = std::move(sockets.rotary_ports);
     return powered;
@@ -4364,7 +4442,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         if (id <= 0 || id >= state.material.next_work_id || progress.strokes < 1 ||
             progress.strokes > 4 || progress.origin[0] % 4 != 0 ||
             progress.origin[2] % 4 != 0) return false;
-    if (!surface_drill::valid(state)) return false;
+    if (!surface_drill::valid(state) || !piston_assembly::valid(state)) return false;
     if (state.placed_components.size() > maximum_issued_entities) return false;
     if (state.slide_phases.size() > state.placed_components.size()) return false;
     if (state.slide_press_routes.size() > materials::maximum_drop_points) return false;
@@ -4719,7 +4797,7 @@ Owner::Decision World::plan(const Binding& binding, const Snapshot& snapshot,
 
 std::optional<State> World::step_with_drive(const Snapshot& snapshot,
         const ObserveActor& observe, const DrivePower& drive,
-        const TickLayout& tick_layout) const {
+        const TickLayout& tick_layout, const ObservePiston& piston_site) const {
         auto candidate = snapshot.state;
         const auto& placed = tick_layout.placed;
         for (auto& [actor, pending] : candidate.manual_cuts) {
@@ -4777,6 +4855,7 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
             }
         }
         if (!surface_drill::advance(profile_, candidate, drive)) throw materials::Error::invalid_state;
+        if (!piston_assembly::advance(candidate,drive,piston_site)) throw materials::Error::invalid_state;
         const auto& motion = drive.mechanical;
         if (!motion.accepted()) throw materials::Error::invalid_path;
         // Ready modular collectors draw from the same finite ore source as the
@@ -5281,6 +5360,7 @@ std::optional<State> World::step_with_drive(const Snapshot& snapshot,
         if (candidate.material == snapshot.state.material &&
             candidate.excavation == snapshot.state.excavation &&
             candidate.manual_cuts == snapshot.state.manual_cuts &&
+            candidate.piston_progress == snapshot.state.piston_progress &&
             candidate.slide_phases == snapshot.state.slide_phases) return std::nullopt;
         return candidate;
 }
@@ -5321,7 +5401,7 @@ std::optional<PendingCrankPulse> pending_crank_pulse(const Snapshot& snapshot) {
         *input, *input_generation, *port, face};
 }
 
-Advance World::tick(const ObserveActor& observe) noexcept {
+Advance World::tick(const ObserveActor& observe, const ObservePiston& piston_site) noexcept {
     const Snapshot* prior = nullptr;
     std::optional<DrivePower> pulse_drive;
     const auto advanced = owner_->advance_retaining_history([&](const Snapshot& snapshot) -> std::optional<State> {
@@ -5353,14 +5433,16 @@ Advance World::tick(const ObserveActor& observe) noexcept {
                 throw materials::Error::invalid_state;
             pulse_drive.emplace(hand_crank_power(profile_, snapshot.state,
                 pulse->input, pulse->port, pulse->face));
-            const auto motion = pulse_drive->mechanical.motion.find(pulse->input);
+            const auto socket=rotary_socket(*pulse_drive,pulse->input,pulse->port);
+            if (!socket) throw materials::Error::invalid_path;
+            const auto motion = pulse_drive->mechanical.motion.find(socket->mechanical_part);
             if (!pulse_drive->mechanical.accepted() ||
                 motion == pulse_drive->mechanical.motion.end() ||
                 motion->second.state != mechanics::MotionState::rotating)
                 throw materials::Error::invalid_path;
         }
         auto candidate = step_with_drive(snapshot, observe,
-            pulse_drive ? *pulse_drive : *tick_drive_, *tick_layout_);
+            pulse_drive ? *pulse_drive : *tick_drive_, *tick_layout_, piston_site);
         // Even an unloaded crank consumes precisely one recorded source pulse.
         if (pulse_drive && !candidate) return snapshot.state;
         return candidate;
@@ -5376,7 +5458,7 @@ Advance World::tick(const ObserveActor& observe) noexcept {
             validate_with_drive(profile_, candidate, drive, false, false,
                 pulse_drive.has_value());
     });
-    if (pulse_drive) tick_drive_.reset();
+    if (pulse_drive || !owner_->snapshot_ref().state.piston_progress.empty()) tick_drive_.reset();
     return advanced;
 }
 

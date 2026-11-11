@@ -1,4 +1,5 @@
 #include "factory/surface_drill.hpp"
+#include "factory/piston_assembly.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -53,17 +54,18 @@ const char* placement_refusal(const State& state, C kind, const P& center,
 
 bool valid(const State& state) {
     for (const auto& [id, part] : state.placed_components)
-        if (placement_refusal(state, part.kind, part.center, id)) return false;
+        if (part.parent.empty() && placement_refusal(state, part.kind, part.center, id)) return false;
     return true;
 }
 
-std::optional<Contact> contact(const Profile& profile, const State& state, const P& head) {
-    if (!profile.excavation || !state.excavation || !supported(state, head)) return std::nullopt;
+static std::optional<Contact> contact_at(const Profile& profile, const State& state,
+        const authority::Point& head) {
+    if (!profile.excavation || !state.excavation) return std::nullopt;
     const auto& grid = profile.excavation->grid;
     const double h = profile.meters_per_grid_unit;
-    const double x = head[0] * h + profile.anchor_offset[0];
-    const double z = head[2] * h + profile.anchor_offset[2];
-    const double floor = (head[1] - 1) * h;
+    const double x = head[0];
+    const double z = head[2];
+    const double floor = head[1] - h - profile.anchor_offset[1];
     std::optional<std::pair<excavation::Cell, excavation::Surface>> selected;
     // Prefer the highest still-reachable face so a single head cuts its whole
     // 1U footprint evenly. A fixed head cannot follow a deepening hole.
@@ -89,15 +91,28 @@ std::optional<Contact> contact(const Profile& profile, const State& state, const
         {grid.pitch/2, grid.pitch/2}}, output};
 }
 
+std::optional<Contact> contact(const Profile& profile, const State& state, const P& head) {
+    if (!supported(state,head)) return std::nullopt;
+    authority::Point center{};
+    for (unsigned n=0;n<3;++n) center[n]=head[n]*profile.meters_per_grid_unit+profile.anchor_offset[n];
+    return contact_at(profile,state,center);
+}
+
 bool advance(const Profile& profile, State& state, const DrivePower& drive) {
     if (!profile.excavation) return true;
     if (!state.excavation) return false;
     for (const auto& [id, part] : state.placed_components) {
         if (part.kind != C::drill_head) continue;
+        // This cutter's active surface is its local downward face. Sideways
+        // cutting is a separate contact implementation, not a hidden ability.
+        const auto axes=piston::basis(part.orientation);
+        if (!axes) return false;
+        if ((*axes)[1] != P{0,1,0}) continue;
         const auto motion = drive.mechanical.motion.find(id);
         if (motion == drive.mechanical.motion.end() ||
             motion->second.state != mechanics::MotionState::rotating) continue;
-        const auto selected = contact(profile, state, part.center);
+        const auto selected = part.parent.empty() ? contact(profile,state,part.center) :
+            contact_at(profile,state,piston_assembly::position(profile,state,part));
         if (!selected) continue;
         const auto& rate = motion->second.rate;
         if (rate.denominator <= 0 || rate.numerator == std::numeric_limits<I>::min()) return false;

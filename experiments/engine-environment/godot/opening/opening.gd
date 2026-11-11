@@ -108,6 +108,7 @@ var press_snap_material: StandardMaterial3D
 var press_snap_lift: Node3D
 var press_snap_lift_tip: MeshInstance3D
 var press_snap_lift_material: StandardMaterial3D
+var piston_orientation := 0
 var component_preview_kind := ""
 var component_preview_pose_key := ""
 var component_preview_material: StandardMaterial3D
@@ -1573,7 +1574,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				if _native_transmission():
 					_interact_pointed()
 			KEY_R:
-				if _native_transmission() and mode in ["collector", "processor", "wheel"]:
+				if _native_transmission() and mode in ["collector", "processor", "wheel", "component"]:
 					_rotate_building()
 				elif _native_transmission() and mode != "inspect":
 					_cycle_placement_axis()
@@ -1708,8 +1709,14 @@ func _world_click(cell: Vector2i, entity_id: String = "") -> void:
 		if not _component_area_bounds_allowed(component_name, center):
 			return
 		var selected_anvil: String = arrival_assembly_controls.press_anvil_for(selected)
-		var outcome := issue({"action": "place_component",
-			"component": component_name, "center": center})
+		var wire := {"action": "place_component", "component": component_name, "center": center}
+		var attachment := _piston_attachment(component_name, entity_id)
+		if not attachment.is_empty() and attachment.center == center:
+			wire["orientation"] = attachment.orientation
+			wire["parent"] = attachment.parent
+		elif component_name == "segmented_piston":
+			wire["orientation"] = piston_orientation
+		var outcome := issue(wire)
 		if outcome.accepted:
 			selected = selected_anvil if component_name not in ["anvil", "broad_anvil"] and not selected_anvil.is_empty() \
 				else str(outcome.get("entity", ""))
@@ -2693,6 +2700,8 @@ func _rotary_snap(pointed: String, kind: String, hit: Dictionary) -> Array:
 	var best: Array = []
 	var score := INF
 	for socket: Dictionary in state.get("rotary_ports", {}).get(pointed, {}).get("ports", []):
+		if kind != "hand_crank" and socket.get("moving_frame", false):
+			continue
 		if not socket.get("open", false) or (kind == "hand_crank" and not socket.get("hand_crank", false)):
 			continue
 		if kind == "shaft":
@@ -2704,7 +2713,7 @@ func _rotary_snap(pointed: String, kind: String, hit: Dictionary) -> Array:
 			if normal_axis < 0 or int(socket.outward[normal_axis]) != 0:
 				continue
 		var p: Array = socket.position
-		var position := Vector3(p[0], p[1], p[2]) * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT
+		var position := _rotary_display_position(socket)
 		var distance := position.distance_squared_to(hit.position)
 		if distance < score:
 			score = distance
@@ -2736,6 +2745,33 @@ func _sliding_press_part_snap(kind: String, pointed_kind: String, center: Array,
 			"label": "Slide input shaft"}
 	return {}
 
+func _piston_attachment(kind: String, pointed: String) -> Dictionary:
+	var record: Dictionary = state.get("placed_components", {}).get(pointed, {})
+	var chosen: Dictionary = {}
+	var score := INF
+	var hit := _screen_pick(_pointed_screen_position())
+	for offered: Dictionary in record.get("attachments", []):
+		if offered.get("component") != kind:
+			continue
+		var p: Array = offered.center
+		var at := Vector3(p[0], p[1], p[2]) * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT
+		var distance: float = at.distance_squared_to(hit.get("position", at))
+		if distance < score:
+			score = distance
+			chosen = offered.duplicate(true)
+	return chosen
+
+func _rotary_socket_record(input_id: String, port: Array) -> Dictionary:
+	for socket: Dictionary in state.get("rotary_ports", {}).get(input_id, {}).get("ports", []):
+		if socket.get("position", []) == port:
+			return socket
+	return {}
+
+func _rotary_display_position(socket: Dictionary) -> Vector3:
+	var p: Array = socket.get("position", [0, 0, 0])
+	var offset: Array = socket.get("offset_ticks", [0, 0, 0])
+	return (Vector3(p[0], p[1], p[2]) + Vector3(offset[0], offset[1], offset[2]) / 1024.0) * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT
+
 func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true) -> Array:
 	# One quarter-grid step off a confirmed component face builds a stack or
 	# lateral drive. Host still decides support, occupancy, custody and reach.
@@ -2746,6 +2782,10 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 	if arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "wooden_workbench":
 		return [cell.x * Geometry.HEIGHT_DENOMINATOR, _construction_level(cell),
 			cell.y * Geometry.HEIGHT_DENOMINATOR]
+	var chosen_kind: String = arrival_assembly_controls.selected_name() if arrival_assembly_controls != null else ""
+	var attachment := _piston_attachment(chosen_kind, pointed)
+	if not attachment.is_empty():
+		return attachment.center
 	var placed: Dictionary = state.get("placed_components", {})
 	if placed.has(pointed):
 		var hit := _screen_pick(_pointed_screen_position())
@@ -2835,9 +2875,12 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 	var occupied := at
 	var half := Vector3(0.14, 0.14, 0.14)
 	if kind == "stationary_mount":
-		return {"center": Vector3(at.x, center[1] * Geometry.HEIGHT_STEP + PITCH * 0.5, at.z), "half": Vector3(1.5, 0.5, 1.5) * PITCH}
+		return {"center": Vector3(at.x, center[1] * Geometry.HEIGHT_STEP + PITCH * 0.5, at.z), "half": Vector3(1.5, 0.5, 1.5) * PITCH, "size": Vector3(3, 1, 3) * PITCH}
 	if kind == "drill_head":
-		return {"center": at - Vector3.UP * Geometry.HEIGHT_STEP, "half": Vector3.ONE * PITCH * 0.5}
+		return {"center": at - Vector3.UP * Geometry.HEIGHT_STEP, "half": Vector3.ONE * PITCH * 0.5, "size": Vector3.ONE * PITCH}
+	if kind in ["segmented_piston", "piston_segment"]:
+		var half_size := Vector3(0.5, 0.75, 0.5) * PITCH if kind == "segmented_piston" else Vector3(0.125, 0.5, 0.125) * PITCH
+		return {"center": at, "half": half_size, "size": half_size * 2.0}
 	var collector_face := _component_collector_face(kind, center)
 	if not collector_face.is_empty():
 		var floor_y: float = collector_face.center[1] * Geometry.HEIGHT_STEP
@@ -3044,13 +3087,13 @@ func _refresh_component_preview() -> void:
 		return
 	if kind == "hand_crank":
 		var input_id := _rotary_at_input_port(center)
-		var input: Dictionary = state.get("rotary_ports", {}).get(input_id, {})
 		component_preview_blocked = input_id.is_empty() or \
-			not bool(input.get("crank_source_available", true))
+			not bool(_rotary_socket_record(input_id, center).get("crank_source_available", true))
 		for item: Dictionary in state.get("crank_items", {}).values():
 			if item.get("port", []) == center:
 				component_preview_blocked = true
-		component_preview_snap = "Rotary input" if not component_preview_blocked else "Point at a rotary input"
+		var channel: String = str(_rotary_socket_record(input_id, center).get("channel", ""))
+		component_preview_snap = ("Piston travel input" if channel == "feed" else "Independent tool input" if channel == "tool" else "Rotary input") if not component_preview_blocked else "Point at a rotary input"
 		if component_preview_pose_key != "hand_crank":
 			for child in component_preview.get_children():
 				child.free()
@@ -3060,9 +3103,7 @@ func _refresh_component_preview() -> void:
 			component_preview_material = StandardMaterial3D.new()
 			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			_style_component_preview(component_preview)
-		component_preview.position = Vector3(float(center[0]) * Geometry.HEIGHT_STEP,
-			float(center[1]) * Geometry.HEIGHT_STEP + Geometry.ANCHOR_HEIGHT,
-			float(center[2]) * Geometry.HEIGHT_STEP)
+		component_preview.position = _rotary_display_position(_rotary_socket_record(input_id, center))
 		var face := _crank_face_for_input(input_id, center)
 		if face.size() != 3:
 			return
@@ -3073,8 +3114,35 @@ func _refresh_component_preview() -> void:
 			else Color(0.91, 0.73, 0.40, 0.56)
 		component_preview.visible = true
 		return
-	component_preview.rotation.y = 0.0
+	component_preview.basis = Basis.IDENTITY
+	var attachment := _piston_attachment(kind, pointed)
 	var box := _component_candidate_box(kind, center)
+	if not attachment.is_empty() or kind in ["segmented_piston", "piston_segment"]:
+		var orientation: int = int(attachment.get("orientation", piston_orientation if kind == "segmented_piston" else 0))
+		var axes: Array = state.get("component_orientations", [])
+		if axes.size() != 24:
+			return
+		var preview_key := "%s:piston:%d" % [kind, orientation]
+		if component_preview_pose_key != preview_key:
+			for child in component_preview.get_children():
+				child.free()
+			if kind in ["copper_shaft", "wooden_shaft", "copper_cog", "wooden_cog"]:
+				transmission_presenter._carried_rotor(component_preview, kind)
+			else:
+				transmission_presenter.preview_component(component_preview, kind, box.size)
+			component_preview_pose_key = preview_key
+			component_preview_material = StandardMaterial3D.new()
+			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			_style_component_preview(component_preview)
+		component_preview.basis = transmission_presenter.component_basis(axes[orientation])
+		component_preview.position = Vector3(center[0], center[1], center[2]) * Geometry.HEIGHT_STEP + Vector3.UP * Geometry.ANCHOR_HEIGHT
+		if kind == "drill_head":
+			component_preview.position -= component_preview.basis.y * Geometry.HEIGHT_STEP
+		component_preview_blocked = kind == "piston_segment" and attachment.is_empty()
+		component_preview_snap = "Snap to piston" if not attachment.is_empty() else "Piston orientation %d · R rotates" % (orientation + 1)
+		component_preview_material.albedo_color = Color(0.94, 0.27, 0.21, 0.64) if component_preview_blocked else Color(0.91, 0.73, 0.40, 0.56)
+		component_preview.visible = true
+		return
 	component_preview_blocked = not _component_area_bounds_allowed(kind, center) or \
 		_component_candidate_blocked(kind, center, box)
 	component_preview_snap = ""
@@ -3156,8 +3224,7 @@ func _component_placement_hint() -> String:
 		var crank_center := _component_place_center(_screen_cell(_pointed_screen_position()),
 			_screen_entity(_pointed_screen_position()))
 		var input_id := _rotary_at_input_port(crank_center)
-		if not input_id.is_empty() and not bool(state.get("rotary_ports", {}).get(
-				input_id, {}).get("crank_source_available", true)):
+		if not input_id.is_empty() and not bool(_rotary_socket_record(input_id, crank_center).get("crank_source_available", true)):
 			return "A waterwheel already powers this shaft network"
 		return "Point at a horizontal rotary port · click to attach the crank" \
 			if not component_preview_blocked else "Point at a clear horizontal rotary port"
@@ -5383,6 +5450,10 @@ func _preview_axis() -> int:
 	return axis
 
 func _rotate_building() -> void:
+	if mode == "component" and arrival_assembly_controls != null and arrival_assembly_controls.selected_name() == "segmented_piston":
+		piston_orientation = (piston_orientation + 1) % 24
+		_refresh_component_preview()
+		return
 	if not _native_transmission() or not _can_choose_tool() or mode not in ["collector", "processor", "wheel"] or explanation_open:
 		return
 	if mode == "wheel":
@@ -6264,12 +6335,14 @@ func _pointed_summary_data(screen: Vector2) -> Dictionary:
 			crank_id = cid
 	if not crank_id.is_empty():
 		var connected: bool = not str(state.crank_items[crank_id].get("attached_to", "")).is_empty()
+		var item: Dictionary = state.crank_items[crank_id]
+		var channel: String = str(_rotary_socket_record(str(item.get("attached_to", "")), item.get("port", [])).get("channel", ""))
 		var detail := "F then click  Reclaim"
 		if mode == "deconstruct":
 			detail = "Click  Reclaim"
 		elif connected:
 			detail = "Hold E  Turn · F then click  Reclaim"
-		return {"name": "Placed hand crank" if connected else "Disconnected hand crank",
+		return {"name": "Piston travel crank" if channel == "feed" else "Tool power crank" if channel == "tool" else "Placed hand crank" if connected else "Disconnected hand crank",
 			"detail": detail,
 			"target": crank_id}
 	var target := _picked_target_id(hit)
