@@ -321,9 +321,9 @@ func _initial_p() -> bool:
 	inventory.open_catalog()
 	if not _expect(inventory.recipe_buttons.has("component:anvil")
 			and inventory.recipe_buttons.has("component:flat_head")
-			and inventory.recipe_buttons.has("component:wooden_slide")
+			and inventory.recipe_buttons.has("component:slide")
 			and inventory.recipe_buttons.has("component:hand_crank")
-			and not inventory.recipe_buttons.has("component:wooden_cog"),
+			and not inventory.recipe_buttons.has("part:4"),
 		"The first-plate catalog exposes only required press components"):
 		return false
 	inventory.catalog.hide()
@@ -347,7 +347,7 @@ func _initial_p() -> bool:
 	if not await _walk_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
 		return false
 	var bench: String = str(session.projection().fabrication_hub.id)
-	for kind in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
+	for kind in ["anvil", "flat_head", "slide", "hand_crank"]:
 		if (await _send({"action": "craft_component", "entity": bench, "component": kind},
 			"Craft " + kind)).is_empty():
 			return false
@@ -360,12 +360,12 @@ func _initial_p() -> bool:
 		return false
 	for part in [{"kind": "anvil", "center": [12, 0, 16]},
 			{"kind": "flat_head", "center": [12, 1, 16]},
-			{"kind": "wooden_slide", "center": [12, 2, 16]}]:
+			{"kind": "slide", "center": [12, 2, 16]}]:
 		if (await _send({"action": "place_component", "component": part.kind,
 			"center": part.center}, "Place " + part.kind)).is_empty():
 			return false
 	var anvil := _id_for("anvil")
-	var slide := _id_for("wooden_slide")
+	var slide := _id_for("slide")
 	if not _expect(not anvil.is_empty() and not slide.is_empty()
 			and session.projection().sliding_press_assemblies.size() == 1,
 		"Three individually placed parts assemble the native preplate press"):

@@ -35,7 +35,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
     profile.material.plate_mass = 3;
     profile.material.sheet_mass = 12;
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
-    const g::Integer timber_units = std::max<g::Integer>(40, line_count * 17);
+    const g::Integer timber_units = std::max<g::Integer>(40, line_count * 28);
     profile.material.timber_sites = {{"tree", {{12, 0, 12}, timber_units}}};
     profile.material.hand_carry_capacity = std::max<g::Integer>(400, line_count * 180 + 10);
     profile.initial_units = std::max<g::Integer>(100, line_count * 45);
@@ -116,7 +116,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
                 std::to_string(request));
         return *result.result;
     };
-    for (int index = 0; index < line_count * 17; ++index)
+    for (int index = 0; index < line_count * 28; ++index)
         issue("harvest_source", {{"target", V("tree")}});
     for (int index = 0; index < line_count * 35; ++index)
         issue("harvest_source", {{"target", V("ore")}});
@@ -124,7 +124,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
         const std::string kind(component);
         const char* crafted = kind == "broad_anvil" ? "anvil" :
             kind == "broad_flat_head" ? "flat_head" :
-            kind == "broad_copper_slide" ? "copper_slide" : component;
+            kind == "broad_slide" ? "slide" : component;
         for (int part = 0; part < (kind.starts_with("broad_") ? 4 : 1); ++part)
             issue("craft_component", {{"target", V("pod-fabrication-hub")},
                 {"generation", V(g::Integer{1})}, {"component", V(crafted)}});
@@ -137,16 +137,15 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
     for (int line = 0; line < line_count; ++line) {
         const g::Integer base = 800 + line * 40;
         place("wooden_frame", {base, 0, 0});
-        place("tool_mount", {base - 1, 0, 0});
+        driven_shafts.push_back(std::get<std::string>(
+            place("tool_mount", {base - 1, 0, 0}).at("entity").storage()));
         place("cutting_edge", {base - 2, 0, 0});
         place("receiver_tray", {base, 0, 1});
-        driven_shafts.push_back(std::get<std::string>(
-            place("wooden_shaft", {base + 1, 0, 0}).at("entity").storage()));
         const auto bed = place("broad_anvil", {base, 0, 16});
         presses.emplace_back(std::get<std::string>(bed.at("entity").storage()),
             std::get<g::Integer>(bed.at("generation").storage()));
         place("broad_flat_head", {base, 1, 16});
-        const auto slide = place("broad_copper_slide", {base, 4, 16});
+        const auto slide = place("broad_slide", {base, 4, 16});
         press_slides.emplace_back(std::get<std::string>(slide.at("entity").storage()),
             std::get<g::Integer>(slide.at("generation").storage()));
         driven_shafts.push_back(press_slides.back().first);
@@ -173,7 +172,7 @@ ProductiveSite productive_site(g::Integer cycle_ticks = 2, int line_count = 2,
             // first feed; the second feed must inspect the new exact prefix.
             issue("reclaim_component", {{"target", V(press_slides[index].first)},
                 {"generation", V(press_slides[index].second)}});
-            issue("place_component", {{"component", V("broad_copper_slide")},
+            issue("place_component", {{"component", V("broad_slide")},
                 {"center", V(V::Array{V(base), V(g::Integer{4}), V(g::Integer{16})})}});
         }
         issue("pickup_material", {{"center", V(V::Array{V(base), V(g::Integer{0}), V(g::Integer{1})})},
@@ -417,7 +416,7 @@ void productive_line_scale(int line_count, bool audit_commands = false) {
     std::vector<double> tail_commands(site.command_ms.end() - std::min<std::size_t>(100, site.command_ms.size()),
         site.command_ms.end());
     std::sort(tail_commands.begin(), tail_commands.end());
-    if (site.snapshot.state.placed_components.size() != static_cast<std::size_t>(line_count) * 8 ||
+    if (site.snapshot.state.placed_components.size() != static_cast<std::size_t>(line_count) * 7 ||
         site.snapshot.state.topology.parts.size() != static_cast<std::size_t>(line_count) * 2 ||
         site.profile.collector_faces.size() != static_cast<std::size_t>(line_count))
         throw std::runtime_error("A productive line lost a constructed component or source.");
@@ -591,14 +590,13 @@ int main(int argc, char** argv) {
         add(name + "-mount", m::Component::tool_mount, {x - 1, 0, 0});
         add(name + "-edge", m::Component::cutting_edge, {x - 2, 0, 0});
         add(name + "-tray", m::Component::receiver_tray, {x, 0, 1});
-        add(name + "-shaft", m::Component::wooden_shaft, {x + 1, 0, 0});
     }
     for (int index = 0; index < presses; ++index) {
         const g::Integer x = index * 8;
         const auto name = "press-" + std::to_string(index);
         add(name + "-anvil", m::Component::anvil, {x, 8, 16});
         add(name + "-head", m::Component::flat_head, {x, 9, 16});
-        add(name + "-slide", m::Component::wooden_slide, {x, 10, 16});
+        add(name + "-slide", m::Component::slide, {x, 10, 16});
     }
     profile.material = {1, 2, 2};
     profile.material.manual_ore = m::OreSite{"ore", {-3, 0, 0}};
@@ -624,7 +622,7 @@ int main(int argc, char** argv) {
         throw std::runtime_error("The World refused a trusted site with 200 independent collector faces.");
     const auto derived = w::drive_power(profile, state);
     if (!derived.mechanical.accepted() ||
-        derived.mechanical.motion.size() != collectors * 3 + presses)
+        derived.mechanical.motion.size() != collectors * 2 + presses)
         throw std::runtime_error("The mixed graph lost a direct press slide shaft or added an implicit coupler.");
 
     if (argc > 1 && std::string(argv[1]) == "--benchmark") {

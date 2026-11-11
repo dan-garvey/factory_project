@@ -38,11 +38,10 @@ void exact_bill_and_refusals() {
     const auto facts = config();
     const m::Path path{};
     auto state = seed();
-    constexpr std::array wood{m::Component::wooden_frame, m::Component::wooden_shaft,
-        m::Component::wooden_cog, m::Component::receiver_tray, m::Component::tool_mount,
-        m::Component::wooden_workbench, m::Component::wooden_slide};
+    constexpr std::array wood{m::Component::wooden_frame,
+        m::Component::receiver_tray, m::Component::tool_mount,
+        m::Component::wooden_workbench, m::Component::slide};
     constexpr std::array metal{m::Component::cutting_edge, m::Component::anvil,
-        m::Component::copper_shaft, m::Component::copper_cog,
         m::Component::flat_head};
     m::Quantity timber_bill = 0, ore_bill = 0;
     for (const auto component : wood) {
@@ -57,27 +56,27 @@ void exact_bill_and_refusals() {
               "A copper recipe consumes only finite ore, never another component.");
         ore_bill += cost->ore;
     }
-    check(timber_bill == 17 && ore_bill == 8 &&
+    check(timber_bill == 14 && ore_bill == 4 &&
           m::component_from_name("flat_head") == m::Component::flat_head,
           "The separate pressing head has one finite copper bill and a stable component identity.");
     for (int cut = 0; cut < 8; ++cut)
         check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none,
               "P harvests the first finite tree.");
-    for (int cut = 0; cut < 7; ++cut)
+    for (int cut = 0; cut < 4; ++cut)
         check(m::harvest_source(state, facts, path, "P", "tree-b") == m::Error::none,
-              "P harvests six more units from the next finite tree.");
+              "P harvests four more units from the next finite tree.");
     for (int cut = 0; cut < 2; ++cut)
         check(m::harvest_source(state, facts, path, "P", "tree-c") == m::Error::none,
               "P harvests the timber for one separate slide.");
-    for (int cut = 0; cut < 8; ++cut)
+    for (int cut = 0; cut < 4; ++cut)
         check(m::harvest_source(state, facts, path, "Q", "ore") == m::Error::none,
-              "Q hand mines eight units from the collector's source.");
+              "Q hand mines four units from the collector's source.");
     const auto without_input = state;
     check(m::craft_component(state, facts, path, "Q", m::Component::wooden_frame) == m::Error::unavailable_input &&
           state == without_input, "Q cannot spend P's carried timber.");
     check(m::craft_component(state, facts, path, "P", m::Component::anvil) == m::Error::unavailable_input &&
           state == without_input, "P cannot spend Q's carried ore.");
-    check(m::craft_component(state, facts, path, "absent", m::Component::wooden_shaft) == m::Error::invalid_actor &&
+    check(m::craft_component(state, facts, path, "absent", m::Component::slide) == m::Error::invalid_actor &&
           state == without_input, "An absent actor cannot receive a crafted part.");
     check(m::craft_component(state, facts, path, "P", static_cast<m::Component>(999)) == m::Error::unavailable_recipe &&
           state == without_input, "An unknown recipe cannot mint a component.");
@@ -90,8 +89,8 @@ void exact_bill_and_refusals() {
               state.cargo.at("Q").components.at(component) == 1,
               "Each metal component costs its own carried ore.");
     check(state.cargo.at("P").timber == 0 && state.cargo.at("Q").raw_units == 0 &&
-          state.timber_remaining.at("tree-a") == 0 && state.timber_remaining.at("tree-b") == 1 &&
-          state.timber_remaining.at("tree-c") == 6 && state.stock.source == 8 &&
+          state.timber_remaining.at("tree-a") == 0 && state.timber_remaining.at("tree-b") == 4 &&
+          state.timber_remaining.at("tree-c") == 6 && state.stock.source == 12 &&
           m::validate(state, facts, path) == m::Error::none,
           "The shaped stock and uncut reserves account for all twenty-four timber and sixteen ore units.");
 
@@ -104,46 +103,51 @@ void exact_bill_and_refusals() {
     ++forged.cargo.at("P").components.at(m::Component::wooden_frame);
     check(m::validate(forged, facts, path) == m::Error::invalid_state,
           "A forged frame cannot appear without consuming three more timber.");
-    auto root = std::get<O>(std::get<V>(encoded).storage());
-    auto cargo = std::get<O>(root.at("cargo").storage());
-    auto player = std::get<O>(cargo.at("P").storage());
-    auto components = std::get<O>(player.at("components").storage());
-    components.emplace("magic_motor", V(m::Quantity{1}));
-    player.at("components") = V(std::move(components));
-    cargo.at("P") = V(std::move(player));
-    root.at("cargo") = V(std::move(cargo));
-    check(std::holds_alternative<m::CodecRefusal>(
-        m::decode_material_state(V(std::move(root)), facts, path, {"P", "Q"})),
-        "An unknown serialized component identity is refused.");
+    for (const auto* retired : {"wooden_shaft", "copper_shaft", "wooden_cog",
+            "copper_cog", "wooden_slide", "copper_slide", "broad_copper_slide", "magic_motor"}) {
+        check(!m::component_from_name(retired), "Retired identities have no recipe aliases.");
+        auto root = std::get<O>(std::get<V>(encoded).storage());
+        auto cargo = std::get<O>(root.at("cargo").storage());
+        auto player = std::get<O>(cargo.at("P").storage());
+        auto components = std::get<O>(player.at("components").storage());
+        components.emplace(retired, V(m::Quantity{1}));
+        player.at("components") = V(std::move(components));
+        cargo.at("P") = V(std::move(player));
+        root.at("cargo") = V(std::move(cargo));
+        check(std::holds_alternative<m::CodecRefusal>(
+            m::decode_material_state(V(std::move(root)), facts, path, {"P", "Q"})),
+            "A retired or unknown checkpoint component is refused without conversion.");
+    }
 }
 
 void integral_slide_custody() {
     const auto facts = config();
     const m::Path path{};
     auto state = seed();
-    check(m::component_cost(m::Component::wooden_slide) == m::ComponentCost{3, 0} &&
-          m::component_cost(m::Component::copper_slide) == m::ComponentCost{0, 4},
-          "Each slide bill includes its own same-material shaft once.");
+    check(m::component_cost(m::Component::slide) == m::ComponentCost{3, 0} &&
+          m::component_cost(m::Component::broad_slide) == m::ComponentCost{12, 0} &&
+          m::placement_parts(m::Component::broad_slide) == std::pair{m::Component::slide, m::Quantity{4}},
+          "The starter slide includes its shaft; a broad housing embodies four of the same part.");
     for (int i = 0; i < 3; ++i)
         check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none,
-              "A real finite tree supplies the wooden slide.");
-    for (int i = 0; i < 4; ++i)
-        check(m::harvest_source(state, facts, path, "Q", "ore") == m::Error::none,
-              "The finite ore source supplies the metal slide.");
-    check(m::craft_component(state, facts, path, "P", m::Component::wooden_slide) == m::Error::none &&
-          m::craft_component(state, facts, path, "Q", m::Component::copper_slide) == m::Error::none &&
-          state.cargo.at("P").components.at(m::Component::wooden_slide) == 1 &&
-          state.cargo.at("Q").components.at(m::Component::copper_slide) == 1 &&
-          state.cargo.at("P").timber == 0 && state.cargo.at("Q").raw_units == 0 &&
+              "A real finite tree supplies the starter slide.");
+    for (int i = 0; i < 3; ++i)
+        check(m::harvest_source(state, facts, path, "Q", "tree-b") == m::Error::none,
+              "The second actor supplies the same slide recipe from a separate finite tree.");
+    check(m::craft_component(state, facts, path, "P", m::Component::slide) == m::Error::none &&
+          m::craft_component(state, facts, path, "Q", m::Component::slide) == m::Error::none &&
+          state.cargo.at("P").components.at(m::Component::slide) == 1 &&
+          state.cargo.at("Q").components.at(m::Component::slide) == 1 &&
+          state.cargo.at("P").timber == 0 && state.cargo.at("Q").timber == 0 &&
           m::validate(state, facts, path) == m::Error::none,
           "Crafting transfers exact finite stock into one actor-owned slide each.");
     const auto encoded = m::encode_material_state(state, facts, path, {"P", "Q"});
-    check(std::holds_alternative<V>(encoded), "Both integral slide bills encode in material custody.");
+    check(std::holds_alternative<V>(encoded), "Each actor's slide encodes in material custody.");
     const auto decoded = m::decode_material_state(std::get<V>(encoded), facts, path, {"P", "Q"});
     check(std::holds_alternative<m::State>(decoded) && std::get<m::State>(decoded) == state,
-          "Both slide identities and their exact embodied material survive checkpoint restore.");
+          "The canonical slide and each actor's embodied material survive checkpoint restore.");
     auto forged = state;
-    ++forged.cargo.at("P").components.at(m::Component::wooden_slide);
+    ++forged.cargo.at("P").components.at(m::Component::slide);
     check(m::validate(forged, facts, path) == m::Error::invalid_state,
           "A copied slide cannot appear without its native input cost.");
 }
@@ -153,15 +157,15 @@ void component_capacity() {
     facts.component_capacity = 2;
     const m::Path path{};
     auto state = seed();
-    for (int cut = 0; cut < 3; ++cut)
+    for (int cut = 0; cut < 6; ++cut)
         check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none,
               "The small-capacity actor obtains real recipe inputs.");
-    check(m::craft_component(state, facts, path, "P", m::Component::wooden_shaft) == m::Error::none &&
-          m::craft_component(state, facts, path, "P", m::Component::wooden_shaft) == m::Error::none,
-          "Two one-timber shafts fill two component slots.");
+    check(m::craft_component(state, facts, path, "P", m::Component::receiver_tray) == m::Error::none &&
+          m::craft_component(state, facts, path, "P", m::Component::receiver_tray) == m::Error::none,
+          "Two two-timber trays fill two component slots.");
     const auto full = state;
-    check(m::craft_component(state, facts, path, "P", m::Component::wooden_shaft) == m::Error::inventory_full &&
-          state == full && state.cargo.at("P").timber == 1,
+    check(m::craft_component(state, facts, path, "P", m::Component::receiver_tray) == m::Error::inventory_full &&
+          state == full && state.cargo.at("P").timber == 2,
           "A full component inventory leaves both ingredient and output untouched.");
 }
 
@@ -179,12 +183,15 @@ void unbounded_finite_custody() {
         check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none &&
               m::harvest_source(state, facts, path, "P", "ore") == m::Error::none,
               "A Chapter 1 actor can carry more than the former small total without losing finite stock.");
+    for (int cut = 0; cut < 12; ++cut)
+        check(m::harvest_source(state, facts, path, "P", "tree-a") == m::Error::none,
+              "The trays consume their full two-timber recipe.");
     for (int made = 0; made < 26; ++made)
-        check(m::craft_component(state, facts, path, "P", m::Component::wooden_shaft) == m::Error::none,
+        check(m::craft_component(state, facts, path, "P", m::Component::receiver_tray) == m::Error::none,
               "Crafted components pass the former twenty-four-part limit.");
-    check(state.cargo.at("P").components.at(m::Component::wooden_shaft) == 26 &&
-          state.cargo.at("P").timber == 14 && state.cargo.at("P").raw_units == 40 &&
-          state.timber_remaining.at("tree-a") == 24 && state.stock.source == 24 &&
+    check(state.cargo.at("P").components.at(m::Component::receiver_tray) == 26 &&
+          state.cargo.at("P").timber == 0 && state.cargo.at("P").raw_units == 40 &&
+          state.timber_remaining.at("tree-a") == 12 && state.stock.source == 24 &&
           m::validate(state, facts, path) == m::Error::none,
           "The uncapped actor still owns exactly the stock debited from two finite sources.");
     const auto saved = m::encode_material_state(state, facts, path, {"P", "Q"});

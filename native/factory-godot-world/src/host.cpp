@@ -54,7 +54,6 @@ using physical_geometry::overlaps_supports;
 using physical_geometry::gear_half_extents;
 using physical_geometry::gear_axle_half_extents;
 using physical_geometry::transmission_intersects;
-using physical_geometry::shaft_meets_component_cog;
 using physical_geometry::collector_intake_intersects;
 using physical_geometry::transmission_intersects_foundations;
 using physical_geometry::find_part;
@@ -1034,8 +1033,6 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             (void)id;
             if (transmission_intersects(component_bounds(profile_, component.kind, component.center),
                     *center, verified_axis, false) &&
-                !shaft_meets_component_cog(component.kind, component.center, *center,
-                    verified_axis) &&
                 !world::rotary_connection(sockets, id, proposed_shaft)) return refuse("occupied");
         }
         if (placement_blocked(at, half)) return refuse("actor_occupied");

@@ -28,7 +28,7 @@ const SLIDE_VISIBLE_STROKE := 0.20
 const BROAD_VISIBLE_STROKE := 0.24
 const PRESS_REFERENCE_WORK_HEIGHT := PRESS_REFERENCE_PITCH * 0.5 + 0.1425
 const PRESS_VISUAL_KINDS := ["wooden_frame", "anvil", "broad_anvil", "flat_head", "broad_flat_head",
-	"wooden_slide", "copper_slide", "broad_copper_slide", "channel_narrow_x",
+	"slide", "broad_slide", "channel_narrow_x",
 	"channel_narrow_z", "channel_broad_x", "channel_broad_z", "receiver_tray"]
 
 var _host: WeakRef
@@ -306,12 +306,6 @@ func advance_visual_motion(delta: float) -> void:
 			var parts: Variant = snapshot.get(group)
 			if parts is Dictionary:
 				identity_count += parts.size()
-		var placed: Variant = snapshot.get("placed_components")
-		if placed is Dictionary:
-			for component: Variant in placed.values():
-				if component is Dictionary and component.get("component") in [
-						"wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]:
-					identity_count += 1
 	if _motion_context != snapshot.get("context", "") or _motion_revision != snapshot.get("revision") \
 			or (not native_motion and identity_count != _generations.size()):
 		_sync_motion(snapshot)
@@ -1382,8 +1376,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 	# These component meshes were shaped at the original U. Scale each complete
 	# assembly about the native occupied center while retaining direct child
 	# names for the same preview, pick and phase consumers.
-	var press_piece: bool = kind in PRESS_VISUAL_KINDS \
-		or kind in ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]
+	var press_piece: bool = kind in PRESS_VISUAL_KINDS
 	var press_scale: float = Geometry.PITCH / PRESS_REFERENCE_PITCH if press_piece else 1.0
 	var first_child: int = anchor.get_child_count()
 	_placed_component_shape(anchor, kind, drive_direction, occupied_size / press_scale,
@@ -1399,7 +1392,7 @@ func _placed_component(anchor: Node3D, kind: String, drive_direction: Vector3,
 					# so rotation cannot restore the old-U shaft or cog mesh.
 					child.set_meta("component_rotor_base", child.basis)
 
-func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vector3,
+func _placed_component_shape(anchor: Node3D, kind: String, _drive_direction: Vector3,
 		occupied_size: Vector3, collector_angle: float,
 		collector_support_drop: float, receiver_to_frame: Vector3,
 		slide_phase: Variant = null) -> void:
@@ -1623,7 +1616,7 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 				_support_box(die, "BroadHeadBeam", Vector3(side * 0.70, 0.085, 0),
 					Vector3(0.08, 0.02, 2.75), dark)
 			_support_box(die, "SlideKey", Vector3(0, 0.06, 0), Vector3(0.35, 0.06, 0.35), dark)
-		"broad_copper_slide":
+		"broad_slide":
 			var bottom := -occupied_size.y * 0.5
 			var top := occupied_size.y * 0.5
 			var shaft_y := top - PRESS_REFERENCE_PITCH * 0.5
@@ -1726,8 +1719,8 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 			for x in [-occupied_size.x * 0.5 + 0.12, occupied_size.x * 0.5 - 0.12]:
 				_support_box(anchor, "ChannelCrossbrace", Vector3(x, -0.30, 0),
 					Vector3(0.065, 0.07, occupied_size.z - 0.16), timber, true)
-		"wooden_slide", "copper_slide":
-			var finish: Material = timber if kind == "wooden_slide" else worked
+		"slide":
+			var finish: Material = timber
 			var half_height := occupied_size.y * 0.5
 			var rail_height := occupied_size.y - 0.09
 			# A full-cell open housing leaves the moving head and both feed edges
@@ -1782,32 +1775,6 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 			for x in [-0.17, 0.17]:
 				_support_box(carriage, "CarriageShoe", Vector3(x, 0, -0.118),
 					Vector3(0.035, 0.115, 0.027), worked)
-		"wooden_cog", "copper_cog":
-			var direction := drive_direction.normalized() if drive_direction.length_squared() > 0.5 else Vector3.UP
-			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
-			var across := reference.cross(direction).normalized()
-			var rotor := Node3D.new()
-			rotor.name = "PlacedDriveCog"
-			rotor.basis = Basis(across, direction, across.cross(direction))
-			if anchor.has_meta("component_entity"):
-				rotor.set_meta("entity", anchor.get_meta("component_entity"))
-				rotor.set_meta("component_rotor_base", rotor.basis)
-				rotor.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
-				_moving_anchors.append(rotor)
-			anchor.add_child(rotor)
-			var finish: Material = timber if kind == "wooden_cog" else worked
-			_support_cylinder(rotor, "CogRim", 0.095 * U_SCALE, 0.05 * U_SCALE, finish)
-			_support_cylinder(rotor, "CogHub", 0.05 * U_SCALE, 0.105 * U_SCALE, dark)
-			_support_box(rotor, "CogIndexMark", Vector3(0.065, 0.028, 0) * U_SCALE,
-				Vector3(0.025, 0.008, 0.025) * U_SCALE, dark)
-			for index in range(12):
-				var angle := TAU * float(index) / 12.0
-				_support_box(rotor, "CogTooth%02d" % index, Vector3.ZERO,
-					Vector3(0.027, 0.065, 0.035) * U_SCALE, finish)
-				# _support_box installs the mesh but has no return value.
-				var placed_tooth := rotor.get_child(rotor.get_child_count() - 1) as MeshInstance3D
-				placed_tooth.position = Vector3(sin(angle), 0, cos(angle)) * (0.113 * U_SCALE)
-				placed_tooth.rotation.y = angle
 		"cutting_edge":
 			if collector_support_drop > 0.0:
 				_collector_tool_support(anchor, "Edge", collector_angle,
@@ -1870,60 +1837,6 @@ func _placed_component_shape(anchor: Node3D, kind: String, drive_direction: Vect
 						"Near" if z < 0.0 else "Far"]
 					var rivet := _support_cylinder(anchor, name_value, 0.009, 0.007, worked)
 					rivet.position = Vector3(x, 0.141, z)
-		"wooden_shaft", "copper_shaft":
-			var fitted := drive_direction.length_squared() > 0.5
-			if fitted:
-				var along_x := absf(drive_direction.x) > 0.5
-				var carriage_size := Vector3(occupied_size.x, 0.075, 0.19) if along_x \
-					else Vector3(0.19, 0.075, occupied_size.z)
-				_support_box(anchor, "FrameMountedCarriage", Vector3(0, -0.075, 0),
-					carriage_size, timber, true)
-				for side in [-1.0, 1.0]:
-					var runner_position := Vector3(0, -0.025, side * 0.075) if along_x \
-						else Vector3(side * 0.075, -0.025, 0)
-					var runner_size := Vector3(occupied_size.x, 0.035, 0.028) if along_x \
-						else Vector3(0.028, 0.035, occupied_size.z)
-					_support_box(anchor, "CarriageRail%d" % anchor.get_child_count(),
-						runner_position, runner_size, dark, true)
-			else:
-				_cast_mount_foot(anchor, "BearingFoot", Vector3(0, -0.07 * U_SCALE, 0),
-					Vector3(0.35, 0.07, 0.35) * U_SCALE, dark, worked)
-			var rod := Node3D.new()
-			rod.name = "LooseDriveShaft"
-			anchor.add_child(rod)
-			var direction := drive_direction.normalized() if fitted else Vector3.UP
-			var reference := Vector3.RIGHT if absf(direction.dot(Vector3.RIGHT)) < 0.95 else Vector3.BACK
-			var across := reference.cross(direction).normalized()
-			rod.basis = Basis(across, direction, across.cross(direction))
-			if anchor.has_meta("component_entity"):
-				rod.set_meta("entity", anchor.get_meta("component_entity"))
-				rod.set_meta("component_rotor_base", rod.basis)
-				rod.set_meta("component_axis_sign", -1.0 if direction.x < -0.5 or direction.z < -0.5 else 1.0)
-				_moving_anchors.append(rod)
-			rod.position.y = 0.0 if fitted else 0.035 * U_SCALE
-			var shaft_length: float = snappedf(occupied_size.dot(direction.abs()), 0.001) if fitted else 0.14 * U_SCALE
-			Assets.shaft(rod, shaft_length, Color("947658") if kind == "wooden_shaft" else Color("9aaba5"))
-			var core := rod.get_node("Shaft") as MeshInstance3D
-			core.material_override = timber if kind == "wooden_shaft" else worked
-			_support_box(rod, "ShaftIndexMark", Vector3(0.057 * U_SCALE, 0, 0),
-				Vector3(0.016, 0.035, 0.024) * U_SCALE, dark)
-			if fitted:
-				# A collector shaft reaches the frame from its own native box.
-				# The five-millimetre box seam stays clear of another part's
-				# independently removable collision and construction identity.
-				var along_x := absf(direction.x) > 0.5
-				var join_size := (Vector3(0.05, 0.09, 0.14) if along_x else Vector3(0.14, 0.09, 0.05)) * U_SCALE
-				_support_box(anchor, "FrameJoinSocket", direction * (shaft_length * 0.5 - 0.025 * U_SCALE)
-					+ Vector3.DOWN * (0.015 * U_SCALE), join_size, dark, true)
-				# The two static journals belong to the confirmed frame-facing axis.
-				# Neither their geometry nor this rod becomes a second drive or collider.
-				for sign_value in [-1.0, 1.0]:
-					var suffix := "Near" if sign_value < 0.0 else "Far"
-					var bearing := _support_cylinder(anchor, "BearingShell" + suffix, 0.07 * U_SCALE, 0.045 * U_SCALE, dark)
-					bearing.position = direction * sign_value * (0.115 * U_SCALE)
-					bearing.basis = rod.basis
-					_support_box(anchor, "BearingSeat" + suffix, bearing.position + Vector3.DOWN * (0.05 * U_SCALE),
-						Vector3(0.10, 0.06, 0.10) * U_SCALE, dark)
 		_:
 			_support_box(anchor, "UnfittedPart", Vector3.ZERO, Vector3(0.24, 0.20, 0.24), dark)
 
@@ -2010,9 +1923,8 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 							if boxes.has(id) and boxes[id].component == expected:
 								collector_facings[id] = angle
 								collector_floors[id] = float(origin.y) * UNIT
-					# Placed shafts keep their frame-facing fitting when a different
-					# collector part is missing. Two possible shafts are ambiguous;
-					# neither receives a visual connection in that state.
+					# A placed receiver keeps its frame-facing hooks while another
+					# collector part is missing.
 					var frame_id: Variant = by_cell.get(origin)
 					if boxes.has(frame_id) and boxes[frame_id].component == "wooden_frame":
 						var side := Vector3i(-direction.z, 0, direction.x)
@@ -2023,16 +1935,6 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 								toward_frame.y = 0.0
 								if toward_frame.length_squared() > 0.01:
 									collector_receivers[receiver_id] = toward_frame.normalized()
-						var shaft_ids: Array = []
-						for shaft_cell in [origin - direction, origin + side, origin - side]:
-							var shaft_id: Variant = by_cell.get(shaft_cell)
-							if boxes.has(shaft_id) and boxes[shaft_id].component in ["wooden_shaft", "copper_shaft"]:
-								shaft_ids.append(shaft_id)
-						if shaft_ids.size() == 1:
-							var toward_frame: Vector3 = boxes[frame_id].center - boxes[shaft_ids[0]].center
-							toward_frame.y = 0.0
-							if toward_frame.length_squared() > 0.01:
-								drives[shaft_ids[0]] = toward_frame.normalized()
 			if assembly.get("status") != "ready" or not assembly.get("parts") is Dictionary:
 				continue
 	for id: String in boxes:
@@ -2072,8 +1974,8 @@ func _render_placed_components(snapshot: Dictionary, boxes: Dictionary) -> void:
 			var head_cell: Array = placed[id].center
 			var slide_cell := [head_cell[0], head_cell[1] + 3, head_cell[2]] \
 				if spec.component == "broad_flat_head" else [head_cell[0], head_cell[1] + 1, head_cell[2]]
-			var slide_kinds := ["broad_copper_slide"] if spec.component == "broad_flat_head" \
-				else ["wooden_slide", "copper_slide"]
+			var slide_kinds := ["broad_slide"] if spec.component == "broad_flat_head" \
+				else ["slide"]
 			var mate_id: Variant = by_cell.get(Vector3i(slide_cell[0], slide_cell[1], slide_cell[2]))
 			if mate_id != null and placed.has(mate_id):
 				var mate: Variant = placed[mate_id]
@@ -2444,7 +2346,7 @@ func _update_component_phases_and_lifts(snapshot: Dictionary) -> void:
 						(die.get_meta("batch_multimesh") as MultiMesh).set_instance_transform(
 							int(die.get_meta("batch_index")),
 							anchor.transform * Transform3D(die.basis, Vector3(die.position.x, next_y, die.position.z)))
-			"wooden_slide", "copper_slide":
+			"slide":
 				var half_height := size_y * 0.5
 				var cylinder_bottom := half_height - 0.255 * press_scale
 				var carriage := anchor.get_node_or_null("SlideCarriage") as Node3D
@@ -2471,7 +2373,7 @@ func _update_component_phases_and_lifts(snapshot: Dictionary) -> void:
 								anchor.transform * Transform3D(Basis.IDENTITY.scaled(Vector3(
 									cylinder_mesh.top_radius * piston.scale.x, piston_height,
 									cylinder_mesh.top_radius * piston.scale.z)), piston.position))
-			"broad_copper_slide":
+			"broad_slide":
 				var reference_bottom := -size_y * 0.5 / press_scale
 				var reference_top := size_y * 0.5 / press_scale
 				var rest_reach := PRESS_REFERENCE_PITCH * 0.875 \

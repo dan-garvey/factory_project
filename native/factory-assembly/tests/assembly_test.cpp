@@ -30,7 +30,7 @@ void west_face_and_alternate_routes() {
         part("mount", m::Component::tool_mount, {-1, 0, 0}),
         part("edge", m::Component::cutting_edge, {-2, 0, 0}),
         part("tray", m::Component::receiver_tray, {0, 0, 1}),
-        part("spare-cog", m::Component::wooden_cog, {8, 0, 8}),
+        part("spare-anvil", m::Component::anvil, {8, 0, 8}),
     };
     const auto first = a::inspect_collector(placed, face);
     check(first.status == a::Status::ready && first.collector &&
@@ -38,15 +38,13 @@ void west_face_and_alternate_routes() {
           first.collector->edge == "edge" && first.collector->receiver == "tray" &&
           first.collector->shaft == "mount" &&
           first.collector->shaft_center == g::Point{-1, 0, 0} &&
-          first.collector->cutting_height == 0 &&
-          first.collector->shaft_material == m::Component::wooden_shaft,
+          first.collector->cutting_height == 0,
           "A cutter, mount and receiver expose the mount's embodied input spindle.");
     placed[3].center = {0, 0, -1};
     const auto mirrored = a::inspect_collector(placed, face);
     check(mirrored.status == a::Status::ready && mirrored.collector &&
           mirrored.collector->receiver_center == g::Point{0, 0, -1} &&
-          mirrored.collector->shaft_center == g::Point{-1, 0, 0} &&
-          mirrored.collector->shaft_material == m::Component::wooden_shaft,
+          mirrored.collector->shaft_center == g::Point{-1, 0, 0},
           "Mirroring the receiver keeps the same finite driven mount and input port.");
     placed.push_back(part("second-tray", m::Component::receiver_tray, {0, 0, 1}));
     check(a::inspect_collector(placed, face).status == a::Status::ambiguous,
@@ -85,7 +83,6 @@ void raised_rotated_face_and_missing_parts() {
         part("mount", m::Component::tool_mount, {4, 5, 9}),
         part("edge", m::Component::cutting_edge, {4, 5, 10}),
         part("tray", m::Component::receiver_tray, {5, 4, 8}),
-        part("shaft", m::Component::wooden_shaft, {3, 4, 8}),
     };
     const auto raised = a::inspect_collector(placed, face);
     check(raised.status == a::Status::ready && raised.collector &&
@@ -104,10 +101,6 @@ void raised_rotated_face_and_missing_parts() {
     check(a::inspect_collector(placed, face).status == a::Status::missing_edge,
           "A press anvil cannot substitute for the metal cutting edge.");
     placed[2].kind = m::Component::cutting_edge;
-    placed[4].center = {12, 4, 8};
-    check(a::inspect_collector(placed, face).status == a::Status::ready,
-          "A distant independent shaft is optional routing, not a collector recipe token.");
-    placed.pop_back();
     placed.pop_back();
     check(a::inspect_collector(placed, face).status == a::Status::missing_receiver,
           "The cutter cannot work without a receiver on an admitted discharge side.");
@@ -148,7 +141,7 @@ void sliding_press_contact_geometry() {
     std::vector<a::Part> placed{
         part("anvil", m::Component::anvil, work),
         part("head", m::Component::flat_head, {8, 5, 12}),
-        part("slide", m::Component::wooden_slide, {8, 6, 12}),
+        part("slide", m::Component::slide, {8, 6, 12}),
     };
     const a::Layout layout(placed);
     const auto ready = layout.inspect_sliding_press(work);
@@ -157,10 +150,6 @@ void sliding_press_contact_geometry() {
           ready.press->slide == "slide" && ready.press->slide_center == g::Point{8, 6, 12} &&
           ready.press->open_feeds.size() == 2,
           "A separate head mates to the slide immediately above a supported work point.");
-    placed[2].kind = m::Component::copper_slide;
-    check(a::inspect_sliding_press(placed, work).press->slide_material ==
-              m::Component::copper_slide,
-          "The same contact geometry accepts a stronger slide without replacing the head.");
     placed.push_back(part("tray", m::Component::receiver_tray, {7, 4, 12}));
     check(a::inspect_sliding_press(placed, work).press->open_feeds.size() == 1,
           "A fitted plate tray may occupy the exit, but not the entry.");
@@ -186,7 +175,7 @@ void receiver_snapshot_lookup() {
     const std::vector<a::Part> bare{
         part("anvil", m::Component::anvil, work),
         part("head", m::Component::flat_head, {8, 5, 12}),
-        part("slide", m::Component::wooden_slide, {8, 6, 12}),
+        part("slide", m::Component::slide, {8, 6, 12}),
     };
     const a::Layout absent(bare);
     check(absent.valid() && !absent.has_component(exit, m::Component::receiver_tray),
@@ -232,14 +221,13 @@ void indexed_independent_assemblies() {
         placed.push_back({name + "-mount", m::Component::tool_mount, {x - 1, 0, 0}, 1});
         placed.push_back({name + "-edge", m::Component::cutting_edge, {x - 2, 0, 0}, 1});
         placed.push_back({name + "-tray", m::Component::receiver_tray, {x, 0, 1}, 1});
-        placed.push_back({name + "-shaft", m::Component::wooden_shaft, {x + 1, 0, 0}, 1});
     }
     for (int index = 0; index < 100; ++index) {
         const g::Integer x = index * 8;
         const auto name = "press-" + std::to_string(index);
         placed.push_back({name + "-anvil", m::Component::anvil, {x, 8, 16}, 1});
         placed.push_back({name + "-head", m::Component::flat_head, {x, 9, 16}, 1});
-        placed.push_back({name + "-slide", m::Component::wooden_slide, {x, 10, 16}, 1});
+        placed.push_back({name + "-slide", m::Component::slide, {x, 10, 16}, 1});
     }
     const a::Layout indexed(placed);
     check(indexed.valid(), "Three hundred disjoint assemblies have unique component identities and centers.");
@@ -297,7 +285,7 @@ void indexed_independent_assemblies() {
         const auto name = "slide-" + std::to_string(index);
         placed.push_back({name + "-anvil", m::Component::anvil, {x, 4, 32}, 1});
         placed.push_back({name + "-head", m::Component::flat_head, {x, 5, 32}, 1});
-        placed.push_back({name + "-body", m::Component::wooden_slide, {x, 6, 32}, 1});
+        placed.push_back({name + "-body", m::Component::slide, {x, 6, 32}, 1});
         slide_exits.push_back({x - 1, 4, 32});
         if (index % 2 == 0)
             placed.push_back({name + "-tray", m::Component::receiver_tray,

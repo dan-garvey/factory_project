@@ -243,13 +243,11 @@ void arrival_projection_and_restore() {
           std::abs(std::get<double>(upstream[2].storage()) + 1.65) < 1e-8,
           "Finite east timber sites include a separate upstream tree for the constructed plate route.");
     const auto recipes = get<O>(view, "component_recipes");
-    check(recipes.size() == 20 && get<I>(view, "component_capacity") == 0 &&
+    check(recipes.size() == 15 && get<I>(view, "component_capacity") == 0 &&
           get<I>(recipes.at("wooden_frame"), "timber") == 3 &&
           get<I>(recipes.at("wooden_frame"), "copper") == 0 &&
           get<I>(recipes.at("wooden_workbench"), "timber") == 4 &&
           get<I>(recipes.at("wooden_workbench"), "copper") == 0 &&
-          get<I>(recipes.at("copper_cog"), "timber") == 0 &&
-          get<I>(recipes.at("copper_cog"), "copper") == 2 &&
           get<I>(recipes.at("flat_head"), "timber") == 0 &&
           get<I>(recipes.at("flat_head"), "copper") == 1 &&
           get<I>(recipes.at("hand_crank"), "timber") == 2 &&
@@ -259,17 +257,15 @@ void arrival_projection_and_restore() {
           get<I>(recipes.at("channel_broad_x"), "timber") == 4 &&
           get<I>(recipes.at("channel_broad_z"), "timber") == 4,
           "The normal consumer receives every native recipe cost and no opening carry bound.");
-    check(get<I>(recipes.at("wooden_slide"), "timber") == 3 &&
-          get<I>(recipes.at("wooden_slide"), "load_rating") == 8 &&
-          get<I>(recipes.at("copper_slide"), "copper") == 4 &&
-          get<I>(recipes.at("copper_slide"), "load_rating") == 24,
-          "The one-part slide bills contain a matching material input and distinct load ratings.");
-    check(get<I>(recipes.at("wooden_shaft"), "load_rating") == 8 &&
-          get<I>(recipes.at("wooden_cog"), "load_rating") == 8 &&
-          get<I>(recipes.at("copper_shaft"), "load_rating") == 24 &&
-          get<I>(recipes.at("copper_cog"), "load_rating") == 24 &&
+    check(get<I>(recipes.at("slide"), "timber") == 3 &&
+          get<I>(recipes.at("slide"), "copper") == 0 &&
+          get<I>(recipes.at("slide"), "load_rating") == 24,
+          "The single starter slide recipe exposes its common native load rating.");
+    check(!recipes.contains("wooden_shaft") && !recipes.contains("copper_shaft") &&
+          !recipes.contains("wooden_cog") && !recipes.contains("copper_cog") &&
+          !recipes.contains("wooden_slide") && !recipes.contains("copper_slide") &&
           !std::get<O>(recipes.at("wooden_frame").storage()).contains("load_rating"),
-          "The native recipe projection exposes only the four placed drive ratings.");
+          "Retired variants have no recipes, and a structural frame has no invented drive rating.");
     const auto floors = get<O>(view, "foundations");
     check(floors.size() == 9 && floors.contains("pod-floor-0") && floors.contains("pod-floor-8"),
           "The unfolding pod supplied exactly nine ordinary visible foundation identities.");
@@ -453,11 +449,11 @@ void crafted_cranks_keep_distinct_identities_before_first_plate() {
         check(get<bool>(resumed(request, "harvest_source", {{"target", V("tree-east-south")}}),
             "accepted"), "The remaining finite timber pays for a separate slide body.");
     check(get<bool>(resumed("slide-craft", "field_craft",
-              {{"component", V("wooden_slide")}}), "accepted") &&
+              {{"component", V("slide")}}), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 3), "accepted"),
           "The actor carries a separate slide body to a reachable rotary port.");
     const auto slide = resumed("slide-place", "place_component",
-        {{"component", V("wooden_slide")},
+        {{"component", V("slide")},
          {"center", V(A{V(I{12}), V(I{0}), V(I{8})})}});
     check(get<bool>(slide, "accepted"), "The slide body spends its own crafted item.");
     const auto slide_id = get<std::string>(slide, "entity");

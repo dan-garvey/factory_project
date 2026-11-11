@@ -253,8 +253,8 @@ cc_test(
 )
 
 cc_test(
-    name = "material_strength_test",
-    srcs = ["tests/material_strength_test.cpp"],
+    name = "drive_capacity_test",
+    srcs = ["tests/drive_capacity_test.cpp"],
     deps = [":world"],
     size = "small",
 )

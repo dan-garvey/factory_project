@@ -73,7 +73,6 @@ Object fields(const world::Profile& profile, const world::State& state,
                 {"mount", Value(assembled.mount)}, {"edge", Value(assembled.edge)},
                 {"receiver", Value(assembled.receiver)}, {"shaft", Value(assembled.shaft)}}));
             entry.emplace("cutting_height", Value(assembled.cutting_height));
-            entry.emplace("shaft_material", Value(materials::component_name(assembled.shaft_material)));
         }
         collectors.emplace_back(std::move(entry));
     }
@@ -125,7 +124,6 @@ Object fields(const world::Profile& profile, const world::State& state,
                 Value(press.work_center[1]), Value(press.work_center[2])}));
             entry.emplace("slide_center", Value(Array{Value(press.slide_center[0]),
                 Value(press.slide_center[1]), Value(press.slide_center[2])}));
-            entry.emplace("slide_material", Value(materials::component_name(press.slide_material)));
             if (const auto selected = state.slide_press_routes.find(press.work_center);
                 selected != state.slide_press_routes.end())
                 entry.emplace("selected_exit", Value(Array{Value(selected->second[0]),

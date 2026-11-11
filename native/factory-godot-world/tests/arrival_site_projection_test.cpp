@@ -58,9 +58,9 @@ void native_arrival_readout() {
     state.placed_components.emplace("bench-1", world::PlacedComponent{
         materials::Component::wooden_workbench, {0, 4, 0}, 3});
     state.placed_components.emplace("slide-2", world::PlacedComponent{
-        materials::Component::wooden_slide, {4, 4, 0}, 4});
+        materials::Component::slide, {4, 4, 0}, 4});
     state.placed_components.emplace("shaft-3", world::PlacedComponent{
-        materials::Component::wooden_shaft, {8, 4, 0}, 5});
+        materials::Component::receiver_tray, {8, 4, 0}, 5});
     const auto original = state;
     const auto projected = site::fields(arrival->profile, state);
     check(state == original && projected.size() == 6 &&
@@ -83,7 +83,7 @@ void native_arrival_readout() {
     const auto& slide = entry(parts, "slide-2");
     check(parts.size() == 3, "The readout retains all three placed buildables.");
     const auto actual = geometry::component_bounds(arrival->profile,
-        materials::Component::wooden_slide, {4, 4, 0});
+        materials::Component::slide, {4, 4, 0});
     const auto& occupied = entry(slide, "occupied");
     const Array center{Value(actual.center[0]), Value(actual.center[1]), Value(actual.center[2])};
     const Array half{Value(actual.half[0]), Value(actual.half[1]), Value(actual.half[2])};
@@ -100,7 +100,7 @@ void native_arrival_readout() {
     const auto fitted = site::fields(arrival->profile, fitted_state);
     check(field<Object>(fitted, "placed_components").contains("slide-2"), "The fitted slide remains present.");
     const auto fitted_bounds = geometry::component_bounds(arrival->profile,
-        materials::Component::wooden_slide, {4, 2, 0});
+        materials::Component::slide, {4, 2, 0});
     check(std::abs(fitted_bounds.half[1] * 2 - 0.38125) < 1e-9,
           "A fitted one-cell slide keeps its original half-scale height and direct H-layer input.");
 }

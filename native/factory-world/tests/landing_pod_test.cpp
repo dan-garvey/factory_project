@@ -108,7 +108,7 @@ void field_wood_shaping_keeps_actor_custody() {
     const auto field = [](const std::string& actor) -> std::optional<a::ActorCut> {
         return a::ActorCut{actor, {20, 0, 16}, 1, true, 2};
     };
-    for (int index = 0; index < 4; ++index) {
+    for (int index = 0; index < 5; ++index) {
         const O cut{{"context", V("field-shaping")}, {"client", V("P-client")},
             {"request", V("cut-" + std::to_string(index))}, {"actor", V("P")},
             {"action", V("harvest_source")}, {"target", V("field-tree")}};
@@ -121,9 +121,9 @@ void field_wood_shaping_keeps_actor_custody() {
         {"action", V("field_craft")}, {"component", V("wooden_frame")}};
     const auto first = world->command({"P", "P-client"}, craft, field);
     check(first.completed() && std::get<bool>(first.result->at("accepted").storage()) &&
-          world->snapshot().state.material.cargo.at("P").timber == 1 &&
+          world->snapshot().state.material.cargo.at("P").timber == 2 &&
           world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_frame) == 1 &&
-          world->snapshot().state.material.timber_remaining.at("field-tree") == 4,
+          world->snapshot().state.material.timber_remaining.at("field-tree") == 3,
           "The physical actor shapes a frame away from the hub using three carried timber.");
     const auto saved = world->snapshot();
     const auto duplicate = world->command({"P", "P-client"}, craft, field);
@@ -132,7 +132,7 @@ void field_wood_shaping_keeps_actor_custody() {
           "A retried field craft cannot mint another component or spend more timber.");
     auto full = craft;
     full.at("request") = V("full-bag");
-    full.at("component") = V("wooden_shaft");
+    full.at("component") = V("receiver_tray");
     const auto refused_full = world->command({"P", "P-client"}, full, field);
     check(refused_full.completed() &&
           std::get<std::string>(refused_full.result->at("reason").storage()) == "inventory_full" &&
@@ -359,15 +359,19 @@ void reachable_craft_uses_one_hub_and_owned_ingredients() {
     const auto fourth_cut = w::tests::complete_manual_cut(*world, {"P", "P-client"}, more_wood, near);
     check(fourth_cut.completed() && std::get<bool>(fourth_cut.result->at("accepted").storage()),
           "One more physical cut supplies a second potential recipe input.");
+    auto fifth_wood = more_wood;
+    fifth_wood.at("request") = V("fifth-tree");
+    check(w::tests::complete_manual_cut(*world, {"P", "P-client"}, fifth_wood, near).completed(),
+          "Two timber pay for the next tray before the capacity refusal.");
     auto full_craft = craft;
     full_craft.at("request") = V("full-output");
-    full_craft.at("component") = V("wooden_shaft");
+    full_craft.at("component") = V("receiver_tray");
     const auto full_before = world->snapshot();
     const auto full = world->command({"P", "P-client"}, full_craft, near);
     check(full.completed() && !std::get<bool>(full.result->at("accepted").storage()) &&
           std::get<std::string>(full.result->at("reason").storage()) == "inventory_full" &&
           world->snapshot().state == full_before.state &&
-          world->snapshot().state.material.cargo.at("P").timber == 1,
+          world->snapshot().state.material.cargo.at("P").timber == 2,
           "A full component output leaves its newly mined ingredient in actor custody.");
     const auto snapshot = world->snapshot();
     const auto saved = w::encode_checkpoint(profile, snapshot);
@@ -383,8 +387,8 @@ void reachable_craft_uses_one_hub_and_owned_ingredients() {
     auto wider_profile = profile;
     wider_profile.material.component_capacity = 2;
     forged = snapshot;
-    --forged.state.material.cargo.at("P").timber;
-    forged.state.material.cargo.at("P").components.emplace(m::Component::wooden_shaft, 1);
+    forged.state.material.cargo.at("P").timber -= 2;
+    forged.state.material.cargo.at("P").components.emplace(m::Component::receiver_tray, 1);
     check(m::validate(forged.state.material, wider_profile.material,
               w::material_path(forged.state.topology)) == m::Error::none &&
           !w::World::restore("pod-craft", wider_profile, forged),
@@ -536,24 +540,27 @@ void placed_components_keep_custody_and_history() {
           world->snapshot().state.material.cargo.at("Q").components.empty(),
           "Q can reinstall its reclaimed frame and free its one carried component slot.");
     const O harvest_more{{"context", V("placed-chapter")}, {"client", V("P-client")},
-        {"request", V("harvest-for-shaft")}, {"actor", V("P")},
+        {"request", V("harvest-for-tray")}, {"actor", V("P")},
         {"action", V("harvest_source")}, {"target", V("tree")}};
     check(send(harvest_more).completed(), "P harvests one more finite timber piece.");
-    const O craft_shaft{{"context", V("placed-chapter")}, {"client", V("P-client")},
-        {"request", V("craft-shaft")}, {"actor", V("P")}, {"action", V("craft_component")},
+    auto tray_timber = harvest_more;
+    tray_timber.at("request") = V("second-tray-timber");
+    check(send(tray_timber).completed(), "The tray costs two timber.");
+    const O craft_tray{{"context", V("placed-chapter")}, {"client", V("P-client")},
+        {"request", V("craft-tray")}, {"actor", V("P")}, {"action", V("craft_component")},
         {"target", V("pod-fabrication-hub")}, {"generation", V(I{1})},
-        {"component", V("wooden_shaft")}};
-    check(send(craft_shaft).completed() &&
-          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1,
+        {"component", V("receiver_tray")}};
+    check(send(craft_tray).completed() &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::receiver_tray) == 1,
           "A distinct component type is made from P's own timber.");
-    auto place_shaft = place;
-    place_shaft.at("request") = V("place-shaft");
-    place_shaft.at("component") = V("wooden_shaft");
-    place_shaft.at("center") = V(V::Array{V(I{24}), V(I{0}), V(I{35})});
-    const auto shaft = send(place_shaft);
-    check(shaft.completed() && std::get<bool>(shaft.result->at("accepted").storage()),
-          "P installs its shaft while Q's frame remains installed.");
-    const auto shaft_id = std::get<std::string>(shaft.result->at("entity").storage());
+    auto place_tray = place;
+    place_tray.at("request") = V("place-tray");
+    place_tray.at("component") = V("receiver_tray");
+    place_tray.at("center") = V(V::Array{V(I{24}), V(I{0}), V(I{35})});
+    const auto tray = send(place_tray);
+    check(tray.completed() && std::get<bool>(tray.result->at("accepted").storage()),
+          "P installs its tray while Q's frame remains installed.");
+    const auto tray_id = std::get<std::string>(tray.result->at("entity").storage());
     auto reclaim_frame = reclaim;
     reclaim_frame.at("request") = V("q-reclaim-frame-again");
     reclaim_frame.at("target") = frame.result->at("entity");
@@ -565,12 +572,12 @@ void placed_components_keep_custody_and_history() {
     q_reinstall.at("request") = V("q-reinstall-frame");
     check(send(q_reinstall).completed() && world->snapshot().state.material.cargo.at("Q").components.empty(),
           "Q frees its slot again by reinstalling the frame.");
-    auto q_reclaim_shaft = reclaim;
-    q_reclaim_shaft.at("request") = V("q-reclaim-shaft");
-    q_reclaim_shaft.at("target") = V(shaft_id);
-    q_reclaim_shaft.at("generation") = shaft.result->at("generation");
-    check(send(q_reclaim_shaft).completed() &&
-          world->snapshot().state.material.cargo.at("Q").components.at(m::Component::wooden_shaft) == 1 &&
+    auto q_reclaim_tray = reclaim;
+    q_reclaim_tray.at("request") = V("q-reclaim-tray");
+    q_reclaim_tray.at("target") = V(tray_id);
+    q_reclaim_tray.at("generation") = tray.result->at("generation");
+    check(send(q_reclaim_tray).completed() &&
+          world->snapshot().state.material.cargo.at("Q").components.at(m::Component::receiver_tray) == 1 &&
           w::World::restore("placed-chapter", profile, world->snapshot()) != nullptr,
           "A legitimate mixed-type placement sequence restores under capacity one.");
     auto impossible = world->snapshot();
@@ -579,7 +586,7 @@ void placed_components_keep_custody_and_history() {
     std::swap(records[records.size() - 1].result.at("order"), records[records.size() - 2].result.at("order"));
     std::swap(records[records.size() - 1].result.at("revision"), records[records.size() - 2].result.at("revision"));
     check(!w::World::restore("placed-chapter", profile, impossible),
-          "Restore rejects a forged history that temporarily carries a frame and shaft in one slot.");
+          "Restore rejects a forged history that temporarily carries a frame and tray in one slot.");
 }
 
 void unbounded_component_reclaim_keeps_history() {
@@ -605,7 +612,7 @@ void unbounded_component_reclaim_keeps_history() {
         return O{{"context", V("unbounded-chapter")}, {"client", V("P-client")},
             {"request", V(request)}, {"actor", V("P")}, {"action", V(action)}};
     };
-    for (int cut = 0; cut < 4; ++cut) {
+    for (int cut = 0; cut < 5; ++cut) {
         auto harvest = intent(("cut-" + std::to_string(cut)).c_str(), "harvest_source");
         harvest.emplace("target", V("tree"));
         const auto result = send(harvest);
@@ -624,18 +631,18 @@ void unbounded_component_reclaim_keeps_history() {
     const auto placed = send(place);
     check(placed.completed() && std::get<bool>(placed.result->at("accepted").storage()),
           "The actor installs the same frame in the world.");
-    auto shaft = frame;
-    shaft.at("request") = V("shaft");
-    shaft.at("component") = V("wooden_shaft");
-    check(std::get<bool>(send(shaft).result->at("accepted").storage()),
-          "The remaining timber makes a carried shaft.");
+    auto tray = frame;
+    tray.at("request") = V("tray");
+    tray.at("component") = V("receiver_tray");
+    check(std::get<bool>(send(tray).result->at("accepted").storage()),
+          "The remaining timber makes a carried tray.");
     auto reclaim = intent("reclaim-frame", "reclaim_component");
     reclaim.emplace("target", placed.result->at("entity"));
     reclaim.emplace("generation", placed.result->at("generation"));
     const auto returned = send(reclaim);
     check(returned.completed() && std::get<bool>(returned.result->at("accepted").storage()) &&
           world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_frame) == 1 &&
-          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1,
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::receiver_tray) == 1,
           "Reclaim admits a second carried part without a component-slot refusal.");
     const auto snapshot = world->snapshot();
     const auto saved = w::encode_checkpoint(profile, snapshot);
@@ -647,12 +654,12 @@ void unbounded_component_reclaim_keeps_history() {
           "Restore replays the uncapped actor's exact finite custody and component history.");
 }
 
-void loose_shaft_cannot_hold_an_unusable_crank() {
+void loose_tray_cannot_hold_an_unusable_crank() {
     auto [profile, state] = seed();
     profile.material.timber_sites = {{"tree", {{8, 0, 8}, 4}}};
     state.material.timber_remaining = {{"tree", 4}};
     auto world = w::World::create("loose-crank", profile, state);
-    check(world != nullptr, "A finite site initializes for the loose-shaft crank sequence.");
+    check(world != nullptr, "A finite site initializes for the loose-tray crank sequence.");
     const w::ObserveActor observe = [](const std::string& actor) -> std::optional<a::ActorCut> {
         return a::ActorCut{actor, {8, 0, 8}, 1, true, 10};
     };
@@ -662,7 +669,7 @@ void loose_shaft_cannot_hold_an_unusable_crank() {
         command.emplace("actor", V("P"));
         return world->command({"P", "P-client"}, command, observe);
     };
-    for (int cut = 0; cut < 3; ++cut) {
+    for (int cut = 0; cut < 4; ++cut) {
         O command{{"request", V("wood-" + std::to_string(cut))},
             {"action", V("harvest_source")}, {"target", V("tree")},
             {"context", V("loose-crank")}, {"client", V("P-client")},
@@ -670,22 +677,22 @@ void loose_shaft_cannot_hold_an_unusable_crank() {
         const auto result = w::tests::complete_manual_cut(*world,
             {"P", "P-client"}, command, observe);
         check(result.completed() && std::get<bool>(result.result->at("accepted").storage()),
-            "Finite timber pays for a shaft and a separate crank.");
+            "Finite timber pays for a tray and a separate crank.");
     }
-    const auto shaft_craft = send({{"request", V("craft-shaft")},
-        {"action", V("field_craft")}, {"component", V("wooden_shaft")}});
+    const auto tray_craft = send({{"request", V("craft-tray")},
+        {"action", V("field_craft")}, {"component", V("receiver_tray")}});
     const auto crank_craft = send({{"request", V("craft-crank")},
         {"action", V("field_craft")}, {"component", V("hand_crank")}});
-    check(shaft_craft.completed() && crank_craft.completed() &&
-          std::get<bool>(shaft_craft.result->at("accepted").storage()) &&
+    check(tray_craft.completed() && crank_craft.completed() &&
+          std::get<bool>(tray_craft.result->at("accepted").storage()) &&
           std::get<bool>(crank_craft.result->at("accepted").storage()),
-          "The shaft and crank have separate paid identities.");
-    const auto placed = send({{"request", V("place-shaft")},
-        {"action", V("place_component")}, {"component", V("wooden_shaft")},
+          "The tray and crank have separate paid identities.");
+    const auto placed = send({{"request", V("place-tray")},
+        {"action", V("place_component")}, {"component", V("receiver_tray")},
         {"center", V(V::Array{V(I{4}), V(I{0}), V(I{12})})}});
     check(placed.completed() && std::get<bool>(placed.result->at("accepted").storage()),
-          "The loose shaft occupies a real supported component cell.");
-    const auto fitted = send({{"request", V("fit-loose-shaft")},
+          "The loose tray occupies a real supported component cell.");
+    const auto fitted = send({{"request", V("fit-loose-tray")},
         {"action", V("attach_hand_crank")}, {"target", placed.result->at("entity")},
         {"generation", placed.result->at("generation")},
         {"crank", crank_craft.result->at("crank_id")},
@@ -696,9 +703,9 @@ void loose_shaft_cannot_hold_an_unusable_crank() {
           std::get<std::string>(fitted.result->at("reason").storage()) == "not_rotary_input" &&
           world->snapshot().state.crank_items.at(
               std::get<std::string>(crank_craft.result->at("crank_id").storage())).holder == "P",
-          "A loose shaft cannot take custody of a crank until it has a native drive identity.");
+          "A loose tray cannot take custody of a crank because it has no rotary input.");
     check(std::holds_alternative<V>(w::encode_checkpoint(profile, world->snapshot())),
-          "Refused loose-shaft attachment keeps exact paid custody saveable.");
+          "Refused loose-tray attachment keeps exact paid custody saveable.");
 }
 
 void portable_bench_crafts_with_finite_shared_stock() {
@@ -887,29 +894,37 @@ void portable_bench_crafts_with_finite_shared_stock() {
         {"action", V("harvest_source")}, {"target", V("field-tree")}};
     check(std::get<bool>(send(more_wood, {20, 0, 16}).result->at("accepted").storage()),
           "P obtains one more finite timber for crafting after moving the pod hub.");
+    auto moved_tray_wood = more_wood;
+    moved_tray_wood.at("request") = V("moved-tray-second-timber");
+    check(std::get<bool>(send(moved_tray_wood, {20, 0, 16}).result->at("accepted").storage()),
+          "The relocated workshop tray receives its complete two-timber bill.");
     const O moved_craft{{"context", V("portable-bench")}, {"client", V("P-client")},
-        {"request", V("moved-hub-shaft")}, {"actor", V("P")},
+        {"request", V("moved-hub-tray")}, {"actor", V("P")},
         {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
-        {"generation", V(I{1})}, {"component", V("wooden_shaft")}};
+        {"generation", V(I{1})}, {"component", V("receiver_tray")}};
     check(std::get<bool>(send(moved_craft, {28, 0, 16}).result->at("accepted").storage()) &&
-          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1,
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::receiver_tray) == 1,
           "The relocated pod workshop crafts from P's own new timber at its actual position.");
-    const O install_shaft{{"context", V("portable-bench")}, {"client", V("P-client")},
-        {"request", V("install-moved-shaft")}, {"actor", V("P")},
-        {"action", V("place_component")}, {"component", V("wooden_shaft")},
+    const O install_tray{{"context", V("portable-bench")}, {"client", V("P-client")},
+        {"request", V("install-moved-tray")}, {"actor", V("P")},
+        {"action", V("place_component")}, {"component", V("receiver_tray")},
         {"center", V(V::Array{V(I{20}), V(I{0}), V(I{20})})}};
-    check(std::get<bool>(send(install_shaft, {20, 0, 16}).result->at("accepted").storage()),
-          "Installing P's shaft frees the single carried component slot.");
+    check(std::get<bool>(send(install_tray, {20, 0, 16}).result->at("accepted").storage()),
+          "Installing P's tray frees the single carried component slot.");
     auto sixth_wood = more_wood;
     sixth_wood.at("request") = V("sixth-wood");
     check(std::get<bool>(send(sixth_wood, {20, 0, 16}).result->at("accepted").storage()),
           "A sixth cut provides finite timber for the raised bench.");
+    auto raised_tray_wood = more_wood;
+    raised_tray_wood.at("request") = V("raised-tray-second-timber");
+    check(std::get<bool>(send(raised_tray_wood, {20, 0, 16}).result->at("accepted").storage()),
+          "The raised workshop tray receives its complete two-timber bill.");
     auto raised_craft = moved_craft;
-    raised_craft.at("request") = V("raised-bench-shaft");
+    raised_craft.at("request") = V("raised-bench-tray");
     raised_craft.at("target") = reinstalled.result->at("entity");
     raised_craft.at("generation") = reinstalled.result->at("generation");
     check(std::get<bool>(send(raised_craft, {24, 4, 16}).result->at("accepted").storage()) &&
-          world->snapshot().state.material.cargo.at("P").components.at(m::Component::wooden_shaft) == 1 &&
+          world->snapshot().state.material.cargo.at("P").components.at(m::Component::receiver_tray) == 1 &&
           w::World::restore("portable-bench", profile, world->snapshot()) != nullptr,
           "The raised player-built bench crafts and restores on the same foundation level.");
 }
@@ -952,12 +967,12 @@ void powered_slide_ticks_and_restores() {
     }
     const O craft{{"context", V("powered-slide")}, {"client", V("P-client")},
         {"request", V("slide-body")}, {"actor", V("P")}, {"action", V("field_craft")},
-        {"component", V("wooden_slide")}};
+        {"component", V("slide")}};
     check(std::get<bool>(world->command({"P", "P-client"}, craft, actor).result->at("accepted").storage()),
           "The actor shapes the slide from harvested wood.");
     const O place{{"context", V("powered-slide")}, {"client", V("P-client")},
         {"request", V("slide-place")}, {"actor", V("P")}, {"action", V("place_component")},
-        {"component", V("wooden_slide")},
+        {"component", V("slide")},
         {"center", V(V::Array{V(I{44}), V(I{4}), V(I{8})})}};
     const auto installed = world->command({"P", "P-client"}, place, actor);
     check(installed.completed() &&
@@ -1016,7 +1031,7 @@ void first_plate_gate_admits_only_starter_parts() {
     };
     I serial = 0;
     for (const auto* who : {"P", "Q"}) {
-        for (const auto* kind : {"wooden_cog", "receiver_tray", "wooden_shaft", "wooden_frame", "copper_slide"}) {
+        for (const auto* kind : {"receiver_tray", "tool_mount", "cutting_edge", "wooden_frame", "wooden_workbench"}) {
             const O intent{{"request", V("early-component-" + std::to_string(++serial))},
                 {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
                 {"generation", V(I{1})}, {"component", V(kind)}};
@@ -1040,12 +1055,12 @@ void first_plate_gate_admits_only_starter_parts() {
             {"center", V(V::Array{V(I{8}), V(I{0}), V(I{0})})}};
         check(send(who, foundation) == "first_plate_required",
               "Issued foundation kits remain locked until their actor's first plate.");
-        for (const auto* kind : {"anvil", "flat_head", "wooden_slide"}) {
+        for (const auto* kind : {"anvil", "flat_head", "slide"}) {
             const O intent{{"request", V("starter-component-" + std::to_string(++serial))},
                 {"action", V("craft_component")}, {"target", V("pod-fabrication-hub")},
                 {"generation", V(I{1})}, {"component", V(kind)}};
             check(send(who, intent) != "first_plate_required",
-                  "Anvil, separate flat head and wooden slide remain the three starter recipes.");
+                  "Anvil, separate flat head and slide remain the three starter recipes.");
         }
     }
     check(world->snapshot().state == state &&
@@ -1243,7 +1258,7 @@ int main() {
         reachable_craft_uses_one_hub_and_owned_ingredients();
         placed_components_keep_custody_and_history();
         unbounded_component_reclaim_keeps_history();
-        loose_shaft_cannot_hold_an_unusable_crank();
+        loose_tray_cannot_hold_an_unusable_crank();
         gearbox_crank_uses_shared_ports_and_keeps_custody();
         portable_bench_crafts_with_finite_shared_stock();
         powered_slide_ticks_and_restores();

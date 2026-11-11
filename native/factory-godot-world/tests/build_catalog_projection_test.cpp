@@ -77,10 +77,10 @@ void check_profile(bool arrival, bool advanced) {
           field<Integer>(offered_part(field<Array>(specifications, "P"), "wheel"), "count") == 0,
           "The Chapter 1 arrival retains its issued deck and offers no advanced machine kit.");
     const auto& recipes = field<Object>(projected, "component_recipes");
-    check(recipes.size() == 20 &&
+    check(recipes.size() == 15 &&
           field<Integer>(field<Object>(recipes, "stationary_mount"), "timber") == 6 &&
           field<Integer>(field<Object>(recipes, "drill_head"), "copper") == 3 &&
-          field<Integer>(field<Object>(recipes, "copper_cog"), "copper") == 2 &&
+          field<Integer>(field<Object>(recipes, "slide"), "timber") == 3 &&
           field<Integer>(field<Object>(recipes, "flat_head"), "copper") == 1 &&
           field<Integer>(field<Object>(recipes, "wooden_workbench"), "timber") == 4 &&
           field<Integer>(field<Object>(projected, "foundation_recipe"), "copper") == 0 &&

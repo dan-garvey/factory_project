@@ -222,16 +222,16 @@ static func component_boxes(snapshot: Dictionary) -> Dictionary:
 		var anchor := Vector3(cell[0] * HEIGHT_STEP, cell[1] * HEIGHT_STEP + ANCHOR_HEIGHT,
 			cell[2] * HEIGHT_STEP)
 		var horizontal_limit: float = PITCH if part.component in ["channel_broad_x", "channel_broad_z",
-				"broad_anvil", "broad_flat_head", "broad_copper_slide"] else 1.0
+				"broad_anvil", "broad_flat_head", "broad_slide"] else 1.0
 		if part.component == "stationary_mount":
 			horizontal_limit = PITCH * 1.5
 		if part.component in ["channel_narrow_x", "channel_narrow_z"]:
 			horizontal_limit = PITCH * 0.5
-		var vertical_limit := 1.2 if part.component == "broad_copper_slide" else 1.0
+		var vertical_limit := 1.2 if part.component == "broad_slide" else 1.0
 		if half.x <= 0.0 or half.y <= 0.0 or half.z <= 0.0 \
 				or half.x > horizontal_limit or half.y > vertical_limit or half.z > horizontal_limit \
 				or (center - anchor).length() > (PITCH if part.component in ["broad_anvil",
-					"broad_flat_head", "broad_copper_slide"] else 1.0):
+					"broad_flat_head", "broad_slide"] else 1.0):
 			return {"accepted": false}
 		result[id] = {"center": center, "size": half * 2.0, "component": part.component,
 			"generation": part.generation}

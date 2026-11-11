@@ -110,8 +110,7 @@ std::unique_ptr<w::World> prepared(const Fixture& fixture, g::Integer x_shift = 
     accepted(*world, ore);
     struct Part { const char* name; g::Point center; };
     const Part parts[] = {{"wooden_frame", {0, 0, 0}}, {"tool_mount", {-1, 0, 0}},
-        {"cutting_edge", {-2, 0, 0}}, {"receiver_tray", {0, 0, 1}},
-        {"wooden_shaft", {1, 0, 0}}};
+        {"cutting_edge", {-2, 0, 0}}, {"receiver_tray", {0, 0, 1}}};
     std::string drive;
     for (const auto& part : parts) {
         const g::Point center{part.center[0] + x_shift, part.center[1], part.center[2]};
@@ -440,8 +439,7 @@ void powers_two_modular_collectors_with_distinct_custody() {
     accepted(*world, ore);
     struct Part { const char* name; g::Point center; };
     const Part parts[] = {{"wooden_frame", {8, 0, 0}}, {"tool_mount", {7, 0, 0}},
-        {"cutting_edge", {6, 0, 0}}, {"receiver_tray", {8, 0, 1}},
-        {"wooden_shaft", {9, 0, 0}}};
+        {"cutting_edge", {6, 0, 0}}, {"receiver_tray", {8, 0, 1}}};
     std::string second_shaft;
     for (const auto& part : parts) {
         auto craft = request(std::string("craft-second-") + part.name, "craft_component");
@@ -453,14 +451,14 @@ void powers_two_modular_collectors_with_distinct_custody() {
         place.emplace("component", V(part.name));
         place.emplace("center", V(V::Array{V(part.center[0]), V(part.center[1]), V(part.center[2])}));
         const auto placed = accepted(*world, place);
-        if (std::string(part.name) == "wooden_shaft")
+        if (std::string(part.name) == "tool_mount")
             second_shaft = std::get<std::string>(placed.at("entity").storage());
     }
     const auto powered = w::drive_power(f.profile, world->snapshot().state).mechanical;
     check(powered.accepted() &&
-          powered.motion.at("native-part-5").state == g::MotionState::rotating &&
+          powered.motion.at("native-part-2").state == g::MotionState::rotating &&
           powered.motion.at(second_shaft).state == g::MotionState::rotating,
-          "Two physically distinct assembled shafts receive the wheel's real rotation.");
+          "Two physically distinct integral mount shafts receive the wheel's real rotation.");
     const auto before = world->snapshot();
     check(world->tick().error == w::TransactionError::none,
           "The first two-collector powered tick is accepted.");

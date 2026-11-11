@@ -66,7 +66,7 @@ void route_identity_and_refusal() {
 
     auto after = before;
     after.placed_components.emplace("new-part", factory::world::PlacedComponent{
-        factory::materials::Component::wooden_shaft, {1, 0, 1}, 1});
+        factory::materials::Component::receiver_tray, {1, 0, 1}, 1});
     check(!support::layout(flat, after, &pinned).contains("shaft-a") &&
           support::layout(flat, after).contains("shaft-a"),
           "The new component blocks only the saved post route; a new free route exists.");

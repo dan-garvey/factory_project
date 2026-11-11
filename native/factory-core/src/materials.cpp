@@ -130,7 +130,7 @@ std::pair<Component, Quantity> placement_parts(Component kind) noexcept {
     switch (kind) {
         case Component::broad_anvil: return {Component::anvil, 4};
         case Component::broad_flat_head: return {Component::flat_head, 4};
-        case Component::broad_copper_slide: return {Component::copper_slide, 4};
+        case Component::broad_slide: return {Component::slide, 4};
         default: return {kind, 1};
     }
 }
@@ -138,7 +138,7 @@ std::pair<Component, Quantity> placement_parts(Component kind) noexcept {
 std::optional<std::vector<DropPoint>> component_workcells(
         Component kind, const DropPoint& origin) {
     if (kind == Component::broad_anvil || kind == Component::broad_flat_head ||
-        kind == Component::broad_copper_slide)
+        kind == Component::broad_slide)
         return occupied_workcells(origin, Footprint{2, 2}, 0);
     return channel_workcells(kind, origin);
 }
@@ -219,21 +219,16 @@ const char* component_name(Component component) noexcept {
         case Component::drill_head: return "drill_head";
         case Component::stationary_mount: return "stationary_mount";
         case Component::wooden_frame: return "wooden_frame";
-        case Component::wooden_shaft: return "wooden_shaft";
-        case Component::wooden_cog: return "wooden_cog";
         case Component::receiver_tray: return "receiver_tray";
         case Component::tool_mount: return "tool_mount";
         case Component::cutting_edge: return "cutting_edge";
         case Component::anvil: return "anvil";
-        case Component::copper_shaft: return "copper_shaft";
-        case Component::copper_cog: return "copper_cog";
         case Component::wooden_workbench: return "wooden_workbench";
-        case Component::wooden_slide: return "wooden_slide";
-        case Component::copper_slide: return "copper_slide";
+        case Component::slide: return "slide";
         case Component::flat_head: return "flat_head";
         case Component::broad_anvil: return "broad_anvil";
         case Component::broad_flat_head: return "broad_flat_head";
-        case Component::broad_copper_slide: return "broad_copper_slide";
+        case Component::broad_slide: return "broad_slide";
         case Component::hand_crank: return "hand_crank";
         case Component::channel_narrow_x: return "channel_narrow_x";
         case Component::channel_narrow_z: return "channel_narrow_z";
@@ -244,13 +239,12 @@ const char* component_name(Component component) noexcept {
 }
 
 std::optional<Component> component_from_name(const std::string& name) noexcept {
-    for (const auto component : {Component::drill_head, Component::stationary_mount, Component::wooden_frame, Component::wooden_shaft,
-             Component::wooden_cog, Component::receiver_tray, Component::tool_mount,
+    for (const auto component : {Component::drill_head, Component::stationary_mount,
+             Component::wooden_frame, Component::receiver_tray, Component::tool_mount,
              Component::cutting_edge, Component::anvil,
-             Component::copper_shaft, Component::copper_cog,
-             Component::wooden_workbench, Component::wooden_slide,
-             Component::copper_slide, Component::flat_head, Component::broad_anvil,
-             Component::broad_flat_head, Component::broad_copper_slide,
+             Component::wooden_workbench, Component::slide,
+             Component::flat_head, Component::broad_anvil,
+             Component::broad_flat_head, Component::broad_slide,
              Component::hand_crank,
              Component::channel_narrow_x, Component::channel_narrow_z,
              Component::channel_broad_x, Component::channel_broad_z})
@@ -263,21 +257,16 @@ std::optional<ComponentCost> component_cost(Component component) noexcept {
         case Component::drill_head: return ComponentCost{1, 3};
         case Component::stationary_mount: return ComponentCost{6, 1};
         case Component::wooden_frame: return ComponentCost{3, 0};
-        case Component::wooden_shaft: return ComponentCost{1, 0};
-        case Component::wooden_cog: return ComponentCost{2, 0};
         case Component::receiver_tray: return ComponentCost{2, 0};
         case Component::tool_mount: return ComponentCost{2, 0};
         case Component::cutting_edge: return ComponentCost{0, 1};
         case Component::anvil: return ComponentCost{0, 2};
-        case Component::copper_shaft: return ComponentCost{0, 2};
-        case Component::copper_cog: return ComponentCost{0, 2};
         case Component::wooden_workbench: return ComponentCost{4, 0};
-        case Component::wooden_slide: return ComponentCost{3, 0};
-        case Component::copper_slide: return ComponentCost{0, 4};
+        case Component::slide: return ComponentCost{3, 0};
         case Component::flat_head: return ComponentCost{0, 1};
         case Component::broad_anvil: return ComponentCost{0, 8};
         case Component::broad_flat_head: return ComponentCost{0, 4};
-        case Component::broad_copper_slide: return ComponentCost{0, 16};
+        case Component::broad_slide: return ComponentCost{12, 0};
         case Component::hand_crank: return ComponentCost{2, 0};
         case Component::channel_narrow_x:
         case Component::channel_narrow_z: return ComponentCost{2, 0};

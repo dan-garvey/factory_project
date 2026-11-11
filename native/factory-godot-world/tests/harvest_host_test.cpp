@@ -57,12 +57,12 @@ void one_piece_slide_custody() {
     for (const char* request : {"tree-1", "tree-2", "tree-3"})
         check(get<bool>(command(request, "harvest_source", {{"target", V("tree-east-south")}}), "accepted"),
               "Three finite timber units move into the actor's native cargo.");
-    const auto shaped = command("shape-slide", "field_craft", {{"component", V("wooden_slide")}});
+    const auto shaped = command("shape-slide", "field_craft", {{"component", V("slide")}});
     check(get<bool>(shaped, "accepted") &&
           get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0 &&
-          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_slide") == 1,
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "slide") == 1,
           "The slide and its integral shaft are one finite crafted cargo item.");
-    const O place{{"component", V("wooden_slide")},
+    const O place{{"component", V("slide")},
         {"center", V(A{V(I{24}), V(I{0}), V(I{16})})}};
     const auto installed = command("place-slide", "place_component", place);
     check(get<bool>(installed, "accepted") &&
@@ -74,7 +74,7 @@ void one_piece_slide_custody() {
     const auto occupied = get<O>(placed, "occupied");
     const auto half = get<A>(V(occupied), "half");
     const auto input_ports = get<A>(get<O>(host.projection(), "rotary_ports").at(slide_id), "ports");
-    check(get<std::string>(placed, "component") == "wooden_slide" &&
+    check(get<std::string>(placed, "component") == "slide" &&
           input_ports.size() == 2 &&
           !factory::values::typed_difference(V(get<A>(input_ports.front(), "position")),
               V(A{V(I{22}), V(I{0}), V(I{16})})) &&
@@ -245,13 +245,13 @@ void flat_head_host_custody() {
     for (const char* request : {"slide-tree-1", "slide-tree-2", "slide-tree-3"})
         check(get<bool>(command(request, "harvest_source", {{"target", V("tree-east-south")}}),
                 "accepted"),
-              "The wooden slide consumes three distinct finite timber cuts.");
-    check(get<bool>(command("shape-slide", "field_craft", {{"component", V("wooden_slide")}}),
+              "The slide consumes three distinct finite timber cuts.");
+    check(get<bool>(command("shape-slide", "field_craft", {{"component", V("slide")}}),
             "accepted") &&
           get<bool>(host.publish_actor("P", {V(3.7), V(1.0), V(3.3)}, 5), "accepted"),
           "The actor shapes a separate slide and returns to the same physical build site.");
     const auto slide = command("place-slide", "place_component",
-        {{"component", V("wooden_slide")}, {"center", V(A{V(I{12}), V(I{2}), V(I{8})})}});
+        {{"component", V("slide")}, {"center", V(A{V(I{12}), V(I{2}), V(I{8})})}});
     check(get<bool>(slide, "accepted") &&
           get<O>(host.projection(), "placed_components").size() == 2,
           "The slide fits over the previously placed head without consuming another shaft.");
@@ -443,11 +443,11 @@ void flat_head_host_custody() {
                   {{"target", V("tree-east-upstream")}}), "accepted"),
               "Finite timber supplies the feed obstruction without invented cargo.");
     check(get<bool>(resumed("shape-feed-blocker", "field_craft",
-              {{"component", V("wooden_slide")}}), "accepted") &&
+              {{"component", V("slide")}}), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(5.0), V(1.0), V(2.1)}, 15), "accepted"),
           "The crafted slide can be brought beside the press.");
     const auto feed_blocker = resumed("place-feed-blocker", "place_component",
-        {{"component", V("wooden_slide")},
+        {{"component", V("slide")},
          {"center", V(A{V(I{16}), V(I{0}), V(I{8})})}});
     if (!get<bool>(feed_blocker, "accepted"))
         throw std::runtime_error("Slide feed blocker refused: " +
@@ -634,7 +634,7 @@ void flat_head_host_custody() {
     const auto shared_blocker = partial_restored.command("P", O{
         {"context", V("flat-head-site")}, {"client", V("P")},
         {"request", V("place-shared-feed-blocker")}, {"action", V("place_component")},
-        {"component", V("wooden_slide")},
+        {"component", V("slide")},
         {"center", V(A{V(I{16}), V(I{0}), V(I{8})})}});
     check(get<bool>(shared_blocker, "accepted"),
           "P can obstruct the press while Q owns its recovered work identity.");
@@ -710,11 +710,11 @@ void flat_head_host_custody() {
                   {{"target", V("tree-east-south")}}), "accepted"),
               "Three more finite timber units supply an actual output obstruction.");
     check(get<bool>(resumed("shape-exit-blocker", "field_craft",
-              {{"component", V("wooden_slide")}}), "accepted") &&
+              {{"component", V("slide")}}), "accepted") &&
           get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(2.1)}, 17), "accepted"),
           "The worker brings one starter slide back to obstruct the selected outlet.");
     const auto blocker = resumed("block-slide-exit", "place_component",
-        {{"component", V("wooden_slide")},
+        {{"component", V("slide")},
          {"center", V(A{V(I{8}), V(I{0}), V(I{8})})}});
     if (!get<bool>(blocker, "accepted"))
         throw std::runtime_error("Slide outlet blocker refused: " +
@@ -817,7 +817,7 @@ void flat_head_host_custody() {
     const auto attempt_cog = [&](const char* actor, const char* request) {
         return finished_restored.command(actor, O{{"context", V("flat-head-site")},
             {"client", V(actor)}, {"request", V(request)}, {"action", V("field_craft")},
-            {"component", V("wooden_cog")}});
+            {"component", V("receiver_tray")}});
     };
     const auto still_locked = attempt_cog("P", "first-plate-p-still-locked");
     const auto newly_unlocked = attempt_cog("Q", "first-plate-q-unlocked");
@@ -1308,7 +1308,7 @@ void placed_machine_blocks_an_actors_harvest_path() {
         check(get<bool>(host.command("P", cut("P", request, "tree-east-south")), "accepted"),
               "The actor cuts exactly one finite piece for each requested timber unit.");
     check(get<bool>(host.command("P", wire("shape", "field_craft",
-              {{"component", V("wooden_slide")}})), "accepted") &&
+              {{"component", V("slide")}})), "accepted") &&
           get<bool>(host.publish_actor("P", {V(2.9), V(0.825), V(3.3)}, 2), "accepted"),
           "The actor carries one real shaped slide to the path between tree and worker.");
     const auto floor = host.command("P", wire("slide-floor", "place_foundation",
@@ -1317,7 +1317,7 @@ void placed_machine_blocks_an_actors_harvest_path() {
         throw std::runtime_error("Slide floor refused: " + get<std::string>(floor, "reason"));
     check(get<bool>(floor, "accepted"), "A full-U foundation supports the slide at the worker's standing height.");
     const auto placed = host.command("P", wire("place-slide", "place_component",
-        {{"component", V("wooden_slide")},
+        {{"component", V("slide")},
          {"center", V(A{V(I{28}), V(I{4}), V(I{16})})}}));
     check(get<bool>(placed, "accepted"), "The actor installs the slide as a native world component.");
     check(get<bool>(host.publish_actor("P", {V(4.4), V(1.65), V(3.3)}, 3), "accepted"),
@@ -1398,7 +1398,7 @@ void field_wood_uses_physical_actor_and_one_ledger() {
           get<bool>(host.publish_actor("P", {V(5.8), V(1.0), V(3.3)}, 1), "accepted") &&
           get<bool>(host.publish_actor("Q", {V(3.3), V(1.0), V(8.25)}, 1), "accepted"),
           "Two physical actors initialize, with P beyond the pod bench's reach.");
-    for (int index = 0; index < 4; ++index) {
+    for (int index = 0; index < 5; ++index) {
         const auto request = "field-cut-" + std::to_string(index);
         const auto outcome = complete_cut(host, "P", field_cut(request.c_str()));
         check(get<bool>(outcome, "accepted"),
@@ -1406,9 +1406,9 @@ void field_wood_uses_physical_actor_and_one_ledger() {
     }
     const auto made = shape("P", "field-frame", "wooden_frame");
     check(get<bool>(host.command("P", made), "accepted") &&
-          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1 &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 2 &&
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_frame") == 1 &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 4,
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 3,
           "P shapes a wooden frame at the tree while the distant bench stays unused.");
     const auto after = host.checkpoint();
     check(get<bool>(host.command("P", made), "duplicate") &&
@@ -1416,13 +1416,13 @@ void field_wood_uses_physical_actor_and_one_ledger() {
           "The exact Host wire replay does not create another wooden frame.");
     const auto metal = host.command("P", shape("P", "field-metal", "cutting_edge"));
     check(!get<bool>(metal, "accepted") && get<std::string>(metal, "reason") == "unavailable_recipe" &&
-          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1 &&
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 2 &&
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_frame") == 1 &&
-          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 4,
+          get<I>(get<O>(host.projection(), "hand_sources").at("tree-east-south"), "remaining") == 3,
           "The same tool refuses metal forming in the field without changing custody.");
-    const auto other = host.command("Q", shape("Q", "other-wood", "wooden_shaft"));
+    const auto other = host.command("Q", shape("Q", "other-wood", "receiver_tray"));
     check(!get<bool>(other, "accepted") && get<std::string>(other, "reason") == "unavailable_input" &&
-          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 1,
+          get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 2,
           "Q cannot spend P's carried timber with the same field tool command.");
     check(get<bool>(host.validate_checkpoint(host.checkpoint()), "accepted"),
           "Host validates the shaped frame and both actors' conserved cargo.");
@@ -1434,8 +1434,8 @@ void field_wood_uses_physical_actor_and_one_ledger() {
           "Fresh Host continuation retains the field craft, finite timber and refused requests.");
     check(get<bool>(restored.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 2), "accepted") &&
           get<bool>(restored.command("P", O{{"context", V("field-site")}, {"client", V("P")},
-              {"request", V("bench-shaft")}, {"action", V("craft_component")},
-              {"entity", V("pod-fabrication-hub")}, {"component", V("wooden_shaft")}}), "accepted"),
+              {"request", V("bench-tray")}, {"action", V("craft_component")},
+              {"entity", V("pod-fabrication-hub")}, {"component", V("receiver_tray")}}), "accepted"),
           "The existing pod bench still crafts from the remaining carried timber after restore.");
 }
 
@@ -1531,17 +1531,19 @@ void shared_harvest() {
     check(get<std::string>(V(bench), "id") == "pod-fabrication-hub" &&
           get<I>(V(bench), "generation") == 1,
           "One native bench identity is shared by both actors.");
+    check(get<bool>(complete_cut(host, "P", cut("P", "tree-for-tray", "tree-east-south")), "accepted"),
+          "P cuts the second timber required by the receiver tray.");
     check(get<bool>(host.publish_actor("P", {V(3.3), V(1.0), V(4.8)}, 2), "accepted"),
           "P walks from the bark to the pod bench before shaping its timber.");
-    const auto first_part = craft("P", "wooden-shaft", "wooden_shaft");
+    const auto first_part = craft("P", "wooden-tray", "receiver_tray");
     check(get<bool>(host.command("P", first_part), "accepted") &&
-          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "wooden_shaft") == 1 &&
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("P"), "components")), "receiver_tray") == 1 &&
           get<I>(get<O>(host.projection(), "cargo").at("P"), "timber") == 0,
-          "P shapes its own harvested timber into one typed shaft at the local bench.");
+          "P shapes its own harvested timber into one typed tray at the local bench.");
     const auto after_part = host.checkpoint();
     check(get<bool>(host.command("P", first_part), "duplicate") &&
           !factory::values::typed_difference(after_part, host.checkpoint()),
-          "A cached craft wire cannot spend timber or add a second shaft.");
+          "A cached craft wire cannot spend timber or add a second tray.");
     const auto remote = host.command("Q", craft("Q", "remote-edge", "cutting_edge"));
     check(!get<bool>(remote, "accepted") && get<std::string>(remote, "reason") == "out_of_reach" &&
           get<I>(get<O>(host.projection(), "cargo").at("Q"), "raw") == 1,
@@ -1554,13 +1556,13 @@ void shared_harvest() {
     check(get<bool>(host.publish_actor("P", {V(1.65), V(1.0), V(4.8)}, 3), "accepted"),
           "P leaves the remote timber site before installing a part on the deck.");
     const O place{{"context", V("harvest-site")}, {"client", V("P")},
-        {"request", V("install-shaft")}, {"action", V("place_component")},
-        {"component", V("wooden_shaft")}, {"center", V(A{V(I{16}), V(I{0}), V(I{24})})}};
+        {"request", V("install-tray")}, {"action", V("place_component")},
+        {"component", V("receiver_tray")}, {"center", V(A{V(I{16}), V(I{0}), V(I{24})})}};
     const auto installed = host.command("P", place);
     check(get<bool>(installed, "accepted") &&
           get<O>(host.projection(), "placed_components").size() == 1 &&
           get<O>(get<O>(host.projection(), "cargo").at("P"), "components").empty(),
-          "Host projects the single installed shaft and debits the actor's component cargo.");
+          "Host projects the single installed tray and debits the actor's component cargo.");
     const auto installed_id = get<std::string>(installed, "entity");
     const auto installed_position = get<A>(get<O>(host.projection(), "placed_components").at(installed_id), "position");
     check(installed_position.size() == 3 &&
@@ -1568,21 +1570,21 @@ void shared_harvest() {
           std::abs(std::get<double>(installed_position[1].storage()) - 0.4125) < 1e-8 &&
           std::abs(std::get<double>(installed_position[2].storage()) - 4.95) < 1e-8 &&
           get<bool>(host.command("P", place), "duplicate"),
-          "The shaft uses the shared quarter-grid transform and exact wire retry.");
+          "The tray uses the shared quarter-grid transform and exact wire retry.");
     const O overlap{{"context", V("harvest-site")}, {"client", V("Q")},
-        {"request", V("overlap-shaft")}, {"action", V("place_component")},
+        {"request", V("overlap-tray")}, {"action", V("place_component")},
         {"component", V("cutting_edge")}, {"center", V(A{V(I{16}), V(I{0}), V(I{24})})}};
     const auto blocked = host.command("Q", overlap);
     check(!get<bool>(blocked, "accepted") && get<std::string>(blocked, "reason") == "occupied" &&
           get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "cutting_edge") == 1,
           "A second part cannot occupy the same quarter-grid center or consume its input on refusal.");
     const O reclaim{{"context", V("harvest-site")}, {"client", V("Q")},
-        {"request", V("take-shaft")}, {"action", V("reclaim_component")},
+        {"request", V("take-tray")}, {"action", V("reclaim_component")},
         {"entity", V(installed_id)}};
     check(get<bool>(host.command("Q", reclaim), "accepted") &&
           get<O>(host.projection(), "placed_components").empty() &&
-          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "wooden_shaft") == 1,
-          "Q reclaims the real shaft into Q's cargo without recreating it.");
+          get<I>(V(get<O>(get<O>(host.projection(), "cargo").at("Q"), "components")), "receiver_tray") == 1,
+          "Q reclaims the real tray into Q's cargo without recreating it.");
     const auto saved = host.checkpoint();
     check(get<bool>(host.validate_checkpoint(saved), "accepted"),
           "The real Host checkpoint validates tree and ore custody.");

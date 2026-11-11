@@ -53,7 +53,7 @@ Fields fields(const world::State& state, const world::DrivePower& power) {
                         record.emplace("limiting_kind", Value(materials::component_name(found->second.kind)));
                 }
                 record.emplace("remedy", Value(load->second.limiting_part.empty() ?
-                    "add_power_or_reduce_load" : "replace_with_copper_or_split_load"));
+                    "add_power_or_reduce_load" : "split_load_or_reduce_speed"));
             }
         }
         projected.motion.emplace(id, Value(std::move(record)));

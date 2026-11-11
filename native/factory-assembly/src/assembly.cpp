@@ -93,7 +93,7 @@ Inspection Layout::inspect_collector(const OreFace& face) const {
             // of the mount recipe; independent shafts route power to it.
             candidates.push_back({frame->id, mount->id, edge->id, receiver->id, mount->id,
                 face.machine_center, face.toward_ore, receiver_center, mount->center,
-                height, materials::Component::wooden_shaft});
+                height});
         }
     }
     if (candidates.size() == 1) return {Status::ready, candidates.front()};
@@ -116,13 +116,9 @@ SlidingPressInspection Layout::inspect_sliding_press(const Point& center) const 
     const auto* head = at(by_center_, head_center, materials::Component::flat_head);
     if (!head) return {PressStatus::missing_flat_head, std::nullopt};
     const Point slide_center{center[0], center[1] + 2, center[2]};
-    const auto found = by_center_.find(slide_center);
-    const auto* slide = found != by_center_.end() &&
-        (found->second->kind == materials::Component::wooden_slide ||
-         found->second->kind == materials::Component::copper_slide) ? found->second : nullptr;
+    const auto* slide = at(by_center_, slide_center, materials::Component::slide);
     if (!slide) return {PressStatus::missing_slide, std::nullopt};
-    SlidingPress press{anvil->id, head->id, slide->id, center, slide_center,
-        slide->kind, {}};
+    SlidingPress press{anvil->id, head->id, slide->id, center, slide_center, {}};
     // The slide's integral input is X-axis. The two opposed X faces remain
     // physical feed/outlet candidates; a tray may receive a finished plate.
     for (const Integer sign : {-1, 1}) {
@@ -157,10 +153,9 @@ BroadSlidingPressInspection Layout::inspect_broad_sliding_press(const Point& ori
     if (!head) return {PressStatus::missing_flat_head, std::nullopt};
     const Point slide_center{origin[0], origin[1] + 4, origin[2]};
     const auto* slide = at(by_center_, slide_center,
-        materials::Component::broad_copper_slide);
+        materials::Component::broad_slide);
     if (!slide) return {PressStatus::missing_slide, std::nullopt};
-    BroadSlidingPress press{anvil->id, head->id, slide->id, origin, slide_center,
-        slide->kind, {}};
+    BroadSlidingPress press{anvil->id, head->id, slide->id, origin, slide_center, {}};
     for (std::size_t index = 0; index < press.work_centers.size(); ++index)
         press.work_centers[index] = {origin[0] + static_cast<Integer>(index % 2) * 4,
             origin[1], origin[2] + static_cast<Integer>(index / 2) * 4};

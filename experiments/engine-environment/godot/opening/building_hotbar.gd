@@ -44,12 +44,11 @@ const MIN_CARRIED_CELLS := 32
 const RECIPE_CATEGORIES: Array[String] = ["machine", "power", "logistics", "other"]
 const RECIPE_CATEGORY_LABELS := {"machine": "Machine parts", "power": "Power",
 	"logistics": "Logistics", "other": "Other"}
-const POWER_COMPONENTS := ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"]
 const LOGISTICS_COMPONENTS := ["channel_narrow_x", "channel_narrow_z",
 	"channel_broad_x", "channel_broad_z"]
 const MACHINE_COMPONENTS := ["drill_head", "stationary_mount", "wooden_frame", "receiver_tray", "tool_mount",
-	"cutting_edge", "anvil", "broad_anvil", "wooden_slide", "copper_slide",
-	"broad_copper_slide", "flat_head", "broad_flat_head", "hand_crank"]
+	"cutting_edge", "anvil", "broad_anvil", "slide",
+	"broad_slide", "flat_head", "broad_flat_head", "hand_crank"]
 const COMPONENT_ICON = preload("res://opening/assets/build-icons/component.svg")
 const FOOTPRINT_ONE_ICON = preload("res://opening/assets/build-icons/footprint-one.svg")
 const FOOTPRINT_FOUR_ICON = preload("res://opening/assets/build-icons/footprint-four.svg")
@@ -59,16 +58,15 @@ const MATERIALS := {
 	"sheets": ["Copper sheet", "sheet.svg"], "work_lots": ["Copper workpiece", "workpiece.svg"],
 	"fabrication_hub": ["Pod workshop", "workshop-pod.svg"]}
 const COMPONENT_ICONS := {
-	"wooden_frame": "wooden_frame.svg", "wooden_shaft": "wooden_shaft.svg",
-	"wooden_cog": "wooden_cog.svg", "receiver_tray": "receiver_tray.svg",
+	"wooden_frame": "wooden_frame.svg",
+	"receiver_tray": "receiver_tray.svg",
 	"tool_mount": "tool_mount.svg",
 	"cutting_edge": "cutting_edge.svg", "anvil": "anvil.svg",
 	"broad_anvil": "anvil.svg", "broad_flat_head": "flat_head.svg",
-	"copper_shaft": "copper_shaft.svg",
-	"copper_cog": "copper_cog.svg", "wooden_workbench": "wooden_workbench.svg",
+	"wooden_workbench": "wooden_workbench.svg",
 	"drill_head": "drill_head.svg", "stationary_mount": "stationary_mount.svg",
-	"wooden_slide": "wooden_slide.svg", "copper_slide": "copper_slide.svg",
-	"broad_copper_slide": "copper_slide.svg",
+	"slide": "slide.svg",
+	"broad_slide": "slide.svg",
 	"flat_head": "flat_head.svg", "hand_crank": "workshop-crank.svg",
 	"channel_narrow_x": "channel_narrow_x.svg", "channel_narrow_z": "channel_narrow_z.svg",
 	"channel_broad_x": "channel_broad_x.svg", "channel_broad_z": "channel_broad_z.svg"}
@@ -562,9 +560,9 @@ func _count(tool: String, parts: Dictionary) -> int:
 			return 0
 		var kind := tool.trim_prefix(COMPONENT_PREFIX)
 		var components: Dictionary = host.state.get("cargo", {}).get(host.client, {}).get("components", {})
-		if kind in ["broad_anvil", "broad_flat_head", "broad_copper_slide"]:
+		if kind in ["broad_anvil", "broad_flat_head", "broad_slide"]:
 			var carried := "anvil" if kind == "broad_anvil" else \
-				"flat_head" if kind == "broad_flat_head" else "copper_slide"
+				"flat_head" if kind == "broad_flat_head" else "slide"
 			return maxi(0, int(components.get(carried, 0)) / 4)
 		return maxi(0, int(components.get(kind, 0)))
 	return maxi(0, int(parts.get("shaft" if tool == "drive" else tool, 0)))
@@ -600,7 +598,7 @@ func _offered(tool: String, host) -> bool:
 		return _arrival_active
 	if _arrival_active and not _plate_unlocked(host):
 		return tool in ["component:anvil", "component:flat_head", "component:broad_anvil",
-			"component:broad_flat_head", "component:wooden_slide",
+			"component:broad_flat_head", "component:slide",
 			"component:hand_crank"]
 	return not (_arrival_active and tool in ["collector", "processor", "gear"]) \
 		and not (tool.begins_with("gear:") and not _arrival_active) \
@@ -685,8 +683,6 @@ func _suggested_recipe_category(host) -> String:
 func _recipe_category(key: String, kind: String = "") -> String:
 	if key.begins_with(COMPONENT_PREFIX):
 		var component := key.trim_prefix(COMPONENT_PREFIX)
-		if POWER_COMPONENTS.has(component):
-			return "power"
 		if LOGISTICS_COMPONENTS.has(component):
 			return "logistics"
 		return "machine" if MACHINE_COMPONENTS.has(component) else "other"
@@ -701,7 +697,7 @@ func _recipe_rank(key: String, kind: String, teeth: int, host) -> int:
 		var component := key.trim_prefix(COMPONENT_PREFIX)
 		var preferred := ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray"] \
 			if _plate_unlocked(host) and _suggested_recipe_category(host) == "machine" else \
-			["anvil", "flat_head", "wooden_slide", "hand_crank"]
+			["anvil", "flat_head", "slide", "hand_crank"]
 		var index := preferred.find(component)
 		return index if index >= 0 else 20 + _component_names.find(component)
 	if key == "foundation":
@@ -862,7 +858,7 @@ func _refresh_recipes(host, ready: bool) -> void:
 			if not recipe_names.has(component):
 				recipe_names.append(component)
 	else:
-		for starter: String in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
+		for starter: String in ["anvil", "flat_head", "slide", "hand_crank"]:
 			recipe_names.append(starter)
 	for component: String in recipe_names:
 		var cost: Dictionary = recipes.get(component, {})
@@ -969,7 +965,7 @@ func _craft_recipe(key: String) -> void:
 	if host == null or not _arrival_active or not host._can_choose_tool():
 		return
 	if not _plate_unlocked(host) and key not in ["component:anvil", "component:flat_head",
-			"component:wooden_slide", "component:hand_crank"]:
+			"component:slide", "component:hand_crank"]:
 		focus_description.text = "Carry your first copper plate to unlock this recipe."
 		return
 	if not recipe_buttons.has(key) or not recipe_buttons[key].visible:
@@ -1056,14 +1052,14 @@ func refresh(snapshot_ready: bool = true) -> void:
 		active = COMPONENT_PREFIX + host.arrival_assembly_controls.selected_name()
 	var sized_part := active in ["component:anvil", "component:broad_anvil",
 		"component:flat_head", "component:broad_flat_head",
-		"component:copper_slide", "component:broad_copper_slide"]
+		"component:slide", "component:broad_slide"]
 	var broad_size := active in ["component:broad_anvil", "component:broad_flat_head",
-		"component:broad_copper_slide"]
+		"component:broad_slide"]
 	var area_icon: Texture2D = FOOTPRINT_FOUR_ICON if broad_size else FOOTPRINT_ONE_ICON
-	var area_tip := "2x2 slide housing · one piston · uses four copper slides · V" \
-		if active == "component:broad_copper_slide" else \
-		"1x1 copper slide · one carried part · V for 2x2" \
-		if active == "component:copper_slide" else \
+	var area_tip := "2x2 slide housing · one piston · uses four slides · V" \
+		if active == "component:broad_slide" else \
+		"1x1 slide · one carried part · V for 2x2" \
+		if active == "component:slide" else \
 		"2x2 joined face · one click · uses four carried flat heads · V" \
 		if active == "component:broad_flat_head" else \
 		"2x2 joined workbed · one click · uses four carried anvils · V" \
@@ -1116,7 +1112,7 @@ func refresh(snapshot_ready: bool = true) -> void:
 			part_button.disabled = not usable or count < 1
 			part_button.visible = count > 0 and _offered(COMPONENT_PREFIX + component, host)
 			var quantity := "%d buildable from four carried parts each" % count \
-				if component in ["broad_anvil", "broad_flat_head", "broad_copper_slide"] else "%d carried" % count
+				if component in ["broad_anvil", "broad_flat_head", "broad_slide"] else "%d carried" % count
 			part_button.tooltip_text = "%s · %s · drag to hotbar or hover and press 1–8 · click to place" % [
 				_component_labels[component], quantity]
 			part_button.accessibility_name = "%s, %s; drag to hotbar or focus and press a number to bind; click to place" % [

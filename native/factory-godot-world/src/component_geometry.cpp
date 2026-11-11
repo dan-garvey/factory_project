@@ -107,7 +107,7 @@ Bounds component_bounds(const world::Profile& profile,
                      at[2] + pitch * 0.5},
                     {pitch, (high - low) * 0.5, pitch}};
         }
-        case materials::Component::broad_copper_slide: {
+        case materials::Component::broad_slide: {
             const double low = center[1] * height_step - 4 * height_step + anvil_work_height;
             // The coupled row gears turn at the native tile shaft plane and
             // clear the moving head below within this admitted volume.
@@ -116,8 +116,7 @@ Bounds component_bounds(const world::Profile& profile,
                      at[2] + pitch * 0.5},
                     {pitch, (high - low) * 0.5, pitch}};
         }
-        case materials::Component::wooden_slide:
-        case materials::Component::copper_slide: {
+        case materials::Component::slide: {
             // This selected body keeps the same dimensions alone and fitted.
             // In a press its four feet meet the workbed side rails. The
             // integral shaft stays at the selected slide's own H layer.
@@ -131,15 +130,6 @@ Bounds component_bounds(const world::Profile& profile,
         case materials::Component::receiver_tray:
             return {{at[0], at[1] - height_step * 0.20, at[2]},
                 {pitch * 0.11, height_step * 0.36, pitch * 0.124}};
-        case materials::Component::wooden_shaft:
-        case materials::Component::copper_shaft:
-            return {at, {press_shaft_half, 0.12 * press_scale, press_shaft_half}};
-        case materials::Component::wooden_cog:
-        case materials::Component::copper_cog:
-            // Either horizontal press layout seats this hub against the
-            // neighboring shaft without moving either common-grid center.
-            return {at, {height_step - press_shaft_half, 0.14 * press_scale,
-                         height_step - press_shaft_half}};
         default:
             return {at, {0.14, 0.14, 0.14}};
     }

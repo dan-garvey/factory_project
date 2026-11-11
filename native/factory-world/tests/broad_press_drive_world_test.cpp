@@ -24,7 +24,7 @@ void one_slide_broad_load() {
     const std::vector<a::Part> placed{
         {"broad-bed", m::Component::broad_anvil, {0, 0, 0}, 1},
         {"broad-head", m::Component::broad_flat_head, {0, 1, 0}, 1},
-        {"slide", m::Component::broad_copper_slide, {0, 4, 0}, 1},
+        {"slide", m::Component::broad_slide, {0, 4, 0}, 1},
     };
     const a::Layout layout(placed);
     const auto inspected = layout.inspect_broad_sliding_press({0, 0, 0});
@@ -46,7 +46,7 @@ void one_slide_broad_load() {
         "The fitted crank rotates the central piston through its tile shaft.");
     check(power.load.contains("slide") && !power.load.at("slide").overloaded &&
           power.load.at("slide").impact == 12 && power.load.at("slide").capacity == 12,
-        "One broad copper slide carries the broad head at the crank's real capacity.");
+        "One broad slide carries the broad head at the crank's real capacity.");
     for (const auto& port : {g::Point{-2, 4, 0}, g::Point{6, 4, 0},
              g::Point{-2, 4, 4}, g::Point{6, 4, 4}}) {
         const auto driven = w::hand_crank_power(profile, state, "slide", port);

@@ -491,7 +491,7 @@ func check_slide_manager_cue() -> void:
 	view.state.first_plate_unlock = true
 	view.state.placed_components = {"anvil": {"component": "anvil", "center": [0, 0, 0]},
 		"head": {"component": "flat_head", "center": [0, 1, 0]},
-		"slide": {"component": "wooden_slide", "center": [0, 2, 0]}}
+		"slide": {"component": "slide", "center": [0, 2, 0]}}
 	view.state.sliding_press_assemblies[0].status = "blocked_feed"
 	shared.state = view.state.duplicate(true)
 	view._refresh_guided_tools()
