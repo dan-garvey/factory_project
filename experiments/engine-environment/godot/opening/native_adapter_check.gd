@@ -4608,6 +4608,9 @@ func _piston_run(capture_prefix: String) -> void:
 		var ore := _reachable_ore_column()
 		if not _expect(not ore.is_empty(), "Finite reachable copper funds the piston") or _construct({"action": "harvest_source", "target": ore}).is_empty():
 			return
+	# Harvesting can lower the approach edge. Hop back onto the known entry
+	# route instead of taking a diagonal through the newly cut slope.
+	if not await _walk_to(Vector2(0.0, 1.65), true, "P", OpeningGeometry.CAPSULE_RADIUS): return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	var kinds := ["segmented_piston", "piston_segment", "piston_segment", "piston_segment", "piston_segment", "hand_crank", "hand_crank"]
