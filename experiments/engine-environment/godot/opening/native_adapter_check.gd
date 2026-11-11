@@ -4855,12 +4855,17 @@ func _piston_horizontal_continue(prefix: String) -> void:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
 	if not _expect(opening.model.projection().placed_components[body].piston.blocked,
 			"Further feed reports the real obstruction after reverse recovery"): return
-	for frame in 8:
-		if frame % 4 == 0 and _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
+	# Make complete crank turns legible in sampled evidence. This is a declared
+	# slow-motion camera condition, not a change to native work or drive rates.
+	facts["spin_capture_time_scale"] = 0.25
+	Engine.time_scale = 0.25
+	for frame in 24:
+		if frame % 8 == 0 and _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
 		await process_frame
 		if not prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			if not _expect(view.get_texture().get_image().save_png(prefix + "-spin-%02d.png" % frame) == OK, "Capture real through-power with feed stopped"): return
+	Engine.time_scale = 1.0
 	view.queue_free()
 	var after: Dictionary = opening.model.projection()
 	if not _expect(after.placed_components[body].piston.position_ticks == 7168,
