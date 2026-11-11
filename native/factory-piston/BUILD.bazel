@@ -1,0 +1,18 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "piston",
+    srcs = ["src/piston.cpp"],
+    hdrs = ["include/factory/piston.hpp"],
+    strip_include_prefix = "include",
+    deps = ["//native/factory-mechanics:mechanics"],
+)
+
+cc_test(
+    name = "piston_test",
+    srcs = ["tests/piston_test.cpp"],
+    deps = [":piston"],
+    size = "small",
+)

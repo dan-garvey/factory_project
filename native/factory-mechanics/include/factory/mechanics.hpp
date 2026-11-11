@@ -132,6 +132,7 @@ enum class Error {
     duplicate_identity,
     invalid_drive,
     invalid_belt,
+    invalid_engagement,
     overlapping_gears,
     rate_overflow,
 };
@@ -156,5 +157,12 @@ struct Result {
 [[nodiscard]] Result evaluate(const std::vector<Part>&, const std::vector<Drive>&,
                               const std::vector<BeltSpan>& belts = {},
                               SourcePolicy sources = SourcePolicy::prescribed);
+
+// Native adapters discover contacts within each rigid frame, then join only
+// physically registered shaft passages. This does no contact discovery and is
+// not a client command. Both routes use the same exact ratio solver.
+[[nodiscard]] Result resolve_engagements(const std::vector<Part>&,
+    const std::vector<Drive>&, const std::vector<Engagement>&,
+    SourcePolicy sources = SourcePolicy::prescribed);
 
 }  // namespace factory::mechanics
