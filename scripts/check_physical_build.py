@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded Model/Store controls; synthetic actor samples are not character proof.
 
-Invoke through run_local.py heavy. Ordinary character/two-client validation is
+Invoke through native heavy admission. Ordinary character/two-client validation is
 separate and must use the same frozen authority and native producer.
 """
 import argparse

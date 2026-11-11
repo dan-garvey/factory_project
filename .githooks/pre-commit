@@ -5,9 +5,6 @@ factory_commit_executable_status=0
 factory_commit_digest_status=0
 factory_commit_executable=$(git config --local --get factory.commitGateExecutable) || factory_commit_executable_status=$?
 factory_commit_digest=$(git config --local --get factory.commitGateSHA256) || factory_commit_digest_status=$?
-if [[ "$factory_commit_executable_status" == 1 && "$factory_commit_digest_status" == 1 ]]; then
-    exec python3 -B "$root/scripts/check_commit.py"
-fi
 if [[ "$factory_commit_executable_status" != 0 || "$factory_commit_digest_status" != 0 ||
       "$factory_commit_executable" != /* || ! -f "$factory_commit_executable" || ! -x "$factory_commit_executable" ||
       ! "$factory_commit_digest" =~ ^[0-9a-f]{64}$ ]]; then

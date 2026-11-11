@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded native passenger probe; invoke through run_local.py heavy."""
+"""Bounded native passenger probe; invoke through native heavy admission."""
 import argparse
 from datetime import datetime, timezone
 import hashlib

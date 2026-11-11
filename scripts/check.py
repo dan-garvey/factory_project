@@ -106,7 +106,7 @@ def check_staged(godot=None, prototype_artifacts=None, prototype_render=False,
             raise ValueError(f"Do not commit private Beads runtime data, exports or configuration: {path}")
         files.append((mode, object_id, relative))
     if staged_gdscript_changes(tree) and not parse_gdscript:
-        raise ValueError("Staged GDScript requires python3 -B scripts/check_commit.py (one top-level heavy admission)")
+        raise ValueError("Staged GDScript requires the installed native commit coordinator (one top-level heavy admission)")
     with tempfile.TemporaryDirectory(prefix="factory-check-") as temporary:
         snapshot = Path(temporary) / "tree"
         snapshot.mkdir()
@@ -141,7 +141,7 @@ def main():
     parser.add_argument("--godot", type=Path, help="explicit installed engine: also require prototype checks")
     parser.add_argument("--prototype-artifacts", type=Path, help="external owned output/cache directory")
     parser.add_argument("--prototype-render", action="store_true", help="also require the actual 3D renderer")
-    parser.add_argument("--parse-gdscript", action="store_true", help="compiler-only path used by check_commit.py")
+    parser.add_argument("--parse-gdscript", action="store_true", help="compiler-only path used by the native coordinator")
     parser.add_argument("--godot-sha256", help="explicit local verified executable pin for compiler-only checks")
     parser.add_argument("--expected-tree", help="refuse an index changed while waiting for top-level admission")
     parser.add_argument("--source-tree", help="immutable staged origin passed only to the snapshot compiler")

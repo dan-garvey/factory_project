@@ -33,7 +33,8 @@ Source/runtime identity, actual outcomes and unresolved coverage belong in Beads
 The historical sandbox command remains available for changes to that fixture:
 
 ```bash
-python3 -B scripts/run_local.py heavy -- python3 -B scripts/check_engine_environment.py \
+FACTORY_LOCAL="$(git rev-parse --path-format=absolute --git-common-dir)/factory-local-resources/factory-local"
+"$FACTORY_LOCAL" --root "$PWD" heavy -- python3 -B scripts/check_engine_environment.py \
   --godot /absolute/verified/Godot_v4.7.2-stable_linux.x86_64 \
   --artifacts /absolute/owned/fresh-sandbox --render
 ```

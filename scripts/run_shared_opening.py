@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch bounded normal loopback play; invoke through run_local.py heavy."""
+"""Launch bounded normal loopback play; invoke through native heavy admission."""
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone

@@ -14,8 +14,7 @@ memory**. These are cooperative operating limits, not reserved capacity or game
 targets. Floor changes need a documented resource decision.
 
 The native tool is installed under the common Git directory; all worktrees
-share its retained lock files. Legacy Python wrappers retain exclusive heavy
-admission and can reduce concurrency. Never unlink live locks or nest wrappers.
+share its retained lock files. Never unlink live locks or nest wrappers.
 The installed commit hook acquires its own permit; do not wrap it or duplicate
 its full checks. [Hook configuration](native-builds.md#checks-and-local-hooks).
 

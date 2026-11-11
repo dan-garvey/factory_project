@@ -15,10 +15,9 @@ label, so the launcher guard scripts reach their native host consumers.
 Unreferenced scripts and ordinary prose do not select the native lane.
 
 [Configuration and limits](../../docs/engineering/native-builds.md#checks-and-local-hooks)
-are shared with the legacy coordinator. Optional repository-local
-`factory.commitGateExecutable` and `factory.commitGateSHA256` must both be valid;
-both absent preserve the existing coordinator. Invalid pins or native failure
-never fall back to another checker.
+require both repository-local `factory.commitGateExecutable` and
+`factory.commitGateSHA256`. Missing or invalid pins and native failure refuse
+the commit.
 
 The native coordinator prefers worktree-specific `factory.godotArtifacts`,
 then the common local setting. An empty value or read error refuses.

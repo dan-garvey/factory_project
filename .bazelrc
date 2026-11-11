@@ -1,4 +1,4 @@
-# Local native development. Admission is still owned by scripts/run_local.py.
+# Local native development. Use native resource admission for builds and checks.
 common --enable_bzlmod
 common --lockfile_mode=error
 common --incompatible_autoload_externally=

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded fixed-seed opening Model/Store probes; run through run_local.py heavy."""
+"""Bounded fixed-seed opening Model/Store probes; run through native heavy admission."""
 
 import argparse
 from datetime import datetime, timezone

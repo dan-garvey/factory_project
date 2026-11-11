@@ -4,7 +4,6 @@ import hashlib
 import importlib
 import io
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -17,7 +16,6 @@ from test_tooling import GitFixture
 
 with mock.patch.object(sys, "path", [str(Path(__file__).resolve().parents[1] / "scripts"), *sys.path]):
     checker = importlib.import_module("check")
-    coordinator = importlib.import_module("check_commit")
     compiler = importlib.import_module("check_gdscript")
 
 
@@ -31,64 +29,13 @@ class CommitGateTests(GitFixture):
         self.git("add", str(checker.GODOT_PROJECT))
         return script
 
-    def invoke(self):
-        with mock.patch.object(checker, "ROOT", self.repo), mock.patch.dict(os.environ, self.env, clear=True), \
-                mock.patch.object(sys, "argv", ["check_commit.py"]):
-            return coordinator.main()
-
-    def test_one_top_level_permit_selected_from_exact_staged_delta(self):
-        with mock.patch.object(coordinator.run_local, "run", return_value=0) as admission:
-            self.assertEqual(self.invoke(), 0)
-            self.assertEqual(admission.call_count, 1)
-            self.assertEqual(admission.call_args.args[1], "check")
-            self.assertNotIn("--parse-gdscript", admission.call_args.args[2])
-            self.assertIn(self.git("write-tree").stdout.strip(), admission.call_args.args[2])
-        self.game()
-        for key, value in (("factory.godotExecutable", "/explicit/engine"),
-                           ("factory.godotSHA256", "a" * 64),
-                           ("factory.godotArtifacts", str(self.base / "outputs"))):
-            self.git("config", "--local", key, value)
-        with mock.patch.object(coordinator.run_local, "run", return_value=37) as admission:
-            self.assertEqual(self.invoke(), 37)
-            self.assertEqual(admission.call_count, 1)
-            self.assertEqual(admission.call_args.args[1], "heavy")
-            command = admission.call_args.args[2]
-            self.assertIn("--parse-gdscript", command)
-            self.assertNotIn("run_local.py", " ".join(command))
-
-    def test_real_hook_non_game_commit_needs_no_engine_and_one_check_permit(self):
-        self.git("config", "--unset", "core.hooksPath")
-        self.run_command("bash", "scripts/install-hooks.sh")
-        (self.repo / "README.md").write_text("ordinary documentation\n")
-        self.git("add", "README.md")
-        result = self.git("commit", "-m", "Engine-free source commit")
-        self.assertEqual(result.stdout.count("local resources: admitted check"), 1)
-        self.assertNotIn("admitted heavy", result.stdout)
-
-    def test_missing_local_runtime_blocks_game_hook_without_engine_or_commit(self):
-        self.game()
-        self.git("config", "--unset", "core.hooksPath")
-        self.run_command("bash", "scripts/install-hooks.sh")
-        before = self.git("rev-parse", "HEAD").stdout
-        result = self.git("commit", "-m", "Must refuse missing runtime", success=False)
-        self.assertIn("repository-local factory.godotExecutable", result.stdout)
-        self.assertEqual(self.git("rev-parse", "HEAD").stdout, before)
-        self.assertNotIn("admitted heavy", result.stdout)
-
     def test_cheap_staged_path_refuses_game_without_nested_admission(self):
         self.game()
         result = self.run_command(sys.executable, "-B", "scripts/check.py", "--staged", success=False)
-        self.assertIn("scripts/check_commit.py", result.stdout)
+        self.assertIn("installed native commit coordinator", result.stdout)
         self.assertNotIn("local resources: admitted", result.stdout)
 
-    def test_global_runtime_settings_and_unsupported_script_roots_do_not_bypass(self):
-        self.game()
-        global_config = self.base / "global-config"
-        global_config.write_text("[factory]\n godotExecutable=/global/engine\n godotSHA256=" + "a" * 64 + "\n godotArtifacts=/global/artifacts\n")
-        self.env["GIT_CONFIG_GLOBAL"] = str(global_config)
-        with contextlib.redirect_stderr(io.StringIO()), mock.patch.object(coordinator.run_local, "run") as admission:
-            self.assertEqual(self.invoke(), 1)
-            admission.assert_not_called()
+    def test_unsupported_script_roots_do_not_bypass(self):
         (self.repo / "outside.gd").write_text("unsupported root\n")
         self.git("add", "outside.gd")
         result = self.run_command(sys.executable, "-B", "scripts/check.py", "--staged", success=False)

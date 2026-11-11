@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded fresh-process continuation test using the shared checkpoint methods.
 
-Use scripts/run_local.py heavy. No download, model edits or live user save access.
+Use native heavy admission. No download, model edits or live user save access.
 """
 
 import argparse

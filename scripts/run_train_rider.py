@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded coupled-carriage passenger probe; invoke through run_local.py heavy."""
+"""Bounded coupled-carriage passenger probe; invoke through native heavy admission."""
 import math
 from pathlib import Path
 

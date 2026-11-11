@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded native-physics mechanics fixture; invoke through run_local.py heavy."""
+"""Bounded native-physics mechanics fixture; invoke through native heavy admission."""
 
 import argparse
 from datetime import datetime, timezone

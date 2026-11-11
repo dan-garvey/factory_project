@@ -55,9 +55,21 @@ void fixtures(const fs::path& root, const fs::path& hook, const fs::path& self) 
               "Invalid native configuration refuses without falling back to the legacy checker.");
         check(!fs::exists(root / "native-observed"), "A rejected configuration starts no native checker.");
     };
-    const auto legacy = invoke();
-    check(legacy.exit_code == 2 && legacy.output.find("scripts/check_commit.py") != std::string::npos,
-          "Two absent local pins select the unchanged legacy command, whose fixture file is intentionally missing.");
+    fs::create_directory(root / "scripts");
+    write(root / "scripts/check_commit.py", "");  // An obsolete successful file must not become a fallback.
+    native_refusal();
+    const auto global = root / "global config";
+    write(global, "[factory]\ncommitGateExecutable = " + executable.string() +
+                  "\ncommitGateSHA256 = " + digest + "\n");
+    const auto* previous_global = ::getenv("GIT_CONFIG_GLOBAL");
+    const bool had_global = previous_global != nullptr;
+    const std::string saved_global = previous_global ? previous_global : "";
+    check(::setenv("GIT_CONFIG_GLOBAL", global.c_str(), 1) == 0,
+          "Only the fixture's global configuration is selected.");
+    native_refusal();
+    check((had_global ? ::setenv("GIT_CONFIG_GLOBAL", saved_global.c_str(), 1) :
+                       ::unsetenv("GIT_CONFIG_GLOBAL")) == 0,
+          "Global configuration is restored after testing repository-local pins.");
     setting("factory.commitGateExecutable", executable.string()); native_refusal(); clear();
     setting("factory.commitGateSHA256", digest); native_refusal(); clear();
     for (const auto& malformed : {std::string{}, std::string(63, 'a'), std::string(64, 'A'), std::string(64, '0')}) {
@@ -82,6 +94,26 @@ void fixtures(const fs::path& root, const fs::path& hook, const fs::path& self) 
     check(observed == root.string() + '\n' + index.string(), "Quoted root argv and temporary-index environment reach the native entrypoint intact.");
     write(root / "fixture-exit", "127");
     check(invoke().exit_code == 127, "A native child exit 127 is not interpreted as permission to use the legacy path.");
+    fs::create_directory(root / ".githooks");
+    fs::copy_file(hook, root / ".githooks/pre-commit");
+    fs::permissions(root / ".githooks/pre-commit", fs::perms::owner_all);
+    setting("core.hooksPath", ".githooks");
+    setting("user.name", "Native hook fixture");
+    setting("user.email", "fixture@example.invalid");
+    write(root / "README.md", "Seed candidate\n");
+    git({"add", "README.md"});
+    write(root / "fixture-exit", "0");
+    git({"commit", "-qm", "Accepted native check"});
+    const auto head = command({"/usr/bin/git", "rev-parse", "HEAD"}).output;
+    write(root / "README.md", "Rejected candidate\n");
+    git({"add", "README.md"});
+    write(root / "fixture-exit", "37");
+    check(command({"/usr/bin/git", "commit", "-qm", "Rejected native check"}).exit_code != 0,
+          "The installed hook blocks a real commit when the native checker fails.");
+    check(command({"/usr/bin/git", "rev-parse", "HEAD"}).output == head,
+          "A failed native check leaves the committed revision unchanged.");
+    check(command({"/usr/bin/git", "diff", "--cached", "--name-only"}).output == "README.md\n",
+          "The rejected candidate remains staged for correction.");
     fs::remove(root / "native-observed");
     write(executable, "mutated after its pin"); native_refusal();
 }

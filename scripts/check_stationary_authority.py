@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run a bounded real-server/two-client probe against an exact shared model commit.
 
-Invoke through scripts/run_local.py heavy. No downloads, editor install, model
+Invoke through native heavy admission. No downloads, editor install, model
 copy in source, or changes to another checkout. Artifacts are retained on failure.
 """
 
