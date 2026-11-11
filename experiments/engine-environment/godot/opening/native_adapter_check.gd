@@ -4883,6 +4883,9 @@ func _piston_horizontal_continue(prefix: String) -> void:
 	_record("pass")
 
 func _piston_rendered_rotors_match(body: String) -> bool:
+	if DisplayServer.get_name() == "headless":
+		facts["rendered_rotor_geometry"] = "not_assessed_headless"
+		return true
 	var presenter: Node3D = opening.transmission_presenter
 	var parts: Dictionary = opening.model.projection().placed_components
 	for id: String in parts:
@@ -4899,6 +4902,7 @@ func _piston_rendered_rotors_match(body: String) -> bool:
 		for child: Node in rotor.get_children():
 			if child is MultiMeshInstance3D and child.visible:
 				if not _expect(rotor.basis.is_equal_approx(expected), "Unbatched teeth and spokes also follow the carried rotor: " + id): return false
+	facts["rendered_rotor_geometry"] = "checked_graphical"
 	return true
 
 func _piston_rock_contact(state: Dictionary, body: String) -> bool:
