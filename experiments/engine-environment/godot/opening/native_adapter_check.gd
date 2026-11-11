@@ -4717,8 +4717,9 @@ func _piston_restore_source() -> bool:
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--piston-source-result="): input = argument.trim_prefix("--piston-source-result=")
 	var prior: Variant = bytes_to_var(FileAccess.get_file_as_bytes(input))
-	if not _expect(prior is Dictionary and prior.get("mode") == "arrival-piston" and prior.has("final_checkpoint"),
+	if not _expect(prior is Dictionary and prior.get("mode") in ["arrival-piston", "arrival-piston-horizontal"] and prior.has("final_checkpoint"),
 			"Continuation starts from a retained real excavation scene checkpoint"): return false
+	facts["source_mode"] = prior.mode
 	facts["source_run_status"] = prior.get("status")
 	facts["source_run_reason"] = prior.get("reason")
 	var saved: Dictionary = prior.final_checkpoint
@@ -4731,6 +4732,9 @@ func _piston_continue(capture_prefix: String) -> void:
 	deadline = Time.get_ticks_msec() + 180000
 	opening._refresh()
 	await physics_frame
+	if facts.get("source_mode") == "arrival-piston-horizontal":
+		await _piston_horizontal_continue(capture_prefix)
+		return
 	if not await _approach(Vector2(6.6, -3)): return
 	var parts: Dictionary = opening.model.projection().placed_components
 	var body := ""
@@ -4799,9 +4803,100 @@ func _piston_continue(capture_prefix: String) -> void:
 	facts["evidence"] = "fresh_scene_piston_checkpoint_continuation_and_section_reclaim"
 	_record("pass")
 
+func _piston_horizontal_continue(prefix: String) -> void:
+	var state: Dictionary = opening.model.projection()
+	var body := ""
+	var feed := ""
+	var tool := ""
+	for id: String in state.placed_components:
+		if state.placed_components[id].component == "segmented_piston": body = id
+	if not _expect(not body.is_empty() and state.placed_components[body].piston.position_ticks == 7168
+			and state.placed_components[body].piston.blocked,
+			"The saved carriage retains its real rock obstruction at 1.75 units"): return
+	if not _piston_rock_contact(state, body): return
+	for id: String in state.crank_items:
+		if state.crank_items[id].attached_to == body: feed = id
+		else: tool = id
+	if not _expect(not feed.is_empty() and not tool.is_empty(), "Both independent saved power routes are retained"): return
+	var target := Vector3(10.5, 1.4, 7.425)
+	var offset := Vector3(-2.0, 3.0, -5.0)
+	if not prefix.is_empty() and DisplayServer.get_name() != "headless":
+		if not _expect(await _surface_drill_view(prefix + "-horizontal-front.png", target, false, offset), "Capture the complete saved carriage from the front"): return
+		if not _expect(await _surface_drill_view(prefix + "-horizontal-back.png", target, false, Vector3(4.0, 3.2, 4.5)), "Capture the opposite face and its gearbox connection"): return
+	var view := SubViewport.new()
+	view.size = Vector2i(1280, 800)
+	view.world_3d = root.world_3d
+	view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(view)
+	var camera := Camera3D.new()
+	view.add_child(camera)
+	camera.fov = 50.0
+	camera.position = target + offset
+	camera.look_at(target)
+	camera.make_current()
+	for frame in 4: await process_frame
+	var frame_index := 0
+	for direction in [-1, 1]:
+		if _construct({"action": "detach_hand_crank", "entity": feed}).is_empty(): return
+		if _construct({"action": "attach_hand_crank", "entity": body, "crank": feed,
+			"port": [48, 4, 36 - direction * 2], "face": [0, 0, -direction]}).is_empty(): return
+		for pulse in 16:
+			if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
+			if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
+			for frame in 2:
+				await process_frame
+				if not prefix.is_empty() and DisplayServer.get_name() != "headless":
+					await RenderingServer.frame_post_draw
+					if not _expect(view.get_texture().get_image().save_png(prefix + "-motion-%03d.png" % frame_index) == OK, "Capture intermediate real carriage and rotor motion"): return
+				frame_index += 1
+		if not _expect(opening.model.projection().placed_components[body].piston.position_ticks == (3072 if direction < 0 else 7168), "Opposite feed faces reverse and restore the saved carriage position"): return
+	# Further feed is refused by the same actual rock; tool power still turns.
+	for pulse in 4:
+		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
+	if not _expect(opening.model.projection().placed_components[body].piston.blocked,
+			"Further feed reports the real obstruction after reverse recovery"): return
+	for frame in 8:
+		if frame % 4 == 0 and _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
+		await process_frame
+		if not prefix.is_empty() and DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			if not _expect(view.get_texture().get_image().save_png(prefix + "-spin-%02d.png" % frame) == OK, "Capture real through-power with feed stopped"): return
+	view.queue_free()
+	var after: Dictionary = opening.model.projection()
+	if not _expect(after.placed_components[body].piston.position_ticks == 7168,
+			"Stopped feed preserves carriage position: " + str(after.placed_components[body].piston)): return
+	if not _expect(after.stock == state.stock, "Rotary reuse preserves material: " + str([state.stock, after.stock])): return
+	var validation: Dictionary = opening.model.validate_checkpoint(opening.model.checkpoint())
+	if not _expect(validation.accepted, "Horizontal recovery remains saveable: " + str(validation)): return
+	for id: String in after.placed_components:
+		var part: Dictionary = after.placed_components[id]
+		if part.parent == body and part.component in ["copper_shaft", "copper_cog"]:
+			if not _expect(absf(opening.transmission_presenter.visual_rotation(id)) > 0.001,
+					"The saved ordinary carried part visibly rotates from its restored native power route: " + id): return
+	facts["evidence"] = "saved_horizontal_piston_real_intermediate_motion"
+	_record("pass")
+
+func _piston_rock_contact(state: Dictionary, body: String) -> bool:
+	var surface = load("res://opening/site_surface.gd")
+	for rock: Dictionary in surface.support_boxes():
+		if rock.id != "rock_3": continue
+		var bounds: AABB = Transform3D(rock.basis, rock.center) * AABB(-rock.size * 0.5, rock.size)
+		for part: Dictionary in state.placed_components.values():
+			if part.parent != body or part.component != "copper_cog": continue
+			var solid: Dictionary = part.collision[0]
+			var center := Vector3(solid.center[0], solid.center[1], solid.center[2])
+			var half := Vector3(solid.half[0], solid.half[1], solid.half[2])
+			var current := AABB(center - half, half * 2.0)
+			var next := AABB(current.position + Vector3.RIGHT * OpeningGeometry.HEIGHT_STEP / 16.0, current.size)
+			facts["horizontal_blocker"] = {"id": rock.id, "bounds": bounds, "cog": current}
+			return _expect(not current.intersects(bounds) and next.intersects(bounds),
+				"The next native 1/16-H sweep reaches the actual rock bounds; present cog remains clear")
+	return _expect(false, "The horizontal worksite retains its named rock and carried cog")
+
 func _piston_view(prefix: String, suffix: String, target: Vector3, low := false) -> bool:
 	opening._refresh()
 	await physics_frame
+	await process_frame
 	if prefix.is_empty() or DisplayServer.get_name() == "headless": return true
 	var offset := Vector3(3.0, 1.6, -1.4) if low else Vector3(5.5, 2.5, -3.4)
 	if not low and mode != "arrival-piston-horizontal": target += Vector3.UP * 0.65
@@ -4847,13 +4942,15 @@ func _horizontal_piston_run(capture_prefix: String) -> void:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
 		if not await _piston_view(capture_prefix, "travel-%02d" % pulse, target): return
 	var progress: Dictionary = opening.model.projection().placed_components[body.entity].piston
-	if not _expect(progress.position_ticks == 8192, "The same four-segment piston carries an ordinary shaft and cog two units"): return
+	if not _expect(progress.position_ticks == 7168 and progress.blocked,
+			"The actual site rock stops the ordinary carried cog at 1.75 units"): return
+	if not _piston_rock_contact(opening.model.projection(), body.entity): return
 	for pulse in 4:
 		if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
 		if not await _piston_view(capture_prefix, "stopped-feed-%02d" % pulse, target): return
-	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 8192, "Through power continues while feed is stopped"): return
+	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 7168, "Through power continues while feed is stopped"): return
 	if not _expect(opening.model.validate_checkpoint(opening.model.checkpoint()).accepted, "Horizontal travel, parts and power save together"): return
-	facts["travel_ticks"] = 8192
+	facts["travel_ticks"] = 7168
 	_record("pass")
 
 func _surface_drill_run(capture_prefix: String) -> void:
