@@ -4401,6 +4401,7 @@ func _arrival_run() -> void:
 		opening.model = NativeModel.new("opening-native", ["P"], true, true)
 	opening.auto_advance = mode == "arrival-reveal"
 	opening.arrival_reveal_probe = mode == "arrival-reveal-skip"
+	if mode == "arrival-piston-continue" and not _piston_restore_source(): return
 
 	root.add_child(opening)
 	if not _expect(opening.model is NativeModel and opening.model.projection().has("fabrication_hub"),
@@ -4708,22 +4709,26 @@ func _piston_run(capture_prefix: String) -> void:
 	if not await _piston_view(capture_prefix, "retracted-picked-up", target - Vector3.UP * 1.45, true): return
 	_record("pass")
 
-func _piston_continue(capture_prefix: String) -> void:
-	deadline = Time.get_ticks_msec() + 180000
+func _piston_restore_source() -> bool:
 	var input := ""
 	for argument: String in OS.get_cmdline_user_args():
 		if argument.begins_with("--piston-source-result="): input = argument.trim_prefix("--piston-source-result=")
 	var prior: Variant = bytes_to_var(FileAccess.get_file_as_bytes(input))
 	if not _expect(prior is Dictionary and prior.get("mode") == "arrival-piston" and prior.has("final_checkpoint"),
-			"Continuation starts from a retained real excavation scene checkpoint"): return
+			"Continuation starts from a retained real excavation scene checkpoint"): return false
 	facts["source_run_status"] = prior.get("status")
 	facts["source_run_reason"] = prior.get("reason")
 	var saved: Dictionary = prior.final_checkpoint
-	if not _expect(opening.model.restore_checkpoint(saved).accepted and _same(saved, opening.model.checkpoint()),
-			"A fresh scene restores the exact piston, loose-copper custody and native history"): return
+	var restored: Dictionary = opening.model.restore_checkpoint(saved)
+	facts["restore_result"] = restored
+	return _expect(restored.accepted and _same(saved, opening.model.checkpoint()),
+		"A fresh scene restores the exact piston, loose-copper custody and native history: " + str(restored))
+
+func _piston_continue(capture_prefix: String) -> void:
+	deadline = Time.get_ticks_msec() + 180000
 	opening._refresh()
 	await physics_frame
-	if not await _approach_points([Vector2(3.3, 4.95), Vector2(4.95, 2.2), Vector2(6.6, 0), Vector2(6.6, -3)]): return
+	if not await _approach(Vector2(6.6, -3)): return
 	var parts: Dictionary = opening.model.projection().placed_components
 	var body := ""
 	for id: String in parts:
@@ -4764,6 +4769,18 @@ func _piston_continue(capture_prefix: String) -> void:
 			and opening.model.projection().dropped_material.is_empty(),
 			"The closer ordinary world interaction recovers all copper without increasing reach or bypassing occlusion"): return
 	if not await _piston_view(capture_prefix, "retracted-picked-up", target - Vector3.UP * 1.45, true): return
+	# Back out through the same opening before walking around the support.
+	var actor: Vector3 = opening.actor_world.bodies.P.global_position
+	var offset := Vector2(actor.x - target.x, actor.z - target.z)
+	var side := Vector2(signf(offset.x), 0) if absf(offset.x) > absf(offset.y) else Vector2(0, signf(offset.y))
+	var ring: Array[Vector2] = [Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), Vector2(-1, 0)]
+	var cursor := ring.find(side)
+	var cut_center := Vector2(target.x, target.z)
+	if not await _approach(cut_center + side * 1.7): return
+	while ring[cursor] != Vector2(1, 0):
+		var next: Vector2 = ring[(cursor + 1) % 4]
+		if not await _approach_points([cut_center + (ring[cursor] + next) * 1.7, cut_center + next * 1.7]): return
+		cursor = (cursor + 1) % 4
 	if not await _approach(Vector2(6.3, -4.95)): return
 	var sections: Array[String] = []
 	for id: String in parts:
@@ -4990,7 +5007,7 @@ func _surface_pickup_pile(pile: Dictionary, center: Vector2, capture_prefix: Str
 			if not await _approach_points([center + (ring[cursor] + next) * 1.7, center + next * 1.7]):
 				return false
 			cursor = (cursor + 1) % 4
-		var approached: bool = await _walk_to(center + side * approach_distance) if approach_distance < 1.2 else await _approach(center + side * approach_distance)
+		var approached: bool = await _walk_to(center + side * approach_distance, false, "P", 0.12) if approach_distance < 1.2 else await _approach(center + side * approach_distance)
 		if not approached:
 			return false
 		var picker_nodes: Array = opening.transmission_presenter._drop_pickers_by_center.get(pile.center, []).duplicate()
