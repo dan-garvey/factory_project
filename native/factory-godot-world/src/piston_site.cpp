@@ -81,6 +81,13 @@ const char* piston_placement_refusal(const Site& site, const world::State& state
             world::piston_assembly::displacement(state,part.parent),site.profile.meters_per_grid_unit);
         if (earth(site,head)!=piston::Clearance::clear) return "site_occupied";
     }
+    return piston_support_refusal(site,state,entity);
+}
+
+const char* piston_support_refusal(const Site& site, const world::State& state,
+        const std::string& entity) {
+    const auto& part=state.placed_components.at(entity);
+    const auto solids=component_geometry::placed_solids(site.profile,state,entity,part);
     if (part.kind==C::segmented_piston) {
         bool supported=false;
         // Same centered guide connection as the approved reusable drill mount.

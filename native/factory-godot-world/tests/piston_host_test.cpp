@@ -125,6 +125,24 @@ void horizontal_reuse() {
     f.accepted("reclaim_component",{{"entity",V(cog)}});
     f.accepted("reclaim_component",{{"entity",V(shaft)}});
 }
+void raised_support() {
+    Fixture f; f.stock(); f.move(9.9,1,5.7);
+    const auto foundation=get<std::string>(f.accepted("place_foundation",{{"cell",V(A{V(I{4}),V(I{3})})},
+        {"level",V(I{4})}}),"entity");
+    I orientation=-1;
+    for (I n=0;n<24;++n) {
+        const auto basis=*factory::piston::basis(n);
+        if (basis[0]==factory::mechanics::Point{0,0,-1} && basis[1]==factory::mechanics::Point{-1,0,0}) orientation=n;
+    }
+    const auto body=get<std::string>(f.accepted("place_component",{{"component",V("segmented_piston")},
+        {"center",V(A{V(I{48}),V(I{4}),V(I{36})})},{"orientation",V(orientation)}}),"entity");
+    const auto refused=f.command("remove",{{"entity",V(foundation)}});
+    check(!get<bool>(refused,"accepted") && get<std::string>(refused,"reason")=="support_required",
+        "The piston retains the foundation that carries its housing.");
+    f.saveable("Refused removal retains the complete supported piston");
+    f.accepted("reclaim_component",{{"entity",V(body)}});
+    f.accepted("remove",{{"entity",V(foundation)}});
+}
 }
 int main() {
     try {
@@ -182,6 +200,7 @@ int main() {
         check(get<bool>(f.host.validate_checkpoint(f.host.checkpoint()),"accepted"),"Retracted assembly and reclaimed segment remain saveable.");
         (void)head;
         horizontal_reuse();
+        raised_support();
         std::cout<<"PISTON-HOST-PASS "<<checks<<" checks\n";
     } catch (const std::exception& e) { std::cerr<<"After "<<checks<<": "<<e.what()<<'\n'; return 1; }
 }

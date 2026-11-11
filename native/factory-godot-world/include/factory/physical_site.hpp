@@ -41,6 +41,8 @@ struct Site {
 
 [[nodiscard]] const char* piston_placement_refusal(const Site&, const world::State& proposed,
     const std::string& entity, const std::vector<authority::Point>& actors);
+[[nodiscard]] const char* piston_support_refusal(const Site&, const world::State&,
+    const std::string& entity);
 [[nodiscard]] piston::Clearance piston_sweep(const Site&, const world::State&,
     const std::string&, const piston::Progress&, const piston::Progress&, const piston::Bounds&,
     const std::vector<authority::Point>& actors, const std::vector<arrival_geometry::Bounds>& supports);

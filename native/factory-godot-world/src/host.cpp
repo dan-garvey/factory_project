@@ -351,11 +351,15 @@ std::map<std::string, Host::TransmissionSupport> Host::transmission_supports(
 }
 
 const char* Host::support_change_refusal(const world::State& before, const world::State& after) const {
-    return physical_support::change_refusal(physical_site::support_site({profile_, terrain_}),
+    if (const auto* refusal=physical_support::change_refusal(physical_site::support_site({profile_, terrain_}),
         before, after, owned_->support_routes,
         [this](const authority::Point& center, const authority::Point& half) {
             return placement_blocked(center, half);
-        });
+        })) return refusal;
+    for (const auto& [id,part] : after.placed_components)
+        if (part.kind==materials::Component::segmented_piston)
+            if (const auto* refusal=physical_site::piston_support_refusal({profile_,terrain_},after,id)) return refusal;
+    return nullptr;
 }
 
 const char* Host::transmission_site_refusal(const world::State& state, const mechanics::Point& center,
@@ -770,6 +774,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             std::vector<authority::Point> actors;
             for (const auto& [id,actor] : owned_->actors) { (void)id; if (actor.ready) actors.push_back(actor.position); }
             if (const auto* refusal=physical_site::piston_placement_refusal({profile_,terrain_},proposed,proposed_id,actors)) return refuse(refusal);
+            if (const auto* refusal=support_change_refusal(snapshot.state,proposed)) return refuse(refusal);
         } else {
             const auto volume = component_bounds(profile_, kind, center);
             if (const auto* refusal = component_site_refusal(snapshot.state, kind, center)) return refuse(refusal);
