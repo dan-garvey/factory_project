@@ -1406,9 +1406,15 @@ func _carried_rotor(anchor: Node3D, kind: String) -> void:
 	anchor.add_child(rotor)
 	rotor.basis = Basis(Vector3.BACK, Vector3.RIGHT, Vector3.UP)
 	var color := Color("b48b58") if kind.begins_with("wooden") else Color("a6b4af")
-	Assets.shaft(rotor, 4 * UNIT, color)
 	if kind.ends_with("cog"):
-		Assets.gear(rotor, 2 * UNIT, 2, color)
+		# Teeth and spokes are nested MultiMeshes in the assembly helper. Use
+		# the existing complete mesh so the carried batch rotates all of them.
+		var cog := MeshInstance3D.new()
+		cog.name = "CarriedCog"
+		cog.mesh = Assets.complete_gear_mesh(2 * UNIT, 2, color, 4 * UNIT)
+		rotor.add_child(cog)
+	else:
+		Assets.shaft(rotor, 4 * UNIT, color)
 	if not anchor.has_meta("component_entity"):
 		return
 	rotor.set_meta("entity", anchor.get_meta("component_entity"))

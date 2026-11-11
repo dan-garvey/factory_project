@@ -4862,6 +4862,7 @@ func _piston_horizontal_continue(prefix: String) -> void:
 	for frame in 24:
 		if frame % 8 == 0 and _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
 		await process_frame
+		if frame in [1, 10] and not _piston_rendered_rotors_match(body): return
 		if not prefix.is_empty() and DisplayServer.get_name() != "headless":
 			await RenderingServer.frame_post_draw
 			if not _expect(view.get_texture().get_image().save_png(prefix + "-spin-%02d.png" % frame) == OK, "Capture real through-power with feed stopped"): return
@@ -4880,6 +4881,25 @@ func _piston_horizontal_continue(prefix: String) -> void:
 					"The saved ordinary carried part visibly rotates from its restored native power route: " + id): return
 	facts["evidence"] = "saved_horizontal_piston_real_intermediate_motion"
 	_record("pass")
+
+func _piston_rendered_rotors_match(body: String) -> bool:
+	var presenter: Node3D = opening.transmission_presenter
+	var parts: Dictionary = opening.model.projection().placed_components
+	for id: String in parts:
+		if parts[id].parent != body or parts[id].component not in ["copper_shaft", "copper_cog"]: continue
+		var anchor: Node3D = presenter._component_anchors[id]
+		var rotor: Node3D = anchor.get_node("CarriedRotor")
+		var expected: Basis = rotor.get_meta("component_rotor_base") * Basis(Vector3.UP,
+			presenter.visual_angle(id) * float(rotor.get_meta("component_axis_sign")))
+		var actual := rotor.basis
+		if rotor.has_meta("batch_multimesh"):
+			var batch: MultiMesh = rotor.get_meta("batch_multimesh")
+			actual = (anchor.transform.affine_inverse() * batch.get_instance_transform(int(rotor.get_meta("batch_index")))).basis
+		if not _expect(actual.is_equal_approx(expected), "Rendered carried geometry follows its confirmed rotary phase: " + id): return false
+		for child: Node in rotor.get_children():
+			if child is MultiMeshInstance3D and child.visible:
+				if not _expect(rotor.basis.is_equal_approx(expected), "Unbatched teeth and spokes also follow the carried rotor: " + id): return false
+	return true
 
 func _piston_rock_contact(state: Dictionary, body: String) -> bool:
 	var surface = load("res://opening/site_surface.gd")
