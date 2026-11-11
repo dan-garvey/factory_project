@@ -49,7 +49,7 @@ gantries, moving factories and trains remain intended-game requirements.
   There is no opening shipment destination. Manual ore acquisition and a
   hand-tended press are viable before collector or belt automation.
 - The experimental first-plate opening starts with an empty hotbar. Only an
-  anvil, flat head, wooden slide and timber hand crank are craftable before
+  anvil, flat head, slide and hand crank are craftable before
   the actor carries a plate; the slide's integral shaft accepts a placed
   crank. Carrying that plate unlocks the other construction recipes for that actor. The
   advanced catalog includes external shafts and cogs, waterwheels, belts,
@@ -78,6 +78,9 @@ gantries, moving factories and trains remain intended-game requirements.
   including its centered head and attached power source; other buildings cannot
   share that footprint. Its legs extend visibly beyond the head but need not
   fill the entire reserved area. Ore under the support remains stocked.
+- The starter support holds one 1U drill head. Brackets cannot combine into a
+  2U by 2U or larger stationary drill; broader drilling requires a player-built
+  contraption. This restriction does not change broad press/workbed assembly.
 - The drill's rotary input is vertical, above and coaxial with its cutting axis.
   The starter uses a vertical gearbox to connect a horizontal hand crank to it.
   Its structural attachment is centered around that axis, separate from power;
@@ -97,8 +100,16 @@ gantries, moving factories and trains remain intended-game requirements.
 - Real rotary work cuts only contacted ore, forms a local divot and leaves
   conserved, recoverable loose copper on its floor. No receiver is required for
   this first loop. A fixed head stops when the floor leaves tooth reach; another
-  bite needs repositioning. Yield and work per cut remain provisional. More
-  elaborate moving rigs and haulage build on this loop without replacing the head.
+  bite needs repositioning. The current starter divot yields 16 raw copper;
+  this is accepted working tuning, not a universal yield for every deposit or
+  depth. Work per cut remains provisional. More elaborate moving rigs and
+  haulage build on this loop without replacing the head.
+- Extend drill reach with a reusable piston and placeable extension segments
+  on the common grid. Segment count sets available travel. For now, additional
+  segments do not change drive load, force capacity, speed or efficiency;
+  ordinary travel limits and collision still apply. Rotary power transmission
+  to the moving tool is the intended direction; its port arrangement remains
+  to be resolved before implementation.
 - Demonstrate at least two meaningfully different arrangements for each machine.
   After the first product, offer a compactness, continuity or spatial challenge
   with several valid solutions. Suggested builds are examples, not hidden
@@ -111,12 +122,12 @@ gantries, moving factories and trains remain intended-game requirements.
 
 - A **powered slide** contains its rotary input shaft, internal rotary-to-linear
   mechanism, rails and carriage. It defines motion direction, stroke, swept
-  clearance and force capacity. Its recipe includes one same-material shaft.
+  clearance and force capacity. Its recipe includes its integral input shaft.
   Do not require separately installing local bearings, cams or that input shaft.
   Other rotary-driven tool components follow the same embodied-shaft cost rule;
   reclaim must not create an extra shaft.
 - An **interchangeable working head** defines contact shape, working area and
-  material. The flat pressing face and cutting edge are the first required uses
+  operation. The flat pressing face and cutting edge are the first required uses
   of the same slide. Larger/stronger heads still obey its load and clearance.
 - An **anvil/workbed** is passive support for forming and cutting, with no rotary
   input or compulsory machine recipe. Early slides and heads may float above
@@ -176,12 +187,12 @@ variants from geometry and quantity. “Copper” is provisional workable
 stock, not a claim that ordinary copper ore can be cold-formed. Add preparation
 if the selected deposit yields ore rather than workable metal.
 
-Wooden shafts/cogs are cheap and useful at low loads; metal supports greater
-stress at greater material/process cost. The initial comparison should allow a
-hand-cranked wooden route, stall a combined powered route at a wooden bottleneck,
-and run that route with an equivalent metal part. Exact ratings are tuning.
-Gearing, splitting branches and lower loads remain alternatives to upgrading.
-Later alloys and heads require new processes, not merely recolored tiers.
+Components do not have parallel material variants with different specifications.
+Wood and metals remain crafting resources, but material substitutions do not
+create stronger tiers of the same shaft, cog, slide or working head. Progression
+comes from new functions, processes, geometry and arrangements. Component
+capabilities, gearing and power routing still matter; material-tier upgrades
+are not a solution to a drive bottleneck.
 
 ## Construction, motion and recovery
 
