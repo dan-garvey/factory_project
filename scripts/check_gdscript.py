@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parse every script in an immutable staged prototype, under top-level heavy admission.
 
-The local pinned runtime is supplied explicitly by check_commit.py. No setup,
+The local pinned runtime is supplied explicitly by the native coordinator. No setup,
 game simulation or renderer is run. Owned diagnostics survive a parse refusal.
 """
 
@@ -49,7 +49,7 @@ def main():
     if not re.fullmatch(r"[0-9a-f]{64}", args.sha256) or sha256(binary) != args.sha256:
         parser.error("Installed Godot does not match the explicit verified SHA256 pin")
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", args.source_tree):
-        parser.error("Use the immutable staged tree origin supplied by check_commit.py")
+        parser.error("Use the immutable staged tree origin supplied by the native coordinator")
     if not artifacts.is_absolute() or artifacts.resolve() != artifacts or artifacts.is_relative_to(ROOT):
         parser.error("Use an external absolute artifact root without symlinks")
     artifacts.mkdir(mode=0o700, parents=True, exist_ok=True)

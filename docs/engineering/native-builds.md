@@ -137,7 +137,7 @@ check reverse dependencies before narrowing another target.
 
 Run `./scripts/install-hooks.sh` once. The hook validates the exact staged
 tree, rejects private tracker paths, checks source/compiler results and fails
-if the index changes. Do not wrap `git commit` or either coordinator in another
+if the index changes. Do not wrap `git commit` or the native coordinator in another
 admission command, auto-stage fixes, or bypass a failure. Run relevant consumer
 checks; do not duplicate the hook's suite for unchanged inputs.
 
@@ -145,10 +145,9 @@ The same hooks path enables `commit-msg`, which rejects empty or whitespace-only
 messages, including with `--allow-empty-message`. It checks the final message
 after the editor without rewriting it; literal comment characters remain valid.
 
-Optional repository-local `factory.commitGateExecutable` and
-`factory.commitGateSHA256` select a retained verified native coordinator.
-Both absent retain the existing Python coordinator; partial/invalid settings,
-changed hashes or native failure refuse without fallback.
+Repository-local `factory.commitGateExecutable` and `factory.commitGateSHA256`
+must select a retained verified native coordinator. Missing or invalid pins,
+changed hashes and native failure refuse the commit.
 
 For native staged changes, configure the pinned offline Bazel executable and
 an owned external mode-0700 artifact/cache family before installing the new
@@ -158,6 +157,8 @@ The native worker uses one inherited heavy permit and a bounded 300-second,
 2-GiB-artifact, 8-MiB-log runner per query/build/test command:
 
 ```bash
+git config --local factory.commitGateExecutable /absolute/verified/factory-commit-check
+git config --local factory.commitGateSHA256 VERIFIED_LOWERCASE_COORDINATOR_SHA256
 git config --local factory.nativeBazelExecutable /absolute/verified/bazel-8.4.2
 git config --local factory.nativeBazelSHA256 VERIFIED_LOWERCASE_BAZEL_SHA256
 git config --local factory.nativeArtifacts /absolute/owned/native-gate-family

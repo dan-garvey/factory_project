@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native rotary passenger probe; invoke through run_local.py heavy."""
+"""Native rotary passenger probe; invoke through native heavy admission."""
 import math
 from pathlib import Path
 

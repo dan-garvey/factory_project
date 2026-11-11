@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded optional mechanical workshop; invoke through run_local.py heavy."""
+"""Bounded optional mechanical workshop; invoke through native heavy admission."""
 import argparse
 from datetime import datetime, timezone
 import hashlib

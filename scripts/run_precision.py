@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded later-control precision fixture; invoke through run_local.py heavy."""
+"""Bounded later-control precision fixture; invoke through native heavy admission."""
 import argparse
 from datetime import datetime, timezone
 import hashlib

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the actual Godot prototype checks; never fetch an engine or skip failures.
 
-Call through run_local.py heavy. Source-only tooling checks need no Godot install.
+Call through native heavy admission. Source-only tooling checks need no Godot install.
 """
 
 import argparse

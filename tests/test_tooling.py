@@ -35,8 +35,8 @@ class GitFixture(unittest.TestCase):
         (self.repo / ".beads/.gitignore").write_text("*.db\n*.db-*\n")
         (self.repo / ".beads/issues.jsonl").write_text('{"id":"factory-fixture"}\n')
         (self.repo / "scripts").mkdir()
-        for name in ("link-beads-worktree.sh", "install-hooks.sh", "check.py", "run_local.py",
-                     "check_commit.py", "check_gdscript.py", "check_engine_environment.py"):
+        for name in ("link-beads-worktree.sh", "install-hooks.sh", "check.py",
+                     "check_gdscript.py", "check_engine_environment.py"):
             shutil.copy2(ROOT / "scripts" / name, self.repo / "scripts" / name)
         (self.repo / ".githooks").mkdir()
         shutil.copy2(ROOT / ".githooks/pre-commit", self.repo / ".githooks/pre-commit")
@@ -251,17 +251,6 @@ class StagedGateTests(GitFixture):
         result = self.check(success=False)
         self.assertIn("index changed", result.stdout)
         self.assertIn("external.txt", self.git("diff", "--cached", "--name-only").stdout)
-
-    def test_installed_hook_blocks_actual_bad_commit(self):
-        self.git("config", "--unset", "core.hooksPath")
-        self.run_command("bash", "scripts/install-hooks.sh")
-        witness = self.repo / "FAIL"
-        witness.write_text("staged failure")
-        self.git("add", "FAIL")
-        witness.unlink()
-        before = self.git("rev-parse", "HEAD").stdout
-        self.git("commit", "-m", "Must not land", success=False)
-        self.assertEqual(self.git("rev-parse", "HEAD").stdout, before)
 
     def test_installer_preserves_existing_hook_configuration(self):
         self.run_command("bash", "scripts/install-hooks.sh", success=False)

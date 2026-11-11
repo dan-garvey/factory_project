@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded geometric inspection fixture; run through run_local.py heavy."""
+"""Bounded geometric inspection fixture; run through native heavy admission."""
 
 import argparse
 from datetime import datetime, timezone
