@@ -4651,11 +4651,11 @@ func _piston_run(capture_prefix: String) -> void:
 			if _construct({"action": "reclaim_component", "entity": segment.entity}).is_empty(): return
 			if _piston_place("piston_segment", body.entity).is_empty(): return
 		if count == 0 and not await _piston_view(capture_prefix, "one-segment", target): return
-	if not await _approach(Vector2(6.3, -4.95)): return
+	if not await _approach_points([Vector2(6.6, -4.95), Vector2(6.6, -3.0)]): return
 	var cranks: Array = opening.model.projection().crank_items.keys()
 	var tool: String = cranks[0]
 	var feed: String = cranks[1]
-	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": tool, "port": [x, level + 5, z + 2], "face": [0, 0, 1]}).is_empty(): return
+	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": tool, "port": [x, level + 5, z - 2], "face": [0, 0, -1]}).is_empty(): return
 	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": feed, "port": [x + 2, level + 5, z], "face": [1, 0, 0]}).is_empty(): return
 	if _construct({"action": "set_developer_conveniences", "enabled": false}).is_empty(): return
 	if not await _piston_view(capture_prefix, "four-segments", target): return
@@ -4705,8 +4705,11 @@ func _piston_view(prefix: String, suffix: String, target: Vector3, low := false)
 	opening._refresh()
 	await physics_frame
 	if prefix.is_empty() or DisplayServer.get_name() == "headless": return true
-	return _expect(await _surface_drill_view(prefix + "-" + suffix + ".png", target, low,
-		Vector3.ZERO if low else Vector3(5.5, 2.5, -3.4)), "Capture actual piston worksite: " + suffix)
+	var offset := Vector3(3.0, 1.6, -1.4) if low else Vector3(8.0, 3.0, -5.0)
+	if not low and mode != "arrival-piston-horizontal": target += Vector3.UP * 0.65
+	if mode == "arrival-piston-horizontal": offset = Vector3(3.0, 3.0, -6.5)
+	return _expect(await _surface_drill_view(prefix + "-" + suffix + ".png", target, low, offset),
+		"Capture actual piston worksite: " + suffix)
 
 func _horizontal_piston_run(capture_prefix: String) -> void:
 	# A real placed foundation supplies a level seat. Everything else uses the
