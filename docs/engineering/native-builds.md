@@ -295,6 +295,10 @@ configure `native/proof-desk/CMakeLists.txt` with MSVC 2022 and the Qt SDK pinne
 The viewer reads `%LOCALAPPDATA%/FactoryProofDesk/config.json`: `store` is a local
 Windows path, `distro` selects WSL, and `root`/`bridge` are absolute Linux paths.
 Initialize the bridge with `factory-proof init --root REPO --store /mnt/c/...`.
+Install a new bridge at an immutable path, then atomically replace the Windows
+configuration. Wait for running viewers to save their drafts and close before
+retiring the old bridge. A viewer that cannot confirm its draft save stays open;
+reopen any surviving viewer before submitting feedback.
 Repository configuration pins `factory.proofExecutable`/`factory.proofSHA256`
 and `factory.proofViewer`/`factory.proofViewerSHA256`. Agent viewer launches use
 `scripts/launch-proof-desk.sh --test-purpose=TEXT`; `--fixture`, `--capture` and

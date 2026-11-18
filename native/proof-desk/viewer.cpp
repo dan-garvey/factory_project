@@ -19,8 +19,9 @@ QJsonObject readObject(const QString &path) {
 }
 void saveObject(const QString &path, const QJsonObject &value) {
   QSaveFile file(path);
-  if (!file.open(QIODevice::WriteOnly) ||
-      file.write(QJsonDocument(value).toJson()) < 0 || !file.commit())
+  const auto bytes = QJsonDocument(value).toJson();
+  if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||
+      !file.commit())
     throw std::runtime_error("Cannot save review draft");
 }
 QString hashFile(const QString &path) {
@@ -306,8 +307,10 @@ protected:
 class Desk final : public QMainWindow {
 public:
   QJsonObject config, manifest, draft;
-  QString bundleId, caseId, store, reviewedManifestHash;
-  bool changing = false, history = false, fixture = false;
+  QString bundleId, caseId, store, reviewedManifestHash, configPath,
+      configDirectory;
+  bool changing = false, history = false, fixture = false,
+       closeAfterProcess = false, closingForBridgeUpdate = false;
   QListWidget *queue, *cases, *mediaList, *notes;
   QLabel *title, *subtitle, *caseTitle, *context, *summary, *delivery,
       *timeLabel, *beforeCaption, *afterCaption;
@@ -321,9 +324,12 @@ public:
   QFileSystemWatcher watcher;
   QProcess process;
   QString pendingCommand;
-  explicit Desk(QJsonObject conf, QString purpose, bool testFixture)
-      : config(std::move(conf)), fixture(testFixture) {
+  explicit Desk(QJsonObject conf, QString path, QString purpose,
+                bool testFixture)
+      : config(std::move(conf)), configPath(std::move(path)),
+        fixture(testFixture) {
     store = config["store"].toString();
+    configDirectory = QFileInfo(configPath).absolutePath();
     setWindowTitle("Factory Proof Desk" +
                    (purpose.isEmpty() ? QString() : " — " + purpose));
     resize(1580, 970);
@@ -681,19 +687,45 @@ public:
       if (discarded() && !caseNote->hasFocus() && !generalNote->hasFocus())
         localAction->click();
     });
-    connect(&watcher, &QFileSystemWatcher::directoryChanged, this, [this] {
+    connect(&watcher, &QFileSystemWatcher::directoryChanged, this,
+            [this](const QString &path) {
+      if (path == configDirectory) {
+        closeForBridgeUpdate();
+        return;
+      }
       if (process.state() == QProcess::NotRunning)
         refreshQueue();
     });
     watcher.addPath(store);
+    if (!fixture) {
+      watcher.addPath(configDirectory);
+      auto *configMonitor = new QTimer(this);
+      configMonitor->setInterval(2000);
+      connect(configMonitor, &QTimer::timeout, this,
+              [this] { closeForBridgeUpdate(); });
+      configMonitor->start();
+    }
     connect(&process,
             QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
             [this](int code, QProcess::ExitStatus status) {
+              if (closeAfterProcess)
+                QTimer::singleShot(0, this,
+                                   [this] { closeForBridgeUpdate(); });
               auto output = QString::fromUtf8(process.readAllStandardOutput()) +
                             QString::fromUtf8(process.readAllStandardError());
               if (code != 0 || status != QProcess::NormalExit) {
                 const bool local =
                     pendingCommand == "discard" || pendingCommand == "restore";
+                if (output.contains("execvpe(")) {
+                  delivery->setText("Proof bridge changed; review saved");
+                  QMessageBox::warning(
+                      this, "Proof bridge changed",
+                      "The configured Proof Desk bridge is unavailable or was "
+                      "replaced. Your review remains saved. Close and reopen "
+                      "Proof Desk before retrying.");
+                  updateDecision();
+                  return;
+                }
                 delivery->setText(
                     local ? "Local queue action needs attention"
                           : "Saved locally; delivery needs attention");
@@ -720,6 +752,9 @@ public:
             });
     connect(&process, &QProcess::errorOccurred, this,
             [this](QProcess::ProcessError) {
+              if (closeAfterProcess)
+                QTimer::singleShot(0, this,
+                                   [this] { closeForBridgeUpdate(); });
               delivery->setText("Bridge unavailable; review remains saved");
               QMessageBox::warning(this, "Proof bridge", process.errorString());
             });
@@ -749,6 +784,32 @@ public:
   QJsonObject review() const {
     return draft["cases"].toObject()[caseId].toObject();
   }
+  bool saveDraftChecked(bool showWarning = true) {
+    if (bundleId.isEmpty() || decided() || discarded())
+      return true;
+    try {
+      auto reviews = draft["cases"].toObject();
+      if (!caseId.isEmpty() && reviews.contains(caseId)) {
+        auto current = reviews[caseId].toObject();
+        current["note"] = caseNote->toPlainText();
+        reviews[caseId] = current;
+        draft["cases"] = reviews;
+      }
+      draft["note"] = generalNote->toPlainText();
+      const auto path = directory() + "/draft.json";
+      saveObject(path, draft);
+      if (readObject(path) != draft)
+        throw std::runtime_error("Saved feedback did not match the draft");
+      if (delivery->text() == "Feedback draft could not be saved")
+        delivery->setText("Feedback draft saved");
+      return true;
+    } catch (const std::exception &error) {
+      delivery->setText("Feedback draft could not be saved");
+      if (showWarning && !fixture)
+        QMessageBox::warning(this, "Keep Proof Desk open", error.what());
+      return false;
+    }
+  }
   void saveDraft() {
     if (!bundleId.isEmpty() && !decided() && !discarded())
       try {
@@ -756,6 +817,49 @@ public:
       } catch (const std::exception &e) {
         delivery->setText(e.what());
       }
+  }
+  bool bridgeCompatible() const {
+    try {
+      return readObject(configPath) == config;
+    } catch (const std::exception &) {
+      return false;
+    }
+  }
+  bool bridgeReady() {
+    if (bridgeCompatible())
+      return true;
+    if (!saveDraftChecked())
+      return false;
+    delivery->setText("Bridge changed. Reopen Proof Desk.");
+    if (!fixture)
+      QMessageBox::warning(
+          this, "Proof Desk updated",
+          "The Proof Desk bridge configuration changed while this window was "
+          "open. Your feedback draft is saved. Close and reopen Proof Desk "
+          "before submitting.");
+    return false;
+  }
+  void closeForBridgeUpdate() {
+    if (bridgeCompatible()) {
+      closeAfterProcess = false;
+      return;
+    }
+    if (process.state() != QProcess::NotRunning) {
+      closeAfterProcess = true;
+      return;
+    }
+    closeAfterProcess = false;
+    closingForBridgeUpdate = true;
+    close();
+    closingForBridgeUpdate = false;
+  }
+  void closeEvent(QCloseEvent *event) override {
+    if (process.state() != QProcess::NotRunning ||
+        !saveDraftChecked(!closingForBridgeUpdate)) {
+      event->ignore();
+      return;
+    }
+    QMainWindow::closeEvent(event);
   }
   void setReview(const QJsonObject &c) {
     auto reviews = draft["cases"].toObject();
@@ -1097,8 +1201,11 @@ public:
                                "approve work or contact an agent.");
       return;
     }
+    if (!bridgeReady())
+      return;
     try {
-      saveDraft();
+      if (!saveDraftChecked())
+        return;
       auto decision = draft;
       decision["verdict"] = verdict;
       decision["reviewed_manifest_sha256"] = reviewedManifestHash;
@@ -1140,6 +1247,8 @@ public:
     }
   }
   void bridge(const QString &command, const QStringList &extra) {
+    if (!bridgeReady())
+      return;
     pendingCommand = command;
     QStringList args{"--distribution",
                      config["distro"].toString(),
@@ -1202,7 +1311,7 @@ int main(int argc, char **argv) {
         parser.value("test-purpose").trimmed().isEmpty())
       throw std::runtime_error(
           "Agent fixture/capture launches require --test-purpose");
-    Desk desk(readObject(path), parser.value("test-purpose"),
+    Desk desk(readObject(path), path, parser.value("test-purpose"),
               parser.isSet("fixture"));
     if ((parser.isSet("case") || parser.isSet("viewport") ||
          parser.isSet("self-test")) &&
@@ -1295,6 +1404,35 @@ int main(int argc, char **argv) {
         (*state)["annotation_frame_saved"] =
             !stored.isNull() && savedMark["time_ms"] == mark["time_ms"] &&
             desk.after->markedFrame() != desk.after->image;
+        desk.caseNote->setPlainText("Bridge update draft preservation fixture.");
+        const auto draftPath = desk.directory() + "/draft.json";
+        const auto backupPath = draftPath + ".bridge-self-test-backup";
+        (*state)["draft_saved_before_update"] =
+            desk.saveDraftChecked() &&
+            readObject(draftPath)["cases"].toObject()[desk.caseId]
+                    .toObject()["note"] == desk.caseNote->toPlainText();
+        if (QFileInfo::exists(backupPath) ||
+            !QFile::rename(draftPath, backupPath) ||
+            !QDir().mkpath(draftPath))
+          throw std::runtime_error("Cannot prepare draft save failure fixture");
+        desk.caseNote->setPlainText("Retain this note after a failed save.");
+        QCloseEvent refusedClose;
+        desk.closeEvent(&refusedClose);
+        (*state)["failed_save_keeps_viewer_open"] =
+            !refusedClose.isAccepted() && desk.isVisible();
+        if (!QDir(draftPath).removeRecursively() ||
+            !QFile::rename(backupPath, draftPath))
+          throw std::runtime_error("Cannot restore draft save fixture");
+        (*state)["failed_save_draft_recovered"] =
+            desk.saveDraftChecked() &&
+            readObject(draftPath)["cases"].toObject()[desk.caseId]
+                    .toObject()["note"] == desk.caseNote->toPlainText();
+        const auto originalConfig = desk.config;
+        desk.config["bridge"] = "/retired/bridge";
+        (*state)["stale_bridge_refused_before_submission"] =
+            !desk.bridgeReady() &&
+            desk.delivery->text() == "Bridge changed. Reopen Proof Desk.";
+        desk.config = originalConfig;
         desk.after->zoom = 2.;
         desk.after->pan = {20, 15};
         auto zoomed = desk.after->imageRect();
@@ -1423,6 +1561,9 @@ int main(int argc, char **argv) {
               "media_error_free", "clip_seek", "controls_in_client",
               "zoom_and_fit", "single_media_fills_area",
               "annotation_frame_saved", "late_registration_detected",
+              "draft_saved_before_update", "failed_save_keeps_viewer_open",
+              "failed_save_draft_recovered",
+              "stale_bridge_refused_before_submission",
               "completed_pending_cleared", "completed_in_history",
               "history_to_empty_pending", "new_pending_selected",
               "next_pending_selected", "discard_action_available",
