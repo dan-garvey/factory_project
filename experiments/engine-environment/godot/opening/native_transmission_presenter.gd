@@ -1438,8 +1438,10 @@ func _piston_art(anchor: Node3D, kind: String, data: Dictionary, worked: Materia
 	_support_box(anchor, "FeedHousing", Vector3.ZERO, Vector3(3.6, 2, 3.6) * h, dark, true)
 	for y in [-0.9, 0.9]:
 		_support_box(anchor, "HousingRim", Vector3(0, y, 0) * h, Vector3(4, 0.2, 4) * h, copper, true)
-	_piston_rotor(anchor, entity, Vector3.RIGHT, 4 * h, 0.26 * h, worked, dark)
-	_piston_rotor(anchor, entity + "/tool" if not entity.is_empty() else "", Vector3.BACK, 4 * h, 0.26 * h, worked, dark)
+	var feed := _piston_rotor(anchor, entity, Vector3.RIGHT, 2 * h, 0.26 * h, worked, dark)
+	feed.position.x = h
+	var tool := _piston_rotor(anchor, entity + "/tool" if not entity.is_empty() else "", Vector3.BACK, 2 * h, 0.26 * h, worked, dark)
+	tool.position.z = h
 	var arm := Node3D.new()
 	anchor.add_child(arm)
 	arm.position.y = -float(data.get("position_ticks", 0)) / 1024.0 * h

@@ -73,6 +73,7 @@ void horizontal_reuse() {
     for (const auto kind : {"copper_shaft","copper_cog"})
         f.accepted("craft_component",{{"entity",V("pod-fabrication-hub")},{"component",V(kind)}});
     f.accepted("craft_part",{{"entity",V("pod-fabrication-hub")},{"role",V("vertical_gearbox")},{"half_span",V(I{0})}});
+    f.accepted("craft_part",{{"entity",V("pod-fabrication-hub")},{"role",V("gearbox")},{"half_span",V(I{0})}});
     I orientation=-1;
     for (I n=0;n<24;++n) {
         const auto basis=*factory::piston::basis(n);
@@ -90,6 +91,8 @@ void horizontal_reuse() {
     const auto cog=place("copper_cog",48,body,0);
     const auto gearbox=get<std::string>(f.accepted("place_relay",{{"kind",V("vertical_gearbox")},
         {"center",V(A{V(I{40}),V(I{4}),V(I{0})})},{"axis",V("z")}}),"entity");
+    const auto feed_box=get<std::string>(f.accepted("place_relay",{{"kind",V("gearbox")},
+        {"center",V(A{V(I{40}),V(I{0}),V(I{-4})})},{"axis",V("y")}}),"entity");
     f.saveable("Assembled horizontal frame before power");
     const auto cranks=get<O>(f.host.projection(),"crank_items");
     auto item=cranks.begin(); const auto tool=item++->first,feed=item++->first,reverse=item++->first;
@@ -97,8 +100,8 @@ void horizontal_reuse() {
         f.accepted("attach_hand_crank",{{"entity",V(owner)},{"crank",V(crank)},{"port",V(port)},{"face",V(face)}});
     };
     attach(tool,gearbox,{V(I{42}),V(I{4}),V(I{0})},{V(I{1}),V(I{0}),V(I{0})});
-    attach(feed,body,{V(I{40}),V(I{0}),V(I{-2})},{V(I{0}),V(I{0}),V(I{-1})});
-    attach(reverse,body,{V(I{40}),V(I{0}),V(I{2})},{V(I{0}),V(I{0}),V(I{1})});
+    attach(feed,feed_box,{V(I{42}),V(I{0}),V(I{-4})},{V(I{1}),V(I{0}),V(I{0})});
+    attach(reverse,feed_box,{V(I{40}),V(I{0}),V(I{-6})},{V(I{0}),V(I{0}),V(I{-1})});
     const auto pulse=[&](const std::string& crank,int count) {
         for (int n=0;n<count;++n) f.accepted("operate_hand_crank",{{"entity",V(crank)}});
     };
@@ -106,7 +109,7 @@ void horizontal_reuse() {
         return get<I>(V(get<O>(get<O>(f.host.projection(),"placed_components").at(body),"piston")),"position_ticks");
     };
     pulse(feed,1);
-    check(progress()==256,"Direct side feed advances horizontal travel independently of the tool gearbox.");
+    check(progress()==256,"The feed gearbox advances horizontal travel independently of the tool gearbox.");
     const auto moved=get<A>(get<O>(f.host.projection(),"placed_components").at(shaft),"position");
     check(std::get<double>(moved[0].storage())>44*.20625,"Native projection moves the carried shaft.");
     pulse(tool,1);
@@ -121,7 +124,7 @@ void horizontal_reuse() {
     check(progress()==4096,"Feed cannot overrun the last extension.");
     f.saveable("Horizontal displaced custody");
     pulse(reverse,20);
-    check(progress()==0,"The opposite feed face retracts to the original limit.");
+    check(progress()==0,"An external gearbox reverses through the same single feed face.");
     f.accepted("reclaim_component",{{"entity",V(cog)}});
     f.accepted("reclaim_component",{{"entity",V(shaft)}});
 }
@@ -146,7 +149,9 @@ void raised_support() {
 }
 int main() {
     try {
-        Fixture f; f.stock(); f.move(6.6,1,-4.95);
+        Fixture f; f.stock();
+        f.accepted("craft_part",{{"entity",V("pod-fabrication-hub")},{"role",V("gearbox")},{"half_span",V(I{0})}});
+        f.move(6.6,1,-4.95);
         const auto place=[&](const char* kind, I y, const std::string& parent="") {
             O args{{"component",V(kind)},{"center",V(A{V(I{24}),V(y),V(I{-24})})}};
             if (!parent.empty()) args.emplace("parent",V(parent));
@@ -162,7 +167,19 @@ int main() {
             f.accepted("attach_hand_crank",{{"entity",V(body)},{"crank",V(crank)},
                 {"port",V(A{V(x),V(I{5}),V(z)})},{"face",V(A{V(dx),V(I{0}),V(dz)})}});
         };
-        attach(tool,24,-22,0,1); attach(feed,26,-24,1,0); attach(reverse,22,-24,-1,0);
+        for (const auto& port : {A{V(I{22}),V(I{5}),V(I{-24})},A{V(I{24}),V(I{5}),V(I{-26})}}) {
+            const A face=std::get<I>(port[0].storage())==22 ?
+                A{V(I{-1}),V(I{0}),V(I{0})} : A{V(I{0}),V(I{0}),V(I{-1})};
+            check(!get<bool>(f.command("attach_hand_crank",{{"entity",V(body)},{"crank",V(feed)},
+                {"port",V(port)},{"face",V(face)}}),"accepted"),"Closed housing faces refuse crank attachment.");
+        }
+        attach(tool,24,-22,0,1);
+        const auto feed_box=get<std::string>(f.accepted("place_relay",{{"kind",V("gearbox")},
+            {"center",V(A{V(I{28}),V(I{5}),V(I{-24})})},{"axis",V("y")}}),"entity");
+        f.accepted("attach_hand_crank",{{"entity",V(feed_box)},{"crank",V(feed)},
+            {"port",V(A{V(I{28}),V(I{5}),V(I{-22})})},{"face",V(A{V(I{0}),V(I{0}),V(I{1})})}});
+        f.accepted("attach_hand_crank",{{"entity",V(feed_box)},{"crank",V(reverse)},
+            {"port",V(A{V(I{30}),V(I{5}),V(I{-24})})},{"face",V(A{V(I{1}),V(I{0}),V(I{0})})}});
         const auto source=[&] { return get<I>(V(get<O>(f.host.projection(),"stock")),"source"); };
         const auto progress=[&] {
             return get<I>(V(get<O>(get<O>(f.host.projection(),"placed_components").at(body),"piston")),"position_ticks");
@@ -192,7 +209,7 @@ int main() {
         pulse(tool,64);
         check(source()==before-32 && progress()==1024,"The same translated head cuts the next local band.");
         pulse(feed,4); check(progress()==2048,"Second cleared band is reachable.");
-        pulse(reverse,8); check(progress()==0,"Opposite feed input retracts independently of tool rotation.");
+        pulse(reverse,8); check(progress()==0,"External transmission reverses through the sole feed input independently of tool rotation.");
         f.accepted("reclaim_component",{{"entity",V(segment)}});
         check(!get<bool>(f.command("reclaim_component",{{"entity",V(mount)}}),"accepted"),"Mounted piston retains its support.");
         I loose{}; for (const auto& drop:get<A>(f.host.projection(),"dropped_material")) loose+=get<I>(drop,"raw");

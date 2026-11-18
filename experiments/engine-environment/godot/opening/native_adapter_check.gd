@@ -4618,6 +4618,11 @@ func _piston_run(capture_prefix: String) -> void:
 	for kind: String in kinds:
 		if not _press_inventory_recipe("component:" + kind, "pod-fabrication-hub"):
 			return
+	var recipes: Array = opening.model.projection().part_recipes
+	for index in recipes.size():
+		if recipes[index].kind == "gearbox":
+			if not _press_inventory_recipe("part:" + str(index), "pod-fabrication-hub"): return
+			break
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
 		opening.building_hotbar.open_at_bench("pod-fabrication-hub")
 		opening.building_hotbar.recipe_tabs[opening.building_hotbar._recipe_category("component:segmented_piston", "")].pressed.emit()
@@ -4627,7 +4632,6 @@ func _piston_run(capture_prefix: String) -> void:
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-crafting.png") == OK, "Capture the ordinary piston crafting and carried inventory"): return
 		opening.building_hotbar.catalog.hide()
 	if mode == "arrival-piston-horizontal":
-		var recipes: Array = opening.model.projection().part_recipes
 		for index in recipes.size():
 			if recipes[index].kind == "vertical_gearbox":
 				if not _press_inventory_recipe("part:" + str(index), "pod-fabrication-hub"):
@@ -4666,10 +4670,11 @@ func _piston_run(capture_prefix: String) -> void:
 	var cranks: Array = opening.model.projection().crank_items.keys()
 	var tool: String = cranks[0]
 	var feed: String = cranks[1]
-	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": tool, "port": [x, level + 5, z - 2], "face": [0, 0, -1]}).is_empty(): return
+	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": tool, "port": [x, level + 5, z + 2], "face": [0, 0, 1]}).is_empty(): return
 	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": feed, "port": [x + 2, level + 5, z], "face": [1, 0, 0]}).is_empty(): return
 	if _construct({"action": "set_developer_conveniences", "enabled": false}).is_empty(): return
 	if not await _piston_view(capture_prefix, "four-segments", target): return
+	if not await _piston_input_views(capture_prefix, body.entity): return
 	var before: Dictionary = opening.model.projection()
 	var first_position := 0
 	for band in 3:
@@ -4695,12 +4700,11 @@ func _piston_run(capture_prefix: String) -> void:
 		first_position = int(progress.position_ticks)
 	if not _expect(opening.model.validate_checkpoint(opening.model.checkpoint()).accepted, "The actual excavated midstroke worksite remains saveable"): return
 	if not await _piston_view(capture_prefix, "deep-cut", target - Vector3.UP * 1.45, true): return
-	if _construct({"action": "detach_hand_crank", "entity": feed}).is_empty(): return
-	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": feed, "port": [x - 2, level + 5, z], "face": [-1, 0, 0]}).is_empty(): return
+	if not _piston_connect_feed(body.entity, feed, true): return
 	for pulse in 20:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
 		if pulse % 2 == 0 and not await _piston_view(capture_prefix, "retract-%02d" % pulse, target - Vector3.UP * 1.45, true): return
-	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 0, "The same crank on the opposite feed face retracts the tool"): return
+	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 0, "The ordinary gearbox reverses power through the sole feed socket"): return
 	var after: Dictionary = opening.model.projection()
 	var raw_before: int = after.cargo.P.raw
 	deadline = Time.get_ticks_msec() + 120000
@@ -4711,6 +4715,52 @@ func _piston_run(capture_prefix: String) -> void:
 	facts["travel_ticks"] = first_position
 	if not await _piston_view(capture_prefix, "retracted-picked-up", target - Vector3.UP * 1.45, true): return
 	_record("pass")
+
+func _piston_feed_box(body: String) -> String:
+	var snapshot: Dictionary = opening.model.projection()
+	var part: Dictionary = snapshot.placed_components[body]
+	var center: Array = part.center.duplicate()
+	if part.orientation == 0: center[0] += 4
+	else: center[2] -= 4
+	for id: String in snapshot.transmission_parts:
+		if snapshot.transmission_parts[id].kind == "gearbox" and snapshot.transmission_parts[id].center == center: return id
+	return ""
+
+func _piston_connect_feed(body: String, crank: String, reverse: bool) -> bool:
+	var snapshot: Dictionary = opening.model.projection()
+	var part: Dictionary = snapshot.placed_components[body]
+	if not str(snapshot.crank_items[crank].attached_to).is_empty():
+		if _construct({"action": "detach_hand_crank", "entity": crank}).is_empty(): return false
+	var box := _piston_feed_box(body)
+	if box.is_empty():
+		var center: Array = part.center.duplicate()
+		if part.orientation == 0: center[0] += 4
+		else: center[2] -= 4
+		var placed := _construct({"action": "place_relay", "kind": "gearbox", "center": center, "axis": "y"})
+		if placed.is_empty(): return false
+		box = placed.entity
+	var port: Array = opening.model.projection().transmission_parts[box].center.duplicate()
+	var face := [1, 0, 0]
+	if part.orientation == 0 and not reverse: face = [0, 0, 1]
+	if part.orientation != 0 and reverse: face = [0, 0, -1]
+	for index in 3: port[index] += 2 * face[index]
+	return not _construct({"action": "attach_hand_crank", "entity": box, "crank": crank, "port": port, "face": face}).is_empty()
+
+func _piston_input_views(prefix: String, body: String) -> bool:
+	var snapshot: Dictionary = opening.model.projection()
+	var counts := {"feed": 0, "tool": 0, "output": 0}
+	for port: Dictionary in snapshot.rotary_ports[body].ports: counts[port.channel] += 1
+	if not _expect(counts == {"feed": 1, "tool": 1, "output": 1}, "Two fixed housing inputs and one moving output are the complete native port list"): return false
+	if prefix.is_empty() or DisplayServer.get_name() == "headless": return true
+	var center: Array = snapshot.placed_components[body].position
+	var target := Vector3(center[0], center[1], center[2])
+	for side in [1, -1]:
+		var offset := Vector3(3.5 * side, 2.3, 3.5 * side)
+		if snapshot.placed_components[body].orientation != 0:
+			offset = Vector3(-2, 3, -5) if side > 0 else Vector3(4, 3.2, 4.5)
+		if not _expect(await _surface_drill_view(prefix + ("-input-faces.png" if side > 0 else "-closed-faces.png"), target, false,
+				offset), "Capture the input faces and the opposite closed walls in their actual worksite"): return false
+	return true
 
 func _piston_restore_source() -> bool:
 	var input := ""
@@ -4748,11 +4798,9 @@ func _piston_continue(capture_prefix: String) -> void:
 	var feed := ""
 	for id: String in opening.model.projection().crank_items:
 		var crank: Dictionary = opening.model.projection().crank_items[id]
-		if crank.attached_to == body and crank.port[0] != center[0]: feed = id
+		if crank.attached_to == _piston_feed_box(body) or (crank.attached_to == body and crank.port[0] != center[0]): feed = id
 	if not _expect(not feed.is_empty(), "The saved feed crank remains attached to its own channel"): return
-	if _construct({"action": "detach_hand_crank", "entity": feed}).is_empty(): return
-	if _construct({"action": "attach_hand_crank", "entity": body, "crank": feed,
-		"port": [center[0] + 2, center[1], center[2]], "face": [1, 0, 0]}).is_empty(): return
+	if not _piston_connect_feed(body, feed, false): return
 	var source: int = opening.model.projection().stock.source
 	for pulse in 4:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
@@ -4760,9 +4808,7 @@ func _piston_continue(capture_prefix: String) -> void:
 	if not _expect(opening.model.projection().placed_components[body].piston.position_ticks == 1024
 			and opening.model.projection().stock.source == source,
 			"Restored travel enters the existing cut without inventing additional ore"): return
-	if _construct({"action": "detach_hand_crank", "entity": feed}).is_empty(): return
-	if _construct({"action": "attach_hand_crank", "entity": body, "crank": feed,
-		"port": [center[0] - 2, center[1], center[2]], "face": [-1, 0, 0]}).is_empty(): return
+	if not _piston_connect_feed(body, feed, true): return
 	for pulse in 4:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
 		if not await _piston_view(capture_prefix, "resume-retract-%02d" % pulse, target - Vector3.UP * 1.45, true): return
@@ -4815,7 +4861,7 @@ func _piston_horizontal_continue(prefix: String) -> void:
 			"The saved carriage retains its real rock obstruction at 1.75 units"): return
 	if not _piston_rock_contact(state, body): return
 	for id: String in state.crank_items:
-		if state.crank_items[id].attached_to == body: feed = id
+		if state.crank_items[id].attached_to == body or state.crank_items[id].attached_to == _piston_feed_box(body): feed = id
 		else: tool = id
 	if not _expect(not feed.is_empty() and not tool.is_empty(), "Both independent saved power routes are retained"): return
 	var target := Vector3(10.5, 1.4, 7.425)
@@ -4837,9 +4883,7 @@ func _piston_horizontal_continue(prefix: String) -> void:
 	for frame in 4: await process_frame
 	var frame_index := 0
 	for direction in [-1, 1]:
-		if _construct({"action": "detach_hand_crank", "entity": feed}).is_empty(): return
-		if _construct({"action": "attach_hand_crank", "entity": body, "crank": feed,
-			"port": [48, 4, 36 - direction * 2], "face": [0, 0, -direction]}).is_empty(): return
+		if not _piston_connect_feed(body, feed, direction < 0): return
 		for pulse in 16:
 			if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
 			if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
@@ -4849,7 +4893,7 @@ func _piston_horizontal_continue(prefix: String) -> void:
 					await RenderingServer.frame_post_draw
 					if not _expect(view.get_texture().get_image().save_png(prefix + "-motion-%03d.png" % frame_index) == OK, "Capture intermediate real carriage and rotor motion"): return
 				frame_index += 1
-		if not _expect(opening.model.projection().placed_components[body].piston.position_ticks == (3072 if direction < 0 else 7168), "Opposite feed faces reverse and restore the saved carriage position"): return
+		if not _expect(opening.model.projection().placed_components[body].piston.position_ticks == (3072 if direction < 0 else 7168), "An ordinary gearbox reverses and restores the carriage through one feed face"): return
 	# Further feed is refused by the same actual rock; tool power still turns.
 	for pulse in 4:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
@@ -4955,12 +4999,13 @@ func _horizontal_piston_run(capture_prefix: String) -> void:
 	if cog.is_empty(): return
 	var gearbox := _construct({"action": "place_relay", "kind": "vertical_gearbox", "center": [48, 8, 36], "axis": "z"})
 	if gearbox.is_empty(): return
+	if not await _piston_input_views(capture_prefix, body.entity): return
 	var cranks: Array = opening.model.projection().crank_items.keys()
 	var tool: String = cranks[0]
 	var feed: String = cranks[1]
 	if _construct({"action": "attach_hand_crank", "entity": body.entity, "crank": feed, "port": [48, 4, 34], "face": [0, 0, -1]}).is_empty(): return
 	if _construct({"action": "attach_hand_crank", "entity": gearbox.entity, "crank": tool, "port": [50, 8, 36], "face": [1, 0, 0]}).is_empty(): return
-	var target := Vector3(11.0, 1.4, 7.425)
+	var target := Vector3(10.5, 1.4, 7.425)
 	if not await _piston_view(capture_prefix, "horizontal-retracted", target): return
 	for pulse in 32:
 		if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
@@ -4980,7 +5025,8 @@ func _horizontal_piston_run(capture_prefix: String) -> void:
 	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 7168, "Through power continues while feed is stopped"): return
 	if not _expect(opening.model.validate_checkpoint(opening.model.checkpoint()).accepted, "Horizontal travel, parts and power save together"): return
 	facts["travel_ticks"] = 7168
-	_record("pass")
+	if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
+	await _piston_horizontal_continue(capture_prefix)
 
 func _surface_drill_run(capture_prefix: String) -> void:
 	deadline = Time.get_ticks_msec() + 240000

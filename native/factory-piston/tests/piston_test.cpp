@@ -68,8 +68,10 @@ int main() {
         auto c=long_arm; c.orientation=orientation;
         const auto axes=*p::basis(orientation); orientations.insert(axes);
         const auto a=p::ports(c,{}), b=p::ports(c,{1001,0,1,false});
-        check(a.size()==5 && b.size()==5,"two independent pairs and one moving output");
-        for (unsigned n=0;n<4;++n) check(a[n].position==b[n].position,"body ports remain fixed");
+        check(a.size()==3 && b.size()==3,"exactly two independent input faces and one moving output");
+        for (unsigned n=0;n<2;++n) check(a[n].position==b[n].position,"body ports remain fixed");
+        check(a[0].reference.outward==axes[0] && a[1].reference.outward==axes[2],
+            "the two adjacent input faces rotate with the housing");
         check(b.back().position==p::moving_point(c,{1001,0,1,false},a.back().reference.position),
             "output port follows fractional native displacement");
         check(a.back().reference.outward==p::rotate(axes,{0,-1,0}),"output normal rotates with body");
@@ -80,7 +82,7 @@ int main() {
         const auto native=p::spindles(c,"drive");
         std::vector<m::Part> parts(native.begin(),native.end());
         const auto ports=p::ports(c,{});
-        const auto tool=ports[2].reference;
+        const auto tool=ports[1].reference;
         auto power=m::resolve_engagements(parts,{{"drive/tool",{1,1},tool.position}},
             {p::through_connection(c,"drive")});
         check(power.accepted(),"shared ratio solver accepts registered through passage");
@@ -91,6 +93,19 @@ int main() {
             {p::through_connection(c,"drive")});
         check(power.accepted() && power.motion.at("drive/output").state==m::MotionState::rotating,
             "reversing feed does not reverse or stall tool");
+        for (unsigned channel=0;channel<2;++channel) for (int side : {-1,1}) {
+            const auto direction=axes[channel==0 ? 0 : 2];
+            auto center=c.center;
+            for (unsigned n=0;n<3;++n) center[n]+=side*4*direction[n];
+            auto external=parts;
+            external.push_back({"external",m::Kind::shaft,center,native[channel].axis,0,2});
+            const auto source=m::rotary_ports(external.back()).values[0].position;
+            const auto connected=m::evaluate(external,{{"external",{1,1},source}});
+            check(connected.accepted(),"external shaft uses the ordinary shared connection graph");
+            check(connected.motion.at(native[channel].id).state==
+                (side>0 ? m::MotionState::rotating : m::MotionState::unpowered),
+                "only the exposed housing face accepts shaft power, in every orientation");
+        }
     }
     check(orientations.size()==24,"all grid orientations are distinct");
     const auto parts=p::spindles(short_arm,"drive");

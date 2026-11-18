@@ -4069,8 +4069,8 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
                     state.placed_components.at(owner->second).parent) : mechanics::Point{},
                 state.placed_components.contains(owner->second) && !state.placed_components.at(owner->second).parent.empty()});
     }
-    // A piston exposes two fixed input pairs and its forward moving socket.
-    // The hidden back end belongs to the internal sliding shaft.
+    // A piston exposes one feed face, one tool-power face and its moving output.
+    // Internal spindle ends are not attachment sockets.
     for (const auto& [id,progress] : state.piston_progress) {
         const auto config=piston_assembly::configuration(state,id);
         if (!config) continue;

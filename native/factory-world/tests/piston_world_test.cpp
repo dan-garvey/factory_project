@@ -27,6 +27,11 @@ int main() {
         for (int sections : {1,4}) {
             auto state=assembly(sections);
             check(w::piston_assembly::valid(state),"connected head and contiguous paid segments");
+            const auto sockets=w::drive_power(profile,state).rotary_ports.at("piston");
+            check(sockets.size()==3,"projection exposes two housing inputs and the moving output");
+            check(!w::hand_crank_power(profile,state,"piston",{-2,5,0}).mechanical.accepted() &&
+                !w::hand_crank_power(profile,state,"piston",{0,5,-2}).mechanical.accepted(),
+                "closed housing faces cannot accept direct crank power");
             const auto feed=w::hand_crank_power(profile,state,"piston",{2,5,0});
             check(feed.mechanical.accepted(),"feed accepts horizontal source");
             check(feed.mechanical.motion.at("piston").state==m::MotionState::rotating,"feed is powered");

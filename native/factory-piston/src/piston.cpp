@@ -105,16 +105,24 @@ std::array<mechanics::Part,3> spindles(const Config& c, const std::string& owner
         for (unsigned n=0;n<3;++n) if (direction[n]) return static_cast<mechanics::Axis>(n);
         throw std::invalid_argument("invalid axis");
     };
-    return {{{owner,mechanics::Kind::shaft,c.center,axis(axes[0]),0,2},
-        {owner+"/tool",mechanics::Kind::shaft,c.center,axis(axes[2]),0,2},
+    const auto input_center=[&](Point direction) {
+        auto center=c.center;
+        for (unsigned n=0;n<3;++n) center[n]+=direction[n];
+        return center;
+    };
+    // Each input ends inside the housing. There is no axle endpoint on the
+    // opposite wall for the shared rotary graph to connect through.
+    return {{{owner,mechanics::Kind::shaft,input_center(axes[0]),axis(axes[0]),0,1},
+        {owner+"/tool",mechanics::Kind::shaft,input_center(axes[2]),axis(axes[2]),0,1},
         {owner+"/output",mechanics::Kind::shaft,c.center,axis(axes[1]),0,2}}};
 }
 std::vector<Port> ports(const Config& c, const Progress& p) {
     const auto parts=spindles(c,"piston");
     std::vector<Port> result;
-    const auto forward=rotate(*basis(c.orientation),{0,-1,0});
+    const auto axes=*basis(c.orientation);
+    const std::array<Point,3> faces{axes[0],axes[2],rotate(axes,{0,-1,0})};
     for (unsigned index=0;index<3;++index) for (auto port : mechanics::rotary_ports(parts[index])) {
-        if (index==2 && port.outward!=forward) continue;
+        if (port.outward!=faces[index]) continue;
         auto position=port.position;
         for (auto& n : position) n*=ticks_per_level;
         if (index==2) position=moving_point(c,p,port.position);
