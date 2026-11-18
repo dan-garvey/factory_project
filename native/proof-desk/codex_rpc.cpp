@@ -681,11 +681,19 @@ bool start_queued_feedback(const Json &config, const fs::path &bundle) {
     }
   }
   try {
-    const auto status =
+    auto status =
         codex_rpc(socket, "thread/read", Json{{"threadId", thread}})
             .at("thread")
             .at("status")
-            .at("type");
+            .at("type")
+            .get<std::string>();
+    if (status == "notLoaded")
+      status = codex_rpc(socket, "thread/resume",
+                         Json{{"threadId", thread}, {"excludeTurns", true}})
+                   .at("thread")
+                   .at("status")
+                   .at("type")
+                   .get<std::string>();
     // Preserve an active turn and leave its accepted input in the ordinary
     // queue. Explicitly wake an idle reviewer waiting for human feedback.
     if (status == "active") {
@@ -694,6 +702,9 @@ bool start_queued_feedback(const Json &config, const fs::path &bundle) {
       write_json(bundle / "delivery.json", state);
       return true;
     }
+    require(status == "idle",
+            "The originating Codex thread is " + status +
+                "; queued feedback cannot start until it is idle");
     const auto started = codex_rpc(
         socket, "thread/queue/start",
         Json{{"threadId", thread},

@@ -152,7 +152,21 @@ struct RpcFixture {
                   Json{{"thread",
                         {{"status",
                           {{"type", state.value("runtime_status", "idle")}}}}}};
+            if (method == "thread/resume" &&
+                !state.value("resume_refuse", false)) {
+              require(request.at("params").at("excludeTurns") == true,
+                      "Resume must avoid loading proof history");
+              require(state.value("runtime_status", "idle") == "notLoaded",
+                      "Fixture thread was already loaded");
+              state["runtime_status"] = state.value("resume_status", "idle");
+              state["resume_calls"] = state.value("resume_calls", 0) + 1;
+              write_json(stateFile, state);
+              result = Json{{"thread",
+                             {{"status", {{"type", state.at("runtime_status")}}}}}};
+            }
             if (method == "thread/queue/start") {
+              require(state.value("runtime_status", "idle") == "idle",
+                      "Fixture requires an idle loaded thread");
               const auto requested =
                   request.at("params").at("queuedSubmissionId");
               auto queue = state.at("queue");
@@ -209,6 +223,12 @@ struct RpcFixture {
                               {"error",
                                {{"code", -32602},
                                 {"message", "Fixture rejected queue input"}}}};
+            if (method == "thread/resume" &&
+                state.value("resume_refuse", false))
+              envelope = Json{{"id", request.at("id")},
+                              {"error",
+                               {{"code", -32600},
+                                {"message", "Fixture could not load thread"}}}};
             auto response = envelope.dump();
             if (method == "thread/queue/add" &&
                 state.value("oversized_reply", false)) {
