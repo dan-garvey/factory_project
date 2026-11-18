@@ -64,6 +64,7 @@ const COMPONENT_ICONS := {
 	"cutting_edge": "cutting_edge.svg", "anvil": "anvil.svg",
 	"broad_anvil": "anvil.svg", "broad_flat_head": "flat_head.svg",
 	"wooden_workbench": "wooden_workbench.svg",
+	"segmented_piston": "segmented_piston.svg", "piston_segment": "piston_segment.svg",
 	"drill_head": "drill_head.svg", "stationary_mount": "stationary_mount.svg",
 	"slide": "slide.svg",
 	"broad_slide": "slide.svg",
