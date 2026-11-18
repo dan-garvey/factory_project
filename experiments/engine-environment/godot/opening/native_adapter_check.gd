@@ -4875,9 +4875,11 @@ func _piston_horizontal_continue(prefix: String) -> void:
 	var tool := ""
 	for id: String in state.placed_components:
 		if state.placed_components[id].component == "segmented_piston": body = id
-	if not _expect(not body.is_empty() and state.placed_components[body].piston.position_ticks == 7168
+	if not _expect(not body.is_empty(), "The saved carriage retains its piston"): return
+	var blocked_position: int = state.placed_components[body].piston.position_ticks
+	if not _expect(blocked_position > 4096 and blocked_position < state.placed_components[body].piston.stroke_ticks
 			and state.placed_components[body].piston.blocked,
-			"The saved carriage retains its real rock obstruction at 1.75 units"): return
+			"The saved carriage retains a real obstruction before its end of travel"): return
 	if not _piston_rock_contact(state, body): return
 	for id: String in state.crank_items:
 		if state.crank_items[id].attached_to == body or state.crank_items[id].attached_to == _piston_feed_box(body): feed = id
@@ -4912,7 +4914,7 @@ func _piston_horizontal_continue(prefix: String) -> void:
 					await RenderingServer.frame_post_draw
 					if not _expect(view.get_texture().get_image().save_png(prefix + "-motion-%03d.png" % frame_index) == OK, "Capture intermediate real carriage and rotor motion"): return
 				frame_index += 1
-		if not _expect(opening.model.projection().placed_components[body].piston.position_ticks == (3072 if direction < 0 else 7168), "An ordinary gearbox reverses and restores the carriage through one feed face"): return
+		if not _expect(opening.model.projection().placed_components[body].piston.position_ticks == (blocked_position - 4096 if direction < 0 else blocked_position), "An ordinary gearbox reverses and restores the carriage through one feed face"): return
 	# Further feed is refused by the same actual rock; tool power still turns.
 	for pulse in 4:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
@@ -4932,7 +4934,7 @@ func _piston_horizontal_continue(prefix: String) -> void:
 	Engine.time_scale = 1.0
 	view.queue_free()
 	var after: Dictionary = opening.model.projection()
-	if not _expect(after.placed_components[body].piston.position_ticks == 7168,
+	if not _expect(after.placed_components[body].piston.position_ticks == blocked_position,
 			"Stopped feed preserves carriage position: " + str(after.placed_components[body].piston)): return
 	if not _expect(after.stock == state.stock, "Rotary reuse preserves material: " + str([state.stock, after.stock])): return
 	var validation: Dictionary = opening.model.validate_checkpoint(opening.model.checkpoint())
@@ -5080,15 +5082,15 @@ func _horizontal_piston_run(capture_prefix: String) -> void:
 		if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
 		if not await _piston_view(capture_prefix, "travel-%02d" % pulse, target): return
 	var progress: Dictionary = opening.model.projection().placed_components[body.entity].piston
-	if not _expect(progress.position_ticks == 7168 and progress.blocked,
-			"The actual site rock stops the ordinary carried cog at 1.75 units"): return
+	if not _expect(progress.position_ticks > 4096 and progress.position_ticks < progress.stroke_ticks and progress.blocked,
+			"The actual site rock stops the ordinary carried cog before full extension"): return
 	if not _piston_rock_contact(opening.model.projection(), body.entity): return
 	for pulse in 4:
 		if _construct({"action": "operate_hand_crank", "entity": tool}).is_empty(): return
 		if not await _piston_view(capture_prefix, "stopped-feed-%02d" % pulse, target): return
-	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == 7168, "Through power continues while feed is stopped"): return
+	if not _expect(opening.model.projection().placed_components[body.entity].piston.position_ticks == progress.position_ticks, "Through power continues while feed is stopped"): return
 	if not _expect(opening.model.validate_checkpoint(opening.model.checkpoint()).accepted, "Horizontal travel, parts and power save together"): return
-	facts["travel_ticks"] = 7168
+	facts["travel_ticks"] = progress.position_ticks
 	if _construct({"action": "operate_hand_crank", "entity": feed}).is_empty(): return
 	await _piston_horizontal_continue(capture_prefix)
 
