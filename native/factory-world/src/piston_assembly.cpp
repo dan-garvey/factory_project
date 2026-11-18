@@ -9,13 +9,12 @@ using C=materials::Component;
 using P=mechanics::Point;
 using I=mechanics::Integer;
 bool carried_kind(C kind) {
-    return kind==C::drill_head || kind==C::copper_shaft || kind==C::wooden_shaft ||
-        kind==C::copper_cog || kind==C::wooden_cog;
+    return kind==C::drill_head;
 }
-bool forward_payload(const piston::Config& config, const PlacedComponent& part) {
+bool forward_payload(const piston::Config& config, const P& center) {
     const auto axis=(*piston::basis(config.orientation))[1];
     I distance{};
-    for (unsigned n=0;n<3;++n) distance-=(part.center[n]-config.center[n])*axis[n];
+    for (unsigned n=0;n<3;++n) distance-=(center[n]-config.center[n])*axis[n];
     return distance>=2;
 }
 mechanics::Result failure() {
@@ -35,16 +34,47 @@ std::optional<piston::Config> configuration(const State& state, const std::strin
 }
 std::optional<mechanics::Part> spindle(const std::string& id, const PlacedComponent& part) {
     if (!carried_kind(part.kind) || !piston::basis(part.orientation)) return std::nullopt;
-    // A drill always uses its local vertical spindle. A free shaft or cog uses
-    // local X, the same default axis as its ordinary transmission counterpart.
+    // The reusable drill always uses its local vertical spindle.
     const auto axes=*piston::basis(part.orientation);
-    const auto direction=axes[part.kind==C::drill_head ? 1 : 0];
+    const auto direction=axes[1];
     unsigned axis{};
     while (axis<3 && direction[axis]==0) ++axis;
     if (axis==3) return std::nullopt;
-    const bool gear=part.kind==C::copper_cog || part.kind==C::wooden_cog;
-    return mechanics::Part{id,gear?mechanics::Kind::gear:mechanics::Kind::shaft,
-        part.center,static_cast<mechanics::Axis>(axis),gear?2:0,gear?0:2};
+    return mechanics::Part{id,mechanics::Kind::shaft,
+        part.center,static_cast<mechanics::Axis>(axis),0,2};
+}
+namespace {
+const char* payload_refusal(const State& state, const std::string& parent,
+        mechanics::Part payload) {
+    const auto config=configuration(state,parent);
+    const auto progress=state.piston_progress.find(parent);
+    if (!config || progress==state.piston_progress.end()) return "unknown_piston";
+    if (progress->second.position!=0) return "retract_before_building";
+    if (!forward_payload(*config,payload.center)) return "attachment_requires_forward_socket";
+    payload.id="candidate";
+    const auto native=piston::spindles(*config,parent);
+    std::vector<mechanics::Part> parts{native[2],payload};
+    for (const auto& [id,other] : state.placed_components) if (other.parent==parent) {
+        if (other.center==payload.center) return "occupied";
+        if (auto rotor=spindle(id,other)) parts.push_back(*rotor);
+    }
+    for (const auto& other : state.topology.parts) if (other.parent==parent) {
+        if (other.geometry.center==payload.center) return "occupied";
+        parts.push_back(other.geometry);
+    }
+    const auto graph=mechanics::evaluate(parts,{});
+    if (!graph.accepted()) return "invalid_mechanics";
+    for (const auto& component : graph.components)
+        if (std::find(component.parts.begin(),component.parts.end(),payload.id)!=component.parts.end() &&
+            std::find(component.parts.begin(),component.parts.end(),native[2].id)!=component.parts.end()) return nullptr;
+    return "attachment_requires_connection";
+}
+}
+const char* placement_refusal(const State& state, const stationary::PlacedPart& part) {
+    if (part.parent.empty()) return nullptr;
+    if (part.role!=stationary::Role::shaft && part.role!=stationary::Role::gear)
+        return "unsupported_piston_attachment";
+    return payload_refusal(state,part.parent,part.geometry);
 }
 mechanics::Point displacement(const State& state, const std::string& parent) {
     if (parent.empty()) return {};
@@ -85,23 +115,18 @@ const char* placement_refusal(const State& state, const PlacedComponent& part) {
     if (!carried_kind(part.kind)) return "unsupported_piston_attachment";
     if (part.kind==C::drill_head && (*piston::basis(part.orientation))[1]!=P{0,1,0})
         return "drill_requires_vertical_input";
-    for (const auto& [id,other] : state.placed_components) {
-        (void)id;
-        if (other.parent==part.parent && other.center==part.center) return "occupied";
-    }
-    if (!forward_payload(*config,part)) return "attachment_requires_forward_socket";
     auto payload=spindle("candidate",part);
     if (!payload) return "invalid_orientation";
-    const auto native=piston::spindles(*config,part.parent);
-    std::vector<mechanics::Part> parts{native[2],*payload};
-    for (const auto& [id,other] : state.placed_components)
-        if (other.parent==part.parent) if (auto rotor=spindle(id,other)) parts.push_back(*rotor);
-    const auto graph=mechanics::evaluate(parts,{});
-    if (!graph.accepted()) return "invalid_mechanics";
-    for (const auto& component : graph.components)
-        if (std::find(component.parts.begin(),component.parts.end(),"candidate")!=component.parts.end() &&
-            std::find(component.parts.begin(),component.parts.end(),native[2].id)!=component.parts.end()) return nullptr;
-    return "attachment_requires_connection";
+    return payload_refusal(state,part.parent,*payload);
+}
+const char* reclaim_refusal(const State& state, const stationary::PlacedPart& part) {
+    if (part.parent.empty()) return nullptr;
+    const auto progress=state.piston_progress.find(part.parent);
+    if (progress==state.piston_progress.end()) return "unknown_piston";
+    if (progress->second.position!=0) return "retract_before_building";
+    auto candidate=state;
+    std::erase_if(candidate.topology.parts,[&](const auto& other) { return other.geometry.id==part.geometry.id; });
+    return valid(candidate) ? nullptr : "parts_on_piston";
 }
 const char* reclaim_refusal(const State& state, const std::string& id) {
     const auto found=state.placed_components.find(id);
@@ -118,6 +143,8 @@ const char* reclaim_refusal(const State& state, const std::string& id) {
             (void)key;
             if (other.parent==id) return "parts_on_piston";
         }
+        for (const auto& other : state.topology.parts)
+            if (other.parent==id) return "parts_on_piston";
     }
     if (!part.parent.empty()) {
         const auto config=configuration(state,part.parent);
@@ -146,10 +173,16 @@ bool valid(const State& state) {
                     if (child.orientation!=part.orientation || !sections.insert(child.center).second) return false;
                 } else {
                     const auto rotor=spindle(key,child);
-                    if (!rotor || !forward_payload(*config,child) || !payload_centers.insert(child.center).second ||
+                    if (!rotor || !forward_payload(*config,child.center) || !payload_centers.insert(child.center).second ||
                         (child.kind==C::drill_head && (*piston::basis(child.orientation))[1]!=P{0,1,0})) return false;
                     rotors.push_back(*rotor);
                 }
+            }
+            for (const auto& child : state.topology.parts) if (child.parent==id) {
+                if ((child.role!=stationary::Role::shaft && child.role!=stationary::Role::gear) ||
+                    !forward_payload(*config,child.geometry.center) ||
+                    !payload_centers.insert(child.geometry.center).second) return false;
+                rotors.push_back(child.geometry);
             }
             for (I n=0;n<config->segments;++n)
                 if (!sections.contains(piston::segment_center(*config,n))) return false;
@@ -162,6 +195,8 @@ bool valid(const State& state) {
                 (part.kind!=C::piston_segment && !carried_kind(part.kind))) return false;
         }
     }
+    for (const auto& part : state.topology.parts)
+        if (!part.parent.empty() && !configuration(state,part.parent)) return false;
     return bodies==state.piston_progress.size();
 }
 bool socket_reach_target(const Profile& profile,const State& state,const std::string& owner,
@@ -178,6 +213,8 @@ bool socket_reach_target(const Profile& profile,const State& state,const std::st
         parent=part->second.parent;
         if (part->second.kind==C::segmented_piston && socket->mechanical_part==owner+"/output") parent=owner;
     }
+    for (const auto& part : state.topology.parts)
+        if (part.geometry.id==owner) parent=part.parent;
     authority::Point base{};
     for (unsigned n=0;n<3;++n) base[n]=profile.anchor_offset[n]+reference[n]*profile.meters_per_grid_unit;
     if (parent.empty()) return base==target;
@@ -220,6 +257,8 @@ mechanics::Result power(const State& state, const std::vector<mechanics::Part>& 
         return mechanics::evaluate(parts,sources,belts,mechanics::SourcePolicy::overpower);
     std::map<std::string,std::vector<mechanics::Part>> frames;
     std::map<std::string,std::string> frame_for;
+    std::map<std::string,std::string> transmission_frames;
+    for (const auto& item : state.topology.parts) transmission_frames.emplace(item.geometry.id,item.parent);
     std::vector<mechanics::Engagement> edges;
     for (const auto& part : parts) {
         std::string frame;
@@ -229,6 +268,7 @@ mechanics::Result power(const State& state, const std::vector<mechanics::Part>& 
             frame=component->second.parent;
             if (component->second.kind==C::segmented_piston && part.id==component->first+"/output") frame=component->first;
         }
+        if (const auto found=transmission_frames.find(part.id);found!=transmission_frames.end()) frame=found->second;
         frame_for.emplace(part.id,frame);
         frames[frame].push_back(part);
     }

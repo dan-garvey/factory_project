@@ -1,4 +1,5 @@
 #include "factory/surface_drill.hpp"
+#include "factory/piston_assembly.hpp"
 #include "stationary_planner.hpp"
 #include "factory/stationary_target_command_contract.hpp"
 
@@ -16,12 +17,14 @@ using Role = stationary::Role;
 
 Value removed_part_value(const stationary::PlacedPart& part) {
     const auto& shape = part.geometry;
-    return Value(Object{{"role", Value(Integer{static_cast<int>(part.role)})},
+    Object result{{"role", Value(Integer{static_cast<int>(part.role)})},
         {"center", Value(Value::Array{Value(shape.center[0]), Value(shape.center[1]), Value(shape.center[2])})},
         {"axis", Value(Integer{static_cast<int>(shape.axis)})},
         {"teeth", Value(shape.teeth)}, {"half_span", Value(shape.half_span)},
         {"relay_axis", Value(Integer{static_cast<int>(shape.relay_axis)})},
-        {"rotation", Value(part.rotation)}, {"wheel_tiles", Value(part.wheel_tiles)}});
+        {"rotation", Value(part.rotation)}, {"wheel_tiles", Value(part.wheel_tiles)}};
+    if (!part.parent.empty()) result.emplace("parent", Value(part.parent));
+    return Value(std::move(result));
 }
 
 std::optional<materials::ResolvedTarget> material_target(
@@ -76,6 +79,7 @@ std::optional<StationaryCommand> stationary_command(
     if (const auto* value = field<Integer>(intent, "amount")) command.amount = *value;
     if (const auto* value = field<Integer>(intent, "work_id")) command.work_id = *value;
     if (const auto* value = field<bool>(intent, "enabled")) command.enabled = *value;
+    if (const auto* value = field<std::string>(intent, "parent")) command.parent = *value;
     command.has_rotation = intent.contains("rotation");
     command.has_wheel_tiles = intent.contains("wheel_tiles");
     command.has_relay_axis = intent.contains("relay_axis");
@@ -138,6 +142,10 @@ Owner::Decision plan_stationary(const Profile& profile, const Binding& binding,
         selected = part(state.topology, *id);
         if (!selected) return refused("unknown_target", *id);
         if (selected->generation != *generation) return refused("stale_generation", *id);
+        if (!selected->parent.empty()) {
+            if (command.action != Action::remove) return refused("unsupported_target", *id);
+            if (const auto* reason = piston_assembly::reclaim_refusal(state, *selected)) return refused(reason, *id);
+        }
         targets.push_back(anchor(profile, selected->geometry.center));
         if (command.action == Action::shaft_between ||
             command.action == Action::remove_shaft_between) {
@@ -169,7 +177,7 @@ Owner::Decision plan_stationary(const Profile& profile, const Binding& binding,
         command.action == Action::remove_shaft_between)
         return refused("individual_shaft_required", selected->geometry.id, std::move(facts));
     if (placing && std::any_of(state.topology.parts.begin(), state.topology.parts.end(), [&](const auto& existing) {
-            return existing.geometry.center == *location &&
+            return existing.parent == command.parent && existing.geometry.center == *location &&
                 (transmission_role(*selected_role) || transmission_role(existing.role));
         })) return refused("occupied", "", std::move(facts));
     if (placing) {
@@ -191,12 +199,14 @@ Owner::Decision plan_stationary(const Profile& profile, const Binding& binding,
             generation, *selected_role};
         placed.geometry.id = entity;
         placed.generation = generation;
+        placed.parent = command.parent;
+        if (const auto* reason = piston_assembly::placement_refusal(state, placed)) return refused(reason);
         if (command.rotation) placed.rotation = *command.rotation;
         if (placed.role == Role::waterwheel && command.wheel_tiles)
             placed.wheel_tiles = *command.wheel_tiles;
         for (const auto& [id, component] : state.placed_components) {
             (void)id;
-            if (component.kind == materials::Component::stationary_mount &&
+            if (placed.parent.empty() && component.kind == materials::Component::stationary_mount &&
                 surface_drill::reserved(component.center, placed.geometry.center))
                 return refused("mount_area_reserved");
         }

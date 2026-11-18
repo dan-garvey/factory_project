@@ -58,7 +58,7 @@ struct Fixture {
         move(6.6, 1, 11.55);
         for (int n=0; n<8; ++n) accepted("harvest_source", {{"target", V("tree-east-north")}});
         move(6.6,1,-1.65);
-        for (int n=0; n<4; ++n) accepted("harvest_source", {{"target", V("tree-east-upstream")}});
+        for (int n=0; n<8; ++n) accepted("harvest_source", {{"target", V("tree-east-upstream")}});
         move(-1.2375, 1, 0);
         for (int n=0; n<22; ++n)
             accepted("harvest_source", {{"target", V(factory::godot_world::tests::reachable_ore(host,"P"))}});
@@ -70,8 +70,42 @@ struct Fixture {
 };
 void horizontal_reuse() {
     Fixture f; f.stock();
-    for (const auto kind : {"copper_shaft","copper_cog"})
+    for (const auto kind : {"anvil","flat_head","slide"})
         f.accepted("craft_component",{{"entity",V("pod-fabrication-hub")},{"component",V(kind)}});
+    f.move(9.9,1,5.7);
+    f.accepted("place_foundation",{{"cell",V(A{V(I{4}),V(I{3})})},{"level",V(I{4})}});
+    std::vector<std::string> press_parts;
+    I level=4;
+    for (const auto kind : {"anvil","flat_head","slide"})
+        press_parts.push_back(get<std::string>(f.accepted("place_component",{{"component",V(kind)},
+            {"center",V(A{V(I{48}),V(level++),V(I{36})})}}),"entity"));
+    const auto press_crank=get<O>(f.host.projection(),"crank_items").begin()->first;
+    f.accepted("attach_hand_crank",{{"entity",V(press_parts.back())},{"crank",V(press_crank)},
+        {"port",V(A{V(I{46}),V(I{6}),V(I{36})})},{"face",V(A{V(I{-1}),V(I{0}),V(I{0})})}});
+    for (int n=0;n<2;++n) {
+        const auto press=get<A>(f.host.projection(),"sliding_press_assemblies").front();
+        const auto route=get<O>(press,"auto_feed");
+        f.accepted("feed_press",{{"entity",V(press_parts.front())},{"entry",route.at("entry")}});
+        bool collected=false;
+        for (int turn=0;turn<128 && !collected;++turn) {
+            f.accepted("operate_hand_crank",{{"entity",V(press_crank)}});
+            for (const auto& drop : get<A>(f.host.projection(),"dropped_material")) {
+                if (get<I>(drop,"products")!=1) continue;
+                auto expected=std::get<O>(drop.storage());
+                const auto center=expected.at("center");
+                expected.erase("center"); expected.erase("ground_position");
+                f.accepted("pickup_material",{{"center",center},{"expected",V(expected)}});
+                collected=true; break;
+            }
+        }
+        check(collected,"The starter press funds each canonical transmission kit with a real plate.");
+    }
+    f.accepted("detach_hand_crank",{{"entity",V(press_crank)}});
+    for (auto item=press_parts.rbegin();item!=press_parts.rend();++item)
+        f.accepted("reclaim_component",{{"entity",V(*item)}});
+    f.move(3.3,1,4.8);
+    f.accepted("craft_part",{{"entity",V("pod-fabrication-hub")},{"role",V("shaft")},{"half_span",V(I{2})}});
+    f.accepted("craft_part",{{"entity",V("pod-fabrication-hub")},{"role",V("gear")},{"teeth",V(I{2})},{"half_span",V(I{0})}});
     f.accepted("craft_part",{{"entity",V("pod-fabrication-hub")},{"role",V("vertical_gearbox")},{"half_span",V(I{0})}});
     f.accepted("craft_part",{{"entity",V("pod-fabrication-hub")},{"role",V("gearbox")},{"half_span",V(I{0})}});
     I orientation=-1;
@@ -87,8 +121,19 @@ void horizontal_reuse() {
     };
     const auto body=place("segmented_piston",40,"",orientation);
     place("piston_segment",36,body,orientation);
-    const auto shaft=place("copper_shaft",44,body,0);
-    const auto cog=place("copper_cog",48,body,0);
+    const auto invalid=f.command("place_shaft",{{"center",V(A{V(I{44}),V(I{0}),V(I{0})})},
+        {"axis",V("x")},{"half_span",V(I{2})},{"parent",V("missing")}});
+    check(!get<bool>(invalid,"accepted") && get<std::string>(invalid,"reason")=="unknown_piston",
+        "An unknown carriage cannot consume a canonical shaft kit.");
+    const auto shaft=get<std::string>(f.accepted("place_shaft",{{"center",V(A{V(I{44}),V(I{0}),V(I{0})})},
+        {"axis",V("x")},{"half_span",V(I{2})},{"parent",V(body)}}),"entity");
+    const auto cog=get<std::string>(f.accepted("place_gear",{{"center",V(A{V(I{48}),V(I{0}),V(I{0})})},
+        {"axis",V("x")},{"teeth",V(I{2})},{"parent",V(body)}}),"entity");
+    check(!get<bool>(f.command("remove",{{"entity",V(shaft)}}),"accepted"),
+        "Removing the shaft cannot strand the attached cog.");
+    const auto belt=f.command("select_belt_shaft",{{"entity",V(shaft)}});
+    check(!get<bool>(belt,"accepted") && get<std::string>(belt,"reason")=="moving_belt_not_supported",
+        "Unsupported moving belt setup refuses at its first selection.");
     const auto gearbox=get<std::string>(f.accepted("place_relay",{{"kind",V("vertical_gearbox")},
         {"center",V(A{V(I{40}),V(I{4}),V(I{0})})},{"axis",V("z")}}),"entity");
     const auto feed_box=get<std::string>(f.accepted("place_relay",{{"kind",V("gearbox")},
@@ -110,8 +155,11 @@ void horizontal_reuse() {
     };
     pulse(feed,1);
     check(progress()==256,"The feed gearbox advances horizontal travel independently of the tool gearbox.");
-    const auto moved=get<A>(get<O>(f.host.projection(),"placed_components").at(shaft),"position");
-    check(std::get<double>(moved[0].storage())>44*.20625,"Native projection moves the carried shaft.");
+    const auto reclaim=f.command("remove",{{"entity",V(cog)}});
+    check(!get<bool>(reclaim,"accepted") && get<std::string>(reclaim,"reason")=="retract_before_building",
+        "A moving cog retains its identity and cannot be reclaimed midstroke.");
+    const auto moved=get<A>(get<O>(f.host.projection(),"transmission_parts").at(shaft),"displacement");
+    check(std::get<double>(moved[0].storage())>0,"Native projection moves the canonical shaft.");
     pulse(tool,1);
     check(progress()==256,"Tool pulse leaves horizontal feed stopped.");
     f.move(11.05,.8,0);
@@ -125,8 +173,9 @@ void horizontal_reuse() {
     f.saveable("Horizontal displaced custody");
     pulse(reverse,20);
     check(progress()==0,"An external gearbox reverses through the same single feed face.");
-    f.accepted("reclaim_component",{{"entity",V(cog)}});
-    f.accepted("reclaim_component",{{"entity",V(shaft)}});
+    f.accepted("remove",{{"entity",V(cog)}});
+    f.accepted("remove",{{"entity",V(shaft)}});
+    f.saveable("Canonical shaft and cog return to their original kit identities");
 }
 void raised_support() {
     Fixture f; f.stock(); f.move(9.9,1,5.7);

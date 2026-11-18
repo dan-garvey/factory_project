@@ -95,10 +95,10 @@ void support_and_site_shapes() {
 
 void component_fit_and_belts() {
     check(geometry::slide_head_fitting(Component::flat_head, {0, 0, 0},
-                                      Component::wooden_slide, {0, 1, 0}),
+                                      Component::slide, {0, 1, 0}),
           "The fitted slide and flat head may share their conservative boxes.");
     check(!geometry::slide_head_fitting(Component::flat_head, {0, 0, 0},
-                                       Component::wooden_slide, {4, 1, 0}),
+                                       Component::slide, {4, 1, 0}),
           "A displaced slide cannot borrow the fitted-head exception.");
     check(geometry::workbed_tray_fitting(Component::anvil, {0, 0, 0},
                                         Component::receiver_tray, {1, 0, 0}) &&
@@ -111,7 +111,7 @@ void component_fit_and_belts() {
             factory::mechanics::Point shaft, Axis axis) {
         factory::world::State state;
         state.placed_components.emplace("slide", factory::world::PlacedComponent{
-            Component::wooden_slide, slide, 1});
+            Component::slide, slide, 1});
         return factory::world::rotary_connection(factory::world::drive_power({}, state), "slide",
             {"shaft", factory::mechanics::Kind::shaft, shaft, axis, 0, 2});
     };
@@ -121,13 +121,7 @@ void component_fit_and_belts() {
           !slide_connection({0, 2, 0}, {4, 2, 0}, Axis::z) &&
           !slide_connection({0, 2, 0}, {4, 4, 0}, Axis::x),
           "Only the slide-height X input may share the full-cell housing.");
-    check(geometry::shaft_meets_component_cog(Component::wooden_cog, {0, 0, 0},
-                                             {2, 0, 0}, Axis::x),
-          "The fitted shaft end can enter its component cog hub.");
-    check(!geometry::shaft_meets_component_cog(Component::wooden_cog, {0, 0, 0},
-                                              {2, 0, 0}, Axis::z),
-          "A perpendicular shaft cannot use the fitted-cog exception.");
-    const Part lower{"lower", Kind::shaft, {0, 0, 0}, Axis::x, 0, 2};
+     const Part lower{"lower", Kind::shaft, {0, 0, 0}, Axis::x, 0, 2};
     const Part upper{"upper", Kind::shaft, {0, 4, 4}, Axis::x, 0, 2};
     check(geometry::belt_bounds(lower, upper).size() == 16,
           "The 45-degree belt uses narrow sections across its complete loop.");

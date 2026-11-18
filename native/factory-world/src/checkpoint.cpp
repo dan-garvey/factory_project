@@ -213,7 +213,7 @@ Value topology_value(const stationary::Topology& topology) {
     Array parts, links, sources, belt_spans;
     for (const auto& part : topology.parts) {
         const auto& geometry = part.geometry;
-        parts.emplace_back(Object{
+        Object encoded{
             {"id", Value(geometry.id)}, {"generation", Value(part.generation)},
             {"role", Value(static_cast<Integer>(part.role))},
             {"kind", Value(static_cast<Integer>(geometry.kind))},
@@ -221,7 +221,9 @@ Value topology_value(const stationary::Topology& topology) {
             {"relay_axis", Value(static_cast<Integer>(geometry.relay_axis))},
             {"center", Value(Array{Value(geometry.center[0]), Value(geometry.center[1]), Value(geometry.center[2])})},
             {"teeth", Value(geometry.teeth)}, {"half_span", Value(geometry.half_span)},
-            {"wheel_tiles", Value(part.wheel_tiles)}, {"rotation", Value(part.rotation)}});
+            {"wheel_tiles", Value(part.wheel_tiles)}, {"rotation", Value(part.rotation)}};
+        if (!part.parent.empty()) encoded.emplace("parent", Value(part.parent));
+        parts.emplace_back(std::move(encoded));
     }
     for (const auto& link : topology.material_links)
         links.emplace_back(Object{{"from", ref_value(link.from)}, {"to", ref_value(link.to)}});
@@ -242,8 +244,10 @@ stationary::Topology decode_topology(const Value& value) {
     stationary::Topology topology;
     topology.drive_enabled = scalar<bool>(input.at("drive_enabled"), path + ".drive_enabled");
     for (const auto& value_part : array(input.at("parts"), path + ".parts", mechanics::maximum_parts)) {
-        const auto& entry = fields(value_part, path + ".parts",
-            {"id", "generation", "role", "kind", "axis", "relay_axis", "center", "teeth", "half_span", "wheel_tiles", "rotation"});
+        const bool moving = object(value_part, path + ".parts").contains("parent");
+        const auto& entry = fields(value_part, path + ".parts", moving ?
+            std::initializer_list<std::string_view>{"id", "generation", "role", "kind", "axis", "relay_axis", "center", "teeth", "half_span", "wheel_tiles", "rotation", "parent"} :
+            std::initializer_list<std::string_view>{"id", "generation", "role", "kind", "axis", "relay_axis", "center", "teeth", "half_span", "wheel_tiles", "rotation"});
         const auto& center = array(entry.at("center"), path + ".parts.center", 3);
         if (center.size() != 3) refuse(CheckpointReason::invalid_world, path + ".parts.center");
         topology.parts.push_back({{
@@ -258,6 +262,10 @@ stationary::Topology decode_topology(const Value& value) {
             integer(entry, "generation", path + ".parts"),
             enumeration<stationary::Role>(entry, "role", 8, path + ".parts"),
             integer(entry, "wheel_tiles", path + ".parts"), integer(entry, "rotation", path + ".parts")});
+        if (moving) {
+            topology.parts.back().parent = scalar<std::string>(entry.at("parent"), path + ".parts.parent");
+            if (topology.parts.back().parent.empty()) refuse(CheckpointReason::invalid_world, path + ".parts.parent");
+        }
     }
     for (const auto& value_link : array(input.at("links"), path + ".links", 2)) {
         const auto& entry = fields(value_link, path + ".links", {"from", "to"});

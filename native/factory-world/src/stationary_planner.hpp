@@ -28,6 +28,7 @@ struct StationaryCommand {
     std::optional<authority::Integer> amount;
     std::optional<authority::Integer> work_id;
     std::optional<bool> enabled;
+    std::string parent;
     bool has_rotation{};
     bool has_wheel_tiles{};
     bool has_relay_axis{};

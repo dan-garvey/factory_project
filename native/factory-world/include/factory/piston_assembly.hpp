@@ -11,6 +11,8 @@ namespace factory::world::piston_assembly {
 [[nodiscard]] authority::Point position(const Profile&, const State&, const PlacedComponent&);
 [[nodiscard]] mechanics::Point displacement(const State&, const std::string& parent);
 [[nodiscard]] const char* placement_refusal(const State&, const PlacedComponent&);
+[[nodiscard]] const char* placement_refusal(const State&, const stationary::PlacedPart&);
+[[nodiscard]] const char* reclaim_refusal(const State&, const stationary::PlacedPart&);
 [[nodiscard]] const char* reclaim_refusal(const State&, const std::string&);
 [[nodiscard]] bool advance(State&, const DrivePower&, const ObservePiston&);
 // Contacts are evaluated inside each rigid frame. The only cross-frame power

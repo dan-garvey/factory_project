@@ -123,9 +123,9 @@ Object fields(const world::Profile& profile, const world::State& state) {
             for (const auto& port:ports) {
                 mechanics::Point center=port.position;
                 for (unsigned n=0;n<3;++n) center[n]+=port.outward[n]*2;
-                for (const auto kind:{materials::Component::drill_head,materials::Component::copper_shaft,materials::Component::copper_cog}) {
+                for (const auto kind:{materials::Component::drill_head}) {
                     for (Integer orientation=0;orientation<24;++orientation) {
-                        const auto axis=(*piston::basis(orientation))[kind==materials::Component::drill_head?1:0];
+                        const auto axis=(*piston::basis(orientation))[1];
                         if (axis!=port.outward && axis!=mechanics::Point{-port.outward[0],-port.outward[1],-port.outward[2]}) continue;
                         if (kind==materials::Component::drill_head && axis!=mechanics::Point{0,1,0}) continue;
                         offer(kind,center,orientation,parent); break;

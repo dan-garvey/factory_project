@@ -27,11 +27,11 @@ void unloaded_slide_shaft_is_native_drive_part() {
     state.topology.parts = {
         {{"wheel", m::Kind::hub, {-4, 4, 0}, m::Axis::x, 0, 0}, 1, s::Role::waterwheel}};
     state.topology.sources = {{"wheel", {1, 1}}};
-    add(state, "slide", mat::Component::wooden_slide, {0, 4, 0});
+    add(state, "slide", mat::Component::slide, {0, 4, 0});
     const auto driven = w::drive_power(profile, state);
     check(driven.mechanical.accepted() && driven.mechanical.motion.contains("slide") &&
           driven.mechanical.motion.at("slide").state == m::MotionState::rotating &&
-          driven.load.at("slide").capacity == 8 && driven.load.at("slide").impact == 4,
+          driven.load.at("slide").capacity == 24 && driven.load.at("slide").impact == 4,
           "One placed slide supplies its own rated shaft to an external drive.");
     state.topology.drive_enabled = false;
     const auto stopped = w::drive_power(profile, state);
@@ -49,13 +49,13 @@ void fitted_slide_accepts_same_height_external_route() {
                 m::Axis::x, 0, 2}, 1, s::Role::shaft}};
         add(state, "anvil", mat::Component::anvil, {0, floor, 0});
         add(state, "head", mat::Component::flat_head, {0, floor + 1, 0});
-        add(state, "slide", mat::Component::wooden_slide, {0, floor + 2, 0});
+        add(state, "slide", mat::Component::slide, {0, floor + 2, 0});
         const auto power = w::hand_crank_power(profile, state, "slide", {2, floor + 2, 0});
         check(power.mechanical.accepted() &&
               power.mechanical.motion.at("external-shaft").state == m::MotionState::rotating &&
               power.mechanical.motion.at("slide").state == m::MotionState::rotating &&
               power.mechanical.motion.at("slide").rate.numerator == 1 &&
-              power.load.at("slide").capacity == 8 &&
+              power.load.at("slide").capacity == 12 &&
               power.load.at("slide").impact == 8 &&
               state.placed_components.size() == 3,
             "A ground or raised crank drives the fitted slide and external H-layer shaft.");
@@ -70,10 +70,10 @@ void fitted_slide_accepts_same_height_external_route() {
 void held_crank_uses_slide_input_graph() {
     w::Profile profile;
     w::State state;
-    add(state, "slide", mat::Component::wooden_slide, {0, 2, 0});
+    add(state, "slide", mat::Component::slide, {0, 2, 0});
     const auto idle = w::hand_crank_power(profile, state, "slide", {2, 2, 0});
     check(idle.mechanical.accepted() && idle.mechanical.motion.at("slide").state ==
-              m::MotionState::rotating && idle.load.at("slide").capacity == 8 &&
+              m::MotionState::rotating && idle.load.at("slide").capacity == 12 &&
           idle.load.at("slide").impact == 4,
           "The held crank engages the unchanged integral shaft through its exposed X port.");
     add(state, "anvil", mat::Component::anvil, {0, 0, 0});
@@ -81,8 +81,8 @@ void held_crank_uses_slide_input_graph() {
     const auto loaded = w::hand_crank_power(profile, state, "slide", {2, 2, 0});
     check(loaded.mechanical.accepted() && loaded.mechanical.motion.at("slide").state ==
               m::MotionState::rotating && loaded.load.at("slide").impact == 8 &&
-          loaded.load.at("slide").capacity == 8,
-          "Actual flat-head contact consumes the wooden slide's remaining rated load.");
+          loaded.load.at("slide").capacity == 12,
+          "Actual flat-head contact adds load within the crank source capacity.");
     check(!w::hand_crank_power(profile, state, "slide", {0, 3, 0}).mechanical.accepted(),
           "A top face cannot impersonate the integral X-axis input.");
     state.placed_components.at("head").center[0] = 1;
@@ -90,13 +90,34 @@ void held_crank_uses_slide_input_graph() {
     check(detached.load.at("slide").impact == 4,
           "A displaced head does not create invisible contact load.");
     state.placed_components.at("head").center[0] = 0;
-    add(state, "linked-slide", mat::Component::wooden_slide, {4, 2, 0});
+    add(state, "linked-slide", mat::Component::slide, {4, 2, 0});
+    const auto shared = w::hand_crank_power(profile, state, "slide", {-2, 2, 0});
+    check(shared.mechanical.motion.at("linked-slide").state == m::MotionState::rotating &&
+          shared.load.at("slide").impact == 12 && shared.load.at("slide").capacity == 12,
+          "The same slide connects a second load without a material upgrade.");
+    add(state, "third-slide", mat::Component::slide, {8, 2, 0});
     const auto overloaded = w::hand_crank_power(profile, state, "slide", {-2, 2, 0});
     check(overloaded.mechanical.accepted() &&
           overloaded.mechanical.motion.at("slide").state == m::MotionState::stalled &&
-          overloaded.load.at("slide").overloaded && overloaded.load.at("slide").impact == 12 &&
-          overloaded.load.at("slide").capacity == 8,
-          "The issued crank cannot bypass a wooden bottleneck on a second connected load.");
+          overloaded.load.at("slide").overloaded && overloaded.load.at("slide").impact == 16 &&
+          overloaded.load.at("slide").capacity == 12,
+          "The finite crank source stalls when connected slides exceed its capacity.");
+    state.topology.drive_enabled = true;
+    state.topology.parts = {
+        {{"wheel", m::Kind::hub, {-4, 2, 0}, m::Axis::x}, 1, s::Role::waterwheel}};
+    state.topology.sources = {{"wheel", {1, 1}}};
+    const auto powered = w::drive_power(profile, state);
+    check(powered.mechanical.motion.at("third-slide").state == m::MotionState::rotating &&
+          powered.load.at("slide").capacity == 24 && powered.load.at("slide").impact == 16,
+          "Routing external power drives all three unchanged slides within their common rating.");
+    state.topology.parts.clear();
+    state.topology.sources.clear();
+    state.placed_components.at("third-slide").center = {8, 2, 4};
+    const auto split = w::hand_crank_power(profile, state, "slide", {-2, 2, 0});
+    check(split.mechanical.motion.at("slide").state == m::MotionState::rotating &&
+          split.load.at("slide").impact == 12 &&
+          split.mechanical.motion.at("third-slide").state != m::MotionState::rotating,
+          "Splitting the disconnected load restores the same finite crank route without replacing parts.");
 }
 
 void carriage_phase_tracks_signed_fractional_shaft_travel() {
@@ -126,10 +147,10 @@ int main() {
         fitted_slide_accepts_same_height_external_route();
         held_crank_uses_slide_input_graph();
         carriage_phase_tracks_signed_fractional_shaft_travel();
-        std::cout << "material_strength_test: " << checks << " checks passed\n";
+        std::cout << "drive_capacity_test: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "material_strength_test: " << error.what() << '\n';
+        std::cerr << "drive_capacity_test: " << error.what() << '\n';
         return 1;
     }
 }

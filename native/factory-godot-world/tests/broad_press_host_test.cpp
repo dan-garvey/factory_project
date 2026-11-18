@@ -100,11 +100,15 @@ void sized_workbed_custody() {
               "accepted"), "The broad-size fixture starts with finite native material.");
     I epoch = 0;
     pose(host, -0.5, 0.0, ++epoch);
-    harvest_ore(host, 31, "size-ore-");
+    harvest_ore(host, 15, "size-ore-");
+    pose(host, 6.0, 3.45, ++epoch);
+    harvest(host, "tree-east-south", 8, "size-slide-timber-");
+    pose(host, 6.0, 11.55, ++epoch);
+    harvest(host, "tree-east-north", 4, "size-slide-more-timber-");
     pose_at_pod(host, ++epoch);
     craft(host, "anvil", 4);
     craft(host, "flat_head", 4);
-    craft(host, "copper_slide", 4);
+    craft(host, "slide", 4);
     const auto before = host.projection();
     auto no_recipe = request("size-no-recipe", "craft_component");
     no_recipe.emplace("entity", V("pod-fabrication-hub"));
@@ -122,7 +126,7 @@ void sized_workbed_custody() {
         "The craft refusal leaves finite material and world state intact.");
     pose(host, 3.3, 1.65, ++epoch);
     auto unsupported_housing = request("size-slide-without-bed", "place_component");
-    unsupported_housing.emplace("component", V("broad_copper_slide"));
+    unsupported_housing.emplace("component", V("broad_slide"));
     unsupported_housing.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
     const auto before_housing = host.projection();
     const auto housing_refusal = host.command("P", unsupported_housing);
@@ -142,7 +146,7 @@ void sized_workbed_custody() {
     const auto installed_head = accepted(host, head);
     const auto head_id = get<std::string>(installed_head, "entity");
     auto slide = request("size-place-slide", "place_component");
-    slide.emplace("component", V("broad_copper_slide"));
+    slide.emplace("component", V("broad_slide"));
     slide.emplace("center", V(A{V(I{12}), V(I{4}), V(I{0})}));
     const auto installed_slide = accepted(host, slide);
     const auto slide_id = get<std::string>(installed_slide, "entity");
@@ -199,7 +203,7 @@ void sized_workbed_custody() {
           get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
               "components")), "flat_head") == 4 &&
           get<I>(V(get<O>(get<O>(restored.projection(), "cargo").at("P"),
-              "components")), "copper_slide") == 4,
+              "components")), "slide") == 4,
         "Reclaim restores four carried parts of each broad kind after a fresh-process reopen.");
     auto raised = bed;
     raised.at("request") = V("size-raised-before-support");

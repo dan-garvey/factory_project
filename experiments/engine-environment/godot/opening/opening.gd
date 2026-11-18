@@ -567,6 +567,7 @@ func _transmission_terrain_level(point: Vector3, x: float, z: float) -> int:
 func _transmission_center(screen: Vector2) -> Array:
 	if transmission_controls == null:
 		return []
+	transmission_controls.snapped_parent = ""
 	var origin := camera.project_ray_origin(screen)
 	var hit := _screen_pick(screen)
 	if not hit.is_empty():
@@ -632,8 +633,15 @@ func _belt_pulley_target(entity_id: String, hit_position: Vector3) -> Array:
 func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3, hit_position: Vector3 = Vector3.ZERO) -> Array:
 	# Pick bodies identify confirmed construction. Use their common grid height
 	# when following surfaces; the menu can still choose an absolute air level.
-	if transmission_controls.active_tool in ["place_shaft", "gearbox", "vertical_gearbox"] and state.get("rotary_ports", {}).has(entity_id):
-		var consumer := "shaft" if transmission_controls.active_tool == "place_shaft" else "gearbox"
+	transmission_controls.snapped_parent = ""
+	var carried := str(state.get("transmission_parts", {}).get(entity_id, {}).get("parent", ""))
+	var moving_target: bool = not carried.is_empty() or state.get("placed_components", {}).get(entity_id, {}).get("component") == "segmented_piston"
+	var carried_part: Dictionary = state.get("transmission_parts", {}).get(entity_id, {})
+	var mesh_side: bool = not carried.is_empty() and transmission_controls.active_tool == "gear" \
+		and carried_part.get("kind") == "gear" and absf(normal[int(carried_part.axis)]) < 0.5
+	if (transmission_controls.active_tool in ["place_shaft", "gearbox", "vertical_gearbox"] \
+			or (transmission_controls.active_tool == "gear" and moving_target and not mesh_side)) and state.get("rotary_ports", {}).has(entity_id):
+		var consumer := "shaft" if transmission_controls.active_tool in ["place_shaft", "gear"] else "gearbox"
 		var port := _rotary_snap(entity_id, consumer, {"position": hit_position})
 		if port.is_empty():
 			return []
@@ -641,6 +649,7 @@ func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3,
 			if socket.position != port:
 				continue
 			var center := port.duplicate()
+			transmission_controls.snapped_parent = str(socket.get("parent", ""))
 			for axis in 3:
 				center[axis] += int(socket.outward[axis]) * (transmission_controls.shaft_half_span if consumer == "shaft" else 2)
 			transmission_controls.snapped_height = center[1]
@@ -650,6 +659,10 @@ func _transmission_snap_target(entity_id: String, normal: Vector3, eye: Vector3,
 	if transmission_controls.active_tool in ["place_shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
 		var part: Variant = state.get("transmission_parts", {}).get(entity_id)
 		if part is Dictionary and part.get("kind") in ["shaft", "gear", "gearbox", "vertical_gearbox", "chain_drive"]:
+			if not carried.is_empty():
+				if transmission_controls.active_tool not in ["gear", "place_shaft"] or state.placed_components[carried].piston.position_ticks != 0:
+					return []
+				transmission_controls.snapped_parent = carried
 			var center: Variant = part.get("center")
 			if not center is Array or center.size() != 3 or not normal.is_finite():
 				return []
@@ -1447,7 +1460,7 @@ func _input(event: InputEvent) -> void:
 			var kind: String = arrival_assembly_controls.selected_name() \
 				if arrival_assembly_controls != null else ""
 			var stride := Geometry.HEIGHT_DENOMINATOR if axis != 1 and kind in [
-				"anvil", "flat_head", "wooden_slide", "copper_slide"] else 1
+				"anvil", "flat_head", "slide"] else 1
 			var step := stride if event.keycode in [KEY_RIGHT, KEY_UP, KEY_PAGEUP] else -stride
 			component_nudge_center[axis] = clampi(int(component_nudge_center[axis]) + step,
 				-Geometry.GRID_COORDINATE_LIMIT, Geometry.GRID_COORDINATE_LIMIT)
@@ -1489,7 +1502,7 @@ func _input(event: InputEvent) -> void:
 					if mode == "component" and arrival_assembly_controls != null \
 							and arrival_assembly_controls.selected_name() in [
 								"anvil", "broad_anvil", "flat_head", "broad_flat_head",
-								"copper_slide", "broad_copper_slide"]:
+								"slide", "broad_slide"]:
 						_toggle_component_footprint()
 						handled = true
 					elif foundation_area_toggle.is_visible_in_tree() and not foundation_area_toggle.disabled:
@@ -1626,9 +1639,9 @@ func _select_tool(tool: String) -> void:
 				instructions["component"] = "Aim at a clear 2×2 floor area. Click once to place four carried anvils as one workbed."
 			elif component_kind == "broad_flat_head":
 				instructions["component"] = "Aim at the 2×2 workbed. Click to fit four carried flat heads as one face."
-			elif component_kind == "broad_copper_slide":
-				instructions["component"] = "Aim at the 2×2 head. Click to fit four carried copper slides as one housing with a central piston."
-			elif component_kind in ["wooden_slide", "copper_slide"]:
+			elif component_kind == "broad_slide":
+				instructions["component"] = "Aim at the 2×2 head. Click to fit four carried slides as one housing with a central piston."
+			elif component_kind in ["slide"]:
 				instructions["component"] = "Aim at the anvil or flat head to show the slide at press height. Click to fit the amber ghost; red means blocked."
 	_message(instructions.get(tool,
 		"Place %s on an empty grid square." % NAMES.get(tool, tool)))
@@ -2701,7 +2714,9 @@ func _rotary_snap(pointed: String, kind: String, hit: Dictionary) -> Array:
 	var score := INF
 	for socket: Dictionary in state.get("rotary_ports", {}).get(pointed, {}).get("ports", []):
 		if kind != "hand_crank" and socket.get("moving_frame", false):
-			continue
+			var parent := str(socket.get("parent", ""))
+			if kind != "shaft" or parent.is_empty() or state.get("placed_components", {}).get(parent, {}).get("piston", {}).get("position_ticks", -1) != 0:
+				continue
 		if not socket.get("open", false) or (kind == "hand_crank" and not socket.get("hand_crank", false)):
 			continue
 		if kind == "shaft":
@@ -2721,32 +2736,29 @@ func _rotary_snap(pointed: String, kind: String, hit: Dictionary) -> Array:
 	return best
 
 func _sliding_press_part_snap(kind: String, pointed_kind: String, center: Array,
-		normal: Vector3) -> Dictionary:
+		_normal: Vector3) -> Dictionary:
 	# The press's working offsets are larger than a one-step face snap. Use the
 	# part the player can actually point at to expose its next fitted socket.
 	if kind == "drill_head" and pointed_kind == "stationary_mount":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Centered tool socket"}
 	if kind == "flat_head" and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Head over workbed"}
-	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "anvil":
+	if kind in ["slide"] and pointed_kind == "anvil":
 		return {"center": [center[0], center[1] + 2, center[2]], "label": "Slide over workbed"}
 	if kind == "broad_flat_head" and pointed_kind == "broad_anvil":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "2×2 head over workbed"}
-	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "flat_head":
+	if kind in ["slide"] and pointed_kind == "flat_head":
 		return {"center": [center[0], center[1] + 1, center[2]], "label": "Slide over head"}
-	if kind in ["wooden_slide", "copper_slide"] and pointed_kind == "broad_flat_head":
+	if kind in ["slide"] and pointed_kind == "broad_flat_head":
 		return {}
-	if kind == "broad_copper_slide" and pointed_kind == "broad_flat_head":
+	if kind == "broad_slide" and pointed_kind == "broad_flat_head":
 		return {"center": [center[0], center[1] + 3, center[2]],
 			"label": "2×2 housing over broad head"}
-	if kind in ["wooden_shaft", "copper_shaft"] and pointed_kind in ["wooden_slide", "copper_slide"]:
-		var side := 1 if normal.x >= 0.0 else -1
-		return {"center": [center[0] + 4 * side, center[1], center[2]],
-			"label": "Slide input shaft"}
 	return {}
 
 func _piston_attachment(kind: String, pointed: String) -> Dictionary:
-	var record: Dictionary = state.get("placed_components", {}).get(pointed, {})
+	var record: Dictionary = state.get("placed_components", {}).get(pointed,
+		state.get("transmission_parts", {}).get(pointed, {}))
 	var chosen: Dictionary = {}
 	var score := INF
 	var hit := _screen_pick(_pointed_screen_position())
@@ -2793,10 +2805,7 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 			var normal: Vector3 = hit.normal
 			var center: Array = placed[pointed].center.duplicate()
 			var kind: String = arrival_assembly_controls.selected_name() if arrival_assembly_controls != null else ""
-			if kind in ["wooden_shaft", "copper_shaft", "wooden_cog", "copper_cog"] \
-					and placed[pointed].get("component", "") == "anvil":
-				return []
-			if kind == "flat_head" and str(placed[pointed].component) in ["wooden_slide", "copper_slide"]:
+			if kind == "flat_head" and str(placed[pointed].component) in ["slide"]:
 				return [center[0], center[1] - 1, center[2]]
 			var press_snap := _sliding_press_part_snap(kind, str(placed[pointed].component), center, normal)
 			if not press_snap.is_empty():
@@ -2807,7 +2816,7 @@ func _component_place_center(cell: Vector2i, pointed: String, use_nudge := true)
 			elif absf(normal.z) > absf(normal.x):
 				axis = 2
 			var stride := Geometry.HEIGHT_DENOMINATOR if axis != 1 and kind in [
-					"anvil", "flat_head", "wooden_slide", "copper_slide"] else 1
+					"anvil", "flat_head", "slide"] else 1
 			center[axis] += stride if normal[axis] >= 0.0 else -stride
 			return center
 	return [cell.x * Geometry.HEIGHT_DENOMINATOR,
@@ -2827,8 +2836,8 @@ func _component_area_bounds_allowed(kind: String, center: Array) -> bool:
 			int(center[0]) % Geometry.HEIGHT_DENOMINATOR != 0 or
 			int(center[2]) % Geometry.HEIGHT_DENOMINATOR != 0):
 		return false
-	if kind not in ["anvil", "flat_head", "wooden_slide", "copper_slide",
-			"broad_anvil", "broad_flat_head", "broad_copper_slide"]:
+	if kind not in ["anvil", "flat_head", "slide",
+			"broad_anvil", "broad_flat_head", "broad_slide"]:
 		return true
 	var box := _component_candidate_box(kind, center)
 	return absf(box.center.x) + box.half.x <= ProductionEnvironment.Surface.HALF \
@@ -2838,12 +2847,12 @@ func _toggle_component_footprint() -> void:
 	if mode != "component" or arrival_assembly_controls == null \
 			or arrival_assembly_controls.selected_name() not in [
 				"anvil", "broad_anvil", "flat_head", "broad_flat_head",
-				"copper_slide", "broad_copper_slide"]:
+				"slide", "broad_slide"]:
 		return
 	var next_kind: String = {
 		"anvil": "broad_anvil", "broad_anvil": "anvil",
 		"flat_head": "broad_flat_head", "broad_flat_head": "flat_head",
-		"copper_slide": "broad_copper_slide", "broad_copper_slide": "copper_slide",
+		"slide": "broad_slide", "broad_slide": "slide",
 	}[arrival_assembly_controls.selected_name()]
 	if not arrival_assembly_controls.select_component_name(next_kind):
 		return
@@ -2936,13 +2945,13 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
 				Geometry.PITCH * 0.5)
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
-		"broad_copper_slide":
+		"broad_slide":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - 4.0 * Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + Geometry.ANCHOR_HEIGHT
 			occupied += Vector3(Geometry.PITCH * 0.5, (low + high) * 0.5 - occupied.y,
 				Geometry.PITCH * 0.5)
 			half = Vector3(Geometry.PITCH, (high - low) * 0.5, Geometry.PITCH)
-		"wooden_slide", "copper_slide":
+		"slide":
 			var low: float = float(center[1]) * Geometry.HEIGHT_STEP - 2.0 * Geometry.HEIGHT_STEP + Geometry.PRESS_WORK_HEIGHT
 			var high := at.y + 0.08 * press_scale
 			occupied.y = (low + high) * 0.5
@@ -2959,11 +2968,6 @@ func _component_candidate_box(kind: String, center: Array) -> Dictionary:
 			occupied.y -= Geometry.HEIGHT_STEP * 0.20
 			half = Vector3(Geometry.PITCH * 0.11, Geometry.HEIGHT_STEP * 0.36,
 				Geometry.PITCH * 0.124)
-		"wooden_shaft", "copper_shaft":
-			half = Vector3(0.205, 0.12, 0.205) * press_scale
-		"wooden_cog", "copper_cog":
-			half = Vector3(Geometry.HEIGHT_STEP - 0.205 * press_scale,
-				0.14 * press_scale, Geometry.HEIGHT_STEP - 0.205 * press_scale)
 	return {"center": occupied, "half": half, "size": half * 2.0}
 
 func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) -> bool:
@@ -2976,7 +2980,7 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 				found = true
 		if not found:
 			return true
-	if kind == "broad_copper_slide":
+	if kind == "broad_slide":
 		var supported := false
 		for part: Dictionary in state.get("placed_components", {}).values():
 			if part.get("component") == "broad_anvil" \
@@ -2997,11 +3001,11 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 			if kind == "drill_head" and part.component == "stationary_mount" and part_center == [center[0], center[1] - 1, center[2]]:
 				paired_ids[id] = true
 				continue
-			if kind == "broad_flat_head" and part.component == "broad_copper_slide" \
+			if kind == "broad_flat_head" and part.component == "broad_slide" \
 					and part_center == [center[0], center[1] + 3, center[2]]:
 				paired_ids[id] = true
 				continue
-			if kind == "broad_copper_slide" and part.component == "broad_flat_head" \
+			if kind == "broad_slide" and part.component == "broad_flat_head" \
 					and center == [part_center[0], part_center[1] + 3, part_center[2]]:
 				paired_ids[id] = true
 				continue
@@ -3014,9 +3018,9 @@ func _component_candidate_blocked(kind: String, center: Array, box: Dictionary) 
 				continue
 			if part_center[0] != center[0] or part_center[2] != center[2]:
 				continue
-			if (kind == "flat_head" and part.component in ["wooden_slide", "copper_slide"]
+			if (kind == "flat_head" and part.component in ["slide"]
 					and part_center[1] == center[1] + 1) or \
-					(kind in ["wooden_slide", "copper_slide"] and part.component == "flat_head"
+					(kind in ["slide"] and part.component == "flat_head"
 					and part_center[1] == center[1] - 1) or \
 				(kind == "anvil" and part.component == "wooden_frame"
 					and part_center[1] == center[1] - 1) or \
@@ -3077,8 +3081,8 @@ func _refresh_component_preview() -> void:
 	var kind: String = arrival_assembly_controls.selected_name()
 	var carried_kind := "anvil" if kind == "broad_anvil" else \
 		"flat_head" if kind == "broad_flat_head" else \
-		"copper_slide" if kind == "broad_copper_slide" else kind
-	var needed := 4 if kind in ["broad_anvil", "broad_flat_head", "broad_copper_slide"] else 1
+		"slide" if kind == "broad_slide" else kind
+	var needed := 4 if kind in ["broad_anvil", "broad_flat_head", "broad_slide"] else 1
 	if int(state.get("cargo", {}).get(client, {}).get("components", {}).get(carried_kind, 0)) < needed:
 		return
 	var pointed := _screen_entity(_pointed_screen_position()) if not component_nudge_active else ""
@@ -3126,10 +3130,7 @@ func _refresh_component_preview() -> void:
 		if component_preview_pose_key != preview_key:
 			for child in component_preview.get_children():
 				child.free()
-			if kind in ["copper_shaft", "wooden_shaft", "copper_cog", "wooden_cog"]:
-				transmission_presenter._carried_rotor(component_preview, kind)
-			else:
-				transmission_presenter.preview_component(component_preview, kind, box.size)
+			transmission_presenter.preview_component(component_preview, kind, box.size)
 			component_preview_pose_key = preview_key
 			component_preview_material = StandardMaterial3D.new()
 			component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -3158,8 +3159,8 @@ func _refresh_component_preview() -> void:
 			else "Beside %s" % pointed_kind.replace("_", " "))
 		if press_snap_target != null and not press_snap.is_empty() \
 				and (kind in ["flat_head", "broad_flat_head"] and pointed_kind in ["anvil", "broad_anvil"] \
-				or kind in ["wooden_slide", "copper_slide"] and pointed_kind in ["anvil", "flat_head"]
-				or kind == "broad_copper_slide" and pointed_kind == "broad_flat_head"):
+				or kind in ["slide"] and pointed_kind in ["anvil", "flat_head"]
+				or kind == "broad_slide" and pointed_kind == "broad_flat_head"):
 			var target_box := _component_candidate_box(pointed_kind, state.placed_components[pointed].center)
 			press_snap_target.position = target_box.center + Vector3.UP * (target_box.half.y + 0.015)
 			press_snap_target.scale = Vector3(target_box.half.x / 0.77, 1.0, target_box.half.z / 0.77)
@@ -3235,12 +3236,10 @@ func _component_placement_hint() -> String:
 	var kind: String = arrival_assembly_controls.selected_name()
 	var stack_hint := "Aim at a clear 2×2 floor area; uses four anvils" if kind == "broad_anvil" else \
 		"Aim at the 2×2 workbed; uses four flat heads" if kind == "broad_flat_head" else \
-		"Aim at the 2×2 head; uses four copper slides" if kind == "broad_copper_slide" else \
+		"Aim at the 2×2 head; uses four slides" if kind == "broad_slide" else \
 		"Aim at a floor or built surface" if kind == "anvil" else \
 		"Aim at the anvil to place the head above" if kind == "flat_head" else \
-		"Aim at the anvil or flat head to place the slide above" if kind in ["wooden_slide", "copper_slide"] else \
-		"Press drive: aim at a slide input" if kind in ["wooden_shaft", "copper_shaft"] else \
-		"Press drive: aim at anvil side or shaft end" if kind in ["wooden_cog", "copper_cog"] else \
+		"Aim at the anvil or flat head to place the slide above" if kind in ["slide"] else \
 		"Point at a part face to snap"
 	return "%s\n%s · %s\nAlt + arrows / PgUp / PgDn nudges" % [location, action, stack_hint]
 
@@ -5065,7 +5064,7 @@ func _confirmed_drive_status(motion: Variant) -> String:
 		var limiting: Variant = motion.get("limiting_part", "")
 		if limiting is String and not limiting.is_empty():
 			var part_kind: String = str(motion.get("limiting_kind", "drive part")).replace("_", " ").capitalize()
-			description += "\nLimit: %s (%s). Replace with copper or split the load." % [part_kind, limiting]
+			description += "\nLimit: %s (%s). Split the load or reduce speed." % [part_kind, limiting]
 		else:
 			description += "\nAdd power or reduce load."
 		return description
@@ -5257,7 +5256,7 @@ func _first_plate_material_cue(carried: Dictionary) -> String:
 	var recipes: Dictionary = state.get("component_recipes", {})
 	var timber_needed := 0
 	var copper_needed := 1 # The blank that becomes the first plate.
-	for part: String in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
+	for part: String in ["anvil", "flat_head", "slide", "hand_crank"]:
 		var cost: Dictionary = recipes.get(part, {})
 		if cost.is_empty():
 			return "Gather timber and copper with the multitool [E]."

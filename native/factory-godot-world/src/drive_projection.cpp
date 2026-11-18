@@ -24,8 +24,17 @@ Fields fields(const world::State& state, const world::DrivePower& power) {
             const bool piston = state.piston_progress.contains(id);
             const std::string channel = !piston ? "" : socket.mechanical_part == id ? "feed" :
                 socket.mechanical_part == id + "/tool" ? "tool" : "output";
+            std::string parent;
+            if (socket.moving_frame) {
+                if (piston) parent = id;
+                else if (const auto found = state.placed_components.find(id); found != state.placed_components.end())
+                    parent = found->second.parent;
+                else for (const auto& part : state.topology.parts)
+                    if (part.geometry.id == id) parent = part.parent;
+            }
             ports.emplace_back(Object{
                 {"channel",Value(channel)},
+                {"parent",Value(parent)},
                 {"position", Value(Array{Value(port.position[0]), Value(port.position[1]), Value(port.position[2])})},
                 {"offset_ticks", Value(Array{Value(socket.offset_ticks[0]),Value(socket.offset_ticks[1]),Value(socket.offset_ticks[2])})},
                 {"moving_frame",Value(socket.moving_frame)},
@@ -60,7 +69,7 @@ Fields fields(const world::State& state, const world::DrivePower& power) {
                         record.emplace("limiting_kind", Value(materials::component_name(found->second.kind)));
                 }
                 record.emplace("remedy", Value(load->second.limiting_part.empty() ?
-                    "add_power_or_reduce_load" : "replace_with_copper_or_split_load"));
+                    "add_power_or_reduce_load" : "split_load_or_reduce_speed"));
             }
         }
         projected.motion.emplace(id, Value(std::move(record)));

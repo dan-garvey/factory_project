@@ -21,11 +21,13 @@ inline Schema schema(Action action, bool wire) {
     static constexpr std::array shaft{
         Field{"center", "center", Type::array}, Field{"axis", "axis", Type::string},
         Field{"half_span", "half_span", Type::integer},
+        Field{"parent", "parent", Type::string, true},
         Field{"", "role", Type::string}, Field{"", "teeth", Type::integer},
     };
     static constexpr std::array gear{
         Field{"center", "center", Type::array}, Field{"axis", "axis", Type::string},
         Field{"teeth", "teeth", Type::integer},
+        Field{"parent", "parent", Type::string, true},
         Field{"", "role", Type::string}, Field{"", "half_span", Type::integer},
     };
     static constexpr std::array relay{
@@ -101,6 +103,7 @@ inline void normalize(Object& intent, const Object& wire, Action action) {
     intent.emplace("axis", wire.at("axis"));
     intent.emplace("teeth", values::Value(teeth(wire, action)));
     intent.emplace("half_span", values::Value(half_span(wire, action)));
+    if (wire.contains("parent")) intent.emplace("parent", wire.at("parent"));
     if (action == Action::relay && wire.contains("relay_axis"))
         intent.emplace("relay_axis", wire.at("relay_axis"));
 }

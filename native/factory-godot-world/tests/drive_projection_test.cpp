@@ -43,15 +43,15 @@ void paired_links_and_loads() {
         part("unpaired", stationary::Role::shaft, {20, 0, 0}, mechanics::Axis::x, 4),
         part("one-end", stationary::Role::collector, {24, 0, 0}, mechanics::Axis::x),
     };
-    state.placed_components.emplace("weak-wood", world::PlacedComponent{
-        factory::materials::Component::wooden_shaft, {0, 0, 0}, 3});
+    state.placed_components.emplace("loaded-slide", world::PlacedComponent{
+        factory::materials::Component::slide, {0, 0, 0}, 3});
     const auto original = state;
 
     world::DrivePower power;
     power.mechanical.motion.emplace("shaft", mechanics::Motion{mechanics::MotionState::stalled, {3, 2}});
     power.mechanical.motion.emplace("left", mechanics::Motion{mechanics::MotionState::rotating, {-1, 2}});
     power.mechanical.motion.emplace("unloaded", mechanics::Motion{});
-    power.load.emplace("shaft", world::NetworkLoad{8, 12, true, "weak-wood"});
+    power.load.emplace("shaft", world::NetworkLoad{24, 32, true, "loaded-slide"});
     power.load.emplace("left", world::NetworkLoad{20, 4, false, ""});
     power.mechanical.engagements.push_back({"left", "shaft",
         mechanics::EngagementKind::coaxial_shaft, {1, 1}});
@@ -74,11 +74,11 @@ void paired_links_and_loads() {
     const auto& stalled = field<Object>(fields.motion, "shaft");
     check(field<std::string>(stalled, "state") == "stalled" &&
           field<Integer>(stalled, "numerator") == 3 && field<Integer>(stalled, "denominator") == 2 &&
-          field<double>(stalled, "capacity") == 8 && field<double>(stalled, "impact") == 12 &&
+          field<double>(stalled, "capacity") == 24 && field<double>(stalled, "impact") == 32 &&
           field<bool>(stalled, "overloaded") &&
-          field<std::string>(stalled, "limiting_kind") == "wooden_shaft" &&
-          field<std::string>(stalled, "remedy") == "replace_with_copper_or_split_load",
-          "An overloaded native shaft retains its rate, limiting material and repair guidance.");
+          field<std::string>(stalled, "limiting_kind") == "slide" &&
+          field<std::string>(stalled, "remedy") == "split_load_or_reduce_speed",
+          "An overloaded native shaft retains its rate, limiting component and repair guidance.");
     const auto& moving = field<Object>(fields.motion, "left");
     check(field<std::string>(moving, "state") == "rotating" &&
           field<Integer>(moving, "numerator") == -1 && !field<bool>(moving, "overloaded") &&

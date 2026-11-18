@@ -264,7 +264,7 @@ bool requires_first_plate(const Object& intent, const std::string& action) {
         action == "place_component") {
         const auto* name = field<std::string>(intent, "component");
         return !name || (*name != "anvil" && *name != "flat_head" &&
-            *name != "wooden_slide" && *name != "hand_crank");
+            *name != "slide" && *name != "hand_crank");
     }
     return fabrication == fabrication_commands::Action::foundation ||
         fabrication == fabrication_commands::Action::part ||
@@ -274,7 +274,9 @@ bool requires_first_plate(const Object& intent, const std::string& action) {
 std::optional<stationary::PlacedPart> removed_part(const Value& value,
         const std::string& entity, Integer generation) {
     const auto* saved = std::get_if<Object>(&value.storage());
-    if (!saved || saved->size() != 8 || !identity(entity)) return std::nullopt;
+    if (!saved || saved->size() != (saved->contains("parent") ? 9 : 8) || !identity(entity)) return std::nullopt;
+    const auto* parent = field<std::string>(*saved, "parent");
+    if (saved->contains("parent") && (!parent || !identity(*parent))) return std::nullopt;
     const auto* role_code = field<Integer>(*saved, "role");
     const auto* axis_code = field<Integer>(*saved, "axis");
     const auto* relay_code = field<Integer>(*saved, "relay_axis");
@@ -306,6 +308,7 @@ std::optional<stationary::PlacedPart> removed_part(const Value& value,
         *teeth, *span, static_cast<mechanics::Axis>(*relay_code)}, generation, role};
     part.rotation = *rotation;
     part.wheel_tiles = *wheel_tiles;
+    if (parent) part.parent = *parent;
     return part;
 }
 
@@ -990,19 +993,24 @@ bool historical_facts(const Profile& profile, const authority::Record& record,
         const auto* rotation = field<Integer>(record.intent, "rotation");
         const auto* relay_axis_name = field<std::string>(record.intent, "relay_axis");
         const auto selected_role = role_name ? role(*role_name) : std::nullopt;
-        if (!location || !selected_role || !axis_name || !axis(*axis_name) || !teeth || !span ||
-            !spec_valid({*selected_role, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
-            *selected_role == Role::belt ||
-            (record.intent.contains("rotation") && (!rotation || !material_machine(*selected_role) ||
+        if (!selected_role) return false;
+        const auto selected = *selected_role;
+        const auto* parent = field<std::string>(record.intent, "parent");
+        if (!location || !axis_name || !axis(*axis_name) || !teeth || !span ||
+            !spec_valid({selected, *teeth, *span}) || targets.front() != anchor(profile, *location) ||
+            selected == Role::belt ||
+            (record.intent.contains("rotation") && (!rotation || !material_machine(selected) ||
                 *rotation < 0 || *rotation > 3)) ||
-            (record.intent.contains("wheel_tiles") && (!wheel_tiles || *selected_role != Role::waterwheel ||
+            (record.intent.contains("wheel_tiles") && (!wheel_tiles || selected != Role::waterwheel ||
                 *wheel_tiles < 3 || *wheel_tiles > mechanics::maximum_dimension)) ||
-            (record.intent.contains("relay_axis") != (*selected_role == Role::chain_drive)) ||
+            (record.intent.contains("relay_axis") != (selected == Role::chain_drive)) ||
             (relay_axis_name && (!axis(*relay_axis_name) || axis(*relay_axis_name) == axis(*axis_name))) ||
-            (*selected_role == Role::gearbox && axis(*axis_name) != mechanics::Axis::y) ||
-            (*selected_role == Role::vertical_gearbox && axis(*axis_name) == mechanics::Axis::y)) return false;
-        if (!transmission_center(*selected_role, *location, *axis(*axis_name), *span)) return false;
-        if (action == "place_connected" && !material_machine(*selected_role)) return false;
+            (selected == Role::gearbox && axis(*axis_name) != mechanics::Axis::y) ||
+            (selected == Role::vertical_gearbox && axis(*axis_name) == mechanics::Axis::y)) return false;
+        if (record.intent.contains("parent") && (!parent || !identity(*parent) ||
+            (selected != Role::shaft && selected != Role::gear))) return false;
+        if (!transmission_center(selected, *location, *axis(*axis_name), *span)) return false;
+        if (action == "place_connected" && !material_machine(selected)) return false;
     } else if (action != "shaft_between" && action != "remove_shaft_between" && action != "place_belt_span" && action != "place_selected_belt_span") {
         const auto* target = field<std::string>(record.intent, "target");
         const auto* generation = field<Integer>(record.intent, "generation");
@@ -1139,6 +1147,7 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
     stationary::Kit fabricated_parts;
     std::map<std::string, stationary::Kit> fabricated_balances;
     std::map<std::string, stationary::PartSpec> installed_fabrication;
+    std::map<std::string, std::string> installed_parents;
     PlacedHistory placed_components;
     std::map<std::string,std::pair<Integer,std::string>> placed_mounts;
     // Recorded component changes are replayed in order. Several press commands
@@ -3151,6 +3160,8 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             historical_layout.reset();
         }
         if (placement(*action)) {
+            const auto* parent = field<std::string>(record.intent, "parent");
+            if (!installed_parents.emplace(*entity, parent ? *parent : "").second) return false;
             const auto* role_name = field<std::string>(record.intent, "role");
             const auto center = grid_point(record.intent);
             if (role_name && *role_name == "shaft" && center)
@@ -3173,6 +3184,13 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             if (profile.fabrication_parts.contains(spec)) --fabricated_balances[*actor][spec];
         }
         if (*action == "remove" || *action == "remove_belt_span") {
+            if (*action == "remove") {
+                const auto restored = removed_part(record.result.at("removed_part"), *entity, *generation);
+                if (!restored) return false;
+                const auto found = installed_parents.find(*entity);
+                if (restored->parent != (found == installed_parents.end() ? "" : found->second)) return false;
+                installed_parents.erase(*entity);
+            }
             for (auto& [id, crank] : historical_cranks) {
                 (void)id;
                 if (crank.attached_to == *entity) crank.attached_to.reset();
@@ -3714,6 +3732,10 @@ bool history_domain(const Profile& profile, const Snapshot& snapshot, const stat
             const auto balance = fabricated_balances[actor][spec];
             if ((current == kits.end() ? 0 : current->second) != balance) return false;
         }
+    for (const auto& item : snapshot.state.topology.parts) {
+        const auto found = installed_parents.find(item.geometry.id);
+        if (item.parent != (found == installed_parents.end() ? "" : found->second)) return false;
+    }
     for (const auto& [id, spec] : installed_fabrication) {
         if (spec.role == Role::belt) {
             if (std::none_of(snapshot.state.topology.belt_spans.begin(), snapshot.state.topology.belt_spans.end(),
@@ -3744,7 +3766,7 @@ materials::Path material_path(const stationary::Topology& topology) {
 
 namespace {
 
-long double material_rating(materials::Component kind) {
+long double component_load_rating(materials::Component kind) {
     return static_cast<long double>(placed_drive_load_rating(kind).value_or(0));
 }
 
@@ -3931,7 +3953,6 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
     for (const auto& part : state.topology.parts) reserved_ids.insert(part.geometry.id);
     for (const auto& part : placed) reserved_ids.insert(part.id);
     std::set<std::string> projected_hub_ids;
-    std::set<std::string> projected_collector_shafts;
     const auto append = [&](mechanics::Part projected, std::string owner = {}) {
         if (owner.empty() && state.placed_components.contains(projected.id) &&
             (projected.kind == mechanics::Kind::shaft || projected.kind == mechanics::Kind::gear))
@@ -3968,11 +3989,11 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         }
         if (item.kind == materials::Component::drill_head) {
             append({item.id, mechanics::Kind::shaft, item.center, mechanics::Axis::y, 0, 2});
-            ratings.emplace(item.id, material_rating(item.kind));
+            ratings.emplace(item.id, component_load_rating(item.kind));
             impacts.emplace(item.id, 4);
             continue;
         }
-        if (item.kind == materials::Component::broad_copper_slide) {
+        if (item.kind == materials::Component::broad_slide) {
             // Four tile-wide shafts meet at the two internal row seams. A
             // meshed pair at the center couples the rows to one piston. The
             // placed slide ID owns the single phase and broad press load.
@@ -3984,7 +4005,7 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
                             std::to_string(column));
                     append({id, mechanics::Kind::shaft,
                         {c[0] + column, c[1], c[2] + row}, mechanics::Axis::x, 0, 2}, item.id);
-                    ratings.emplace(id, material_rating(item.kind));
+                    ratings.emplace(id, component_load_rating(item.kind));
                 }
             for (Integer row : {Integer{0}, Integer{4}})
                 append({projected_id(item.id + "-coupling-" + std::to_string(row)),
@@ -3993,14 +4014,13 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
             impacts.emplace(item.id, 4);
             continue;
         }
-        if (item.kind != materials::Component::wooden_slide &&
-            item.kind != materials::Component::copper_slide) continue;
+        if (item.kind != materials::Component::slide) continue;
         if (!assembly::small_slide_external_node(item.center, 1)) continue;
         // The same embodied shaft drives a free or fitted slide. Fitting a
         // head cannot add gears, raise the input or change the finite kit.
         append({item.id, mechanics::Kind::shaft, item.center,
             mechanics::Axis::x, 0, 2});
-        ratings.emplace(item.id, material_rating(item.kind));
+        ratings.emplace(item.id, component_load_rating(item.kind));
         impacts.emplace(item.id, 4);
     }
     for (const auto& item : placed) {
@@ -4032,7 +4052,7 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         const auto found = collector_mount_axes.find(item.center);
         if (found == collector_mount_axes.end() || !found->second) continue;
         append({item.id, mechanics::Kind::shaft, item.center, *found->second, 0, 1});
-        ratings.emplace(item.id, material_rating(item.kind));
+        ratings.emplace(item.id, component_load_rating(item.kind));
     }
     for (const auto& face : profile.collector_faces) {
         const auto inspected = layout.inspect_collector(face);
@@ -4042,32 +4062,19 @@ static DrivePower drive_power_with_layout(const Profile& profile, const State& s
         append({found.frame, mechanics::Kind::hub, found.machine_center, axis, 0, 0});
         projected_hub_ids.insert(found.frame);
         impacts.emplace(found.frame, 4);
-        // Independent shafts at the exposed frame sides are optional routing.
-        // They must remain real graph parts even though readiness and crank
-        // custody belong to the mount's embodied spindle.
-        for (const auto& routed : placed) {
-            if (routed.kind != materials::Component::wooden_shaft &&
-                routed.kind != materials::Component::copper_shaft) continue;
-            const auto& center = routed.center;
-            if (center[1] != found.machine_center[1] ||
-                std::abs(center[0] - found.machine_center[0]) +
-                    std::abs(center[2] - found.machine_center[2]) != 1 ||
-                center == found.shaft_center ||
-                !projected_collector_shafts.insert(routed.id).second) continue;
-            const auto routed_axis = horizontal_axis(found.machine_center, center);
-            append({routed.id, mechanics::Kind::shaft, center, routed_axis, 0, 1});
-            ratings.emplace(routed.id, material_rating(routed.kind));
-        }
+
     }
     DrivePower sockets;
     for (const auto& mechanical : parts) {
         const auto owner = port_owners.find(mechanical.id);
         if (owner == port_owners.end()) continue;
+        std::string parent;
+        if (const auto component = state.placed_components.find(owner->second); component != state.placed_components.end())
+            parent = component->second.parent;
+        if (const auto* placed = part(state.topology, owner->second)) parent = placed->parent;
         for (const auto& port : mechanics::rotary_ports(mechanical))
             sockets.rotary_ports[owner->second].push_back({mechanical.id, port,
-                state.placed_components.contains(owner->second) ? piston_assembly::displacement(state,
-                    state.placed_components.at(owner->second).parent) : mechanics::Point{},
-                state.placed_components.contains(owner->second) && !state.placed_components.at(owner->second).parent.empty()});
+                piston_assembly::displacement(state, parent), !parent.empty()});
     }
     // A piston exposes one feed face, one tool-power face and its moving output.
     // Internal spindle ends are not attachment sockets.
@@ -4497,10 +4504,9 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
             !add(component_totals[placed.kind], 1)) return false;
         for (const auto coordinate : placed.center)
             if (coordinate < -mechanics::maximum_coordinate || coordinate > mechanics::maximum_coordinate) return false;
-        if ((placed.kind == materials::Component::wooden_slide ||
-             placed.kind == materials::Component::copper_slide) &&
+        if (placed.kind == materials::Component::slide &&
             !assembly::small_slide_external_node(placed.center, 1)) return false;
-        if (placed.kind == materials::Component::broad_copper_slide &&
+        if (placed.kind == materials::Component::broad_slide &&
             std::none_of(state.placed_components.begin(), state.placed_components.end(),
                 [&](const auto& entry) {
                     return entry.second.kind == materials::Component::broad_anvil &&
@@ -4514,7 +4520,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         if (area && (placed.center[0] % 4 != 0 || placed.center[2] % 4 != 0 ||
             ((placed.kind == materials::Component::broad_anvil && placed.center[1] % 4 != 0) ||
              (placed.kind == materials::Component::broad_flat_head && placed.center[1] % 4 != 1) ||
-             (placed.kind == materials::Component::broad_copper_slide && placed.center[1] % 4 != 0))))
+             (placed.kind == materials::Component::broad_slide && placed.center[1] % 4 != 0))))
             return false;
         const auto cells = area ? *occupied :
             std::vector<materials::DropPoint>{placed.center};
@@ -4618,11 +4624,11 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
     source_rates.reserve(state.topology.sources.size());
     for (const auto& source : state.topology.sources)
         source_rates[source.hub].push_back(source.rate);
-    std::map<mechanics::Point, std::size_t> part_center_counts;
+    std::map<std::pair<std::string, mechanics::Point>, std::size_t> part_center_counts;
     std::unordered_map<std::string_view, const stationary::PlacedPart*> parts_by_id;
     parts_by_id.reserve(state.topology.parts.size());
     for (const auto& item : state.topology.parts) {
-        ++part_center_counts[item.geometry.center];
+        ++part_center_counts[{item.parent, item.geometry.center}];
         parts_by_id.emplace(item.geometry.id, &item);
     }
     const auto indexed_part = [&](const std::string& id) -> const stationary::PlacedPart* {
@@ -4636,7 +4642,7 @@ static bool validate_with_drive(const Profile& profile, const Snapshot& snapshot
         if ((material_machine(item.role) || item.role == Role::waterwheel) && item.geometry.center[1] % 4 != 0) return false;
         if (!transmission_center(item.role, item.geometry.center,
                 item.geometry.axis, item.geometry.half_span)) return false;
-        if (transmission_role(item.role) && part_center_counts.at(item.geometry.center) != 1) return false;
+        if (transmission_role(item.role) && part_center_counts.at({item.parent, item.geometry.center}) != 1) return false;
         if (profile.foundation_parts > 0 && material_machine(item.role) && item.geometry.center[1] != 0 &&
             std::none_of(state.foundations.begin(), state.foundations.end(), [&](const auto& entry) {
                 return foundation_covers_workcell(entry.second, item.geometry.center);

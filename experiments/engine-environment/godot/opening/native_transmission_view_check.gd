@@ -385,7 +385,7 @@ func _press_component_record(kind: String, cell: Vector3i) -> Dictionary:
 			center.y = (low + high) * 0.5
 			half = Vector3(Geometry.PITCH * 0.5, (high - low) * 0.5,
 				Geometry.PITCH * 0.5)
-		"wooden_slide", "copper_slide":
+		"slide":
 			var low: float = floor_y - 2.0 * step + Geometry.PRESS_WORK_HEIGHT
 			var high: float = at.y + 0.08 * scale
 			center.y = (low + high) * 0.5
@@ -395,13 +395,6 @@ func _press_component_record(kind: String, cell: Vector3i) -> Dictionary:
 			center.y += 0.10 * scale
 			half = Vector3(step - 0.205 * scale, 0.18 * scale,
 				step - 0.205 * scale)
-		"wooden_shaft", "copper_shaft":
-			half = Vector3(0.205, 0.12, 0.205) * scale
-		"wooden_cog", "copper_cog":
-			half = Vector3(step - 0.205 * scale, 0.14 * scale,
-				step - 0.205 * scale)
-		_:
-			assert(false, "Unexpected press fixture component")
 	return _component_record(kind, [cell.x, cell.y, cell.z],
 		[center.x, center.y, center.z], [half.x, half.y, half.z])
 
@@ -413,11 +406,10 @@ func _component_fixture() -> Dictionary:
 			"frame": _component_record("wooden_frame", [0, 0, 0], [0.0, 0.45, 0.0], [0.2025, 0.45, 0.2025]),
 			"mount": _component_record("tool_mount", [-1, 0, 0], [-0.4125, 0.925, 0.0], [0.2, 0.18, 0.19]),
 			"edge": _component_record("cutting_edge", [-2, 0, 0], [-0.825, 0.81, 0.0], [0.21, 0.12, 0.18]),
-			"tray": _component_record("receiver_tray", [0, 0, 1], [0.0, 0.7425, 0.4125], [0.18, 0.15, 0.205]),
-			"shaft": _component_record("wooden_shaft", [1, 0, 0], [0.4125, 0.825, 0.0], [0.205, 0.12, 0.205])},
+			"tray": _component_record("receiver_tray", [0, 0, 1], [0.0, 0.7425, 0.4125], [0.18, 0.15, 0.205])},
 		"collector_assemblies": [{"center": [0, 0, 0], "toward_ore": [-1, 0, 0],
 			"status": "ready", "parts": {"frame": "frame", "mount": "mount",
-			"edge": "edge", "receiver": "tray", "shaft": "shaft"}}]}
+			"edge": "edge", "receiver": "tray", "shaft": "mount"}}]}
 
 func _supplied_envelope(state: Dictionary, entity: String) -> AABB:
 	var envelope := AABB()
@@ -565,16 +557,16 @@ func _component_view() -> void:
 	var facts := PhysicalProjection.new()
 	facts.state = _component_fixture()
 	var parsed: Dictionary = Geometry.component_boxes(facts.state)
-	verify(parsed.get("accepted", false) and parsed.boxes.size() == 5,
-		"Five separately owned component boxes have a valid read-only consumer form.")
+	verify(parsed.get("accepted", false) and parsed.boxes.size() == 4,
+		"Four separately owned component boxes have a valid read-only consumer form.")
 	var bad: Dictionary = facts.state.duplicate(true)
 	bad.placed_components.frame.occupied.half[1] = -0.45
 	verify(not Geometry.component_boxes(bad).get("accepted", false),
 		"A malformed occupied box never becomes a collidable or visible part.")
 	var physical := ActorWorld.new()
 	root.add_child(physical)
-	verify(physical.configure(facts).get("accepted", false) and physical.component_bodies.size() == 5,
-		"The physical consumer registers the exact five projected identities.")
+	verify(physical.configure(facts).get("accepted", false) and physical.component_bodies.size() == 4,
+		"The physical consumer registers the exact four projected identities.")
 	var host := HostStub.new()
 	host.state = facts.state
 	var view := Presenter.new()
@@ -584,7 +576,7 @@ func _component_view() -> void:
 	for node in view.get_children():
 		if node.has_meta("component_entity"):
 			anchors[node.get_meta("component_entity")] = node
-	verify(anchors.size() == 5 and anchors.frame.get_node_or_null("GroundedPost") != null
+	verify(anchors.size() == 4 and anchors.frame.get_node_or_null("GroundedPost") != null
 		and anchors.tray.get_node_or_null("OpenPan") != null,
 		"The confirmed parts render separately with a grounded frame and open receiver.")
 	var formed_stock := 0
@@ -639,11 +631,6 @@ func _component_view() -> void:
 			foot_name + "Fastener*", "MeshInstance3D", false, false)
 		verify(fasteners.size() == 4 and foot.get_script() == null,
 			"The clamp and blade each sit on one fixed four-fastener casting.")
-	var carriage: MeshInstance3D = anchors.shaft.get_node_or_null("FrameMountedCarriage")
-	verify(carriage != null and carriage.mesh is ArrayMesh
-		and anchors.shaft.find_children("CarriageRail*", "MeshInstance3D", false, false).size() == 2
-		and anchors.shaft.get_node_or_null("BearingFoot") == null,
-		"A fitted shaft uses a timber carriage and two rails instead of a detached casting pedestal.")
 	var blade: MeshInstance3D = anchors.edge.get_node_or_null("FormedBlade")
 	verify(blade != null and blade.mesh is ArrayMesh,
 		"The confirmed cutting edge has one formed steel blade instead of detached box teeth.")
@@ -758,28 +745,14 @@ func _component_view() -> void:
 	actor.queue_free()
 	facts.state.placed_components.tray.center = [0, 0, -1]
 	facts.state.placed_components.tray.occupied.center = [0.0, 0.7425, -0.4125]
-	facts.state.placed_components.shaft.center = [0, 0, 1]
-	facts.state.placed_components.shaft.occupied.center = [0.0, 0.825, 0.4125]
 	facts.state.revision = 2
 	host.state = facts.state
 	physical.sync_topology()
 	view.refresh()
-	verify(is_equal_approx(physical.component_bodies.tray.position.z, -0.4125)
-		and is_equal_approx(physical.component_bodies.shaft.position.z, 0.4125),
-		"A mirrored receiver and side drive move the physical components.")
-	verify(view.get_children().filter(func(node: Node): return node.has_meta("component_entity")).size() == 5,
-		"The mirrored arrangement rebuilds five parts without duplicate visuals.")
-	var mirrored_shaft: Node3D
-	for node: Node in view.get_children():
-		if node.get_meta("component_entity", "") == "shaft":
-			mirrored_shaft = node
-	var rod: Node3D = mirrored_shaft.get_node("LooseDriveShaft") if mirrored_shaft != null else null
-	var core: MeshInstance3D = rod.get_node("Shaft") if rod != null else null
-	verify(rod != null and core != null and core.mesh is CylinderMesh
-		and absf(rod.basis.y.z) > 0.99 and is_equal_approx(core.mesh.height, 0.41)
-		and mirrored_shaft.get_node_or_null("FrameJoinSocket") != null
-		and mirrored_shaft.find_children("BearingShell*", "MeshInstance3D", false, false).size() == 2,
-		"A ready side drive reaches its native box face and seats two journals toward the frame.")
+	verify(is_equal_approx(physical.component_bodies.tray.position.z, -0.4125),
+		"A mirrored receiver moves its physical component.")
+	verify(view.get_children().filter(func(node: Node): return node.has_meta("component_entity")).size() == 4,
+		"The mirrored arrangement rebuilds four parts without duplicate visuals.")
 	facts.state.placed_components.erase("tray")
 	facts.state.collector_assemblies[0].status = "missing_receiver"
 	facts.state.collector_assemblies[0].erase("parts")
@@ -787,32 +760,9 @@ func _component_view() -> void:
 	host.state = facts.state
 	physical.sync_topology()
 	view.refresh()
-	verify(physical.component_bodies.size() == 4 and not physical.component_bodies.has("tray")
-		and view.get_children().filter(func(node: Node): return node.has_meta("component_entity")).size() == 4,
+	verify(physical.component_bodies.size() == 3 and not physical.component_bodies.has("tray")
+		and view.get_children().filter(func(node: Node): return node.has_meta("component_entity")).size() == 3,
 		"Removing the receiver clears its visual and collider without inventing readiness.")
-	for node: Node in view.get_children():
-		if node.get_meta("component_entity", "") == "shaft":
-			var unready_rod: Node3D = node.get_node("LooseDriveShaft")
-			verify(absf(unready_rod.basis.y.z) > 0.99
-				and is_equal_approx((unready_rod.get_node("Shaft") as MeshInstance3D).mesh.height, 0.41)
-				and node.get_node_or_null("FrameJoinSocket") != null
-				and node.find_children("BearingShell*", "MeshInstance3D", false, false).size() == 2,
-				"Removing the receiver leaves the independently placed shaft fitted to its frame without making the collector ready.")
-			var occupied_shaft: Dictionary = Geometry.component_boxes(facts.state).boxes.shaft
-			for detail: Node in node.find_children("*", "MeshInstance3D", true, false):
-				var mesh := detail as MeshInstance3D
-				verify(AABB(occupied_shaft.center - occupied_shaft.size * 0.5,
-					occupied_shaft.size).grow(0.0002).encloses(mesh.global_transform * mesh.mesh.get_aabb()),
-					"The partial shaft fitting remains inside its independent native occupied box.")
-	facts.state.collector_assemblies[0].status = "unsupported"
-	facts.state.revision = 4
-	host.state = facts.state
-	view.refresh()
-	for node: Node in view.get_children():
-		if node.get_meta("component_entity", "") == "shaft":
-			var loose_rod: Node3D = node.get_node("LooseDriveShaft")
-			verify(loose_rod.basis.y.y > 0.99 and node.get_node_or_null("FrameJoinSocket") == null,
-				"An unsupported face status does not supply a speculative frame fitting.")
 	var south: Dictionary = _component_fixture()
 	south.placed_components.mount.center = [0, 1, 1]
 	south.placed_components.mount.occupied.center = [0.0, 1.3375, 0.4125]
@@ -820,8 +770,6 @@ func _component_view() -> void:
 	south.placed_components.edge.occupied.center = [0.0, 1.2225, 0.825]
 	south.placed_components.tray.center = [1, 0, 0]
 	south.placed_components.tray.occupied.center = [0.4125, 0.7425, 0.0]
-	south.placed_components.shaft.center = [-1, 0, 0]
-	south.placed_components.shaft.occupied.center = [-0.4125, 0.825, 0.0]
 	south.collector_assemblies[0].toward_ore = [0, 0, 1]
 	facts.state = south
 	host.state = south
@@ -864,7 +812,7 @@ func _component_view() -> void:
 			var detail: AABB = relative * piece.mesh.get_aabb()
 			verify(AABB(-spec.size * 0.5, spec.size).grow(0.0002).encloses(detail),
 				"South-facing %s/%s stays inside its native occupied box: %s." % [id, piece.name, detail])
-	south.placed_components.erase("shaft")
+	south.placed_components.erase("tray")
 	south.collector_assemblies[0].status = "missing_receiver"
 	host.state = south
 	physical.sync_topology()
@@ -872,9 +820,9 @@ func _component_view() -> void:
 	for node: Node in view.get_children():
 		if node.get_meta("component_entity", "") == "edge":
 			verify((node.get_node("FormedBlade") as MeshInstance3D).basis.x.z < -0.89,
-				"The trusted ore face keeps a placed cutter oriented while an unrelated drive part is missing.")
-	verify(not physical.component_bodies.has("shaft"),
-		"Removing the drive part also removes only its native physical body.")
+				"The trusted ore face keeps a placed cutter oriented while its receiver is missing.")
+	verify(not physical.component_bodies.has("tray"),
+		"Removing the receiver removes only its native physical body.")
 	south.collector_assemblies[0].status = "unsupported"
 	view.refresh()
 	for node: Node in view.get_children():
@@ -894,8 +842,6 @@ func _component_view() -> void:
 	supported.placed_components.edge.occupied.half = [0.21, 0.67125, 0.2025]
 	supported.placed_components.tray.center = [1, 0, 0]
 	supported.placed_components.tray.occupied.center = [0.4125, 0.7425, 0.0]
-	supported.placed_components.shaft.center = [-1, 0, 0]
-	supported.placed_components.shaft.occupied.center = [-0.4125, 0.825, 0.0]
 	supported.collector_assemblies[0].toward_ore = [0, 0, 1]
 	facts.state = supported
 	host.state = supported
@@ -1005,32 +951,6 @@ func _component_view() -> void:
 	view.free()
 	physical.free()
 	await process_frame
-
-func _verify_press_drive_contact(anchors: Dictionary, state: Dictionary) -> void:
-	var rod: MeshInstance3D = anchors.shaft.get_node("LooseDriveShaft/Shaft")
-	var hub: MeshInstance3D = anchors.cog.get_node("PlacedDriveCog/CogHub")
-	var crown: MeshInstance3D = anchors.mount.get_node("PressCrownBearing")
-	var axis: Vector3 = (hub.global_position - rod.global_position).normalized()
-	var rod_half := rod.global_basis.y * (rod.mesh as CylinderMesh).height * 0.5
-	var hub_half := hub.global_basis.y * (hub.mesh as CylinderMesh).height * 0.5
-	var rod_tip := rod.global_position + axis * absf(rod_half.dot(axis))
-	var hub_tip := hub.global_position - axis * absf(hub_half.dot(axis))
-	verify(absf(rod.global_basis.y.normalized().dot(axis)) > 0.999 \
-		and absf(hub.global_basis.y.normalized().dot(axis)) > 0.999,
-		"The shaft core and cog hub share the actual drive axis.")
-	verify(rod_tip.distance_to(hub_tip) < 0.0002,
-		"The visible press shaft and cog hub meet at their confirmed common-grid positions.")
-	var crown_bounds: AABB = crown.global_transform * crown.mesh.get_aabb()
-	var crown_tip := crown_bounds.get_center() + axis * crown_bounds.size.dot(axis.abs()) * 0.5
-	var rod_near_tip := rod.global_position - axis * absf(rod_half.dot(axis))
-	verify(crown_tip.distance_to(rod_near_tip) < 0.0002,
-		"The crown bearing seats the other end of the same press shaft.")
-	var boxes: Dictionary = Geometry.component_boxes(state).boxes
-	for member in [["shaft", rod], ["cog", hub], ["mount", crown]]:
-		var box: Dictionary = boxes[member[0]]
-		var mesh: MeshInstance3D = member[1]
-		verify(AABB(box.center - box.size * 0.5, box.size).grow(0.0002).encloses(mesh.global_transform * mesh.mesh.get_aabb()),
-			"The connected drive member remains inside its own native occupied volume.")
 
 func _component_mesh_shapes(anchor: Node3D) -> Array:
 	var shapes := []
@@ -2460,14 +2380,14 @@ func _broad_belt_dock_view() -> void:
 		"A bare shaft without a confirmed belt span has no broad workbed dock.")
 	absent.free()
 
-func _slide_material_seat() -> void:
-	var state := {"context": "slide-material-seat", "revision": 1,
+func _slide_workpiece_seat() -> void:
+	var state := {"context": "slide-workpiece-seat", "revision": 1,
 		"options": {"native": true}, "transmission_parts": {}, "belt_spans": {},
 		"motion": {}, "collector_assemblies": []}
 	state.placed_components = {
 		"anvil": _press_component_record("anvil", Vector3i(0, 0, 0)),
 		"head": _press_component_record("flat_head", Vector3i(0, 1, 0)),
-		"slide": _press_component_record("wooden_slide", Vector3i(0, 2, 0))}
+		"slide": _press_component_record("slide", Vector3i(0, 2, 0))}
 	state.crank_items = {"crank": {"id": "crank", "generation": 1,
 		"attached_to": "slide", "port": [2, 2, 0], "face": [1, 0, 0]}}
 	state.sliding_press_assemblies = [{"anvil": "anvil", "center": [0, 0, 0],
@@ -2510,7 +2430,7 @@ func _slide_material_seat() -> void:
 		verify(false, "The placed small-slide crank retains its visible spindle.")
 	var seat: MeshInstance3D = anvil.get_node_or_null("OpenAnvilSeat") if anvil != null else null
 	var die_plate: MeshInstance3D = anvil.get_node_or_null("ReplaceableDiePlate") if anvil != null else null
-	var blank: MeshInstance3D = presenter.get_node_or_null("LooseBlank")
+	var blank: Node3D = presenter.get_node_or_null("LooseCopper")
 	var crown: float = Geometry.PRESS_WORK_HEIGHT
 	var press_scale: float = Geometry.PITCH / 1.65
 	verify(seat != null and die_plate != null and blank != null
@@ -2573,7 +2493,7 @@ func _slide_material_seat() -> void:
 		if head_face != null else -INF
 	verify(work != null and is_equal_approx(work.position.y - 0.03 * press_scale, crown - 0.02 * press_scale)
 		and absf(die_bottom - work_top) < 0.001
-		and presenter.get_node_or_null("LooseBlank") == null,
+		and presenter.get_node_or_null("LooseCopper") == null,
 		"The half-cycle die meets the thinner copper workpiece on the supported anvil.")
 	if not image_path.is_empty():
 		await process_frame
@@ -2660,7 +2580,7 @@ func _slide_batch_motion() -> void:
 	state.placed_components = {
 		"anvil": _press_component_record("anvil", Vector3i(0, 0, 0)),
 		"head": _press_component_record("flat_head", Vector3i(0, 1, 0)),
-		"slide": _press_component_record("wooden_slide", Vector3i(0, 2, 0))}
+		"slide": _press_component_record("slide", Vector3i(0, 2, 0))}
 	for i in 9:
 		state.placed_components["frame-%d" % i] = _press_component_record(
 			"wooden_frame", Vector3i(8 + i, 0, 0))
@@ -2713,7 +2633,7 @@ func _slide_batch_motion() -> void:
 		"head": _component_record("broad_flat_head", [0, 1, 0],
 			[pitch * 0.5, (head_low + head_high) * 0.5, pitch * 0.5],
 			[pitch, (head_high - head_low) * 0.5, pitch]),
-		"slide": _component_record("broad_copper_slide", [0, 4, 0],
+		"slide": _component_record("broad_slide", [0, 4, 0],
 			[pitch * 0.5, (slide_low + slide_high) * 0.5, pitch * 0.5],
 			[pitch, (slide_high - slide_low) * 0.5, pitch])}
 	for i in 9:
@@ -4076,7 +3996,7 @@ func _run() -> void:
 		_loose_material()
 		await _pointed_loose_material()
 	elif "--slide-material-only" in OS.get_cmdline_user_args():
-		await _slide_material_seat()
+		await _slide_workpiece_seat()
 	elif "--slide-batch-only" in OS.get_cmdline_user_args():
 		_slide_batch_motion()
 	elif "--mechanical-collision-only" in OS.get_cmdline_user_args():

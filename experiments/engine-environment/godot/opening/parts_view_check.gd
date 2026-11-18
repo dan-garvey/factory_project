@@ -383,7 +383,7 @@ func _component_placement_check() -> void:
 		and "Aim at a floor or built surface" in view._component_placement_hint(),
 		"The anvil hint allows a floor or built surface without requiring a press frame.")
 	var head_box: Dictionary = view._component_candidate_box("flat_head", [12, 1, 8])
-	var slide_box: Dictionary = view._component_candidate_box("copper_slide", [12, 2, 8])
+	var slide_box: Dictionary = view._component_candidate_box("slide", [12, 2, 8])
 	var workbed_box: Dictionary = view._component_candidate_box("anvil", [12, 0, 8])
 	var bench_box: Dictionary = view._component_candidate_box("wooden_workbench", [0, 0, 0])
 	var press_scale: float = Geometry.PITCH / 1.65
@@ -409,7 +409,7 @@ func _component_placement_check() -> void:
 	view.state.placed_components["sample-head"] = {"component": "flat_head", "center": [12, 1, 8],
 		"generation": 1, "occupied": {"center": [head_box.center.x, head_box.center.y, head_box.center.z],
 		"half": [head_box.half.x, head_box.half.y, head_box.half.z]}}
-	verify(not view._component_candidate_blocked("copper_slide", [12, 2, 8], slide_box),
+	verify(not view._component_candidate_blocked("slide", [12, 2, 8], slide_box),
 		"The slide ghost accepts the exact fitted head overlap.")
 	view.state.placed_components.erase("sample-head")
 	view.state.placed_components["sample-workbed"] = {"component": "anvil", "center": [12, 0, 8],
@@ -422,7 +422,7 @@ func _component_placement_check() -> void:
 	verify(not view._component_candidate_blocked("receiver_tray", [11, 0, 8], exit_tray_box),
 		"The native press outlet receiver fits below the open X-side workbed edge.")
 	view.state.placed_components.erase("sample-workbed")
-	view.state.placed_components["sample-slide"] = {"component": "copper_slide", "center": [12, 2, 8],
+	view.state.placed_components["sample-slide"] = {"component": "slide", "center": [12, 2, 8],
 		"generation": 1, "occupied": {"center": [slide_box.center.x, slide_box.center.y, slide_box.center.z],
 		"half": [slide_box.half.x, slide_box.half.y, slide_box.half.z]}}
 	verify(not view._component_candidate_blocked("flat_head", [12, 1, 8], head_box),
@@ -439,7 +439,7 @@ func _component_placement_check() -> void:
 	var slide_sample := Node3D.new()
 	slide_sample.position = slide_box.center
 	view.add_child(slide_sample)
-	presenter.preview_component(slide_sample, "copper_slide", slide_box.size)
+	presenter.preview_component(slide_sample, "slide", slide_box.size)
 	verify(head_sample.has_node("FlatHeadMovingDie/FlatHeadFace")
 		and head_sample.has_node("FlatHeadMovingDie/FlatHeadStem")
 		and slide_sample.has_node("SlideCarriage/CarriageDieRod")
@@ -457,14 +457,14 @@ func _component_placement_check() -> void:
 	var stroked_slide := Node3D.new()
 	stroked_slide.position = slide_box.center
 	view.add_child(stroked_slide)
-	presenter._placed_component(stroked_slide, "copper_slide", Vector3.ZERO, slide_box.size,
+	presenter._placed_component(stroked_slide, "slide", Vector3.ZERO, slide_box.size,
 		0.0, 0.0, Vector3.ZERO, stroke_phase)
 	# A confirmed part is created once and moved by projection refreshes. The
 	# same native phase must give the same pose as a freshly built phase view.
 	head_sample.set_meta("component_kind", "flat_head")
 	head_sample.set_meta("occupied_size_y", head_box.size.y)
 	head_sample.set_meta("phase_source_id", "press-probe")
-	slide_sample.set_meta("component_kind", "copper_slide")
+	slide_sample.set_meta("component_kind", "slide")
 	slide_sample.set_meta("occupied_size_y", slide_box.size.y)
 	slide_sample.set_meta("phase_source_id", "press-probe")
 	presenter._component_anchors = {"head-probe": head_sample, "slide-probe": slide_sample}
@@ -561,16 +561,16 @@ func _component_placement_check() -> void:
 	var broad_origin := [20, 0, 8]
 	var broad_bed_box: Dictionary = view._component_candidate_box("broad_anvil", broad_origin)
 	var broad_head_box: Dictionary = view._component_candidate_box("broad_flat_head", [20, 1, 8])
-	var broad_slide_box: Dictionary = view._component_candidate_box("broad_copper_slide", [20, 4, 8])
+	var broad_slide_box: Dictionary = view._component_candidate_box("broad_slide", [20, 4, 8])
 	verify(absf(broad_bed_box.size.x - 2.0 * Geometry.PITCH) < 0.0001
 		and absf(broad_head_box.size.z - 2.0 * Geometry.PITCH) < 0.0001
 		and view._sliding_press_part_snap("broad_flat_head", "broad_anvil", broad_origin,
 			Vector3.RIGHT).center == [20, 1, 8]
-		and view._sliding_press_part_snap("broad_copper_slide", "broad_flat_head", [20, 1, 8],
+		and view._sliding_press_part_snap("broad_slide", "broad_flat_head", [20, 1, 8],
 			Vector3.RIGHT).center == [20, 4, 8]
 		and absf(broad_slide_box.size.x - 2.0 * Geometry.PITCH) < 0.0001,
 		"One broad support, face and housing occupy four contiguous foundation cells.")
-	verify(view._component_candidate_blocked("broad_copper_slide", [20, 4, 8], broad_slide_box),
+	verify(view._component_candidate_blocked("broad_slide", [20, 4, 8], broad_slide_box),
 		"A broad housing ghost refuses to float without its four-tile workbed.")
 	for part in [
 		{"id": "broad-bed", "kind": "broad_anvil", "center": broad_origin, "box": broad_bed_box},
@@ -579,7 +579,7 @@ func _component_placement_check() -> void:
 			"center": part.center, "generation": 1,
 			"occupied": {"center": [part.box.center.x, part.box.center.y, part.box.center.z],
 				"half": [part.box.half.x, part.box.half.y, part.box.half.z]}}
-	verify(not view._component_candidate_blocked("broad_copper_slide", [20, 4, 8], broad_slide_box),
+	verify(not view._component_candidate_blocked("broad_slide", [20, 4, 8], broad_slide_box),
 		"The full housing ghost fits the broad head and its supporting bed.")
 	view.state.placed_components.erase("broad-bed")
 	view.state.placed_components.erase("broad-head")
@@ -594,7 +594,7 @@ func _component_placement_check() -> void:
 	var broad_slide_sample := Node3D.new()
 	broad_slide_sample.position = broad_slide_box.center
 	view.add_child(broad_slide_sample)
-	presenter.preview_component(broad_slide_sample, "broad_copper_slide", broad_slide_box.size)
+	presenter.preview_component(broad_slide_sample, "broad_slide", broad_slide_box.size)
 	verify(broad_bed_sample.has_node("JoinedWorkbedBase")
 		and broad_head_sample.has_node("BroadHeadMovingDie/JoinedFlatFace"),
 		"The broad bed and single moving face have distinct visible parts.")
@@ -675,12 +675,12 @@ func _component_placement_check() -> void:
 		var contact_slide := Node3D.new()
 		contact_slide.position = broad_slide_box.center
 		view.add_child(contact_slide)
-		presenter._placed_component(contact_slide, "broad_copper_slide", Vector3.ZERO,
+		presenter._placed_component(contact_slide, "broad_slide", Vector3.ZERO,
 			broad_slide_box.size, 0.0, 0.0, Vector3.ZERO, stroke_phase)
 		broad_head_sample.set_meta("component_kind", "broad_flat_head")
 		broad_head_sample.set_meta("occupied_size_y", broad_head_box.size.y)
 		broad_head_sample.set_meta("phase_source_id", "broad-probe")
-		broad_slide_sample.set_meta("component_kind", "broad_copper_slide")
+		broad_slide_sample.set_meta("component_kind", "broad_slide")
 		broad_slide_sample.set_meta("occupied_size_y", broad_slide_box.size.y)
 		broad_slide_sample.set_meta("phase_source_id", "broad-probe")
 		presenter._component_anchors = {"head-probe": broad_head_sample,
@@ -734,7 +734,7 @@ func _component_placement_check() -> void:
 				"small-head": {"component": "flat_head", "center": [12, 1, 8], "generation": 1,
 					"occupied": {"center": [head_box.center.x, head_box.center.y, head_box.center.z],
 						"half": [head_box.half.x, head_box.half.y, head_box.half.z]}},
-				"small-slide": {"component": "copper_slide", "center": [12, 2, 8],
+				"small-slide": {"component": "slide", "center": [12, 2, 8],
 					"generation": 1, "occupied": {"center": [slide_box.center.x,
 						slide_box.center.y, slide_box.center.z], "half": [slide_box.half.x,
 						slide_box.half.y, slide_box.half.z]}}},
@@ -799,7 +799,7 @@ func _component_placement_check() -> void:
 		var ghost := Node3D.new()
 		ghost.position = broad_slide_box.center
 		view.add_child(ghost)
-		presenter.preview_component(ghost, "broad_copper_slide", broad_slide_box.size)
+		presenter.preview_component(ghost, "broad_slide", broad_slide_box.size)
 		view.component_preview_material = StandardMaterial3D.new()
 		view.component_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		view.component_preview_material.albedo_color = Color(0.91, 0.73, 0.40, 0.56)
@@ -957,8 +957,8 @@ func _component_placement_check() -> void:
 	view.state.placed_components["sample-head"] = {"component": "flat_head", "center": [12, 1, 8],
 		"generation": 1, "occupied": {"center": [head_box.center.x, head_box.center.y,
 			head_box.center.z], "half": [head_box.half.x, head_box.half.y, head_box.half.z]}}
-	view.state.cargo.P.components.copper_slide = 1
-	choice.kind = "copper_slide"
+	view.state.cargo.P.components.slide = 1
+	choice.kind = "slide"
 	view.aimed = "sample-head"
 	view.aim_normal = Vector3.RIGHT
 	body.set_meta("component_entity", "sample-head")
@@ -990,8 +990,8 @@ func _component_placement_check() -> void:
 		verify(root.get_texture().get_image().save_png(prefix + "-slide-side-snap.png") == OK,
 			"Retain the actor-eye slide ghost from a head side aim.")
 	view.state.placed_components.erase("sample-head")
-	choice.kind = "wooden_slide"
-	view.state.cargo.P.components.wooden_slide = 1
+	choice.kind = "slide"
+	view.state.cargo.P.components.slide = 1
 	view.aimed = "workbed"
 	body.set_meta("component_entity", "workbed")
 	body.position = workbed_box.center
@@ -1006,7 +1006,7 @@ func _component_placement_check() -> void:
 	view._world_click(Vector2i.ZERO, "workbed")
 	verify(view.issued.back().center == [12, 2, 8],
 		"Clicking the anvil submits the displayed slide center to Host.")
-	view.state.placed_components["sample-slide"] = {"component": "wooden_slide", "center": [12, 2, 8],
+	view.state.placed_components["sample-slide"] = {"component": "slide", "center": [12, 2, 8],
 		"generation": 2, "occupied": {"center": [slide_box.center.x, slide_box.center.y,
 			slide_box.center.z], "half": [slide_box.half.x, slide_box.half.y, slide_box.half.z]}}
 	choice.kind = "flat_head"
@@ -1160,44 +1160,6 @@ func _component_placement_check() -> void:
 	view._input(_component_key(KEY_ALT, false))
 	view.aimed = "anvil"
 	body.set_meta("component_entity", "anvil")
-	view.state.cargo.P.components.wooden_shaft = 1
-	choice.kind = "wooden_shaft"
-	view.aim_normal = Vector3.RIGHT
-	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "anvil").is_empty()
-		and not view.component_preview.visible
-		and view._sliding_press_part_snap("wooden_shaft", "anvil", [0, 4, 0],
-			Vector3.RIGHT).is_empty(),
-		"The old fractional anvil-side shaft target is absent from the preview and click route.")
-	var input_slide_box := view._component_candidate_box("wooden_slide", [0, 2, 0])
-	view.state.placed_components["input-slide"] = {"component": "wooden_slide",
-		"center": [0, 2, 0], "generation": 1,
-		"occupied": {"center": [input_slide_box.center.x, input_slide_box.center.y,
-			input_slide_box.center.z], "half": [input_slide_box.half.x,
-			input_slide_box.half.y, input_slide_box.half.z]}}
-	view.aimed = "input-slide"
-	body.set_meta("component_entity", "input-slide")
-	view.aim_normal = Vector3.RIGHT
-	view._refresh_component_preview()
-	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [4, 2, 0]
-		and view.component_preview.visible and view.component_preview_snap == "Slide input shaft",
-		"Pointing at the fitted slide exposes its same-height external shaft node.")
-	view._world_click(Vector2i.ZERO, "input-slide")
-	verify(view.issued.back().center == [4, 2, 0],
-		"The shaft click uses the same H-layer port shown by the preview.")
-	view.aim_normal = Vector3.LEFT
-	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [-4, 2, 0],
-		"The opposite slide face exposes the mirrored shaft placement.")
-	view.aim_normal = Vector3.RIGHT
-	view._input(_component_key(KEY_ALT, true, true))
-	view._input(_component_key(KEY_PAGEUP, true, true))
-	verify(view._component_place_center(Vector2i.ZERO, "input-slide") == [4, 3, 0],
-		"Manual nudge still overrides the suggested slide input socket.")
-	view._input(_component_key(KEY_ALT, false))
-	view.state.placed_components.erase("input-slide")
-	view.aimed = "anvil"
-	body.set_meta("component_entity", "anvil")
-	view.aim_normal = Vector3.UP
 	if not prefix.is_empty() and DisplayServer.get_name().to_lower() != "headless":
 		choice.kind = "anvil"
 		body.set_meta("component_entity", "frame")
@@ -1264,7 +1226,7 @@ func _component_placement_check() -> void:
 			"Retain the allowed ore-face cutter and its floor-reaching support.")
 	view.client = "P"
 	view.component_nudge_active = false
-	view.state.placed_components = {"shaft": {"component": "wooden_shaft",
+	view.state.placed_components = {"shaft": {"component": "slide",
 		"center": [0, 4, 0], "position": [0.0, 2.475, 0.0]}}
 	view.state.rotary_ports = {"shaft": {"generation": 1, "crank_source_available": true,
 		"ports": [{"position": [-2, 4, 0], "outward": [-1, 0, 0], "hand_crank": true, "open": true},
@@ -2655,17 +2617,14 @@ func _arrival_hotbar() -> void:
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
-		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
-		"wooden_cog": {"timber": 1, "copper": 0, "load_rating": 8},
 		"receiver_tray": {"timber": 2, "copper": 0},
 		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
 		"flat_head": {"timber": 0, "copper": 1},
-		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
-		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
+		"channel_narrow_x": {"timber": 2, "copper": 0},
 		"hand_crank": {"timber": 2, "copper": 0},
-		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
+		"slide": {"timber": 3, "copper": 0, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "copper": 0}
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0, "plate": 1,
 		"teeth": 0, "half_span": 2}]
@@ -2686,7 +2645,7 @@ func _arrival_hotbar() -> void:
 		var texture: Texture2D = bar.component_buttons[component].icon
 		var icon_kind := "anvil" if component == "broad_anvil" else \
 			"flat_head" if component == "broad_flat_head" else \
-			"copper_slide" if component == "broad_copper_slide" else \
+			"slide" if component == "broad_slide" else \
 			"workshop-crank" if component == "hand_crank" else component
 		verify(texture != null and texture.resource_path.ends_with("/" + icon_kind + ".svg"),
 			"Each fabricated component uses its own named item icon in the inventory.")
@@ -2711,9 +2670,9 @@ func _arrival_hotbar() -> void:
 		"An empty slot remains assignable while an unowned part stays absent from the catalog.")
 	verify(bar.recipe_buttons.has("component:anvil")
 		and bar.recipe_buttons.has("component:flat_head")
-		and bar.recipe_buttons.has("component:wooden_slide")
+		and bar.recipe_buttons.has("component:slide")
 		and bar.recipe_buttons.has("component:hand_crank")
-		and not bar.recipe_buttons.has("component:wooden_cog")
+		and not bar.recipe_buttons.has("part:0")
 		and not bar.recipe_buttons.has("component:receiver_tray")
 		and not bar.recipe_buttons.has("foundation"),
 		"Before the first carried plate, the inventory exposes only the four required press recipes.")
@@ -2733,7 +2692,7 @@ func _arrival_hotbar() -> void:
 		"A fresh Build window focuses and describes its first press recipe.")
 	bar.catalog.hide()
 	var initial: Dictionary = view.state.duplicate(true)
-	view.state.cargo.P.components = {"wooden_frame": 2, "copper_cog": 1,
+	view.state.cargo.P.components = {"wooden_frame": 2, "channel_narrow_x": 1,
 		"anvil": 1, "flat_head": 1, "hand_crank": 1}
 	view._refresh_ui()
 	verify(not bar.component_buttons.anvil.disabled and not bar.component_buttons.flat_head.disabled
@@ -2742,7 +2701,7 @@ func _arrival_hotbar() -> void:
 		"The component icon shows its authoritative count and accessible name.")
 	view.state.cargo.P.components.anvil = 4
 	view.state.cargo.P.components.flat_head = 4
-	view.state.cargo.P.components.copper_slide = 4
+	view.state.cargo.P.components.slide = 4
 	view._refresh_ui()
 	verify(bar.component_buttons.broad_anvil.visible and bar.component_buttons.broad_flat_head.visible
 		and bar.component_counts.broad_anvil.text == "1"
@@ -2751,7 +2710,7 @@ func _arrival_hotbar() -> void:
 		"Four owned parts expose one sized workbed and one fitted face.")
 	view.state.cargo.P.components.anvil = 1
 	view.state.cargo.P.components.erase("flat_head")
-	view.state.cargo.P.components.erase("copper_slide")
+	view.state.cargo.P.components.erase("slide")
 	view._refresh_ui()
 	view.state.cargo.P.timber = 5
 	view.state.cargo.P.raw = 3
@@ -2759,13 +2718,13 @@ func _arrival_hotbar() -> void:
 	view.state.cargo.P.work_lots = [{"id": 7}]
 	view.state.crank_items = {"crank-1": {"holder": "P", "attached_to": "", "port": []}}
 	view.state.workshop_completed_actors = ["P"]
-	view.state.cargo.P.components.copper_slide = 4
+	view.state.cargo.P.components.slide = 4
 	view._refresh_ui()
-	verify(bar.component_buttons.broad_copper_slide.visible
-		and bar.component_counts.broad_copper_slide.text == "1"
-		and bar.component_buttons.broad_copper_slide.tooltip_text.contains("four carried parts"),
-		"Four copper slides expose one broad housing after the first plate unlock.")
-	view.state.cargo.P.components.erase("copper_slide")
+	verify(bar.component_buttons.broad_slide.visible
+		and bar.component_counts.broad_slide.text == "1"
+		and bar.component_buttons.broad_slide.tooltip_text.contains("four carried parts"),
+		"Four slides expose one broad housing after the first plate unlock.")
+	view.state.cargo.P.components.erase("slide")
 	view._refresh_ui()
 	verify(bar.material_counts.timber.text == "5" and bar.material_counts.raw.text == "3"
 		and bar.material_counts.products.text == "1" and bar.material_counts.work_lots.text == "1"
@@ -2786,7 +2745,7 @@ func _arrival_hotbar() -> void:
 		and view.goal_text.contains("Open Build [B] for Power"),
 		"The objective completes from the actor's plate while the inventory window owns counts: " + view.goal_text)
 	verify(bar.recipe_category == "power" and bar.recipe_tabs.power.button_pressed
-		and bar.recipe_buttons["component:wooden_cog"].visible
+		and bar.recipe_buttons["part:0"].visible
 		and bar.recipe_buttons["part:0"].visible
 		and not bar.recipe_buttons["component:anvil"].visible
 		and not bar.recipe_buttons["component:wooden_frame"].visible
@@ -2852,7 +2811,7 @@ func _arrival_hotbar() -> void:
 	view.client = "Q"
 	view._refresh_ui()
 	verify(bar.recipe_category == "machine" and bar.recipe_buttons["component:anvil"].visible
-		and not bar.recipe_buttons["component:wooden_cog"].visible,
+		and not bar.recipe_buttons["part:0"].visible,
 		"A peer without a carried plate keeps the starter recipes despite the shared working collector.")
 	view.client = "P"
 	view.state = postplate_state
@@ -3007,22 +2966,22 @@ func _arrival_hotbar() -> void:
 	verify(bar.catalog_buttons.foundation.visible and not bar.catalog_buttons.belt.visible
 		and not bar.catalog_buttons.wheel.visible,
 		"The arrival catalog gives space to carried parts instead of unavailable machine cards.")
-	var cog_index: int = bar._component_names.find("copper_cog")
-	verify(cog_index >= 0 and bar.catalog.visible, "The catalog includes the stronger metal cog.")
-	if cog_index >= 0:
-		verify(not bar.component_buttons.copper_cog.disabled
-			and bar.component_counts.copper_cog.text == "1",
-			"The inventory reads the carried metal cog from native component cargo.")
-		bar.component_buttons.copper_cog.grab_focus()
-		var cog_key := InputEventKey.new()
-		cog_key.keycode = KEY_8
-		cog_key.pressed = true
-		bar.catalog.window_input.emit(cog_key)
+	var channel_index: int = bar._component_names.find("channel_narrow_x")
+	verify(channel_index >= 0 and bar.catalog.visible, "The catalog includes the narrow channel.")
+	if channel_index >= 0:
+		verify(not bar.component_buttons.channel_narrow_x.disabled
+			and bar.component_counts.channel_narrow_x.text == "1",
+			"The inventory reads the carried channel from native component cargo.")
+		bar.component_buttons.channel_narrow_x.grab_focus()
+		var channel_key := InputEventKey.new()
+		channel_key.keycode = KEY_8
+		channel_key.pressed = true
+		bar.catalog.window_input.emit(channel_key)
 		bar._close_catalog()
 		bar.select_slot(7)
-		verify(bar.slots[7] == "component:copper_cog" and view.mode == "component"
-			and view.arrival_assembly_controls.selected_name() == "copper_cog"
-			and bar.slot_icons[7].texture == bar.component_buttons.copper_cog.icon
+		verify(bar.slots[7] == "component:channel_narrow_x" and view.mode == "component"
+			and view.arrival_assembly_controls.selected_name() == "channel_narrow_x"
+			and bar.slot_icons[7].texture == bar.component_buttons.channel_narrow_x.icon
 			and view.issued.is_empty(),
 			"Focused-item number binding selects the exact component through ordinary placement.")
 	view.state.cargo.P.components.flat_head = 1
@@ -3056,18 +3015,17 @@ func _arrival_hotbar() -> void:
 	verify(bar.material_counts.timber.text == "4", "A restored actor projection refreshes the inventory icon count.")
 	view.client = "P"
 	bar.select_slot(7)
-	view.state.cargo.P.components.copper_cog = 0
+	view.state.cargo.P.components.channel_narrow_x = 0
 	view._refresh_ui()
 	bar.select_slot(7)
 	verify(bar.slot_counts[7].text == "0"
-		and view.arrival_assembly_controls.selected_name() == "copper_cog"
+		and view.arrival_assembly_controls.selected_name() == "channel_narrow_x"
 		and view.issued.is_empty(),
 		"An exhausted fabricated component cannot create a construction command.")
 	verify(view.state.cargo.P.components.wooden_frame == 2 and initial.cargo.P.components.is_empty()
 		and view.model == null and view.actor_world == null,
 		"Hotbar interaction changes no component custody or simulation state.")
-	view.state.cargo.P.components.wooden_slide = 1
-	view.state.cargo.P.components.copper_slide = 1
+	view.state.cargo.P.components.slide = 1
 	view.state.cargo.P.timber = 3
 	view.state.cargo.P.raw = 4
 	view._refresh_ui()
@@ -3076,28 +3034,28 @@ func _arrival_hotbar() -> void:
 	var slide_key := InputEventKey.new()
 	slide_key.keycode = KEY_8
 	slide_key.pressed = true
-	bar.component_buttons.wooden_slide.grab_focus()
-	verify(bar.focus_description.text.contains("Wooden slide")
-		and bar.component_buttons.wooden_slide.icon != bar.component_buttons.copper_slide.icon
-		and bar.component_counts.wooden_slide.text == "1",
-		"Each slide has a distinct focused icon with its actual carried count.")
+	bar.component_buttons.slide.grab_focus()
+	verify(bar.focus_description.text.contains("Slide")
+		and bar.component_buttons.slide.icon != null
+		and bar.component_counts.slide.text == "1",
+		"The single slide icon has a focused description and actual carried count.")
 	bar.catalog.window_input.emit(slide_key)
 	bar._close_catalog()
 	bar.select_slot(7)
-	verify(bar.slots[7] == "component:wooden_slide" and view.mode == "component"
-		and view.arrival_assembly_controls.selected_name() == "wooden_slide",
-		"A focused wooden slide and number bind its ordinary placement tool.")
+	verify(bar.slots[7] == "component:slide" and view.mode == "component"
+		and view.arrival_assembly_controls.selected_name() == "slide",
+		"A focused slide and number bind its ordinary placement tool.")
 	bar.open_catalog()
 	bar.recipe_tabs.machine.pressed.emit()
-	bar.recipe_buttons["component:wooden_slide"].pressed.emit()
-	verify(view.issued.back() == {"action": "field_craft", "component": "wooden_slide"},
-		"The wooden slide recipe uses the existing finite field craft command.")
+	bar.recipe_buttons["component:slide"].pressed.emit()
+	verify(view.issued.back() == {"action": "field_craft", "component": "slide"},
+		"The slide recipe uses the existing finite field craft command.")
 	bar.open_at_bench("pod-fabrication-hub")
 	bar.recipe_tabs.machine.pressed.emit()
-	bar.recipe_buttons["component:copper_slide"].pressed.emit()
+	bar.recipe_buttons["component:slide"].pressed.emit()
 	verify(view.issued.back() == {"action": "craft_component", "entity": "pod-fabrication-hub",
-		"component": "copper_slide"},
-		"The metal slide recipe uses the existing bench and native custody path.")
+		"component": "slide"},
+		"The same slide recipe also uses the existing bench and native custody path.")
 	view.free()
 	print(JSON.stringify({"status": "pass" if failures == 0 else "fail", "checks": checks,
 		"failures": failures, "models": 0, "desktop_operations": 0,
@@ -3143,26 +3101,22 @@ func _render_arrival_hotbar() -> void:
 	view.state.part_specifications.P = [
 		{"kind": "gear", "count": 1, "teeth": 2, "half_span": 0},
 		{"kind": "gear", "count": 1, "teeth": 4, "half_span": 0}]
-	view.state.cargo = {"P": {"components": {"wooden_frame": 2, "wooden_shaft": 1,
-		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "copper_cog": 1,
-		"wooden_slide": 1, "copper_slide": 1, "hand_crank": 1},
+	view.state.cargo = {"P": {"components": {"wooden_frame": 2, 		"tool_mount": 1, "receiver_tray": 1, "cutting_edge": 1, "channel_narrow_x": 1,
+		"slide": 2, "hand_crank": 1},
 		"timber": 7, "raw": 3, "products": 1, "offcuts": 2, "sheets": 1,
 		"work_lots": [{"id": 7}]}}
 	view.state.crank_items = {"component-1": {"holder": "P", "attached_to": ""}}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	view.state.component_recipes = {
 		"wooden_frame": {"timber": 3, "copper": 0},
-		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
-		"wooden_cog": {"timber": 1, "copper": 0, "load_rating": 8},
 		"receiver_tray": {"timber": 2, "copper": 0},
 		"tool_mount": {"timber": 2, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"anvil": {"timber": 0, "copper": 2},
 		"flat_head": {"timber": 0, "copper": 1},
-		"copper_cog": {"timber": 0, "copper": 2, "load_rating": 24},
-		"wooden_slide": {"timber": 3, "copper": 0, "load_rating": 8},
+		"channel_narrow_x": {"timber": 2, "copper": 0},
 		"hand_crank": {"timber": 2, "copper": 0},
-		"copper_slide": {"timber": 0, "copper": 4, "load_rating": 24}}
+		"slide": {"timber": 3, "copper": 0, "load_rating": 24}}
 	view.state.foundation_recipe = {"timber": 2, "copper": 0}
 	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0, "plate": 1,
 		"teeth": 0, "half_span": 2},
@@ -3187,7 +3141,7 @@ func _render_arrival_hotbar() -> void:
 	await settle_widgets()
 	verify(bar.recipe_category == "machine" and bar.recipe_buttons["component:anvil"].visible
 		and bar.recipe_buttons["component:flat_head"].visible
-		and bar.recipe_buttons["component:wooden_slide"].visible
+		and bar.recipe_buttons["component:slide"].visible
 		and bar.recipe_buttons["component:hand_crank"].visible
 		and not bar.recipe_buttons.has("component:wooden_frame"),
 		"The starter Build catalog focuses only the four press parts in Machine parts.")
@@ -3215,7 +3169,7 @@ func _render_arrival_hotbar() -> void:
 	verify(partial_grid.items > 0 and partial_grid.items + partial_grid.blanks == 32
 		and partial_grid.items_before_blanks,
 		"Partly filled carried inventory has thirty-two cells with spare cells after owned items.")
-	var render_slide_drag: Dictionary = bar._drag_payload("component:wooden_slide")
+	var render_slide_drag: Dictionary = bar._drag_payload("component:slide")
 	bar.buttons[7]._drop_data(Vector2.ZERO, render_slide_drag)
 	bar._close_catalog()
 	bar.select_slot(7)
@@ -3231,7 +3185,7 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-cogwheels.png") == OK,
 		"Retain both carried cogwheel sizes in the surrounding inventory and recipe view.")
-	inventory_scroll.ensure_control_visible(bar.component_buttons.copper_slide)
+	inventory_scroll.ensure_control_visible(bar.component_buttons.slide)
 	await settle_widgets()
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-catalog.png") == OK,
@@ -3306,7 +3260,7 @@ func _render_arrival_hotbar() -> void:
 	await settle_widgets()
 	inventory_scroll.scroll_vertical = int(inventory_scroll.get_v_scroll_bar().max_value)
 	await settle_widgets()
-	verify(bar.component_buttons.wooden_frame.visible and bar.component_buttons.copper_cog.visible
+	verify(bar.component_buttons.wooden_frame.visible and bar.component_buttons.channel_narrow_x.visible
 		and inventory_scroll.get_v_scroll_bar() != null,
 		"The restored cargo and scrollable inventory show named component icons.")
 	await RenderingServer.frame_post_draw
@@ -3360,7 +3314,7 @@ func _render_arrival_hotbar() -> void:
 	await RenderingServer.frame_post_draw
 	verify(root.get_texture().get_image().save_png(prefix + "-narrow-catalog.png") == OK,
 		"Retain the rendered narrow inventory window.")
-	var final_machine_recipe: Button = bar.recipe_buttons["component:copper_slide"]
+	var final_machine_recipe: Button = bar.recipe_buttons["component:slide"]
 	bar.recipe_scroll.ensure_control_visible(final_machine_recipe)
 	await settle_widgets()
 	verify(final_machine_recipe.visible and bar.recipe_scroll.get_global_rect().encloses(
@@ -3583,7 +3537,7 @@ func _shared_component_results() -> void:
 		var before: Dictionary = view.state.duplicate(true)
 		var result := {"accepted": sample.accepted, "reason": sample.reason,
 			"context": view.state.context, "revision": 4, "order": 9}
-		view.pending_actions = {"P-1": {"action": {"action": sample.action, "component": "wooden_shaft"}, "outcome": result}}
+		view.pending_actions = {"P-1": {"action": {"action": sample.action, "component": "tool_mount"}, "outcome": result}}
 		view._settle_pending()
 		verify(view.observed == sample.text and view.observed_refusal == not sample.accepted,
 			"Shared %s %s receives its exact confirmed component feedback." % [sample.action, sample.reason])
@@ -3705,7 +3659,7 @@ func _workshop_pages() -> void:
 		view.state.placed_components = {"field-bench": {"component": "wooden_workbench", "center": [4, 0, 4]},
 			"press-anvil": {"component": "anvil", "center": [8, 0, 8]},
 			"press-head": {"component": "flat_head", "center": [8, 1, 8]},
-			"press-slide": {"component": "wooden_slide", "center": [8, 2, 8]},
+			"press-slide": {"component": "slide", "center": [8, 2, 8]},
 			"collector-mount": {"component": "tool_mount", "center": [-1, 0, 0]},
 			"collector-frame": {"component": "wooden_frame", "center": [0, 0, 0]}}
 		view.state.sliding_press_assemblies = [{"anvil": "press-anvil", "center": [8, 0, 8],
@@ -3878,7 +3832,7 @@ func _workshop_pages() -> void:
 		await process_frame
 		view.state.placed_components["sized-bed"] = {"component": "broad_anvil", "center": [16, 0, 8]}
 		view.state.placed_components["sized-head"] = {"component": "broad_flat_head", "center": [16, 1, 8]}
-		view.state.placed_components["sized-slide"] = {"component": "broad_copper_slide", "center": [16, 4, 8]}
+		view.state.placed_components["sized-slide"] = {"component": "broad_slide", "center": [16, 4, 8]}
 		view.state.broad_press_assemblies = [{"origin": [16, 0, 8], "geometry_status": "ready",
 			"status": "unpowered", "parts": {"anvils": ["sized-bed"],
 				"heads": ["sized-head"], "slide": "sized-slide"}}]
@@ -4030,8 +3984,10 @@ func _field_craft_widget() -> void:
 	view.state.component_recipes = {"wooden_frame": {"timber": 3, "copper": 0},
 		"cutting_edge": {"timber": 0, "copper": 1},
 		"flat_head": {"timber": 0, "copper": 1},
-		"wooden_shaft": {"timber": 1, "copper": 0, "load_rating": 8},
-		"copper_shaft": {"timber": 0, "copper": 2, "load_rating": 24}}
+		"tool_mount": {"timber": 2, "copper": 0, "load_rating": 8},
+		"slide": {"timber": 3, "copper": 0, "load_rating": 24}}
+	view.state.part_recipes = [{"kind": "shaft", "timber": 1, "copper": 0,
+		"plate": 1, "teeth": 0, "half_span": 2}]
 	view.state.foundation_recipe = {"timber": 2, "copper": 0}
 	view.state.fabrication_hub = {"id": "pod-fabrication-hub", "installed": true}
 	root.add_child(view)
@@ -4041,7 +3997,7 @@ func _field_craft_widget() -> void:
 	var inventory = view.building_hotbar
 	inventory.open_catalog()
 	verify(inventory.recipe_category == "power"
-		and inventory.recipe_buttons["component:wooden_shaft"].visible
+		and inventory.recipe_buttons["part:0"].visible
 		and not inventory.recipe_buttons["component:flat_head"].visible,
 		"Post-plate Build opens on Power recipes while Machine parts remain reachable.")
 	inventory.recipe_tabs.machine.pressed.emit()
@@ -4098,8 +4054,8 @@ func _field_craft_widget() -> void:
 	var belt_recipe: Button = inventory.recipe_buttons["part:0"]
 	inventory.recipe_tabs.logistics.pressed.emit()
 	verify("2 timber + 1 copper" in belt_recipe.tooltip_text and belt_recipe.icon != null
-		and "rated for 8 load" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text
-		and "rated for 24 load" in inventory.recipe_buttons["component:copper_shaft"].tooltip_text,
+		and "rated for 8 load" in inventory.recipe_buttons["component:tool_mount"].tooltip_text
+		and "rated for 24 load" in inventory.recipe_buttons["component:slide"].tooltip_text,
 		"The recipe grid shows actual drive bills and load ratings.")
 	belt_recipe.pressed.emit()
 	verify(view.issued == [{"action": "craft_part", "entity": "pod-fabrication-hub", "role": "belt", "half_span": 0}],
@@ -4194,7 +4150,7 @@ func _field_craft_widget() -> void:
 	root.add_child(shared)
 	shared._build_interface()
 	shared.building_hotbar.open_at_bench("pod-fabrication-hub")
-	var shared_recipe: Button = shared.building_hotbar.recipe_buttons["component:copper_shaft"]
+	var shared_recipe: Button = shared.building_hotbar.recipe_buttons["component:slide"]
 	verify("rated for 24 load" in shared_recipe.tooltip_text
 		and "Carry the ingredients" in shared_recipe.tooltip_text and shared.issued.is_empty(),
 		"A shared worker sees its own cargo and native recipe ratings.")
@@ -4354,7 +4310,7 @@ func _object_menu_snapshot() -> Dictionary:
 		"hand_sources": {"tree": {"kind": "tree", "position": [1.0, 1.0, 0.0], "remaining": 8}},
 		"cargo": {"P": {"timber": 4, "raw": 0, "components": {}}},
 		"component_recipes": {"wooden_frame": {"timber": 3, "copper": 0},
-			"wooden_shaft": {"timber": 2, "copper": 0}},
+			"tool_mount": {"timber": 2, "copper": 0}},
 		"component_capacity": 20, "part_recipes": [], "part_specifications": {"P": []},
 		"sliding_press_assemblies": [], "collector_assemblies": [], "dropped_material": [],
 		"stock": {"source": 16, "collector": 0, "belt": 0, "input": 0, "held": 0, "output": 0},
@@ -4371,7 +4327,7 @@ func _slide_controls_check() -> void:
 	snapshot.placed_components = {
 		"anvil": {"component": "anvil", "center": [12, 0, 8]},
 		"head": {"component": "flat_head", "center": [12, 1, 8]},
-		"slide": {"component": "wooden_slide", "center": [12, 2, 8]}}
+		"slide": {"component": "slide", "center": [12, 2, 8]}}
 	snapshot.sliding_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
 		"status": "ready", "work_center": [12, 0, 8], "selected_exit": [13, 0, 8],
 		"parts": {"anvil": "anvil", "head": "head", "slide": "slide"},
@@ -4649,7 +4605,7 @@ func _slide_controls_check() -> void:
 	broad_snapshot.placed_components = {
 		"broad-bed": {"component": "broad_anvil", "center": [20, 0, 8]},
 		"broad-head": {"component": "broad_flat_head", "center": [20, 1, 8]},
-		"broad-slide": {"component": "broad_copper_slide", "center": [20, 4, 8]}}
+		"broad-slide": {"component": "broad_slide", "center": [20, 4, 8]}}
 	broad_snapshot.broad_press_assemblies = [{"origin": [20, 0, 8],
 		"parts": {"anvils": ["broad-bed"], "heads": ["broad-head"], "slide": "broad-slide"}}]
 	broad_snapshot.dropped_material = [{"center": [20, 0, 8], "sheets": 1},
@@ -4693,7 +4649,7 @@ func _slide_inventory_render_check() -> void:
 	view.state.placed_components = {
 		"anvil": {"component": "anvil", "center": [12, 0, 8]},
 		"head": {"component": "flat_head", "center": [12, 1, 8]},
-		"slide": {"component": "wooden_slide", "center": [12, 2, 8]}}
+		"slide": {"component": "slide", "center": [12, 2, 8]}}
 	view.state.sliding_press_assemblies = [{"anvil": "anvil", "center": [12, 0, 8],
 		"status": "ready", "work_center": [12, 0, 8], "parts": {"anvil": "anvil",
 			"head": "head", "slide": "slide"},
@@ -4943,17 +4899,18 @@ func _object_menu_check() -> void:
 	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_frame"}],
 		"The focused bench recipe submits its exact native component command.")
 	view.issued.clear()
-	inventory._set_recipe_category("power")
-	verify(inventory.recipe_buttons["component:wooden_shaft"].visible,
-		"The second component remains discoverable on the power tab.")
-	inventory.recipe_buttons["component:wooden_shaft"].pressed.emit()
-	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "wooden_shaft"}],
+	inventory._set_recipe_category("machine")
+	verify(inventory.recipe_buttons["component:tool_mount"].visible,
+		"The second component remains discoverable on the machine tab.")
+	inventory.recipe_buttons["component:tool_mount"].pressed.emit()
+	verify(view.issued == [{"action": "craft_component", "entity": "bench", "component": "tool_mount"}],
 		"The second recipe crafts at the same selected bench.")
 	view.issued.clear()
 	view.state.part_recipes = [
 		{"kind": "shaft", "teeth": 0, "half_span": 2, "timber": 1, "copper": 0},
 		{"kind": "wheel", "teeth": 0, "half_span": 0, "timber": 2, "copper": 0}]
 	view._refresh_ui()
+	inventory._set_recipe_category("power")
 	verify(inventory.recipe_buttons.has("part:1") and inventory.recipe_buttons["part:1"].visible,
 		"A valid transmission recipe appears in the open inventory.")
 	inventory.recipe_buttons["part:1"].pressed.emit()
@@ -5029,9 +4986,9 @@ func _object_menu_check() -> void:
 	verify(shared.building_hotbar.catalog.visible
 		and not shared.building_hotbar.recipe_buttons["component:wooden_frame"].disabled,
 		"A connected shared worker can use the selected workbench while movement is held.")
-	shared.building_hotbar._set_recipe_category("power")
-	verify(shared.building_hotbar.recipe_buttons["component:wooden_shaft"].visible,
-		"The shared worker sees another valid recipe on the power tab.")
+	shared.building_hotbar._set_recipe_category("machine")
+	verify(shared.building_hotbar.recipe_buttons["component:tool_mount"].visible,
+		"The shared worker sees another valid recipe on the machine tab.")
 	shared.pending_actions = {"waiting": {}}
 	shared._refresh_ui()
 	shared.building_hotbar._set_recipe_category("machine")
@@ -5070,9 +5027,9 @@ func _slide_view_check() -> void:
 	root.add_child(presenter)
 	var press_scale: float = Geometry.PITCH / 1.65
 	var samples := [
-		{"kind": "wooden_slide", "phase": null, "x": -0.7, "name": "Preview"},
-		{"kind": "wooden_slide", "phase": halfway, "x": 0.0, "name": "PlacedWood"},
-		{"kind": "copper_slide", "phase": quarter, "x": 0.7, "name": "PlacedMetal"}]
+		{"kind": "slide", "phase": null, "x": -0.7, "name": "Preview"},
+		{"kind": "slide", "phase": halfway, "x": 0.0, "name": "PlacedWood"},
+		{"kind": "slide", "phase": quarter, "x": 0.7, "name": "PlacedMetal"}]
 	for sample: Dictionary in samples:
 		var anchor := Node3D.new()
 		anchor.name = sample.name

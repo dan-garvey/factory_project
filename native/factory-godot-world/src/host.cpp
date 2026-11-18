@@ -57,7 +57,6 @@ using physical_geometry::overlaps_supports;
 using physical_geometry::gear_half_extents;
 using physical_geometry::gear_axle_half_extents;
 using physical_geometry::transmission_intersects;
-using physical_geometry::shaft_meets_component_cog;
 using physical_geometry::collector_intake_intersects;
 using physical_geometry::transmission_intersects_foundations;
 using physical_geometry::find_part;
@@ -875,6 +874,14 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             }
         for (const auto& part : snapshot.state.topology.parts) {
             const auto& center = part.geometry.center;
+            if (!part.parent.empty()) {
+                for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
+                    for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
+                        if (overlap(part_bounds(profile_, snapshot.state, part), foundation_bounds({{
+                                foundation_commands::foundation_stride_levels * px, level,
+                                foundation_commands::foundation_stride_levels * pz}, 1}))) return refuse("occupied");
+                continue;
+            }
             if (part.role == Role::shaft || part.role == Role::gear) {
                 for (auto px = std::min(x, end_x); px <= std::max(x, end_x); ++px)
                     for (auto pz = std::min(z, end_z); pz <= std::max(z, end_z); ++pz)
@@ -990,6 +997,15 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (intersects_belt(snapshot.state, support)) return refuse("occupied");
         for (const auto& part : snapshot.state.topology.parts) {
             if (part.geometry.center == center) return refuse("occupied");
+            if (!part.parent.empty()) {
+                for (const auto& solid : physical_geometry::part_solids(profile_, snapshot.state, part)) {
+                    if (overlap(part_bounds(profile_, proposed), solid) ||
+                        (proposed_supports && overlaps_supports(*proposed_supports, solid))) return refuse("occupied");
+                    for (const auto& external : proposed_external)
+                        if (overlap(external, solid)) return refuse("occupied");
+                }
+                continue;
+            }
             for (const auto& external : proposed_external)
                 if (collector_intake_intersects(external, profile_, part)) return refuse("occupied");
             for (const auto& external : part.role == Role::collector ?
@@ -1054,6 +1070,32 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         if (is_gear && placement_blocked(at, gear_axle_half_extents(selected_axis))) return refuse("actor_occupied");
         if (is_gear && occupied_by_component({at, gear_axle_half_extents(selected_axis)})) return refuse("occupied");
         if (!machine_placement::normalize(normalized, wire)) return refuse("invalid_command");
+    } else if ((transmission_action == transmission_placement::Action::shaft ||
+                transmission_action == transmission_placement::Action::gear) && wire.contains("parent")) {
+        if (!transmission_placement::valid_wire(wire, transmission_action)) return refuse("invalid_command");
+        const auto& parent = *field<std::string>(wire, "parent");
+        const auto center = gear_center(*field<Array>(wire, "center"));
+        const auto selected_axis = axis_value(*field<std::string>(wire, "axis"));
+        const bool gear = transmission_action == transmission_placement::Action::gear;
+        if (parent.empty()) return refuse("unknown_piston");
+        if (!center) return refuse("invalid_center");
+        if (!selected_axis) return refuse("invalid_axis");
+        const auto teeth = transmission_placement::teeth(wire, transmission_action);
+        const auto span = transmission_placement::half_span(wire, transmission_action);
+        if ((!gear && span != 2) || (gear && teeth != 2 && teeth != 4)) return refuse("invalid_part");
+        if ((*center)[0] % 4 != 0 || (*center)[2] % 4 != 0) return refuse("invalid_cell");
+        stationary::PlacedPart candidate{{"proposed-transmission", gear ? mechanics::Kind::gear : mechanics::Kind::shaft,
+            *center, *selected_axis, teeth, span}, 1, gear ? Role::gear : Role::shaft};
+        candidate.parent = parent;
+        if (const auto* refusal = world::piston_assembly::placement_refusal(snapshot.state, candidate)) return refuse(refusal);
+        auto proposed = snapshot.state;
+        proposed.topology.parts.push_back(candidate);
+        std::vector<authority::Point> actors;
+        for (const auto& [id, actor] : owned_->actors) { (void)id; if (actor.ready) actors.push_back(actor.position); }
+        if (const auto* refusal = physical_site::piston_placement_refusal(
+                {profile_, terrain_}, proposed, candidate.geometry.id, actors)) return refuse(refusal);
+        if (const auto* refusal = support_change_refusal(snapshot.state, proposed)) return refuse(refusal);
+        transmission_placement::normalize(normalized, wire, transmission_action);
     } else if (transmission_action == transmission_placement::Action::shaft) {
         if (!transmission_placement::admission_shape(wire, transmission_placement::Action::shaft))
             return refuse("invalid_command");
@@ -1077,6 +1119,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         auto half = gear_axle_half_extents(verified_axis);
         half[static_cast<std::size_t>(verified_axis)] = *span * pitch / 4;
+        for (const auto& part : snapshot.state.topology.parts)
+            if (!part.parent.empty() && overlap({at, half}, part_bounds(profile_, snapshot.state, part))) return refuse("occupied");
         const auto sockets = world::drive_power(profile_, snapshot.state);
         const mechanics::Part proposed_shaft{"placement", mechanics::Kind::shaft,
             *center, verified_axis, 0, *span};
@@ -1084,8 +1128,6 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             (void)id;
             if (transmission_intersects(component_geometry::placed_bounds(profile_, snapshot.state, id, component),
                     *center, verified_axis, false) &&
-                !shaft_meets_component_cog(component.kind, component.center, *center,
-                    verified_axis) &&
                 !world::rotary_connection(sockets, id, proposed_shaft)) return refuse("occupied");
         }
         if (placement_blocked(at, half)) return refuse("actor_occupied");
@@ -1112,6 +1154,8 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
                     if (transmission_intersects(external, *center, verified_axis, true)) return refuse("occupied");
         const authority::Point at{(*center)[0] * pitch / 4, anchor_height + (*center)[1] * pitch / 4, (*center)[2] * pitch / 4};
         const auto half = gear_half_extents(verified_axis, *teeth);
+        for (const auto& part : snapshot.state.topology.parts)
+            if (!part.parent.empty() && overlap({at, half}, part_bounds(profile_, snapshot.state, part))) return refuse("occupied");
         for (const auto& [id, component] : snapshot.state.placed_components) {
             (void)id;
             if (transmission_intersects(component_geometry::placed_bounds(profile_, snapshot.state, id, component),
@@ -1159,6 +1203,9 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         }
         for (const auto& part : snapshot.state.topology.parts) {
             if (part.geometry.center == *center) return refuse("occupied");
+            if (!part.parent.empty())
+                for (const auto& solid : physical_geometry::part_solids(profile_, snapshot.state, part))
+                    if (overlap(shell, solid)) return refuse("occupied");
             if (part.role != Role::shaft && part.role != Role::gear &&
                 part.role != Role::gearbox && part.role != Role::vertical_gearbox &&
                 part.role != Role::chain_drive && overlap(shell, part_bounds(profile_, part)))
@@ -1183,6 +1230,7 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
         const auto* first = find_part(snapshot.state, *field<std::string>(wire, "from"));
         const auto* last = find_part(snapshot.state, *field<std::string>(wire, "to"));
         if (!first || !last) return refuse("unknown_target");
+        if (!first->parent.empty() || !last->parent.empty()) return refuse("moving_belt_not_supported");
         if (first->role != Role::shaft || last->role != Role::shaft) return refuse("invalid_belt_geometry");
         const auto sections = belt_bounds(first->geometry, last->geometry);
         if (sections.empty()) return refuse("invalid_belt_geometry");
@@ -1193,6 +1241,11 @@ Value Host::command(const std::string& bound_actor, const Object& wire) {
             if (belt_intersects(first->geometry, last->geometry, foundation_bounds(foundation))) return refuse("occupied");
         }
         for (const auto& placed : snapshot.state.topology.parts) {
+            if (!placed.parent.empty()) {
+                for (const auto& solid : physical_geometry::part_solids(profile_, snapshot.state, placed))
+                    if (belt_intersects(first->geometry, last->geometry, solid)) return refuse("occupied");
+                continue;
+            }
             if (placed.role == Role::shaft) continue;
             if (placed.role == Role::collector)
                 for (const auto& external : collector_external_bounds(placed.geometry.center))

@@ -31,9 +31,8 @@ bool placement(const std::string& action) {
 }
 
 bool slide_component(materials::Component kind) {
-    return kind == materials::Component::wooden_slide ||
-           kind == materials::Component::copper_slide ||
-           kind == materials::Component::broad_copper_slide;
+    return kind == materials::Component::slide ||
+           kind == materials::Component::broad_slide;
 }
 
 bool crank_face_on_axis(const mechanics::Point& face, mechanics::Axis axis) {

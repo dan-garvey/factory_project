@@ -67,6 +67,34 @@ int main() {
         state=assembly(1);
         state.piston_progress.at("piston").position=p::segment_ticks+1;
         check(!w::piston_assembly::valid(state),"save cannot grant more reach than owned segments");
+        state=assembly(1);
+        factory::stationary::PlacedPart shaft{{"shaft",m::Kind::shaft,{0,-3,0},m::Axis::y,0,2},
+            10,factory::stationary::Role::shaft};
+        shaft.parent="piston";
+        check(!w::piston_assembly::placement_refusal(state,shaft),"Canonical shaft attaches to the drill spindle.");
+        state.topology.parts.push_back(shaft);
+        factory::stationary::PlacedPart cog{{"cog",m::Kind::gear,{0,-7,0},m::Axis::y,2,0},
+            11,factory::stationary::Role::gear};
+        cog.parent="piston";
+        check(!w::piston_assembly::placement_refusal(state,cog),"Canonical small cog attaches to the carried shaft.");
+        state.topology.parts.push_back(cog);
+        check(w::piston_assembly::valid(state),"Canonical transmission parts share the native moving frame.");
+        check(w::piston_assembly::reclaim_refusal(state,shaft)!=nullptr,"Reclaim cannot orphan a carried cog.");
+        check(w::piston_assembly::reclaim_refusal(state,cog)==nullptr,"The exposed canonical cog can be reclaimed.");
+        state.topology.parts.push_back({{"fixed",m::Kind::shaft,{0,-7,0},m::Axis::y,0,2},
+            12,factory::stationary::Role::shaft});
+        const auto moved_power=w::hand_crank_power(profile,state,"piston",{0,5,2});
+        check(moved_power.mechanical.accepted() &&
+            moved_power.mechanical.motion.at("shaft").state==m::MotionState::rotating &&
+            moved_power.mechanical.motion.at("cog").state==m::MotionState::rotating &&
+            moved_power.mechanical.motion.at("fixed").state==m::MotionState::unpowered,
+            "A reference-pose overlap cannot teleport through power into the fixed world frame.");
+        state.piston_progress.at("piston").position=256;
+        check(w::piston_assembly::reclaim_refusal(state,cog)!=nullptr,"Moving canonical kits require retraction before reclaim.");
+        auto unattached=cog; unattached.parent="missing";
+        check(w::piston_assembly::placement_refusal(state,unattached)!=nullptr,"Unknown carriage identity refuses.");
+        state.topology.parts[1].parent="missing";
+        check(!w::piston_assembly::valid(state),"Restore refuses an orphaned canonical transmission part.");
         std::cout << "PISTON_WORLD_PASS " << checks << '\n';
     } catch(const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

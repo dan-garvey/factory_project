@@ -55,7 +55,6 @@ struct Collector {
     mechanics::Point receiver_center{};
     mechanics::Point shaft_center{}; // Input port at the placed mount.
     mechanics::Integer cutting_height{}; // 0 or 1 quarter-grid step above frame.
-    materials::Component shaft_material{};
     bool operator==(const Collector&) const = default;
 };
 
@@ -106,7 +105,6 @@ struct SlidingPress {
     std::string slide;
     mechanics::Point work_center{};
     mechanics::Point slide_center{};
-    materials::Component slide_material{};
     std::vector<PressFeed> open_feeds;
     bool operator==(const SlidingPress&) const = default;
 };
@@ -128,7 +126,6 @@ struct BroadSlidingPress {
     std::string slide;
     mechanics::Point origin{};
     mechanics::Point slide_center{};
-    materials::Component slide_material{};
     std::array<mechanics::Point, 4> work_centers{};
     bool operator==(const BroadSlidingPress&) const = default;
 };

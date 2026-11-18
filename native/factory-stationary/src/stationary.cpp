@@ -57,7 +57,7 @@ bool has_role(const Topology& topology, Role role) noexcept {
 }
 
 bool overlapping_shafts(const PlacedPart& a, const PlacedPart& b) noexcept {
-    if (a.role != Role::shaft || b.role != Role::shaft || a.geometry.axis != b.geometry.axis)
+    if (a.parent != b.parent || a.role != Role::shaft || b.role != Role::shaft || a.geometry.axis != b.geometry.axis)
         return false;
     const auto axis = static_cast<std::size_t>(a.geometry.axis);
     if (axis >= 3) return false; // The mechanics evaluator diagnoses invalid axes.
@@ -86,6 +86,8 @@ bool structure(const Topology& topology) {
     for (const auto& part : topology.parts) {
         if (part.role == Role::belt || !identity(part.geometry.id) || part.generation <= 0 ||
             !valid_spec(specification(part)) || !valid_rotation(part)) return false;
+        if (!part.parent.empty() && (!identity(part.parent) ||
+            (part.role != Role::shaft && part.role != Role::gear))) return false;
         const auto expected = part.role == Role::gear ? mechanics::Kind::gear :
                               part.role == Role::shaft ? mechanics::Kind::shaft :
                               (part.role == Role::gearbox || part.role == Role::vertical_gearbox) ? mechanics::Kind::gearbox :
@@ -101,9 +103,14 @@ bool structure(const Topology& topology) {
             !machines.insert(part.role).second)
             return false;
     }
-    for (const auto& span : topology.belt_spans)
+    for (const auto& span : topology.belt_spans) {
         if (!identity(span.geometry.id) || span.generation <= 0 || !ids.insert(span.geometry.id).second)
             return false;
+        for (const auto& end : {span.geometry.first_shaft, span.geometry.last_shaft}) {
+            const auto found = parts_by_id.find(end);
+            if (found == parts_by_id.end() || !found->second->parent.empty()) return false;
+        }
+    }
 
     for (std::size_t i = 0; i < shafts.size(); ++i)
         for (std::size_t j = i + 1; j < shafts.size(); ++j)
@@ -204,7 +211,17 @@ PowerView power_view(const Topology& topology) {
     std::vector<mechanics::BeltSpan> spans;
     spans.reserve(topology.belt_spans.size());
     for (const auto& span : topology.belt_spans) spans.push_back(span.geometry);
-    return {topology.drive_enabled, mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower)};
+    std::map<std::string, std::vector<mechanics::Part>> frames;
+    for (const auto& part : topology.parts) frames[part.parent].push_back(part.geometry);
+    if (frames.size() == 1 && frames.begin()->first.empty())
+        return {topology.drive_enabled, mechanics::evaluate(parts, sources, spans, mechanics::SourcePolicy::overpower)};
+    std::vector<mechanics::Engagement> edges;
+    for (const auto& [parent, group] : frames) {
+        const auto contacts = mechanics::evaluate(group, {}, parent.empty() ? spans : std::vector<mechanics::BeltSpan>{});
+        if (!contacts.accepted()) return {topology.drive_enabled, contacts};
+        edges.insert(edges.end(), contacts.engagements.begin(), contacts.engagements.end());
+    }
+    return {topology.drive_enabled, mechanics::resolve_engagements(parts, sources, edges, mechanics::SourcePolicy::overpower)};
 }
 
 RemovalPlan prepare_removal(const Topology& topology, const Kit& kit,

@@ -156,24 +156,30 @@ void one_slide_broad_sheet_custody() {
     // The shared site wheel occupies the upper-right tile of this full
     // housing. Keep this fixture's independent wheel outside the press.
     source.state.topology.parts.front().geometry.center = {-8, 4, 0};
-    source.profile.initial_units = 31;
-    source.state.material.initial_units = 31;
-    source.state.material.stock.source = 31;
+    source.profile.initial_units = 15;
+    source.state.material.initial_units = 15;
+    source.state.material.stock.source = 15;
     source.profile.material.hand_carry_capacity = 40;
     source.profile.material.raw_mass = 4;
     source.profile.material.plate_mass = 3;
     source.profile.material.sheet_mass = 12;
     Runner run(source);
     run.p = {0, 1, 1.65};
-    for (int index = 0; index < 31; ++index) {
+    for (int index = 0; index < 15; ++index) {
         auto harvest = request("P", "sized-ore-" + std::to_string(index), "harvest_source");
         harvest.emplace("target", V("ore"));
         run.accept("P", harvest);
     }
     const auto crank = craft_crank(run, "sized-crank");
+    run.p = {6.6, 1, 4.95};
+    for (int index = 0; index < 12; ++index) {
+        auto harvest = request("P", "sized-slide-timber-" + std::to_string(index), "harvest_source");
+        harvest.emplace("target", V("crank-tree"));
+        run.accept("P", harvest);
+    }
     run.p = {1.65, 1, 6.6};
     for (const auto& [kind, amount] : {std::pair{"anvil", 4},
-             std::pair{"flat_head", 4}, std::pair{"copper_slide", 4}})
+             std::pair{"flat_head", 4}, std::pair{"slide", 4}})
         for (int index = 0; index < amount; ++index) {
             auto craft = request("P", std::string("sized-craft-") + kind +
                 std::to_string(index), "craft_component");
@@ -190,7 +196,7 @@ void one_slide_broad_sheet_custody() {
     for (const auto& [kind, center] : {
              std::pair{"broad_anvil", g::Point{0, 0, 0}},
              std::pair{"broad_flat_head", g::Point{0, 1, 0}},
-             std::pair{"broad_copper_slide", g::Point{0, 4, 0}}}) {
+             std::pair{"broad_slide", g::Point{0, 4, 0}}}) {
         auto place = request("P", std::string("sized-place-") + kind, "place_component");
         place.emplace("component", V(kind));
         place.emplace("center", V(point(center[0], center[1], center[2])));
@@ -198,7 +204,7 @@ void one_slide_broad_sheet_custody() {
         if (std::string(kind) == "broad_anvil") {
             bed_id = std::get<std::string>(made.at("entity").storage());
             bed_generation = std::get<I>(made.at("generation").storage());
-        } else if (std::string(kind) == "broad_copper_slide") {
+        } else if (std::string(kind) == "broad_slide") {
             slide_id = std::get<std::string>(made.at("entity").storage());
             slide_generation = std::get<I>(made.at("generation").storage());
         }

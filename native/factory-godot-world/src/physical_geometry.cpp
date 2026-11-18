@@ -1,4 +1,5 @@
 #include "physical_geometry.hpp"
+#include "factory/piston_assembly.hpp"
 #include "factory/mineral_site.hpp"
 #include "factory/site_geometry_contract.hpp"
 
@@ -85,6 +86,38 @@ Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& 
     return {{x, floor + machine_center_height, z}, {machine_width / 2, machine_height / 2, machine_width / 2}};
 }
 
+Bounds part_bounds(const world::Profile& profile, const world::State& state,
+        const stationary::PlacedPart& part) {
+    if (part.parent.empty()) return part_bounds(profile, part);
+    const auto delta = world::piston_assembly::displacement(state, part.parent);
+    Bounds result;
+    for (unsigned n = 0; n < 3; ++n)
+        result.center[n] = profile.anchor_offset[n] + profile.meters_per_grid_unit *
+            (part.geometry.center[n] + double(delta[n]) / piston::ticks_per_level);
+    result.half = gear_axle_half_extents(part.geometry.axis);
+    if (part.role == Role::gear) {
+        const auto rim = gear_half_extents(part.geometry.axis, part.geometry.teeth);
+        for (unsigned n = 0; n < 3; ++n) result.half[n] = std::max(result.half[n], rim[n]);
+    } else result.half[static_cast<unsigned>(part.geometry.axis)] = part.geometry.half_span * height_step;
+    return result;
+}
+
+std::vector<Bounds> part_solids(const world::Profile& profile, const world::State& state,
+        const stationary::PlacedPart& part) {
+    if (part.role != Role::shaft && part.role != Role::gear) return {part_bounds(profile, part)};
+    const auto delta = world::piston_assembly::displacement(state, part.parent);
+    Bounds axle;
+    for (unsigned n = 0; n < 3; ++n)
+        axle.center[n] = profile.anchor_offset[n] + profile.meters_per_grid_unit *
+            (part.geometry.center[n] + double(delta[n]) / piston::ticks_per_level);
+    axle.half = gear_axle_half_extents(part.geometry.axis);
+    if (part.role == Role::shaft) {
+        axle.half[static_cast<unsigned>(part.geometry.axis)] = part.geometry.half_span * height_step;
+        return {axle};
+    }
+    return {axle, {axle.center, gear_half_extents(part.geometry.axis, part.geometry.teeth)}};
+}
+
 // The two admitted mineral cells face one fixed west-side rock. Their pickup
 // shoes occupy different strips of its real hull, independent of output turn.
 std::optional<Bounds> collector_intake_bounds(const mechanics::Point& center) {
@@ -131,15 +164,14 @@ bool slide_head_fitting(std::optional<materials::Component> first,
         const mechanics::Point& first_center, materials::Component second,
         const mechanics::Point& second_center) {
     const auto slide = [](materials::Component kind) {
-        return kind == materials::Component::wooden_slide ||
-            kind == materials::Component::copper_slide;
+        return kind == materials::Component::slide;
     };
     if (!first) return false;
     if (*first == materials::Component::broad_flat_head &&
-        second == materials::Component::broad_copper_slide)
+        second == materials::Component::broad_slide)
         return second_center == mechanics::Point{first_center[0],
             first_center[1] + 3, first_center[2]};
-    if (*first == materials::Component::broad_copper_slide &&
+    if (*first == materials::Component::broad_slide &&
         second == materials::Component::broad_flat_head)
         return first_center == mechanics::Point{second_center[0],
             second_center[1] + 3, second_center[2]};
@@ -220,19 +252,6 @@ bool transmission_intersects(const Bounds& other, const mechanics::Point& center
     const authority::Point at{center[0] * height_step, anchor_height + center[1] * height_step, center[2] * height_step};
     return overlap(other, {at, gear_axle_half_extents(axis)}) ||
         (gear && overlap(other, {at, gear_half_extents(axis, 0)}));
-}
-
-bool shaft_meets_component_cog(std::optional<materials::Component> kind,
-        const mechanics::Point& component, const mechanics::Point& shaft, mechanics::Axis axis) {
-    if (kind != materials::Component::wooden_cog &&
-        kind != materials::Component::copper_cog) return false;
-    if (axis != mechanics::Axis::x && axis != mechanics::Axis::z) return false;
-    const auto along = static_cast<std::size_t>(axis);
-    for (std::size_t dimension = 0; dimension < 3; ++dimension)
-        if (dimension != along && component[dimension] != shaft[dimension]) return false;
-    // A one-tile shaft ends at the hub center two height steps away. Its
-    // placement box and the cog's occupied box overlap at this intended joint.
-    return std::abs(component[along] - shaft[along]) == 2;
 }
 
 bool collector_intake_intersects(const Bounds& intake, const world::Profile& profile,

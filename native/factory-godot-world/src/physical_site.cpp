@@ -31,7 +31,6 @@ using physical_geometry::overlaps_supports;
 using physical_geometry::gear_half_extents;
 using physical_geometry::gear_axle_half_extents;
 using physical_geometry::transmission_intersects;
-using physical_geometry::shaft_meets_component_cog;
 using physical_geometry::intersects_belt;
 using site_geometry::height_denominator;
 using site_geometry::height_step;
@@ -279,11 +278,12 @@ const char* component_space_refusal(const Site& site, const world::State& state,
         return world::rotary_connection(*candidate_ports, candidate_id, shaft);
     };
     for (const auto& part : state.topology.parts) {
-        if (part.role == Role::gear || part.role == Role::shaft) {
+        if (!part.parent.empty()) {
+            for (const auto& solid : physical_geometry::part_solids(site.profile, state, part))
+                if (overlap(volume, solid)) return "occupied";
+        } else if (part.role == Role::gear || part.role == Role::shaft) {
             if (transmission_intersects(volume, part.geometry.center, part.geometry.axis,
                                         part.role == Role::gear) &&
-                !(part.role == Role::shaft && shaft_meets_component_cog(
-                    kind, center, part.geometry.center, part.geometry.axis)) &&
                 !(part.role == Role::shaft && meets_port(part.geometry))) return "occupied";
         } else if (overlap(volume, part_bounds(site.profile, part))) return "occupied";
         if (part.role == Role::collector)
@@ -319,7 +319,10 @@ const char* supplied_space_refusal(const Site& site, const world::State& state) 
         }
         if (intersects_belt(state, box)) return "occupied";
         for (const auto& part : state.topology.parts) {
-            if (part.role == Role::shaft || part.role == Role::gear) {
+            if (!part.parent.empty()) {
+                for (const auto& solid : physical_geometry::part_solids(site.profile, state, part))
+                    if (overlap(box, solid)) return "occupied";
+            } else if (part.role == Role::shaft || part.role == Role::gear) {
                 if (transmission_intersects(box, part.geometry.center, part.geometry.axis,
                         part.role == Role::gear)) return "occupied";
             } else if (overlap(box, part_bounds(site.profile, part))) return "occupied";
@@ -361,8 +364,10 @@ std::vector<std::pair<authority::Point, authority::Point>> build_solid_boxes(
         for (const auto& solid : component_geometry::placed_solids(site.profile, state, id, part))
             append_bounds(solid);
     }
-    for (const auto& part : state.topology.parts)
-        append_bounds(part_bounds(site.profile, part));
+    for (const auto& part : state.topology.parts) {
+        if (part.parent.empty()) append_bounds(part_bounds(site.profile, part));
+        else for (const auto& box : physical_geometry::part_solids(site.profile, state, part)) append_bounds(box);
+    }
     return boxes;
 }
 

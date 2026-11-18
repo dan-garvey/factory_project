@@ -572,20 +572,28 @@ func _arrival_joined_broad_run(capture_prefix: String, on_slab := false) -> void
 		return
 	if not await _approach_points([Vector2(6.0, 3.45)]):
 		return
-	for cut in range(2):
+	for cut in range(8):
 		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
 			return
-	if not await _approach_points([Vector2(4.95, 4.95), Vector2(3.3, 3.3),
+	if not await _approach_points([Vector2(4.95, 4.95), Vector2(4.95, 9.9), Vector2(6.0, 11.55)]):
+		return
+	for cut in range(6):
+		if _construct({"action": "harvest_source", "target": "tree-east-north"}).is_empty():
+			return
+	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 4.95), Vector2(3.3, 3.3),
 			Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
 		return
-	for cut in range(31):
+	for cut in range(15):
 		if _construct({"action": "harvest_source", "target": _reachable_ore_column()}).is_empty():
 			return
+	# Reuse the entry path after cutting the outcrop down below its approach edge.
+	if not await _walk_to(Vector2(0.0, 1.65), true, "P", OpeningGeometry.CAPSULE_RADIUS):
+		return
 	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, 4.95)]):
 		return
 	var bench_id: String = str(opening.model.projection().fabrication_hub.id)
 	for recipe in [{"kind": "anvil", "count": 4}, {"kind": "flat_head", "count": 4},
-			{"kind": "copper_slide", "count": 4}, {"kind": "hand_crank", "count": 1}]:
+			{"kind": "slide", "count": 4}, {"kind": "hand_crank", "count": 1}]:
 		for copy in range(recipe.count):
 			if _construct({"action": "craft_component", "entity": bench_id,
 					"component": recipe.kind}).is_empty():
@@ -609,7 +617,7 @@ func _arrival_joined_broad_run(capture_prefix: String, on_slab := false) -> void
 	var origin: Array = [24, 0, 24] if on_slab else [12, 0, 0]
 	for part in [{"kind": "broad_anvil", "center": origin},
 			{"kind": "broad_flat_head", "center": [origin[0], origin[1] + 1, origin[2]]},
-			{"kind": "broad_copper_slide", "center": [origin[0], origin[1] + 4, origin[2]]}]:
+			{"kind": "broad_slide", "center": [origin[0], origin[1] + 4, origin[2]]}]:
 		installed[part.kind] = _construct({"action": "place_component",
 			"component": part.kind, "center": part.center})
 		if installed[part.kind].is_empty():
@@ -640,7 +648,7 @@ func _arrival_joined_broad_run(capture_prefix: String, on_slab := false) -> void
 				"Retain the actual three-piece broad press in its surrounding worksite at rest"):
 			return
 	var bed_id: String = str(installed.broad_anvil.entity)
-	var slide_id: String = str(installed.broad_copper_slide.entity)
+	var slide_id: String = str(installed.broad_slide.entity)
 	if _construct({"action": "feed_broad_press", "entity": bed_id}).is_empty():
 		return
 	var fed: Dictionary = opening.model.projection()
@@ -806,8 +814,9 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-carried-component-hud.png") == OK,
 				"Retain the ordinary crafted-component HUD without an anvil recipe"):
 			return
-	if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
-		return
+	for cut in range(2):
+		if _construct({"action": "harvest_source", "target": "tree-east-south"}).is_empty():
+			return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	var bench_ready: Dictionary = opening.model.projection()
@@ -815,7 +824,7 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 	await process_frame
 	if not _expect(inventory.catalog.visible and inventory.context_bench == "pod-fabrication-hub"
 			and not opening.object_menu.visible
-			and "Craft at selected bench; stand nearby" in inventory.recipe_buttons["component:wooden_shaft"].tooltip_text,
+			and "Craft at selected bench; stand nearby" in inventory.recipe_buttons["component:receiver_tray"].tooltip_text,
 			"E on the installed pod opens the same recipe grid with bench crafting available"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
@@ -823,11 +832,11 @@ func _arrival_field_craft_run(panel, capture_prefix: String) -> void:
 		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-bench.png") == OK,
 				"Retain the ordinary E-opened bench inventory view"):
 			return
-	inventory.recipe_buttons["component:wooden_shaft"].pressed.emit()
+	inventory.recipe_buttons["component:receiver_tray"].pressed.emit()
 	var bench_shaped: Dictionary = opening.model.projection()
 	if not _expect(bench_shaped.order == bench_ready.order + 1
 			and bench_shaped.cargo.P.timber == 0
-			and bench_shaped.cargo.P.components.get("wooden_shaft", 0) == 1
+			and bench_shaped.cargo.P.components.get("receiver_tray", 0) == 1
 			and bench_shaped.cargo.P.components.get("wooden_frame", 0) == 1,
 			"The E-opened recipe icon sends a reachable native bench craft with finite custody: " +
 			str({"order": bench_shaped.order, "expected": bench_ready.order + 1,
@@ -1528,22 +1537,23 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	var recipes: Dictionary = opening.model.projection().component_recipes
 	opening._open_object_menu_for(str(opening.model.projection().fabrication_hub.id))
 	var inventory = opening.building_hotbar
-	var tile: Button = inventory.recipe_buttons["component:copper_shaft"]
+	inventory.recipe_tabs.machine.pressed.emit()
+	var tile: Button = inventory.recipe_buttons["component:slide"]
 	if not _expect(inventory.catalog.visible and inventory.context_bench == opening.model.projection().fabrication_hub.id
 			and tile.visible and tile.icon != null,
 			"The pod workshop exposes the native component recipes in its shared inventory"):
 		return
-	if not _expect(recipes.wooden_shaft.load_rating == 8
-			and recipes.wooden_cog.load_rating == 8
-			and recipes.copper_shaft.load_rating == 24
-			and recipes.copper_cog.load_rating == 24,
-			"The ordinary workshop receives its drive ratings from the native projection"):
+	if not _expect(recipes.slide.load_rating == 24 and recipes.slide.timber == 3
+			and recipes.slide.copper == 0 and not recipes.has("wooden_shaft")
+			and not recipes.has("copper_shaft") and not recipes.has("wooden_slide")
+			and not recipes.has("copper_slide"),
+			"The ordinary workshop receives one native slide recipe and no material-tier aliases"):
 		return
 	tile.grab_focus()
 	if not _expect("rated for 24 load" in tile.tooltip_text
-			and "0 timber + 2 ore" in tile.tooltip_text
-			and "needs 0 timber and 2 ore" in tile.accessibility_name,
-			"The copper upgrade recipe shows its native rating and actual bill"):
+			and "3 timber + 0 copper" in tile.tooltip_text
+			and "needs 3 timber + 0 copper" in tile.accessibility_name,
+			"The canonical slide recipe shows its native rating and actual bill"):
 		return
 	if not capture_prefix.is_empty():
 		await process_frame
@@ -1568,72 +1578,63 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 		return
 	inventory.catalog.hide()
 	await process_frame
-	# Zero-cut entries are explicit clear-aisle waypoints, not resource actions.
-	for source in [
-		{"point": Vector2(6.0, 3.45), "id": "tree-east-south", "cuts": 8},
-		{"point": Vector2(4.95, 4.95), "cuts": 0},
-		{"point": Vector2(4.95, 9.9), "cuts": 0},
-		{"point": Vector2(6.0, 11.55), "id": "tree-east-north", "cuts": 8},
-		{"point": Vector2(0.6, 11.55), "id": "tree-north", "cuts": 5},
-	]:
-		if not await _approach(source.point):
+	if not await _approach_points([Vector2(3.3, 3.3), Vector2(0.0, 1.65), Vector2(-0.5, 0.0)]):
+		return
+	for cut in range(21):
+		if _construct({"action": "harvest_source", "target": _reachable_ore_column()}).is_empty():
 			return
-		for index in range(source.cuts):
-			if _construct({"action": "harvest_source", "target": source.id}).is_empty():
-				return
-	if not await _approach_points([Vector2(4.95, 9.9), Vector2(4.95, 4.95), Vector2(3.3, 4.95)]):
+	if not await _walk_to(Vector2(0.0, 1.65), true, "P", OpeningGeometry.CAPSULE_RADIUS):
+		return
+	if not await _approach_points([Vector2(3.3, 3.3), Vector2(3.3, 4.95)]):
 		return
 	var gathered: Dictionary = opening.model.projection()
-	if not _expect(gathered.cargo.P.timber == 21
-			and gathered.hand_sources["tree-east-south"].remaining == 0
-			and gathered.hand_sources["tree-east-north"].remaining == 0
-			and gathered.hand_sources["tree-north"].remaining == 3,
-			"Three finite trees supply twenty-one real component inputs"):
+	if not _expect(gathered.cargo.P.raw == 21,
+			"The finite outcrop supplies twenty-one real component inputs"):
 		return
 	for count in range(21):
-		if not _expect(opening.building_hotbar.recipe_buttons["component:wooden_shaft"].visible,
-				"The pod workshop keeps the native shaft recipe discoverable while stock is available"):
+		if not _expect(opening.building_hotbar.recipe_buttons["component:cutting_edge"].visible,
+				"The pod workshop keeps the native cutting-edge recipe discoverable while stock is available"):
 			return
 		var before: Dictionary = opening.model.projection()
-		if not _press_inventory_recipe("component:wooden_shaft", str(before.fabrication_hub.id)):
+		if not _press_inventory_recipe("component:cutting_edge", str(before.fabrication_hub.id)):
 			return
 		var after: Dictionary = opening.model.projection()
-		if not _expect(after.order == before.order + 1 and after.cargo.P.timber == before.cargo.P.timber - 1
-				and after.cargo.P.components.get("wooden_shaft", 0) == count + 1,
-				"Each selected recipe converts exactly one carried timber into one wooden shaft"):
+		if not _expect(after.order == before.order + 1 and after.cargo.P.raw == before.cargo.P.raw - 1
+				and after.cargo.P.components.get("cutting_edge", 0) == count + 1,
+				"Each selected recipe converts exactly one carried copper into one cutting edge"):
 			return
 	var crafted: Dictionary = opening.model.projection()
-	if not _expect(crafted.cargo.P.timber == 0
-			and crafted.cargo.P.components.get("wooden_shaft", 0) == 21
+	if not _expect(crafted.cargo.P.raw == 0
+			and crafted.cargo.P.components.get("cutting_edge", 0) == 21
 			and crafted.hand_sources == gathered.hand_sources
 			and crafted.placed_components.is_empty()
 			and crafted.order == gathered.order + 21,
-			"Twenty-one carried shafts consume exactly twenty-one finite timber without a placement detour"):
+			"Twenty-one carried cutting edges consume exactly twenty-one finite copper without a placement detour"):
 		return
 	await process_frame
 	if opening.building_hotbar.catalog.visible:
 		opening.building_hotbar.catalog.hide()
 	opening.building_hotbar.open_catalog()
 	await process_frame
-	tile = opening.building_hotbar.component_buttons.wooden_shaft
+	tile = opening.building_hotbar.component_buttons.cutting_edge
 	if not _expect(opening.building_hotbar.catalog.visible and tile.icon != null
-			and opening.building_hotbar.component_counts.wooden_shaft.text == "21"
+			and opening.building_hotbar.component_counts.cutting_edge.text == "21"
 			and "21 carried" in tile.tooltip_text
 			and "21 carried" in tile.accessibility_name,
-			"The shared build and inventory window shows twenty-one shafts as an icon, count, and hover description: " +
+			"The shared build and inventory window shows twenty-one cutting edges as an icon, count, and hover description: " +
 			str({"open": opening.building_hotbar.catalog.visible, "icon": tile.icon != null,
-				"count": opening.building_hotbar.component_counts.wooden_shaft.text,
+				"count": opening.building_hotbar.component_counts.cutting_edge.text,
 				"tooltip": tile.tooltip_text, "focus": tile.accessibility_name})):
 		return
 	var inventory_scroll: ScrollContainer = opening.building_hotbar.inventory_scroll
 	inventory_scroll.ensure_control_visible(tile)
 	await process_frame
 	if not _expect(inventory_scroll.get_global_rect().encloses(tile.get_global_rect()),
-			"The twenty-one shaft icon and count can be brought fully into the visible inventory scroll area"):
+			"The twenty-one cutting-edge icon and count can be brought fully into the visible inventory scroll area"):
 		return
 	if not capture_prefix.is_empty():
 		await RenderingServer.frame_post_draw
-		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-carried-shafts.png") == OK,
+		if not _expect(root.get_texture().get_image().save_png(capture_prefix + "-carried-cutting-edges.png") == OK,
 				"The normal build and inventory window is retained after crafting"):
 			return
 	opening.building_hotbar.catalog.hide()
@@ -1643,7 +1644,7 @@ func _arrival_capacity_run(panel, capture_prefix: String) -> void:
 	if not _expect(saved.get("accepted", false) and saved.get("native_preflight", {}).get("accepted", false)
 			and FileAccess.file_exists(opening.save_slot)
 			and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted,
-			"Store retains the twenty-one carried components and depleted tree stocks in a valid checkpoint"):
+			"Store retains the twenty-one carried components and finite ore stocks in a valid checkpoint"):
 		return
 	_record("pass")
 
@@ -1656,16 +1657,14 @@ func _arrival_capacity_resume_run() -> void:
 		return
 	opening.building_hotbar.open_catalog()
 	await process_frame
-	var tile: Button = opening.building_hotbar.component_buttons.wooden_shaft
+	var tile: Button = opening.building_hotbar.component_buttons.cutting_edge
 	if not _expect(opening.last_load_result.get("accepted", false)
-			and state.cargo.P.timber == 0
-			and state.cargo.P.components.get("wooden_shaft", 0) == 21
-			and state.hand_sources["tree-east-south"].remaining == 0
-			and state.hand_sources["tree-east-north"].remaining == 0
-			and state.hand_sources["tree-north"].remaining == 3
+			and state.cargo.P.raw == 0
+			and state.cargo.P.components.get("cutting_edge", 0) == 21
+			and state.stock.source == 4096 - 21
 			and state.placed_components.is_empty()
 			and opening.building_hotbar.catalog.visible and tile.icon != null
-			and opening.building_hotbar.component_counts.wooden_shaft.text == "21"
+			and opening.building_hotbar.component_counts.cutting_edge.text == "21"
 			and "21 carried" in tile.tooltip_text
 			and opening.model.validate_checkpoint(opening.model.checkpoint()).accepted,
 			"A fresh ordinary scene restores every finite source and all twenty-one carried shaft icons"):
@@ -1697,7 +1696,7 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 			and opening.model.projection().cargo.P.raw == 3 + ore_for_press,
 			"Three finite trees and the outcrop supply the collector route, crank and later press stock"):
 		return
-	for kind in ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"]:
+	for kind in ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray"]:
 		if not _expect(opening.building_hotbar.recipe_buttons.has("component:" + kind),
 				"The native collector component is listed in the ordinary inventory recipes"):
 			return
@@ -1786,7 +1785,6 @@ func _arrival_belt_run(panel, capture_prefix: String, finish: bool = true) -> vo
 		{"kind": "tool_mount", "center": [-1, 4, 4]},
 		{"kind": "cutting_edge", "center": [-2, 4, 4]},
 		{"kind": "receiver_tray", "center": [0, 4, 3]},
-		{"kind": "wooden_shaft", "center": [1, 4, 4]},
 	]:
 		if _construct({"action": "place_component", "component": component.kind,
 				"center": component.center}).is_empty():
@@ -2577,8 +2575,8 @@ func _arrival_reveal_run(capture_prefix: String) -> void:
 			and inventory.slots.all(func(slot: String) -> bool: return slot.is_empty())
 			and inventory.recipe_buttons.has("component:anvil")
 			and inventory.recipe_buttons.has("component:flat_head")
-			and inventory.recipe_buttons.has("component:wooden_slide")
-			and not inventory.recipe_buttons.has("component:wooden_cog")
+			and inventory.recipe_buttons.has("component:slide")
+			and not inventory.recipe_buttons.has("part:4")
 			and not inventory.recipe_buttons.has("component:receiver_tray")
 			and not inventory.recipe_buttons.has("foundation")
 			and inventory.context_label.text.contains("press with a hand crank")
@@ -2722,10 +2720,10 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 	if not await _approach_points([Vector2(0.0, 1.65), Vector2(3.3, 4.95)]):
 		return
 	var inventory = opening.building_hotbar
-	if not _expect(inventory.recipe_buttons.has("component:wooden_slide"),
-			"The ordinary inventory exposes the native wooden slide recipe"):
+	if not _expect(inventory.recipe_buttons.has("component:slide"),
+			"The ordinary inventory exposes the native slide recipe"):
 		return
-	if not _press_inventory_recipe("component:wooden_slide", str(opening.model.projection().fabrication_hub.id)):
+	if not _press_inventory_recipe("component:slide", str(opening.model.projection().fabrication_hub.id)):
 		return
 	for kind in ["wheel", "shaft"]:
 		var recipe := -1
@@ -2739,7 +2737,7 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 			return
 	if not _expect(opening.model.projection().cargo.P.timber == 0
 			and opening.model.projection().cargo.P.raw == 0
-			and opening.model.projection().cargo.P.components.get("wooden_slide", 0) == 1
+			and opening.model.projection().cargo.P.components.get("slide", 0) == 1
 			and opening.model.projection().part_kits.P.wheel == 1
 			and opening.model.projection().part_kits.P.shaft == 1,
 			"Six finite timber units and one ore blank become one slide, wheel and shaft"):
@@ -2756,19 +2754,19 @@ func _arrival_slide_run(panel, capture_prefix: String) -> void:
 	if _construct({"action": "place_shaft", "center": [-4, 4, 4],
 			"axis": "x", "half_span": 2}).is_empty():
 		return
-	if not _select_inventory_item("component:wooden_slide"):
+	if not _select_inventory_item("component:slide"):
 		return
-	if not _expect(opening.mode == "component" and panel.selected_name() == "wooden_slide",
+	if not _expect(opening.mode == "component" and panel.selected_name() == "slide",
 			"The slide icon selects the actual component placement mode"):
 		return
-	var placed := _construct({"action": "place_component", "component": "wooden_slide",
+	var placed := _construct({"action": "place_component", "component": "slide",
 		"center": [-1, 4, 4]})
 	if placed.is_empty():
 		return
 	var id: String = placed.entity
 	var idle: Dictionary = opening.model.projection()
-	if not _expect(idle.placed_components[id].component == "wooden_slide"
-			and idle.cargo.P.components.get("wooden_slide", 0) == 0
+	if not _expect(idle.placed_components[id].component == "slide"
+			and idle.cargo.P.components.get("slide", 0) == 0
 			and idle.slide_phases[id].subticks == 0
 			and idle.motion[id].state == "rotating",
 			"One fixed native slide consumes its carried body and joins the external drive"):
@@ -2837,7 +2835,7 @@ func _arrival_first_plate_resume_run(capture_prefix: String) -> void:
 		return
 	var inventory = opening.building_hotbar
 	inventory.open_catalog()
-	if not _expect(inventory.recipe_buttons.has("component:wooden_cog")
+	if not _expect(inventory.recipe_buttons.has("part:4")
 			and inventory.recipe_buttons.has("component:receiver_tray")
 			and inventory.recipe_buttons.has("foundation"),
 			"The restored actor keeps the advanced recipe unlock without default hotbar assignments"):
@@ -2862,7 +2860,7 @@ func _arrival_raised_starter_belt_context(capture_prefix: String, fitted: Dictio
 			crank_id = id
 	if not _expect(not crank_id.is_empty(), "The worker carries the finite raised-press crank"):
 		return false
-	if _construct({"action": "attach_hand_crank", "entity": fitted.wooden_slide,
+	if _construct({"action": "attach_hand_crank", "entity": fitted.slide,
 			"crank": crank_id, "port": [30, 6, 32], "face": [-1, 0, 0]}).is_empty():
 		return false
 	for plate_index in range(2):
@@ -2965,9 +2963,9 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		inventory.recipe_tabs.machine.pressed.emit()
 	if not _expect(inventory.recipe_buttons.has("component:anvil")
 			and inventory.recipe_buttons.has("component:flat_head")
-			and inventory.recipe_buttons.has("component:wooden_slide")
+			and inventory.recipe_buttons.has("component:slide")
 			and inventory.recipe_buttons.has("component:hand_crank")
-			and (raised_snap or (not inventory.recipe_buttons.has("component:wooden_cog")
+			and (raised_snap or (not inventory.recipe_buttons.has("part:4")
 				and not inventory.recipe_buttons.has("component:receiver_tray")
 				and inventory.context_label.text.contains("press with a hand crank")
 				and not inventory.context_label.text.contains("anvil, flat head"))),
@@ -2976,7 +2974,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	for recipe: Dictionary in [
 		{"kind": "anvil", "name": "Anvil", "card": "Anvil"},
 		{"kind": "flat_head", "name": "Flat pressing head", "card": "Flat head"},
-		{"kind": "wooden_slide", "name": "Wooden slide", "card": "Wooden slide"},
+		{"kind": "slide", "name": "Slide", "card": "Slide"},
 		{"kind": "hand_crank", "name": "Hand crank", "card": "Hand crank"}]:
 		var key: String = "component:" + recipe.kind
 		var tile: Button = inventory.recipe_buttons[key]
@@ -3014,8 +3012,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		root.size = Vector2i(1280, 800)
 	inventory.catalog.hide()
 	if not raised_snap:
-		var early: Dictionary = _issue({"action": "craft_component",
-			"entity": str(start.fabrication_hub.id), "component": "wooden_cog"})
+		var early: Dictionary = _issue({"action": "craft_part",
+			"entity": str(start.fabrication_hub.id), "role": "gear", "teeth": 2, "half_span": 0})
 		if not _expect(not early.get("accepted", false) and early.get("reason") == "first_plate_required"
 				and opening.model.projection().cargo == start.cargo,
 				"A direct cog recipe remains locked without spending the initial finite stock"):
@@ -3032,7 +3030,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			return
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
-	for kind in ["anvil", "flat_head", "wooden_slide", "hand_crank"]:
+	for kind in ["anvil", "flat_head", "slide", "hand_crank"]:
 		if not _press_inventory_recipe("component:" + kind, str(start.fabrication_hub.id)):
 			return
 	if mode == "arrival-blocked-feed-cue" and not _press_inventory_recipe(
@@ -3065,7 +3063,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 	var press_cell := Vector2i(8, 8) if raised_snap else Vector2i(2, 3)
 	for part in [{"kind": "anvil", "center": [press_x, rise, press_z]},
 			{"kind": "flat_head", "center": [press_x, rise + 1, press_z]},
-			{"kind": "wooden_slide", "center": [press_x, rise + 2, press_z]}]:
+			{"kind": "slide", "center": [press_x, rise + 2, press_z]}]:
 		if not _select_inventory_item("component:" + part.kind):
 			return
 		var prior: Dictionary = opening.model.projection().placed_components
@@ -3109,7 +3107,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			var pointed: String = opening._screen_entity(screen)
 			opening._refresh_component_preview()
 			opening._refresh_placement_options()
-			if not _expect((pointed == lower_id or part.kind == "wooden_slide"
+			if not _expect((pointed == lower_id or part.kind == "slide"
 					and pointed == fitted.anvil) and hit.get("collider") != null
 					and absf(hit.get("normal", Vector3.UP).y) < 0.5
 					and opening._component_place_center(opening._screen_cell(screen), pointed) == part.center
@@ -3209,7 +3207,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 						+ float(workbed_half[1]) + 0.35, float(workbed_center[2]))),
 			"Retain the complete player-built press and neighboring worksite at actor eye"):
 			return
-		var slide_body: Dictionary = assembled.placed_components[fitted.wooden_slide].occupied
+		var slide_body: Dictionary = assembled.placed_components[fitted.slide].occupied
 		var bottom_y: float = float(workbed_center[1]) - float(workbed_half[1])
 		var top_y: float = float(slide_body.center[1]) + float(slide_body.half[1])
 		var side_frame := "-raised-assembled-side.png" if raised_snap else "-assembled-side.png"
@@ -3222,7 +3220,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not _expect(presses.size() == 1 and presses[0].status == "ready"
 				and presses[0].parts.anvil == fitted.anvil
 				and presses[0].parts.head == fitted.flat_head
-				and presses[0].parts.slide == fitted.wooden_slide,
+				and presses[0].parts.slide == fitted.slide,
 				"The actor-eye raised starter snaps form one native-ready sliding press"):
 			return
 		facts.raised_starter_parts = fitted
@@ -3239,7 +3237,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				return floor.cell == [press_cell.x, press_cell.y] and floor.level == 0)
 			and presses[0].parts.anvil == fitted.anvil
 			and presses[0].parts.head == fitted.flat_head
-			and presses[0].parts.slide == fitted.wooden_slide
+			and presses[0].parts.slide == fitted.slide
 			and assembled.workshop_completed_actors.is_empty()
 			and assembled.cargo.P.raw == 1,
 			"An actor-built anvil, separate head and integral slide form one ready native geometry while the plate gate stays locked"):
@@ -3316,7 +3314,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		return
 	var west_port := [press_x - 2, rise + 2, press_z]
 	var east_port := [press_x + 2, rise + 2, press_z]
-	var native_ports: Array = assembled.rotary_ports[fitted.wooden_slide].ports
+	var native_ports: Array = assembled.rotary_ports[fitted.slide].ports
 	if not _expect(native_ports.size() == 2 and native_ports[0].position == west_port
 			and native_ports[1].position == east_port,
 			"The fitted slide exposes two native same-height external crank ports"):
@@ -3329,7 +3327,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"The east slide input exposes an outward fitted-crank preview"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-		var preview_position: Array = assembled.placed_components[fitted.wooden_slide].position
+		var preview_position: Array = assembled.placed_components[fitted.slide].position
 		if not _expect(await _capture_actor_area(capture_prefix + "-crank-preview-east.png",
 				Vector3(float(preview_position[0]) + OpeningGeometry.PITCH,
 					float(preview_position[1]), float(preview_position[2]))),
@@ -3342,38 +3340,38 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"The west slide input visibly reverses the crank fitting"):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-		var preview_position: Array = assembled.placed_components[fitted.wooden_slide].position
+		var preview_position: Array = assembled.placed_components[fitted.slide].position
 		if not _expect(await _capture_actor_area(capture_prefix + "-crank-preview-west.png",
 				Vector3(float(preview_position[0]) - OpeningGeometry.PITCH,
 					float(preview_position[1]), float(preview_position[2]))),
 				"Retain the west input preview in the ordinary scene"):
 			return
 	opening.component_nudge_center = west_port.duplicate()
-	opening._world_click(press_cell, fitted.wooden_slide)
+	opening._world_click(press_cell, fitted.slide)
 	opening.component_nudge_active = false
 	opening.component_nudge_center.clear()
 	var attached: Dictionary = opening.model.projection()
 	if not _expect(attached.crank_items.values().any(func(item: Variant) -> bool:
-			return item.attached_to == fitted.wooden_slide and item.port == west_port),
+			return item.attached_to == fitted.slide and item.port == west_port),
 			"The ordinary component tool fits the finite crank at the west input for an east outlet: "
 			+ str({"port": west_port, "status": opening.status_label.text,
 				"cranks": attached.crank_items})):
 		return
 	if not capture_prefix.is_empty() and DisplayServer.get_name() != "headless":
-		var slide_position: Array = attached.placed_components[fitted.wooden_slide].position
+		var slide_position: Array = attached.placed_components[fitted.slide].position
 		if not _expect(await _capture_actor_area(capture_prefix + "-crank-fitted.png",
 				Vector3(float(slide_position[0]) - OpeningGeometry.PITCH,
 					float(slide_position[1]), float(slide_position[2]))),
 				"Retain the fitted exterior crank in the ordinary scene view"):
 			return
 		if "--shaft-clip-probe" in OS.get_cmdline_user_args() and not _expect(
-				await _capture_slide_shaft(str(fitted.wooden_slide), capture_prefix + "-shaft-close.png"),
+				await _capture_slide_shaft(str(fitted.slide), capture_prefix + "-shaft-close.png"),
 				"Retain the fitted slide shaft at a fixed close view"):
 			return
 	if first_plate_route:
 		var crank_id := ""
 		for id: String in attached.crank_items:
-			if attached.crank_items[id].get("attached_to") == fitted.wooden_slide:
+			if attached.crank_items[id].get("attached_to") == fitted.slide:
 				crank_id = id
 		if not _expect(not crank_id.is_empty(), "The fitted slide keeps its finite crank identity"):
 			return
@@ -3414,8 +3412,8 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 				return
 		facts["crank_visual_input"] = "focused_world_e" if focused_world_input else "native_after_unfocused_e"
 		if not _expect(after_direct.order == before_direct.order + 1
-				and after_direct.slide_phases[fitted.wooden_slide].subticks >
-					before_direct.slide_phases[fitted.wooden_slide].subticks
+				and after_direct.slide_phases[fitted.slide].subticks >
+					before_direct.slide_phases[fitted.slide].subticks
 				and (opening.held_crank == crank_id if focused_world_input else opening.held_crank.is_empty())
 				and not opening.object_menu.visible,
 			"The direct native crank pulse drives the unloaded slide once without opening a machine menu"):
@@ -3447,10 +3445,10 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"The physical actor opens a ready three-part sliding press with workbed inventory"):
 			return
 	else:
-		var prior_phase: Dictionary = opening.model.projection().slide_phases[fitted.wooden_slide]
+		var prior_phase: Dictionary = opening.model.projection().slide_phases[fitted.slide]
 		var slide_crank_id := ""
 		for id: String in opening.model.projection().crank_items:
-			if opening.model.projection().crank_items[id].get("attached_to") == fitted.wooden_slide:
+			if opening.model.projection().crank_items[id].get("attached_to") == fitted.slide:
 				slide_crank_id = id
 		if not _expect(not slide_crank_id.is_empty(),
 				"The slide retains the fitted exterior crank before an unloaded turn"):
@@ -3458,18 +3456,18 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		if not await _pulse_fitted_world_crank(slide_crank_id):
 			return
 		var cycled: Dictionary = opening.model.projection()
-		if not _expect(cycled.slide_phases[fitted.wooden_slide].subticks > prior_phase.subticks
+		if not _expect(cycled.slide_phases[fitted.slide].subticks > prior_phase.subticks
 				and cycled.crank_items.values().any(func(item: Variant) -> bool:
-					return item.attached_to == fitted.wooden_slide and item.port == west_port)
+					return item.attached_to == fitted.slide and item.port == west_port)
 				and cycled.workshop_completed_actors.is_empty(),
 			"The worker turns the fitted crafted crank through the slide's integral input"):
 			return
 	var route: Dictionary = presses[0].auto_feed
 	var feed: Dictionary = {}
 	if first_plate_route:
-		opening._open_object_menu_for(fitted.wooden_slide)
+		opening._open_object_menu_for(fitted.slide)
 		if not _expect(panel.press_section.is_visible_in_tree()
-				and opening.object_menu_target == fitted.wooden_slide
+				and opening.object_menu_target == fitted.slide
 				and panel.reclaim_button.is_visible_in_tree()
 				and not panel.inventory_drag("player_raw").is_empty()
 				and not panel.route_choice.visible
@@ -3519,7 +3517,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 		await _ordinary_key(KEY_ESCAPE)
 		var loaded_crank_id := ""
 		for id: String in opening.model.projection().crank_items:
-			if opening.model.projection().crank_items[id].get("attached_to") == fitted.wooden_slide:
+			if opening.model.projection().crank_items[id].get("attached_to") == fitted.slide:
 				loaded_crank_id = id
 		facts["loaded_workbed_close"] = {"object_menu_visible": opening.object_menu.visible,
 			"pause_menu_visible": opening.pause_menu.visible,
@@ -3682,7 +3680,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			"Pointed E pickup carries the plate and offcut and completes the inventory milestone"):
 			return
 		inventory.open_catalog()
-		if not _expect(inventory.recipe_buttons.has("component:wooden_cog")
+		if not _expect(inventory.recipe_buttons.has("part:4")
 				and inventory.recipe_buttons.has("component:receiver_tray")
 				and inventory.recipe_buttons.has("foundation")
 				and inventory.material_buttons.products.visible
@@ -3691,7 +3689,7 @@ func _arrival_starter_assembly_run(capture_prefix: String) -> void:
 			return
 		if not _expect(inventory.recipe_category == "power"
 				and inventory.recipe_tabs.power.button_pressed
-				and inventory.recipe_buttons["component:wooden_cog"].visible
+				and inventory.recipe_buttons["part:4"].visible
 				and not inventory.recipe_buttons["component:wooden_frame"].visible
 				and opening.goal_text.contains("Power"),
 			"The native first-plate milestone opens the Power recipes first"):
@@ -3812,7 +3810,7 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 		return false
 	var hub: String = str(opening.model.projection().fabrication_hub.id)
 	for recipe in ["foundation", "component:wooden_frame", "component:tool_mount",
-			"component:cutting_edge", "component:receiver_tray", "component:wooden_shaft"]:
+			"component:cutting_edge", "component:receiver_tray"]:
 		var before_craft: Dictionary = opening.model.projection()
 		if not _press_inventory_recipe(recipe, hub):
 			return false
@@ -3826,10 +3824,10 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 			return false
 	var prepared: Dictionary = opening.model.projection()
 	if not _expect(prepared.part_kits.P.foundation == before_project.part_kits.P.foundation + 1
-			and ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray", "wooden_shaft"].all(
+			and ["wooden_frame", "tool_mount", "cutting_edge", "receiver_tray"].all(
 				func(kind: String) -> bool: return int(prepared.cargo.P.components.get(kind, 0)) == \
 					int(before_project.cargo.P.components.get(kind, 0)) + 1),
-			"Finite local stock becomes exactly one foundation and the five collector components: " +
+			"Finite local stock becomes exactly one foundation and the four collector components: " +
 			str({"before_foundation": before_project.part_kits.P.foundation,
 				"after_foundation": prepared.part_kits.P.foundation,
 				"before_components": before_project.cargo.P.components,
@@ -3845,7 +3843,6 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 		{"kind": "tool_mount", "center": [-1, 4, 4]},
 		{"kind": "cutting_edge", "center": [-2, 4, 4]},
 		{"kind": "receiver_tray", "center": [0, 4, 3]},
-		{"kind": "wooden_shaft", "center": [1, 4, 4]},
 	]:
 		if _construct({"action": "place_component", "component": component.kind,
 				"center": component.center}).is_empty():
@@ -3861,7 +3858,7 @@ func _postplate_belt_project_run(capture_prefix: String) -> bool:
 	if not _expect(inventory.recipe_category == "logistics"
 			and inventory.recipe_tabs.logistics.button_pressed
 			and not inventory.recipe_buttons.foundation.visible
-			and not inventory.recipe_buttons["component:wooden_cog"].visible
+			and not inventory.recipe_buttons["part:4"].visible
 			and not inventory.recipe_buttons["component:wooden_frame"].visible
 			and inventory.material_buttons.products.visible
 			and opening.goal_text.contains("Logistics"),
@@ -4589,6 +4586,26 @@ func _piston_jump_to_reach() -> bool:
 	opening.character_presenter.set_physics_process(processing)
 	return _expect(false, "A real jump brings the last extension within ordinary build reach")
 
+func _piston_transmission_place(kind: String, pointed: String) -> Dictionary:
+	var before: Dictionary = opening.model.projection().transmission_parts
+	if not _select_inventory_item("drive" if kind == "shaft" else "gear:2"): return {}
+	opening.transmission_controls.selected_axis = "x"
+	for socket: Dictionary in opening.state.rotary_ports[pointed].ports:
+		if not socket.moving_frame or not socket.open or socket.outward != [1, 0, 0]: continue
+		var at: Vector3 = opening._rotary_display_position(socket)
+		var center: Array = opening._transmission_snap_target(pointed, Vector3.RIGHT, at + Vector3.RIGHT, at)
+		if not _expect(not center.is_empty() and not opening.transmission_controls.snapped_parent.is_empty(),
+				"The ordinary transmission tool snaps onto the native moving socket"): return {}
+		opening._transmission_click(center, pointed)
+		opening._select_tool("inspect")
+		for id: String in opening.model.projection().transmission_parts:
+			if not before.has(id):
+				var part: Dictionary = opening.model.projection().transmission_parts[id]
+				if not _expect(part.kind == kind and part.center == center and part.parent == socket.parent,
+						"The same carried transmission kit attaches to the piston"): return {}
+				return {"entity": id}
+	return {}
+
 func _piston_run(capture_prefix: String) -> void:
 	if mode == "arrival-piston-continue":
 		await _piston_continue(capture_prefix)
@@ -4614,7 +4631,8 @@ func _piston_run(capture_prefix: String) -> void:
 	if not await _approach(Vector2(3.3, 4.95)):
 		return
 	var kinds := ["segmented_piston", "piston_segment", "piston_segment", "piston_segment", "piston_segment", "hand_crank", "hand_crank"]
-	kinds.append_array(["copper_shaft", "copper_cog"] if mode == "arrival-piston-horizontal" else ["stationary_mount", "drill_head"])
+	if mode != "arrival-piston-horizontal": kinds.append_array(["stationary_mount", "drill_head"])
+	else: kinds.append_array(["anvil", "flat_head", "slide"])
 	for kind: String in kinds:
 		if not _press_inventory_recipe("component:" + kind, "pod-fabrication-hub"):
 			return
@@ -4636,7 +4654,6 @@ func _piston_run(capture_prefix: String) -> void:
 			if recipes[index].kind == "vertical_gearbox":
 				if not _press_inventory_recipe("part:" + str(index), "pod-fabrication-hub"):
 					return
-				break
 		await _horizontal_piston_run(capture_prefix)
 		return
 	if not await _approach_points([Vector2(4.95, 2.2), Vector2(6.6, 0.0), Vector2(6.6, -3.0)]):
@@ -4918,9 +4935,9 @@ func _piston_horizontal_continue(prefix: String) -> void:
 	if not _expect(after.stock == state.stock, "Rotary reuse preserves material: " + str([state.stock, after.stock])): return
 	var validation: Dictionary = opening.model.validate_checkpoint(opening.model.checkpoint())
 	if not _expect(validation.accepted, "Horizontal recovery remains saveable: " + str(validation)): return
-	for id: String in after.placed_components:
-		var part: Dictionary = after.placed_components[id]
-		if part.parent == body and part.component in ["copper_shaft", "copper_cog"]:
+	for id: String in after.transmission_parts:
+		var part: Dictionary = after.transmission_parts[id]
+		if part.get("parent", "") == body:
 			if not _expect(absf(opening.transmission_presenter.visual_rotation(id)) > 0.001,
 					"The saved ordinary carried part visibly rotates from its restored native power route: " + id): return
 	facts["evidence"] = "saved_horizontal_piston_real_intermediate_motion"
@@ -4931,21 +4948,30 @@ func _piston_rendered_rotors_match(body: String) -> bool:
 		facts["rendered_rotor_geometry"] = "not_assessed_headless"
 		return true
 	var presenter: Node3D = opening.transmission_presenter
-	var parts: Dictionary = opening.model.projection().placed_components
+	var parts: Dictionary = opening.model.projection().transmission_parts
+	var checked := 0
 	for id: String in parts:
-		if parts[id].parent != body or parts[id].component not in ["copper_shaft", "copper_cog"]: continue
-		var anchor: Node3D = presenter._component_anchors[id]
-		var rotor: Node3D = anchor.get_node("CarriedRotor")
-		var expected: Basis = rotor.get_meta("component_rotor_base") * Basis(Vector3.UP,
-			presenter.visual_angle(id) * float(rotor.get_meta("component_axis_sign")))
-		var actual := rotor.basis
-		if rotor.has_meta("batch_multimesh"):
-			var batch: MultiMesh = rotor.get_meta("batch_multimesh")
-			actual = (anchor.transform.affine_inverse() * batch.get_instance_transform(int(rotor.get_meta("batch_index")))).basis
-		if not _expect(actual.is_equal_approx(expected), "Rendered carried geometry follows its confirmed rotary phase: " + id): return false
-		for child: Node in rotor.get_children():
-			if child is MultiMeshInstance3D and child.visible:
-				if not _expect(rotor.basis.is_equal_approx(expected), "Unbatched teeth and spokes also follow the carried rotor: " + id): return false
+		if parts[id].get("parent", "") != body: continue
+		var part: Dictionary = parts[id]
+		var actual := Transform3D.IDENTITY
+		var found := false
+		if part.kind == "gear":
+			for batch: Dictionary in presenter._gear_batches.values():
+				var index: int = batch.ids.find(id)
+				if index >= 0:
+					actual = (batch.mesh as MultiMesh).get_instance_transform(index)
+					found = true
+		else:
+			for child: Node in presenter.get_children():
+				if child is Node3D and child.get_meta("entity", "") == id:
+					actual = child.transform
+					found = true
+		var delta: Array = part.displacement
+		var expected := Transform3D(presenter.axis_basis(part.axis) * Basis(Vector3.UP, presenter.visual_angle(id)),
+			presenter.world_center(part.center) + Vector3(delta[0], delta[1], delta[2]))
+		if not _expect(found and actual.is_equal_approx(expected), "Canonical shaft or complete cog mesh follows native position and phase: " + id): return false
+		checked += 1
+	if not _expect(checked == 2, "Both the carried shaft and complete cog were inspected"): return false
 	facts["rendered_rotor_geometry"] = "checked_graphical"
 	return true
 
@@ -4954,12 +4980,12 @@ func _piston_rock_contact(state: Dictionary, body: String) -> bool:
 	for rock: Dictionary in surface.support_boxes():
 		if rock.id != "rock_3": continue
 		var bounds: AABB = Transform3D(rock.basis, rock.center) * AABB(-rock.size * 0.5, rock.size)
-		for part: Dictionary in state.placed_components.values():
-			if part.parent != body or part.component != "copper_cog": continue
-			var solid: Dictionary = part.collision[0]
-			var center := Vector3(solid.center[0], solid.center[1], solid.center[2])
-			var half := Vector3(solid.half[0], solid.half[1], solid.half[2])
-			var current := AABB(center - half, half * 2.0)
+		var boxes: Dictionary = OpeningGeometry.mechanical_boxes(state).boxes
+		for id: String in state.transmission_parts:
+			var part: Dictionary = state.transmission_parts[id]
+			if part.get("parent", "") != body or part.kind != "gear": continue
+			var solid: Dictionary = boxes[id]
+			var current := AABB(solid.center - solid.size * 0.5, solid.size)
 			var next := AABB(current.position + Vector3.RIGHT * OpeningGeometry.HEIGHT_STEP / 16.0, current.size)
 			facts["horizontal_blocker"] = {"id": rock.id, "bounds": bounds, "cog": current}
 			return _expect(not current.intersects(bounds) and next.intersects(bounds),
@@ -4982,6 +5008,42 @@ func _horizontal_piston_run(capture_prefix: String) -> void:
 	# same body, extensions, carried components and crank commands as drilling.
 	if not await _approach_points([Vector2(5.5, 4.95), Vector2(9.9, 4.95), Vector2(9.9, 5.7)]): return
 	if _construct({"action": "place_foundation", "cell": [4, 3], "level": 4}).is_empty(): return
+	# Canonical shafts and cogs cost plates. Make those plates through the
+	# native starter press rather than substituting an obsolete component kit.
+	var press_parts: Array[String] = []
+	var level := 4
+	for kind: String in ["anvil", "flat_head", "slide"]:
+		var placed := _construct({"action": "place_component", "component": kind, "center": [48, level, 36]})
+		if placed.is_empty(): return
+		press_parts.append(placed.entity)
+		level += 1
+	var press_crank: String = opening.model.projection().crank_items.keys()[0]
+	if _construct({"action": "attach_hand_crank", "entity": press_parts.back(), "crank": press_crank,
+			"port": [46, 6, 36], "face": [-1, 0, 0]}).is_empty(): return
+	for plate in 2:
+		var press: Dictionary = opening.model.projection().sliding_press_assemblies[0]
+		if _construct({"action": "feed_press", "entity": press_parts[0], "entry": press.auto_feed.entry}).is_empty(): return
+		var formed: Dictionary = {}
+		for turn in 128:
+			if _construct({"action": "operate_hand_crank", "entity": press_crank}).is_empty(): return
+			for drop: Dictionary in opening.model.projection().dropped_material:
+				if drop.center == press.work_center and int(drop.get("products", 0)) == 1: formed = drop
+			if not formed.is_empty(): break
+		if not _expect(not formed.is_empty(), "The starter press forms a real plate for each transmission kit"): return
+		var expected := formed.duplicate(true)
+		expected.erase("center")
+		expected.erase("ground_position")
+		if _construct({"action": "pickup_material", "center": press.work_center, "expected": expected}).is_empty(): return
+	if _construct({"action": "detach_hand_crank", "entity": press_crank}).is_empty(): return
+	press_parts.reverse()
+	for id: String in press_parts:
+		if _construct({"action": "reclaim_component", "entity": id}).is_empty(): return
+	if not await _approach_points([Vector2(9.9, 4.95), Vector2(5.5, 4.95), Vector2(3.3, 4.95)]): return
+	var recipes: Array = opening.model.projection().part_recipes
+	for index in recipes.size():
+		if recipes[index].kind == "shaft" or (recipes[index].kind == "gear" and recipes[index].teeth == 2):
+			if not _press_inventory_recipe("part:" + str(index), "pod-fabrication-hub"): return
+	if not await _approach_points([Vector2(5.5, 4.95), Vector2(9.9, 4.95), Vector2(9.9, 5.7)]): return
 	var orientation := -1
 	var rotations: Array = opening.model.projection().component_orientations
 	for index in rotations.size():
@@ -4993,9 +5055,9 @@ func _horizontal_piston_run(capture_prefix: String) -> void:
 	for count in 4:
 		if _piston_place("piston_segment", body.entity).is_empty(): return
 	if not await _approach(Vector2(9.9, 5.7)): return
-	var shaft := _piston_place("copper_shaft", body.entity)
+	var shaft := _piston_transmission_place("shaft", body.entity)
 	if shaft.is_empty(): return
-	var cog := _piston_place("copper_cog", shaft.entity)
+	var cog := _piston_transmission_place("gear", shaft.entity)
 	if cog.is_empty(): return
 	var gearbox := _construct({"action": "place_relay", "kind": "vertical_gearbox", "center": [48, 8, 36], "axis": "z"})
 	if gearbox.is_empty(): return

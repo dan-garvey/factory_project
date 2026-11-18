@@ -65,6 +65,7 @@ Owner::Decision plan_belt(const Profile& profile, const Binding& binding,
         if (!selected) return refused("unknown_target", id);
         if (selected->generation != generation) return refused("stale_generation", id);
         if (selected->role != stationary::Role::shaft) return refused("invalid_belt_geometry", id);
+        if (!selected->parent.empty()) return refused("moving_belt_not_supported", id);
         auto cut = observe ? observe(binding.actor) : std::nullopt;
         if (!cut) return refused("actor_unready");
         cut->build_reach = profile.build_reach;

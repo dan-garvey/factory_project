@@ -126,13 +126,13 @@ func check_transmission_guidance(shared: bool) -> void:
 		{"state": "stalled", "overloaded": true, "impact": 48.0, "capacity": 32.0})
 	verify("Overloaded" in overload and "48.00" in overload and "32.00" in overload,
 		"The inspector distinguishes overload and shows its confirmed load and capacity.")
-	var wooden_limit: String = view._transmission_inspection({"kind": "shaft", "axis": 0, "center": [0, 0, 0]},
-		{"state": "stalled", "overloaded": true, "impact": 12.0, "capacity": 8.0,
-		"limiting_part": "native-part-6", "limiting_kind": "wooden_shaft",
-		"remedy": "replace_with_copper_or_split_load"})
-	verify("Wooden Shaft (native-part-6)" in wooden_limit and
-		"Replace with copper or split the load" in wooden_limit,
-		"The inspector names the physical wooden bottleneck and a useful remedy.")
+	var component_limit: String = view._transmission_inspection({"kind": "shaft", "axis": 0, "center": [0, 0, 0]},
+		{"state": "stalled", "overloaded": true, "impact": 32.0, "capacity": 24.0,
+		"limiting_part": "native-part-6", "limiting_kind": "slide",
+		"remedy": "split_load_or_reduce_speed"})
+	verify("Slide (native-part-6)" in component_limit and
+		"Split the load or reduce speed" in component_limit,
+		"The inspector names the limiting component and a useful remedy.")
 	var running: String = view._transmission_inspection({"kind": "shaft", "axis": 2, "center": [0, 0, 0]},
 		{"state": "rotating", "numerator": 1, "denominator": 1, "impact": 12.0, "capacity": 32.0})
 	verify("Load 12.00 / capacity 32.00" in running, "The inspector shows available capacity before overload.")

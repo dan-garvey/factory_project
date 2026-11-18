@@ -42,8 +42,11 @@ bool obstruction(const Site& site, const world::State& state, const B& box,
         (void)id;
         if (physical_geometry::overlap(box,physical_geometry::foundation_bounds(foundation))) return true;
     }
-    for (const auto& part : state.topology.parts)
-        if (physical_geometry::overlap(box,physical_geometry::part_bounds(site.profile,part))) return true;
+    for (const auto& part : state.topology.parts) {
+        if (part.geometry.id==owner || (!carried_by.empty() && part.parent==carried_by)) continue;
+        for (const auto& solid : physical_geometry::part_solids(site.profile,state,part))
+            if (physical_geometry::overlap(box,solid)) return true;
+    }
     if (physical_geometry::intersects_belt(state,box)) return true;
     for (const auto& [id,part] : arrival_geometry::supplied(state,site.profile.meters_per_grid_unit)) {
         (void)id;
@@ -67,7 +70,16 @@ bool obstruction(const Site& site, const world::State& state, const B& box,
 const char* piston_placement_refusal(const Site& site, const world::State& state,
         const std::string& entity, const std::vector<P>& actors) {
     const auto found=state.placed_components.find(entity);
-    if (found==state.placed_components.end()) return "unknown_target";
+    if (found==state.placed_components.end()) {
+        const auto moving=std::find_if(state.topology.parts.begin(),state.topology.parts.end(),
+            [&](const auto& part) { return part.geometry.id==entity && !part.parent.empty(); });
+        if (moving==state.topology.parts.end()) return "unknown_target";
+        for (const auto& box : physical_geometry::part_solids(site.profile,state,*moving)) {
+            if (earth(site,box)!=piston::Clearance::clear) return "site_occupied";
+            if (obstruction(site,state,box,entity,moving->parent,actors)) return "occupied";
+        }
+        return nullptr;
+    }
     const auto& part=found->second;
     const auto solids=component_geometry::placed_solids(site.profile,state,entity,part);
     for (const auto& box : solids) {
@@ -148,6 +160,17 @@ piston::Clearance piston_sweep(const Site& site, const world::State& state,
             const auto volume=swept(shift(head,first,site.profile.meters_per_grid_unit),shift(head,last,site.profile.meters_per_grid_unit));
             const auto clearance=earth(site,volume);
             if (clearance!=piston::Clearance::clear) return clearance;
+        }
+    }
+    for (const auto& part : state.topology.parts) {
+        if (part.parent!=entity) continue;
+        for (const auto& box : physical_geometry::part_solids(site.profile,state,part)) {
+            const auto volume=swept(shift(box,first,site.profile.meters_per_grid_unit),shift(box,last,site.profile.meters_per_grid_unit));
+            const auto clearance=earth(site,volume);
+            if (clearance!=piston::Clearance::clear) return clearance;
+            if (obstruction(site,state,volume,part.geometry.id,entity,actors)) return piston::Clearance::blocked;
+            for (const auto& support : supports)
+                if (physical_geometry::overlap(volume,support)) return piston::Clearance::blocked;
         }
     }
     return piston::Clearance::clear;
