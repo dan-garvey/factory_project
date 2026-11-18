@@ -97,6 +97,7 @@ struct Footprint {
 // is made directly from carried timber or copper ore. These IDs are stable
 // within the experimental arrival checkpoint, not a final item catalogue.
 enum class Component {
+    segmented_piston, piston_segment,
     drill_head, stationary_mount,
     wooden_frame,
     receiver_tray,

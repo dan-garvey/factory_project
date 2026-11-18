@@ -3,6 +3,7 @@
 #include "build_catalog_projection.hpp"
 #include "material_projection.hpp"
 #include "factory/site_geometry_contract.hpp"
+#include "factory/piston_assembly.hpp"
 
 #include <utility>
 
@@ -28,6 +29,26 @@ Fields fields(const world::State& state,
             {"relay_axis", Value(static_cast<Integer>(part.geometry.relay_axis))},
             {"teeth", Value(part.geometry.teeth)}, {"half_span", Value(part.geometry.half_span)},
             {"rotation", Value(part.rotation)}};
+        if (!part.parent.empty()) {
+            const auto offset = world::piston_assembly::displacement(state, part.parent);
+            Array delta;
+            for (const auto value : offset) delta.emplace_back(double(value) * site_geometry::height_step / piston::ticks_per_level);
+            projected.emplace("parent", Value(part.parent));
+            projected.emplace("displacement", Value(std::move(delta)));
+            Array attachments;
+            if (state.piston_progress.at(part.parent).position == 0)
+                for (const auto& port : mechanics::rotary_ports(part.geometry)) {
+                    if (port.outward[1] == 0) continue;
+                    auto center = port.position;
+                    center[1] += port.outward[1] * 2;
+                    const world::PlacedComponent head{materials::Component::drill_head, center, 0, 0, part.parent};
+                    if (world::piston_assembly::placement_refusal(state, head)) continue;
+                    attachments.emplace_back(Object{{"component", Value("drill_head")},
+                        {"center", Value(Array{Value(center[0]), Value(center[1]), Value(center[2])})},
+                        {"orientation", Value(Integer{0})}, {"parent", Value(part.parent)}});
+                }
+            projected.emplace("attachments", Value(std::move(attachments)));
+        }
         if (part.role == stationary::Role::waterwheel) {
             projected.emplace("tiles", Value(part.wheel_tiles));
             if (const auto found = wheel_supports.find(part.geometry.id); found != wheel_supports.end()) {

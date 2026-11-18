@@ -7,6 +7,7 @@ var selected_link_axis := "z"
 var gear_height := 0
 var auto_height := true
 var snapped_height := 0
+var snapped_parent := ""
 var gear_teeth := 2
 var shaft_half_span := 2
 var active_tool := ""
@@ -94,6 +95,7 @@ func choose_tool(tool: String) -> void:
 		return
 	_belt_start.clear()
 	active_tool = tool
+	snapped_parent = ""
 	if tool == "gearbox":
 		selected_axis = "y"
 	elif tool == "vertical_gearbox" and selected_axis == "y":
@@ -277,7 +279,7 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 		return true
 	if active_tool in ["gear", "place_shaft", "gearbox", "vertical_gearbox", "chain_drive"]:
 		var valid := center.size() == 3 and selected_axis in ["x", "y", "z"]
-		for index in 3:
+		for index in center.size():
 			var coordinate: Variant = center[index]
 			valid = valid and typeof(coordinate) == TYPE_INT and coordinate >= -Geometry.GRID_COORDINATE_LIMIT and coordinate <= Geometry.GRID_COORDINATE_LIMIT and (index == 1 or coordinate % 4 == 0)
 		if valid and not auto_height:
@@ -301,6 +303,8 @@ func handle_world_click(center: Array, entity_id: String) -> bool:
 			wire = {"action": "place_relay", "kind": active_tool, "center": center.duplicate(), "axis": selected_axis}
 			if active_tool == "chain_drive":
 				wire["relay_axis"] = selected_link_axis
+		if active_tool in ["gear", "place_shaft"] and not snapped_parent.is_empty():
+			wire["parent"] = snapped_parent
 		_submit(context, wire)
 		return true
 	if active_tool == "belt_span":

@@ -30,7 +30,7 @@ std::map<std::string, TransmissionSupport> layout(
     std::vector<const stationary::PlacedPart*> parts;
     for (const auto& part : state.topology.parts) parts.push_back(&part);
     auto jobs = parts;
-    std::erase_if(jobs, [](const auto* part) { return !fixed_transmission(part->role); });
+    std::erase_if(jobs, [](const auto* part) { return !part->parent.empty() || !fixed_transmission(part->role); });
     std::sort(jobs.begin(), jobs.end(), [preferred_routes](const auto* a, const auto* b) {
         // Existing hardware owns its route before a newly placed stand chooses
         // one. The placement order cannot silently displace a surviving post.
@@ -162,11 +162,14 @@ std::map<std::string, TransmissionSupport> layout(
                 }
                 for (const auto& [id, component] : state.placed_components) {
                     (void)id;
-                    if (overlap(box, component_bounds(site.profile, component.kind, component.center))) clear = false;
+                    for (const auto& solid : component_geometry::placed_solids(site.profile, state, id, component))
+                        if (overlap(box, solid)) clear = false;
                 }
                 for (const auto* other : parts) {
                     if (other == part) continue;
-                    if (collector_intake_intersects(box, site.profile, *other)) clear = false;
+                    if (!other->parent.empty()) {
+                        if (overlap(box, physical_geometry::part_bounds(site.profile, state, *other))) clear = false;
+                    } else if (collector_intake_intersects(box, site.profile, *other)) clear = false;
                     if (other->role == Role::waterwheel) {
                         const auto wheel_feet = wheel_support_bounds(other->geometry.center, other->geometry.axis,
                             site.terrain_range);
@@ -199,7 +202,7 @@ const char* change_refusal(const Site& site, const world::State& before,
     const auto next = layout(site, after, &preferred_routes);
     std::optional<std::map<std::string, TransmissionSupport>> free_layout;
     for (const auto& part : after.topology.parts) {
-        if (!fixed_transmission(part.role) || next.contains(part.geometry.id)) continue;
+        if (!part.parent.empty() || !fixed_transmission(part.role) || next.contains(part.geometry.id)) continue;
         // A route exists, but using it would relocate an already built stand.
         // Keep the neighboring machine buildable after its owner is reclaimed.
         if (preferred_routes.contains(part.geometry.id)) {

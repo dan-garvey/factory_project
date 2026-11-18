@@ -26,6 +26,9 @@ gameplay native/factory-value/BUILD.bazel
 gameplay native/factory-world/src
 gameplay native/factory-world/include
 gameplay native/factory-world/BUILD.bazel
+gameplay native/factory-piston/src
+gameplay native/factory-piston/include
+gameplay native/factory-piston/BUILD.bazel
 gameplay native/factory-assembly/src
 gameplay native/factory-assembly/include
 gameplay native/factory-assembly/BUILD.bazel

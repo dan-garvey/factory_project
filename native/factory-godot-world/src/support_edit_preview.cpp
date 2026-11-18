@@ -39,6 +39,7 @@ Result build(const world::State& before, const Object& normalized) {
     geometry.topology = before.topology;
     geometry.foundations = before.foundations;
     geometry.placed_components = before.placed_components;
+    geometry.piston_progress = before.piston_progress;
     geometry.landing_pod = before.landing_pod;
     geometry.fabrication_hub = before.fabrication_hub;
     std::string preview_id = "support-preview";

@@ -21,6 +21,10 @@ using TerrainRange = std::function<std::optional<std::pair<double, double>>(
 [[nodiscard]] std::optional<std::array<Bounds, 2>> wheel_support_bounds(
     const mechanics::Point& center, mechanics::Axis axis, const TerrainRange& terrain_range);
 [[nodiscard]] Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& part);
+[[nodiscard]] Bounds part_bounds(const world::Profile& profile, const world::State& state,
+    const stationary::PlacedPart& part);
+[[nodiscard]] std::vector<Bounds> part_solids(const world::Profile& profile, const world::State& state,
+    const stationary::PlacedPart& part);
 [[nodiscard]] std::optional<Bounds> collector_intake_bounds(const mechanics::Point& center);
 [[nodiscard]] std::vector<Bounds> collector_external_bounds(const mechanics::Point& center);
 [[nodiscard]] Bounds foundation_bounds(const world::Foundation& foundation);

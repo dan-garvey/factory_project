@@ -72,7 +72,7 @@ void field_cuts_and_checkpoint() {
     check(std::holds_alternative<V>(encoded),"Column depletion and hand receipts encode in the native checkpoint.");
     const auto saved=std::get<V>(encoded);
     const auto& saved_state=get<O>(saved,"state");
-    check(get<I>(saved,"schema")==23&&saved_state.contains("excavation"),
+    check(get<I>(saved,"schema")==24&&saved_state.contains("excavation"),
         "The checkpoint records the addressed excavation field.");
     auto missing=std::get<O>(saved.storage());auto missing_state=saved_state;
     missing_state.erase("excavation");missing.at("state")=V(missing_state);

@@ -18,4 +18,10 @@ namespace factory::godot_world::component_geometry {
 [[nodiscard]] std::vector<arrival_geometry::Bounds> component_solids(const world::Profile&,
     materials::Component, const mechanics::Point&);
 
+[[nodiscard]] std::vector<arrival_geometry::Bounds> placed_solids(const world::Profile&,
+    const world::State&, const std::string&, const world::PlacedComponent&);
+[[nodiscard]] arrival_geometry::Bounds placed_bounds(const world::Profile&,
+    const world::State&, const std::string&, const world::PlacedComponent&);
+[[nodiscard]] arrival_geometry::Bounds piston_bounds(const world::Profile&, const piston::Bounds&);
+
 }  // namespace factory::godot_world::component_geometry

@@ -1,4 +1,5 @@
 #include "factory/surface_drill.hpp"
+#include "factory/piston_assembly.hpp"
 #include "component_planner.hpp"
 
 #include <algorithm>
@@ -25,6 +26,8 @@ std::optional<ComponentCommand> component_command(
         command.target = *value;
     if (const auto* value = field<Integer>(intent, "generation"))
         command.generation = *value;
+    if (const auto* value = field<Integer>(intent, "orientation")) command.orientation = *value;
+    if (const auto* value = field<std::string>(intent, "parent")) command.parent = *value;
     return command;
 }
 
@@ -46,12 +49,19 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
     if (!placing && found->second.generation != *generation) return refused("stale_generation", *target);
     const auto center = placing ? *location : found->second.center;
     const auto kind = placing ? *component : found->second.kind;
+    const auto orientation = placing ? command.orientation : found->second.orientation;
+    const auto parent = placing ? command.parent : found->second.parent;
     if (placing) {
-        if (const auto* reason = surface_drill::placement_refusal(state, kind, center)) return refused(reason);
+        if (const auto* reason = piston_assembly::placement_refusal(state,
+                {kind,center,0,orientation,parent})) return refused(reason);
+        if (parent.empty())
+            if (const auto* reason = surface_drill::placement_refusal(state, kind, center)) return refused(reason);
     } else if (kind == materials::Component::stationary_mount &&
         std::any_of(state.placed_components.begin(), state.placed_components.end(), [&](const auto& entry) {
             return surface_drill::fitting(kind, center, entry.second.kind, entry.second.center);
         })) return refused("tool_on_mount");
+    if (!placing)
+        if (const auto* reason = piston_assembly::reclaim_refusal(state,*target)) return refused(reason);
     const auto channel = materials::channel_spec(kind);
     const auto area_cells = materials::component_workcells(kind, center);
     const bool broad = kind == materials::Component::broad_anvil ||
@@ -163,7 +173,8 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
         entity = std::string(allocated_prefix) + std::to_string(serial);
         if (candidate.issued_entities.contains(entity)) return refused("identity_conflict");
         candidate.issued_entities.emplace(entity, serial);
-        candidate.placed_components.emplace(entity, PlacedComponent{kind, center, serial});
+        candidate.placed_components.emplace(entity, PlacedComponent{kind, center, serial,orientation,parent});
+        if (kind==materials::Component::segmented_piston) candidate.piston_progress.emplace(entity,piston::Progress{});
         if (slide_component(kind)) candidate.slide_phases.emplace(entity, State::SlidePhase{});
         ++candidate.material.placed_components[kind];
     } else {
@@ -194,6 +205,7 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
         serial = *generation;
         cargo[carried_kind] += part_count;
         candidate.placed_components.erase(entity);
+        candidate.piston_progress.erase(entity);
         // A crank is a separate placed source. Removing its former input
         // disconnects it; the crank keeps its position and finite identity.
         for (auto& [id, crank] : candidate.crank_items) {
@@ -204,6 +216,9 @@ Owner::Decision plan_component(const Profile& profile, const Binding& binding,
         auto& placed = candidate.material.placed_components.at(kind);
         if (--placed == 0) candidate.material.placed_components.erase(kind);
     }
+    if (!piston_assembly::valid(candidate)) return refused("unsupported_piston_assembly");
+    facts.emplace("orientation",Value(orientation));
+    facts.emplace("parent",Value(parent));
     facts.emplace("generation", Value(serial));
     facts.emplace("component", Value(materials::component_name(kind)));
     facts.emplace("component_count", Value(candidate.material.cargo.at(binding.actor).components.contains(carried_kind) ?

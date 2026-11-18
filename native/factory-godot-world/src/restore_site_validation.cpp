@@ -55,6 +55,10 @@ const char* geometry(const world::Profile& profile, const terrain_surface::Surfa
             return "incompatible_geometry";
         if (part.role == Role::collector)
             if (const auto* refusal = physical_site::collector_refusal(site, center)) return refusal;
+        if (!part.parent.empty()) {
+            if (const auto* refusal = physical_site::piston_placement_refusal(site, state, part.geometry.id, {})) return refusal;
+            continue;
+        }
         for (const auto& external : part.role == Role::collector ?
                 collector_external_bounds(center) : std::vector<Bounds>{}) {
             if (intersects_belt(state, external)) return "occupied";

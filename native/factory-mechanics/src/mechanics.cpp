@@ -346,6 +346,7 @@ const char* error_name(Error error) noexcept {
         case Error::invalid_part: return "invalid_part";
         case Error::duplicate_identity: return "duplicate_identity";
         case Error::invalid_drive: return "invalid_drive";
+        case Error::invalid_engagement: return "invalid_engagement";
         case Error::invalid_belt: return "invalid_belt";
         case Error::overlapping_gears: return "overlapping_gears";
         case Error::rate_overflow: return "rate_overflow";
@@ -361,6 +362,99 @@ const char* motion_state_name(MotionState state) noexcept {
         case MotionState::stalled: return "stalled";
     }
     return "unknown";
+}
+
+static Result solve_ratios(const std::vector<const Part*>& parts,
+        const std::map<std::size_t, Rate>& drives,
+        const std::vector<std::vector<Link>>& adjacent, Result result, SourcePolicy source_policy) {
+    std::vector<bool> visited(parts.size(), false);
+    std::vector<std::optional<Rate>> rates(parts.size());
+    for (std::size_t root = 0; root < parts.size(); ++root) {
+        if (visited[root]) continue;
+        std::deque<std::size_t> pending{root};
+        std::vector<std::size_t> component;
+        visited[root] = true;
+        while (!pending.empty()) {
+            const auto at = pending.front();
+            pending.pop_front();
+            component.push_back(at);
+            for (const auto& link : adjacent[at]) {
+                if (visited[link.to]) continue;
+                visited[link.to] = true;
+                pending.push_back(link.to);
+            }
+        }
+        std::sort(component.begin(), component.end());
+        std::optional<std::size_t> source;
+        for (const auto at : component) {
+            const auto drive = drives.find(at);
+            if (drive == drives.end()) continue;
+            if (source_policy == SourcePolicy::prescribed) { source = at; break; }
+            if (!source || drive->second.numerator != 0) source = at;
+            if (drive->second.numerator != 0) break;
+        }
+        bool conflict = false;
+        auto state = MotionState::unpowered;
+        if (source) {
+            const auto propagate = [&](std::size_t driver) -> std::optional<std::size_t> {
+                for (const auto at : component) rates[at].reset();
+                rates[driver] = drives.at(driver);
+                pending.clear();
+                pending.push_back(driver);
+                while (!pending.empty()) {
+                    const auto at = pending.front();
+                    pending.pop_front();
+                    for (const auto& link : adjacent[at]) {
+                        Rate expected;
+                        if (!multiply(*rates[at], link.multiplier, expected)) return link.to;
+                        if (rates[link.to]) {
+                            conflict = conflict || *rates[link.to] != expected;
+                        } else {
+                            rates[link.to] = expected;
+                            pending.push_back(link.to);
+                        }
+                    }
+                }
+                return std::nullopt;
+            };
+            if (const auto overflow = propagate(*source)) return failure(Error::rate_overflow, parts[*overflow]->id);
+            // Compare each source with the rate required at its own shaft. A
+            // stronger source in the same direction drives the entire train;
+            // zero-speed sources can be back-driven. Cross products are exact.
+            __extension__ using Wide = unsigned __int128;
+            for (const auto at : component) {
+                const auto drive = drives.find(at);
+                if (drive == drives.end()) continue;
+                if (source_policy == SourcePolicy::prescribed) {
+                    conflict = conflict || drive->second != *rates[at];
+                    continue;
+                }
+                if (drive->second.numerator == 0) continue;
+                const auto expected = *rates[at];
+                if ((drive->second.numerator < 0) != (expected.numerator < 0)) {
+                    conflict = true;
+                    continue;
+                }
+                if (Wide{magnitude(drive->second.numerator)} * static_cast<Wide>(expected.denominator) >
+                    Wide{magnitude(expected.numerator)} * static_cast<Wide>(drive->second.denominator)) {
+                    source = at;
+                    if (const auto overflow = propagate(at)) return failure(Error::rate_overflow, parts[*overflow]->id);
+                }
+            }
+            state = conflict ? MotionState::stalled
+                  : drives.at(*source).numerator == 0 ? MotionState::stopped
+                  : MotionState::rotating;
+        }
+        Component summary;
+        summary.state = state;
+        for (const auto at : component) {
+            summary.parts.push_back(parts[at]->id);
+            const auto rate = state == MotionState::rotating ? *rates[at] : Rate{};
+            result.motion.emplace(parts[at]->id, Motion{state, rate});
+        }
+        result.components.push_back(std::move(summary));
+    }
+    return result;
 }
 
 Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& sources,
@@ -506,94 +600,64 @@ Result evaluate(const std::vector<Part>& input, const std::vector<Drive>& source
         }
     }
 
-    std::vector<bool> visited(parts.size(), false);
-    std::vector<std::optional<Rate>> rates(parts.size());
-    for (std::size_t root = 0; root < parts.size(); ++root) {
-        if (visited[root]) continue;
-        std::deque<std::size_t> pending{root};
-        std::vector<std::size_t> component;
-        visited[root] = true;
-        while (!pending.empty()) {
-            const auto at = pending.front();
-            pending.pop_front();
-            component.push_back(at);
-            for (const auto& link : adjacent[at]) {
-                if (visited[link.to]) continue;
-                visited[link.to] = true;
-                pending.push_back(link.to);
-            }
-        }
-        std::sort(component.begin(), component.end());
-        std::optional<std::size_t> source;
-        for (const auto at : component) {
-            const auto drive = drives.find(at);
-            if (drive == drives.end()) continue;
-            if (source_policy == SourcePolicy::prescribed) { source = at; break; }
-            if (!source || drive->second.numerator != 0) source = at;
-            if (drive->second.numerator != 0) break;
-        }
-        bool conflict = false;
-        auto state = MotionState::unpowered;
-        if (source) {
-            const auto propagate = [&](std::size_t driver) -> std::optional<std::size_t> {
-                for (const auto at : component) rates[at].reset();
-                rates[driver] = drives.at(driver);
-                pending.clear();
-                pending.push_back(driver);
-                while (!pending.empty()) {
-                    const auto at = pending.front();
-                    pending.pop_front();
-                    for (const auto& link : adjacent[at]) {
-                        Rate expected;
-                        if (!multiply(*rates[at], link.multiplier, expected)) return link.to;
-                        if (rates[link.to]) {
-                            conflict = conflict || *rates[link.to] != expected;
-                        } else {
-                            rates[link.to] = expected;
-                            pending.push_back(link.to);
-                        }
-                    }
-                }
-                return std::nullopt;
-            };
-            if (const auto overflow = propagate(*source)) return failure(Error::rate_overflow, parts[*overflow]->id);
-            // Compare each source with the rate required at its own shaft. A
-            // stronger source in the same direction drives the entire train;
-            // zero-speed sources can be back-driven. Cross products are exact.
-            __extension__ using Wide = unsigned __int128;
-            for (const auto at : component) {
-                const auto drive = drives.find(at);
-                if (drive == drives.end()) continue;
-                if (source_policy == SourcePolicy::prescribed) {
-                    conflict = conflict || drive->second != *rates[at];
-                    continue;
-                }
-                if (drive->second.numerator == 0) continue;
-                const auto expected = *rates[at];
-                if ((drive->second.numerator < 0) != (expected.numerator < 0)) {
-                    conflict = true;
-                    continue;
-                }
-                if (Wide{magnitude(drive->second.numerator)} * static_cast<Wide>(expected.denominator) >
-                    Wide{magnitude(expected.numerator)} * static_cast<Wide>(drive->second.denominator)) {
-                    source = at;
-                    if (const auto overflow = propagate(at)) return failure(Error::rate_overflow, parts[*overflow]->id);
-                }
-            }
-            state = conflict ? MotionState::stalled
-                  : drives.at(*source).numerator == 0 ? MotionState::stopped
-                  : MotionState::rotating;
-        }
-        Component summary;
-        summary.state = state;
-        for (const auto at : component) {
-            summary.parts.push_back(parts[at]->id);
-            const auto rate = state == MotionState::rotating ? *rates[at] : Rate{};
-            result.motion.emplace(parts[at]->id, Motion{state, rate});
-        }
-        result.components.push_back(std::move(summary));
+    return solve_ratios(parts, drives, adjacent, std::move(result), source_policy);
+}
+
+Result resolve_engagements(const std::vector<Part>& input, const std::vector<Drive>& sources,
+        const std::vector<Engagement>& engagements, SourcePolicy source_policy) {
+    if (input.size() > maximum_parts) return failure(Error::too_many_parts);
+    if (sources.size() > maximum_parts) return failure(Error::invalid_drive);
+    if (engagements.size() > maximum_parts * (maximum_parts - 1) / 2)
+        return failure(Error::invalid_engagement);
+    std::vector<const Part*> parts;
+    for (const auto& part : input) {
+        if (!valid(part)) return failure(Error::invalid_part, part.id);
+        parts.push_back(&part);
     }
-    return result;
+    std::sort(parts.begin(), parts.end(), [](const Part* a, const Part* b) { return a->id < b->id; });
+    std::map<std::string,std::size_t> indices;
+    for (std::size_t i=0;i<parts.size();++i)
+        if (!indices.emplace(parts[i]->id,i).second) return failure(Error::duplicate_identity,parts[i]->id);
+    std::map<std::size_t, Rate> drives;
+    for (const auto& source : sources) {
+        if (!valid_identity(source.hub)) return failure(Error::invalid_drive);
+        const auto found = indices.find(source.hub);
+        if (found == indices.end() || source.rate.denominator <= 0)
+            return failure(Error::invalid_drive, source.hub);
+        auto rate = source.rate;
+        if (source.port) {
+            const auto port = rotary_port(*parts[found->second], *source.port);
+            if (!port) return failure(Error::invalid_drive, source.hub);
+            if (!multiply(rate, {port->factor, 1}, rate))
+                return failure(Error::rate_overflow, source.hub);
+        } else if (parts[found->second]->kind != Kind::hub) {
+            return failure(Error::invalid_drive, source.hub);
+        }
+        if (!drives.emplace(found->second, normalized(rate)).second)
+            return failure(Error::invalid_drive, source.hub);
+    }
+
+    std::set<std::pair<std::size_t,std::size_t>> pairs;
+    std::vector<std::vector<Link>> adjacent(parts.size());
+    Result result;
+    for (const auto& edge:engagements) {
+        const auto a=indices.find(edge.a),b=indices.find(edge.b);
+        const auto ratio=edge.b_from_a;
+        if (a==indices.end() || b==indices.end() || a==b || ratio.denominator<=0 || ratio.numerator==0 ||
+            ratio.numerator==std::numeric_limits<Integer>::min() ||
+            (edge.kind!=EngagementKind::external_mesh && edge.kind!=EngagementKind::coaxial_shaft &&
+             edge.kind!=EngagementKind::belt && edge.kind!=EngagementKind::relay))
+            return failure(Error::invalid_engagement,edge.a);
+        if (!pairs.emplace(std::min(a->second,b->second),std::max(a->second,b->second)).second)
+            return failure(Error::invalid_engagement,edge.a);
+        const auto forward=normalized(ratio);
+        const auto backward=normalized(Rate{forward.numerator<0?-forward.denominator:forward.denominator,
+                                           forward.numerator<0?-forward.numerator:forward.numerator});
+        result.engagements.push_back({edge.a,edge.b,edge.kind,forward});
+        adjacent[a->second].push_back({b->second,forward});
+        adjacent[b->second].push_back({a->second,backward});
+    }
+    return solve_ratios(parts,drives,adjacent,std::move(result),source_policy);
 }
 
 }  // namespace factory::mechanics

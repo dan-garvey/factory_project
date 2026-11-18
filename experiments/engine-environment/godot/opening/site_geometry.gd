@@ -227,10 +227,18 @@ static func component_boxes(snapshot: Dictionary) -> Dictionary:
 			horizontal_limit = PITCH * 1.5
 		if part.component in ["channel_narrow_x", "channel_narrow_z"]:
 			horizontal_limit = PITCH * 0.5
+		var piston_part: bool = part.component in ["segmented_piston", "piston_segment"] or not str(part.get("parent", "")).is_empty()
+		if piston_part:
+			if not valid_position(part.get("position")):
+				return {"accepted": false}
+			anchor = Vector3(part.position[0], part.position[1], part.position[2])
+			horizontal_limit = PITCH * 65.0
 		var vertical_limit := 1.2 if part.component == "broad_slide" else 1.0
+		if piston_part:
+			vertical_limit = PITCH * 65.0
 		if half.x <= 0.0 or half.y <= 0.0 or half.z <= 0.0 \
 				or half.x > horizontal_limit or half.y > vertical_limit or half.z > horizontal_limit \
-				or (center - anchor).length() > (PITCH if part.component in ["broad_anvil",
+				or (center - anchor).length() > (PITCH * 65.0 if piston_part else PITCH if part.component in ["broad_anvil",
 					"broad_flat_head", "broad_slide"] else 1.0):
 			return {"accepted": false}
 		result[id] = {"center": center, "size": half * 2.0, "component": part.component,
@@ -270,6 +278,10 @@ static func mechanical_boxes(snapshot: Dictionary) -> Dictionary:
 		else:
 			return {"accepted": false}
 		result[id] = {"center": _mechanical_center(part.center), "size": half * 2.0}
+		if part.has("displacement"):
+			if not valid_position(part.displacement):
+				return {"accepted": false}
+			result[id].center += Vector3(part.displacement[0], part.displacement[1], part.displacement[2])
 		if part.kind == "gear":
 			var axle_half := Vector3.ONE * (0.1 * u_scale)
 			axle_half[part.axis] = PITCH / 2.0

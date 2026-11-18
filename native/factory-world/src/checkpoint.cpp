@@ -213,7 +213,7 @@ Value topology_value(const stationary::Topology& topology) {
     Array parts, links, sources, belt_spans;
     for (const auto& part : topology.parts) {
         const auto& geometry = part.geometry;
-        parts.emplace_back(Object{
+        Object encoded{
             {"id", Value(geometry.id)}, {"generation", Value(part.generation)},
             {"role", Value(static_cast<Integer>(part.role))},
             {"kind", Value(static_cast<Integer>(geometry.kind))},
@@ -221,7 +221,9 @@ Value topology_value(const stationary::Topology& topology) {
             {"relay_axis", Value(static_cast<Integer>(geometry.relay_axis))},
             {"center", Value(Array{Value(geometry.center[0]), Value(geometry.center[1]), Value(geometry.center[2])})},
             {"teeth", Value(geometry.teeth)}, {"half_span", Value(geometry.half_span)},
-            {"wheel_tiles", Value(part.wheel_tiles)}, {"rotation", Value(part.rotation)}});
+            {"wheel_tiles", Value(part.wheel_tiles)}, {"rotation", Value(part.rotation)}};
+        if (!part.parent.empty()) encoded.emplace("parent", Value(part.parent));
+        parts.emplace_back(std::move(encoded));
     }
     for (const auto& link : topology.material_links)
         links.emplace_back(Object{{"from", ref_value(link.from)}, {"to", ref_value(link.to)}});
@@ -242,8 +244,10 @@ stationary::Topology decode_topology(const Value& value) {
     stationary::Topology topology;
     topology.drive_enabled = scalar<bool>(input.at("drive_enabled"), path + ".drive_enabled");
     for (const auto& value_part : array(input.at("parts"), path + ".parts", mechanics::maximum_parts)) {
-        const auto& entry = fields(value_part, path + ".parts",
-            {"id", "generation", "role", "kind", "axis", "relay_axis", "center", "teeth", "half_span", "wheel_tiles", "rotation"});
+        const bool moving = object(value_part, path + ".parts").contains("parent");
+        const auto& entry = fields(value_part, path + ".parts", moving ?
+            std::initializer_list<std::string_view>{"id", "generation", "role", "kind", "axis", "relay_axis", "center", "teeth", "half_span", "wheel_tiles", "rotation", "parent"} :
+            std::initializer_list<std::string_view>{"id", "generation", "role", "kind", "axis", "relay_axis", "center", "teeth", "half_span", "wheel_tiles", "rotation"});
         const auto& center = array(entry.at("center"), path + ".parts.center", 3);
         if (center.size() != 3) refuse(CheckpointReason::invalid_world, path + ".parts.center");
         topology.parts.push_back({{
@@ -258,6 +262,10 @@ stationary::Topology decode_topology(const Value& value) {
             integer(entry, "generation", path + ".parts"),
             enumeration<stationary::Role>(entry, "role", 8, path + ".parts"),
             integer(entry, "wheel_tiles", path + ".parts"), integer(entry, "rotation", path + ".parts")});
+        if (moving) {
+            topology.parts.back().parent = scalar<std::string>(entry.at("parent"), path + ".parts.parent");
+            if (topology.parts.back().parent.empty()) refuse(CheckpointReason::invalid_world, path + ".parts.parent");
+        }
     }
     for (const auto& value_link : array(input.at("links"), path + ".links", 2)) {
         const auto& entry = fields(value_link, path + ".links", {"from", "to"});
@@ -339,7 +347,7 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
                 {"remaining_ticks", Value(cut.remaining_ticks)},
                 {"interrupted_revision", Value(cut.interrupted_revision)}}));
         Value output(Object{
-            {"schema", Value(Integer{23})}, {"profile", profile_value(profile)},
+            {"schema", Value(Integer{24})}, {"profile", profile_value(profile)},
             {"revision", Value(snapshot.revision)}, {"history", std::move(*history.value)},
             {"state", Value(Object{{"material", std::move(std::get<Value>(material))},
                 {"topology", topology_value(snapshot.state.topology)}, {"kits", Value(std::move(kits))},
@@ -412,8 +420,15 @@ CheckpointEncoding encode_checkpoint(const Profile& profile, const Snapshot& sna
             for (const auto& [id, component] : snapshot.state.placed_components)
                 placed.emplace(id, Value(Object{{"component", Value(materials::component_name(component.kind))},
                     {"center", Value(Array{Value(component.center[0]), Value(component.center[1]),
-                        Value(component.center[2])})}, {"generation", Value(component.generation)}}));
+                        Value(component.center[2])})}, {"generation", Value(component.generation)},
+                    {"orientation",Value(component.orientation)}, {"parent",Value(component.parent)}}));
             state.emplace("placed_components", Value(std::move(placed)));
+            Object pistons;
+            for (const auto& [id,progress] : snapshot.state.piston_progress)
+                pistons.emplace(id,Value(Object{{"position",Value(progress.position)},
+                    {"remainder",Value(progress.remainder)}, {"denominator",Value(progress.denominator)},
+                    {"blocked",Value(progress.blocked)}}));
+            state.emplace("piston_progress",Value(std::move(pistons)));
             Object slide_phases;
             for (const auto& [id, phase] : snapshot.state.slide_phases)
                 slide_phases.emplace(id, Value(Object{{"subticks", Value(phase.subticks)},
@@ -510,7 +525,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
         Budget{}.visit(value);
         const auto& root = fields(value, "$", {"schema", "profile", "revision", "history", "state"});
         const auto schema = integer(root, "schema", "$");
-        if (schema != 23)
+        if (schema != 24)
             refuse(CheckpointReason::unsupported_schema, "$.schema");
         if (const auto difference = values::typed_difference(
                 profile_value(profile), root.at("profile")))
@@ -528,9 +543,9 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
             shaped_state = Value(std::move(fields));
         }
         const auto& state = profile.ore_field ? fields(shaped_state, "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "ore_regions", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "ore_regions", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "piston_progress", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.landing_pod_center ? fields(shaped_state, "$.state",
-            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
+            {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits", "landing_pod", "fabrication_hub", "workshop_completed_actors", "crank_items", "placed_components", "piston_progress", "slide_phases", "slide_press_routes", "press_output_on_work", "press_output_at_exit", "press_output_at_receiver", "press_output_exported", "press_progress", "shear_progress", "press_offcut_deliveries", "belt_press_work", "belt_press_products", "belt_press_work_ids"}) :
             profile.foundation_parts > 0 ? fields(shaped_state, "$.state",
             {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences", "foundations", "foundation_kits"}) :
             fields(shaped_state, "$.state", {"material", "topology", "kits", "issued_entities", "next_entity_serial", "manual_cuts", "developer_conveniences"});
@@ -609,7 +624,7 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
             const auto& placed = object(state.at("placed_components"), "$.state.placed_components");
             if (placed.size() > 4096) refuse(CheckpointReason::limit, "$.state.placed_components");
             for (const auto& [id, value] : placed) {
-                const auto& entry = fields(value, "$.state.placed_components", {"component", "center", "generation"});
+                const auto& entry = fields(value, "$.state.placed_components", {"component", "center", "generation", "orientation", "parent"});
                 const auto name = scalar<std::string>(entry.at("component"), "$.state.placed_components.component");
                 const auto kind = materials::component_from_name(name);
                 if (!kind) refuse(CheckpointReason::invalid_world, "$.state.placed_components.component");
@@ -619,7 +634,19 @@ CheckpointDecoding decode_checkpoint(const Profile& profile, const std::string& 
                     {scalar<Integer>(center[0], "$.state.placed_components.center"),
                      scalar<Integer>(center[1], "$.state.placed_components.center"),
                      scalar<Integer>(center[2], "$.state.placed_components.center")},
-                    integer(entry, "generation", "$.state.placed_components")});
+                    integer(entry, "generation", "$.state.placed_components"),
+                    integer(entry,"orientation","$.state.placed_components"),
+                    scalar<std::string>(entry.at("parent"),"$.state.placed_components.parent")});
+            }
+            const auto& pistons=object(state.at("piston_progress"),"$.state.piston_progress");
+            if (pistons.size()>placed.size()) refuse(CheckpointReason::limit,"$.state.piston_progress");
+            for (const auto& [id,value] : pistons) {
+                const auto& entry=fields(value,"$.state.piston_progress",{"position","remainder","denominator","blocked"});
+                candidate.state.piston_progress.emplace(id,piston::Progress{
+                    integer(entry,"position","$.state.piston_progress"),
+                    integer(entry,"remainder","$.state.piston_progress"),
+                    integer(entry,"denominator","$.state.piston_progress"),
+                    scalar<bool>(entry.at("blocked"),"$.state.piston_progress.blocked")});
             }
             const auto& slide_phases = object(state.at("slide_phases"), "$.state.slide_phases");
             if (slide_phases.size() > placed.size()) refuse(CheckpointReason::limit, "$.state.slide_phases");

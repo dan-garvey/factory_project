@@ -46,6 +46,9 @@ struct PlacedPart {
     // Collector/press facing in horizontal quarter turns. Zero points along +X;
     // the drive axis remains explicit geometry and turns with an ordinary build.
     mechanics::Integer rotation{};
+    // Empty is fixed world space; otherwise geometry is the retracted pose
+    // on the named piston. Inventory specification and identity stay the same.
+    std::string parent{};
     bool operator==(const PlacedPart&) const = default;
 };
 

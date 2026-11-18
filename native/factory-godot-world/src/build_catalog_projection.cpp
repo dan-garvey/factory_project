@@ -80,7 +80,7 @@ Object fields(const world::Profile& profile, const world::Snapshot& snapshot) {
     if (!state.landing_pod) return output;
 
     Object recipes;
-    for (const auto component : {materials::Component::drill_head, materials::Component::stationary_mount,
+    for (const auto component : {materials::Component::segmented_piston, materials::Component::piston_segment, materials::Component::drill_head, materials::Component::stationary_mount,
             materials::Component::wooden_frame, materials::Component::receiver_tray,
             materials::Component::tool_mount,
             materials::Component::cutting_edge, materials::Component::anvil,

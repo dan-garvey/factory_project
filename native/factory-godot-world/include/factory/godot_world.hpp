@@ -80,6 +80,7 @@ private:
     using TransmissionSupport = physical_support::TransmissionSupport;
 
     [[nodiscard]] world::ObserveActor observe() const;
+    [[nodiscard]] world::ObservePiston observe_piston() const;
     [[nodiscard]] Decoded decode(const values::Value&) const;
     [[nodiscard]] bool placement_blocked(const authority::Point& center,
                                         const authority::Point& half_extents) const;

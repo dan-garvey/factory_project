@@ -1,4 +1,5 @@
 #include "physical_geometry.hpp"
+#include "factory/piston_assembly.hpp"
 #include "factory/mineral_site.hpp"
 #include "factory/site_geometry_contract.hpp"
 
@@ -83,6 +84,38 @@ Bounds part_bounds(const world::Profile& profile, const stationary::PlacedPart& 
         part.role == Role::chain_drive)
         return {{x, floor + anchor_height, z}, {pitch / 2, pitch / 2, pitch / 2}};
     return {{x, floor + machine_center_height, z}, {machine_width / 2, machine_height / 2, machine_width / 2}};
+}
+
+Bounds part_bounds(const world::Profile& profile, const world::State& state,
+        const stationary::PlacedPart& part) {
+    if (part.parent.empty()) return part_bounds(profile, part);
+    const auto delta = world::piston_assembly::displacement(state, part.parent);
+    Bounds result;
+    for (unsigned n = 0; n < 3; ++n)
+        result.center[n] = profile.anchor_offset[n] + profile.meters_per_grid_unit *
+            (part.geometry.center[n] + double(delta[n]) / piston::ticks_per_level);
+    result.half = gear_axle_half_extents(part.geometry.axis);
+    if (part.role == Role::gear) {
+        const auto rim = gear_half_extents(part.geometry.axis, part.geometry.teeth);
+        for (unsigned n = 0; n < 3; ++n) result.half[n] = std::max(result.half[n], rim[n]);
+    } else result.half[static_cast<unsigned>(part.geometry.axis)] = part.geometry.half_span * height_step;
+    return result;
+}
+
+std::vector<Bounds> part_solids(const world::Profile& profile, const world::State& state,
+        const stationary::PlacedPart& part) {
+    if (part.role != Role::shaft && part.role != Role::gear) return {part_bounds(profile, part)};
+    const auto delta = world::piston_assembly::displacement(state, part.parent);
+    Bounds axle;
+    for (unsigned n = 0; n < 3; ++n)
+        axle.center[n] = profile.anchor_offset[n] + profile.meters_per_grid_unit *
+            (part.geometry.center[n] + double(delta[n]) / piston::ticks_per_level);
+    axle.half = gear_axle_half_extents(part.geometry.axis);
+    if (part.role == Role::shaft) {
+        axle.half[static_cast<unsigned>(part.geometry.axis)] = part.geometry.half_span * height_step;
+        return {axle};
+    }
+    return {axle, {axle.center, gear_half_extents(part.geometry.axis, part.geometry.teeth)}};
 }
 
 // The two admitted mineral cells face one fixed west-side rock. Their pickup

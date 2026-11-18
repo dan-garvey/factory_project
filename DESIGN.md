@@ -107,9 +107,10 @@ gantries, moving factories and trains remain intended-game requirements.
 - Extend drill reach with a reusable piston and placeable extension segments
   on the common grid. Segment count sets available travel. For now, additional
   segments do not change drive load, force capacity, speed or efficiency;
-  ordinary travel limits and collision still apply. Rotary power transmission
-  to the moving tool is the intended direction; its port arrangement remains
-  to be resolved before implementation.
+  ordinary travel limits and collision still apply. One housing face drives
+  travel; one adjacent face independently powers the moving tool through the
+  piston. The other housing faces are closed. Reverse travel through external
+  transmission connected to the same feed face.
 - Demonstrate at least two meaningfully different arrangements for each machine.
   After the first product, offer a compactness, continuity or spatial challenge
   with several valid solutions. Suggested builds are examples, not hidden

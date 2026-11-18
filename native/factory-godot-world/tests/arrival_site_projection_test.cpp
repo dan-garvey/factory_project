@@ -39,7 +39,8 @@ void native_arrival_readout() {
     check(native != nullptr, "World must admit the authored arrival before it is projected.");
     const auto initial = native->snapshot();
     const auto initial_fields = site::fields(arrival->profile, initial.state);
-    check(initial_fields.size() == 6 &&
+    check(initial_fields.size() == 7 &&
+          field<Array>(initial_fields, "component_orientations").size() == 24 &&
           field<Object>(initial_fields, "supplied_hardware_boxes").size() == 20 &&
           field<bool>(entry(initial_fields, "landing_pod"), "hub_ready") &&
           field<bool>(entry(initial_fields, "fabrication_hub"), "installed") &&
@@ -63,7 +64,7 @@ void native_arrival_readout() {
         materials::Component::receiver_tray, {8, 4, 0}, 5});
     const auto original = state;
     const auto projected = site::fields(arrival->profile, state);
-    check(state == original && projected.size() == 6 &&
+    check(state == original && projected.size() == 7 &&
           field<Object>(projected, "supplied_hardware_boxes").size() == 10 &&
           !field<bool>(entry(projected, "landing_pod"), "hub_ready") &&
           !field<bool>(entry(projected, "fabrication_hub"), "installed") &&
